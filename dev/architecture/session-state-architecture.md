@@ -2,7 +2,8 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.26 filesystem-backed instance-local state; channel agent binding.
+**Current through**: 0.27 conversation attempts, effective context, inbox and attention state, temporary retention,
+named-agent workspace ownership, and principal-scoped conversation search.
 
 ---
 
@@ -93,10 +94,20 @@ Defined in `packages/dartclaw_kernel/lib/src/models.dart`:
 Session
   +-- id: String              (UUID v4, primary key)
   +-- title: String?          (human-readable, shown in UI)
+  +-- titleRevision: int      (monotonic title write authority)
+  +-- titleProvenance: SessionTitleProvenance?
+  +-- automaticTitleAttempted: bool
   +-- type: SessionType       (classification enum)
+  +-- retention: ConversationRetention (durable or process)
   +-- channelKey: String?     (deterministic routing key)
   +-- provider: String?       (system-pinned execution route when applicable)
   +-- securityProfile: String? (optional worker isolation profile)
+  +-- executionMode: ExecutionMode?
+  +-- workspace: AgentWorkspace? (pinned agent id and canonical directory)
+  +-- settledAt: DateTime?
+  +-- readMessageCursor: int
+  +-- attentionReadEventId: String?
+  +-- dismissedAttentionEventIds: List<String>
   +-- createdAt: DateTime
   +-- updatedAt: DateTime
 ```
@@ -115,6 +126,25 @@ Session
 
 Protected types (`main`, `channel`, `cron`, `task`) cannot be deleted through
 the normal deletion API -- they are system-managed.
+
+Settling is independent of `SessionType`: it removes an eligible completed and read conversation from the active inbox
+without making it read-only. New work clears `settledAt`. Archival changes the type to a read-only historical lifecycle
+and preserves owner-searchable conversation history.
+
+### Conversation Attempt and Snapshot Authority
+
+`ConversationState` is the sole snapshot for a conversation's revision, accepted submissions, ordered queue, attempts,
+branches, current and next effective context, telemetry, and visible message identities. Durable sessions store it in
+`meta.json`; process-retained sessions use the same service authority in memory. `SessionMutationCoordinator` serializes
+mutations, and revision checks reject stale changes without partially applying them.
+
+An admitted attempt captures one complete `EffectiveConversationContext`: project, directory, reference root, provider,
+model, and effort. The session's `AgentWorkspace` and `agent:<id>` storage principal remain pinned across these changes.
+Queue accepts ordinary input in order; steer first confirms cancellation of the displayed turn and then uses ordinary
+admission. Channel and cron snapshots disable these browser controls.
+
+Attention events are durable projections linked to an exact history record. Read and dismiss state are inbox metadata;
+whether an approval action is available is recomputed from the exact still-live request and turn identity.
 
 ### SessionKey
 

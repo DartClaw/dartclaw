@@ -2,8 +2,8 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.26 native hybrid retrieval, memory and conversation vector projections, PostgreSQL serving
-interlock, retrieval inspection and bounded turn-source provenance; 0.27 preparation upgrades Trellis and HTMX.
+**Current through**: 0.27 conversation snapshot and attempt authority, effective context, workspace principals,
+temporary retention, product search, inbox and attention projections, plus the Trellis and HTMX upgrade.
 The authoritative SQLite store is `dartclaw.db`.
 
 ---
@@ -228,6 +228,8 @@ Turn orchestration coordinates message flow from user input through guard evalua
 | `ExecutionCoordinator` | `execution_coordinator.dart` | Post-governance authority: one fixed serialized primary lane for main user/channel turns; hard per-provider worker leases for tasks, scheduled/system work, logical agents, and workflow steps |
 | `SessionMutationCoordinator` | `concurrency/session_mutation_coordinator.dart` | Per-session promise chain that runs operations in arrival order; one instance orders `TurnManager` reservations, another the API's session mutations |
 | `SessionLockManager` | `concurrency/session_lock_manager.dart` | Per-session lock with a global cap; orders the callers that have reached `acquire` |
+| `ConversationService` | `conversation/conversation_service.dart` | Revision-checked admission, queue, steer, attempt, branch, history, context, and telemetry operations over one `ConversationState` snapshot |
+| `InboxService` | `conversation/inbox_service.dart` | Derives active, settled, unread, execution, attention, and action-availability projections without becoming a second state authority |
 | `ContextMonitor` | `context/context_monitor.dart` | Tracks context window usage; suppresses heuristic flush when deterministic compaction signals exist; deduplicates pre-compaction flushes per cycle; emits SSE `context_warning` when usage exceeds configurable threshold (one-shot per session) |
 | `ResultTrimmer` | `context/result_trimmer.dart` | Head+tail truncation with a `...[trimmed N bytes]...` marker, applied by `McpProtocolHandler` to the successful text result of every `tools/call` it dispatches, outbound MCP relays included |
 | `CompactionTaskEventSubscriber` | `task/compaction_task_event_subscriber.dart` | Listens for `CompactionCompletedEvent` and records a `compaction` task-timeline event when the compacted session belongs to an active running task |
@@ -235,8 +237,14 @@ Turn orchestration coordinates message flow from user input through guard evalua
 `providers.<id>.pool_size` is the hard concurrent worker-lease limit for that provider, not a target runner count.
 Workers are created on demand. After release, a healthy idle worker may be retained and reused only when its
 provider and security profile match within the immutable coordinator composition; the exact prior session is preferred. Reuse is
-an optimization, never the capacity authority. Provider/profile containers have their own lifecycle and may be shared by
-multiple workers, so container count and worker capacity are independent.
+an optimization, never the capacity authority. Each container authority is owned by one execution principal and is
+destroyed only after teardown is confirmed; container count and worker capacity remain independent.
+
+Each ordinary attempt captures one complete effective context at admission. Project, directory, provider, model, and
+effort may change for a later attempt, while the session's owner or named-agent workspace and storage principal remain
+pinned. Durable conversations persist their snapshot beside session metadata. Process-retained conversations use the
+same services in memory and release their worker, container, attachments, and conversation state through one confirmed
+cleanup path.
 
 **Context management strategy** (0.10): Layered mechanisms preserve useful context in long-running sessions:
 1. **Compact instructions** — `BehaviorFileService.composeSystemPrompt()` appends a `# Compact instructions` section for long-running session types (web, DM, group, cron), guiding the binary on what to preserve during auto-compaction. Configurable via `context.compact_instructions`.

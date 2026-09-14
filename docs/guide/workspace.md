@@ -40,6 +40,27 @@ Memory and conversation rows share `search.db` on SQLite, or the configured Post
 With DartClaw stopped, `dartclaw rebuild-index` reconstructs both projections without rewriting the message files.
 See [Conversation Search](search.md#conversation-search) for inclusion and lifecycle rules.
 
+## Owner and Named-Agent Workspaces
+
+The default workspace belongs to the instance owner. A named agent receives a workspace only through its explicit
+`agent.agents.<id>.workspace` setting:
+
+```yaml
+agent:
+  agents:
+    reviewer:
+      workspace: workspaces/reviewer
+```
+
+The directory must already exist. Relative paths resolve under `data_dir`; absolute paths are accepted. Startup rejects
+overlapping workspaces, the owner workspace, `data_dir`, and aliases through symlinks. Omitting `workspace` grants no
+workspace and does not fall back to the owner's files.
+
+The binding is pinned when a conversation is created. It owns that agent's behavior files, native skills, canonical
+memory, daily logs, and storage principal. A project or staged directory selects where a turn works; it does not replace
+the workspace binding or principal. `context_research` is the separate explicit grant through which a named agent may
+read owner knowledge, and its results retain owner provenance.
+
 ## Behavior Files
 
 Replace-mode providers re-read these files every turn. Claude and Codex also receive fresh scoped composition each turn;

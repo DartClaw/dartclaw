@@ -59,6 +59,14 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   The streaming extension includes a local cleanup fix for an upstream unhandled error on close.
   All browser assets continue to load from the DartClaw instance.
 
+### Release holds
+
+- The 0.27 release remains held until the full repository gate passes on the exact committed candidate with an empty
+  worktree, including CI, container, native Windows, and release checks.
+- Physical iOS and Android keyboard, safe-area, and paste checks; screen-reader evaluation; owner task and attention
+  evaluation; supported-provider live workflows; and temporary Codex EOF and forced-termination checks still require
+  their documented release evidence.
+
 ---
 
 ## [0.26.1] - 2026-09-13

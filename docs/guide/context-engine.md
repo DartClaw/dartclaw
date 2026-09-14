@@ -1,5 +1,9 @@
 # Context Engine Mode
 
+Context Engine retrieval is separate from a conversation's effective context. It reads the owner's configured knowledge
+sources and returns provenance-backed packets; it does not change any conversation's project, directory, provider,
+model, effort, workspace binding, or storage principal.
+
 Context-engine mode lets other tools — an IDE, a second agent, a scratch script — read your DartClaw knowledge surface
 over MCP under their own name, without giving them your gateway token.
 

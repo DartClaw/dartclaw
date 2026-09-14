@@ -2,9 +2,9 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.26 bounded retrieval provenance, two-corpus hybrid inspection and degradation diagnostics,
-worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption. The
-authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.27 conversation invalidation, attempt records, effective-context telemetry, inbox attention and
+action availability; plus 0.26 retrieval, capacity, alerting, and storage. The authoritative SQLite store is
+`dartclaw.db`.
 
 ---
 
@@ -453,7 +453,15 @@ Source: `packages/dartclaw_runtime/lib/src/api/task_sse_routes.dart`
 
 ### Chat SSE (Per-Turn Streaming)
 
-`sseStreamResponse()` creates a per-turn SSE stream for chat UI. Events: `delta` (text chunks), tool call status, turn completion. Source: `packages/dartclaw_runtime/lib/src/api/stream_handler.dart`
+`sseStreamResponse()` creates a transient per-turn stream for deltas, tool state, approvals, and completion. Durable
+messages and `ConversationState` remain the recovery authority. The global `conversation_changed` event carries the
+session and revision, and clients refetch the authoritative snapshot instead of reconstructing state from events.
+Source: `packages/dartclaw_runtime/lib/src/api/stream_handler.dart`
+
+Effective-context telemetry records its source and freshness when the adapter provides them; absence stays null and is
+never inferred. The attention feed is derived from durable completion, failure, and input-request records. Read and
+dismiss state do not make an approval actionable: action availability is recomputed from the exact live request and
+owning turn.
 
 ### SseBroadcast
 

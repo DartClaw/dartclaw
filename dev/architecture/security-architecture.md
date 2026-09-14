@@ -2,7 +2,9 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.26 PostgreSQL connection security posture and literal-loopback unification; 0.25.2 dedicated Codex capability mirror and workflow tool-policy corrections; 0.25.1 labelled container reclamation (2026-09-04); 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
+**Current through**: 0.27 named-agent workspace principals, effective-context authorization, temporary conversation
+retention and confirmed cleanup, exact-request approval actions, and principal-scoped search; plus the 0.26 PostgreSQL
+connection and retrieval posture.
 
 ---
 
@@ -518,7 +520,7 @@ A security profile defines one container's mounts, network, and capabilities. It
 
 | Profile | Container Name | Mounts | Used By |
 |---------|---------------|--------|---------|
-| **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw`, `/projects:ro`, `/project:ro` (legacy alias) | Main chat, default tasks, cron jobs |
+| **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw` when granted, `/projects:ro`, `/project:ro` (legacy alias) | Owner and configured named-agent chats, default tasks, cron jobs |
 | **restricted** | `dartclaw-<hash>-restricted` | No workspace or project mounts | Search agent, explicitly declared tasks |
 
 **Container naming**: `dartclaw-<fnv1a8(dataDir)>-<profileId>-<epoch><authorityId>` uses a deterministic
@@ -561,6 +563,13 @@ directory at `/workspace`; an authorized project remains `/project`, and absent-
 process-scoped `.agents/skills` root. Codex host `workspaceWrite` turns include the permitted workspace in
 `sandboxPolicy.writableRoots`; `readOnly` and restricted workers do not inherit it. Tool grants remain the authority for
 which file operations the provider may request.
+
+A process-retained conversation receives a dedicated temporary execution authority only when the capability inventory
+matches the mediated container provider and workspace policy. Its session, messages, attachments, conversation state,
+usage context, and generated provider home stay out of durable DartClaw stores. Ending first marks the session ending,
+then confirms turn and root-process termination, destroys the container, clears process state, and only then revokes the
+link. Failed confirmation leaves an auditable retryable state. Provider-side processing and authorized external or
+workspace effects remain outside this retention guarantee.
 
 These provider-sandbox rows describe qualified POSIX hosts. Claude's native sandbox is unavailable on native Windows,
 and restrictive Codex sandbox modes remain unverified there; use POSIX or WSL when this isolation boundary is required.

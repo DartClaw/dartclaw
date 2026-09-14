@@ -164,17 +164,37 @@ Sessions are the primary conversation container. File-based storage, one directo
 Session
 ├── id: String (UUID v4)
 ├── title: String?
+├── titleRevision: int
+├── titleProvenance: SessionTitleProvenance?
+├── automaticTitleAttempted: bool
 ├── type: SessionType {main, user, channel, cron, task, logicalAgent, archive}
+├── retention: ConversationRetention {durable, process}
 ├── channelKey: String? (e.g., "agent:main:dm:contact:%40alice")
 ├── provider: String? (provider pinned for logical-agent sessions)
 ├── securityProfile: String? (worker isolation profile pinned for logical-agent sessions)
+├── executionMode: ExecutionMode?
+├── workspace: AgentWorkspace? (pinned agent id and canonical directory)
+├── settledAt: DateTime?
+├── readMessageCursor: int
+├── attentionReadEventId: String?
+├── dismissedAttentionEventIds: List<String>
 ├── createdAt: DateTime
 └── updatedAt: DateTime
 ```
 
-**Storage**: `sessions/<id>/meta.json` (atomic full rewrite)
-**Messages**: `sessions/<id>/messages.ndjson` (append-only, cursor = line number)
+**Storage**: durable sessions use `sessions/<id>/meta.json` (atomic full rewrite); process-retained sessions use an
+in-memory store only.
+**Messages**: durable sessions use `sessions/<id>/messages.ndjson` (append-only, cursor = line number); process-retained
+messages remain in memory.
 **Package**: `dartclaw_kernel` (model), `dartclaw_core` (service)
+
+#### Conversation State
+
+`ConversationState` is the single snapshot authority for the conversation revision, accepted submissions, attempt
+records, branches, visible message identities, current and staged next-turn context, and nullable telemetry. Durable
+state is nested in `meta.json`; process-retained state uses the same contract in memory. Each admitted attempt captures
+one `EffectiveConversationContext` containing project, directory, reference root, provider, model, and effort. Displayed
+tool and approval records carry their exact attempt and turn identity.
 
 #### Session Key (Deterministic Routing)
 
@@ -429,7 +449,7 @@ ablaut forms are not conflated, and PostgreSQL does not fold diacritics where SQ
 ### Derived Conversation Index Row
 
 `ConversationIndexProjection` maps each persisted `user` or `assistant` message in a chat-facing session
-(`SessionType.isChatFacing`: `user`, `main`, `channel`) to one `SearchDocument` with one content chunk. Its ID is the
+(`SessionType.isChatFacing`: `user`, `main`, `channel`, `archive`) to one `SearchDocument` with one content chunk. Its ID is the
 persisted message UUID; metadata contains `session_id` and `role`, and its timestamp is the message's UTC `createdAt`.
 System messages, message metadata, attachments, and non-chat session types are excluded.
 `ConversationState.includesMessage` is the visibility authority for both incremental re-projection and complete
@@ -442,8 +462,8 @@ GIN index plus optional `conversation_vectors` using `public.vector`. Named lexi
 `user_id`, `text`, `chunk_index`, `session_id`, `role`, and `created_at`; `chunk_index` is the stable zero-based
 position in the document, while integer `id` is only the database row identity.
 **Source of truth**: `sessions/<id>/messages.ndjson`. Post-append observers enqueue indexing without delaying or failing
-message persistence. The same serialized queue removes rows after clear, successful deletion, or archival and restores
-them when a session becomes chat-facing again. Index failures are logged and later rebuilds reconcile missed work.
+message persistence. The same serialized queue removes rows after clear or successful deletion. Archival preserves the
+rows for owner-authorized archived-lifecycle search. Index failures are logged and later rebuilds reconcile missed work.
 **Query**: `ConversationSearchService` returns message/session IDs, role, UTC timestamp, text and backend score.
 Its administrative surface aggregates the owner and configured principal scopes; agent memory tools do not receive
 that cross-workspace view.
@@ -834,7 +854,7 @@ durable seam that connects workflow execution to task/worktree persistence.
 | **Task deleted** | Artifacts cascade-deleted via FK. Session is NOT deleted (must be cleaned separately). |
 | **Task accepted/rejected** | Worktree cleaned up (branch + directory). Session preserved for audit trail. |
 | **Goal deleted** | Tasks referencing the goal retain `goalId` but goal lookup returns null. |
-| **Session archived** | Type changes to `archive`; NDJSON is preserved and conversation rows are removed. Returning to a chat-facing type restores them. Task sessions are protected from automated archival. |
+| **Session archived** | Type changes to read-only `archive`; NDJSON and conversation rows are preserved for owner-authorized archived-lifecycle search. Task sessions are protected from automated archival. |
 | **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
 | **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in the configured derived index. |
 | **Memory or chat-facing message changes** | The workspace principal's lexical projection updates first. Hybrid mode then reuses exact content-hash/provider-fingerprint vectors, embeds missing chunks, retires stale identities and refuses late results if the source changed. Embedding failure leaves lexical search current and increments that corpus's unembedded count. |

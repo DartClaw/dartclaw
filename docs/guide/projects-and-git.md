@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.25**
+> Current through: **0.27**
 
 DartClaw manages git repositories as **projects** -- first-class entities that tasks can target. Tasks that explicitly set
 `configJson.needsWorktree: true` branch from a project, work in isolation, and push results back on acceptance. A single
@@ -18,6 +18,16 @@ There are two kinds of projects:
 |------|-----------------|-------------|-----------------|
 | **External** | Registered via config or API with a remote URL | `projects.json` (runtime) or `dartclaw.yaml` (config) | Config-defined: read-only. Runtime-created: fully mutable |
 | **Implicit `_local`** | Synthesized automatically from the directory where `dartclaw serve` was started | Not persisted (ephemeral) | No |
+
+### Projects Are Not Agent Workspaces
+
+A project chooses a repository and, when requested, an isolated worktree for execution. It does not assign an agent,
+change a conversation's storage principal, or grant behavior files, native skills, memory, or logs. Those belong to the
+owner workspace or to the named agent workspace explicitly configured under `agent.agents.<id>.workspace`.
+
+Interactive conversations expose project, directory, provider, model, and effort as their effective context. A valid
+change is staged for the next turn and that admitted attempt captures the complete context. The conversation's workspace
+owner remains fixed; changing it requires a new conversation.
 
 ### The Implicit `_local` Project
 

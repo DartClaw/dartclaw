@@ -92,6 +92,12 @@
 | Session | Top-level conversation container with persisted messages. Types: main, channel, cron, user, task, logicalAgent, archive | conversation, thread, chat |
 | Session Key | Deterministic routing string `agent:<agentId>:<scope>:<identifiers>`. Decouples scoping from session discovery | session ID, routing key |
 | Session Scope | Rules for session creation: `shared`, `per_contact`, `per_channel_contact`, `per_member` | isolation mode, distribution |
+| Workspace Binding | Agent id and canonical workspace directory pinned to a conversation at creation; owns behavior, skills, memory, logs, and the `agent:<id>` storage principal independently of project context | workspace selection, project workspace |
+| Conversation Attempt | One admitted unit of conversation work linking its submission, captured effective context, provider turn, terminal outcome, messages, tools, approvals, and branch lineage | turn (when persistence identity matters), retry |
+| Effective Context | Complete project, directory, reference root, provider, model, and effort snapshot staged by revision and captured by the next admitted attempt; it never changes the Workspace Binding | workspace, execution defaults |
+| Attention Event | Durable completion, failure, or input-request record linked to exact conversation history and projected into the owner's attention feed | notification, alert |
+| Action Availability | Server projection that an exact live request and owning turn still permit an action; read or dismiss state does not confer it | button state, permission |
+| Temporary Conversation | Owner-authorized conversation with `process` retention whose DartClaw state, attachments, usage context, and provider home remain in process, page, or volatile container storage until confirmed end | incognito chat, automatically private chat |
 | NDJSON | Newline-Delimited JSON. One JSON object per line. Used for messages, audit logs, usage | JSON lines, line-delimited JSON |
 | Cursor | Line number in an NDJSON file used as a crash-recovery resume point. `lastCursor` tracks position | offset, checkpoint, position |
 | Atomic Write | Temp file + rename pattern preventing corruption on crash | safe write, transactional write |
@@ -272,6 +278,7 @@
 
 ## Changelog
 
+- 2026-09-14: Added Workspace Binding, Conversation Attempt, Effective Context, Attention Event, Action Availability, and Temporary Conversation.
 - 2026-09-09: Aligned database and schema-compatibility terms and added Instance-Local Store.
 - 2026-09-09: Full-Text Index and Search Index now name separate memory and conversation corpora and their owner scope.
 - 2026-09-09: Added Embedding Provider, Model Fingerprint, Vector Index, and Hybrid Search; marked QMD's 0.26 deprecation window.
@@ -290,6 +297,4 @@
 - 2026-04-25: Added 0.16.4 agent-resolved-merge terms (workflow git) and the Agent Skills terms Bang Operator and Env-var Injection.
 - 2026-08-23: Clarified that workflow-authored step types remain workflow execution metadata while task dispatch uses explicit `readOnly` and `needsWorktree` declarations.
 - 2026-04-11: Added 0.16 terms for alert routing, compaction observability, and reconfigurable service; updated workflow ownership to `dartclaw_workflow`; added fitness function as a 0.16.3 architecture-governance term.
-- 2026-04-04: Added the Workflows section for the 0.15 milestone.
 - 2026-03-24: Reassigned thread binding, sender attribution, review commands, and runtime governance to concrete capability areas after removing the former shared bounded context.
-- 2026-03-23: Initial extraction from architecture docs, CLAUDE.md, and codebase.

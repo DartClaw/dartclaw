@@ -2,7 +2,8 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through coordinator admission, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.26 task storage backend and awaited event persistence. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.27 conversation workspace and effective-context boundary; 0.26 task storage backend and awaited
+event persistence. The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -383,6 +384,11 @@ Metadata for an in-flight turn (`turn_manager.dart`):
 | `isHumanInput` | `bool` | Whether a fresh onboarding section is permitted |
 | `allowedTools` | `List<String>?` | Active-turn tool allowlist |
 | `readOnly` | `bool` | Whether the active turn is read-only |
+
+`Task.projectId`, a generated worktree, and `TurnContext.directory` choose the task's execution checkout. They do not
+assign `agent.agents.<id>.workspace`, change a conversation workspace principal, or grant named-agent memory and skills.
+The task executor remains the authority for project and worktree selection; session workspace ownership is a separate
+conversation-session concern.
 
 ### 5.3 TurnOutcome
 

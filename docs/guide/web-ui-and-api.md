@@ -28,6 +28,7 @@ The interface has three main areas:
 - **Create**: Click **New Chat** in the sidebar. If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**, keeping **New Chat** exclusive to the command. Activating New Chat from that draft simply returns focus to its composer.
 - **Switch**: Click any session in the sidebar to load its messages
 - **Triage**: The inbox keeps creation order stable while showing unread, running, waiting, done, failed and local-draft state. Settle completed and fully read conversations to move them into the paged Settled tail; Restore returns them to their original place. New work restores a settled conversation automatically.
+- **Settle and archive**: Settling is reversible inbox organization; the conversation stays writable and searchable. Archiving is a read-only historical lifecycle used by reset and maintenance, remains searchable under the archived filter, and appears in the separate Archived subsection.
 - **Attention**: The topbar bell pages durable completion, failure and input-request events. It links back to the exact transcript record and offers approval actions only while the underlying request remains pending.
 - **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
 - **Delete**: Click the × button on a sidebar item
@@ -52,7 +53,8 @@ The interface has three main areas:
   shared command catalog. Global search can narrow by lifecycle and project and opens the exact matching message.
   Typing `/` in the composer filters the same nine built-ins (`/new`, `/reset`, `/stop`, `/status`, `/fork`, `/settle`,
   `/model`, `/effort`, `/help`) plus authorized provider-native skills. An unknown slash-prefixed message is labelled
-  **Send to provider** and follows the ordinary message path without byte changes or a capability claim.
+  **Send to provider** and follows the ordinary message path without byte changes or a capability claim. A built-in
+  keeps its canonical action when a native skill has the same name; the skill remains available with a skill label.
 - **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. Drafts and selected file bytes are saved in this browser and restored after reload. A persistent warning with retry, copy, and download actions replaces the saved status if browser storage fails.
 - **Active turns**: Drafting remains available while a turn runs. **Queue** accepts the draft in order, **Steer** stops the displayed turn and sends the follow-up after cancellation is confirmed, and **Stop** cancels only the displayed turn. Failed, cancelled, stopped, and restart-recovered work holds queued items for an explicit **Send next queued message** action.
 - **Streaming**: Responses appear in real-time as the agent generates them
@@ -169,8 +171,8 @@ Returns the persisted session metadata for a single session.
 POST /api/sessions
 ```
 
-No body required. Returns the new session. Interactive session creation does not accept a provider override; sends use
-the fixed primary lane and global `agent.provider`.
+No body is required for a durable session. Returns the new session. Interactive session creation does not accept a
+provider override; sends use the fixed primary lane and global `agent.provider`.
 
 ```json
 {
@@ -180,6 +182,39 @@ the fixed primary lane and global `agent.provider`.
   "updated_at": "2026-02-23T12:00:00Z"
 }
 ```
+
+To create a supported process-retained conversation, accept its disclosure explicitly:
+
+```json
+{"retention":"process","disclosureAccepted":true}
+```
+
+Process retention is available only to an authenticated owner when the runtime reports a qualified temporary
+conversation capability. It keeps the session, messages, attachments, conversation state, provider home, and usage
+context out of durable DartClaw stores. Page drafts stay only in that page and are lost on reload or close. Provider
+processing and deliberate workspace or external-tool effects may persist.
+
+#### End a temporary conversation
+
+```
+POST /api/sessions/:id/end-temporary
+```
+
+The route waits for active work and the dedicated container authority to stop, then clears the process-retained state
+and returns `204`. The opaque link is revoked only after cleanup is confirmed. `409 END_INCOMPLETE` leaves the link
+retryable when shutdown or cleanup cannot be confirmed.
+
+#### Export a conversation
+
+```
+GET /api/sessions/:id/export
+POST /api/sessions/:id/export
+```
+
+`GET` returns the export disclosure. `POST` requires
+`{"confirmed":true,"durableCopyAccepted":true}` and streams a durable Markdown copy containing visible redacted
+messages, timestamps, roles, visible tool and approval details, branch lineage, and an attachment availability
+manifest. It contains no attachment bytes, hidden messages, or provider-native state.
 
 #### Open a New Chat draft
 

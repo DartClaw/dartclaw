@@ -123,6 +123,9 @@ process each configured workspace independently. The `restricted` profile expose
 this key does not fall back to the owner's workspace. Claude discovers `.claude/skills` through `--add-dir`; Codex
 receives `.agents/skills` through its app-server additional-roots protocol.
 
+There is no implicit workspace assignment: a project, task working directory, agent name, or missing key never infers
+one and never grants the owner's workspace.
+
 `context_research` is a separate, explicitly granted path to the owner's wiki, knowledge graph, inbox, and memory. Its
 citation packet keeps owner source provenance and the calling agent's audit identity; retrieval does not copy owner
 knowledge into the agent's workspace.

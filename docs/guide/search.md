@@ -216,14 +216,17 @@ Curated personal memory changes through one path. `memory_apply` accepts one clo
 
 ## Conversation Search
 
-DartClaw indexes user and assistant message text from user, main and channel sessions separately from memory.
-System messages, attachments, and task, cron, logical-agent and archived sessions are excluded. Session NDJSON remains
-the source of truth. Indexing failures are logged without interrupting message persistence.
+DartClaw indexes visible user and assistant message text from user, main, channel, and archived conversations separately
+from memory. System messages, attachments, queued or removed input, and task, cron, and logical-agent sessions are
+excluded. Session NDJSON and its conversation visibility state remain the source of truth. Indexing failures are logged
+without interrupting message persistence.
 
-Deleting or clearing a session removes its indexed messages. Archiving removes them from search while retaining the
-files; resuming a chat-facing session restores them. Dart integrations use `ConversationSearchService`, and operators
-can inspect the corpus with `dartclaw search inspect --corpus conversation`, including message/session IDs, role,
-timestamp, text, score and hybrid ranking evidence.
+Deleting or clearing a conversation removes its indexed messages. Archiving keeps its indexed history available to the
+owner under the `archived` lifecycle filter. Product search can search the current conversation or aggregate authorized
+owner and configured-agent principal indexes; agent-facing conversation search remains confined to the caller's pinned
+principal. Every result and exact-message target is reauthorized before it is returned. Operators can inspect one
+principal's corpus with `dartclaw search inspect --corpus conversation`, including message/session IDs, role, timestamp,
+text, score and hybrid ranking evidence.
 
 SQLite matches sanitized exact terms with `unicode61`, without stemming or prefix queries. PostgreSQL uses
 `database.fts_language` for stemming, shared with memory and knowledge-graph search. After changing that language,

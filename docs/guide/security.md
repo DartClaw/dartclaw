@@ -2,6 +2,18 @@
 
 DartClaw uses defense-in-depth: multiple independent layers so that no single compromise breaks all boundaries.
 
+## Workspace and Retention Boundaries
+
+A named agent receives filesystem and storage ownership only from an explicit `agent.agents.<id>.workspace` binding.
+Projects and staged working directories do not grant that workspace or change its principal. Ordinary memory and
+conversation search stay within the pinned principal; `context_research` is the explicit read grant to owner knowledge
+and preserves owner provenance.
+
+Supported temporary conversations keep DartClaw session state, messages, attachments, usage context, and provider home
+in process, page, or volatile container storage. Explicit end revokes the link only after cleanup is confirmed. This
+retention boundary cannot undo provider processing or deliberate writes through workspace or external tools, and release
+support remains conditional on the documented real-provider EOF and forced-termination qualification.
+
 ## Architecture
 
 ```

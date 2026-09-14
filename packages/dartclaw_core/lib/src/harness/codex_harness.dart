@@ -769,6 +769,13 @@ class CodexHarness extends BaseHarness {
     if (completer.isCompleted || activeThreadId == null) {
       return true;
     }
+    // Usage reported while the turn runs is the turn's, whichever thread
+    // reports it: the process runs one turn at a time, and a subagent the turn
+    // spawns reports under its own thread and turn ids. Its other frames stay
+    // filtered – a child's `turn/completed` must not settle the parent's turn.
+    if (method == 'thread/tokenUsage/updated') {
+      return false;
+    }
 
     final threadId = stringValue(params?['threadId']);
     if (threadId != null && threadId != activeThreadId) {

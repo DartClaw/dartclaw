@@ -137,6 +137,7 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
 
   TurnComplete _handleTurnFailed() {
     _startedItems.clear();
+    _takeUncreditedThreadUsage();
     return const TurnComplete(stopReason: 'error');
   }
 
@@ -232,14 +233,21 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
       return const TurnComplete(stopReason: 'error');
     }
     // `turn/completed` carries no usage at codex-cli 0.146.0 — its params are
-    // `threadId` and `turn` — so usage comes from the `thread/tokenUsage/updated`
-    // notification the turn emits just before completing, held here until the
-    // turn settles. The legacy top-level `usage` is still read first for a
-    // version that supplies it.
+    // `threadId` and `turn` — so usage is what the `thread/tokenUsage/updated`
+    // notifications accrued since the previous settled turn. The legacy
+    // top-level `usage` still serves a version that supplies it and reports
+    // nothing per thread.
     final finalText = _finalAnswerText(turn);
     final inlineUsage = mapValue(params['usage']);
-    final usage = inlineUsage != null && inlineUsage.isNotEmpty ? inlineUsage : (_lastTokenUsage ?? const {});
-    _lastTokenUsage = null;
+    final accrued = _takeUncreditedThreadUsage();
+    final usage = accrued != null
+        ? <String, dynamic>{
+            'input_tokens': accrued.input,
+            'output_tokens': accrued.output,
+            'cached_input_tokens': accrued.cached,
+            'cache_write_input_tokens': accrued.cacheWrite,
+          }
+        : (inlineUsage ?? const <String, dynamic>{});
     final complete = codexBuildTurnComplete(usage, stopReason: 'completed');
     return finalText == null
         ? complete
@@ -289,21 +297,40 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
     return null;
   }
 
-  /// Records the per-turn usage a `thread/tokenUsage/updated` notification carries.
-  ///
-  /// `last` is this turn's usage; `total` is the thread's running sum and would
-  /// double-count every turn after the first. The field names are the vendor's,
-  /// mapped onto the names `codexBuildTurnComplete` normalises.
+  /// Records a thread's cumulative `tokenUsage.total`. `last` is the most
+  /// recent model request only – a tool round-trip overwrites it several times
+  /// per turn – so it is never the turn's usage.
   void _recordTokenUsage(Map<String, dynamic> params) {
-    final usage = mapValue(params['tokenUsage']);
-    final last = mapValue(usage?['last']);
-    if (last == null) return;
-    _lastTokenUsage = <String, dynamic>{
-      'input_tokens': last['inputTokens'],
-      'output_tokens': last['outputTokens'],
-      'cached_input_tokens': last['cachedInputTokens'],
-    };
+    final total = mapValue(mapValue(params['tokenUsage'])?['total']);
+    if (total == null) return;
+    _threadUsageTotals[stringValue(params['threadId']) ?? ''] = (
+      input: intValue(total['inputTokens']) ?? 0,
+      cached: intValue(total['cachedInputTokens']) ?? 0,
+      cacheWrite: intValue(total['cacheWriteInputTokens']) ?? 0,
+      output: intValue(total['outputTokens']) ?? 0,
+    );
   }
+
+  /// Usage every thread accrued since the previous settled turn, or null when
+  /// no thread reported; credits it. A failed turn credits it too, so its
+  /// usage never lands on the next turn.
+  _CodexUsage? _takeUncreditedThreadUsage() {
+    _CodexUsage? accrued;
+    for (final entry in _threadUsageTotals.entries) {
+      final credited = _threadUsageCredited[entry.key] ?? _zeroCodexUsage;
+      if (entry.value == credited) continue;
+      accrued = _combine(_combine(accrued ?? _zeroCodexUsage, entry.value, 1), credited, -1);
+      _threadUsageCredited[entry.key] = entry.value;
+    }
+    return accrued;
+  }
+
+  static _CodexUsage _combine(_CodexUsage a, _CodexUsage b, int sign) => (
+    input: a.input + sign * b.input,
+    cached: a.cached + sign * b.cached,
+    cacheWrite: a.cacheWrite + sign * b.cacheWrite,
+    output: a.output + sign * b.output,
+  );
 
   ProtocolMessage? _extractConfigWarning(Map<String, dynamic> params) {
     final summary = stringValue(params['summary'])?.trim();

@@ -6,6 +6,10 @@ import 'base_protocol_adapter.dart';
 import 'protocol_message.dart';
 import 'tool_policy.dart' as tool_policy;
 
+typedef _Usage = ({int input, int output, int cacheRead, int cacheWrite});
+
+const _Usage _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
+
 /// Claude-specific implementation of [ProtocolAdapter].
 class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   static final _log = Logger('ClaudeProtocolAdapter');
@@ -14,15 +18,60 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
 
   final Map<String, CanonicalTool> _ownMcpToolCanonicals;
 
+  /// Latest usage frame per subagent API message this turn. The `result`
+  /// line's usage covers the main conversation only (verified on 2.1.270:
+  /// it equals the main transcript, deduplicated by message id), so subagent
+  /// usage is credited from their `assistant` frames – the last frame per
+  /// message id, since earlier frames of a message carry partial counts.
+  final Map<String, _Usage> _subagentUsageByMessage = {};
+
+  /// The share of [_subagentUsageByMessage] already folded into an emitted
+  /// [TurnComplete]; a held turn sees several `result` lines and each carries
+  /// only what accrued since the previous one.
+  _Usage _subagentUsageCredited = _zeroUsage;
+
   new({Map<String, CanonicalTool> ownMcpToolCanonicals = const {}})
     : _ownMcpToolCanonicals = Map.unmodifiable(ownMcpToolCanonicals);
 
   @override
   ProtocolMessage? parseLine(String line) {
-    final message = claude_protocol.parseJsonlLine(line);
-    if (message == null) return null;
+    ProtocolMessage? result;
+    for (final message in claude_protocol.parseJsonlLine(line)) {
+      if (message is! claude_protocol.AssistantUsage) {
+        result = _toProtocolMessage(message);
+      } else if (message.isSubagent) {
+        _subagentUsageByMessage[message.messageId] = (
+          input: message.inputTokens,
+          output: message.outputTokens,
+          cacheRead: message.cacheReadInputTokens,
+          cacheWrite: message.cacheCreationInputTokens,
+        );
+      }
+    }
+    return result;
+  }
 
+  /// Subagent usage not yet credited to a [TurnComplete]; credits it.
+  _Usage _takeUncreditedSubagentUsage() {
+    var total = _zeroUsage;
+    for (final usage in _subagentUsageByMessage.values) {
+      total = _combine(total, usage, 1);
+    }
+    final credited = _subagentUsageCredited;
+    _subagentUsageCredited = total;
+    return _combine(total, credited, -1);
+  }
+
+  static _Usage _combine(_Usage a, _Usage b, int sign) => (
+    input: a.input + sign * b.input,
+    output: a.output + sign * b.output,
+    cacheRead: a.cacheRead + sign * b.cacheRead,
+    cacheWrite: a.cacheWrite + sign * b.cacheWrite,
+  );
+
+  ProtocolMessage _toProtocolMessage(claude_protocol.ClaudeMessage message) {
     return switch (message) {
+      claude_protocol.AssistantUsage() => throw StateError('usage frames are recorded, not emitted'),
       claude_protocol.StreamTextDelta(:final text) => TextDelta(text),
       claude_protocol.ToolUseBlock(:final name, :final id, :final input) => ToolUse(name: name, id: id, input: input),
       claude_protocol.ToolResultBlock(:final toolId, :final output, :final isError) => ToolResultMessage(
@@ -35,30 +84,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
         subtype: subtype,
         data: data,
       ),
-      claude_protocol.TerminalResult(
-        :final stopReason,
-        :final subtype,
-        :final structuredOutput,
-        :final finalText,
-        :final costUsd,
-        :final durationMs,
-        :final inputTokens,
-        :final outputTokens,
-        :final cacheReadInputTokens,
-        :final cacheCreationInputTokens,
-      ) =>
-        TurnComplete(
-          stopReason: stopReason,
-          subtype: subtype,
-          structuredOutput: structuredOutput,
-          finalText: finalText,
-          costUsd: costUsd,
-          durationMs: durationMs,
-          inputTokens: inputTokens,
-          outputTokens: outputTokens,
-          cacheReadTokens: cacheReadInputTokens,
-          cacheWriteTokens: cacheCreationInputTokens,
-        ),
+      claude_protocol.TerminalResult() => _turnComplete(message),
       claude_protocol.SystemInit(:final sessionId, :final toolCount, :final contextWindow) => SystemInit(
         sessionId: sessionId,
         toolCount: toolCount,
@@ -70,6 +96,26 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
       ),
       claude_protocol.BackgroundTasksChanged(:final tasks) => BackgroundTasksChanged(tasks: tasks),
     };
+  }
+
+  /// The `result` usage plus the subagent usage accrued since the previous
+  /// `result`. Buckets stay null only when neither side reported anything.
+  TurnComplete _turnComplete(claude_protocol.TerminalResult result) {
+    final subagent = _takeUncreditedSubagentUsage();
+    int? fold(int? reported, int accrued) =>
+        reported == null && subagent == _zeroUsage ? null : (reported ?? 0) + accrued;
+    return TurnComplete(
+      stopReason: result.stopReason,
+      subtype: result.subtype,
+      structuredOutput: result.structuredOutput,
+      finalText: result.finalText,
+      costUsd: result.costUsd,
+      durationMs: result.durationMs,
+      inputTokens: fold(result.inputTokens, subagent.input),
+      outputTokens: fold(result.outputTokens, subagent.output),
+      cacheReadTokens: fold(result.cacheReadInputTokens, subagent.cacheRead),
+      cacheWriteTokens: fold(result.cacheCreationInputTokens, subagent.cacheWrite),
+    );
   }
 
   /// Builds a Claude JSONL turn request.
@@ -88,6 +134,10 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
   }) {
+    // A new turn: subagent frames of the previous turn are all credited (a
+    // held turn completes only once no background task is outstanding).
+    _subagentUsageByMessage.clear();
+    _subagentUsageCredited = _zeroUsage;
     final payload = <String, dynamic>{
       'type': 'user',
       'message': {'role': 'user', 'content': message},

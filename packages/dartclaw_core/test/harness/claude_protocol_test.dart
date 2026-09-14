@@ -74,7 +74,7 @@ void main() {
 
       for (final testCase in cases) {
         test('${testCase.name} returns null', () {
-          expect(parseJsonlLine(testCase.line), isNull);
+          expect(parseJsonlLine(testCase.line), isEmpty);
         });
       }
     });
@@ -153,7 +153,7 @@ void main() {
 
       for (final testCase in cases) {
         test(testCase.name, () {
-          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)).singleOrNull);
         });
       }
     });
@@ -192,13 +192,13 @@ void main() {
           }),
         );
 
-        expect(message, isA<StreamTextDelta>());
-        expect((message as StreamTextDelta).text, 'Hello');
+        expect(message.single, isA<StreamTextDelta>());
+        expect((message.single as StreamTextDelta).text, 'Hello');
       });
 
       for (final json in nullCases) {
         test('ignores ${json['event'] ?? 'missing event'}', () {
-          expect(parseJsonlLine(_j(json)), isNull);
+          expect(parseJsonlLine(_j(json)), isEmpty);
         });
       }
     });
@@ -281,13 +281,13 @@ void main() {
                 'type': 'assistant',
                 'message': {'content': testCase.content},
               }),
-            ),
+            ).singleOrNull,
           );
         });
       }
 
       test('missing message returns null', () {
-        expect(parseJsonlLine(_j({'type': 'assistant'})), isNull);
+        expect(parseJsonlLine(_j({'type': 'assistant'})), isEmpty);
       });
     });
 
@@ -329,7 +329,7 @@ void main() {
 
       for (final testCase in cases) {
         test(testCase.name, () {
-          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)).singleOrNull);
         });
       }
     });
@@ -402,7 +402,7 @@ void main() {
 
       for (final testCase in cases) {
         test(testCase.name, () {
-          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)).singleOrNull);
         });
       }
     });

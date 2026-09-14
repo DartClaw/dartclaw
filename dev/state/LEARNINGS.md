@@ -39,6 +39,7 @@
 - **Standalone harness startup is deferred behind the auth preflight.** CLI wiring splits into `wirePreHarness()` (no spawn) and `startHarnesses(providers)`; run/resume/retry derive the referenced-provider set, preflight it, then start only those. The executor-level preflight stays as the in-engine backstop for connected mode.
 - **A skill the harness activates by slash line must not declare `user-invocable: false`.** Claude Code 2.1.x refuses the `/skill` form for such skills and the step answers with no tool calls; `disable-model-invocation: true` keeps a host-invoked skill out of the menu while the slash form still works.
 - **Claude ends a headless turn's `result` while backgrounded subagents still run, then runs a notification turn by itself.** Under 2.1.x `Agent` backgrounds by default and no flag, setting or env var disables it; a process restart in between (the finalizer's `--json-schema`, a session switch) kills the children. `ClaudeCodeHarness` holds a successful turn while a non-`local_bash` task is listed (`control-protocol.md` § 4.8), bounded by the turn timeout.
+- **A `result`'s usage is the main conversation only.** Subagent usage rides `assistant` frames with `parent_tool_use_id`; credit the last frame per `message.id`, earlier ones are partial (2.1.270).
 
 ### Codex
 - **Write `CODEX_HOME/config.toml` before spawning.** Later edits are unreliable as a control surface; see the `developerInstructions` entry for what the file does *not* govern.
@@ -56,6 +57,7 @@
 - **Exec-mode shutdown must not await a pending `Process.start`.** One-shot harness `stop()` must complete the turn completer immediately and defer cleanup until spawn settles.
 - **One-shot codex spawns without `--model` inherit the operator's `~/.codex/config.toml`.** A user-level model override there can break every live run. Live codex spawn paths must pin `--model` or run under a controlled `CODEX_HOME`; `workflow-live/run.sh` exports a hermetic, model-pinned one.
 - **A stored Codex subscription runs in a DartClaw-generated home, not `~/.codex`.** Anything expected there – plugins, skills, MCP stanzas – must be mirrored in by DartClaw (`completeDedicatedCodexHome`), never assumed; the symptom was `Missing skills for provider codex: andthen:*` at workflow preflight.
+- **`thread/tokenUsage/updated.last` is the last model request, not the turn.** Credit turns from per-thread `total` deltas; spawned subagents report under their own `threadId` from zero (0.154.0).
 
 ### Structured Output
 - **Enforcement and readback are separate capabilities.** `supportsStructuredOutput` is typed readback on `TurnResult.structuredOutput`; `supportsOutputSchemaConstraint` is the provider constraining the reply text with nothing typed coming back. Both default to `false`, and a schema is forwarded under the second only for a caller that validates host-side (`outputSchemaWhenSupported`) – a caller needing the payload is refused by name at reservation.

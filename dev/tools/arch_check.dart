@@ -146,13 +146,19 @@ int _maxCeilingFor(int loc) {
 // judgment reduces runtime to 67166 and search to 1496. Ratchet their ceilings
 // down to _maxCeilingFor; retain shared schema decoding and tool enforcement.
 // 2026-09-10: shared endpoint validation reduces search to 1490 lines; ratchet to 1986.
+// Reviewed necessity, 2026-09-14 (ADR-033):
+//   dartclaw_core 31254 -> 31356 (measured 31356, no headroom). Per-session
+//   token accounting adds the subagent-usage frame to the Claude parser, its
+//   crediting in the Claude adapter, and per-thread cumulative crediting in the
+//   Codex adapter – a net 151 lines over a tree 0.26.1 left 49 lines under the
+//   ceiling. Both adapters already own usage folding; no second seam was added.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 31254,
+  'dartclaw_core': 31356,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
   'dartclaw_runtime': 68649,

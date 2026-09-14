@@ -115,6 +115,40 @@ final class ToolResultBlock extends ClaudeMessage {
   String toString() => 'ToolResultBlock(toolId: $toolId, isError: $isError)';
 }
 
+/// Token usage one `assistant` frame reports for its API message.
+///
+/// The CLI writes one frame per content block, and under
+/// `--include-partial-messages` a frame's `usage` is not final until the
+/// block that closes the message – so a consumer credits the *last* frame it
+/// saw per [messageId], never a sum over frames. [parentToolUseId] is set on
+/// frames produced inside a subagent (the `Agent` tool_use that spawned it);
+/// the turn's `result` usage covers the main conversation only.
+final class AssistantUsage extends ClaudeMessage {
+  final String messageId;
+  final String? parentToolUseId;
+  final int inputTokens;
+  final int outputTokens;
+  final int cacheReadInputTokens;
+  final int cacheCreationInputTokens;
+
+  new({
+    required this.messageId,
+    required this.parentToolUseId,
+    required this.inputTokens,
+    required this.outputTokens,
+    required this.cacheReadInputTokens,
+    required this.cacheCreationInputTokens,
+  });
+
+  bool get isSubagent => parentToolUseId != null;
+
+  @override
+  String toString() =>
+      'AssistantUsage(messageId: $messageId, parentToolUseId: $parentToolUseId, inputTokens: $inputTokens, '
+      'outputTokens: $outputTokens, cacheReadInputTokens: $cacheReadInputTokens, '
+      'cacheCreationInputTokens: $cacheCreationInputTokens)';
+}
+
 /// Control request from the claude binary (e.g. `can_use_tool`, `hook_callback`).
 final class ControlRequest extends ClaudeMessage {
   final String requestId;
@@ -208,31 +242,34 @@ final class TerminalResult extends ClaudeMessage {
 // Parsing
 // ---------------------------------------------------------------------------
 
-/// Parse a single JSONL line from the claude binary into a [ClaudeMessage].
+/// Parse a single JSONL line from the claude binary into the [ClaudeMessage]s
+/// it carries.
 ///
-/// Returns `null` for malformed JSON, unknown types, or irrelevant stream
-/// events (message lifecycle, input_json_delta, etc.).
-ClaudeMessage? parseJsonlLine(String line) {
-  if (line.isEmpty) return null;
+/// Empty for malformed JSON, unknown types, or irrelevant stream events
+/// (message lifecycle, input_json_delta, etc.). An `assistant` frame yields
+/// its [AssistantUsage] and, when the frame holds one, the tool block.
+List<ClaudeMessage> parseJsonlLine(String line) {
+  if (line.isEmpty) return const [];
 
   Map<String, dynamic> json;
   try {
     json = jsonDecode(line) as Map<String, dynamic>;
   } catch (e) {
     _log.warning('Failed to parse JSONL: $e');
-    return null;
+    return const [];
   }
 
   final type = json['type'] as String?;
 
-  return switch (type) {
+  if (type == 'assistant') return _parseAssistant(json);
+  final message = switch (type) {
     'system' => _parseSystem(json),
     'stream_event' => _parseStreamEvent(json),
-    'assistant' => _parseAssistant(json),
     'control_request' => _parseControlRequest(json),
     'result' => _parseResult(json),
     _ => null,
   };
+  return message == null ? const [] : [message];
 }
 
 // ---------------------------------------------------------------------------
@@ -289,41 +326,62 @@ ClaudeMessage? _parseStreamEvent(Map<String, dynamic> json) {
   return StreamTextDelta(text);
 }
 
-/// Parse `assistant` messages for tool_use and tool_result blocks only.
-/// Text is intentionally ignored here — it comes from stream_event to avoid
-/// double-counting.
-ClaudeMessage? _parseAssistant(Map<String, dynamic> json) {
+/// Parse `assistant` frames for their usage and for tool_use / tool_result
+/// blocks. Text is intentionally ignored here — it comes from stream_event to
+/// avoid double-counting.
+List<ClaudeMessage> _parseAssistant(Map<String, dynamic> json) {
   final message = json['message'] as Map<String, dynamic>?;
-  if (message == null) return null;
+  if (message == null) return const [];
+
+  final messages = <ClaudeMessage>[];
+  final messageId = message['id'];
+  final usage = message['usage'];
+  if (messageId is String && usage is Map<String, dynamic>) {
+    messages.add(
+      AssistantUsage(
+        messageId: messageId,
+        parentToolUseId: json['parent_tool_use_id'] as String?,
+        inputTokens: usage['input_tokens'] as int? ?? 0,
+        outputTokens: usage['output_tokens'] as int? ?? 0,
+        cacheReadInputTokens: usage['cache_read_input_tokens'] as int? ?? 0,
+        cacheCreationInputTokens: usage['cache_creation_input_tokens'] as int? ?? 0,
+      ),
+    );
+  }
 
   final content = message['content'];
-  if (content is! List) return null;
+  if (content is! List) return messages;
 
-  // Return the first tool_use or tool_result block found.
-  // Multiple blocks per message are possible but rare; callers that need all
-  // blocks can use parseAssistantBlocks (future extension).
+  // The first tool_use or tool_result block found. Multiple blocks per frame
+  // are possible but rare.
   for (final block in content) {
     if (block is! Map<String, dynamic>) continue;
     final blockType = block['type'] as String?;
 
     if (blockType == 'tool_use') {
-      return ToolUseBlock(
-        name: block['name'] as String? ?? 'unknown',
-        id: block['id'] as String? ?? '',
-        input: block['input'] as Map<String, dynamic>? ?? {},
+      messages.add(
+        ToolUseBlock(
+          name: block['name'] as String? ?? 'unknown',
+          id: block['id'] as String? ?? '',
+          input: block['input'] as Map<String, dynamic>? ?? {},
+        ),
       );
+      break;
     }
 
     if (blockType == 'tool_result') {
-      return ToolResultBlock(
-        toolId: block['tool_use_id'] as String? ?? '',
-        output: block['content'] as String? ?? '',
-        isError: block['is_error'] as bool? ?? false,
+      messages.add(
+        ToolResultBlock(
+          toolId: block['tool_use_id'] as String? ?? '',
+          output: block['content'] as String? ?? '',
+          isError: block['is_error'] as bool? ?? false,
+        ),
       );
+      break;
     }
   }
 
-  return null;
+  return messages;
 }
 
 ClaudeMessage _parseControlRequest(Map<String, dynamic> json) {

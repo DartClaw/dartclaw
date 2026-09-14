@@ -14,6 +14,27 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.26.2] - 2026-09-14
+
+### Fixed
+
+- **Per-session token accounting includes subagents and every model request** – `session_cost:<sessionId>`, the
+  `usage.jsonl` rows and the workflow digest's per-step `tokens` under-reported on both harnesses. Claude: the CLI's
+  `result` usage covers the main conversation only, so the subagents a step spawns through the `Agent` tool were
+  counted nowhere; `ClaudeProtocolAdapter` now credits them from the `assistant` frames carrying `parent_tool_use_id`
+  (last frame per message id – earlier frames carry partial counts). On the retained 2.1.270 run this moves the
+  step from 38,867 to 70,840 tokens (cache read 1.01M → 1.40M, cache write 189k → 315k). Codex: the adapter read
+  `tokenUsage.last`, the most recent model request, so a 566-second step recorded 4,481 tokens; it now credits each
+  settled turn with the growth of every thread's cumulative `total` since the previous turn, and `CodexHarness` lets
+  usage notifications from the subagent threads a turn spawns through its correlation filter. The retained
+  codex-cli 0.154.0 run moves from 4,481 to 312,718 tokens (fresh input 276k, cache read 2.47M, output 36.6k).
+  The persisted schema is unchanged; `effective_tokens` follows the corrected buckets, Claude's
+  `estimated_cost_usd` stays the provider's reported figure, and Codex's stays null because no price table exists.
+  Codex `cacheWriteInputTokens` is now carried into `cache_write_tokens` instead of being pinned to zero.
+  The `dartclaw_core` LOC ceiling moves 31254 → 31356 for the added accounting (arch_check log, ADR-033).
+
+---
+
 ## [0.26.1] - 2026-09-13
 
 ### Changed

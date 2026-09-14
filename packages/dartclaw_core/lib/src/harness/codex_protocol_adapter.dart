@@ -11,6 +11,10 @@ enum _ApprovalResponseKind { decision, elicitation, permissions, unsupported }
 
 enum _CommandDenial { decline, cancel, error }
 
+typedef _CodexUsage = ({int input, int cached, int cacheWrite, int output});
+
+const _CodexUsage _zeroCodexUsage = (input: 0, cached: 0, cacheWrite: 0, output: 0);
+
 /// Codex app-server implementation of [ProtocolAdapter].
 class CodexProtocolAdapter extends BaseProtocolAdapter {
   static const String _clientName = 'dartclaw';
@@ -22,9 +26,14 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
   final Map<String, Object> _approvalWireIds = {};
   final Map<String, Map<String, dynamic>> _startedItems = {};
 
-  /// Usage from the most recent `thread/tokenUsage/updated`, awaiting the
-  /// `turn/completed` it belongs to. Cleared when that turn settles.
-  Map<String, dynamic>? _lastTokenUsage;
+  /// Latest cumulative `tokenUsage.total` per thread from
+  /// `thread/tokenUsage/updated`, and the share of each already credited to a
+  /// settled turn. A turn's usage is the sum over threads of the difference:
+  /// several model requests per turn overwrite `total`, several turns share a
+  /// thread, and a subagent the turn spawns reports under its own `threadId`
+  /// (the app server attaches every client to every new thread).
+  final Map<String, _CodexUsage> _threadUsageTotals = {};
+  final Map<String, _CodexUsage> _threadUsageCredited = {};
 
   static final _log = Logger('CodexProtocolAdapter');
 

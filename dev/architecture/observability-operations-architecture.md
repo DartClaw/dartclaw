@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.26 bounded retrieval provenance, two-corpus hybrid inspection and degradation diagnostics,
+**Current through**: 0.26.2 session usage credits Claude subagent frames and Codex per-thread cumulative totals; 0.26 bounded retrieval provenance, two-corpus hybrid inspection and degradation diagnostics,
 worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption. The
 authoritative SQLite store is `dartclaw.db`.
 
@@ -296,7 +296,8 @@ Source: `packages/dartclaw_runtime/lib/src/observability/usage_tracker.dart`
 
 Workflow-owned harness turns treat **observability** and **persistence** as separate concerns:
 
-- Codex app-server `turn.completed` usage is **cumulative per thread**, not a per-turn delta. A resumed probe on 2026-04-22 moved from `input_tokens=27401 / cached_input_tokens=20992 / output_tokens=19` to `input_tokens=54832 / cached_input_tokens=48256 / output_tokens=25`, which confirms overwrite-not-add semantics for the live usage payload.
+- Codex app-server usage arrives on `thread/tokenUsage/updated`, not on `turn/completed` (codex-cli ≥ 0.146). Its `total` is **cumulative per thread** and `last` is the most recent *model request* – a tool round-trip overwrites it several times per turn, so it is never the turn's usage. `CodexProtocolAdapter` keeps the latest `total` per `threadId` and credits a settled turn with the growth of every thread since the previous settled turn. A subagent the turn spawns runs on its own thread (the app server attaches every client to every new thread; `thread/started` carries `parentThreadId`) with a counter that starts at zero, and `CodexHarness` lets usage notifications from any thread through its turn-correlation filter while a turn is active – the process runs one turn at a time, so in-turn usage is the turn's – while a child's `turn/*` frames stay filtered. Verified on codex-cli 0.154.0 (2026-09-14) against a run whose five rollouts summed to 2.74M input tokens where the last-request reading had recorded 4.5k.
+- Claude's `result` usage covers the main conversation only (verified on 2.1.270: it equals the main transcript deduplicated by `message.id`). Subagent usage is credited by `ClaudeProtocolAdapter` from the `assistant` frames carrying `parent_tool_use_id`, the *last* frame per `message.id` – the CLI writes one frame per content block and a frame's usage is partial until the block that closes the message – and each `result` of a held turn carries what accrued since the previous one. Claude's `total_cost_usd` is still taken as reported; no DartClaw price table exists, so Codex `estimated_cost_usd` stays null.
 - Codex emits `cached_input_tokens`; older persisted KV records use the normalized name `cache_read_tokens`. Protocol adaptation normalizes onto the unified schema.
 - Persisted task/session usage remains cumulative and uses the unified keys `input_tokens`, `cache_read_tokens`, `cache_write_tokens`, `output_tokens`, `total_tokens`, `effective_tokens`, `estimated_cost_usd`, `cost_reported_turn_count`, `turn_count`, and `provider`. Readers expose the cost only when every recorded turn reported one; an actual zero remains available while unsupported, missing, legacy, and partially reported costs remain unavailable.
 - For Codex, fresh input is derived as `input_tokens - cache_read_tokens`; for Claude, the provider already reports fresh input directly. This keeps budget checks and per-turn attribution on the same semantic footing across harnesses.

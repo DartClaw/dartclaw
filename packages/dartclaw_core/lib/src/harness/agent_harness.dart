@@ -18,12 +18,14 @@ final class HarnessTurnContext {
     required this.source,
     required this.agentName,
     this.turnTimeout,
+    this.allowOperatorApproval = false,
   });
 
   final String sessionId;
   final String turnId;
   final String? source;
   final String agentName;
+  final bool allowOperatorApproval;
 
   /// Provider-process backstop derived from this turn's effective wall-clock budget.
   final Duration? turnTimeout;
@@ -112,6 +114,13 @@ final class UnsupportedHarnessCapabilityException implements Exception {
 /// Receives trusted host turn identity before provider execution begins.
 abstract interface class HarnessTurnContextSink {
   void setTurnContext(HarnessTurnContext? context);
+}
+
+/// Answers one provider-native approval request owned by the active turn.
+abstract interface class HarnessToolApprovalResponder {
+  bool canResolveToolApproval({required String turnId, required String requestId});
+
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved});
 }
 
 typedef ContextualMemoryToolHandler = Future<Map<String, dynamic>> Function(

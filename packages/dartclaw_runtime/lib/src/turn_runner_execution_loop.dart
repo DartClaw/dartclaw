@@ -58,6 +58,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       loopAction: _loopAction,
       buildSnapshot: buildSnapshot,
       emitProgressEvent: _progressController.add,
+      redactor: _redactor,
       onLoopAbort: (detection) {
         _loopDetectedTurns[turnId] = detection;
         unawaited(cancelTurnById(sessionId, turnId, TurnCancelReason.automationCancel, enforceCanCancel: false));
@@ -84,14 +85,25 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         _progressController.add(TextDeltaProgressEvent(snapshot: buildSnapshot(), text: event.text));
       } else if (event is ToolUseEvent) {
         toolHooks.handleToolUse(event);
+        _enqueueToolHistoryEvent(sessionId, turnId, event);
       } else if (event is ToolResultEvent) {
         toolHooks.handleToolResult(event);
+        _enqueueToolHistoryEvent(sessionId, turnId, event);
       } else if (event is ToolApprovalWaitEvent) {
         pendingApprovalIds.add(event.requestId);
         recordActivity(TurnWaitReason.toolApproval);
+        if (event.operatorActionable) {
+          unawaited(_publishToolApprovalRequest(sessionId: sessionId, turnId: turnId, event: event));
+        }
       } else if (event is ToolApprovalResolvedEvent) {
         pendingApprovalIds.remove(event.requestId);
         recordActivity(TurnWaitReason.unknown);
+        if (event.approved != null) {
+          unawaited(
+            _toolApprovalClosed?.call(sessionId, turnId, event.requestId, event.approved!, event.expired) ??
+                Future<void>.value(),
+          );
+        }
       } else if (event is ProviderProgressBridgeEvent) {
         recordActivity(TurnWaitReason.providerTurn);
         _resetService?.touchActivity(sessionId);
@@ -167,6 +179,11 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         late final TurnResult result;
         try {
           if (_worker case final HarnessTurnContextSink sink) {
+            final session = await _sessions?.getSession(sessionId);
+            final allowOperatorApproval =
+                turnCtx?.isHumanInput == true &&
+                source == 'web' &&
+                (session?.type == SessionType.user || session?.type == SessionType.main);
             sink.setTurnContext(
               HarnessTurnContext(
                 sessionId: sessionId,
@@ -176,6 +193,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
                 turnTimeout: effectiveTurnTimeout > Duration.zero
                     ? effectiveTurnTimeout + const Duration(seconds: 60)
                     : Duration.zero,
+                allowOperatorApproval: allowOperatorApproval,
               ),
             );
           }
@@ -457,6 +475,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       statusTickTimer?.cancel();
       turnTimeoutTimer?.cancel();
       await eventSub.cancel();
+      await _toolHistoryWrites;
       final activeStillThisTurn = _activeTurns[sessionId]?.turnId == turnId;
       final cancelCleanupPending = _acceptedCancelCleanupPending.contains(turnId);
       if (activeStillThisTurn) {
@@ -509,5 +528,43 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       }
       _acceptedCancelCleanupPending.remove(turnId);
     }
+  }
+
+  Future<void> _publishToolApprovalRequest({
+    required String sessionId,
+    required String turnId,
+    required ToolApprovalWaitEvent event,
+  }) async {
+    final observer = _toolApprovalRequested;
+    final expiresAt = event.expiresAt;
+    if (observer == null || expiresAt == null) {
+      await resolveToolApproval(turnId: turnId, requestId: event.requestId, approved: false);
+      return;
+    }
+    try {
+      await observer(
+        RuntimeToolApprovalRequest(
+          sessionId: sessionId,
+          turnId: turnId,
+          requestId: event.requestId,
+          action: event.toolName,
+          target: event.input,
+          expiresAt: expiresAt,
+        ),
+      );
+    } catch (error, stackTrace) {
+      TurnRunner._log.warning('Failed to retain runtime approval ${event.requestId}', error, stackTrace);
+      await resolveToolApproval(turnId: turnId, requestId: event.requestId, approved: false);
+    }
+  }
+
+  void _enqueueToolHistoryEvent(String sessionId, String turnId, BridgeEvent event) {
+    _toolHistoryWrites = _toolHistoryWrites.then((_) async {
+      try {
+        await _toolHistoryObserved?.call(sessionId, turnId, event);
+      } catch (error, stackTrace) {
+        TurnRunner._log.warning('Failed to retain tool history for turn $turnId', error, stackTrace);
+      }
+    });
   }
 }

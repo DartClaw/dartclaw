@@ -49,8 +49,40 @@ class SessionService {
     String? securityProfile,
     ExecutionMode? executionMode,
     AgentWorkspace? workspace,
+  }) => createSessionWithIdentity(
+    id: _uuid.v4(),
+    type: type,
+    channelKey: channelKey,
+    provider: provider,
+    securityProfile: securityProfile,
+    executionMode: executionMode,
+    workspace: workspace,
+  );
+
+  /// Creates a session with a caller-reserved stable identity, or returns the
+  /// identical session when recovery repeats the same creation.
+  Future<Session> createSessionWithIdentity({
+    required String id,
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
-    final id = _uuid.v4();
+    if (!isValidUuid(id)) throw ArgumentError.value(id, 'id', 'must be a UUID');
+    final existing = await getSession(id);
+    if (existing != null) {
+      if (existing.type != type ||
+          existing.channelKey != channelKey ||
+          existing.provider != provider ||
+          existing.securityProfile != securityProfile ||
+          existing.executionMode != executionMode ||
+          existing.workspace != workspace) {
+        throw StateError('Session identity is already in use: $id');
+      }
+      return existing;
+    }
     final dir = Directory(p.join(baseDir, id));
     await dir.create(recursive: true);
 

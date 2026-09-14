@@ -177,9 +177,25 @@
         "S01",
         "S03"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s04-inspectable-and-recoverable-history.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11"
+      ],
+      "verified": {
+        "at": "2026-09-14T18:03Z",
+        "summary": "Worktree focused166 passed, affected analysis clean, format2018/0; one independent FAIL3HIGH1MEDIUM repaired. Main integration focused63 passed, affected analysis clean, format2022/0, diff clean. Heavy browser/visual/provider/crash-process/build/Docker/PostgreSQL/broad proofs explicitly UNEXECUTED until final gate."
+      },
       "owner": "codex/0.27-s04-history",
       "scope": "History remains stable to read across streaming/paging/reconnect, retains redacted tool details and partial output, resolves exact runtime approval requests once, and supports linked retry/edit/fork without destroying source history. Cover E3/E4/E5, Q2/Q3/Q7 and history/approval portions of Q6/Q9; retain eligibility and context/attachment boundaries. Own the retained shared tool/workflow-step disclosure correction (C09).",
       "sourceRefs": [
@@ -225,10 +241,10 @@
       "dependsOn": [
         "S04"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s06-conversation-inbox-and-attention.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "codex/0.27-s06-inbox",
       "scope": "The flat inbox keeps stable order and distinct read/draft/attention/settled/archive state, with bounded lists, meaningful filters, keyboard resizing and a persistent attention center tied to actual requests/results. Cover E6/Q8 and the multi-viewer and triage portions of Q6/Q10; local drafts remain discoverable after remote settling. Own muted disabled status (D14) and per-source outage-notice deduplication/recovery (C06).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr7-inbox-lifecycle-and-attention",

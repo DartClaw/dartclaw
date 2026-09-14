@@ -22,6 +22,7 @@ import 'session/session_reset_service.dart';
 import 'turn_governance_enforcer.dart';
 import 'turn_guard_evaluator.dart';
 import 'turn_manager.dart';
+import 'runtime_tool_history.dart';
 import 'turn_liveness_tracker.dart';
 import 'turn_wait_status.dart';
 
@@ -106,11 +107,48 @@ class TurnRunner implements core.TurnRunner {
   final Set<String> _recoveredSessions = {};
   final Map<String, TurnLivenessTracker> _runtimeWaits = {};
   final Map<String, ({TurnLimitBreach breach, Duration budget})> _limitBreaches = {};
+  RuntimeToolApprovalRequested? _toolApprovalRequested;
+  RuntimeToolApprovalClosed? _toolApprovalClosed;
+  RuntimeToolHistoryObserved? _toolHistoryObserved;
+  Future<void> _toolHistoryWrites = Future<void>.value();
 
   /// Installs the coordinator-owned observer for terminal turn outcomes.
   @internal
   void setOutcomeObserver(void Function(TurnOutcome outcome)? observer) {
     _outcomeObserver = observer;
+  }
+
+  void setToolApprovalObservers({
+    required RuntimeToolApprovalRequested? requested,
+    required RuntimeToolApprovalClosed? closed,
+  }) {
+    _toolApprovalRequested = requested;
+    _toolApprovalClosed = closed;
+  }
+
+  void setToolHistoryObserver(RuntimeToolHistoryObserved? observer) {
+    _toolHistoryObserved = observer;
+  }
+
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved}) async {
+    final active = _activeTurns.values.where((context) => context.turnId == turnId).firstOrNull;
+    if (active == null) throw StateError('Approval turn is no longer active');
+    final worker = _worker;
+    if (worker is! HarnessToolApprovalResponder) {
+      throw StateError('Active provider does not expose runtime approval responses');
+    }
+    await (worker as HarnessToolApprovalResponder).resolveToolApproval(
+      turnId: turnId,
+      requestId: requestId,
+      approved: approved,
+    );
+  }
+
+  bool canResolveToolApproval({required String turnId, required String requestId}) {
+    if (!_activeTurns.values.any((context) => context.turnId == turnId)) return false;
+    final worker = _worker;
+    return worker is HarnessToolApprovalResponder &&
+        (worker as HarnessToolApprovalResponder).canResolveToolApproval(turnId: turnId, requestId: requestId);
   }
 
   new({

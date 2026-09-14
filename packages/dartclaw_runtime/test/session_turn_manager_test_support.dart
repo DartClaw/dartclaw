@@ -37,6 +37,7 @@ class FakeTurnManager extends TurnManager {
   List<Map<String, dynamic>>? lastExecuteMessages;
   final List<String> resetContinuitySessionIds = [];
   bool reserveCalled = false;
+  int executeCallCount = 0;
 
   void setBusy() {
     _busy = true;
@@ -85,6 +86,7 @@ class FakeTurnManager extends TurnManager {
     String? source,
     String agentName = 'main',
   }) {
+    executeCallCount += 1;
     lastExecuteMessages = messages;
   }
 

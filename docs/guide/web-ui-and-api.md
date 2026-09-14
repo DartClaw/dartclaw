@@ -40,6 +40,13 @@ The interface has three main areas:
 - **Active turns**: Drafting remains available while a turn runs. **Queue** accepts the draft in order, **Steer** stops the displayed turn and sends the follow-up after cancellation is confirmed, and **Stop** cancels only the displayed turn. Failed, cancelled, stopped, and restart-recovered work holds queued items for an explicit **Send next queued message** action.
 - **Streaming**: Responses appear in real-time as the agent generates them
 - **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
+- **Retained history**: The page loads at most 200 visible messages at a time. Earlier pages and `?message=<id>` deep links
+  keep a stable message anchor while tool arguments, partial or terminal results, elapsed time, and linked branches remain
+  attached to their owning attempt.
+- **Recovery**: Copy preserves the whole displayed message. Retry starts one linked attempt from an unchanged failed or
+  cancelled input; edit-and-continue and fork create a linked conversation. These actions do not undo external tool effects.
+- **Runtime approval**: An approval card is actionable only while the exact provider request and owning web turn are live.
+  Expired, restarted, unsupported, mismatched, and hard-guarded requests remain visible as unavailable or blocked.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
 - **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
@@ -231,11 +238,37 @@ PATCH /api/sessions/:id/queue/:queue_id
 DELETE /api/sessions/:id/queue/:queue_id
 POST /api/sessions/:id/queue/release
 POST /api/sessions/:id/steer
+GET /api/sessions/:id/messages?count=200&before_cursor=<cursor>
+GET /api/sessions/:id/messages?count=200&around_message_id=<message_id>
+POST /api/sessions/:id/approvals/:request_id
+POST /api/sessions/:id/attempts/:attempt_id/retry
+POST /api/sessions/:id/messages/:message_id/branch
 ```
 
 The snapshot is the authority for submission, attempt, and queue state. Each persisted mutation advances its `revision`; clients include that revision when editing, removing, or releasing a queue item. A stale mutation returns the current snapshot without changing accepted work. Queue editing preserves its accepted attachment handles. Release sends only the oldest held item when no active or uncertain dispatch blocks it. Steer performs confirmed stop followed by ordinary admission.
 
 Its `activity` projection reads the latest retained message identity and current turn status from the existing message and turn authorities. Channel and cron sessions set `ordinary_controls` to false: their existing admission and Stop behavior remains available, while browser Queue and Steer actions are not offered.
+
+History `count` is 1–200. Filtering by the conversation visibility snapshot happens before the storage reader fills the
+window. `before_cursor` pages backward; `around_message_id` returns a bounded deep-link window and an explicit target
+state. They cannot be combined.
+
+Approval decisions require `attempt_id`, `turn_id`, and `decision` (`approve` or `reject`). Two viewers addressing the
+same live request receive its one terminal decision, while only one response reaches the provider. A request without an
+exact active provider owner returns `APPROVAL_UNAVAILABLE`. Operator approval is offered only for ordinary human web
+turns: Codex must be configured with `approval: on-request`; Claude must use an explicit native `permissionMode` that
+can emit `can_use_tool` (`default`, `acceptEdits`, or `plan`). Claude `PreToolUse` callbacks remain automatic guard
+evaluation. Background, channel, task, cron, workflow, ACP, Claude `dontAsk`/`bypassPermissions`, and other Codex
+approval modes do not expose these cards.
+
+Retry requires a stable `mutation_id`. Branch creation also requires `mutation_id`, plus `kind` (`edit` or `fork`) and
+an edited message for `edit`. Repeating an accepted mutation returns the same linked attempt or destination. Rejected,
+stale, read-only, and ineligible requests leave source messages, files, and provider state unchanged.
+
+Branch creation resolves the destination from the server's current configured agent and execution policy. A removed or
+changed workspace binding makes a new branch unavailable instead of reviving the source session's stale provider or
+workspace metadata. The mutation reserves its destination identity before copying history or admitting an edited turn,
+so retry after an interrupted write resumes the same destination.
 
 #### Turn status
 

@@ -38,10 +38,41 @@ class InMemorySessionService implements SessionService {
     String? securityProfile,
     ExecutionMode? executionMode,
     AgentWorkspace? workspace,
+  }) => createSessionWithIdentity(
+    id: _createId(),
+    type: type,
+    channelKey: channelKey,
+    provider: provider,
+    securityProfile: securityProfile,
+    executionMode: executionMode,
+    workspace: workspace,
+  );
+
+  @override
+  Future<Session> createSessionWithIdentity({
+    required String id,
+    SessionType type = SessionType.user,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
+    final existing = _sessionsById[id];
+    if (existing != null) {
+      if (existing.type != type ||
+          existing.channelKey != channelKey ||
+          existing.provider != provider ||
+          existing.securityProfile != securityProfile ||
+          existing.executionMode != executionMode ||
+          existing.workspace != workspace) {
+        throw StateError('Session identity is already in use: $id');
+      }
+      return existing;
+    }
     final now = DateTime.now();
     final session = Session(
-      id: _createId(),
+      id: id,
       type: type,
       channelKey: channelKey,
       provider: provider,

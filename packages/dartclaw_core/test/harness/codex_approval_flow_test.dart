@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/src/bridge/bridge_events.dart';
+import 'package:dartclaw_core/src/harness/agent_harness.dart';
 import 'package:dartclaw_core/src/harness/canonical_tool.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_core/src/harness/codex_protocol_adapter.dart';
@@ -14,6 +16,7 @@ CodexHarness _buildHarness({
   required FakeCodexProcess process,
   GuardChain? guardChain,
   Map<String, String>? environment,
+  Map<String, dynamic>? providerOptions,
   Map<String, CanonicalTool> ownMcpToolCanonicals = const {},
 }) {
   return CodexHarness(
@@ -23,6 +26,7 @@ CodexHarness _buildHarness({
     commandProbe: defaultCommandProbe,
     delayFactory: noOpDelay,
     environment: environment ?? const {'OPENAI_API_KEY': 'sk-test-key'},
+    providerOptions: providerOptions,
     guardChain: guardChain,
     adapter: CodexProtocolAdapter(ownMcpToolCanonicals: ownMcpToolCanonicals),
   );
@@ -65,10 +69,19 @@ void main() {
       final harness = _buildHarness(
         process: fake,
         guardChain: GuardChain(guards: [guard]),
+        providerOptions: const {'approval': 'on-request'},
         ownMcpToolCanonicals: const {'memory_apply': CanonicalTool.memoryApply},
       );
       addTearDown(() async => harness.dispose());
       await startHarness(harness, fake);
+      harness.setTurnContext(
+        const HarnessTurnContext(
+          sessionId: 'sess-current-approvals',
+          turnId: 'background-turn',
+          source: 'cron',
+          agentName: 'main',
+        ),
+      );
 
       final turnFuture = harness.turn(
         sessionId: 'sess-current-approvals',
@@ -142,6 +155,82 @@ void main() {
         'action': 'accept',
         'content': null,
         '_meta': null,
+      });
+    });
+
+    test('on-request ordinary web approval waits for one exact host response', () async {
+      final fake = FakeCodexProcess(completeExitOnKill: true);
+      final harness = _buildHarness(
+        process: fake,
+        guardChain: GuardChain(guards: [RecordingGuard()]),
+        providerOptions: const {'approval': 'on-request'},
+      );
+      addTearDown(() async => harness.dispose());
+      await startHarness(harness, fake);
+      harness.setTurnContext(
+        const HarnessTurnContext(
+          sessionId: 'sess-operator',
+          turnId: 'host-turn',
+          source: 'web',
+          agentName: 'main',
+          allowOperatorApproval: true,
+        ),
+      );
+      final events = <BridgeEvent>[];
+      final subscription = harness.events.listen(events.add);
+      addTearDown(subscription.cancel);
+
+      final turnFuture = harness.turn(
+        sessionId: 'sess-operator',
+        messages: [
+          {'role': 'user', 'content': 'run one command'},
+        ],
+        systemPrompt: 'test',
+      );
+      await Future<void>.delayed(Duration.zero);
+      await respondToLatestThreadStart(fake);
+      fake.emitApprovalRequest(
+        requestId: 'operator-request',
+        toolUseId: 'operator-tool',
+        toolName: 'command_execution',
+        extraParams: {
+          'tool_input': {'command': 'git status'},
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(fake.sentMessages.where((message) => message['id'] == 'operator-request'), isEmpty);
+      expect(
+        events,
+        contains(
+          isA<ToolApprovalWaitEvent>()
+              .having((event) => event.requestId, 'requestId', 'operator-request')
+              .having((event) => event.operatorActionable, 'operatorActionable', isTrue),
+        ),
+      );
+      expect(harness.canResolveToolApproval(turnId: 'host-turn', requestId: 'operator-request'), isTrue);
+
+      await harness.resolveToolApproval(turnId: 'host-turn', requestId: 'operator-request', approved: true);
+      expect(harness.canResolveToolApproval(turnId: 'host-turn', requestId: 'operator-request'), isFalse);
+      expect(fake.sentMessages.singleWhere((message) => message['id'] == 'operator-request')['result'], {
+        'approved': true,
+      });
+      fake.emitApprovalRequest(
+        requestId: 'operator-close',
+        toolUseId: 'operator-close-tool',
+        toolName: 'command_execution',
+        extraParams: {
+          'tool_input': {'command': 'git diff'},
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(harness.canResolveToolApproval(turnId: 'host-turn', requestId: 'operator-close'), isTrue);
+      fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      await turnFuture;
+      expect(harness.canResolveToolApproval(turnId: 'host-turn', requestId: 'operator-close'), isFalse);
+      expect(fake.sentMessages.singleWhere((message) => message['id'] == 'operator-close')['result'], {
+        'approved': false,
+        'reason': 'Approval request closed with the turn',
       });
     });
 
@@ -447,9 +536,19 @@ void main() {
       final harness = _buildHarness(
         process: fake,
         guardChain: GuardChain(guards: [guard]),
+        providerOptions: const {'approval': 'on-request'},
       );
       addTearDown(() async => harness.dispose());
       await startHarness(harness, fake);
+      harness.setTurnContext(
+        const HarnessTurnContext(
+          sessionId: 'sess-block',
+          turnId: 'guarded-turn',
+          source: 'web',
+          agentName: 'main',
+          allowOperatorApproval: true,
+        ),
+      );
 
       final turnFuture = harness.turn(
         sessionId: 'sess-block',
@@ -476,6 +575,7 @@ void main() {
       final denyResponse = fake.sentMessages.singleWhere((message) => message['id'] == 'deny-1');
       expect(denyResponse['jsonrpc'], '2.0');
       expect(denyResponse['result'], {'approved': false, 'reason': 'Blocked by test guard'});
+      expect(harness.canResolveToolApproval(turnId: 'guarded-turn', requestId: 'deny-1'), isFalse);
     });
 
     test('evaluates every exact file change and declines unknown kinds', () async {

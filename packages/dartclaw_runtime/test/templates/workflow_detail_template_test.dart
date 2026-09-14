@@ -154,6 +154,15 @@ void main() {
     }
   });
 
+  test('native disclosures expose truthful keyboard and ARIA state', () {
+    final source = templateLoader.source('workflow_detail');
+    expect(source, contains('<button type="button" class="pipeline-step-name t-heading" data-step-toggle=""'));
+    expect(source, contains('aria-expanded="false"'));
+    expect(source, contains("tl:attr=\"aria-controls='step-detail-' + \${step.index}\""));
+    expect(source, contains("tl:attr=\"id='step-detail-' + \${step.index}\" hidden"));
+    expect(source, isNot(contains('role="button"')));
+  });
+
   Map<String, dynamic> makeRun({
     String id = 'run-001',
     String definitionName = 'spec-and-implement',

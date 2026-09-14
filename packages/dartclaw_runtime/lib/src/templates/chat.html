@@ -1,32 +1,38 @@
-<div tl:fragment="userMessage" class="msg msg-user print-in">
+<div tl:fragment="userMessage" class="msg msg-user print-in" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
   <div class="msg-role"><span tl:if="${hasSenderName}" tl:text="${senderName}">Alice</span><span tl:unless="${hasSenderName}">You</span></div>
   <div class="msg-content"><p tl:text="${content}">Message</p></div>
   <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
+  <div class="msg-meta"><time tl:if="${hasTimestamp}" tl:attr="datetime=${fullTimestamp},title=${fullTimestamp}" tl:text="${timestamp}">time</time><button type="button" class="btn btn-ghost msg-copy" data-copy-message aria-label="Copy whole message">Copy</button><button type="button" class="btn btn-ghost" data-history-action="edit" tl:attr="data-source-attempt-id=${sourceAttemptId},disabled=${editAvailable ? null : 'disabled'},title=${editAvailable ? 'Create a new conversation from this edited prompt' : 'Edit is available after this prompt completes'}">Edit and continue</button><button type="button" class="btn btn-ghost" data-history-action="fork" tl:attr="disabled=${forkAvailable ? null : 'disabled'},title=${forkAvailable ? 'Create a linked conversation through this message' : 'Fork is available after this message completes'}">Fork from here</button><button tl:if="${hasSourceAttempt}" type="button" class="btn btn-ghost" data-history-action="retry" tl:attr="data-source-attempt-id=${sourceAttemptId},disabled=${retryAvailable ? null : 'disabled'},title=${retryAvailable ? 'Start a new attempt from the retained input' : 'Retry is available only for failed or cancelled attempts'}">Retry</button></div>
 </div>
 
-<div tl:fragment="assistantMessage" class="msg msg-assistant print-in">
+<div tl:fragment="assistantMessage" class="msg msg-assistant print-in" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
   <div class="msg-role">Assistant</div>
   <div class="msg-content" data-markdown="" tl:text="${content}">Response</div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
+  <div class="msg-meta"><time tl:if="${hasTimestamp}" tl:attr="datetime=${fullTimestamp},title=${fullTimestamp}" tl:text="${timestamp}">time</time><button type="button" class="btn btn-ghost msg-copy" data-copy-message aria-label="Copy whole message">Copy</button><button type="button" class="btn btn-ghost" data-history-action="fork" tl:attr="disabled=${forkAvailable ? null : 'disabled'},title=${forkAvailable ? 'Create a linked conversation through this message' : 'Fork is available after this message completes'}">Fork from here</button></div>
 </div>
 
-<div tl:fragment="guardBlock" class="msg msg-guard-block">
+<div tl:fragment="guardBlock" class="msg msg-guard-block" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
   <div class="guard-block-header">
     <span class="guard-block-icon icon icon-shield-alert" aria-hidden="true"></span>
     <span class="guard-block-label">GUARD BLOCKED</span>
   </div>
   <div class="guard-block-reason" tl:text="${detail}">Blocked</div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
 </div>
 
-<div tl:fragment="turnFailed" class="msg msg-turn-failed">
+<div tl:fragment="turnFailed" class="msg msg-turn-failed" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
   <div class="msg-turn-failed-header">
     <span class="msg-turn-failed-icon icon icon-triangle-alert" aria-hidden="true"></span>
     <span class="msg-turn-failed-label">Turn failed</span>
   </div>
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
 </div>
 
 <main tl:fragment="chatArea" id="main-content" tabindex="-1" class="chat-area print-in" data-controller="dc-chat dc-tasks"
-  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor}">
+  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor},data-target-message-id=${targetMessageId}">
   <div tl:if="${chatNoticeHtml}" tl:utext="${chatNoticeHtml}">session notice</div>
   <div class="chat-load-earlier">
     <button id="load-earlier-btn" type="button" class="btn btn-ghost" data-load-earlier=""
@@ -35,6 +41,7 @@
     </button>
   </div>
   <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
+  <button type="button" class="btn btn-secondary new-activity" data-jump-latest hidden>New activity · Jump to latest</button>
   <div tl:if="${hasTurnStatus}" class="turn-status-panel"
        tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
     <div class="turn-status-row">

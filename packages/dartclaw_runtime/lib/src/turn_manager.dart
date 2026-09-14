@@ -15,6 +15,7 @@ import 'execution_coordinator.dart';
 import 'execution_policy_resolver.dart';
 import 'observability/usage_tracker.dart';
 import 'session/session_reset_service.dart';
+import 'runtime_tool_history.dart';
 import 'turn_runner.dart';
 import 'turn_wait_status.dart';
 
@@ -25,6 +26,20 @@ import 'turn_wait_status.dart';
 typedef TurnStatus = core.TurnStatus;
 typedef TurnOutcome = core.TurnOutcome;
 typedef BusyTurnException = core.BusyTurnException;
+
+final class ResolvedConversationDestination {
+  final String provider;
+  final String? securityProfile;
+  final ExecutionMode executionMode;
+  final AgentWorkspace? workspace;
+
+  const new({
+    required this.provider,
+    required this.securityProfile,
+    required this.executionMode,
+    required this.workspace,
+  });
+}
 
 /// Metadata for an in-flight agent turn.
 class TurnContext {
@@ -243,6 +258,68 @@ class TurnManager implements core.TurnManager {
       if (outcome != null) return outcome;
     }
     return null;
+  }
+
+  void setToolApprovalObservers({
+    required RuntimeToolApprovalRequested? requested,
+    required RuntimeToolApprovalClosed? closed,
+  }) {
+    _executions.setToolApprovalObservers(requested: requested, closed: closed);
+  }
+
+  void setToolHistoryObserver(RuntimeToolHistoryObserved? observer) {
+    _executions.setToolHistoryObserver(observer);
+  }
+
+  ResolvedConversationDestination resolveConversationDestination(Session source) {
+    final pinned = source.workspace;
+    if (pinned == null) {
+      return ResolvedConversationDestination(
+        provider: _primary.providerId,
+        securityProfile: _primary.executionPolicy.containerProfile,
+        executionMode: _primary.executionPolicy.mode,
+        workspace: null,
+      );
+    }
+    final definition = _agentDefinitions?[pinned.agentId];
+    if (definition == null) {
+      throw StateError(
+        'Session "${source.id}" belongs to unknown agent "${pinned.agentId}". Create a new conversation.',
+      );
+    }
+    definition.requireWorkspaceAvailable();
+    AgentWorkspace.requireCurrent(
+      sessionId: source.id,
+      agentId: pinned.agentId,
+      pinned: pinned,
+      configured: definition.workspace,
+    );
+    final provider = definition.provider?.trim().isNotEmpty == true
+        ? ProviderIdentity.normalize(definition.provider!)
+        : _primary.providerId;
+    final policy = _policyResolver?.resolveForAgent(definition, providerId: provider) ?? _primary.executionPolicy;
+    return ResolvedConversationDestination(
+      provider: provider,
+      securityProfile: policy.containerProfile,
+      executionMode: policy.mode,
+      workspace: definition.workspace,
+    );
+  }
+
+  Future<void> resolveToolApproval({
+    required String sessionId,
+    required String turnId,
+    required String requestId,
+    required bool approved,
+  }) async {
+    final runner = _executions.runners.where((candidate) => candidate.isActiveTurn(sessionId, turnId)).firstOrNull;
+    if (runner == null) throw StateError('Approval turn is no longer active');
+    await runner.resolveToolApproval(turnId: turnId, requestId: requestId, approved: approved);
+  }
+
+  bool canResolveToolApproval({required String sessionId, required String turnId, required String requestId}) {
+    final runner = _executions.runners.where((candidate) => candidate.isActiveTurn(sessionId, turnId)).firstOrNull;
+    return runner?.canResolveToolApproval(turnId: turnId, requestId: requestId) ?? false;
   }
 
   @override

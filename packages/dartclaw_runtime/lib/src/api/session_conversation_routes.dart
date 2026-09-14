@@ -165,4 +165,6 @@ Map<String, Object> _snapshotJson(String sessionId, ConversationState state) => 
   'revision': state.revision,
   'submissions': state.submissions.map((submission) => submission.toJson()).toList(growable: false),
   'queue': state.queue.map((submission) => submission.toJson()).toList(growable: false),
+  'records': state.records.map((record) => record.toJson()).toList(growable: false),
+  'branches': state.branches.map((branch) => branch.toJson()).toList(growable: false),
 };

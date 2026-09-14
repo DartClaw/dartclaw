@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 
 import '../conversation/conversation_service.dart';
 import '../concurrency/session_mutation_coordinator.dart';
+import '../auth/request_auth_context.dart';
 import '../execution_coordinator.dart';
 import '../session/session_display_title.dart';
 import '../templates/chat.dart' show richInputHtmlFromMetadataMap;
@@ -50,12 +51,111 @@ void registerSessionMessageRoutes(
         return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
 
-      final state = await sessions.getConversationState(id);
-      final list = (await messages.getMessages(id)).where((message) => state.includesMessage(message.id));
-      return jsonResponse(200, list.map(_messageToJson).toList());
+      if (request.url.queryParameters.isEmpty) {
+        final state = await sessions.getConversationState(id);
+        final list = (await messages.getMessages(id)).where((message) => state.includesMessage(message.id));
+        return jsonResponse(200, list.map(_messageToJson).toList());
+      }
+
+      final count = int.tryParse(request.url.queryParameters['count'] ?? '200');
+      final beforeCursor = request.url.queryParameters['before_cursor'];
+      if (count == null || (beforeCursor != null && int.tryParse(beforeCursor) == null)) {
+        return errorResponse(400, 'INVALID_HISTORY_WINDOW', 'History cursor or count is malformed');
+      }
+      return jsonResponse(
+        200,
+        await conversation.historyWindow(
+          id,
+          count: count,
+          beforeCursor: beforeCursor == null ? null : int.parse(beforeCursor),
+          aroundMessageId: request.url.queryParameters['around_message_id'],
+        ),
+      );
+    } on ConversationMutationException catch (e) {
+      return errorResponse(e.statusCode, e.code, e.message);
     } catch (e) {
       _log.warning('Failed to get messages for $id: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get messages');
+    }
+  });
+
+  router.post('/api/sessions/<id>/approvals/<requestId>', (Request request, String id, String requestId) async {
+    try {
+      if (!requestHasAdminAccess(request)) {
+        return errorResponse(403, 'CONVERSATION_FORBIDDEN', 'Approval resolution requires operator/admin access');
+      }
+      if (await sessions.getSession(id) == null) return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+      final parsed = await parseBodyFields(request);
+      if (parsed.error != null) return parsed.error!;
+      final fields = parsed.fields;
+      final approved = switch (fields['decision']) {
+        'approve' => true,
+        'reject' => false,
+        _ => null,
+      };
+      if (approved == null) {
+        return errorResponse(400, 'INVALID_APPROVAL_DECISION', 'decision must be approve or reject');
+      }
+      final record = await conversation.resolveApproval(
+        sessionId: id,
+        attemptId: fields['attempt_id'] ?? '',
+        turnId: fields['turn_id'] ?? '',
+        requestId: requestId,
+        approved: approved,
+      );
+      return jsonResponse(200, record.toJson());
+    } on ConversationMutationException catch (e) {
+      return errorResponse(e.statusCode, e.code, e.message);
+    }
+  });
+
+  router.post('/api/sessions/<id>/attempts/<attemptId>/retry', (Request request, String id, String attemptId) async {
+    try {
+      if (!requestHasAdminAccess(request)) {
+        return errorResponse(403, 'CONVERSATION_FORBIDDEN', 'Retry requires operator/admin access');
+      }
+      if (await sessions.getSession(id) == null) return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+      final parsed = await parseBodyFields(request);
+      if (parsed.error != null) return parsed.error!;
+      final mutationId = parsed.fields['mutation_id']?.trim() ?? '';
+      if (mutationId.isEmpty) return errorResponse(400, 'INVALID_MUTATION_ID', 'mutation_id is required');
+      final admission = await conversation.retry(sessionId: id, sourceAttemptId: attemptId, mutationId: mutationId);
+      return jsonResponse(admission.replayed ? 200 : 202, {
+        ...admission.toJson(),
+        'warning': 'Retry starts a new attempt; external tool effects from the source may repeat.',
+      });
+    } on ConversationMutationException catch (e) {
+      return errorResponse(e.statusCode, e.code, e.message);
+    }
+  });
+
+  router.post('/api/sessions/<id>/messages/<messageId>/branch', (Request request, String id, String messageId) async {
+    try {
+      if (!requestHasAdminAccess(request)) {
+        return errorResponse(403, 'CONVERSATION_FORBIDDEN', 'Branch creation requires operator/admin access');
+      }
+      if (await sessions.getSession(id) == null) return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+      final parsed = await parseBodyFields(request);
+      if (parsed.error != null) return parsed.error!;
+      final fields = parsed.fields;
+      final kind = switch (fields['kind']) {
+        'edit' => ConversationBranchKind.edit,
+        'fork' => ConversationBranchKind.fork,
+        _ => null,
+      };
+      if (kind == null) return errorResponse(400, 'INVALID_BRANCH_KIND', 'kind must be edit or fork');
+      final mutationId = fields['mutation_id']?.trim() ?? '';
+      if (mutationId.isEmpty) return errorResponse(400, 'INVALID_MUTATION_ID', 'mutation_id is required');
+      final link = await conversation.branchFromMessage(
+        sessionId: id,
+        sourceMessageId: messageId,
+        mutationId: mutationId,
+        kind: kind,
+        editedMessage: fields['message'],
+      );
+      return jsonResponse(201, link);
+    } on ConversationMutationException catch (e) {
+      return errorResponse(e.statusCode, e.code, e.message);
     }
   });
 
@@ -235,14 +335,14 @@ String _stableId(String? value) {
 // Serialization helpers
 // ---------------------------------------------------------------------------
 
-Map<String, dynamic> _messageToJson(Message m) => {
-  'id': m.id,
-  'sessionId': m.sessionId,
-  'role': m.role,
-  'content': m.content,
-  'cursor': m.cursor,
-  'metadata': m.metadata != null ? _tryParseJson(m.metadata!) : null,
-  'createdAt': m.createdAt.toIso8601String(),
+Map<String, dynamic> _messageToJson(Message message) => {
+  'id': message.id,
+  'sessionId': message.sessionId,
+  'role': message.role,
+  'content': message.content,
+  'cursor': message.cursor,
+  'metadata': message.metadata != null ? _tryParseJson(message.metadata!) : null,
+  'createdAt': message.createdAt.toIso8601String(),
 };
 
 dynamic _tryParseJson(String s) {
@@ -318,7 +418,7 @@ _parseRichInput(
         error: errorResponse(400, 'INVALID_REFERENCE', 'reference type and id are required', {'field': 'references'}),
       );
     }
-    final resolved = await _resolveReference(type: type, id: id, sessions: sessions, projects: projects);
+    final resolved = await resolveConversationReference(type: type, id: id, sessions: sessions, projects: projects);
     if (resolved.error != null) {
       return (metadata: null, turnContextMetadata: null, metadataJson: null, error: resolved.error);
     }
@@ -376,7 +476,7 @@ Map<String, dynamic> _metadataWithoutAttachmentContent(Map<String, dynamic> meta
   return copy;
 }
 
-Future<({Map<String, dynamic>? reference, Response? error})> _resolveReference({
+Future<({Map<String, dynamic>? reference, Response? error})> resolveConversationReference({
   required String type,
   required String id,
   required SessionService sessions,

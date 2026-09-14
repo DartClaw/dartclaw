@@ -12,7 +12,7 @@ while [ $# -gt 0 ]; do
     --case) CASE="${2:-}"; shift 2 ;;
     --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11 [--compare-wireframes]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history [--compare-wireframes]"
       exit 0
       ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -20,8 +20,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11) ;;
-  *) echo "--case must name fixture-self-test, q4-draft-send, q6-live-delivery, or q1-e11" >&2; exit 2 ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history) ;;
+  *) echo "--case must name fixture-self-test, q4-draft-send, q6-live-delivery, q1-e11, q2-q3-q7-history, or q2-q3-q6-q7-q9-history" >&2; exit 2 ;;
 esac
 
 EVIDENCE_ROOT="${DARTCLAW_CONVERSATION_EVIDENCE_DIR:-${REPO_ROOT}/.agent_temp/testing/conversation-loop/${CASE}}"
@@ -49,6 +49,7 @@ close_all() {
   agent-browser --session conversation-draft close >/dev/null 2>&1 || true
   agent-browser --session conversation-quota close >/dev/null 2>&1 || true
   agent-browser --session conversation-wire close >/dev/null 2>&1 || true
+  agent-browser --session conversation-history close >/dev/null 2>&1 || true
   if [ -n "${SERVER_PID}" ]; then
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
     wait "${SERVER_PID}" >/dev/null 2>&1 || true
@@ -84,6 +85,10 @@ curl -fsS -X POST -H 'content-type: application/json' -d '{}' "${BASE_URL}/api/s
 SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${EVIDENCE_ROOT}/session.json")"
 CHANNEL_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["channelSessionId"])' "${READY}")"
 CRON_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["cronSessionId"])' "${READY}")"
+HISTORY_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historySessionId"])' "${READY}")"
+HISTORY_OLD_MESSAGE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyOldMessageId"])' "${READY}")"
+HISTORY_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyApprovalRequestId"])' "${READY}")"
+HISTORY_LIVE_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["historyLiveApprovalRequestId"])' "${READY}")"
 SESSION_URL="${BASE_URL}/sessions/${SESSION_ID}"
 
 ab() {
@@ -254,11 +259,53 @@ run_q6() {
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/restart-reconciled.png"
 }
 
+run_history() {
+  local history_url="${BASE_URL}/sessions/${HISTORY_SESSION_ID}?message=${HISTORY_OLD_MESSAGE_ID}"
+  ab conversation-history open "${history_url}" >"${EVIDENCE_ROOT}/history-open.log"
+  ab conversation-history wait "[data-message-id='${HISTORY_OLD_MESSAGE_ID}']"
+  assert_eval conversation-history "(async () => { const target=document.querySelector('[data-message-id=\"${HISTORY_OLD_MESSAGE_ID}\"]'); const rows=[...document.querySelectorAll('#messages [data-message-id]')]; if(!target || rows.length>200) throw new Error('bounded deep-link window failed'); if(target.getAttribute('tabindex')!=='-1') throw new Error('deep-link target cannot receive focus'); const around=await fetch('/api/sessions/${HISTORY_SESSION_ID}/messages?count=200&around_message_id=${HISTORY_OLD_MESSAGE_ID}').then(r=>r.json()); if(!Array.isArray(around.messages) || around.messages.length>200 || !around.messages.some(m=>m.id==='${HISTORY_OLD_MESSAGE_ID}')) throw new Error('bounded around API failed'); if(new Set(rows.map(row=>row.dataset.messageId)).size!==rows.length) throw new Error('history identities duplicated'); return {rendered:rows.length,around:around.messages.length,target:'${HISTORY_OLD_MESSAGE_ID}'} })()"
+  assert_eval conversation-history "(() => { const details=document.querySelector('details[data-tool-id]'); if(!details || !details.querySelector('summary') || !details.textContent.includes('partial fixture result')) throw new Error('retained tool disclosure missing'); details.open=true; details.querySelector('summary').focus(); const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); c.captureHistoryViewState(); c.persistHistoryViewState(); return {tool:details.dataset.toolId,state:details.dataset.state} })()"
+  ab conversation-history reload
+  ab conversation-history wait "[data-message-id='${HISTORY_OLD_MESSAGE_ID}']"
+  assert_eval conversation-history "(() => { const details=document.querySelector('details[data-tool-id]'); if(!details?.open) throw new Error('disclosure state did not survive reload'); const card=document.querySelector('[data-approval-request-id=\"${HISTORY_APPROVAL_ID}\"]'); if(!card || card.dataset.state!=='unavailable' || card.querySelectorAll('[data-approval-decision]').length!==0) throw new Error('stale approval was not rendered unavailable'); return true })()"
+  assert_eval conversation-history "(async () => { const card=document.querySelector('[data-approval-request-id=\"${HISTORY_APPROVAL_ID}\"]'); const response=await fetch('/api/sessions/${HISTORY_SESSION_ID}/approvals/${HISTORY_APPROVAL_ID}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({attempt_id:card.querySelector('[data-approval-attempt-id]').dataset.approvalAttemptId,turn_id:card.querySelector('[data-approval-turn-id]').dataset.approvalTurnId,decision:'approve'})}); const body=await response.json(); if(response.status!==409 || body.error?.code!=='APPROVAL_UNAVAILABLE') throw new Error('stale provider approval was not unavailable'); return body.error })()"
+  assert_eval conversation-history "(async () => { const response=await fetch('/api/sessions/${HISTORY_SESSION_ID}/send',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({submission_id:'history-live-browser',revision_id:'history-live-browser-r1',message:'Live history approval proof'})}); const body=await response.json(); if(response.status!==202 || !body.attempt_id || !body.turn_id) throw new Error('live history turn was not admitted'); sessionStorage.setItem('history-live-attempt',body.attempt_id); sessionStorage.setItem('history-live-turn',body.turn_id); return body })()"
+  ab conversation-history open "${BASE_URL}/sessions/${HISTORY_SESSION_ID}"
+  ab conversation-history wait "[data-approval-request-id='${HISTORY_LIVE_APPROVAL_ID}']"
+  assert_eval conversation-history "(async () => { const card=document.querySelector('[data-approval-request-id=\"${HISTORY_LIVE_APPROVAL_ID}\"]'); const approve=card?.querySelector('[data-approval-decision=approve]'); if(!approve) throw new Error('live approval control missing'); approve.focus(); if(document.activeElement!==approve) throw new Error('exact approval control did not receive focus'); const payload={attempt_id:sessionStorage.getItem('history-live-attempt'),turn_id:sessionStorage.getItem('history-live-turn'),decision:'approve'}; const request=()=>fetch('/api/sessions/${HISTORY_SESSION_ID}/approvals/${HISTORY_LIVE_APPROVAL_ID}',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}); const responses=await Promise.all([request(),request()]); const bodies=await Promise.all(responses.map(r=>r.json())); if(responses.some(r=>!r.ok) || bodies.some(b=>b.state!=='approved')) throw new Error('competing live approval decisions did not converge'); const fixture=await fetch('/fixture/history-state').then(r=>r.json()); if(fixture.approvalResponses!==1 || fixture.lastApproved!==true) throw new Error('provider received duplicate or wrong approval'); const state=await fetch('/api/sessions/${HISTORY_SESSION_ID}/conversation-state').then(r=>r.json()); const tool=state.records.find(r=>r.id==='history-live-tool'); if(!tool || tool.state!=='succeeded' || tool.result!=='live fixture result') throw new Error('live tool events were not retained'); return {responses:bodies.map(b=>b.state),fixture,tool} })()"
+  assert_eval conversation-history "(async () => { const state=await fetch('/api/sessions/${HISTORY_SESSION_ID}/conversation-state').then(r=>r.json()); const source=state.submissions.find(item=>item.attemptId==='history-fixture-attempt'); if(!source) throw new Error('recovery source missing'); const mutation='history-browser-fork'; const fork=await fetch('/api/sessions/${HISTORY_SESSION_ID}/messages/'+encodeURIComponent(source.messageId)+'/branch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mutation_id:mutation,kind:'fork'})}); const linked=await fork.json(); if(!fork.ok || linked.sourceMessageId!==source.messageId || linked.destinationSessionId==='${HISTORY_SESSION_ID}') throw new Error('fork lineage failed'); const replay=await fetch('/api/sessions/${HISTORY_SESSION_ID}/messages/'+encodeURIComponent(source.messageId)+'/branch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mutation_id:mutation,kind:'fork'})}); const replayBody=await replay.json(); if(!replay.ok || replayBody.destinationSessionId!==linked.destinationSessionId) throw new Error('fork idempotency failed'); const destination=await fetch('/sessions/'+linked.destinationSessionId).then(r=>r.text()); if(!destination.includes('fixture.txt') || !destination.includes('Fixture conversation')) throw new Error('fork destination lost retained rich input'); const edit=await fetch('/api/sessions/${HISTORY_SESSION_ID}/messages/'+encodeURIComponent(source.messageId)+'/branch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mutation_id:'history-browser-edit',kind:'edit',message:'Edited retained browser prompt'})}); const edited=await edit.json(); if(!edit.ok || edited.destinationSessionId===linked.destinationSessionId) throw new Error('edit destination failed'); const editPage=await fetch('/sessions/'+edited.destinationSessionId).then(r=>r.text()); if(!editPage.includes('Edited retained browser prompt') || !editPage.includes('fixture.txt') || !editPage.includes('Fixture conversation')) throw new Error('edit destination lost text or rich input'); return {fork:linked,edit:edited} })()"
+  restart_server
+  ab conversation-history open "${BASE_URL}/sessions/${HISTORY_SESSION_ID}"
+  ab conversation-history wait "[data-approval-request-id='${HISTORY_LIVE_APPROVAL_ID}']"
+  assert_eval conversation-history "(async () => { const state=await fetch('/api/sessions/${HISTORY_SESSION_ID}/conversation-state').then(r=>r.json()); const approval=state.records.find(r=>r.id==='${HISTORY_LIVE_APPROVAL_ID}'); const branches=state.branches.filter(b=>b.mutationId==='history-browser-fork'||b.mutationId==='history-browser-edit'); if(approval?.state!=='approved' || branches.length!==2 || branches.some(b=>b.completed!==true)) throw new Error('restart lost approval or recovery lineage'); if(document.querySelector('[data-approval-request-id=\"${HISTORY_LIVE_APPROVAL_ID}\"] [data-approval-decision]')) throw new Error('restart replayed resolved approval controls'); return {approval:approval.state,branches} })()"
+  assert_eval conversation-history "(async () => { const state=await fetch('/api/sessions/${HISTORY_SESSION_ID}/conversation-state').then(r=>r.json()); const source=state.submissions.find(item=>item.attemptId==='history-fixture-attempt'); const before=await fetch('/api/sessions/${HISTORY_SESSION_ID}/messages').then(r=>r.json()); const response=await fetch('/api/sessions/${HISTORY_SESSION_ID}/attempts/history-fixture-attempt/retry',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mutation_id:'history-browser-retry'})}); const body=await response.json(); if(response.status!==202 || !body.warning?.includes('external tool effects') || body.attempt_id===source.attemptId) throw new Error('linked retry failed'); const after=await fetch('/api/sessions/${HISTORY_SESSION_ID}/messages').then(r=>r.json()); if(!before.some(m=>m.id===source.messageId) || !after.some(m=>m.id===source.messageId)) throw new Error('retry mutated source history'); return {sourceAttempt:source.attemptId,newAttempt:body.attempt_id} })()"
+  for width in 375 768 1440; do
+    for theme in dark light; do
+      ab conversation-history set viewport "${width}" 900
+      ab conversation-history set media "${theme}" reduced-motion
+      assert_eval conversation-history "(() => { if(document.documentElement.scrollWidth>document.documentElement.clientWidth) throw new Error('history horizontal overflow'); for(const button of document.querySelectorAll('[data-copy-message],[data-history-action],[data-approval-decision]')) { const box=button.getBoundingClientRect(); if(box.width<44 || box.height<44) throw new Error('undersized history action '+box.width+'x'+box.height); } return {width:innerWidth,theme:'${theme}'} })()"
+      ab conversation-history screenshot "${EVIDENCE_ROOT}/history-${width}-${theme}.png"
+    done
+  done
+  ab conversation-history a11y --selector '#messages' --json >"${EVIDENCE_ROOT}/history-a11y.json"
+  assert_eval conversation-history "(() => { const resources=performance.getEntriesByType('resource').filter(entry=>entry.name.includes('/api/sessions/${HISTORY_SESSION_ID}')); const longTasks=performance.getEntriesByType('longtask').map(entry=>entry.duration); return {resources:resources.map(entry=>({name:entry.name,duration:entry.duration,transferSize:entry.transferSize})),longTasks} })()"
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    agent-browser --session conversation-wire --allow-file-access open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/chat-conversation-cards.html"
+    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-history-cards.png"
+    ab conversation-history diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-history-cards.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-history-cards-diff.png" >"${EVIDENCE_ROOT}/wireframe-history-cards-comparison.txt"
+    agent-browser --session conversation-wire open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/guard-block-chat.html"
+    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-history-guard.png"
+    ab conversation-history diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-history-guard.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-history-guard-diff.png" >"${EVIDENCE_ROOT}/wireframe-history-guard-comparison.txt"
+  fi
+}
+
 case "${CASE}" in
   fixture-self-test) run_q4; run_q6 ;;
   q4-draft-send) run_q4 ;;
   q1-e11) run_q1 ;;
   q6-live-delivery) run_q6 ;;
+  q2-q3-q7-history) run_history ;;
+  q2-q3-q6-q7-q9-history) run_q6; run_history ;;
 esac
 
 echo "Evidence: ${EVIDENCE_ROOT}"

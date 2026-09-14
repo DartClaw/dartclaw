@@ -30,6 +30,14 @@ call passes the host `PreToolUse` gate. On Codex it is bounded to the approval h
 `approval: on-request`, partial under a granular approval mode, and inactive under `approval: never`, because the
 upstream approval flow deadlocks otherwise ([codex#11816](https://github.com/openai/codex/issues/11816)).
 
+The web approval card is a narrower projection of a live provider-native request. It appears only for an ordinary
+human web turn after guard evaluation succeeds: Codex requires `approval: on-request`, and Claude requires an explicit
+native `permissionMode` of `default`, `acceptEdits`, or `plan` that emits `can_use_tool`. The active harness owns the
+pending wire response; the retained conversation record only displays its exact request, turn, and attempt identity.
+Claude `PreToolUse` stays an automatic security hook, so a guard block never becomes a human approval prompt. Channel,
+cron, task, workflow, ACP, restarted turns, Claude `dontAsk`/`bypassPermissions`, and other Codex approval modes expose
+no operator decision.
+
 Provider-native plugins are trusted code. Claude may activate a skill through native hooks or inline preprocessing
 outside an ordinary tool callback; the tool filter governs the ordinary callbacks that follow, not the plugin code
 itself. Install only plugins you trust, and use `providers.claude.inherit_user_settings: false` when a host turn must

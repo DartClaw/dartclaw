@@ -57,7 +57,7 @@ String? _sandboxPermissions(String sandboxValue) => switch (sandboxValue.trim())
 };
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
-class CodexHarness extends BaseHarness {
+class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder {
   /// Codex executable path or name.
   final String executable;
 
@@ -112,6 +112,7 @@ class CodexHarness extends BaseHarness {
   String? _activeProviderSessionId;
   String? _activeThreadId;
   String? _activeTurnId;
+  final Map<String, ({String turnId, Timer timer})> _pendingOperatorApprovals = {};
 
   static const _turnResponseNotificationMethods = <String>{
     'turn/started',
@@ -428,6 +429,9 @@ class CodexHarness extends BaseHarness {
       }
       rethrow;
     } finally {
+      for (final requestId in _pendingOperatorApprovals.keys.toList(growable: false)) {
+        _declineOperatorApproval(requestId, expired: false);
+      }
       _agentMessageDeltaIds.clear();
       _threadRequest = null;
       _turnCompleter = null;
@@ -934,7 +938,11 @@ class CodexHarness extends BaseHarness {
     String? agentId,
   }) async {
     final rawToolName = data['tool_name'] as String? ?? '';
-    emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
+    final operatorActionable =
+        (activeTurnContext?.allowOperatorApproval ?? false) && _stringProviderOption('approval') == 'on-request';
+    if (!operatorActionable) {
+      emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
+    }
     final providerToolInput = Map<String, dynamic>.from(mapValue(data['tool_input']) ?? const <String, dynamic>{});
     final evaluations = rawToolName == 'file_change'
         ? _fileChangeGuardEvaluations(providerToolInput)
@@ -973,9 +981,64 @@ class CodexHarness extends BaseHarness {
       }
     }
 
+    if (operatorActionable) {
+      final context = activeTurnContext!;
+      if (_pendingOperatorApprovals.containsKey(requestId)) {
+        _tryWriteApprovalResponse(requestId, allow: false, reason: 'Duplicate approval request');
+        return;
+      }
+      final expiresAt = DateTime.now().toUtc().add(const Duration(minutes: 5));
+      final timer = Timer(expiresAt.difference(DateTime.now().toUtc()), () {
+        _declineOperatorApproval(requestId, expired: true);
+      });
+      _pendingOperatorApprovals[requestId] = (turnId: context.turnId, timer: timer);
+      emitEvent(
+        ToolApprovalWaitEvent(
+          requestId: requestId,
+          toolName: rawToolName,
+          input: providerToolInput,
+          operatorActionable: true,
+          expiresAt: expiresAt,
+        ),
+      );
+      return;
+    }
+
     if (_tryWriteApprovalResponse(requestId, allow: true)) {
       emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
     }
+  }
+
+  @override
+  bool canResolveToolApproval({required String turnId, required String requestId}) {
+    final pending = _pendingOperatorApprovals[requestId];
+    return pending?.turnId == turnId && activeTurnContext?.turnId == turnId;
+  }
+
+  @override
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved}) async {
+    final pending = _pendingOperatorApprovals[requestId];
+    if (pending == null || pending.turnId != turnId || activeTurnContext?.turnId != turnId) {
+      throw StateError('Approval request is not owned by the active Codex turn');
+    }
+    _pendingOperatorApprovals.remove(requestId);
+    pending.timer.cancel();
+    if (!_tryWriteApprovalResponse(requestId, allow: approved, reason: approved ? null : 'Rejected by operator')) {
+      throw StateError('Codex approval response could not be written');
+    }
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: approved));
+  }
+
+  void _declineOperatorApproval(String requestId, {required bool expired}) {
+    final pending = _pendingOperatorApprovals.remove(requestId);
+    if (pending == null) return;
+    pending.timer.cancel();
+    _tryWriteApprovalResponse(
+      requestId,
+      allow: false,
+      reason: expired ? 'Approval request expired' : 'Approval request closed with the turn',
+    );
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: false, expired: expired));
   }
 
   (String, Map<String, dynamic>) _guardEvaluation(String rawToolName, Map<String, dynamic> providerToolInput) {

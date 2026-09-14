@@ -769,6 +769,48 @@ void main() {
       );
       expect(events.where((event) => event.kind == ExecutionEventKind.acquired).first.request.taskId, 'task-1');
     });
+
+    test('future workers inherit tool history observers and drain terminal writes before settlement', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final observed = <BridgeEvent>[];
+      final terminalObserved = Completer<void>();
+      final allowTerminalWrite = Completer<void>();
+      fixture.coordinator.setToolHistoryObserver((sessionId, turnId, event) async {
+        expect(sessionId, 'worker-history');
+        expect(turnId, isNotEmpty);
+        observed.add(event);
+        if (event is ToolResultEvent) {
+          terminalObserved.complete();
+          await allowTerminalWrite.future;
+        }
+      });
+      final lease = await fixture.acquire(sessionId: 'worker-history', surface: ExecutionSurface.workflow);
+      final runner = lease.runner;
+      final harness = runner.harness as _TestHarness;
+      final turnId = await runner.reserveAdmittedTurn('worker-history');
+      runner.executeTurn('worker-history', turnId, const [
+        {'role': 'user', 'content': 'persist the worker tool'},
+      ]);
+      await harness.turnInvoked;
+      harness.emit(ToolUseEvent(toolName: 'worker_tool', toolId: 'worker-tool', input: const {}));
+      harness.emit(ToolResultEvent(toolId: 'worker-tool', output: 'done', isError: false));
+      await terminalObserved.future;
+      harness.completeSuccess();
+      var settled = false;
+      final outcome = runner.waitForOutcome('worker-history', turnId).then((value) {
+        settled = true;
+        return value;
+      });
+      await pumpEventQueue();
+      expect(settled, isFalse);
+      allowTerminalWrite.complete();
+      await outcome;
+      expect(settled, isTrue);
+      expect(observed.whereType<ToolUseEvent>(), hasLength(1));
+      expect(observed.whereType<ToolResultEvent>(), hasLength(1));
+      await lease.release();
+    });
   });
 }
 

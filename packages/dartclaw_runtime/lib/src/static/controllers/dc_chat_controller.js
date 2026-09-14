@@ -37,11 +37,13 @@ export default class DcChatController extends Stimulus.Controller {
     this.queueItems = new Map();
     this.paginationAnchor = null;
     this.paginationAnchorTop = null;
+    this.historyViewState = null;
     this.handleBeforeRequest = this.handleBeforeRequest.bind(this);
     this.handleFinallyRequest = this.handleFinallyRequest.bind(this);
     this.handleSseBeforeMessage = this.handleSseBeforeMessage.bind(this);
     this.handleSseClose = this.handleSseClose.bind(this);
     this.handleLoadEarlierClick = this.handleLoadEarlierClick.bind(this);
+    this.handleHistoryClick = this.handleHistoryClick.bind(this);
     this.handleTextareaInput = this.handleTextareaInput.bind(this);
     this.handleTextareaKeydown = this.handleTextareaKeydown.bind(this);
     this.handleSendButtonClick = this.handleSendButtonClick.bind(this);
@@ -53,6 +55,7 @@ export default class DcChatController extends Stimulus.Controller {
     document.body.addEventListener('htmx:sse:before:message', this.handleSseBeforeMessage);
     document.body.addEventListener('htmx:sse:close', this.handleSseClose);
     this.element.addEventListener('click', this.handleLoadEarlierClick);
+    this.element.addEventListener('click', this.handleHistoryClick);
     document.body.addEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     window.addEventListener('online', this.handleConnectivityChange);
     window.addEventListener('offline', this.handleConnectivityChange);
@@ -62,16 +65,20 @@ export default class DcChatController extends Stimulus.Controller {
     this.updateSendState();
     renderMarkdown(this.element);
     scrollToBottom(this.element, { force: true });
+    this.restoreStoredHistoryViewState();
+    this.revealHistoryTarget();
     this.initializeConversationState();
     this.initializeDraftStorage();
   }
 
   disconnect() {
+    this.storeHistoryViewState();
     document.body.removeEventListener('htmx:before:request', this.handleBeforeRequest);
     document.body.removeEventListener('htmx:finally:request', this.handleFinallyRequest);
     document.body.removeEventListener('htmx:sse:before:message', this.handleSseBeforeMessage);
     document.body.removeEventListener('htmx:sse:close', this.handleSseClose);
     this.element.removeEventListener('click', this.handleLoadEarlierClick);
+    this.element.removeEventListener('click', this.handleHistoryClick);
     document.body.removeEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     window.removeEventListener('online', this.handleConnectivityChange);
     window.removeEventListener('offline', this.handleConnectivityChange);
@@ -268,6 +275,7 @@ export default class DcChatController extends Stimulus.Controller {
       this.setSaveStatus('Submitting…');
       this.updateSendState();
     }
+    if (event.detail?.ctx?.sourceElement?.id === 'messages') this.captureHistoryViewState();
   }
 
   handleFinallyRequest(event) {
@@ -320,6 +328,7 @@ export default class DcChatController extends Stimulus.Controller {
       return;
     }
     this.updateMessagePagination(ctx);
+    if (isMessagesReload) requestAnimationFrame(() => this.restoreHistoryViewState());
     if (isLoadEarlier && this.paginationAnchor?.isConnected && this.paginationAnchorTop !== null) {
       const messages = this.element.querySelector('#messages');
       const anchor = this.paginationAnchor;
@@ -447,6 +456,247 @@ export default class DcChatController extends Stimulus.Controller {
     });
   }
 
+  handleHistoryClick(event) {
+    const jump = event.target.closest('[data-jump-latest]');
+    if (jump) {
+      scrollToBottom(this.element, { force: true });
+      jump.hidden = true;
+      return;
+    }
+    const copy = event.target.closest('[data-copy-message]');
+    if (copy) {
+      const text = copy.closest('[data-message-id]')?.querySelector('.msg-content')?.textContent || '';
+      navigator.clipboard?.writeText(text).then(() => {
+        copy.textContent = 'Copied';
+        this.announce('Message copied');
+        setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 1200);
+      }).catch(() => showToast('error', 'Could not copy message'));
+      return;
+    }
+    const approval = event.target.closest('[data-approval-decision]');
+    if (approval) {
+      this.resolveHistoryApproval(approval);
+      return;
+    }
+    const recovery = event.target.closest('[data-history-action]');
+    if (recovery) this.runHistoryAction(recovery);
+  }
+
+  resolveHistoryApproval(button) {
+    const card = button.closest('[data-approval-request-id]');
+    const identity = card?.querySelector('[data-approval-attempt-id]');
+    if (!card || !identity || !this.sessionId) return;
+    card.querySelectorAll('button').forEach((control) => { control.disabled = true; });
+    return fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/approvals/' +
+      encodeURIComponent(card.dataset.approvalRequestId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        decision: button.dataset.approvalDecision,
+        attempt_id: identity.dataset.approvalAttemptId,
+        turn_id: identity.dataset.approvalTurnId,
+      }),
+    }).then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error?.message || 'Approval is unavailable');
+      this.announce('Approval ' + payload.state);
+      await this.refreshHistoryMessages();
+    }).catch((error) => {
+      this.showRecovery(error.message);
+      this.refreshConversationState();
+    });
+  }
+
+  runHistoryAction(button) {
+    const message = button.closest('[data-message-id]');
+    if (!message || !this.sessionId) return;
+    const action = button.dataset.historyAction;
+    if (!window.confirm(action === 'retry'
+      ? 'Retry starts a new attempt. External tool effects may repeat.'
+      : 'Create linked conversation history? Files and external effects are not rolled back.')) return;
+    const mutationId = this.generateClientId();
+    const path = action === 'retry'
+      ? '/api/sessions/' + encodeURIComponent(this.sessionId) + '/attempts/' +
+        encodeURIComponent(button.dataset.sourceAttemptId) + '/retry'
+      : '/api/sessions/' + encodeURIComponent(this.sessionId) + '/messages/' +
+        encodeURIComponent(message.dataset.messageId) + '/branch';
+    let editedMessage;
+    if (action === 'edit') {
+      editedMessage = window.prompt('Edit and continue', message.querySelector('.msg-content')?.textContent || '');
+      if (!editedMessage?.trim()) return;
+    }
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(action === 'retry'
+        ? { mutation_id: mutationId }
+        : { mutation_id: mutationId, kind: action, message: editedMessage?.trim() }),
+    }).then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error?.message || 'History action is unavailable');
+      if (payload.destinationSessionId) {
+        location.assign('/sessions/' + encodeURIComponent(payload.destinationSessionId));
+      } else {
+        this.refreshConversationState();
+        return this.refreshHistoryMessages();
+      }
+    }).catch((error) => this.showRecovery(error.message));
+  }
+
+  refreshHistoryMessages() {
+    if (!this.sessionId) return Promise.resolve();
+    return htmx.ajax('GET', '/sessions/' + encodeURIComponent(this.sessionId) + '/messages-html', {
+      target: '#messages',
+      swap: 'innerHTML',
+      source: this.element.querySelector('#messages'),
+    }).then(() => renderMarkdown(this.element));
+  }
+
+  captureHistoryViewState() {
+    const messages = this.element.querySelector('#messages');
+    if (!messages) return;
+    const anchor = Array.from(messages.querySelectorAll('[data-message-id]'))
+      .find((item) => item.getBoundingClientRect().bottom >= messages.getBoundingClientRect().top);
+    this.historyViewState = {
+      anchorId: anchor?.dataset.messageId || null,
+      anchorOffset: anchor ? anchor.getBoundingClientRect().top - messages.getBoundingClientRect().top : 0,
+      disclosures: Array.from(messages.querySelectorAll('details[open][data-tool-id]'))
+        .map((item) => item.dataset.toolId),
+      focus: this.captureHistoryFocus(),
+      selection: this.captureHistorySelection(),
+    };
+  }
+
+  restoreHistoryViewState() {
+    const state = this.historyViewState;
+    this.historyViewState = null;
+    if (!state) return;
+    for (const id of state.disclosures) {
+      const detail = Array.from(this.element.querySelectorAll('details[data-tool-id]'))
+        .find((item) => item.dataset.toolId === id);
+      if (detail) detail.open = true;
+    }
+    const messages = this.element.querySelector('#messages');
+    const anchor = Array.from(messages?.querySelectorAll('[data-message-id]') || [])
+      .find((item) => item.dataset.messageId === state.anchorId);
+    if (messages && anchor) messages.scrollTop += anchor.getBoundingClientRect().top -
+      messages.getBoundingClientRect().top - state.anchorOffset;
+    this.restoreHistoryFocus(state.focus);
+    this.restoreHistorySelection(state.selection);
+  }
+
+  captureHistoryFocus() {
+    const active = document.activeElement;
+    const message = active?.closest?.('[data-message-id]');
+    if (!message) return null;
+    return {
+      messageId: message.dataset.messageId,
+      toolId: active.closest?.('[data-tool-id]')?.dataset.toolId || null,
+      approvalId: active.closest?.('[data-approval-request-id]')?.dataset.approvalRequestId || null,
+      historyAction: active.dataset?.historyAction || null,
+      approvalDecision: active.dataset?.approvalDecision || null,
+      copy: active.hasAttribute?.('data-copy-message') || false,
+    };
+  }
+
+  restoreHistoryFocus(saved) {
+    if (!saved) return;
+    const message = Array.from(this.element.querySelectorAll('[data-message-id]'))
+      .find((item) => item.dataset.messageId === saved.messageId);
+    if (!message) return;
+    let target = null;
+    if (saved.toolId) {
+      target = Array.from(message.querySelectorAll('[data-tool-id]'))
+        .find((item) => item.dataset.toolId === saved.toolId)?.querySelector('summary');
+    } else if (saved.approvalId) {
+      const card = Array.from(message.querySelectorAll('[data-approval-request-id]'))
+        .find((item) => item.dataset.approvalRequestId === saved.approvalId);
+      target = saved.approvalDecision
+        ? Array.from(card?.querySelectorAll('[data-approval-decision]') || [])
+          .find((item) => item.dataset.approvalDecision === saved.approvalDecision)
+        : card;
+    } else if (saved.historyAction) {
+      target = Array.from(message.querySelectorAll('[data-history-action]'))
+        .find((item) => item.dataset.historyAction === saved.historyAction);
+    } else if (saved.copy) {
+      target = message.querySelector('[data-copy-message]');
+    }
+    target?.focus({ preventScroll: true });
+  }
+
+  captureHistorySelection() {
+    const selection = window.getSelection?.();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    const content = range.commonAncestorContainer.parentElement?.closest?.('[data-message-id] .msg-content') ||
+      range.commonAncestorContainer.closest?.('[data-message-id] .msg-content');
+    const message = content?.closest('[data-message-id]');
+    if (!content || !message || !content.contains(range.startContainer) || !content.contains(range.endContainer)) {
+      return null;
+    }
+    const prefix = document.createRange();
+    prefix.selectNodeContents(content);
+    prefix.setEnd(range.startContainer, range.startOffset);
+    const selected = document.createRange();
+    selected.selectNodeContents(content);
+    selected.setEnd(range.endContainer, range.endOffset);
+    return { messageId: message.dataset.messageId, start: prefix.toString().length, end: selected.toString().length };
+  }
+
+  restoreHistorySelection(saved) {
+    if (!saved) return;
+    const message = Array.from(this.element.querySelectorAll('[data-message-id]'))
+      .find((item) => item.dataset.messageId === saved.messageId);
+    const content = message?.querySelector('.msg-content');
+    if (!content) return;
+    const positions = [];
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    let offset = 0;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      positions.push({ node, start: offset, end: offset + node.data.length });
+      offset += node.data.length;
+    }
+    const start = positions.find((item) => saved.start >= item.start && saved.start <= item.end);
+    const end = positions.find((item) => saved.end >= item.start && saved.end <= item.end);
+    if (!start || !end) return;
+    const range = document.createRange();
+    range.setStart(start.node, saved.start - start.start);
+    range.setEnd(end.node, saved.end - end.start);
+    const selection = window.getSelection?.();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  storeHistoryViewState() {
+    this.captureHistoryViewState();
+    if (!this.historyViewState || !this.sessionId) return;
+    sessionStorage.setItem('dartclaw:history:' + this.sessionId, JSON.stringify(this.historyViewState));
+  }
+
+  restoreStoredHistoryViewState() {
+    if (!this.sessionId) return;
+    const raw = sessionStorage.getItem('dartclaw:history:' + this.sessionId);
+    if (!raw) return;
+    try {
+      this.historyViewState = JSON.parse(raw);
+      requestAnimationFrame(() => this.restoreHistoryViewState());
+    } catch (_) {
+      sessionStorage.removeItem('dartclaw:history:' + this.sessionId);
+    }
+  }
+
+  revealHistoryTarget() {
+    const id = this.element.dataset.targetMessageId;
+    if (!id) return;
+    const target = Array.from(this.element.querySelectorAll('[data-message-id]'))
+      .find((item) => item.dataset.messageId === id);
+    if (!target) return;
+    target.tabIndex = -1;
+    target.scrollIntoView({ block: 'center' });
+    target.focus({ preventScroll: true });
+  }
+
   updateMessagePagination(ctx) {
     const headers = ctx?.response?.headers;
     if (!headers) return;
@@ -475,6 +725,10 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   async processSseMessage(sourceElement, message, stickToBottom) {
+    if (!stickToBottom) {
+      const activity = this.element.querySelector('[data-jump-latest]');
+      if (activity) activity.hidden = false;
+    }
     if (message.event === 'delta') {
       document.getElementById('streaming-msg')?.querySelector('.msg-thinking')?.remove();
       document.getElementById('streaming-content')?.classList.add('streaming');

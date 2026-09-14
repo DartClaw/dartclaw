@@ -189,6 +189,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
         if (!detail) return;
         const isHidden = detail.hidden;
         detail.hidden = !isHidden;
+        stepToggle.setAttribute('aria-expanded', String(isHidden));
         const icon = stepToggle.querySelector('.icon');
         if (icon) {
           icon.classList.toggle('icon-chevron-up', isHidden);

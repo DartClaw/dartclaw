@@ -263,20 +263,54 @@ Router webRoutes(
 
       final sidebarData = await pageContext.sidebar.build(activeSessionId: id);
       final conversationState = await sessions.getConversationState(id);
-      final visibleMessages = (await messages.getMessages(id))
-          .where((message) => conversationState.includesMessage(message.id))
-          .toList(growable: false);
-      final msgs = visibleMessages.length <= 200
-          ? visibleMessages
-          : visibleMessages.sublist(visibleMessages.length - 200);
+      final targetMessageId = request.url.queryParameters['message'];
+      late final List<Message> msgs;
+      late final bool hasEarlierMessages;
+      var targetUnavailable = false;
+      if (targetMessageId != null) {
+        try {
+          msgs = await messages.getMessagesAroundWhere(
+            id,
+            targetMessageId,
+            include: (message) => conversationState.includesMessage(message.id),
+            before: 100,
+            after: 99,
+          );
+        } on ArgumentError {
+          msgs = const [];
+        }
+        targetUnavailable = msgs.isEmpty;
+        hasEarlierMessages =
+            msgs.isNotEmpty &&
+            (await messages.getMessagesBeforeWhere(
+              id,
+              msgs.first.cursor,
+              include: (message) => conversationState.includesMessage(message.id),
+              count: 1,
+            )).isNotEmpty;
+      } else {
+        final boundedMessages = await messages.getMessagesTailWhere(
+          id,
+          include: (message) => conversationState.includesMessage(message.id),
+          count: 201,
+        );
+        hasEarlierMessages = boundedMessages.length > 200;
+        msgs = hasEarlierMessages ? boundedMessages.sublist(1) : boundedMessages;
+      }
       final messageList = msgs
           .map(
-            (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
+            (m) => classifyMessage(
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              metadata: m.metadata,
+              senderName: null,
+              createdAt: m.createdAt,
+              cursor: m.cursor,
+            ),
           )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
-      final hasEarlierMessages =
-          earliestCursor != null && visibleMessages.any((message) => message.cursor < earliestCursor);
 
       final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appName);
       final displayTitle = displaySessionTitle(session.title, session.type);
@@ -287,7 +321,12 @@ Router webRoutes(
         appName: appName,
         restartBannerHtml: restartBannerHtml(dataDir),
       );
-      final msgsHtml = messagesHtmlFragment(messageList);
+      final msgsHtml = messagesHtmlFragment(
+        messageList,
+        conversationState: conversationState,
+        approvalAvailable: (record) =>
+            turns?.canResolveToolApproval(sessionId: id, turnId: record.turnId, requestId: record.id) ?? false,
+      );
       // Restart state is persistent shell chrome and lives in the topbar slot;
       // these two are one-shot, session-scoped notices and stay page-local.
       final chatNoticeHtml = StringBuffer();
@@ -303,6 +342,12 @@ Router webRoutes(
           '<div class="banner banner-warning">This session recovered from an interrupted turn. '
           'Your conversation is intact.'
           '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button></div>',
+        );
+      }
+      if (targetUnavailable) {
+        chatNoticeHtml.write(
+          '<div class="banner banner-warning" role="status">That message is unavailable or no longer visible. '
+          '<a href="/sessions/$id">Return to the conversation</a></div>',
         );
       }
       final isArchive = session.type == SessionType.archive;
@@ -324,6 +369,7 @@ Router webRoutes(
         earliestCursor: earliestCursor,
         hasEarlierMessages: hasEarlierMessages,
         turnStatus: turnStatus?.toJson(),
+        targetMessageId: targetUnavailable ? null : targetMessageId,
       );
 
       if (wantsFragment(request)) {
@@ -352,23 +398,43 @@ Router webRoutes(
 
       final beforeCursor = int.tryParse(request.url.queryParameters['before'] ?? '');
       final state = await sessions.getConversationState(id);
-      final visibleMessages = (await messages.getMessages(id))
-          .where((message) => state.includesMessage(message.id))
-          .where((message) => beforeCursor == null || message.cursor < beforeCursor)
-          .toList(growable: false);
       final count = beforeCursor == null ? 200 : 50;
-      final msgs = visibleMessages.length <= count
-          ? visibleMessages
-          : visibleMessages.sublist(visibleMessages.length - count);
+      final boundedMessages = beforeCursor == null
+          ? await messages.getMessagesTailWhere(
+              id,
+              include: (message) => state.includesMessage(message.id),
+              count: count + 1,
+            )
+          : await messages.getMessagesBeforeWhere(
+              id,
+              beforeCursor,
+              include: (message) => state.includesMessage(message.id),
+              count: count + 1,
+            );
+      final hasEarlierMessages = boundedMessages.length > count;
+      final msgs = hasEarlierMessages ? boundedMessages.sublist(1) : boundedMessages;
       final messageList = msgs
           .map(
-            (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
+            (m) => classifyMessage(
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              metadata: m.metadata,
+              senderName: null,
+              createdAt: m.createdAt,
+              cursor: m.cursor,
+            ),
           )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
-      final hasEarlierMessages =
-          earliestCursor != null && visibleMessages.any((message) => message.cursor < earliestCursor);
-      final html = beforeCursor == null || messageList.isNotEmpty ? messagesHtmlFragment(messageList) : '';
+      final html = beforeCursor == null || messageList.isNotEmpty
+          ? messagesHtmlFragment(
+              messageList,
+              conversationState: state,
+              approvalAvailable: (record) =>
+                  turns?.canResolveToolApproval(sessionId: id, turnId: record.turnId, requestId: record.id) ?? false,
+            )
+          : '';
 
       return Response.ok(
         html,

@@ -60,6 +60,11 @@ export 'src/storage/conversation_state.dart'
     show
         SubmissionCommitState,
         ConversationWorkState,
+        ConversationRecordKind,
+        ConversationRecordState,
+        ConversationDisplayRecord,
+        ConversationBranchKind,
+        ConversationBranchLink,
         ConversationAttachmentManifest,
         ConversationSubmissionClaim,
         ConversationState;
@@ -162,6 +167,7 @@ export 'src/harness/agent_harness.dart'
         ContextualMemoryToolHandler,
         HarnessTurnContext,
         HarnessTurnContextSink,
+        HarnessToolApprovalResponder,
         PromptStrategy,
         TurnResult,
         UnsupportedHarnessCapabilityException;

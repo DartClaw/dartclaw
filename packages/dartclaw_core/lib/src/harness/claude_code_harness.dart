@@ -84,7 +84,7 @@ const _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness extends BaseHarness {
+class ClaudeCodeHarness extends BaseHarness implements HarnessToolApprovalResponder {
   final String claudeExecutable;
   final Map<String, String> _environment;
   final Map<String, String> _containerEnvironment;
@@ -146,6 +146,7 @@ class ClaudeCodeHarness extends BaseHarness {
   String? _activeTurnSessionId;
   String? _activeAgentId;
   Completer<TurnResult>? _turnCompleter;
+  final Map<String, ({String turnId, String? toolUseId, Timer timer})> _pendingOperatorApprovals = {};
   late String _processWorkingDirectory;
   late String _hostProcessWorkingDirectory;
 
@@ -504,6 +505,9 @@ class ClaudeCodeHarness extends BaseHarness {
       }
       rethrow;
     } finally {
+      for (final requestId in _pendingOperatorApprovals.keys.toList(growable: false)) {
+        _declineOperatorApproval(requestId, expired: false);
+      }
       _turnCompleter = null;
       _activeTurnSessionId = null;
       _activeAgentId = null;
@@ -1272,8 +1276,32 @@ class ClaudeCodeHarness extends BaseHarness {
           return;
         }
 
-        final allow = toolPolicy == ToolApprovalPolicy.allowAll;
         final toolUseId = data['tool_use_id'] as String?;
+        final context = activeTurnContext;
+        if (context?.allowOperatorApproval ?? false) {
+          if (_pendingOperatorApprovals.containsKey(requestId)) {
+            writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: false, toolUseId: toolUseId));
+            return;
+          }
+          final expiresAt = DateTime.now().toUtc().add(const Duration(minutes: 5));
+          final timer = Timer(expiresAt.difference(DateTime.now().toUtc()), () {
+            _declineOperatorApproval(requestId, expired: true);
+          });
+          _pendingOperatorApprovals[requestId] = (turnId: context!.turnId, toolUseId: toolUseId, timer: timer);
+          final input = mapValue(data['input']) ?? mapValue(data['tool_input']) ?? const <String, dynamic>{};
+          emitEvent(
+            ToolApprovalWaitEvent(
+              requestId: requestId,
+              toolName: stringValue(data['tool_name']) ?? 'tool',
+              input: input,
+              operatorActionable: true,
+              expiresAt: expiresAt,
+            ),
+          );
+          return;
+        }
+
+        final allow = toolPolicy == ToolApprovalPolicy.allowAll;
         writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: allow, toolUseId: toolUseId));
         return;
 
@@ -1289,6 +1317,35 @@ class ClaudeCodeHarness extends BaseHarness {
         writeJsonLine(_adapter.buildGenericResponse(requestId));
         return;
     }
+  }
+
+  @override
+  bool canResolveToolApproval({required String turnId, required String requestId}) {
+    final pending = _pendingOperatorApprovals[requestId];
+    return pending?.turnId == turnId && activeTurnContext?.turnId == turnId;
+  }
+
+  @override
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved}) async {
+    final pending = _pendingOperatorApprovals[requestId];
+    if (pending == null || pending.turnId != turnId || activeTurnContext?.turnId != turnId) {
+      throw StateError('Approval request is not owned by the active Claude turn');
+    }
+    _pendingOperatorApprovals.remove(requestId);
+    pending.timer.cancel();
+    writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: approved, toolUseId: pending.toolUseId));
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: approved));
+  }
+
+  void _declineOperatorApproval(String requestId, {required bool expired}) {
+    final pending = _pendingOperatorApprovals.remove(requestId);
+    if (pending == null) return;
+    try {
+      writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: false, toolUseId: pending.toolUseId));
+    } catch (error, stackTrace) {
+      _log.warning('Failed to decline expired Claude approval $requestId', error, stackTrace);
+    }
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: false, expired: expired));
   }
 
   void _writeSdkMcpLine(Map<String, dynamic> message) => writeJsonLine(message);

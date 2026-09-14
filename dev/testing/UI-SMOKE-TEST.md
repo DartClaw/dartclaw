@@ -159,6 +159,11 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 3. Type `@`, then dismiss the reference palette
 4. Drag or paste a small text file into the composer
 5. Start a send, then observe the streaming state
+6. Open a conversation with more than 200 messages through a `?message=<id>` deep link, then load an earlier page
+7. Open a retained tool disclosure, select text in its output, switch conversations, return, and reload
+8. Inspect a live runtime approval and an approval retained after its provider turn ended
+9. Copy a whole message, retry a failed attempt, and create edit-and-continue and fork branches
+10. Repeat the history actions at 375px, 768px, and 1440px in light and dark themes with reduced motion
 
 **Pass:**
 - Composer renders as the rich shell, not a plain textarea-only form
@@ -166,8 +171,21 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 - Attachment chip appears with filename/status and can be removed before send
 - Send/stop control switches state during streaming without layout shift
 - No horizontal overflow or iOS-scale input at mobile width
+- History is fetched and rendered in bounded windows; the deep-linked message is focused and an unavailable target is
+  named instead of silently jumping to the newest message
+- Paging, switching, SSE refresh, and reload preserve the visible anchor, open disclosure, selection, and focused action;
+  new off-screen activity exposes one labelled jump-to-latest control
+- Tool arguments, partial or terminal results, elapsed time, truncation, failure, and cancellation stay grouped under a
+  native keyboard-operable disclosure after reload
+- Only an exact live provider request exposes approval buttons. Expired, restarted, unsupported, revoked, or hard-guard
+  states are labelled unavailable or blocked and cannot forward an approval
+- Copy uses the whole stored message. Retry, edit-and-continue, and fork name that external effects are not rolled back,
+  preserve the source history, and link to one new attempt or destination under repeated activation
+- Message, tool, approval, and recovery controls remain at least 44×44 CSS px, keyboard reachable, visibly focused, and
+  free of horizontal overflow at every tested viewport and theme
 
-**Fail:** Palette inaccessible by keyboard; chips missing or stuck; send/stop state ambiguous; composer overflows on mobile
+**Fail:** Palette inaccessible by keyboard; chips missing or stuck; send/stop state ambiguous; history loses its anchor or
+selection; unavailable approvals stay actionable; recovery duplicates work; controls or content overflow on mobile
 
 ---
 

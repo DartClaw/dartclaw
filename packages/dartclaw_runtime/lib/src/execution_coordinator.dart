@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:logging/logging.dart';
 
 import 'turn_runner.dart';
+import 'runtime_tool_history.dart';
 import 'turn_wait_status.dart';
 import 'worker_capacity_gate.dart';
 
@@ -66,6 +67,9 @@ final class ExecutionCoordinator {
   var _closing = false;
   Completer<void>? _drained;
   Future<void>? _disposeFuture;
+  RuntimeToolApprovalRequested? _toolApprovalRequested;
+  RuntimeToolApprovalClosed? _toolApprovalClosed;
+  RuntimeToolHistoryObserved? _toolHistoryObserved;
 
   Stream<ExecutionEvent> get events => _events.stream;
   TurnRunner? get primary => _primary;
@@ -83,6 +87,29 @@ final class ExecutionCoordinator {
       if (seen.add(worker.runner)) result.add(worker.runner);
     }
     return List.unmodifiable(result);
+  }
+
+  void setToolApprovalObservers({
+    required RuntimeToolApprovalRequested? requested,
+    required RuntimeToolApprovalClosed? closed,
+  }) {
+    _toolApprovalRequested = requested;
+    _toolApprovalClosed = closed;
+    for (final runner in runners) {
+      runner.setToolApprovalObservers(requested: requested, closed: closed);
+    }
+  }
+
+  void setToolHistoryObserver(RuntimeToolHistoryObserved? observer) {
+    _toolHistoryObserved = observer;
+    for (final runner in runners) {
+      runner.setToolHistoryObserver(observer);
+    }
+  }
+
+  void _configureHistoryObservers(TurnRunner runner) {
+    runner.setToolApprovalObservers(requested: _toolApprovalRequested, closed: _toolApprovalClosed);
+    runner.setToolHistoryObserver(_toolHistoryObserved);
   }
 
   ExecutionSnapshot get snapshot {
@@ -215,6 +242,7 @@ final class ExecutionCoordinator {
           throw StateError('Worker factory returned a harness that did not become idle after startup');
         }
         _observeRunner(runner, _nextRunnerId++);
+        _configureHistoryObservers(runner);
         _emit(ExecutionEventKind.runnerCreated, request, ExecutionLane.worker, runner: runner);
       }
       if (_closing) {

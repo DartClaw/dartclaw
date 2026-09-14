@@ -669,6 +669,11 @@ Use a qualified POSIX host or WSL when provider sandboxing is a required boundar
 
 The axes never cross: setting `sandbox: danger-full-access` disables OS isolation but does **not** relax prompt gating, and `approval: never` does **not** change the sandbox block. Invalid values warn and fall back to the default. The raw `permissionMode`/`sandbox`/`permissions` passthrough remains available as the advanced escape hatch.
 
+Ordinary web approval cards follow actual native requests rather than the coarse provider label. For Codex they require
+`approval: on-request`. For Claude they require an explicit raw `permissionMode` of `default`, `acceptEdits`, or `plan`;
+the coarse `approval: on-request` and `unless-allow-listed` settings keep the guarded `dontAsk` host default and do not
+create a human prompt. `dontAsk`, `bypassPermissions`, background work, and unsupported providers remain non-interactive.
+
 **Note on `harness.acp.agents`:** Each `harness.acp.agents.<id>` entry registers one ACP provider identity.
 
 - Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, and `required_builtins`. `container_isolation_required` defaults to `false`. `container_profile` still selects the profile the execution policy resolves to, so on a container-enabled deployment leaving it set pins the agent to a container policy that is then refused — omit it, or pair it with an explicit `execution: host`.

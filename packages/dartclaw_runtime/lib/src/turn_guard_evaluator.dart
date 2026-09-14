@@ -128,9 +128,10 @@ class TurnToolHookCallbackHandler {
   final TurnProgressSnapshot Function() _buildSnapshot;
   final void Function(TurnProgressEvent event) _emitProgressEvent;
   final void Function(LoopDetection detection)? _onLoopAbort;
+  final MessageRedactor? _redactor;
 
   final List<ToolUseEvent> _toolEvents = [];
-  final Map<String, ({String name, String? context, DateTime startedAt})> _pendingToolCalls = {};
+  final Map<String, ({String name, String? context, String arguments, DateTime startedAt})> _pendingToolCalls = {};
   final List<ToolCallRecord> _completedToolCalls = [];
   int _toolCallCount = 0;
   int _failedToolCallCount = 0;
@@ -148,6 +149,7 @@ class TurnToolHookCallbackHandler {
     void Function()? recordProgress,
     LoopAction? loopAction,
     void Function(LoopDetection detection)? onLoopAbort,
+    MessageRedactor? redactor,
   }) : _sessionId = sessionId,
        _turnId = turnId,
        _resetService = resetService,
@@ -156,7 +158,8 @@ class TurnToolHookCallbackHandler {
        _loopAction = loopAction,
        _buildSnapshot = buildSnapshot,
        _emitProgressEvent = emitProgressEvent,
-       _onLoopAbort = onLoopAbort;
+       _onLoopAbort = onLoopAbort,
+       _redactor = redactor;
 
   List<ToolUseEvent> get toolEvents => _toolEvents;
 
@@ -187,6 +190,7 @@ class TurnToolHookCallbackHandler {
     _pendingToolCalls[event.toolId] = (
       name: event.toolName,
       context: summarizeToolInput(event.toolName, event.input),
+      arguments: _historyText(jsonEncode(event.input)),
       startedAt: DateTime.now(),
     );
     _toolCallCount += 1;
@@ -217,11 +221,14 @@ class TurnToolHookCallbackHandler {
     final durationMs = DateTime.now().difference(pending.startedAt).inMilliseconds;
     _retainCompletedToolCall(
       ToolCallRecord(
+        id: event.toolId,
         name: pending.name,
         success: !event.isError,
         durationMs: durationMs,
         errorType: event.isError ? 'tool_error' : null,
         context: pending.context,
+        arguments: pending.arguments,
+        result: _historyText(event.output),
         sourceLocators: !event.isError && pending.name == 'memory_search' ? _returnedLocators(event.output) : const [],
       ),
     );
@@ -253,17 +260,25 @@ class TurnToolHookCallbackHandler {
       final durationMs = turnEndedAt.difference(entry.value.startedAt).inMilliseconds;
       _retainCompletedToolCall(
         ToolCallRecord(
+          id: entry.key,
           name: entry.value.name,
           success: false,
           durationMs: durationMs,
           errorType: 'incomplete',
           context: entry.value.context,
+          arguments: entry.value.arguments,
         ),
       );
     }
     _failedToolCallCount += _unresolvedToolCallCount;
     _unresolvedToolCallCount = 0;
     _pendingToolCalls.clear();
+  }
+
+  String _historyText(String value) {
+    const maxChars = 64 * 1024;
+    final redacted = _redactor?.redact(value) ?? value;
+    return redacted.length <= maxChars ? redacted : '${redacted.substring(0, maxChars)}\n[Display payload truncated]';
   }
 
   void _retainCompletedToolCall(ToolCallRecord record) {

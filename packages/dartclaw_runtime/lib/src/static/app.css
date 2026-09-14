@@ -493,6 +493,22 @@
 .msg-turn-failed-label { color: var(--warning); }
 .msg-turn-failed-icon { font-size: var(--text-base); }
 
+.msg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+  color: var(--fg-overlay);
+  font-size: var(--text-xs);
+}
+
+.msg-meta .btn { min-height: 44px; }
+.history-records { display: grid; gap: var(--sp-1); padding: var(--sp-2); }
+.history-records pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-lineage { display: inline-flex; min-height: 44px; align-items: center; margin: var(--sp-1) 0; }
+.new-activity { position: sticky; bottom: var(--sp-2); align-self: center; min-height: 44px; z-index: 2; }
+
 /* === SETTINGS === */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
 .settings-card { display: flex; flex-direction: column; gap: var(--sp-3); }

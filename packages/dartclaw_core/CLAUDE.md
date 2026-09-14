@@ -81,7 +81,7 @@
 - Claude `PreToolUse` registration stays unfiltered so built-ins and dynamically named MCP tools all reach the guard chain; never replace it with a static tool-name list.
 - Claude `PreCompact` acknowledgement awaits the host observer so required state capture settles first; observer failure is logged and acknowledged to avoid blocking provider compaction.
 - Claude may defer allowlisted tools behind `ToolSearch`. Permit only the exact `claude:ToolSearch`/`ToolSearch` discovery pair after deny checks; the selected tool still requires its own allowlist match.
-- Codex approval round-trip is the only guard interception point for the Codex provider. Preserve current command/file request methods, MCP approval elicitations, response-specific result shapes, and camelCase item types; legacy aliases remain accepted. Explicit `on-request` is the broadest available host interception; omitted options inherit Codex configuration, `unless-allow-listed` is partial, and `never` produces no host guard event. String provider options are trimmed before process and request use.
+- Codex approval round-trip is the only guard interception point for the Codex provider. Preserve current command/file request methods, MCP approval elicitations, response-specific result shapes, and camelCase item types; legacy aliases remain accepted. Explicit `on-request` is the broadest available host interception; omitted options inherit Codex configuration, `unless-allow-listed` is partial, and `never` produces no host guard event. String provider options are trimmed before process and request use. After guards pass, a genuine `on-request` request from an ordinary human web turn may wait on `HarnessToolApprovalResponder`; background turns retain the immediate policy.
 - File-backed `MessageService` uses 1-based line cursors in `messages.ndjson`; cursor is assigned on read, never persisted in the JSON line itself.
 
 ## Testing
@@ -106,9 +106,10 @@
 - `lib/src/channel/sidecar_process_manager.dart` — protected spawn/health/teardown/restart primitives for channel sidecars; each adopter keeps its own `start`/`stop`/`reset` sequence and implements the bodiless restart-scheduling seam.
 - `lib/src/channel/text_chunking.dart` — bounded Unicode-safe text and native chat-markup chunking.
 - `lib/src/storage/atomic_write.dart` — the only sanctioned JSON write path.
-- `lib/src/storage/conversation_state.dart` — durable ordinary-submission, attempt and queue vocabulary stored by
-  `SessionService`; `ConversationState.includesMessage` is also the conversation-index visibility authority, preventing
-  queued, held and removed inputs from entering turn history or lexical/vector projections.
+- `lib/src/storage/conversation_state.dart` – durable ordinary-submission, attempt, queue, display-record and branch-link
+  vocabulary stored by `SessionService`. `ConversationState.includesMessage` is also the conversation-index visibility
+  authority, preventing queued, held and removed inputs from entering turn history or lexical/vector projections.
+  Display records project provider-owned tool/approval state and never own a second approval decision path.
 - `lib/src/storage/sqlite_backend.dart` – `SqliteBackend.open` / `openInMemory` constructors; `sqlite_schema_gate.dart` prepares task/search stores before repository use.
 - `lib/src/storage/sqlite_task_repository.dart` and sibling repositories — relational persistence against `dartclaw.db`.
 - `lib/src/search/` — FTS5, QMD, wiki, and composed search implementations.

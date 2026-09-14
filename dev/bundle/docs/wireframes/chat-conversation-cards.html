@@ -21,6 +21,14 @@
       gap: var(--sp-1);
       margin: var(--sp-3) 0;
     }
+    .history-actions { display:flex;flex-wrap:wrap;gap:var(--sp-1);align-items:center;color:var(--fg-overlay);font-size:var(--text-xs); }
+    .history-actions .btn { min-height:44px; }
+    .history-note { overflow:auto;max-height:320px; }
+    [data-history-focus]:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
+    @media (max-width:768px) {
+      .history-actions { display:grid;grid-template-columns:1fr 1fr; }
+      .history-actions .btn { min-height:48px; }
+    }
   </style>
 </head>
 <body>
@@ -76,25 +84,26 @@
 
   <!-- Chat area -->
   <div class="chat-area">
-    <div class="messages">
+    <div class="messages" data-history-viewport="stable-anchor" data-desktop-state="1440" data-phone-state="375 390 768">
 
       <!-- User message -->
-      <div class="msg msg-user">
+      <div id="message-release-request" class="msg msg-user" data-message-id="release-request" data-cursor="1841">
         <div class="msg-role">You</div>
         <div class="msg-content">
           <p>Run the release-prep workflow for 0.17 — check the harness pool health, run the integration suite, then draft the tag.</p>
         </div>
+        <div class="history-actions"><time datetime="2026-09-14T14:31:52Z" title="2026-09-14T14:31:52Z">14:31</time><button type="button" class="btn btn-ghost" aria-label="Copy whole message">Copy</button><button type="button" class="btn btn-ghost" data-history-action="edit">Edit and continue</button><button type="button" class="btn btn-ghost" data-history-action="fork">Fork from here</button><button type="button" class="btn btn-ghost" data-history-action="retry" disabled title="Retry is available only after failure or cancellation">Retry unavailable</button></div>
       </div>
 
       <!-- Assistant message with a stack of tool-call cards -->
-      <div class="msg msg-assistant">
+      <div id="message-release-progress" class="msg msg-assistant" data-message-id="release-progress" data-cursor="1842" data-history-state="partial-retained">
         <div class="msg-role">Assistant</div>
         <div class="msg-content">
           <p>Starting the release-prep workflow on the <code>claude-code</code> harness. I'll verify the pool, run tests, and prepare the tag — pausing for your approval before anything is pushed.</p>
 
           <div class="tool-call-group well-flush">
             <!-- --success collapsed -->
-            <details class="tool-call tool-call--success">
+            <details id="tool-read-pool" class="tool-call tool-call--success" data-tool-id="tool-read-pool" data-state="succeeded">
               <summary class="tool-call-summary">
                 <span class="tool-call-name">Read</span>
                 <span class="tool-call-detail">packages/dartclaw_core/lib/src/harness/harness_pool.dart</span>
@@ -108,7 +117,7 @@
             </details>
 
             <!-- --success expanded showing args + result wells -->
-            <details class="tool-call tool-call--success" open>
+            <details id="tool-read-workflow" class="tool-call tool-call--success" data-tool-id="tool-read-workflow" data-state="succeeded" open data-history-focus>
               <summary class="tool-call-summary">
                 <span class="tool-call-name">Read</span>
                 <span class="tool-call-detail">packages/dartclaw_workflow/lib/src/release_prep.dart</span>
@@ -128,7 +137,7 @@
             </details>
 
             <!-- --pending with scan sweep -->
-            <details class="tool-call tool-call--pending">
+            <details id="tool-test" class="tool-call tool-call--pending" data-tool-id="tool-test" data-state="running">
               <summary class="tool-call-summary">
                 <span class="tool-call-name">Bash</span>
                 <span class="tool-call-detail">dart test -t integration</span>
@@ -137,13 +146,13 @@
               </summary>
               <div class="tool-call-body">
                 <div class="tool-call-io"><span class="tool-call-io-label">args</span>
-                  <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-punctuation">{</span><span class="hljs-attr">"command"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dart test -t integration"</span><span class="hljs-punctuation">}</span></code></pre></div>
+                  <div class="well-deep history-note" data-retained-output="redacted-truncated"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-punctuation">{</span><span class="hljs-attr">"command"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dart test -t integration"</span><span class="hljs-punctuation">}</span> · retained output truncated</code></pre></div>
                 </div>
               </div>
             </details>
 
             <!-- --blocked with a guard verdict -->
-            <details class="tool-call tool-call--blocked">
+            <details id="tool-push-blocked" class="tool-call tool-call--blocked" data-tool-id="tool-push-blocked" data-state="blocked">
               <summary class="tool-call-summary">
                 <span class="icon icon-shield-alert" aria-hidden="true"></span>
                 <span class="tool-call-name">Bash</span>
@@ -162,8 +171,8 @@
       </div>
 
       <!-- Approval gate — waiting -->
-      <div class="card approval-card approval-card--waiting">
-        <div class="card-header">
+      <div class="card approval-card approval-card--waiting" data-history-state="approval-pending" data-approval-request-id="approval-release-push" data-approval-attempt-id="attempt-release" data-approval-turn-id="turn-release" tabindex="-1" aria-labelledby="approval-release-title">
+        <div class="card-header" id="approval-release-title">
           <span class="status-dot status-dot--attention"></span>
           Plan approval requested
           <span class="approval-card-meta">workflow: release-prep &middot; step 4</span>
@@ -179,11 +188,20 @@
           </div>
         </div>
         <div class="card-footer approval-card-actions">
-          <button type="button" class="btn btn-primary">Approve</button>
-          <button type="button" class="btn btn-danger">Reject</button>
-          <button type="button" class="btn btn-ghost">Comment</button>
+          <button type="button" class="btn btn-primary" data-approval-decision="approve">Approve exact request</button>
+          <button type="button" class="btn btn-danger" data-approval-decision="reject">Reject exact request</button>
         </div>
       </div>
+
+      <div class="card approval-card approval-card--approved" data-history-state="approval-resolved" aria-label="Runtime approval: Approved">
+        <div class="card-header">Push release tag <span class="approval-card-meta">exact request resolved</span></div>
+        <div class="card-body">The retained request is read-only for every viewer after resolution.</div>
+        <div class="card-footer approval-card-resolution"><span class="icon icon-check" aria-hidden="true"></span> Approved · 14:32</div>
+      </div>
+
+      <div class="banner banner-warning" role="status" data-history-state="target-unavailable">That message is no longer available. <a href="#message-release-progress">Return to the conversation</a></div>
+      <a class="btn btn-ghost" href="session-branch.html" data-history-state="linked-branch" aria-label="Open edit branch from release request">Edit branch · new conversation</a>
+      <button type="button" class="btn btn-secondary" data-history-state="new-activity" aria-label="Jump to latest activity">New activity &middot; Jump to latest</button>
 
       <!-- Thinking slot -->
       <div class="msg msg-assistant msg-thinking">

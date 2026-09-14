@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
@@ -26,6 +27,7 @@ Future<void> main(List<String> arguments) async {
   final messages = MessageService(baseDir: dataDirectory);
   final eventBus = EventBus();
   final sessions = SessionService(baseDir: dataDirectory, eventBus: eventBus);
+  final historyFixture = await _seedHistoryFixture(sessions, messages, dataDirectory);
   final channelSession = await _seedExternalSession(
     sessions,
     messages,
@@ -33,7 +35,7 @@ Future<void> main(List<String> arguments) async {
     channelKey: 'signal:fixture-owner',
   );
   final cronSession = await _seedExternalSession(sessions, messages, type: SessionType.cron, provider: 'claude');
-  final harness = FakeAgentHarness();
+  final harness = _HistoryBrowserHarness();
   final packageUri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
   final packageRoot = p.normalize(p.join(p.dirname(packageUri!.toFilePath()), '..'));
   initTemplates(p.join(packageRoot, 'lib', 'src', 'templates'));
@@ -90,7 +92,7 @@ Future<void> main(List<String> arguments) async {
     observability: ServerObservabilityDeps(sseBroadcast: broadcast, eventBus: eventBus),
   );
   final revokedViewers = File(p.join(dataDirectory, 'revoked-viewers.txt'));
-  final handler = _revocationGuard(server.handler, revokedViewers);
+  final handler = _fixtureControl(_revocationGuard(server.handler, revokedViewers), harness);
   final httpServer = await shelf_io.serve(handler, InternetAddress.loopbackIPv4, port);
   File(p.join(dataDirectory, 'conversation-browser-ready.json')).writeAsStringSync(
     jsonEncode({
@@ -98,6 +100,10 @@ Future<void> main(List<String> arguments) async {
       'recoveredSessions': recoveredSessions,
       'channelSessionId': channelSession.id,
       'cronSessionId': cronSession.id,
+      'historySessionId': historyFixture.sessionId,
+      'historyOldMessageId': historyFixture.oldMessageId,
+      'historyApprovalRequestId': historyFixture.approvalRequestId,
+      'historyLiveApprovalRequestId': _HistoryBrowserHarness.approvalId,
     }),
     flush: true,
   );
@@ -106,6 +112,153 @@ Future<void> main(List<String> arguments) async {
   await turnState.dispose();
   await kv.dispose();
   await eventBus.dispose();
+}
+
+Future<({String sessionId, String oldMessageId, String approvalRequestId})> _seedHistoryFixture(
+  SessionService sessions,
+  MessageService messages,
+  String dataDirectory,
+) async {
+  final identityFile = File(p.join(dataDirectory, 'history-fixture.json'));
+  if (identityFile.existsSync()) {
+    final json = jsonDecode(await identityFile.readAsString()) as Map<String, dynamic>;
+    final sessionId = json['sessionId'] as String;
+    if (await sessions.getSession(sessionId) != null) {
+      return (
+        sessionId: sessionId,
+        oldMessageId: json['oldMessageId'] as String,
+        approvalRequestId: json['approvalRequestId'] as String,
+      );
+    }
+  }
+
+  final now = DateTime.utc(2026, 9, 14, 12);
+  final source = await sessions.createSession(provider: 'fixture');
+  late Message oldMessage;
+  for (var index = 0; index < 1998; index++) {
+    final message = await messages.insertMessage(
+      sessionId: source.id,
+      role: index.isEven ? 'user' : 'assistant',
+      content: 'Retained history message ${index + 1}',
+    );
+    if (index == 19) oldMessage = message;
+  }
+  final prompt = await messages.insertMessage(
+    sessionId: source.id,
+    role: 'user',
+    content: 'Run the retained fixture tool',
+    metadata: jsonEncode({
+      'attachments': [
+        {'id': '00000000-0000-4000-8000-000000000301', 'filename': 'fixture.txt', 'mediaType': 'text/plain'},
+      ],
+      'references': [
+        {'type': 'session', 'id': source.id, 'label': 'Fixture conversation'},
+      ],
+    }),
+  );
+  const attachmentId = '00000000-0000-4000-8000-000000000301';
+  final attachmentBytes = utf8.encode('retained fixture attachment');
+  final attachmentDirectory = Directory(p.join(dataDirectory, source.id, 'attachments'))..createSync(recursive: true);
+  await File(p.join(attachmentDirectory.path, '$attachmentId.data')).writeAsBytes(attachmentBytes);
+  await File(p.join(attachmentDirectory.path, '$attachmentId.json')).writeAsString(
+    jsonEncode({
+      'id': attachmentId,
+      'filename': 'fixture.txt',
+      'mediaType': 'text/plain',
+      'size': attachmentBytes.length,
+      'digest': 'sha256:${sha256.convert(attachmentBytes)}',
+      'state': 'ready',
+    }),
+  );
+  await messages.insertMessage(
+    sessionId: source.id,
+    role: 'assistant',
+    content: 'Partial output retained before failure.',
+  );
+  final claim = ConversationSubmissionClaim(
+    submissionId: 'history-fixture-submission',
+    revisionId: 'history-fixture-revision',
+    messageId: prompt.id,
+    attemptId: 'history-fixture-attempt',
+    payloadDigest: 'history-fixture-digest',
+    message: prompt.content,
+    references: [
+      {'type': 'session', 'id': source.id, 'label': 'Fixture conversation'},
+    ],
+    attachments: [
+      ConversationAttachmentManifest(
+        id: attachmentId,
+        filename: 'fixture.txt',
+        mediaType: 'text/plain',
+        size: attachmentBytes.length,
+        digest: 'sha256:${sha256.convert(attachmentBytes)}',
+      ),
+    ],
+    commitState: SubmissionCommitState.committed,
+    workState: ConversationWorkState.failed,
+    turnId: 'history-fixture-turn',
+    detail: 'fixture provider failed',
+    createdAt: now,
+    updatedAt: now,
+  );
+  const approvalId = 'history-fixture-approval';
+  var state = ConversationState(
+    submissions: [claim],
+    records: [
+      ConversationDisplayRecord(
+        id: 'history-fixture-tool',
+        attemptId: 'history-fixture-attempt',
+        turnId: 'history-fixture-turn',
+        kind: ConversationRecordKind.tool,
+        state: ConversationRecordState.failed,
+        label: 'shell',
+        arguments: '{"authorization":"***","command":"fixture"}',
+        result: 'partial fixture result\n[Display payload truncated]',
+        isTruncated: true,
+        elapsedMs: 1250,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      ConversationDisplayRecord(
+        id: approvalId,
+        attemptId: 'history-fixture-attempt',
+        turnId: 'history-fixture-turn',
+        kind: ConversationRecordKind.approval,
+        state: ConversationRecordState.pending,
+        label: 'Write fixture file',
+        arguments: '/workspace/fixture.txt',
+        expiresAt: DateTime.utc(2099),
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ],
+  );
+  final destination = await sessions.createSession(provider: 'fixture');
+  final destinationMessage = await messages.insertMessage(
+    sessionId: destination.id,
+    role: 'user',
+    content: 'Linked fixture branch',
+  );
+  state = state.putBranch(
+    ConversationBranchLink(
+      mutationId: 'history-fixture-branch',
+      kind: ConversationBranchKind.fork,
+      sourceSessionId: source.id,
+      sourceMessageId: prompt.id,
+      sourceAttemptId: claim.attemptId,
+      destinationSessionId: destination.id,
+      destinationMessageId: destinationMessage.id,
+      createdAt: now,
+    ),
+  );
+  await sessions.updateConversationState(source.id, state);
+
+  for (var index = 0; index < 196; index++) {
+    await sessions.createSession(provider: 'fixture');
+  }
+  final identity = {'sessionId': source.id, 'oldMessageId': oldMessage.id, 'approvalRequestId': approvalId};
+  await identityFile.writeAsString(jsonEncode(identity), flush: true);
+  return (sessionId: source.id, oldMessageId: oldMessage.id, approvalRequestId: approvalId);
 }
 
 Future<Session> _seedExternalSession(
@@ -131,4 +284,93 @@ Handler _revocationGuard(Handler inner, File revokedViewers) {
     }
     return inner(request);
   };
+}
+
+Handler _fixtureControl(Handler inner, _HistoryBrowserHarness harness) {
+  return (request) {
+    if (request.url.path == 'fixture/history-state') {
+      return Response.ok(
+        jsonEncode({'approvalResponses': harness.approvalResponses, 'lastApproved': harness.lastApproved}),
+        headers: const {'content-type': 'application/json'},
+      );
+    }
+    return inner(request);
+  };
+}
+
+final class _HistoryBrowserHarness extends FakeAgentHarness
+    implements HarnessTurnContextSink, HarnessToolApprovalResponder {
+  static const approvalId = 'history-live-approval';
+  HarnessTurnContext? _context;
+  String? _pendingRequestId;
+  int approvalResponses = 0;
+  bool? lastApproved;
+
+  @override
+  void setTurnContext(HarnessTurnContext? context) => _context = context;
+
+  @override
+  Future<TurnResult> turn({
+    required String sessionId,
+    required List<Map<String, dynamic>> messages,
+    required String systemPrompt,
+    String? agentId,
+    Map<String, dynamic>? mcpServers,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
+    String? directory,
+    String? model,
+    String? effort,
+    int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+  }) {
+    final pending = super.turn(
+      sessionId: sessionId,
+      messages: messages,
+      systemPrompt: systemPrompt,
+      agentId: agentId,
+      mcpServers: mcpServers,
+      providerSessionId: providerSessionId,
+      requestProviderSessionResume: requestProviderSessionResume,
+      directory: directory,
+      model: model,
+      effort: effort,
+      maxTurns: maxTurns,
+      outputSchema: outputSchema,
+    );
+    final prompt = messages.lastOrNull?['content'];
+    if (prompt == 'Live history approval proof') {
+      Future<void>.microtask(() {
+        final context = _context;
+        if (context == null || !context.allowOperatorApproval) throw StateError('Live history approval is unavailable');
+        emit(ToolUseEvent(toolName: 'fixture_tool', toolId: 'history-live-tool', input: const {'path': 'fixture.txt'}));
+        emit(ToolResultEvent(toolId: 'history-live-tool', output: 'live fixture result', isError: false));
+        _pendingRequestId = approvalId;
+        emit(
+          ToolApprovalWaitEvent(
+            requestId: approvalId,
+            toolName: 'Write fixture file',
+            input: const {'path': '/workspace/fixture.txt'},
+            operatorActionable: true,
+            expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+          ),
+        );
+      });
+    }
+    return pending;
+  }
+
+  @override
+  bool canResolveToolApproval({required String turnId, required String requestId}) =>
+      _context?.turnId == turnId && _pendingRequestId == requestId;
+
+  @override
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved}) async {
+    if (!canResolveToolApproval(turnId: turnId, requestId: requestId)) throw StateError('Approval is unavailable');
+    _pendingRequestId = null;
+    approvalResponses += 1;
+    lastApproved = approved;
+    emit(ToolApprovalResolvedEvent(requestId: requestId, approved: approved));
+    completeSuccess();
+  }
 }

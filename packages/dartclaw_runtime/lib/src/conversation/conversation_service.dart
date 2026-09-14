@@ -10,10 +10,15 @@ import 'package:uuid/uuid.dart';
 
 import '../api/sse_broadcast.dart';
 import '../concurrency/session_mutation_coordinator.dart';
-import '../turn_manager.dart' show TurnManager;
+import '../runtime_tool_history.dart';
+import '../turn_manager.dart' show ResolvedConversationDestination, TurnManager;
 import '../turn_wait_status.dart';
 
 typedef ConversationFailpoint = FutureOr<void> Function(String boundary, ConversationSubmissionClaim submission);
+typedef ToolApprovalResponder = Future<void> Function(String sessionId, String turnId, String requestId, bool approved);
+typedef ToolApprovalValidator = bool Function(String sessionId, String turnId, String requestId);
+typedef ConversationReferenceValidator = Future<void> Function(List<Map<String, dynamic>> references);
+typedef ConversationBranchFailpoint = FutureOr<void> Function(String boundary, ConversationBranchLink branch);
 
 final class ConversationMutationException implements Exception {
   final int statusCode;
@@ -49,6 +54,7 @@ final class ConversationService {
   static const _uuid = Uuid();
   static final _attachmentIdPattern = RegExp(r'^[0-9a-fA-F-]{36}$');
   static const _maxAttachmentContextChars = 20000;
+  static const _maxDisplayPayloadChars = 64 * 1024;
 
   final SessionService sessions;
   final MessageService messages;
@@ -57,6 +63,11 @@ final class ConversationService {
   final SseBroadcast? updates;
   final DateTime Function() clock;
   final ConversationFailpoint? failpoint;
+  final MessageRedactor _redactor;
+  final ToolApprovalResponder? approvalResponder;
+  final ToolApprovalValidator? approvalValidator;
+  final ConversationReferenceValidator? referenceValidator;
+  final ConversationBranchFailpoint? branchFailpoint;
   final Map<String, Future<void>> _recoveries = {};
 
   new({
@@ -67,7 +78,13 @@ final class ConversationService {
     this.updates,
     DateTime Function()? clock,
     this.failpoint,
-  }) : clock = clock ?? DateTime.now;
+    MessageRedactor? redactor,
+    this.approvalResponder,
+    this.approvalValidator,
+    this.referenceValidator,
+    this.branchFailpoint,
+  }) : clock = clock ?? DateTime.now,
+       _redactor = redactor ?? MessageRedactor();
 
   Future<ConversationState> snapshot(String sessionId) async {
     await _ensureRecovered(sessionId);
@@ -79,6 +96,607 @@ final class ConversationService {
     return (await messages.getMessages(sessionId))
         .where((message) => state.includesMessage(message.id))
         .toList(growable: false);
+  }
+
+  Future<Map<String, Object?>> historyWindow(
+    String sessionId, {
+    int count = 200,
+    int? beforeCursor,
+    String? aroundMessageId,
+  }) async {
+    if (count < 1 || count > 200) {
+      throw const ConversationMutationException(400, 'INVALID_HISTORY_WINDOW', 'count must be between 1 and 200');
+    }
+    if (beforeCursor != null && aroundMessageId != null) {
+      throw const ConversationMutationException(
+        400,
+        'INVALID_HISTORY_WINDOW',
+        'before_cursor and around_message_id cannot be combined',
+      );
+    }
+    final state = await snapshot(sessionId);
+    final List<Message> bounded;
+    var targetState = 'available';
+    if (aroundMessageId != null) {
+      try {
+        bounded = await messages.getMessagesAroundWhere(
+          sessionId,
+          aroundMessageId,
+          include: (message) => state.includesMessage(message.id),
+          before: count ~/ 2,
+          after: count - (count ~/ 2) - 1,
+        );
+      } on ArgumentError {
+        throw const ConversationMutationException(400, 'INVALID_MESSAGE_ID', 'around_message_id is malformed');
+      }
+      if (bounded.isEmpty) targetState = 'unavailable';
+    } else if (beforeCursor != null) {
+      bounded = await messages.getMessagesBeforeWhere(
+        sessionId,
+        beforeCursor,
+        include: (message) => state.includesMessage(message.id),
+        count: count + 1,
+      );
+    } else {
+      bounded = await messages.getMessagesTailWhere(
+        sessionId,
+        include: (message) => state.includesMessage(message.id),
+        count: count + 1,
+      );
+    }
+    var hasEarlier = false;
+    late final List<Message> visible;
+    if (aroundMessageId != null) {
+      visible = bounded;
+      if (visible.isNotEmpty) {
+        hasEarlier = (await messages.getMessagesBeforeWhere(
+          sessionId,
+          visible.first.cursor,
+          include: (message) => state.includesMessage(message.id),
+          count: 1,
+        )).isNotEmpty;
+      }
+    } else {
+      hasEarlier = bounded.length > count;
+      visible = hasEarlier ? bounded.sublist(1) : bounded;
+    }
+    final visibleIds = visible.map((message) => message.id).toSet();
+    final attempts = state.submissions
+        .where((submission) => visibleIds.contains(submission.messageId))
+        .map((submission) => submission.attemptId)
+        .nonNulls
+        .toSet();
+    return {
+      'revision': state.revision,
+      'messages': visible.map(_messageJson).toList(growable: false),
+      'records': state.records
+          .where((record) => attempts.contains(record.attemptId))
+          .map((record) => record.toJson())
+          .toList(),
+      'branches': state.branches
+          .where(
+            (branch) =>
+                branch.completed &&
+                (visibleIds.contains(branch.sourceMessageId) || visibleIds.contains(branch.destinationMessageId)),
+          )
+          .map((branch) => branch.toJson())
+          .toList(growable: false),
+      'has_earlier': hasEarlier,
+      'earliest_cursor': visible.firstOrNull?.cursor,
+      if (aroundMessageId != null) 'target': {'message_id': aroundMessageId, 'state': targetState},
+    };
+  }
+
+  Future<ConversationDisplayRecord> recordToolTransition({
+    required String sessionId,
+    required String attemptId,
+    required String turnId,
+    required String toolId,
+    required String toolName,
+    required ConversationRecordState state,
+    Object? arguments,
+    Object? result,
+    int? elapsedMs,
+  }) => mutations.run(sessionId, () async {
+    var snapshot = await sessions.getConversationState(sessionId);
+    _requireAttempt(snapshot, attemptId, turnId);
+    final existing = snapshot.findRecord(toolId);
+    final redactedToolName = _redactor.redact(toolName);
+    if (existing != null &&
+        (existing.kind != ConversationRecordKind.tool ||
+            existing.attemptId != attemptId ||
+            existing.turnId != turnId ||
+            existing.label != redactedToolName)) {
+      throw const ConversationMutationException(409, 'HISTORY_IDENTITY_CONFLICT', 'Tool identity is already in use');
+    }
+    if (existing != null && _isTerminalRecordState(existing.state)) return existing;
+    final now = clock().toUtc();
+    final encodedArguments = arguments == null ? null : _displayPayload(arguments);
+    final encodedResult = result == null ? null : _displayPayload(result);
+    final truncated = (encodedArguments?.truncated ?? false) || (encodedResult?.truncated ?? false);
+    if (existing != null &&
+        existing.state == state &&
+        (encodedResult == null || existing.result == encodedResult.text) &&
+        (elapsedMs == null || existing.elapsedMs == elapsedMs) &&
+        (!truncated || existing.isTruncated)) {
+      return existing;
+    }
+    final record = existing == null
+        ? ConversationDisplayRecord(
+            id: toolId,
+            attemptId: attemptId,
+            turnId: turnId,
+            kind: ConversationRecordKind.tool,
+            state: state,
+            label: redactedToolName,
+            arguments: encodedArguments?.text,
+            result: encodedResult?.text,
+            isTruncated: truncated,
+            elapsedMs: elapsedMs,
+            createdAt: now,
+            updatedAt: now,
+          )
+        : existing.copyWith(
+            state: state,
+            result: encodedResult?.text,
+            isTruncated: existing.isTruncated || truncated,
+            elapsedMs: elapsedMs,
+            updatedAt: now,
+          );
+    snapshot = snapshot.putRecord(record);
+    await _persistSnapshot(sessionId, snapshot);
+    return record;
+  });
+
+  Future<void> retainRuntimeToolEvent(String sessionId, String turnId, BridgeEvent event) async {
+    final state = await snapshot(sessionId);
+    final claim = _submissionForTurn(state, turnId);
+    if (claim?.attemptId == null) return;
+    if (event is ToolUseEvent) {
+      await recordToolTransition(
+        sessionId: sessionId,
+        attemptId: claim!.attemptId!,
+        turnId: turnId,
+        toolId: event.toolId,
+        toolName: event.toolName,
+        state: ConversationRecordState.running,
+        arguments: event.input,
+      );
+    } else if (event is ToolResultEvent) {
+      final latest = await snapshot(sessionId);
+      final existing = latest.findRecord(event.toolId);
+      await recordToolTransition(
+        sessionId: sessionId,
+        attemptId: claim!.attemptId!,
+        turnId: turnId,
+        toolId: event.toolId,
+        toolName: existing?.label ?? 'tool',
+        state: event.isError ? ConversationRecordState.failed : ConversationRecordState.succeeded,
+        result: event.output,
+      );
+    }
+  }
+
+  Future<ConversationDisplayRecord> recordApprovalRequest({
+    required String sessionId,
+    required String attemptId,
+    required String turnId,
+    required String requestId,
+    required String action,
+    required String target,
+    required DateTime expiresAt,
+  }) => mutations.run(sessionId, () async {
+    var snapshot = await sessions.getConversationState(sessionId);
+    _requireAttempt(snapshot, attemptId, turnId);
+    final existing = snapshot.findRecord(requestId);
+    if (existing != null) {
+      final redactedTarget = _displayPayload(target).text;
+      if (existing.kind == ConversationRecordKind.approval &&
+          existing.attemptId == attemptId &&
+          existing.turnId == turnId &&
+          existing.label == _redactor.redact(action) &&
+          existing.arguments == redactedTarget &&
+          existing.expiresAt == expiresAt.toUtc()) {
+        return existing;
+      }
+      throw const ConversationMutationException(409, 'HISTORY_IDENTITY_CONFLICT', 'Request identity is already in use');
+    }
+    final now = clock().toUtc();
+    final record = ConversationDisplayRecord(
+      id: requestId,
+      attemptId: attemptId,
+      turnId: turnId,
+      kind: ConversationRecordKind.approval,
+      state: ConversationRecordState.pending,
+      label: _redactor.redact(action),
+      arguments: _displayPayload(target).text,
+      expiresAt: expiresAt.toUtc(),
+      createdAt: now,
+      updatedAt: now,
+    );
+    snapshot = snapshot.putRecord(record);
+    await _persistSnapshot(sessionId, snapshot);
+    return record;
+  });
+
+  Future<void> retainRuntimeApproval(RuntimeToolApprovalRequest request) async {
+    final state = await snapshot(request.sessionId);
+    final claim = _submissionForTurn(state, request.turnId);
+    if (claim?.attemptId == null) {
+      throw const ConversationMutationException(
+        409,
+        'APPROVAL_ATTEMPT_UNAVAILABLE',
+        'Approval request has no owning attempt',
+      );
+    }
+    await recordApprovalRequest(
+      sessionId: request.sessionId,
+      attemptId: claim!.attemptId!,
+      turnId: request.turnId,
+      requestId: request.requestId,
+      action: request.action,
+      target: jsonEncode(request.target),
+      expiresAt: request.expiresAt,
+    );
+  }
+
+  Future<void> closeRuntimeApproval(String sessionId, String turnId, String requestId, bool approved, bool expired) =>
+      mutations.run(sessionId, () async {
+        var state = await sessions.getConversationState(sessionId);
+        final request = state.findRecord(requestId);
+        if (request == null || request.kind != ConversationRecordKind.approval || request.turnId != turnId) return;
+        if (request.state != ConversationRecordState.pending && request.state != ConversationRecordState.resolving) {
+          return;
+        }
+        final closed = request.copyWith(
+          state: expired
+              ? ConversationRecordState.expired
+              : approved
+              ? ConversationRecordState.approved
+              : ConversationRecordState.rejected,
+          updatedAt: clock().toUtc(),
+        );
+        state = state.putRecord(closed);
+        await _persistSnapshot(sessionId, state);
+      });
+
+  Future<ConversationDisplayRecord> resolveApproval({
+    required String sessionId,
+    required String attemptId,
+    required String turnId,
+    required String requestId,
+    required bool approved,
+  }) => mutations.run(sessionId, () async {
+    var snapshot = await sessions.getConversationState(sessionId);
+    _requireAttempt(snapshot, attemptId, turnId);
+    final request = snapshot.findRecord(requestId);
+    if (request == null || request.kind != ConversationRecordKind.approval) {
+      throw const ConversationMutationException(404, 'APPROVAL_NOT_FOUND', 'Approval request is unavailable');
+    }
+    if (request.attemptId != attemptId || request.turnId != turnId) {
+      throw const ConversationMutationException(
+        409,
+        'APPROVAL_MISMATCH',
+        'Approval request does not belong to this attempt',
+      );
+    }
+    if (request.state != ConversationRecordState.pending) return request;
+    final now = clock().toUtc();
+    if (!request.expiresAt!.isAfter(now)) {
+      final expired = request.copyWith(state: ConversationRecordState.expired, updatedAt: now);
+      snapshot = snapshot.putRecord(expired);
+      await _persistSnapshot(sessionId, snapshot);
+      return expired;
+    }
+    final responder = approvalResponder;
+    if (responder == null || approvalValidator?.call(sessionId, turnId, requestId) != true) {
+      throw const ConversationMutationException(
+        409,
+        'APPROVAL_UNAVAILABLE',
+        'This provider cannot accept runtime approval',
+      );
+    }
+    final resolving = request.copyWith(state: ConversationRecordState.resolving, updatedAt: now);
+    snapshot = snapshot.putRecord(resolving);
+    await _persistSnapshot(sessionId, snapshot);
+    try {
+      await responder(sessionId, turnId, requestId, approved);
+    } catch (_) {
+      final unavailable = resolving.copyWith(
+        state: ConversationRecordState.unavailable,
+        result: 'Decision delivery could not be confirmed',
+        updatedAt: clock().toUtc(),
+      );
+      snapshot = snapshot.putRecord(unavailable);
+      await _persistSnapshot(sessionId, snapshot);
+      throw const ConversationMutationException(
+        409,
+        'APPROVAL_UNAVAILABLE',
+        'Approval request is no longer live at the provider',
+      );
+    }
+    final resolved = resolving.copyWith(
+      state: approved ? ConversationRecordState.approved : ConversationRecordState.rejected,
+      updatedAt: clock().toUtc(),
+    );
+    snapshot = snapshot.putRecord(resolved);
+    await _persistSnapshot(sessionId, snapshot);
+    return resolved;
+  });
+
+  Future<ConversationAdmission> retry({
+    required String sessionId,
+    required String sourceAttemptId,
+    required String mutationId,
+  }) async {
+    final sourceState = await snapshot(sessionId);
+    final repeated = sourceState.findBranch(mutationId);
+    if (repeated != null) {
+      if (repeated.kind != ConversationBranchKind.retry ||
+          repeated.sourceSessionId != sessionId ||
+          repeated.sourceAttemptId != sourceAttemptId) {
+        throw const ConversationMutationException(
+          409,
+          'HISTORY_IDENTITY_CONFLICT',
+          'Mutation identity belongs to a different recovery action',
+        );
+      }
+      final current = await snapshot(repeated.destinationSessionId);
+      final submission = current.submissions
+          .where((item) => item.messageId == repeated.destinationMessageId)
+          .firstOrNull;
+      if (submission == null) {
+        throw const ConversationMutationException(409, 'RECOVERY_INTEGRITY_FAILED', 'Linked retry is incomplete');
+      }
+      return ConversationAdmission(submission: submission, snapshot: current, replayed: true);
+    }
+    final source = sourceState.submissions.where((item) => item.attemptId == sourceAttemptId).firstOrNull;
+    if (source == null) {
+      throw const ConversationMutationException(404, 'ATTEMPT_NOT_FOUND', 'Source attempt is unavailable');
+    }
+    if (source.workState != ConversationWorkState.failed && source.workState != ConversationWorkState.cancelled) {
+      throw const ConversationMutationException(
+        409,
+        'ATTEMPT_NOT_RETRYABLE',
+        'Only failed or cancelled attempts can retry',
+      );
+    }
+    await referenceValidator?.call(source.references);
+    final admission = await submit(
+      sessionId: sessionId,
+      submissionId: mutationId,
+      revisionId: '$mutationId-retry',
+      message: source.message,
+      attachments: source.attachments.map((attachment) => {'id': attachment.id}).toList(growable: false),
+      references: source.references,
+    );
+    await mutations.run(sessionId, () async {
+      var current = await sessions.getConversationState(sessionId);
+      if (current.findBranch(mutationId) != null) return;
+      current = current.putBranch(
+        ConversationBranchLink(
+          mutationId: mutationId,
+          kind: ConversationBranchKind.retry,
+          sourceSessionId: sessionId,
+          sourceMessageId: source.messageId,
+          sourceAttemptId: source.attemptId,
+          destinationSessionId: sessionId,
+          destinationMessageId: admission.submission.messageId,
+          destinationAttemptId: admission.submission.attemptId,
+          createdAt: clock().toUtc(),
+        ),
+      );
+      await _persistSnapshot(sessionId, current);
+    });
+    return admission;
+  }
+
+  Future<Map<String, Object?>> branchFromMessage({
+    required String sessionId,
+    required String sourceMessageId,
+    required String mutationId,
+    required ConversationBranchKind kind,
+    String? editedMessage,
+  }) => mutations.run(sessionId, () async {
+    if (kind == ConversationBranchKind.retry) {
+      throw const ConversationMutationException(400, 'INVALID_BRANCH_KIND', 'Retry uses an attempt boundary');
+    }
+    var sourceState = await sessions.getConversationState(sessionId);
+    final sourceSession = await sessions.getSession(sessionId);
+    if (sourceSession == null) {
+      throw const ConversationMutationException(404, 'SESSION_NOT_FOUND', 'Source conversation is unavailable');
+    }
+    if (sourceSession.type == SessionType.channel ||
+        sourceSession.type == SessionType.cron ||
+        sourceSession.type == SessionType.task ||
+        sourceSession.type == SessionType.logicalAgent ||
+        sourceSession.type == SessionType.archive) {
+      throw const ConversationMutationException(409, 'BRANCH_UNAVAILABLE', 'This conversation type cannot be branched');
+    }
+    final sourceMessages = await messages.getMessages(sessionId);
+    final boundary = sourceMessages.indexWhere((message) => message.id == sourceMessageId);
+    if (boundary == -1 || !sourceState.includesMessage(sourceMessageId)) {
+      throw const ConversationMutationException(404, 'MESSAGE_NOT_FOUND', 'Source message is unavailable');
+    }
+    final sourceMessage = sourceMessages[boundary];
+    final messageIndexes = <String, int>{
+      for (var index = 0; index < sourceMessages.length; index++) sourceMessages[index].id: index,
+    };
+    final ownerClaim = sourceState.submissions
+        .where((item) => (messageIndexes[item.messageId] ?? sourceMessages.length) <= boundary)
+        .lastOrNull;
+    final sourceClaim = sourceState.submissions.where((item) => item.messageId == sourceMessageId).firstOrNull;
+    if (ownerClaim != null && !_isTerminal(ownerClaim.workState)) {
+      throw const ConversationMutationException(409, 'MESSAGE_NOT_COMPLETE', 'Active history cannot be branched');
+    }
+    if (kind == ConversationBranchKind.edit && sourceMessage.role != 'user') {
+      throw const ConversationMutationException(409, 'EDIT_SOURCE_INVALID', 'Edit and continue requires a user prompt');
+    }
+    final text = editedMessage?.trim();
+    if (kind == ConversationBranchKind.edit && (text == null || text.isEmpty)) {
+      throw const ConversationMutationException(400, 'INVALID_MESSAGE', 'Edited message must not be empty');
+    }
+    final copyThrough = kind == ConversationBranchKind.fork ? boundary : boundary - 1;
+    final copiedClaims = sourceState.submissions.where(
+      (claim) => (messageIndexes[claim.messageId] ?? sourceMessages.length) <= copyThrough,
+    );
+    final retainedReferences = kind == ConversationBranchKind.edit
+        ? sourceClaim?.references ?? const <Map<String, dynamic>>[]
+        : copiedClaims.expand((claim) => claim.references).toList(growable: false);
+    final repeated = sourceState.findBranch(mutationId);
+    if (repeated != null) {
+      if (repeated.kind != kind ||
+          repeated.sourceSessionId != sessionId ||
+          repeated.sourceMessageId != sourceMessageId) {
+        throw const ConversationMutationException(
+          409,
+          'HISTORY_IDENTITY_CONFLICT',
+          'Mutation identity belongs to a different recovery action',
+        );
+      }
+      if (repeated.completed) return repeated.toJson();
+      await referenceValidator?.call(retainedReferences);
+      return _continueBranch(
+        sourceSession: sourceSession,
+        sourceState: sourceState,
+        sourceMessages: sourceMessages,
+        sourceClaim: sourceClaim,
+        copiedClaims: copiedClaims.toList(growable: false),
+        copyThrough: copyThrough,
+        editedMessage: text,
+        branch: repeated,
+      );
+    }
+    await referenceValidator?.call(retainedReferences);
+    final reserved = ConversationBranchLink(
+      mutationId: mutationId,
+      kind: kind,
+      sourceSessionId: sessionId,
+      sourceMessageId: sourceMessageId,
+      sourceAttemptId: ownerClaim?.attemptId,
+      destinationSessionId: _uuid.v4(),
+      destinationMessageId: const Uuid().v5(Namespace.url.value, 'dartclaw:branch:$sessionId:$mutationId'),
+      completed: false,
+      createdAt: clock().toUtc(),
+    );
+    sourceState = sourceState.putBranch(reserved);
+    await _persistSnapshot(sessionId, sourceState);
+    await branchFailpoint?.call('branch_reserved', reserved);
+    return _continueBranch(
+      sourceSession: sourceSession,
+      sourceState: sourceState,
+      sourceMessages: sourceMessages,
+      sourceClaim: sourceClaim,
+      copiedClaims: copiedClaims.toList(growable: false),
+      copyThrough: copyThrough,
+      editedMessage: text,
+      branch: reserved,
+    );
+  });
+
+  Future<Map<String, Object?>> _continueBranch({
+    required Session sourceSession,
+    required ConversationState sourceState,
+    required List<Message> sourceMessages,
+    required ConversationSubmissionClaim? sourceClaim,
+    required List<ConversationSubmissionClaim> copiedClaims,
+    required int copyThrough,
+    required String? editedMessage,
+    required ConversationBranchLink branch,
+  }) async {
+    var destination = await sessions.getSession(branch.destinationSessionId);
+    if (destination == null) {
+      late final ResolvedConversationDestination resolved;
+      try {
+        resolved = turns.resolveConversationDestination(sourceSession);
+      } catch (_) {
+        throw const ConversationMutationException(
+          409,
+          'BRANCH_DESTINATION_UNAVAILABLE',
+          'The configured destination is no longer available',
+        );
+      }
+      destination = await sessions.createSessionWithIdentity(
+        id: branch.destinationSessionId,
+        provider: resolved.provider,
+        securityProfile: resolved.securityProfile,
+        executionMode: resolved.executionMode,
+        workspace: resolved.workspace,
+      );
+    }
+    await branchFailpoint?.call('branch_destination', branch);
+    final manifests = branch.kind == ConversationBranchKind.edit
+        ? sourceClaim?.attachments ?? const <ConversationAttachmentManifest>[]
+        : copiedClaims.expand((claim) => claim.attachments).toSet().toList(growable: false);
+    await _copyAcceptedAttachments(sourceSession.id, destination.id, manifests);
+    for (var index = 0; index <= copyThrough; index++) {
+      final message = sourceMessages[index];
+      await messages.insertMessageWithIdentity(
+        sessionId: destination.id,
+        messageId: message.id,
+        role: message.role,
+        content: message.content,
+        metadata: message.metadata,
+        createdAt: message.createdAt,
+      );
+    }
+    await branchFailpoint?.call('branch_history_copied', branch);
+    late final String destinationMessageId;
+    String? destinationAttemptId;
+    if (branch.kind == ConversationBranchKind.edit) {
+      final existing = (await sessions.getConversationState(destination.id)).findSubmission(branch.mutationId);
+      if (existing != null) {
+        destinationMessageId = existing.messageId;
+        destinationAttemptId = existing.attemptId;
+      } else {
+        final admission = await submit(
+          sessionId: destination.id,
+          submissionId: branch.mutationId,
+          revisionId: '${branch.mutationId}-edit',
+          message: editedMessage!,
+          attachments: manifests.map((attachment) => {'id': attachment.id}).toList(growable: false),
+          references: sourceClaim?.references ?? const [],
+        );
+        destinationMessageId = admission.submission.messageId;
+        destinationAttemptId = admission.submission.attemptId;
+        await branchFailpoint?.call('branch_edit_admitted', branch);
+      }
+    } else {
+      final copied = await messages.getMessages(destination.id);
+      destinationMessageId = copied.last.id;
+    }
+    final link = branch.copyWith(
+      destinationMessageId: destinationMessageId,
+      destinationAttemptId: destinationAttemptId,
+      completed: true,
+    );
+    var destinationState = await sessions.getConversationState(destination.id);
+    destinationState = destinationState.putBranch(link);
+    await _persistSnapshot(destination.id, destinationState);
+    await branchFailpoint?.call('branch_destination_linked', link);
+    sourceState = sourceState.putBranch(link);
+    await _persistSnapshot(sourceSession.id, sourceState);
+    return link.toJson();
+  }
+
+  Future<void> _copyAcceptedAttachments(
+    String sourceSessionId,
+    String destinationSessionId,
+    List<ConversationAttachmentManifest> attachments,
+  ) async {
+    if (attachments.isEmpty) return;
+    final destination = Directory(p.join(messages.baseDir, destinationSessionId, 'attachments'));
+    await destination.create(recursive: true);
+    for (final attachment in attachments) {
+      final source = p.join(messages.baseDir, sourceSessionId, 'attachments');
+      await File(p.join(source, '${attachment.id}.data')).copy(p.join(destination.path, '${attachment.id}.data'));
+      final metadata = jsonDecode(await File(p.join(source, '${attachment.id}.json')).readAsString());
+      if (metadata is! Map<String, dynamic>) throw StateError('Attachment metadata is invalid');
+      metadata['state'] = 'ready';
+      metadata.remove('owner');
+      metadata.remove('submissionId');
+      await atomicWriteJson(File(p.join(destination.path, '${attachment.id}.json')), metadata);
+    }
   }
 
   Future<Map<String, dynamic>> resolveAttachment(String sessionId, String attachmentId) async {
@@ -327,6 +945,17 @@ final class ConversationService {
 
   Future<ConversationState> recoverAfterRestart(String sessionId) => mutations.run(sessionId, () async {
     var state = await sessions.getConversationState(sessionId);
+    for (final record in state.records.where(
+      (record) => record.kind == ConversationRecordKind.approval && record.state == ConversationRecordState.resolving,
+    )) {
+      state = state.putRecord(
+        record.copyWith(
+          state: ConversationRecordState.unavailable,
+          result: 'Decision delivery could not be confirmed after restart',
+          updatedAt: clock().toUtc(),
+        ),
+      );
+    }
     await _cleanupAttachmentPartials(sessionId, state);
     for (final current in List<ConversationSubmissionClaim>.of(state.submissions)) {
       var updated = current;
@@ -571,6 +1200,7 @@ final class ConversationService {
         },
         updatedAt: clock().toUtc(),
       );
+      state = _retainToolOutcome(state, current, outcome);
       state = state.put(terminal);
       if (outcome.status != TurnStatus.completed) state = _holdPending(state);
       await _writeWorkRecords(sessionId, terminal, allowUpdate: true);
@@ -857,6 +1487,75 @@ final class ConversationService {
     }
     return next;
   }
+
+  ConversationState _retainToolOutcome(
+    ConversationState state,
+    ConversationSubmissionClaim submission,
+    TurnOutcome outcome,
+  ) {
+    var next = state;
+    for (var index = 0; index < outcome.toolCalls.length; index++) {
+      final call = outcome.toolCalls[index];
+      final id = call.id ?? '${outcome.turnId}:tool:$index';
+      final existing = next.findRecord(id);
+      if (existing != null && _isTerminalRecordState(existing.state)) continue;
+      final now = outcome.completedAt.toUtc();
+      final record = ConversationDisplayRecord(
+        id: id,
+        attemptId: submission.attemptId!,
+        turnId: outcome.turnId,
+        kind: ConversationRecordKind.tool,
+        state: call.success ? ConversationRecordState.succeeded : ConversationRecordState.failed,
+        label: _redactor.redact(call.name),
+        arguments: call.arguments,
+        result: call.result,
+        isTruncated:
+            call.arguments?.contains('[Display payload truncated]') == true ||
+            call.result?.contains('[Display payload truncated]') == true,
+        elapsedMs: call.durationMs,
+        createdAt: existing?.createdAt ?? now.subtract(Duration(milliseconds: call.durationMs)),
+        updatedAt: now,
+      );
+      next = next.putRecord(record);
+    }
+    return next;
+  }
+
+  void _requireAttempt(ConversationState state, String attemptId, String turnId) {
+    for (final submission in state.submissions) {
+      if (submission.attemptId == attemptId && submission.turnId == turnId) return;
+    }
+    throw const ConversationMutationException(409, 'ATTEMPT_MISMATCH', 'Attempt does not own this turn');
+  }
+
+  ({String text, bool truncated}) _displayPayload(Object value) {
+    final redacted = _redactor.redact(value is String ? value : jsonEncode(value));
+    if (redacted.length <= _maxDisplayPayloadChars) return (text: redacted, truncated: false);
+    return (text: '${redacted.substring(0, _maxDisplayPayloadChars)}\n[Display payload truncated]', truncated: true);
+  }
+
+  Future<void> _persistSnapshot(String sessionId, ConversationState state) async {
+    await sessions.updateConversationState(sessionId, state);
+    _broadcast(sessionId, state.revision);
+  }
+}
+
+Map<String, Object?> _messageJson(Message message) => {
+  'id': message.id,
+  'sessionId': message.sessionId,
+  'role': message.role,
+  'content': message.content,
+  'cursor': message.cursor,
+  'metadata': message.metadata == null ? null : _tryJson(message.metadata!),
+  'createdAt': message.createdAt.toUtc().toIso8601String(),
+};
+
+Object? _tryJson(String value) {
+  try {
+    return jsonDecode(value);
+  } on FormatException {
+    return value;
+  }
 }
 
 bool _isTerminal(ConversationWorkState state) =>
@@ -864,6 +1563,11 @@ bool _isTerminal(ConversationWorkState state) =>
     state == ConversationWorkState.failed ||
     state == ConversationWorkState.cancelled ||
     state == ConversationWorkState.removed;
+
+bool _isTerminalRecordState(ConversationRecordState state) =>
+    state == ConversationRecordState.succeeded ||
+    state == ConversationRecordState.failed ||
+    state == ConversationRecordState.blocked;
 
 bool _isTextMediaType(String mediaType) =>
     mediaType.startsWith('text/') || mediaType == 'application/json' || mediaType == 'application/xml';

@@ -257,6 +257,95 @@ class MessageService {
     );
   }
 
+  Future<List<Message>> getMessagesTailWhere(
+    String sessionId, {
+    required bool Function(Message message) include,
+    int count = 200,
+  }) async {
+    if (count <= 0) return const [];
+    final result = <Message>[];
+    await for (final message in _streamMessages(sessionId)) {
+      if (!include(message)) continue;
+      result.add(message);
+      if (result.length > count) result.removeAt(0);
+    }
+    return List.unmodifiable(result);
+  }
+
+  Future<List<Message>> getMessagesBeforeWhere(
+    String sessionId,
+    int cursor, {
+    required bool Function(Message message) include,
+    int count = 100,
+  }) async {
+    if (cursor <= 1 || count <= 0) return const [];
+    final result = <Message>[];
+    await for (final message in _streamMessages(sessionId)) {
+      if (message.cursor >= cursor) break;
+      if (!include(message)) continue;
+      result.add(message);
+      if (result.length > count) result.removeAt(0);
+    }
+    return List.unmodifiable(result);
+  }
+
+  Future<List<Message>> getMessagesAroundWhere(
+    String sessionId,
+    String messageId, {
+    required bool Function(Message message) include,
+    int before = 50,
+    int after = 49,
+  }) async {
+    if (!isValidUuid(messageId)) throw ArgumentError('Invalid message ID');
+    if (before < 0 || after < 0) throw ArgumentError('Window sizes must not be negative');
+    final leading = <Message>[];
+    final result = <Message>[];
+    var found = false;
+    await for (final message in _streamMessages(sessionId)) {
+      if (!found) {
+        if (message.id == messageId) {
+          if (!include(message)) return const [];
+          result
+            ..addAll(leading)
+            ..add(message);
+          found = true;
+        } else if (include(message)) {
+          leading.add(message);
+          if (leading.length > before) leading.removeAt(0);
+        }
+        continue;
+      }
+      if (include(message)) result.add(message);
+      if (result.length >= leading.length + 1 + after) break;
+    }
+    return found ? List.unmodifiable(result) : const [];
+  }
+
+  Future<Message?> getMessage(String sessionId, String messageId) async {
+    if (!isValidUuid(messageId)) throw ArgumentError('Invalid message ID');
+    for (final message in await _readMessagesForward(sessionId, startLine: 1)) {
+      if (message.id == messageId) return message;
+    }
+    return null;
+  }
+
+  Stream<Message> _streamMessages(String sessionId) async* {
+    final file = _messagesFile(sessionId);
+    if (!file.existsSync()) return;
+    var cursor = 0;
+    await for (final line in file.openRead().transform(utf8.decoder).transform(const LineSplitter())) {
+      cursor += 1;
+      if (line.trim().isEmpty) continue;
+      try {
+        final json = jsonDecode(line) as Map<String, dynamic>;
+        json['cursor'] = cursor;
+        yield Message.fromJson(json);
+      } catch (error) {
+        _log.warning('Malformed NDJSON line $cursor in session $sessionId: $error');
+      }
+    }
+  }
+
   /// Clears all messages for [sessionId] by truncating the NDJSON file.
   Future<void> clearMessages(String sessionId) {
     final ndjsonFile = _messagesFile(sessionId);

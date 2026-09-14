@@ -55,7 +55,39 @@ Router sessionRoutes(
     mutations: sessionMutations,
     updates: sseBroadcast,
     failpoint: conversationFailpoint,
+    redactor: redactor,
+    approvalResponder: (sessionId, turnId, requestId, approved) =>
+        turns.resolveToolApproval(sessionId: sessionId, turnId: turnId, requestId: requestId, approved: approved),
+    approvalValidator: (sessionId, turnId, requestId) =>
+        turns.canResolveToolApproval(sessionId: sessionId, turnId: turnId, requestId: requestId),
+    referenceValidator: (references) async {
+      for (final reference in references) {
+        final type = reference['type'];
+        final id = reference['id'];
+        if (type is! String || id is! String) {
+          throw const ConversationMutationException(409, 'REFERENCE_UNAVAILABLE', 'Retained reference is invalid');
+        }
+        final resolved = await resolveConversationReference(
+          type: type,
+          id: id,
+          sessions: sessions,
+          projects: projectService,
+        );
+        if (resolved.error != null) {
+          throw const ConversationMutationException(
+            409,
+            'REFERENCE_UNAVAILABLE',
+            'Retained reference is no longer available',
+          );
+        }
+      }
+    },
   );
+  turns.setToolApprovalObservers(
+    requested: conversation.retainRuntimeApproval,
+    closed: conversation.closeRuntimeApproval,
+  );
+  turns.setToolHistoryObserver(conversation.retainRuntimeToolEvent);
   Future<({Session session, bool created})>? openNewChatPromise;
 
   Future<({Session session, bool created})> openNewChat() {

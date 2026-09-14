@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../api/sse_broadcast.dart';
 import '../concurrency/session_mutation_coordinator.dart';
+import '../memory/daily_log_record.dart';
 import '../runtime_tool_history.dart';
 import '../turn_manager.dart' show ResolvedConversationDestination, TurnManager;
 import '../turn_wait_status.dart';
@@ -336,7 +337,7 @@ final class ConversationService {
     required String turnId,
     required String requestId,
     required String action,
-    required String target,
+    required Object target,
     required DateTime expiresAt,
   }) => mutations.run(sessionId, () async {
     var snapshot = await sessions.getConversationState(sessionId);
@@ -388,7 +389,7 @@ final class ConversationService {
       turnId: request.turnId,
       requestId: request.requestId,
       action: request.action,
-      target: jsonEncode(request.target),
+      target: request.target,
       expiresAt: request.expiresAt,
     );
   }
@@ -1836,6 +1837,10 @@ final class ConversationService {
   }
 
   ({String text, bool truncated}) _displayPayload(Object value) {
+    if (value is Map<String, dynamic>) {
+      final serialized = DailyLogToolSerializer(_redactor).serializeInput(value);
+      return (text: serialized.summary, truncated: serialized.truncated);
+    }
     final redacted = _redactor.redact(value is String ? value : jsonEncode(value));
     if (redacted.length <= _maxDisplayPayloadChars) return (text: redacted, truncated: false);
     return (text: '${redacted.substring(0, _maxDisplayPayloadChars)}\n[Display payload truncated]', truncated: true);

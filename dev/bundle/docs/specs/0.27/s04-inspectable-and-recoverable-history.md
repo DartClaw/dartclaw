@@ -386,3 +386,7 @@ wire   | ../../wireframes/guard-block-chat.html:183                             
   the existing streaming daily-log serializer moved to its shared record library. Exact provenance remains unchanged;
   the older test's whole-record no-excerpt assertion was updated for S04's explicit redacted display-result contract.
   Daily-log, hook, and history checks passed 30 tests on both isolated and integrated trees; analysis and formatting passed.
+- The live display persistence path had the same defect independently of turn outcomes: a direct 4 MiB map regression
+  put 4,200,387 code units through redaction. Tool maps and native approval targets now use the same bounded serializer
+  before persistence. The new regression preserves secret redaction and the truncation state. The isolated focused
+  suite passed 31 tests, integrated history passed 6, and analysis and formatting passed.

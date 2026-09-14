@@ -120,6 +120,39 @@ void main() {
     expect(record.elapsedMs, 31);
   });
 
+  test('live tool history bounds input serialization before redaction', () async {
+    final redactor = _HistoryRedactor();
+    final conversation = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      redactor: redactor,
+    );
+    final admitted = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'bounded-history',
+      revisionId: 'bounded-history-r1',
+      message: 'Inspect the wide input',
+      attachments: const [],
+      references: const [],
+    );
+    await conversation.recordToolTransition(
+      sessionId: sessionId,
+      attemptId: admitted.submission.attemptId!,
+      turnId: admitted.submission.turnId!,
+      toolId: 'wide-input',
+      toolName: 'inspect',
+      state: ConversationRecordState.running,
+      arguments: {'authorization': 'Bearer retained-secret', for (var i = 0; i < 512; i++) 'key$i': 'v' * (8 * 1024)},
+    );
+    expect(redactor.codeUnits, lessThan(256 * 1024));
+    final record = (await conversation.snapshot(sessionId)).records.single;
+    expect(record.isTruncated, isTrue);
+    expect(record.arguments, isNot(contains('retained-secret')));
+    expect(record.arguments!.length, lessThan(66 * 1024));
+  });
+
   test('approval state serializes competing decisions across expiry and mismatched identity', () async {
     var responses = 0;
     final conversation = ConversationService(
@@ -561,5 +594,15 @@ final class _OperatorApprovalHarness extends FakeAgentHarness
     responseCount += 1;
     lastApproved = approved;
     emit(ToolApprovalResolvedEvent(requestId: requestId, approved: approved));
+  }
+}
+
+final class _HistoryRedactor extends MessageRedactor {
+  var codeUnits = 0;
+
+  @override
+  String redact(String input, {List<String> sensitiveValues = const []}) {
+    codeUnits += input.length;
+    return super.redact(input, sensitiveValues: sensitiveValues);
   }
 }

@@ -1,6 +1,7 @@
 /// Translates DartClaw config values into Codex-native request settings.
 class CodexSettings {
   static const Map<String, String> _sandboxTranslations = {
+    'read-only': 'readOnly',
     'workspace-write': 'workspaceWrite',
     'danger-full-access': 'dangerFullAccess',
   };

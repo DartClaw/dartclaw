@@ -12,6 +12,7 @@ class FakeAgentHarness extends AgentHarness {
   final bool _supportsStreaming;
   final bool _supportsCachedTokens;
   final bool _supportsStructuredOutput;
+  final bool _supportsOutputSchemaConstraint;
   final bool _supportsNoWorkTools;
   final bool _supportsProviderSessionResume;
   WorkerState _state;
@@ -31,6 +32,7 @@ class FakeAgentHarness extends AgentHarness {
     bool supportsStreaming = true,
     bool supportsCachedTokens = false,
     bool supportsStructuredOutput = false,
+    bool supportsOutputSchemaConstraint = false,
     bool supportsNoWorkTools = false,
     bool supportsProviderSessionResume = false,
     StreamController<BridgeEvent>? eventsController,
@@ -42,6 +44,7 @@ class FakeAgentHarness extends AgentHarness {
        _supportsStreaming = supportsStreaming,
        _supportsCachedTokens = supportsCachedTokens,
        _supportsStructuredOutput = supportsStructuredOutput,
+       _supportsOutputSchemaConstraint = supportsOutputSchemaConstraint,
        _supportsNoWorkTools = supportsNoWorkTools,
        _supportsProviderSessionResume = supportsProviderSessionResume,
        _eventsController = eventsController ?? StreamController<BridgeEvent>.broadcast();
@@ -121,6 +124,9 @@ class FakeAgentHarness extends AgentHarness {
 
   @override
   bool get supportsStructuredOutput => _supportsStructuredOutput;
+
+  @override
+  bool get supportsOutputSchemaConstraint => _supportsOutputSchemaConstraint;
 
   @override
   bool get supportsNoWorkTools => _supportsNoWorkTools;

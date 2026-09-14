@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -26,7 +26,7 @@ Workflow-owned agent steps lease a coordinator worker and run their complete bou
 
 - Main-agent user and channel turns use the fixed serialized primary-interactive lane. Cron/system jobs, ordinary tasks, logical-agent turns, and workflow steps use provider worker capacity.
 - Workflow YAML step types are preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`); the workflow runtime dispatches every workflow step through the task execution path and expresses write intent through `readOnly` (set on the task config when `step_config_policy.stepIsReadOnly()` holds).
-- `format: json` with `schema` has **two enforcement modes, and the step declares neither** — the provider decides. Where the protocol returns typed structured output, the schema is forwarded and the provider enforces it; Claude is that case. Where it does not — Codex app-server has no typed validated readback — the schema is **withheld** from the harness, so nothing claims enforcement it lacks, and the finalizer envelope carries the structure instead: the prompt declares one JSON object, the runner reads the reply body as that object, and `SchemaValidator` validates it host-side, with one retry and then `missing_envelope` / `malformed_envelope`. Reading the declared object is not prose parsing — there is one shape, one decode, no fallback strategy and no repair.
+- `format: json` with `schema` has **two enforcement modes, and the step declares neither** — the provider decides. Where the protocol returns typed structured output, the schema is forwarded and the provider enforces it; Claude is that case. Where it does not, the harness's second capability decides: Codex app-server constrains the final assistant message to a forwarded `outputSchema` without returning anything typed, so the schema **is** forwarded as that constraint while readback stays unclaimed; ACP can do neither, so the schema is **withheld** from it. Either way the finalizer envelope carries the structure: the prompt declares one JSON object, the runner reads the reply body as that object, and `SchemaValidator` validates it host-side, with one retry and then a named failure. The retry states the defect the parser reported — its message, the character offset, a short excerpt of the reply there, and an unclosed-container count when a bracket scan shows exactly that — because a re-ask that only says the envelope was missing leaves the model rereading its own bad reply in the same thread and repeating it. Failure reasons: `missing_provider_session`, `missing_envelope` (no reply body), `unparsable_envelope` (a reply that is not the declared object, carrying the parser's reason), `malformed_envelope` (an object `SchemaValidator` rejects). Reading the declared object is not prose parsing — there is one shape, one decode, no fallback strategy and no repair, and naming a defect back to the model is feedback, not repair.
 - The main prompt, follow-ups, envelope finalizer, and retry reserve turns on the same worker. Provider protocol streaming supplies the liveness events used by turn-progress governance.
 
 ### Execution allocation boundary
@@ -847,6 +847,7 @@ abstract class AgentHarness {
   });
   bool get supportsProviderSessionResume; // defaults to false on the contract
   bool get supportsStructuredOutput;    // defaults to false on the contract
+  bool get supportsOutputSchemaConstraint; // defaults to false on the contract
   Future<void> cancel();
   Future<void> stop();
   Future<void> dispose();
@@ -868,14 +869,22 @@ persistence and using `--resume`. Codex supports it only with a resolved system 
 container auth-clean homes are non-durable. ACP refuses it. DartClaw-owned history replay remains the default when neither
 input is supplied.
 
-#### Structured output is per-provider, and refused by name where it is unavailable
+#### Structured output is per-provider, at two levels, and refused by name where neither is available
 
-`outputSchema` is an opaque JSON Schema the provider must enforce; the payload comes back on
-`TurnResult.structuredOutput` and the harness never judges, repairs, or scrapes it. `supportsStructuredOutput` defaults
-to `false` on the contract, and `AgentHarness.requireStructuredOutputSupport(...)` — called at the entry of every
-`turn()` — throws `UnsupportedHarnessCapabilityException` naming the provider and the capability before any provider
-work happens. An unenforceable schema therefore fails loudly instead of being dropped into a result the caller cannot
-distinguish from an enforced one.
+`outputSchema` is an opaque JSON Schema the provider applies to the turn, and the harness never judges, repairs, or
+scrapes what comes back. Two capabilities, both defaulting to `false` on the contract, say what a provider can do with
+it. `supportsStructuredOutput` is **typed readback**: the enforced payload returns on `TurnResult.structuredOutput`.
+`supportsOutputSchemaConstraint` is **constraint without readback**: the provider constrains the reply text to the
+schema and `structuredOutput` stays null, so the caller reads the text itself.
+`AgentHarness.requireStructuredOutputSupport(...)` — called at the entry of every `turn()` — throws
+`UnsupportedHarnessCapabilityException` naming the provider and the capability before any provider work happens, for a
+harness declaring neither. A schema no provider can apply therefore fails loudly instead of being dropped into a result
+the caller cannot distinguish from an enforced one.
+
+Which of the two a schema-bearing turn gets is decided once, by `TurnRunner._harnessOutputSchema`, from the caller's
+`outputSchemaWhenSupported` flag: a caller that validates host-side gets the schema forwarded to a constraint-only
+harness and withheld from one with neither capability; a caller that needs the typed payload is refused at reservation
+for any harness without readback.
 
 The refusal is a **call each implementation makes**, not a shape the type system imposes: `turn()` is not sealed, so a
 harness adopting the contract with `implements` inherits no body and could omit it. What makes it a guarantee rather
@@ -884,11 +893,11 @@ harness in any workspace member's `lib/` that declares fewer refusal calls than 
 `performTurn()` hook is the structural alternative; it reverses this section's stated decision and breaks every
 `implements` adopter, so it needs an ADR rather than a refactor.
 
-| Harness | `supportsStructuredOutput` | Channel |
-|---|---|---|
-| `ClaudeCodeHarness` | `true` | `--json-schema` spawn flag; payload on the terminal `result` event's `structured_output`. Process-level, so a changed schema restarts the process |
-| `CodexHarness` | `false` | `turn/start` accepts an `outputSchema` param, but the app server returns the final assistant message as plain `text` with no field distinguishing a schema-validated payload from ordinary prose. Recovering it would mean parsing that text, which is a heuristic rather than enforcement evidence, so support is not claimed |
-| `AcpHarness` | `false` | ACP's `session/prompt` has no output-schema field at all |
+| Harness | `supportsStructuredOutput` | `supportsOutputSchemaConstraint` | Channel |
+|---|---|---|---|
+| `ClaudeCodeHarness` | `true` | `false` | `--json-schema` spawn flag; payload on the terminal `result` event's `structured_output`. Process-level, so a changed schema restarts the process |
+| `CodexHarness` | `false` | `true` | `turn/start`'s `outputSchema` param, verified at codex-cli 0.153.4 to constrain the final assistant message to the schema. No response or notification carries a typed or validated field: the reply is `text` on the agentMessage item, so readback is not claimed (ADR-031 amendment 2026-09-13) |
+| `AcpHarness` | `false` | `false` | ACP's `session/prompt` has no output-schema field at all |
 
 ### Concrete implementations
 

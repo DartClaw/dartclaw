@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-05-31; amended 2026-08-21, 2026-08-22
+Accepted — 2026-05-31; amended 2026-08-21, 2026-08-22, 2026-09-13
 
 **Related:** [ADR-024](024-workflow-step-semantics.md) (step semantics — output declaration), [ADR-022](022-workflow-run-status-and-step-outcome-protocol.md) (step-outcome protocol), [ADR-016](016-multi-provider-harness-architecture.md) (Claude/Codex parity, including Codex strict mode).
 
@@ -57,7 +57,54 @@ Consequences:
 - **A prose-directed handoff is not a substitute.** Asking a Codex agent to write the envelope to a file and having the
   host read it back is model-nondeterministic and duplicates the finalizer, so it is barred here as ADR-054 bars it
   generally. A `format: json` step on a Codex provider fails its capability check; it does not degrade.
-- Reopening this requires a typed result on the app-server turn, not a client-side parse of assistant text.
+- Reopening this requires a typed result on the app-server turn, not a client-side parse of assistant text. Still unmet
+  at codex-cli 0.153.4 (checked 2026-09-13): `codex app-server generate-json-schema` puts `outputSchema` on
+  `TurnStartParams` alone, and `AgentMessageThreadItem` carries only `text`. Tracked as TD-147.
+
+## Amendment (0.26.1): the Codex envelope turn is provider-constrained text
+
+**Status**: Accepted – 2026-09-13. Supersedes the 2026-08-22 amendment's reopen condition.
+
+A live probe against codex-cli 0.153.4 settled what the 2026-08-22 amendment could only infer from the protocol
+schema. `turn/start` accepts the **unmodified** execution-envelope schema as `outputSchema` (every object closed,
+every property required, the nullable field a `["string","null"]` union), and the app server constrains the final
+assistant message to it: a prompt that never mentioned JSON, a schema or structure returned exactly
+`{"outputs":{…},"step_outcome":{…}}` and no prose. No response or notification carries a typed or validated field:
+`turn/completed.params` keys are `threadId` and `turn`, and the agentMessage item carries only `text` beside
+`delivery`/`id`/`memoryCitation`/`phase`/`questions`/`type`. Evidence, including the verbatim request, the ordered
+method summary and the conformance checks, is in the [research appendix](research/031-native-first-structured-outputs.md);
+the two load-bearing frames are pinned as
+`packages/dartclaw_core/test/harness/fixtures/codex_output_schema_frames.jsonl`.
+
+Enforcement and readback are therefore two capabilities, not one. A harness declares `supportsOutputSchemaConstraint`
+when its provider constrains the reply without returning a typed payload. `TurnRunner._harnessOutputSchema`, still
+the single gate, forwards a schema to such a harness only for a caller that validates host-side
+(`outputSchemaWhenSupported`), refuses a caller that needs the typed payload, and withholds the schema from a harness
+with neither capability (ACP). `CodexHarness.supportsStructuredOutput` stays `false`: readback is not claimed, the
+finalizer's text reader in `workflow_one_shot_runner_helpers.dart` is unchanged, and `SchemaValidator` remains the
+host-side authority over what the reply contains.
+
+Rule clarification: the 2026-08-22 amendment barred a *client-side parse of assistant text* as a substitute for
+readback. The envelope path on Codex was already that parse: the finalizer prompt declares one shape and the runner
+decodes the body. Adding the provider constraint to it narrows what the model may return; it is not the
+prose-directed file handoff ADR-054 bars, which is model-nondeterministic and duplicates the finalizer.
+
+The 2026-08-22 amendment's sentence "`TaskExecutor` refuses a schema-bearing step on a Codex provider before
+dispatch", and the consequence bullet's "A `format: json` step on a Codex provider fails its capability check", are
+**superseded and were already stale when written**. `task_executor.dart` states the opposite: such a step is not
+refused, and the envelope carries the structure.
+
+Consequences:
+
+- The same gate serves the logical-agent dispatch in `harness_wiring.dart`, so an agent's `output_schema` on Codex
+  now also reaches the provider as a strict constraint. Only the strict-closed envelope schema was probed:
+  `outputSchema` is untyped on `TurnStartParams` and the app server validates no schema structure at the protocol
+  level, so a schema that is not strict-closed was not exercised. OpenAI strict mode requires closed objects and a
+  complete `required` list, so such a schema is expected to fail the turn. For a logical agent the loader already
+  closes every object level, which leaves one case: a declared property missing from `required` now fails the turn
+  where it previously ran under host-side validation only.
+- TD-147 is closed by this amendment: the gap it tracked was a typed turn result, and the constraint makes the reply
+  text a provider-constrained payload rather than prose to be recovered.
 
 ## References
 

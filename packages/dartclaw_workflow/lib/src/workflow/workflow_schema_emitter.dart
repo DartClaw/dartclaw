@@ -353,7 +353,6 @@ Map<String, Object?> _mapSchema(Map<String, Object?> values) => {'additionalProp
 
 String _enumWireValue(Object value) => switch (value) {
   WorkflowTaskType type => type.toJson(),
-  OutputFormat format => format.name,
   SchemaPreset preset => preset.name,
   WorkflowGitWorktreeMode mode => mode.toJson(),
   MergeResolveEscalation escalation => escalation.toYamlString(),

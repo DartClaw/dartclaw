@@ -236,9 +236,10 @@ class TurnRunner implements core.TurnRunner {
   /// Call [executeTurn] to start async execution, or [releaseTurn] to roll back.
   ///
   /// [outputSchemaWhenSupported] declares that the caller validates the result
-  /// host-side, so a harness that cannot enforce the schema gets none instead
-  /// of refusing the turn. Left false, [outputSchema] reaches the harness
-  /// unconditionally and an unsupporting one fails the turn.
+  /// host-side: a harness without typed readback gets [outputSchema] only where
+  /// its provider can constrain the reply to it, and none otherwise. Left false,
+  /// the caller needs the typed payload, so a harness without readback is
+  /// refused by name.
   @override
   Future<String> reserveTurn(
     String sessionId, {
@@ -309,8 +310,8 @@ class TurnRunner implements core.TurnRunner {
   /// Reserves turn-local state after the coordinator has admitted the session.
   ///
   /// [outputSchemaWhenSupported] carries the same contract as on [reserveTurn]:
-  /// the caller validates the result host-side, so a harness that cannot
-  /// enforce the schema gets none instead of refusing the turn.
+  /// the caller validates the result host-side, so a harness without typed
+  /// readback gets the schema only where its provider can constrain the reply.
   Future<String> reserveAdmittedTurn(
     String sessionId, {
     String agentName = 'main',
@@ -354,9 +355,21 @@ class TurnRunner implements core.TurnRunner {
     externallyAdmitted: true,
   );
 
-  /// The single gate on provider-enforced schemas — no caller may keep its own.
-  Map<String, dynamic>? _harnessOutputSchema(Map<String, dynamic>? outputSchema, bool whenSupported) =>
-      whenSupported && !_worker.supportsStructuredOutput ? null : outputSchema;
+  /// The single gate on provider-applied schemas — no caller may keep its own.
+  ///
+  /// The refusal has to happen here rather than at the harness: a caller that
+  /// leaves [whenSupported] false needs the typed payload, and a harness that
+  /// only constrains the reply would accept the schema and answer with text.
+  Map<String, dynamic>? _harnessOutputSchema(Map<String, dynamic>? outputSchema, bool whenSupported) {
+    if (outputSchema == null || _worker.supportsStructuredOutput) return outputSchema;
+    if (!whenSupported) {
+      throw UnsupportedHarnessCapabilityException(
+        provider: _worker.runtimeType.toString(),
+        capability: AgentHarness.structuredOutputCapability,
+      );
+    }
+    return _worker.supportsOutputSchemaConstraint ? outputSchema : null;
+  }
 
   String _reserveTurnState(
     String sessionId, {

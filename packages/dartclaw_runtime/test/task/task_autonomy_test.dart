@@ -53,6 +53,9 @@ class _FakeHarness implements AgentHarness {
   bool get supportsStructuredOutput => false;
 
   @override
+  bool get supportsOutputSchemaConstraint => false;
+
+  @override
   bool get supportsNoWorkTools => false;
 
   @override

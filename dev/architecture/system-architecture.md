@@ -19,7 +19,7 @@ Five principles shape every architectural decision:
 | **Outpost pattern** | Purpose-built CLI tools in the best language for the job (Go for WhatsApp, Python for ML/NLP), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination |
 | **Auditable** | Dependencies stay minimal and every subsystem has one owner. 156,183 production LOC across 858 `lib/` Dart files at the 0.25 close, excluding generated Dart, tests and tooling — no longer one context window, which is what the per-package LOC ceilings and the context map exist to keep navigable |
 
-See also: [Roadmap — Core Philosophy](../state/ROADMAP.md)
+See also: [Product – Core Philosophy](../state/PRODUCT.md#core-philosophy)
 
 ---
 
@@ -1082,7 +1082,7 @@ All services are single-instance, single-threaded. Isolates are avoided unless p
 | Observability & operations | [`dev/architecture/observability-operations-architecture.md`](observability-operations-architecture.md) | Turn traces, task events, alert routing, scheduling |
 | Session & state management | [`dev/architecture/session-state-architecture.md`](session-state-architecture.md) | Session lifecycle, scoping, locks, pause/resume, crash recovery |
 | Architecture governance | [`dev/architecture/architecture-governance.md`](architecture-governance.md) | Fitness functions, structural boundaries, update rules, and governance scope |
-| Roadmap | [`dev/state/ROADMAP.md`](../state/ROADMAP.md) | Milestones, status, success criteria |
+| Roadmap | `docs/ROADMAP.md` (private repo) | Sole milestone, status and future-scope record |
 | Feature comparison | `docs/specs/feature-comparison.md` (private repo) | OpenClaw vs NanoClaw vs DartClaw |
 | Product Backlog | `docs/PRODUCT-BACKLOG.md` (private repo) | Deferred/future features with rationale |
 | Learnings | [`dev/state/LEARNINGS.md`](../state/LEARNINGS.md) | Traps, gotchas, non-obvious patterns |

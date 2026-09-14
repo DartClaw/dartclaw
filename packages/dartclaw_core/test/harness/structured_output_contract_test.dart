@@ -151,22 +151,29 @@ void main() {
   });
 
   group('CodexHarness structured output', () {
-    test('a schema-bearing turn is refused before any turn/start reaches the app server', () async {
+    test('a schema-bearing turn puts the schema on turn/start and returns no typed payload', () async {
       final process = FakeCodexProcess(completeExitOnKill: true);
       final harness = _codexHarness(process);
       addTearDown(harness.dispose);
       await startHarness(harness, process);
 
-      await expectLater(
-        harness.turn(sessionId: 's', messages: _message, systemPrompt: '', outputSchema: _schema),
-        throwsA(
-          isA<UnsupportedHarnessCapabilityException>()
-              .having((e) => e.provider, 'provider', 'CodexHarness')
-              .having((e) => e.capability, 'capability', AgentHarness.structuredOutputCapability),
-        ),
-      );
+      final turnFuture = harness.turn(sessionId: 's', messages: _message, systemPrompt: '', outputSchema: _schema);
+      await respondToLatestThreadStart(process);
+      await waitForSentMessage(process, 'turn/start');
 
-      expect(process.sentMessages.where((m) => m['method'] == 'turn/start'), isEmpty);
+      final params =
+          process.sentMessages.lastWhere((m) => m['method'] == 'turn/start')['params'] as Map<String, dynamic>;
+      expect(params['outputSchema'], _schema);
+
+      process.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      final result = await turnFuture;
+
+      expect(result.isError, isFalse);
+      expect(
+        result.structuredOutput,
+        isNull,
+        reason: 'the app server carries no typed payload; the constraint lands on the reply text',
+      );
     });
 
     test('a schema-free turn/start carries no schema key', () async {
@@ -200,6 +207,18 @@ void main() {
       expect(fake.turnCallCount, 0);
     });
 
+    test('the constraint-only posture records the schema and returns no payload', () async {
+      final fake = FakeAgentHarness(supportsOutputSchemaConstraint: true)..structuredOutputResponse = _payload;
+      expect(fake.supportsStructuredOutput, isFalse);
+
+      final turnFuture = fake.turn(sessionId: 's', messages: _message, systemPrompt: '', outputSchema: _schema);
+      await fake.turnInvoked;
+      fake.completeSuccess(const TurnResult(finalText: '{"verdict":"approved"}'));
+
+      expect(fake.lastOutputSchema, _schema);
+      expect((await turnFuture).structuredOutput, isNull);
+    });
+
     test('the supported posture records the schema and returns the configured payload', () async {
       final fake = FakeAgentHarness(supportsStructuredOutput: true)..structuredOutputResponse = _payload;
 
@@ -213,9 +232,10 @@ void main() {
   });
 }
 
-/// Both directions of the capability contract for one production harness:
-/// declared support must put the schema on the wire and return a payload,
-/// declared non-support must refuse before the provider is touched.
+/// All three postures of the capability contract for one production harness:
+/// declared typed readback must put the schema on the wire and return a
+/// payload, a declared reply constraint must put it on the wire and return
+/// none, and declaring neither must refuse before the provider is touched.
 final Map<String, Future<void> Function()> _harnessProbes = {
   'ClaudeCodeHarness': () async {
     final spawns = <List<String>>[];
@@ -243,7 +263,8 @@ final Map<String, Future<void> Function()> _harnessProbes = {
     addTearDown(harness.dispose);
     await startHarness(harness, process);
 
-    if (harness.supportsStructuredOutput) {
+    if (harness.supportsStructuredOutput || harness.supportsOutputSchemaConstraint) {
+      final typedReadback = harness.supportsStructuredOutput;
       final turnFuture = harness.turn(sessionId: 's', messages: _message, systemPrompt: '', outputSchema: _schema);
       await respondToLatestThreadStart(process);
       await waitForSentMessage(process, 'turn/start');
@@ -253,8 +274,10 @@ final Map<String, Future<void> Function()> _harnessProbes = {
       process.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
       expect(
         (await turnFuture).structuredOutput,
-        isNotNull,
-        reason: 'declared support must return the enforced payload, not merely forward the key',
+        typedReadback ? isNotNull : isNull,
+        reason: typedReadback
+            ? 'declared support must return the enforced payload, not merely forward the key'
+            : 'a constraint-only harness leaves the payload to the caller reading the reply text',
       );
     } else {
       await _expectRefusal(harness, 'CodexHarness');

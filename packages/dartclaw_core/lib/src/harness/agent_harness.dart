@@ -191,16 +191,25 @@ abstract class AgentHarness {
   /// is never dropped on the way to a provider that would ignore it.
   bool get supportsStructuredOutput => false;
 
+  /// Whether this harness can have the provider constrain the final assistant
+  /// text to a per-turn output schema without returning a typed payload.
+  ///
+  /// Consulted only when [supportsStructuredOutput] is false. A schema forwarded
+  /// under this capability leaves [TurnResult.structuredOutput] null; the caller
+  /// reads the reply text itself.
+  bool get supportsOutputSchemaConstraint => false;
+
   /// Capability name carried by structured-output refusals.
   static const String structuredOutputCapability = 'structured output';
 
-  /// Refuses [outputSchema] when [harness] cannot enforce it.
+  /// Refuses [outputSchema] when [harness] can neither enforce it with a typed
+  /// readback nor have the provider constrain the reply to it.
   ///
   /// Every [turn] implementation calls this before any provider work. Static
   /// rather than an instance method because harnesses that adopt this contract
   /// with `implements` inherit no body and would each need their own copy.
   static void requireStructuredOutputSupport(AgentHarness harness, Map<String, dynamic>? outputSchema) {
-    if (outputSchema == null || harness.supportsStructuredOutput) return;
+    if (outputSchema == null || harness.supportsStructuredOutput || harness.supportsOutputSchemaConstraint) return;
     throw UnsupportedHarnessCapabilityException(
       provider: harness.runtimeType.toString(),
       capability: structuredOutputCapability,
@@ -251,9 +260,11 @@ abstract class AgentHarness {
   /// [model] overrides the default model for this turn.
   /// [effort] overrides the reasoning effort level for this turn.
   /// [maxTurns] caps harness-side autonomous turns when supported.
-  /// [outputSchema] is an opaque JSON Schema the provider must enforce on this
-  /// turn, returned on [TurnResult.structuredOutput]. A harness whose
-  /// [supportsStructuredOutput] is false throws
+  /// [outputSchema] is an opaque JSON Schema the provider applies to this turn.
+  /// With [supportsStructuredOutput] the enforced payload returns on
+  /// [TurnResult.structuredOutput]; with only [supportsOutputSchemaConstraint]
+  /// the provider constrains the reply text and [TurnResult.structuredOutput]
+  /// stays null. A harness with neither throws
   /// [UnsupportedHarnessCapabilityException] instead of running the turn.
   Future<TurnResult> turn({
     required String sessionId,

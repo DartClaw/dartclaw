@@ -428,7 +428,7 @@ packages/dartclaw_foo/lib/src/other_loader.dart  # <rationale explaining why thi
 
 **What it enforces**: Every concrete `AgentHarness` implementation in any workspace member's `lib/` — `extends *Harness` or `implements AgentHarness` — calls `AgentHarness.requireStructuredOutputSupport`. A file declaring N harnesses must carry at least N calls.
 
-**Why**: `supportsStructuredOutput` defaults to `false`, which is fail-closed, but the refusal itself is a static helper each `turn()` has to call, because an `implements` adopter inherits no body. A harness that overrides neither accepts an `outputSchema` and drops it silently — a declared output that never reaches the provider and never fails. `packages/dartclaw_core/test/harness/structured_output_contract_test.dart` proves observed behaviour, and discovers harnesses from `package:dartclaw_core/src/harness/` alone, so an adapter package's harness sits outside it. This gate is the workspace-wide half.
+**Why**: both capability getters (`supportsStructuredOutput`, `supportsOutputSchemaConstraint`) default to `false`, which is fail-closed, but the refusal itself is a static helper each `turn()` has to call, because an `implements` adopter inherits no body. A harness that overrides neither accepts an `outputSchema` and drops it silently — a declared output that never reaches the provider and never fails. `packages/dartclaw_core/test/harness/structured_output_contract_test.dart` proves observed behaviour, and discovers harnesses from `package:dartclaw_core/src/harness/` alone, so an adapter package's harness sits outside it. This gate is the workspace-wide half.
 
 ### How to resolve a failure
 

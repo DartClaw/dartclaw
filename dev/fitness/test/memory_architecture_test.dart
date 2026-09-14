@@ -562,7 +562,7 @@ Iterable<SourceFile> _normativeDocs(String root) sync* {
       if (file.path.endsWith('.md')) paths.add(relativeTo(file.path, root));
     }
   }
-  paths.addAll(const ['dev/state/DECISIONS.md', 'dev/state/ROADMAP.md', 'dev/state/UBIQUITOUS_LANGUAGE.md']);
+  paths.addAll(const ['dev/state/DECISIONS.md', 'dev/state/UBIQUITOUS_LANGUAGE.md']);
   for (final directory in const ['packages', 'apps']) {
     for (final file in Directory('$root/$directory').listSync(recursive: false).whereType<Directory>()) {
       final agents = File('${file.path}/AGENTS.md');

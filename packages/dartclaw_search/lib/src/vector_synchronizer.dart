@@ -57,25 +57,25 @@ final class VectorSynchronizer {
   /// Reconciles the current source state for the supplied document identities.
   Future<VectorSynchronizationResult> synchronize(Iterable<String> documentIds, {required String userId}) async {
     _validateUserId(userId);
-    final ids = documentIds.toSet().toList(growable: false);
+    final ids = documentIds.toSet();
     if (ids.any((id) => id.isEmpty)) {
       throw ArgumentError.value(documentIds, 'documentIds', 'must not contain empty IDs');
     }
     final before = await _inventory.selected(ids, userId: userId);
     final existing = await _inventory.records(userId: userId);
     final currentByIdentity = {for (final chunk in before.chunks) chunk.identity: chunk};
-    final reusable = <VectorIdentity, VectorRecord>{};
+    final reusable = <VectorIdentity>{};
     final retire = <VectorIdentity>{};
     for (final record in existing.where((record) => ids.contains(record.documentId))) {
       final identity = VectorIdentity(documentId: record.documentId, chunkIndex: record.chunkIndex);
       final current = currentByIdentity[identity];
       if (current != null && current.matches(record, _embeddingProvider.modelFingerprint)) {
-        reusable[identity] = record;
+        reusable.add(identity);
       } else {
         retire.add(identity);
       }
     }
-    final missing = before.chunks.where((chunk) => !reusable.containsKey(chunk.identity)).toList(growable: false);
+    final missing = before.chunks.where((chunk) => !reusable.contains(chunk.identity)).toList(growable: false);
 
     List<List<double>> vectors;
     MemorySearchDegradation? embeddingFailure;

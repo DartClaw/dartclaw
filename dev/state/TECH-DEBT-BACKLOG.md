@@ -64,16 +64,6 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`, flagged 2026-08-07). Decide at its PRD re-scoping whether the per-project/server MCP curation surface rides that milestone.
 
-## TD-115 – CLOSED 2026-09-08 – Filesystem-backed instance-local state
-
-**Status**: Implemented for 0.26 (PRD FR13). Story outcome and Windows/crash-process verification are consolidated in the private `docs/specs/0.26/prd.md` release record.
-**Found**: 2026-08-07, owner design discussion during the milestone rider planning
-**Affects**: `packages/dartclaw_core/lib/src/storage/turn_state_store.dart`, `packages/dartclaw_core/lib/src/storage/webhook_delivery_store.dart`, their open sites in `packages/dartclaw_runtime/lib/src/runtime/storage_wiring.dart` and `packages/dartclaw_runtime/lib/src/server.dart`
-
-**Resolution**: Turn recovery uses synchronous atomic writes to `turn_state.json`; webhook dedup uses exclusive per-ID marker files in `webhook_deliveries/`, preserving pending/processed transitions and the commit-time retention anchor. Both stores remain local to one instance and no longer open SQLite. ADR-045 #3/Q4 records the mechanism amendment; the import gate permits only the database backend implementation. The one-binary packaging decision is unchanged.
-
----
-
 ## TD-106 – Investigate deeper Codex restriction surface
 
 **Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`) – flagged 2026-09-03 as part of the guarded-dispatch debt sweep.

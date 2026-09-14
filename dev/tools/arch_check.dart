@@ -152,15 +152,15 @@ const _libLocCeilings = <String, int>{
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 31260,
+  'dartclaw_core': 31254,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 68666,
-  'dartclaw_search': 1986,
+  'dartclaw_runtime': 68649,
+  'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
-  'dartclaw_workflow': 25632,
+  'dartclaw_workflow': 25631,
 };
 // 2026-09-09: raised 12 -> 13 for the ADR-050 hybrid-search package. The
 // ceiling equals the shipped package count, with no spare slot for an

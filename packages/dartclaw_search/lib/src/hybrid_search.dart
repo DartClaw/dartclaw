@@ -82,7 +82,7 @@ final class HybridSearch {
     }
 
     final currentByIdentity = {for (final chunk in authenticated.chunks) chunk.identity: chunk};
-    final vectors = <_RankedVector>[];
+    final vectors = <({_CorpusChunk chunk, int rank})>[];
     var staleCount = 0;
     for (final match in eligibleMatches) {
       final identity = VectorIdentity(documentId: match.documentId, chunkIndex: match.chunkIndex);
@@ -90,7 +90,7 @@ final class HybridSearch {
       if (chunk == null || chunk.contentHash != match.contentHash) {
         staleCount++;
       } else {
-        vectors.add(_RankedVector(chunk: chunk, rank: vectors.length + 1));
+        vectors.add((chunk: chunk, rank: vectors.length + 1));
       }
     }
 
@@ -207,13 +207,6 @@ final class HybridSearch {
 
   Future<int?> _diagnosticMissingCount(String userId) =>
       _inventory.diagnosticMissingCount(userId: userId, modelFingerprint: _embeddingProvider.modelFingerprint);
-}
-
-final class _RankedVector {
-  const new({required this.chunk, required this.rank});
-
-  final _CorpusChunk chunk;
-  final int rank;
 }
 
 final class _FusedCandidate {

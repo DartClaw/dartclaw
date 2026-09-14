@@ -4,45 +4,53 @@ Qualify the rendered-manifest path used by the release workflow on Windows x64.
 
 ## Preconditions
 
-- A qualified `dartclaw-v<version>-windows-x64.zip` and matching `.sha256`.
-- Scoop and Git installed on the Windows host.
+- Qualified `dartclaw-v<version>-windows-x64.zip` and `dartclaw-workflow-v<version>-windows-x64.zip`, each with its matching `.sha256`.
+- Scoop and Git installed on a disposable Windows x64 host, with neither DartClaw package already installed.
+- A source checkout matching the artifacts, with commands run from its root.
 - The archive available over HTTP. A loopback server is sufficient before release.
 
 ## Procedure
 
-1. Copy `package/scoop/dartclaw.json` into a temporary Git repository as `bucket/dartclaw.json`.
-2. Replace only the temporary manifest's install-time URL with the archive URL and its placeholder hash with the
-   archive's SHA256. Keep the canonical manifest unchanged.
+1. Copy both manifests from `package/scoop/` into a temporary Git repository under `bucket/`.
+2. Set each temporary manifest's install-time URL and hash to its corresponding archive URL and SHA256. Keep the
+   canonical manifests unchanged.
 3. Add the temporary repository as a Scoop bucket and install the bucket-qualified package:
 
    ```powershell
    scoop bucket add dartclaw-local <temporary-git-url>
-   scoop install dartclaw-local/dartclaw
+   scoop install dartclaw-local/dartclaw dartclaw-local/dartclaw-workflow
    dartclaw --version
+   dartclaw-workflow --version
    ```
 
-4. Resolve the versioned app directory rather than Scoop's `current` junction, then drive FTS5 through the installed
-   binary. `rebuild-index` creates and queries the FTS5 virtual table, which the Windows system `winsqlite3.dll`
-   cannot do — so a rebuilt index proves the bundled `lib\sqlite3.dll` was loaded:
+4. Require both version commands to report the version being qualified. Resolve each versioned app directory rather
+   than Scoop's `current` junction, then use the same bundled SQLite/FTS5 check as the Windows release build:
 
    ```powershell
-   $current = (scoop prefix dartclaw).Trim()
-   $appRoot = Join-Path (Split-Path $current -Parent) '<version>'
-   $probe = Join-Path $env:TEMP "dartclaw-scoop-probe-$([guid]::NewGuid())"
-   New-Item -ItemType Directory -Path (Join-Path $probe 'workspace') -Force | Out-Null
-   Set-Content -LiteralPath (Join-Path $probe 'dartclaw.yaml') -Value "data_dir: '$probe'"
-   Set-Content -LiteralPath (Join-Path $probe 'workspace\MEMORY.md') -Value "## probe`n- [2026-01-01 00:00] scoopfts5probe`n"
-   & (Join-Path $appRoot 'bin\dartclaw.exe') --config (Join-Path $probe 'dartclaw.yaml') rebuild-index
+   . ./dev/tools/build_windows.ps1
+   $version = '<version>'
+   foreach ($name in @('dartclaw', 'dartclaw-workflow')) {
+     $current = (scoop prefix $name).Trim()
+     if ($LASTEXITCODE -ne 0) { throw "Cannot resolve Scoop prefix for $name" }
+     $appRoot = Join-Path (Split-Path $current -Parent) $version
+     Invoke-WindowsBundledSqliteCheck -Executable (Join-Path $appRoot "bin/$name.exe") -BinaryName $name
+   }
    ```
 
-5. Run `scoop update dartclaw`, then `scoop uninstall dartclaw` and remove the temporary bucket. Confirm the shim is
-   gone.
-6. After a tagged release publishes the hosted manifest, repeat the install against
-   `https://github.com/DartClaw/scoop-dartclaw`. Save a local report under `.agent_temp/` if needed.
+   Dot-sourcing loads the helper without running a build. It creates an empty temporary workspace, runs
+   `rebuild-index`, checks the result, and cleans up. Creating the FTS5 table proves that the bundled SQLite loaded;
+   no memory fixture is needed. This keeps corpus-format and Git line-ending handling out of the packaging audit.
+
+5. Run `scoop update dartclaw dartclaw-workflow`, then `scoop uninstall dartclaw dartclaw-workflow` and remove the
+   temporary bucket. Confirm both shims are gone. Clean up installed packages and the bucket even if a check fails.
+6. After a tagged release publishes both hosted manifests, repeat steps 3–5 using bucket name `dartclaw` and
+   `https://github.com/DartClaw/scoop-dartclaw`. Reuse the published archives and this procedure; save the outcome under
+   `.agent_temp/`. Use local Windows for development checks; a hosted Windows x64 runner is needed only when no local
+   native x64 host is available for final qualification.
 
 ## Pass Criteria
 
-- Bucket add, download, SHA256 validation, extraction, shim creation, version check, bundled SQLite/FTS5 check,
-  update, uninstall, and cleanup all pass.
-- The hosted path is release-ready only when the public bucket contains a rendered manifest whose URL resolves to the
-  public Windows release asset.
+- For both packages: bucket add, download, SHA256 validation, extraction, shim creation, exact version check, bundled
+  SQLite/FTS5 check, update, uninstall, and cleanup all pass.
+- The hosted path is release-ready only when the public bucket contains both rendered manifests, each pointing to its
+  matching public Windows release asset and checksum.

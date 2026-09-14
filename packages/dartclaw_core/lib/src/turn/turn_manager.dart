@@ -23,9 +23,10 @@ abstract interface class TurnManager {
   /// execution placement otherwise derived from the session's pinned routing.
   ///
   /// [outputSchemaWhenSupported] declares that the caller validates the result
-  /// host-side, so a harness that cannot enforce the schema gets none instead
-  /// of refusing the turn. Left false, [outputSchema] reaches the harness
-  /// unconditionally and an unsupporting one fails the turn.
+  /// host-side: a harness without typed readback gets [outputSchema] only where
+  /// its provider can constrain the reply to it, and none otherwise. Left false,
+  /// the caller needs the typed payload, so a harness without readback is
+  /// refused by name.
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',

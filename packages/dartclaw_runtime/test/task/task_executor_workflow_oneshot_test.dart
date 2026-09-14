@@ -49,6 +49,20 @@ final _finalizerEnvelopeOutput = <String, dynamic>{
   'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
 };
 
+// Captured malformed reply with an unclosed object and nested `step_outcome`.
+const _unclosedIncidentEnvelope =
+    '{"outputs":{"review_result":{"primaryFinding":{"id":"F1","routing":"Fix","evidence":"The report reta'
+    'ins a HIGH finding but labels the code review Ready; code-mode readiness rules require Needs Fixes f'
+    'or any HIGH finding."},"cosmeticRoutedFix":false,"coverage":["scope and finding contract","readiness'
+    ' versus severity counts","coverage-proof presence","verification limitations","cosmetic comment quot'
+    'e"],"reportPath":"ingest-code-review-doc-review-codex-2026-09-13.md","verdict":"Needs Significant Re'
+    'work"},"step_outcome":{"outcome":"succeeded","reason":"The document review report was written."}}';
+
+Future<String> _lastUserMessage(WorkflowTaskExecutorTestContext context, String taskId) async {
+  final task = (await context.tasks.get(taskId))!;
+  return (await context.messages.getMessages(task.sessionId!)).lastWhere((message) => message.role == 'user').content;
+}
+
 final class _TurnTimerFakeTime {
   static final _initialTime = DateTime(2026);
   final _async = FakeAsync(initialTime: _initialTime);
@@ -159,6 +173,19 @@ void main() {
       followUpPrompts: followUps,
       providerSessionId: providerSessionId,
     );
+  }
+
+  Future<TaskEventService> useEventRecorder({HarnessFactory? harnessFactory}) async {
+    final eventBackend = await openPreparedTaskBackend();
+    addTearDown(eventBackend.close);
+    final eventService = TaskEventService(eventBackend);
+    await executor.stop();
+    executor = context.buildExecutor(
+      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
+      harnessFactory: harnessFactory,
+      eventRecorder: TaskEventRecorder(eventService: eventService),
+    );
+    return eventService;
   }
 
   Future<_TurnTimerFakeTime> useTimedWorkflowGraph(TurnLimitsConfig limits) async {
@@ -550,28 +577,19 @@ void main() {
     expect((await context.tasks.get('finalizer-contract'))?.status, TaskStatus.review);
     expect(harness.lastProviderSessionId, 'provider-session');
     expect(harness.lastOutputSchema, _summaryEnvelopeSchema);
-    // Each schema rejection of the provider's StructuredOutput call costs a turn
-    // before the corrected retry; a ceiling of 2 failed live steps on one slip.
+    // A provider-side schema rejection consumes a turn before the corrected reply.
     expect(harness.lastMaxTurns, 4);
     final request = workerRequests.single;
     expect(request.allowedTools, isNull);
   });
 
   test('missing provider session records validation failure without fabricating an envelope', () async {
-    final eventBackend = await openPreparedTaskBackend();
-    addTearDown(eventBackend.close);
-    final eventService = TaskEventService(eventBackend);
-    await executor.stop();
     final factory = HarnessFactory()
       ..register(
         'claude',
         (_) => FakeAgentHarness(supportsStructuredOutput: true, supportsProviderSessionResume: true),
       );
-    executor = context.buildExecutor(
-      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
-      harnessFactory: factory,
-      eventRecorder: TaskEventRecorder(eventService: eventService),
-    );
+    final eventService = await useEventRecorder(harnessFactory: factory);
     await createStep('missing-session', structuredSchema: _summaryEnvelopeSchema);
     await drive(const [TurnResult()], replies: const ['Working']);
 
@@ -600,20 +618,12 @@ void main() {
   });
 
   test('two empty finalizer turns fail with missing_envelope', () async {
-    final eventBackend = await openPreparedTaskBackend();
-    addTearDown(eventBackend.close);
-    final eventService = TaskEventService(eventBackend);
-    await executor.stop();
     final factory = HarnessFactory()
       ..register(
         'claude',
         (_) => FakeAgentHarness(supportsStructuredOutput: true, supportsProviderSessionResume: true),
       );
-    executor = context.buildExecutor(
-      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
-      harnessFactory: factory,
-      eventRecorder: TaskEventRecorder(eventService: eventService),
-    );
+    final eventService = await useEventRecorder(harnessFactory: factory);
     await createStep('missing-envelope', structuredSchema: _summaryEnvelopeSchema);
     await drive(
       const [
@@ -631,20 +641,12 @@ void main() {
   });
 
   test('malformed finalizer envelope fails closed and is not stamped', () async {
-    final eventBackend = await openPreparedTaskBackend();
-    addTearDown(eventBackend.close);
-    final eventService = TaskEventService(eventBackend);
-    await executor.stop();
     final factory = HarnessFactory()
       ..register(
         'claude',
         (_) => FakeAgentHarness(supportsStructuredOutput: true, supportsProviderSessionResume: true),
       );
-    executor = context.buildExecutor(
-      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
-      harnessFactory: factory,
-      eventRecorder: TaskEventRecorder(eventService: eventService),
-    );
+    final eventService = await useEventRecorder(harnessFactory: factory);
     await createStep('malformed-envelope', structuredSchema: _summaryEnvelopeSchema);
     await drive(
       [
@@ -667,10 +669,6 @@ void main() {
     expect(failure.details['failureReason'], 'malformed_envelope');
   });
 
-  // The Codex shape: the harness parses no envelope, so `structuredOutput` is
-  // null and the runner reads the declared JSON object out of the reply body.
-  // The extraction lived in the one-shot provider stack 0.25 deleted; without
-  // it every Codex structured step reported missing_envelope.
   test('an envelope carried in the reply body is read and validated', () async {
     await createStep('body-envelope', structuredSchema: _summaryEnvelopeSchema);
     const envelope = '{"outputs":{"summary":"did the work"},"step_outcome":{"outcome":"succeeded","reason":"ok"}}';
@@ -688,15 +686,27 @@ void main() {
     expect((stored!['outputs'] as Map)['summary'], 'did the work');
   });
 
-  test('a reply body that is not the declared object records missing_envelope', () async {
-    final eventBackend = await openPreparedTaskBackend();
-    addTearDown(eventBackend.close);
-    final eventService = TaskEventService(eventBackend);
-    await executor.stop();
-    executor = context.buildExecutor(
-      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
-      eventRecorder: TaskEventRecorder(eventService: eventService),
+  test('a constraint-only provider receives the finalizer schema and the body is read as the envelope', () async {
+    harness = FakeAgentHarness(supportsOutputSchemaConstraint: true, supportsProviderSessionResume: true);
+    await createStep('constraint-only', structuredSchema: _summaryEnvelopeSchema);
+    const envelope = '{"outputs":{"summary":"constrained"},"step_outcome":{"outcome":"succeeded","reason":"ok"}}';
+    await drive(
+      [
+        const TurnResult(providerSessionId: 'provider-session'),
+        const TurnResult(providerSessionId: 'provider-session'),
+      ],
+      replies: const ['Working', envelope],
     );
+
+    expect((await context.tasks.get('constraint-only'))?.status, TaskStatus.review);
+    expect(harness.lastOutputSchema, _summaryEnvelopeSchema);
+    final stored = (await context.workflowStepExecutions.getByTaskId('constraint-only'))?.structuredOutput;
+    expect(stored, isNotNull);
+    expect((stored!['outputs'] as Map)['summary'], 'constrained');
+  });
+
+  test('a prose reply body re-asks with the parser message and records unparsable_envelope', () async {
+    final eventService = await useEventRecorder();
     await createStep('prose-body', structuredSchema: _summaryEnvelopeSchema);
     await drive(
       [
@@ -708,20 +718,126 @@ void main() {
     );
 
     expect((await context.tasks.get('prose-body'))?.status, TaskStatus.failed);
+    // Bracket hints apply only to JSON-shaped replies; prose uses the parser message.
+    final reAsk = await _lastUserMessage(context, 'prose-body');
+    expect(reAsk, contains('not the required JSON envelope: Unexpected character.'));
+    expect(reAsk, isNot(contains('is not closed')));
+    expect(reAsk, contains('Parser: Unexpected character (at character offset 0).'));
     final failure = (await eventService.listForTask('prose-body'))
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
-    expect(failure.details['failureReason'], 'missing_envelope');
+    expect(failure.details['failureReason'], 'unparsable_envelope: Unexpected character (at character offset 0)');
+  });
+
+  test('a diagnostic first rejection outranks an empty second reply', () async {
+    final eventService = await useEventRecorder();
+    await createStep('unclosed-then-empty', structuredSchema: _summaryEnvelopeSchema);
+    await drive(
+      const [
+        TurnResult(providerSessionId: 'provider-session'),
+        TurnResult(providerSessionId: 'provider-session'),
+        TurnResult(providerSessionId: 'provider-session'),
+      ],
+      replies: const ['Working', _unclosedIncidentEnvelope],
+    );
+
+    expect((await context.tasks.get('unclosed-then-empty'))?.status, TaskStatus.failed);
+    final failure = (await eventService.listForTask('unclosed-then-empty'))
+        .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
+    expect(failure.details['failureReason'], startsWith('unparsable_envelope:'));
+  });
+
+  test('a prose reply with a stray brace gets no unclosed-container hint', () async {
+    await useEventRecorder();
+    await createStep('prose-stray-brace', structuredSchema: _summaryEnvelopeSchema);
+    await drive(
+      [
+        const TurnResult(providerSessionId: 'provider-session'),
+        const TurnResult(providerSessionId: 'provider-session'),
+        const TurnResult(providerSessionId: 'provider-session'),
+      ],
+      replies: const ['Working', 'I have finished the review. Note: {important', 'Still prose.'],
+    );
+
+    final reAsk = await _lastUserMessage(context, 'prose-stray-brace');
+    expect(reAsk, isNot(contains('is not closed')));
+    expect(reAsk, contains('Parser:'));
+  });
+
+  test('two not-object replies record unparsable_envelope with no parser line', () async {
+    final eventService = await useEventRecorder();
+    await createStep('not-object-twice', structuredSchema: _summaryEnvelopeSchema);
+    await drive(
+      const [
+        TurnResult(providerSessionId: 'provider-session'),
+        TurnResult(providerSessionId: 'provider-session'),
+        TurnResult(providerSessionId: 'provider-session'),
+      ],
+      replies: const ['Working', '[]', '[]'],
+    );
+
+    expect((await context.tasks.get('not-object-twice'))?.status, TaskStatus.failed);
+    final reAsk = await _lastUserMessage(context, 'not-object-twice');
+    expect(reAsk, contains('not the required JSON envelope: it parsed as JSON but is not the envelope object.'));
+    expect(reAsk, isNot(contains('Parser:')));
+    final failure = (await eventService.listForTask('not-object-twice'))
+        .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
+    expect(failure.details['failureReason'], 'unparsable_envelope: reply is not the envelope object');
+  });
+
+  test('an unclosed envelope re-asks with the unclosed-container hint, offset and excerpt', () async {
+    await createStep('unclosed-envelope', structuredSchema: _summaryEnvelopeSchema);
+    await drive(
+      [
+        const TurnResult(providerSessionId: 'provider-session'),
+        const TurnResult(providerSessionId: 'provider-session'),
+        const TurnResult(providerSessionId: 'provider-session'),
+      ],
+      replies: const [
+        'Working',
+        _unclosedIncidentEnvelope,
+        '{"outputs":{"summary":"final"},"step_outcome":{"outcome":"succeeded","reason":"ok"}}',
+      ],
+    );
+
+    final reAsk = await _lastUserMessage(context, 'unclosed-envelope');
+    expect(reAsk, contains('not the required JSON envelope: the JSON object is not closed: 1 unclosed `{`/`[`.'));
+    expect(reAsk, contains('Parser: Unexpected end of input (at character offset 597).'));
+    expect(
+      reAsk,
+      endsWith(
+        'Your previous response near that point:\n'
+        '```\n'
+        '…":"Needs Significant Rework"},"step_outcome":{"outcome":"succeeded","reason":"The document review report '
+        'was written."}}\n'
+        '```\n'
+        'Output ONLY the JSON object now.',
+      ),
+    );
+    expect((await context.tasks.get('unclosed-envelope'))?.status, TaskStatus.review);
+    final stored = (await context.workflowStepExecutions.getByTaskId('unclosed-envelope'))?.structuredOutput;
+    expect((stored?['outputs'] as Map?)?['summary'], 'final');
+  });
+
+  test('two unclosed envelopes record unparsable_envelope carrying the parser message', () async {
+    final eventService = await useEventRecorder();
+    await createStep('unclosed-twice', structuredSchema: _summaryEnvelopeSchema);
+    await drive(
+      [
+        const TurnResult(providerSessionId: 'provider-session'),
+        const TurnResult(providerSessionId: 'provider-session'),
+        const TurnResult(providerSessionId: 'provider-session'),
+      ],
+      replies: const ['Working', _unclosedIncidentEnvelope, _unclosedIncidentEnvelope],
+    );
+
+    expect((await context.tasks.get('unclosed-twice'))?.status, TaskStatus.failed);
+    final failure = (await eventService.listForTask('unclosed-twice'))
+        .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
+    expect(failure.details['failureReason'], 'unparsable_envelope: Unexpected end of input (at character offset 597)');
   });
 
   test('a reply body carrying a schema-violating object records malformed_envelope', () async {
-    final eventBackend = await openPreparedTaskBackend();
-    addTearDown(eventBackend.close);
-    final eventService = TaskEventService(eventBackend);
-    await executor.stop();
-    executor = context.buildExecutor(
-      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
-      eventRecorder: TaskEventRecorder(eventService: eventService),
-    );
+    final eventService = await useEventRecorder();
     await createStep('body-malformed', structuredSchema: _summaryEnvelopeSchema);
     await drive(
       [

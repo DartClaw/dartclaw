@@ -2,7 +2,8 @@
 // workspace calls `AgentHarness.requireStructuredOutputSupport` — not only the
 // ones that happen to live in `dartclaw_core`'s harness directory.
 //
-// Why: `supportsStructuredOutput` defaults to `false` on the contract, which is
+// Why: both capability getters (`supportsStructuredOutput`,
+// `supportsOutputSchemaConstraint`) default to `false` on the contract, which is
 // the fail-closed half. The refusal itself is a static helper each `turn()` has
 // to call at its entry, because a harness that adopts the contract with
 // `implements` inherits no body. A harness that overrides neither still accepts

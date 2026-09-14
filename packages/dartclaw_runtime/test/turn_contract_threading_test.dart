@@ -26,6 +26,7 @@ void main() {
     GuardChain? guardChain,
     ContextMonitor? contextMonitor,
     AgentHarness? harness,
+    TaskToolFilterGuard? taskToolFilterGuard,
     String providerId = 'claude',
   }) => TurnRunner(
     turnLimits: const TurnLimitsConfig.defaults(),
@@ -37,8 +38,41 @@ void main() {
     turnState: turnState,
     kv: kvService,
     guardChain: guardChain,
+    taskToolFilterGuard: taskToolFilterGuard,
     contextMonitor: contextMonitor,
   );
+
+  /// Runs a schema-bearing turn on [harness] under an empty session allowlist and
+  /// asks the installed tool filter how it would rule on Claude's
+  /// schema-submission call while that turn still owns the policy.
+  Future<GuardVerdict> claudeStructuredOutputVerdict(FakeAgentHarness harness) async {
+    final toolFilter = TaskToolFilterGuard(denyEmptyAllowlist: true);
+    final runner = buildRunner(harness: harness, taskToolFilterGuard: toolFilter);
+    final session = await sessions.getOrCreateMainSession();
+
+    final turnId = await runner.reserveTurn(
+      session.id,
+      outputSchema: const {'type': 'object'},
+      outputSchemaWhenSupported: true,
+      allowedTools: const [],
+    );
+    runner.executeTurn(session.id, turnId, const [
+      {'role': 'user', 'content': 'Return structured output'},
+    ]);
+    await harness.turnInvoked;
+    final verdict = await toolFilter.evaluate(
+      GuardContext(
+        hookPoint: 'beforeToolCall',
+        toolName: 'claude:StructuredOutput',
+        rawProviderToolName: 'StructuredOutput',
+        sessionId: session.id,
+        timestamp: DateTime.now(),
+      ),
+    );
+    harness.completeSuccess(turnResult());
+    await runner.waitForOutcome(session.id, turnId);
+    return verdict;
+  }
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_turn_contract_test_');
@@ -260,18 +294,20 @@ void main() {
     expect(outcome.structuredOutput, isNull);
   });
 
-  test('S05 capability refusal survives the runner catch while other failures stay generic', () async {
+  test('S05 capability refusal names the harness at reservation while other failures stay generic', () async {
     final runner = buildRunner();
-    const schema = {'type': 'object'};
     final session = await sessions.getOrCreateMainSession();
 
-    final refusedTurnId = await runner.reserveTurn(session.id, outputSchema: schema);
-    runner.executeTurn(session.id, refusedTurnId, const [
-      {'role': 'user', 'content': 'Return structured output'},
-    ]);
-    final refused = await runner.waitForOutcome(session.id, refusedTurnId);
-    expect(refused.status, TurnStatus.failed);
-    expect(refused.errorMessage, contains('FakeAgentHarness does not support structured output'));
+    await expectLater(
+      runner.reserveTurn(session.id, outputSchema: const {'type': 'object'}),
+      throwsA(
+        isA<UnsupportedHarnessCapabilityException>().having(
+          (error) => error.toString(),
+          'message',
+          contains('FakeAgentHarness does not support structured output'),
+        ),
+      ),
+    );
 
     scheduleTurnCompletion(worker, error: StateError('private provider detail'));
     final genericTurnId = await runner.startTurn(session.id, const [
@@ -299,6 +335,62 @@ void main() {
 
     expect(outcome.status, TurnStatus.completed);
     expect(worker.lastOutputSchema, isNull);
+  });
+
+  test('a host-validated schema reaches a harness whose provider constrains the reply', () async {
+    // Codex: the schema is applied on the wire but nothing typed comes back,
+    // so the caller still reads the reply text it validates host-side.
+    worker = FakeAgentHarness(supportsOutputSchemaConstraint: true);
+    final runner = buildRunner();
+    const schema = {'type': 'object'};
+    final session = await sessions.getOrCreateMainSession();
+    scheduleTurnCompletion(worker, responseText: '{"answer":"provider-constrained"}');
+
+    final turnId = await runner.reserveTurn(session.id, outputSchema: schema, outputSchemaWhenSupported: true);
+    runner.executeTurn(session.id, turnId, const [
+      {'role': 'user', 'content': 'Return structured output'},
+    ]);
+    final outcome = await runner.waitForOutcome(session.id, turnId);
+
+    expect(outcome.status, TurnStatus.completed);
+    expect(worker.lastOutputSchema, schema);
+    expect(outcome.structuredOutput, isNull);
+  });
+
+  test('the structured-output tool exemption follows readback, not the presence of a schema', () async {
+    // A constraint-only turn carries a schema too, but the exemption admits
+    // Claude's submission protocol, which such a provider never speaks.
+    final constraintOnly = FakeAgentHarness(supportsOutputSchemaConstraint: true);
+    final readback = FakeAgentHarness(supportsStructuredOutput: true);
+    addTearDown(() async => constraintOnly.dispose());
+    addTearDown(() async => readback.dispose());
+
+    expect((await claudeStructuredOutputVerdict(constraintOnly)).isBlock, isTrue);
+    expect((await claudeStructuredOutputVerdict(readback)).isPass, isTrue);
+  });
+
+  test('a caller needing the typed payload is refused on a constraint-only harness', () async {
+    // The harness would accept the schema and answer with text, so the caller
+    // that needs a typed payload has to be refused here instead.
+    worker = FakeAgentHarness(supportsOutputSchemaConstraint: true);
+    final runner = buildRunner();
+    final session = await sessions.getOrCreateMainSession();
+
+    await expectLater(
+      runner.reserveTurn(session.id, outputSchema: const {'type': 'object'}),
+      throwsA(
+        isA<UnsupportedHarnessCapabilityException>()
+            .having((error) => error.provider, 'provider', 'FakeAgentHarness')
+            .having((error) => error.capability, 'capability', AgentHarness.structuredOutputCapability),
+      ),
+    );
+
+    // Admission was released, so an ordinary turn still runs on this session.
+    scheduleTurnCompletion(worker, responseText: 'after the refusal');
+    final turnId = await runner.startTurn(session.id, const [
+      {'role': 'user', 'content': 'Plain turn'},
+    ]);
+    expect((await runner.waitForOutcome(session.id, turnId)).status, TurnStatus.completed);
   });
 
   test('a host-validated schema still reaches a harness that enforces it', () async {

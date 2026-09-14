@@ -495,6 +495,7 @@ class FakeTaskWorker implements AgentHarness {
   int cancelCallCount = 0;
   bool shouldFail = false;
   bool structuredOutputSupported = false;
+  bool outputSchemaConstraintSupported = false;
   bool providerSessionResumeSupported = false;
   String? providerSessionId;
   Map<String, dynamic>? structuredOutput;
@@ -536,6 +537,9 @@ class FakeTaskWorker implements AgentHarness {
 
   @override
   bool get supportsStructuredOutput => structuredOutputSupported;
+
+  @override
+  bool get supportsOutputSchemaConstraint => outputSchemaConstraintSupported;
 
   @override
   bool get supportsNoWorkTools => false;

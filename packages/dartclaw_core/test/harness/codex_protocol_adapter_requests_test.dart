@@ -14,6 +14,7 @@ void main() {
       final adapter = CodexProtocolAdapter();
 
       for (final entry in const {
+        'read-only': 'readOnly',
         'workspace-write': 'workspaceWrite',
         'danger-full-access': 'dangerFullAccess',
       }.entries) {

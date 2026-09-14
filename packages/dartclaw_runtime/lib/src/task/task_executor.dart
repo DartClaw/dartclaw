@@ -271,8 +271,10 @@ class TaskExecutor {
       // A step declaring a schema is *not* refused on a provider that cannot
       // enforce one. The structure is host-enforced on this path: the finalizer
       // prompt asks for the envelope and `WorkflowOneShotRunner` validates the
-      // payload with `SchemaValidator`. `StepTurnRunner` withholds the schema
-      // from such a harness so nothing claims provider enforcement it lacks.
+      // payload with `SchemaValidator`. `StepTurnRunner`'s gate forwards the
+      // schema to a provider that can constrain the reply to it (Codex) and
+      // withholds it from one that cannot (ACP), so nothing claims provider
+      // enforcement it lacks.
       final ExecutionPolicy policy;
       try {
         policy = _executionPolicyForTask(preparedTask);

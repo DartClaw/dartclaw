@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 void main() {
   group('CodexSettings', () {
     test('translateSandbox maps documented YAML values to Codex values', () {
+      expect(CodexSettings.translateSandbox('read-only'), 'readOnly');
       expect(CodexSettings.translateSandbox('workspace-write'), 'workspaceWrite');
       expect(CodexSettings.translateSandbox('danger-full-access'), 'dangerFullAccess');
       expect(CodexSettings.translateSandbox(' workspace-write '), 'workspaceWrite');

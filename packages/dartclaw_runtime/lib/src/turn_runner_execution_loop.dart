@@ -30,7 +30,9 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       turnId,
       turnPolicy?.allowedTools,
       turnPolicy?.readOnly ?? false,
-      allowClaudeStructuredOutput: turnPolicy?.outputSchema != null,
+      // Admits Claude's schema-submission tool names only. A Codex turn now
+      // carries a schema too, and must not flip it.
+      allowClaudeStructuredOutput: turnPolicy?.outputSchema != null && _worker.supportsStructuredOutput,
     );
     var progressTextLength = 0;
     TurnLivenessTracker? runtimeWait;

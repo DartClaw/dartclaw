@@ -104,6 +104,9 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     return null;
   }
 
+  /// [outputSchema] extends the [ProtocolAdapter] signature: the app server
+  /// constrains the final assistant message to it, and no other provider takes
+  /// a schema on the turn request.
   @override
   Map<String, dynamic> buildTurnRequest({
     required String message,
@@ -111,6 +114,7 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     String? threadId,
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
+    Map<String, dynamic>? outputSchema,
   }) {
     final params = <String, dynamic>{
       'input': [
@@ -138,6 +142,9 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     }
     if (threadId != null) {
       params['threadId'] = threadId;
+    }
+    if (outputSchema != null) {
+      params['outputSchema'] = outputSchema;
     }
     return {'method': 'turn/start', 'params': params};
   }

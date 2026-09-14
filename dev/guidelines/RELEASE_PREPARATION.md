@@ -18,8 +18,8 @@ checks to pass**, then add `Check`, `Container boundary`, `PowerShell scripts`, 
 `PostgreSQL contract`. Save the ruleset, reopen it, and confirm all four checks are listed. Repository settings are
 kept operator-managed.
 
-At milestone close-out, record the confirmation date and the `PostgreSQL contract` check name in the current
-`dev/state/ROADMAP.md` milestone entry.
+At milestone close-out, record the confirmation date and the `PostgreSQL contract` check name in the release PR.
+Maintainers record milestone status in the private `docs/ROADMAP.md`, the sole roadmap.
 
 **Release-workflow dry run.** When a release lands a change to `dev/tools/build_*`, `dev/tools/install_windows_test.ps1`, `install.ps1`, `dev/testing/profiles/windows-runtime/`, or `.github/workflows/release-binaries.yml`, run `Release Binaries` from `workflow_dispatch` on the branch before squashing. It builds all five targets, validates the archives, runs the Windows smoke and the installer test, and publishes nothing — `publish` is gated on `github.ref_type == 'tag'`. Nothing else exercises that matrix until the tag is pushed.
 
@@ -37,7 +37,7 @@ At milestone close-out, record the confirmation date and the `PostgreSQL contrac
 - Release assets: confirm GitHub Releases has `dartclaw-v{VERSION}-macos-arm64.tar.gz`, `dartclaw-v{VERSION}-macos-x64.tar.gz`, `dartclaw-v{VERSION}-linux-x64.tar.gz`, `dartclaw-v{VERSION}-linux-arm64.tar.gz`, and `dartclaw-v{VERSION}-windows-x64.zip`, each with a matching `.sha256`, plus the matching five `dartclaw-workflow-v{VERSION}-<target>` archives with the same extensions and their own `.sha256`; `SHA256SUMS.txt` must cover all ten archives. Each POSIX archive must contain `bin/dartclaw` and `lib/libsqlite3.*`; the Windows ZIP must contain `VERSION`, `bin/dartclaw.exe`, and `lib/sqlite3.dll`.
 - Lean archive layout: each POSIX archive contains `VERSION`, `bin/dartclaw-workflow`, and `lib/libsqlite3.*`; the ZIP contains `VERSION`, `bin/dartclaw-workflow.exe`, and `lib/sqlite3.dll`.
 - Homebrew: approve the `Release Binaries` workflow's `homebrew` job in the `distribution-publication` environment, confirm both rendered formulas reached `DartClaw/homebrew-dartclaw`, then verify co-installation with `brew tap DartClaw/dartclaw && brew install dartclaw dartclaw-workflow && dartclaw --version && dartclaw-workflow --version`. If the environment secret is absent, render with `dart run dev/tools/render_homebrew_formula.dart` and publish manually.
-- Scoop: confirm the `scoop` job rendered each published Windows ZIP checksum into its own manifest in `DartClaw/scoop-dartclaw` (`bucket/dartclaw.json`, `bucket/dartclaw-workflow.json`), then run the install/version/update/uninstall audit on Windows x64 for both, including co-installation with `scoop install dartclaw/dartclaw dartclaw/dartclaw-workflow && dartclaw --version && dartclaw-workflow --version`. If publication fails, render with `dev/tools/render_scoop_manifest.dart` (adding `--artifact dartclaw-workflow` for the lean manifest) and publish manually.
+- Scoop: confirm the `scoop` job rendered each published Windows ZIP checksum into its own manifest in `DartClaw/scoop-dartclaw` (`bucket/dartclaw.json`, `bucket/dartclaw-workflow.json`), then follow [Windows Scoop Qualification](../testing/scenarios/windows-scoop.md) for the install/version/update/uninstall audit on Windows x64 for both, including co-installation with `scoop install dartclaw/dartclaw dartclaw/dartclaw-workflow && dartclaw --version && dartclaw-workflow --version`. If publication fails, render with `dev/tools/render_scoop_manifest.dart` (adding `--artifact dartclaw-workflow` for the lean manifest) and publish manually.
 
 **Before the exported-bundle-cleanup gate can pass:** consolidate the private canonical PRD into the complete record of the cycle — each numbered story's outcome and worthwhile plan/FIS learnings folded in, standalone FIS + interlude PRDs integrated into the *Adjacent & interlude work* section — and *move* (don't delete) any unfinished/future-milestone specs to the private repo under their target version (`docs/specs/0.next-<slug>/`). The public bundle is then removed, and the private `docs/specs/<version>/` is pruned to `prd.md`: the PRD is the sole surviving per-version document. See `dev/state/SPEC-LIFECYCLE.md` § *Before removal: integrate into the canonical PRD*.
 
@@ -48,7 +48,7 @@ Then bump in a single commit:
 - `version` and concrete install-time URL in both canonical Scoop manifests `package/scoop/dartclaw.json` and `package/scoop/dartclaw-workflow.json` (lockstep with `dartclawVersion`)
 - `$id` in `schemas/dartclaw.schema.json`: regenerate after the version bump with
   `dart run packages/dartclaw_kernel/tool/generate_config_schema.dart`; never edit it by hand
-- CHANGELOG, `dev/state/ROADMAP.md`, "Current through" markers in docs. Only the section being
+- CHANGELOG and "Current through" markers in docs. Only the section being
   released changes: a shipped release's section is a record, never edited to match the new code (0.25.0 rewrote a
   0.24.0 bullet and so recorded a breaking config change under the release that documented the old form)
 - The CHANGELOG's top heading: `## [Unreleased]` becomes `## [<version>] - Unreleased` in the same commit as the pins
@@ -66,13 +66,13 @@ generator's `--check`, which the fitness suite runs.
 
 Development happens directly on `feat/<version>` — no nested sub-branches for individual fixes/stories; the branch squash-merges as one unit.
 
-1. **Scope-frozen** commit on `feat/<version>` – final version pins, CHANGELOG entry, `ROADMAP.md` § Active Milestone says "release-ready, awaiting tag". Push the branch and let its `Checks` run finish green, then run `release_check.sh --version <version>` on that commit; manual gates pass. The dry run above is required if this release touched the release-workflow surface.
+1. **Scope-frozen** commit on `feat/<version>` – final version pins and CHANGELOG entry; maintainers mark the milestone "release-ready, awaiting tag" in the private roadmap. Push the branch and let its `Checks` run finish green, then run `release_check.sh --version <version>` on that commit; manual gates pass. The dry run above is required if this release touched the release-workflow surface.
 2. **Squash-merge** to `main` with the release-style message; that commit *is* the release.
 3. **Tag** annotated `v<version>` from the squash commit; push tag.
    The release workflow stages ten archives across five native targets privately. Only after every build and the staged Windows
    installer test pass does one job publish the archives, their checksums, and aggregate `SHA256SUMS.txt`. Homebrew and
    Scoop publication starts only after that job succeeds.
 4. **Delete the remote feature branch; retain the local `feat/<version>` branch as the release-development archive.**
-5. **Branch `feat/<next>`** from the squash commit; first work-in-flight commit there flips `ROADMAP.md` to mark the previous version as tagged and open the new milestone as Active. No bookkeeping commit is needed on `main` itself – the tag is the source of truth for "released."
+5. **Branch `feat/<next>`** from the squash commit. Maintainers update the private roadmap to mark the previous version as released and open the new milestone as Active. No bookkeeping commit is needed on `main` itself – the tag is the source of truth for "released."
 
 **`main` carries exactly one commit per release. Never push a follow-up commit to it.** When the tag build fails, fix on the branch, re-squash the whole tree onto the same parent, force-push `main`, and move the tag — and only while nothing has been published. Once `Publish release assets` has run, the tag is frozen and the fix is the next patch version instead. Amending after publication would leave installed artifacts pointing at a commit that no longer exists.

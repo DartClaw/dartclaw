@@ -167,13 +167,17 @@ class CodexHarness extends BaseHarness {
   @override
   bool get supportsProviderSessionResume => _environment?.supportsProviderSessionResume ?? false;
 
-  /// `turn/start` accepts an output-schema param, but the app server returns the
-  /// final assistant message as plain text with no field distinguishing a
-  /// schema-validated payload from ordinary prose. Recovering one would mean
-  /// parsing that text, which is a heuristic rather than enforcement evidence,
-  /// so support is refused rather than claimed on a forwarded key.
+  /// `turn/start` takes an `outputSchema` and the app server constrains the
+  /// final assistant message to it, but no response or notification carries a
+  /// typed or validated field: the reply is `text` on the agentMessage item.
+  /// Readback is therefore not claimed; the schema rides as a provider-side
+  /// constraint through [supportsOutputSchemaConstraint] and the caller reads
+  /// the text. Verified against codex-cli 0.153.4 (ADR-031 amendment).
   @override
   bool get supportsStructuredOutput => false;
+
+  @override
+  bool get supportsOutputSchemaConstraint => true;
 
   @override
   String skillActivationLine(String skill) => '\$$skill';
@@ -374,6 +378,7 @@ class CodexHarness extends BaseHarness {
           sandbox: _effectiveSandbox,
           approval: _stringProviderOption('approval'),
         ),
+        outputSchema: outputSchema,
       );
       payload['id'] = ++_nextRequestId;
       final promptPreview = stringifyMessageContent(messages.last['content']);

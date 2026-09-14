@@ -215,18 +215,26 @@ final class WorkflowOneShotRunner {
           outputSchema: structuredSchema,
         );
         if (outcome.status != TurnStatus.completed) return aggregate(outcome);
-        structuredPayload = _finalizerEnvelope(outcome);
-        if (structuredPayload == null) {
+        var envelope = _readFinalizerEnvelope(outcome);
+        if (envelope case final _EnvelopeRejected rejected) {
           outcome = await runTurn(
-            '$finalizerPrompt\n\nYour previous response did not contain the required JSON envelope. '
-            'Output ONLY the JSON object now.',
+            '$finalizerPrompt\n\n${rejected.reAsk}',
             turnAllowedTools: const <String>[],
             turnReadOnly: true,
             maxTurns: _finalizerMaxTurns,
             outputSchema: structuredSchema,
           );
           if (outcome.status != TurnStatus.completed) return aggregate(outcome);
-          structuredPayload = _finalizerEnvelope(outcome);
+          final second = _readFinalizerEnvelope(outcome);
+          // A second-attempt empty reply is not a diagnosis - keep the first
+          // attempt's parse-level rejection as the recorded reason.
+          envelope = second is _EnvelopeRejected && second.defect == _EnvelopeDefect.empty ? rejected : second;
+        }
+        switch (envelope) {
+          case _EnvelopeParsed(:final envelope):
+            structuredPayload = envelope;
+          case _EnvelopeRejected(:final failureReason):
+            finalizerFailureReason = failureReason;
         }
       }
       if (structuredPayload != null) {
@@ -331,32 +339,4 @@ final class WorkflowOneShotRunner {
             },
           )
           .toList(growable: false);
-}
-
-/// The finalizer envelope for [outcome], from the provider when it enforced the
-/// schema and otherwise from the reply body.
-///
-/// The finalizer prompt declares one shape — "Output ONLY the JSON object
-/// matching the provided schema" — so reading the body as that object is
-/// reading the declared contract, not recovering prose. It runs once, only when
-/// the provider returned nothing structured, with no second strategy and no
-/// repair: a reply that is not that object yields null and takes the existing
-/// single retry, then `missing_envelope`. Whatever is returned still faces
-/// `SchemaValidator`.
-///
-/// Codex needs this. Its harness parses no envelope — the extraction lived in
-/// the one-shot provider stack 0.25 deleted, and the guarded harness path never
-/// gained it — so `structuredOutput` is always null there.
-Map<String, dynamic>? _finalizerEnvelope(TurnOutcome outcome) {
-  final provided = outcome.structuredOutput;
-  if (provided != null) return provided;
-  final body = outcome.responseText?.trim();
-  if (body == null || body.isEmpty) return null;
-  try {
-    final decoded = jsonDecode(body);
-    if (decoded is! Map || decoded.isEmpty) return null;
-    return decoded.map((key, value) => MapEntry(key.toString(), value));
-  } on FormatException {
-    return null;
-  }
 }

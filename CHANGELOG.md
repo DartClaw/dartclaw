@@ -14,6 +14,28 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.26.1] - 2026-09-13
+
+### Changed
+
+- **The workflow finalizer hands Codex the envelope schema** – the schema now travels as `outputSchema` on
+  `codex app-server`'s `turn/start`, so the provider constrains the reply to the execution envelope instead of the
+  prompt alone asking for it. The host still reads and validates the reply text, and Codex still declares no typed
+  structured output. The same gate serves logical agents, so an agent's `output_schema` on Codex is now a strict
+  provider-side constraint. The loader already closes every object level of an `output_schema`, so the case left to
+  watch is a declared property missing from `required`: OpenAI strict mode requires a complete `required` list, so
+  such a schema is expected to fail the turn where it previously ran under host-side validation only.
+
+### Fixed
+
+- **The workflow finalizer re-ask now names the parse defect** – a reply that is not the declared JSON envelope is
+  re-asked with the parser's message, its character offset, an excerpt of the reply there, and the count of unclosed
+  `{`/`[` when that is the fault. The previous re-ask said only that the envelope was missing, so a Codex model rereading
+  its own reply in the same thread repeated the identical unclosed brace. Such a failure now records
+  `unparsable_envelope` with the parser's reason instead of `missing_envelope`, which keeps naming an empty reply.
+
+---
+
 ## [0.26.0] - 2026-09-13
 
 ### Added

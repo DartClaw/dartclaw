@@ -90,7 +90,7 @@ final class SqliteVectorIndex implements VectorIndex {
     final replacements = _storedRecords(records);
     if (replacements.isEmpty && retire.isEmpty) return;
     await _backend.transaction((tx) async {
-      await _deleteIdentities(tx, {...retire, ...replacements.keys}, userId);
+      await _deleteIdentities(tx, _table, {...retire, ...replacements.keys}, userId);
       await _insert(tx, replacements.values, userId);
     });
   }
@@ -99,7 +99,7 @@ final class SqliteVectorIndex implements VectorIndex {
   Future<void> delete(Iterable<VectorIdentity> identities, {required String userId}) async {
     final selected = identities.toSet();
     if (selected.isEmpty) return;
-    await _backend.transaction((tx) => _deleteIdentities(tx, selected, userId));
+    await _backend.transaction((tx) => _deleteIdentities(tx, _table, selected, userId));
   }
 
   @override
@@ -109,16 +109,6 @@ final class SqliteVectorIndex implements VectorIndex {
       await tx.execute('DELETE FROM ${_table.tableName} WHERE user_id = ?', [userId]);
       await _insert(tx, replacements.values, userId);
     });
-  }
-
-  Future<void> _deleteIdentities(DatabaseBackend backend, Set<VectorIdentity> identities, String userId) async {
-    final selected = _sortedIdentities(identities);
-    if (selected.isEmpty) return;
-    final clauses = List.filled(selected.length, '(document_id = ? AND chunk_index = ?)').join(' OR ');
-    await backend.execute('DELETE FROM ${_table.tableName} WHERE user_id = ? AND ($clauses)', [
-      userId,
-      for (final identity in selected) ...[identity.documentId, identity.chunkIndex],
-    ]);
   }
 
   Future<void> _insert(DatabaseBackend backend, Iterable<_StoredVector> records, String userId) async {
@@ -135,7 +125,7 @@ final class SqliteVectorIndex implements VectorIndex {
           record.contentHash,
           record.modelFingerprint,
           stored.values.length,
-          stored.bytes,
+          _encodeFloat32(stored.values),
         ]);
       }
     } finally {
@@ -207,7 +197,7 @@ final class PostgresVectorIndex implements VectorIndex {
     final replacements = _storedRecords(records);
     if (replacements.isEmpty && retire.isEmpty) return;
     await _backend.transaction((tx) async {
-      await _deleteIdentities(tx, {...retire, ...replacements.keys}, userId);
+      await _deleteIdentities(tx, _table, {...retire, ...replacements.keys}, userId);
       await _insert(tx, replacements.values, userId);
     });
   }
@@ -216,7 +206,7 @@ final class PostgresVectorIndex implements VectorIndex {
   Future<void> delete(Iterable<VectorIdentity> identities, {required String userId}) async {
     final selected = identities.toSet();
     if (selected.isEmpty) return;
-    await _backend.transaction((tx) => _deleteIdentities(tx, selected, userId));
+    await _backend.transaction((tx) => _deleteIdentities(tx, _table, selected, userId));
   }
 
   @override
@@ -226,16 +216,6 @@ final class PostgresVectorIndex implements VectorIndex {
       await tx.execute('DELETE FROM ${_table.tableName} WHERE user_id = ?', [userId]);
       await _insert(tx, replacements.values, userId);
     });
-  }
-
-  Future<void> _deleteIdentities(DatabaseBackend backend, Set<VectorIdentity> identities, String userId) async {
-    final selected = _sortedIdentities(identities);
-    if (selected.isEmpty) return;
-    final clauses = List.filled(selected.length, '(document_id = ? AND chunk_index = ?)').join(' OR ');
-    await backend.execute('DELETE FROM ${_table.tableName} WHERE user_id = ? AND ($clauses)', [
-      userId,
-      for (final identity in selected) ...[identity.documentId, identity.chunkIndex],
-    ]);
   }
 
   Future<void> _insert(DatabaseBackend backend, Iterable<_StoredVector> records, String userId) async {
@@ -262,11 +242,10 @@ final class PostgresVectorIndex implements VectorIndex {
 }
 
 final class _StoredVector {
-  const new _(this.record, this.values, this.bytes);
+  const new _(this.record, this.values);
 
   final VectorRecord record;
   final List<double> values;
-  final Uint8List bytes;
 }
 
 Map<VectorIdentity, _StoredVector> _storedRecords(Iterable<VectorRecord> records) {
@@ -275,9 +254,24 @@ Map<VectorIdentity, _StoredVector> _storedRecords(Iterable<VectorRecord> records
     final values = _float32Values(record.vector, 'record.vector');
     final identity = VectorIdentity(documentId: record.documentId, chunkIndex: record.chunkIndex);
     replacements.remove(identity);
-    replacements[identity] = _StoredVector._(record, values, _encodeFloat32(values));
+    replacements[identity] = _StoredVector._(record, values);
   }
   return replacements;
+}
+
+Future<void> _deleteIdentities(
+  DatabaseBackend backend,
+  VectorTable table,
+  Set<VectorIdentity> identities,
+  String userId,
+) async {
+  final selected = _sortedIdentities(identities);
+  if (selected.isEmpty) return;
+  final clauses = List.filled(selected.length, '(document_id = ? AND chunk_index = ?)').join(' OR ');
+  await backend.execute('DELETE FROM ${table.tableName} WHERE user_id = ? AND ($clauses)', [
+    userId,
+    for (final identity in selected) ...[identity.documentId, identity.chunkIndex],
+  ]);
 }
 
 List<VectorIdentity> _sortedIdentities(Iterable<VectorIdentity> identities) {

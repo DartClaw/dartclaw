@@ -20,8 +20,9 @@ globalThis.Stimulus = { Controller: class {} };
 globalThis.requestAnimationFrame = (callback) => callback();
 globalThis.NodeFilter = { SHOW_TEXT: 4 };
 globalThis.sessionStorage = { setItem() {}, getItem() { return null; }, removeItem() {} };
-globalThis.window = { getSelection: () => null, confirm: () => true, prompt: () => 'Edited prompt' };
+globalThis.window = { getSelection: () => null };
 globalThis.location = { href: 'http://localhost/sessions/session-1', assign() {} };
+globalThis.dialogState = { confirmResult: true, inputResult: 'Edited prompt', confirmOptions: null, inputOptions: null };
 globalThis.document = {
   body: { classList: { add() {}, remove() {} } },
   activeElement: null,
@@ -38,6 +39,14 @@ source = source.replace(/import \{[\s\S]*?\} from '\.\/shared\.js';/, `
 const beginSessionDraftMutation = () => {};
 const endSessionDraftMutation = () => {};
 const escapeHtml = (value) => String(value);
+const confirmDialog = async (options) => {
+  globalThis.dialogState.confirmOptions = options;
+  return globalThis.dialogState.confirmResult;
+};
+const inputDialog = async (options) => {
+  globalThis.dialogState.inputOptions = options;
+  return globalThis.dialogState.inputResult;
+};
 const isAtBottom = () => false;
 const readHtmxErrorMessage = () => '';
 const renderMarkdown = () => {};
@@ -138,4 +147,34 @@ const retryBody = JSON.parse(request.options.body);
 assert(request.url.endsWith('/attempts/attempt-1/retry'), 'retry source identity was not addressed');
 assert(retryBody.mutation_id === 'mutation-1', 'retry idempotency identity was not sent');
 assert(refreshed === 2, 'retry did not reconcile authoritative history');
+assert(dialogState.confirmOptions.title === 'Retry attempt?' && dialogState.confirmOptions.confirmLabel === 'Retry', 'retry confirmation was not explicit');
+
+const edit = {
+  dataset: { historyAction: 'edit' },
+  closest: () => historyMessage,
+};
+await controller.runHistoryAction(edit);
+const editBody = JSON.parse(request.options.body);
+assert(request.url.endsWith('/messages/message-1/branch'), 'edit source boundary was not addressed');
+assert(editBody.kind === 'edit' && editBody.message === 'Edited prompt', 'edited message was not captured before branching');
+assert(dialogState.inputOptions.value === 'Original' && dialogState.inputOptions.confirmLabel === 'Continue', 'edit dialog lost its source value or action');
+
+request = null;
+dialogState.inputResult = null;
+await controller.runHistoryAction(edit);
+assert(request === null, 'cancelled edit mutated history');
+
+const fork = {
+  dataset: { historyAction: 'fork' },
+  closest: () => historyMessage,
+};
+dialogState.confirmResult = false;
+await controller.runHistoryAction(fork);
+assert(request === null, 'cancelled fork mutated history');
+
+dialogState.confirmResult = true;
+await controller.runHistoryAction(fork);
+const forkBody = JSON.parse(request.options.body);
+assert(forkBody.kind === 'fork' && !('message' in forkBody), 'fork did not preserve its completed boundary');
+assert(dialogState.confirmOptions.title === 'Fork from here?' && dialogState.confirmOptions.confirmLabel === 'Fork', 'fork confirmation was not explicit');
 ''';

@@ -18,6 +18,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Server shutdown now waits for conversation outcomes and pending writes before closing storage, and holds queued
+  conversation work instead of starting another turn during shutdown.
+
 - Conversation search now spans authorized owner and configured-agent history, including exact matches outside the
   loaded transcript, with current/global, lifecycle and project scopes and exact-message navigation. One typed catalog
   supplies the Cmd-K and slash palettes with nine built-ins plus authorized provider-native skills; unknown slash text

@@ -22,7 +22,6 @@ final class ConversationIndexProjection {
     required this.sessions,
     required this.messages,
     this.userId = 'owner',
-    this.principalForSession,
     this.configuredPrincipals = const {'owner'},
   });
 
@@ -34,9 +33,6 @@ final class ConversationIndexProjection {
 
   /// Fallback scope for sessions without pinned workspace ownership.
   final String userId;
-
-  /// Resolves persisted session ownership for derived rows.
-  final String Function(Session session)? principalForSession;
 
   /// Principals whose stale rows must be cleared during a complete rebuild.
   final Set<String> configuredPrincipals;
@@ -120,6 +116,5 @@ final class ConversationIndexProjection {
     return counts;
   }
 
-  String _principal(Session session) =>
-      principalForSession?.call(session) ?? session.workspace?.storagePrincipal ?? userId;
+  String _principal(Session session) => SessionService.persistedPrincipal(session, fallbackUserId: userId);
 }

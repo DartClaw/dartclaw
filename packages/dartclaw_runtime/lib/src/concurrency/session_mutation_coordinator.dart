@@ -9,6 +9,13 @@ import 'dart:async';
 final class SessionMutationCoordinator {
   final Map<String, Future<void>> _tails = {};
 
+  /// Waits for already admitted mutations before their storage is closed.
+  Future<void> drain() async {
+    while (_tails.isNotEmpty) {
+      await Future.wait(_tails.values.toList());
+    }
+  }
+
   Future<T> run<T>(String sessionId, Future<T> Function() operation) {
     final previous = _tails[sessionId] ?? Future<void>.value();
     final release = Completer<void>();

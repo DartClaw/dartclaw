@@ -201,7 +201,7 @@ final class ProductConversationSearchService {
     required String? projectId,
   }) async {
     if (!session.retention.isDurable) return null;
-    if (principal != 'owner' && session.workspace?.storagePrincipal != principal) return null;
+    if (!SessionService.isVisibleToPrincipal(session, principal)) return null;
     if (session.type == SessionType.task ||
         session.type == SessionType.logicalAgent ||
         session.type == SessionType.cron) {
@@ -213,7 +213,7 @@ final class ProductConversationSearchService {
     final effectiveProject = state.currentContext?.projectId ?? state.nextContext?.projectId;
     if (projectId != null && effectiveProject != projectId) return null;
     return _EligibleSession(
-      principal: session.workspace?.storagePrincipal ?? 'owner',
+      principal: SessionService.persistedPrincipal(session),
       projectId: effectiveProject,
       state: state,
     );

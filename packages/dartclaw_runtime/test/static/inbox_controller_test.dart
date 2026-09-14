@@ -1,12 +1,17 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
 
+import 'controller_test_support.dart';
+
 void main() {
-  final source = File('packages/dartclaw_runtime/lib/src/static/controllers/dc_shell_controller.js').readAsStringSync();
+  late String source;
+  late String shared;
+
+  setUpAll(() async {
+    source = (await controllerAsset('dc_shell_controller.js')).readAsStringSync();
+    shared = (await controllerAsset('shared.js')).readAsStringSync();
+  });
 
   test('controller overlays IndexedDB drafts and pages remote settled truth', () {
-    final shared = File('packages/dartclaw_runtime/lib/src/static/controllers/shared.js').readAsStringSync();
     expect(source, contains('conversationDraftSessionIds()'));
     expect(shared, contains('const db = await openConversationDraftDb()'));
     expect(shared, contains("indexedDB.open('dartclaw-conversation-drafts', 1)"));

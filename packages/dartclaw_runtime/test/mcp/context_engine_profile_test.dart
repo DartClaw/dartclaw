@@ -204,7 +204,7 @@ void main() {
       expect(allows.every((entry) => entry['tool'] == 'kg_query'), isTrue);
     });
 
-    test('reads the owner view of the knowledge surface, narrowed by no fact owner', () async {
+    test('reads owner knowledge facts while unbound memory access fails closed', () async {
       await kg.addFact(
         entity: 'Release',
         predicate: 'channel',
@@ -236,10 +236,10 @@ void main() {
         'name': 'memory_read',
         'arguments': {'locator': 'wiki/release.md'},
       };
-      expect(
-        (await call(scoped(), 'tools/call', readParams))['result'],
-        (await call(handler, 'tools/call', readParams))['result'],
-      );
+      final scopedMemory = (await call(scoped(), 'tools/call', readParams))['result'] as Map<String, dynamic>;
+      expect(scopedMemory['isError'], isTrue);
+      expect(jsonEncode(scopedMemory), contains('Tool requires an authenticated contextual handler'));
+      expect(((await call(handler, 'tools/call', readParams))['result'] as Map<String, dynamic>)['isError'], isNull);
     });
   });
 }

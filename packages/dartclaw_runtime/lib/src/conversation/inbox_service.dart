@@ -219,7 +219,7 @@ final class ConversationInboxService implements MessageServiceObserver {
     final normalizedSearch = search.trim().toLowerCase();
     final entries = <InboxEntry>[];
     final visibleSessions = (await sessions.listSessions(types: SessionType.values))
-        .where((session) => _authorized(session, principal))
+        .where((session) => SessionService.isVisibleToPrincipal(session, principal))
         .where((session) => session.type != SessionType.task && session.type != SessionType.logicalAgent)
         .toList(growable: false);
     final states = <String, ConversationState>{};
@@ -290,7 +290,7 @@ final class ConversationInboxService implements MessageServiceObserver {
     final sessionsById = <String, Session>{};
     final raw = <_AttentionCandidate>[];
     for (final session in await sessions.listSessions(types: SessionType.values)) {
-      if (!_authorized(session, principal) ||
+      if (!SessionService.isVisibleToPrincipal(session, principal) ||
           session.type == SessionType.task ||
           session.type == SessionType.logicalAgent) {
         continue;
@@ -515,7 +515,7 @@ final class ConversationInboxService implements MessageServiceObserver {
     required bool approved,
   }) async {
     final session = await sessions.getSession(sessionId);
-    if (session == null || !_authorized(session, principal)) {
+    if (session == null || !SessionService.isVisibleToPrincipal(session, principal)) {
       throw const InboxMutationException(404, 'ATTENTION_EVENT_NOT_FOUND', 'Attention event is unavailable');
     }
     if (session.type == SessionType.archive || eventId != 'record:$requestId') {
@@ -741,9 +741,6 @@ final class ConversationInboxService implements MessageServiceObserver {
       throw const InboxMutationException(400, 'INVALID_PAGE_SIZE', 'Page size must be between 1 and 200');
     }
   }
-
-  bool _authorized(Session session, String principal) =>
-      principal == 'owner' || session.workspace?.storagePrincipal == principal;
 
   bool _matches(InboxEntry entry, InboxFilter filter) => switch (filter) {
     InboxFilter.all => true,

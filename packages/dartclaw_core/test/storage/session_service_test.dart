@@ -67,7 +67,7 @@ void main() {
   });
 
   group('conversation state', () {
-    test('survives ordinary session metadata updates', () async {
+    test('survives shared session metadata updates', () async {
       final session = await sessions.createSession();
       final now = DateTime.utc(2026, 9, 14);
       final state = ConversationState().put(
@@ -85,7 +85,9 @@ void main() {
         ),
       );
       await sessions.updateConversationState(session.id, state);
-      await sessions.updateTitle(session.id, 'Renamed');
+      await sessions.touchUpdatedAt(session.id);
+      await sessions.updateExecutionMode(session.id, ExecutionMode.container);
+      await sessions.updateProvider(session.id, 'codex');
 
       final restored = await sessions.getConversationState(session.id);
       expect(restored.revision, 1);
@@ -165,6 +167,59 @@ void main() {
       expect(updated!.title, isNull);
       expect(updated.updatedAt.isAfter(session.updatedAt) || updated.updatedAt == session.updatedAt, isTrue);
     });
+  });
+
+  group('shared metadata mutation', () {
+    test('retains durable and process sessions', () async {
+      for (final retention in ConversationRetention.values) {
+        final session = await sessions.createSession(
+          retention: retention,
+          provider: 'claude',
+          executionMode: ExecutionMode.host,
+        );
+
+        await sessions.touchUpdatedAt(session.id);
+        await sessions.updateExecutionMode(session.id, ExecutionMode.container);
+        await sessions.updateProvider(session.id, 'codex');
+
+        final updated = await sessions.getSession(session.id);
+        expect(updated?.retention, retention);
+        expect(updated?.executionMode, ExecutionMode.container);
+        expect(updated?.provider, 'codex');
+        expect(Directory('${tempDir.path}/${session.id}').existsSync(), retention.isDurable);
+      }
+    });
+
+    test('unchanged execution mode keeps durable timestamp but touches process timestamp', () async {
+      final durable = await sessions.createSession(executionMode: ExecutionMode.host);
+      final process = await sessions.createSession(
+        retention: ConversationRetention.process,
+        executionMode: ExecutionMode.host,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+
+      final durableResult = await sessions.updateExecutionMode(durable.id, ExecutionMode.host);
+      final processResult = await sessions.updateExecutionMode(process.id, ExecutionMode.host);
+
+      expect(durableResult?.updatedAt, durable.updatedAt);
+      expect(processResult!.updatedAt.isAfter(process.updatedAt), isTrue);
+    });
+  });
+
+  test('persisted conversation access resolves owner and matching workspace only', () async {
+    final unconfigured = await sessions.createSession();
+    final configured = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: '${tempDir.path}/agent-a'),
+    );
+
+    expect(SessionService.persistedPrincipal(unconfigured), 'owner');
+    expect(SessionService.persistedPrincipal(unconfigured, fallbackUserId: 'fallback'), 'fallback');
+    expect(SessionService.persistedPrincipal(configured), 'agent:a');
+    expect(SessionService.isVisibleToPrincipal(unconfigured, 'owner'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'owner'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'agent:a'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'agent:b'), isFalse);
+    expect(SessionService.isVisibleToPrincipal(unconfigured, 'agent:a'), isFalse);
   });
 
   group('getOrCreateByKey', () {

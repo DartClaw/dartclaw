@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
 import 'controller_test_support.dart';
 
 void main() {
-  test('temporary drafts use only module memory and warn before page unload', () {
-    final source = File('packages/dartclaw_runtime/lib/src/static/controllers/dc_chat_controller.js')
-        .readAsStringSync();
+  test('temporary drafts use only module memory and warn before page unload', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     expect(source, contains('const temporaryDrafts = new Map();'));
     expect(source, contains("this.element.dataset.retention === 'process'"));
     expect(source, contains("window.addEventListener('beforeunload', this.handleTemporaryBeforeUnload)"));
@@ -22,7 +22,7 @@ void main() {
     expect(source, contains('handleTemporaryDialogKeydown'));
     expect(source, contains(r'''body: JSON.stringify({ retention: 'process', disclosureAccepted: true })'''));
     expect(source, contains(r'''body: JSON.stringify({ confirmed: true, durableCopyAccepted: true })'''));
-    final template = File('packages/dartclaw_runtime/lib/src/templates/chat.html').readAsStringSync();
+    final template = File(await resolveServerPackagePath('lib', 'src', 'templates', 'chat.html')).readAsStringSync();
     expect(template, contains('data-action="dc-chat#openTemporaryEnd"'));
     expect(template, contains('id="temporary-end-dialog"'));
     expect(template, contains('data-action="dc-chat#endTemporary"'));
@@ -34,7 +34,7 @@ void main() {
       ),
     );
     expect(template, contains(r'hx-history=${historyDisabled}'));
-    final web = File('packages/dartclaw_runtime/lib/src/web/web_routes.dart').readAsStringSync();
+    final web = File(await resolveServerPackagePath('lib', 'src', 'web', 'web_routes.dart')).readAsStringSync();
     expect(web, contains("'cache-control': 'no-store'"));
     expect(web, contains('hx-history="false"'));
   });

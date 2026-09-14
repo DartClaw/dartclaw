@@ -1,13 +1,12 @@
-import 'dart:io';
-
 import 'package:test/test.dart';
+
+import 'controller_test_support.dart';
 
 void main() {
   late String source;
 
-  setUpAll(() {
-    source = File('packages/dartclaw_runtime/lib/src/static/controllers/dc_conversation_command_controller.js')
-        .readAsStringSync();
+  setUpAll(() async {
+    source = (await controllerAsset('dc_conversation_command_controller.js')).readAsStringSync();
   });
 
   test('keyboard handling preserves browser Find and ignores IME composition', () {

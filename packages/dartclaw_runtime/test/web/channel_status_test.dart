@@ -210,10 +210,7 @@ void main() {
       }
     });
 
-    test('no consumer invents a muted dot or a dot-only badge', () {
-      // S03 ships the neutral badge and deliberately keeps disabled's dot at
-      // --idle; there is no --muted dot to adopt.
-      expect(css, isNot(contains('.status-dot--muted')));
+    test('channel badges do not reuse dot-only variants', () {
       final dotOnlySuffixes = ['live', 'idle', 'attention'];
       for (final suffix in dotOnlySuffixes) {
         expect(

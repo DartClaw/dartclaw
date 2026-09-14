@@ -2,11 +2,16 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
-  test('conversation composer wireframes expose labelled recovery and control states', () {
+  test('conversation composer wireframes expose labelled recovery and control states', () async {
     final sources = {
-      'chat-composer': File('dev/bundle/docs/wireframes/chat-composer.html').readAsStringSync(),
-      'chat-conversation-cards': File('dev/bundle/docs/wireframes/chat-conversation-cards.html').readAsStringSync(),
+      'chat-composer': File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/chat-composer.html'))
+          .readAsStringSync(),
+      'chat-conversation-cards': File(
+        await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/chat-conversation-cards.html'),
+      ).readAsStringSync(),
     };
 
     for (final MapEntry(key: name, value: source) in sources.entries) {

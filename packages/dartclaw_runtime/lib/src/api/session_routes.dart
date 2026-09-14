@@ -58,6 +58,7 @@ Router sessionRoutes(
   ProductConversationSearchService? conversationSearch,
   HumanCommandCatalog? commandCatalog,
   ConversationFailpoint? conversationFailpoint,
+  void Function(ConversationService conversation)? onConversationCreated,
   AttachmentWriteFailpoint? attachmentWriteFailpoint,
   String Function()? attachmentIdFactory,
   ProcessAttachmentOwner? processAttachmentOwner,
@@ -114,6 +115,7 @@ Router sessionRoutes(
       }
     },
   );
+  onConversationCreated?.call(conversation);
   turns.setToolApprovalObservers(
     requested: conversation.retainRuntimeApproval,
     closed: conversation.closeRuntimeApproval,

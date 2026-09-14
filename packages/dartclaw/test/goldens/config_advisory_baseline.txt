@@ -805,6 +805,14 @@
   [blocking] Invalid type for extra_strip_patterns: "int" — using defaults
 === sessions#scalar ===
   [blocking] Invalid type for sessions: "int" — using defaults
+=== sessions.auto_settle_idle_days#above-max ===
+  (none)
+=== sessions.auto_settle_idle_days#below-min ===
+  [blocking] Invalid value for sessions.auto_settle_idle_days: -1 — using default
+=== sessions.auto_settle_idle_days#type-nonstring ===
+  [blocking] Invalid type for auto_settle_idle_days: "bool" — using default
+=== sessions.auto_settle_idle_days#type-string ===
+  [blocking] Invalid type for auto_settle_idle_days: "String" — using default
 === sessions.channels#type-nonmap ===
   [blocking] Invalid type for channels: "int" — using defaults
 === sessions.dm_scope#non-member ===

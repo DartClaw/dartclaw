@@ -63,7 +63,7 @@ void main() {
     Future<void> wireRuntime() async {
       final factory = HarnessFactory()
         ..register('claude', (_) {
-          final harness = FakeAgentHarness(promptStrategy: PromptStrategy.append);
+          final harness = FakeAgentHarness(promptStrategy: PromptStrategy.append, supportsNoWorkTools: true);
           createdHarnesses.add(harness);
           return harness;
         });

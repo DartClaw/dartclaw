@@ -18,7 +18,6 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
     required this.messages,
     this.synchronizeVectors,
     this.userId = 'owner',
-    this.principalForSession,
   });
 
   /// Derived conversation index.
@@ -35,9 +34,6 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
 
   /// Fallback scope for sessions without pinned workspace ownership.
   final String userId;
-
-  /// Resolves persisted session ownership for derived rows.
-  final String Function(Session session)? principalForSession;
 
   Future<void> _pending = Future.value();
 
@@ -127,6 +123,5 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
     });
   }
 
-  String _principal(Session session) =>
-      principalForSession?.call(session) ?? session.workspace?.storagePrincipal ?? userId;
+  String _principal(Session session) => SessionService.persistedPrincipal(session, fallbackUserId: userId);
 }

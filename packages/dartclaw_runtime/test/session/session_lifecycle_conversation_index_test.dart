@@ -36,7 +36,7 @@ void main() {
     if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
   });
 
-  test('real reset and maintenance transitions remove and restore conversation rows', () async {
+  test('unkeyed reset removes rows while archived conversations remain searchable', () async {
     final channelKey = SessionKey.dmShared();
     final channel = await storage.sessions.getOrCreateByKey(channelKey, type: SessionType.channel);
     final channelMessage = await storage.messages.insertMessage(
@@ -64,7 +64,7 @@ void main() {
 
     await reset.resetSession(channel.id, resetContinuity: false);
 
-    await _expectIds(storage, 'lifecycleneedle', {cleared.id, staleMessage.id});
+    await _expectIds(storage, 'lifecycleneedle', {channelMessage.id, cleared.id, staleMessage.id});
     expect(channelFile.readAsBytesSync(), channelBytes);
     final replacement = await storage.sessions.getByKey(channelKey);
     expect(replacement, isNotNull);
@@ -72,7 +72,7 @@ void main() {
 
     await reset.resetSession(unkeyed.id, resetContinuity: false);
 
-    await _expectIds(storage, 'lifecycleneedle', {staleMessage.id});
+    await _expectIds(storage, 'lifecycleneedle', {channelMessage.id, staleMessage.id});
     expect(await storage.messages.getMessages(unkeyed.id), isEmpty);
 
     _ageSession(config.sessionsDir, stale.id);
@@ -93,12 +93,12 @@ void main() {
     final report = await maintenance.run();
 
     expect(report.sessionsArchived, 1);
-    await _expectIds(storage, 'lifecycleneedle', const {});
+    await _expectIds(storage, 'lifecycleneedle', {channelMessage.id, staleMessage.id});
     expect(staleFile.readAsBytesSync(), staleBytes);
 
     await storage.sessions.updateSessionType(stale.id, SessionType.user);
 
-    await _expectIds(storage, 'lifecycleneedle', {staleMessage.id});
+    await _expectIds(storage, 'lifecycleneedle', {channelMessage.id, staleMessage.id});
   });
 }
 

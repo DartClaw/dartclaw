@@ -9,11 +9,11 @@ void main() {
     await expectNodeHarness(_titleSyncHarness, [(await shared).path]);
   });
 
-  test('automatic and manual renames use the shared title sync seam', () async {
+  test('manual renames use the shared seam while automatic titles stay server-owned', () async {
     final chat = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     final shell = (await controllerAsset('dc_shell_controller.js')).readAsStringSync();
 
-    expect(chat, contains('syncSidebarSessionTitle(this.sessionId, title)'));
+    expect(chat, isNot(contains('syncSidebarSessionTitle')));
     expect(shell, contains('syncSidebarSessionTitle(sessionId, newTitle)'));
     expect(shell, contains('delete chatArea.dataset.newChatDraft'));
   });

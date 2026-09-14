@@ -258,7 +258,7 @@ class _AllowMemoryOnly implements McpCallerPolicy {
 }
 
 class _ImmediateHarness extends FakeAgentHarness {
-  new(this.config, {required this.onCurationResult});
+  new(this.config, {required this.onCurationResult}) : super(supportsNoWorkTools: true);
 
   final HarnessFactoryConfig config;
   final void Function(Map<String, dynamic> result) onCurationResult;

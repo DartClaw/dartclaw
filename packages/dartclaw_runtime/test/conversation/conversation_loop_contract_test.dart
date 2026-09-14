@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/concurrency/session_mutation_coordinator.dart';
 import 'package:dartclaw_runtime/src/conversation/conversation_service.dart';
+import 'package:dartclaw_runtime/src/runtime_tool_history.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:test/test.dart';
 
@@ -37,6 +38,101 @@ void main() {
 
   tearDown(() {
     if (temporaryDirectory.existsSync()) temporaryDirectory.deleteSync(recursive: true);
+  });
+
+  test('shutdown refuses an unrecovered session before reading or writing its state', () async {
+    final observed = _PausingApprovalSessionService(baseDir: temporaryDirectory.path);
+    final stopping = ConversationService(
+      sessions: observed,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+    await stopping.beginShutdown();
+    await expectLater(
+      _submit(stopping, sessionId, 'late-unseen', 'Arrived after shutdown'),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'SERVER_STOPPING')),
+    );
+    expect(observed.reads, 0, reason: 'late admission must not start recovery');
+    expect(observed.writes, 0, reason: 'late admission must not rewrite state');
+  });
+
+  for (final closing in [false, true]) {
+    test('shutdown retains the complete approval ${closing ? 'close' : 'request'} callback', () async {
+      final observed = _PausingApprovalSessionService(baseDir: temporaryDirectory.path);
+      final stopping = ConversationService(
+        sessions: observed,
+        messages: messages,
+        turns: turns,
+        mutations: SessionMutationCoordinator(),
+      );
+      final admission = await _submit(stopping, sessionId, 'approval-owner', 'An approval-owned attempt');
+      turns.complete(sessionId, admission.submission.turnId!);
+      await stopping.drain();
+      final request = RuntimeToolApprovalRequest(
+        sessionId: sessionId,
+        turnId: admission.submission.turnId!,
+        requestId: 'shutdown-approval',
+        action: 'Run command',
+        target: const {'command': 'pwd'},
+        expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+      );
+      if (closing) await stopping.retainRuntimeApproval(request);
+      await stopping.beginShutdown();
+      observed.pauseState = closing ? ConversationRecordState.approved : ConversationRecordState.pending;
+      final operation = closing
+          ? stopping.closeRuntimeApproval(sessionId, request.turnId, request.requestId, true, false)
+          : stopping.retainRuntimeApproval(request);
+      await observed.writeStarted.future;
+      var drained = false;
+      final drain = stopping.drain().then((_) => drained = true);
+      await pumpEventQueue();
+      final returnedBeforeWrite = drained;
+      observed.releaseWrite.complete();
+      await operation;
+      await drain;
+      expect(returnedBeforeWrite, isFalse, reason: 'the entire approval callback belongs to the shutdown drain');
+      expect(
+        (await observed.getConversationState(sessionId)).findRecord(request.requestId)?.state,
+        observed.pauseState,
+      );
+    });
+  }
+
+  test('shutdown drains terminal persistence and holds queued work without dispatching it', () async {
+    final writingTerminal = Completer<void>();
+    final releaseWrite = Completer<void>();
+    final stopping = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      failpoint: (boundary, _) async {
+        if (boundary == 'turn_settled') {
+          writingTerminal.complete();
+          await releaseWrite.future;
+        }
+      },
+    );
+    final active = await _submit(stopping, sessionId, 'active', 'Finish before shutdown');
+    await _submit(stopping, sessionId, 'queued', 'Hold for explicit recovery');
+    await stopping.beginShutdown();
+    turns.complete(sessionId, active.submission.turnId!);
+    await writingTerminal.future;
+    var drained = false;
+    final drain = stopping.drain().then((_) => drained = true);
+    await pumpEventQueue();
+    expect(drained, isFalse, reason: 'shutdown must wait for terminal persistence');
+    releaseWrite.complete();
+    await drain;
+    final state = await stopping.snapshot(sessionId);
+    expect(state.findSubmission('active')?.workState, ConversationWorkState.completed);
+    expect(state.findSubmission('queued')?.workState, ConversationWorkState.held);
+    expect(turns.executeCount, 1, reason: 'shutdown must not dispatch queued work');
+    await expectLater(
+      _submit(stopping, sessionId, 'late', 'Arrived during shutdown'),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'SERVER_STOPPING')),
+    );
   });
 
   test('queue edit remove release and dispatch races converge without stale execution', () async {
@@ -502,5 +598,31 @@ final class _CompletingTurnManager extends FakeTurnManager {
     setRecentOutcome(turnId, outcome);
     releaseTurn(sessionId, turnId);
     _waiting[sessionId]?.complete(outcome);
+  }
+}
+
+final class _PausingApprovalSessionService extends SessionService {
+  new({required super.baseDir});
+
+  int reads = 0;
+  int writes = 0;
+  ConversationRecordState? pauseState;
+  final writeStarted = Completer<void>();
+  final releaseWrite = Completer<void>();
+
+  @override
+  Future<ConversationState> getConversationState(String id) {
+    reads += 1;
+    return super.getConversationState(id);
+  }
+
+  @override
+  Future<void> updateConversationState(String id, ConversationState state) async {
+    writes += 1;
+    if (pauseState != null && state.findRecord('shutdown-approval')?.state == pauseState && !writeStarted.isCompleted) {
+      writeStarted.complete();
+      await releaseWrite.future;
+    }
+    await super.updateConversationState(id, state);
   }
 }

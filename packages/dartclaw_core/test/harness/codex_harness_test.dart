@@ -16,6 +16,7 @@ import 'harness_test_support.dart';
 
 part 'codex_provider_session_resume_cases.dart';
 part 'codex_notification_correlation_cases.dart';
+part 'codex_skill_root_cases.dart';
 
 class _PassGuard extends Guard {
   GuardContext? lastContext;
@@ -241,30 +242,7 @@ void main() {
         expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), isEmpty);
       });
 
-      test('configures the pinned workspace skill root before any thread opens', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(process: fake, skillWorkspaceDir: '/tmp/agents/a');
-        addTearDown(() async => harness.dispose());
-
-        final start = harness.start();
-        await waitForSentMessage(fake, 'initialize');
-        fake.emitInitializeResponse(id: latestRequestId(fake, 'initialize'));
-        await waitForSentMessage(fake, 'skills/extraRoots/set');
-        final request = fake.sentMessages.singleWhere((message) => message['method'] == 'skills/extraRoots/set');
-        expect(request['params'], {
-          'extraRoots': ['/tmp/agents/a/.agents/skills'],
-        });
-        expect(fake.sentMessages.map((message) => message['method']), [
-          'initialize',
-          'initialized',
-          'skills/extraRoots/set',
-        ]);
-        expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), isEmpty);
-        fake.emitLine({'id': request['id'], 'result': {}});
-
-        await start;
-        expect(harness.state, WorkerState.idle);
-      });
+      registerCodexSkillRootTests();
 
       test('initialize timeout reaps the child and releases the startup lock', () async {
         final fake = FakeCodexProcess();
@@ -1171,7 +1149,7 @@ void main() {
         );
       });
 
-      test('logs failed MCP startup detail and ignores status noise', () async {
+      test('logs failed MCP startup without provider detail and ignores status noise', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
@@ -1201,8 +1179,7 @@ void main() {
           (record) => record.loggerName == 'CodexHarness' && record.level == Level.WARNING,
         );
         expect(warnings, hasLength(1));
-        expect(warnings.single.message, contains('node_repl'));
-        expect(warnings.single.message, contains('initialize response closed'));
+        expect(warnings.single.message, 'MCP server startup failed');
 
         final turn = harness.turn(
           sessionId: 'sess-mcp-warning',

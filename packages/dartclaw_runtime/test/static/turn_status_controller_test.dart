@@ -106,6 +106,7 @@ assert(
   'production active-turn state membership drifted',
 );
 const displayedTurnPanel = () => panel;
+const showToast = () => {};
 const setPanelText = eval('(' + extractFunction(source, 'setPanelText') + ')');
 const formatElapsedTimeIso = eval('(' + extractFunction(source, 'formatElapsedTimeIso') + ')');
 const formatRemainingTimeIso = eval('(' + extractFunction(source, 'formatRemainingTimeIso') + ')');

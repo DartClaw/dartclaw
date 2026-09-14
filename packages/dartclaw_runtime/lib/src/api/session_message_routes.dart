@@ -170,7 +170,7 @@ void registerSessionMessageRoutes(
     try {
       // 1. Look up session
       final session = await sessions.getSession(id);
-      final sessionValidation = _validateSessionForSend(session, turns.executions);
+      final sessionValidation = _validateSessionForSend(session, turns.executions, conversation);
       if (sessionValidation != null) return sessionValidation;
       if (session?.retention == ConversationRetention.process && sessions.temporaryEndState(id) != 'active') {
         return errorResponse(409, 'TEMPORARY_ENDING', 'Temporary conversation is ending');
@@ -292,7 +292,7 @@ Future<Response> _sendExistingSessionTurn({
 }) async {
   final result = await sessionMutations.run(sessionId, () async {
     final current = await sessions.getSession(sessionId);
-    final validation = _validateSessionForSend(current, turns.executions);
+    final validation = _validateSessionForSend(current, turns.executions, conversation);
     if (validation != null) return (turnId: null, response: validation);
     final String turnId;
     try {
@@ -476,23 +476,13 @@ _parseRichInput(
     'attachments': attachments,
     'references': references,
   };
-  final metadata = _metadataWithoutAttachmentContent(turnContextMetadata);
+  final metadata = metadataWithoutAttachmentContent(turnContextMetadata);
   return (
     metadata: metadata,
     turnContextMetadata: turnContextMetadata,
     metadataJson: jsonEncode(metadata),
     error: null,
   );
-}
-
-Map<String, dynamic> _metadataWithoutAttachmentContent(Map<String, dynamic> metadata) {
-  final copy = Map<String, dynamic>.from(metadata);
-  final attachments = (metadata['attachments'] as List?)?.whereType<Map<String, dynamic>>().map((attachment) {
-    final sanitized = Map<String, dynamic>.from(attachment)..remove('contentText');
-    return sanitized;
-  }).toList();
-  if (attachments != null) copy['attachments'] = attachments;
-  return copy;
 }
 
 Future<({Map<String, dynamic>? reference, Response? error})> resolveConversationReference({
@@ -604,15 +594,12 @@ Response? _validateSessionProviderForSend(Session session, ExecutionCoordinator 
   });
 }
 
-Response? _validateSessionForSend(Session? session, ExecutionCoordinator executions) {
-  if (session == null) {
-    return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+Response? _validateSessionForSend(Session? session, ExecutionCoordinator executions, ConversationService conversation) {
+  try {
+    conversation.requireSession(session, writable: true);
+  } on ConversationMutationException catch (error) {
+    return errorResponse(error.statusCode, error.code, error.message);
   }
-  if (session.type == SessionType.archive) {
-    return errorResponse(403, 'FORBIDDEN', 'Cannot send to archived session');
-  }
-  if (session.type == SessionType.task) {
-    return errorResponse(403, 'FORBIDDEN', 'Task sessions are managed via the task API');
-  }
+  session = session!;
   return _validateSessionProviderForSend(session, executions);
 }

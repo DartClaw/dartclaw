@@ -615,7 +615,6 @@ class StorageWiring {
                 );
               }
             },
-      principalForSession: (session) => session.workspace?.storagePrincipal ?? 'owner',
     );
     _messages.registerObserver(indexer);
     _sessions.registerObserver(indexer);
@@ -624,7 +623,7 @@ class StorageWiring {
       for (final session in await _sessions.listSessions(
         types: SessionType.values.where((type) => type.isChatFacing).toList(),
       ))
-        session.workspace?.storagePrincipal ?? 'owner',
+        SessionService.persistedPrincipal(session),
     };
     _conversationSearch = ConversationSearchService(
       index: conversationIndex,
@@ -816,7 +815,7 @@ class StorageWiring {
         for (final session in await _sessions.listSessions(
           types: SessionType.values.where((type) => type.isChatFacing).toList(),
         ))
-          session.workspace?.storagePrincipal ?? 'owner',
+          SessionService.persistedPrincipal(session),
       };
       for (final principal in principals) {
         try {

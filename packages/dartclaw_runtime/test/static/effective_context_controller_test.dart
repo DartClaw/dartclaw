@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+import 'controller_test_support.dart';
+
 void main() {
-  test('context dialog traps and restores focus through the lifecycle controller', () {
-    final source = File('packages/dartclaw_runtime/lib/src/static/controllers/dc_chat_controller.js')
-        .readAsStringSync();
+  test('context dialog traps and restores focus through the lifecycle controller', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     expect(source, contains('openContextDialog(event)'));
     expect(source, contains('dialog.showModal()'));
     expect(source, contains('handleContextDialogKeydown(event)'));
@@ -14,9 +16,8 @@ void main() {
     expect(source, contains("event.key === 'Escape'"));
   });
 
-  test('context mutation posts the current revision and leaves the draft outside reconciliation', () {
-    final source = File('packages/dartclaw_runtime/lib/src/static/controllers/dc_chat_controller.js')
-        .readAsStringSync();
+  test('context mutation posts the current revision and leaves the draft outside reconciliation', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     expect(source, contains('async applyContext(event)'));
     expect(source, contains('conversation_revision: this.conversationRevision'));
     expect(source, contains("'/context'"));
@@ -28,9 +29,8 @@ void main() {
     expect(method, isNot(contains('this.textarea.value')));
   });
 
-  test('authoritative reconciliation updates controls and projections before absorbing revision', () {
-    final source = File('packages/dartclaw_runtime/lib/src/static/controllers/dc_chat_controller.js')
-        .readAsStringSync();
+  test('authoritative reconciliation updates controls and projections before absorbing revision', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     final method = source.substring(
       source.indexOf('reconcileContext(snapshot)'),
       source.indexOf('handleContextDialogKeydown', source.indexOf('reconcileContext(snapshot)')),
@@ -61,12 +61,16 @@ void main() {
     expect(method, isNot(contains('this.textarea')));
   });
 
-  test('browser profile gates every S05 wireframe comparison by mismatch percentage', () {
-    final script = File('dev/testing/profiles/conversation-loop/run.sh').readAsStringSync();
-    expect(script, contains('compare_current_to_wireframe()'));
-    expect(script, contains("find(result, 'mismatchPercentage')"));
-    expect(script, contains("find(result, 'differentPixels')"));
-    expect(script, contains("find(result, 'dimensionMismatch')"));
+  test('browser profile gates every S05 wireframe comparison by mismatch percentage', () async {
+    final script = File(await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/run.sh'))
+        .readAsStringSync();
+    final comparison = File(
+      await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/visual_comparison.sh'),
+    ).readAsStringSync();
+    expect(comparison, contains('compare_current_to_wireframe()'));
+    expect(comparison, contains("find(result, 'mismatchPercentage')"));
+    expect(comparison, contains("find(result, 'differentPixels')"));
+    expect(comparison, contains("find(result, 'dimensionMismatch')"));
     final q9 = script.substring(
       script.indexOf('run_q9_effective_context()'),
       script.indexOf('run_e11_effective_context()'),

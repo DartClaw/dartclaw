@@ -402,7 +402,8 @@
         "TI15",
         "TI16",
         "TI17",
-        "TI18"
+        "TI18",
+        "TI07"
       ],
       "owner": "codex/0.27-s09-qualification",
       "scope": "Operators and contributors have accurate public and private documentation, reconciled integrated designs, and a reproducible qualification record for both workstreams. Explicit public guide/architecture/glossary/changelog and private UX/spec/comparison tasks share this story. Own complete Q1–Q10/W1–W6 accounting and integrated automatic checks; retain external owner/device release gates as explicit unverified holds until real evidence exists.",

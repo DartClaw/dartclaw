@@ -55,7 +55,7 @@ void main() {
       expect(diagnostics?.candidates.single.sourceLayer, 'conversation');
 
       await wiring.messages.clearMessages(session.id);
-      await _waitFor(() async => await wiring.conversationMissingVectorCount() == 0);
+      await _waitFor(() async => (await wiring.conversationSearch.search('provenance')).isEmpty);
       expect(await wiring.conversationSearch.search('provenance'), isEmpty);
     } finally {
       await _close(wiring);

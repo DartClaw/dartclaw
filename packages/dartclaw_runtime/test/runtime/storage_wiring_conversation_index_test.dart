@@ -106,7 +106,10 @@ void main() {
 
     final wiring = await _wire(config);
     try {
-      expect((await wiring.conversationSearch.search('removedworkspace')).map((hit) => hit.messageId), [message.id]);
+      expect(
+        (await wiring.conversationSearch.searchAdministrative('removedworkspace')).hits.map((hit) => hit.messageId),
+        [message.id],
+      );
       expect(await wiring.conversationIndex.search('removedworkspace', userId: 'owner'), isEmpty);
       expect(
         (await wiring.conversationIndex.search('removedworkspace', userId: 'agent:removed')).single.id,

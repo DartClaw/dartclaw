@@ -2,10 +2,15 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
-  test('accepted inbox and attention wireframes remain linked accessible fixtures', () {
-    final inbox = File('dev/bundle/docs/wireframes/session-sidebar-control-plane.html').readAsStringSync();
-    final attention = File('dev/bundle/docs/wireframes/notification-center.html').readAsStringSync();
+  test('accepted inbox and attention wireframes remain linked accessible fixtures', () async {
+    final inbox = File(
+      await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/session-sidebar-control-plane.html'),
+    ).readAsStringSync();
+    final attention = File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/notification-center.html'))
+        .readAsStringSync();
     expect(inbox, contains('data-accepted-state="desktop-inbox"'));
     expect(inbox, contains('data-state-count="8"'));
     expect(inbox, contains('Drafts on this device'));

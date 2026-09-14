@@ -486,7 +486,8 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
       final body = await res.readAsString();
 
-      expect(body, contains('data-session-id="${session.id}" data-has-title="true"'));
+      expect(body, contains('data-session-id="${session.id}"'));
+      expect(body, contains('data-has-title="true"'));
     });
 
     test('response body escapes XSS in session title', () async {

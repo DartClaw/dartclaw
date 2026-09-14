@@ -2,10 +2,14 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
-  test('temporary and export wireframes expose every reviewable state', () {
-    final chat = File('dev/bundle/docs/wireframes/chat-conversation-cards.html').readAsStringSync();
-    final archive = File('dev/bundle/docs/wireframes/archive-session.html').readAsStringSync();
+  test('temporary and export wireframes expose every reviewable state', () async {
+    final chat = File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/chat-conversation-cards.html'))
+        .readAsStringSync();
+    final archive = File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/archive-session.html'))
+        .readAsStringSync();
     for (final state in [
       'temporary-live',
       'temporary-ending',

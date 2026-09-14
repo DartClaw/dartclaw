@@ -4,9 +4,13 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
-  test('inventory gives every durable surface an independent non-vacuous probe', () {
-    final decoded = jsonDecode(File('dev/testing/temporary-retention-inventory.json').readAsStringSync());
+  test('inventory gives every durable surface an independent non-vacuous probe', () async {
+    final decoded = jsonDecode(
+      File(await resolveWorkspacePath('dev', 'testing', 'temporary-retention-inventory.json')).readAsStringSync(),
+    );
     final surfaces = (decoded as Map<String, dynamic>)['surfaces'] as List<dynamic>;
     expect(surfaces, hasLength(greaterThanOrEqualTo(14)));
     final ids = <String>{};
@@ -20,10 +24,15 @@ void main() {
     expect(ids, containsAll(['provider-home', 'browser-storage', 'replay', 'audit-log', 'vector-index']));
   });
 
-  test('deferred matrix drives the assembled server and cannot accept caller command placeholders', () {
-    final runner = File('dev/testing/profiles/conversation-loop/run.sh').readAsStringSync();
-    final fixture = File('dev/testing/profiles/conversation-loop/temporary_conversation_e2e.sh').readAsStringSync();
-    final sinkChecks = File('dev/testing/profiles/conversation-loop/temporary_sink_checks.py').readAsStringSync();
+  test('deferred matrix drives the assembled server and cannot accept caller command placeholders', () async {
+    final runner = File(await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/run.sh'))
+        .readAsStringSync();
+    final fixture = File(
+      await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/temporary_conversation_e2e.sh'),
+    ).readAsStringSync();
+    final sinkChecks = File(
+      await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/temporary_sink_checks.py'),
+    ).readAsStringSync();
     expect(runner, isNot(contains('DARTCLAW_TEMPORARY_PROVIDER_COMMAND')));
     expect(runner, isNot(contains('DARTCLAW_TEMPORARY_BROWSER_COMMAND')));
     expect(fixture, contains('build/bin/dartclaw'));
@@ -67,10 +76,12 @@ void main() {
     }
   });
 
-  test('the exact live fixture YAML parses as mediated Codex with hybrid vectors', () {
+  test('the exact live fixture YAML parses as mediated Codex with hybrid vectors', () async {
     final root = Directory.systemTemp.createTempSync('temporary-fixture-config-');
     addTearDown(() => root.deleteSync(recursive: true));
-    final source = File('dev/testing/profiles/conversation-loop/temporary_conversation.yaml').readAsStringSync();
+    final source = File(
+      await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/temporary_conversation.yaml'),
+    ).readAsStringSync();
     final config = DartclawConfig.load(
       configPath: 'temporary_conversation.yaml',
       fileReader: (_) => source,

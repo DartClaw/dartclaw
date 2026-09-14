@@ -20,7 +20,8 @@
   aggregate corpus.
 - `ConversationRetention` is the one persistence classifier. `SessionService` owns bounded process-retained session and
   conversation state; `MessageService` owns bounded process-retained messages and resolves retention through that
-  authority. A configured resolver fails closed for unknown or ended IDs. Standalone durable fixtures may omit it.
+  authority. `SessionService` also resolves persisted conversation principals and owner/workspace visibility. A
+  configured resolver fails closed for unknown or ended IDs. Standalone durable fixtures may omit it.
 - **Logical-agent conversations** — `LogicalAgentSessionService` separates creation (`sessions_spawn`: agent + initial message) from continuation (`sessions_send`: returned session handle + follow-up), while enforcing the content-guard boundary around each result. Provider/profile worker acquisition and bounded lease capacity are host-owned in `dartclaw_runtime`; core owns no pool or concurrency policy.
 - **Persistence** — repository contracts and their SQLite implementations share this package so aggregate hydration and the execution row mapper have one authority. `WorkflowRunRepository` and its SQLite adapter remain in `dartclaw_workflow`; the small `WorkflowStepExecutionRepository` port is kernel-owned while its SQLite adapter remains here (ADR-034).
 - **Cross-cutting** — `RepoLock` (per-path process mutex for shared mutations), `atomicWriteJson` (the only sanctioned JSON write path). The one-shot `httpRequest` seam and its `HttpClientFactory` are **kernel-owned** (`dartclaw_kernel/lib/src/http_request.dart`) so the tier below core can use them too; `src/util/util.dart` re-exports both under their old names, which is why core's own callers and the packages above still reach them through this barrel.

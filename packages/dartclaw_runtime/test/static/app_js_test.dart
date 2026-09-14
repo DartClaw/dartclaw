@@ -639,13 +639,16 @@ void main() {
 
     test('exactly one confirmation API and one htmx:confirm gate exist', () {
       var definitions = 0;
+      var inputDefinitions = 0;
       var confirmEventMentions = 0;
       for (final file in controllerSources) {
         final source = file.readAsStringSync();
         definitions += 'function confirmDialog('.allMatches(source).length;
+        inputDefinitions += 'function inputDialog('.allMatches(source).length;
         confirmEventMentions += "'htmx:confirm'".allMatches(source).length;
       }
       expect(definitions, 1, reason: 'a second modal confirmation implementation appeared');
+      expect(inputDefinitions, 1, reason: 'custom text input must stay in the shared dialog authority');
       // One addEventListener plus its disconnect() counterpart.
       expect(confirmEventMentions, 2);
 
@@ -673,6 +676,11 @@ void main() {
       // Danger is markup, not a second frame — DESIGN.md § Feedback.
       expect(sharedSource, contains("danger ? 'btn btn-danger-fill btn-sm' : 'btn btn-sm'"));
       expect(sharedSource, contains("'icon icon-triangle-alert'"));
+      expect(sharedSource, contains("'dialog dialog--sm card card-glass'"));
+      expect(sharedSource, contains("input.className = 'form-textarea'"));
+      expect(sharedSource, contains('input.focus()'));
+      expect(sharedSource, contains('input.select()'));
+      expect(sharedSource, contains("event.key !== 'Enter'"));
       for (final rule in ['.dialog--confirm', '.dialog-header', '.dialog-body', '.dialog-footer', '.dialog-actions']) {
         expect(designSystemCss, contains(rule), reason: '$rule is consumed but not defined in canon');
       }

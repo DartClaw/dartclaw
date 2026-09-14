@@ -2,9 +2,12 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
-  test('all three wireframes carry the integrated effective-context states', () {
-    final chat = File('dev/bundle/docs/wireframes/chat-conversation-cards.html').readAsStringSync();
+  test('all three wireframes carry the integrated effective-context states', () async {
+    final chat = File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/chat-conversation-cards.html'))
+        .readAsStringSync();
     for (final id in const [
       'effective-context-summary',
       'effective-context-workspace',
@@ -19,7 +22,8 @@ void main() {
       expect(chat, contains('id="$id"'), reason: id);
     }
 
-    final info = File('dev/bundle/docs/wireframes/session-info-panel.html').readAsStringSync();
+    final info = File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/session-info-panel.html'))
+        .readAsStringSync();
     for (final id in const [
       'session-effective-context',
       'session-context-owner',
@@ -32,7 +36,8 @@ void main() {
       expect(info, contains('id="$id"'), reason: id);
     }
 
-    final newChat = File('dev/bundle/docs/wireframes/new-session.html').readAsStringSync();
+    final newChat = File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/new-session.html'))
+        .readAsStringSync();
     expect(newChat, contains('id="new-chat-effective-context"'));
     expect(newChat, contains('id="new-chat-owner"'));
     expect(newChat, contains('data-identicon-id="dartclaw"'));

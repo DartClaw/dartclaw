@@ -79,6 +79,25 @@ class FakeTurnManager extends TurnManager {
   }
 
   @override
+  Future<String> reserveContextTurn(
+    String sessionId, {
+    required String provider,
+    required String directory,
+    String? model,
+    String? effort,
+    required PromptScope promptScope,
+    required TurnOrigin origin,
+  }) => reserveTurn(
+    sessionId,
+    directory: directory,
+    model: model,
+    effort: effort,
+    isHumanInput: true,
+    promptScope: promptScope,
+    origin: origin,
+  );
+
+  @override
   void executeTurn(
     String sessionId,
     String turnId,

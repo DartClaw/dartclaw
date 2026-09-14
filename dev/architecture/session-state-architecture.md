@@ -143,6 +143,10 @@ model, and effort. The session's `AgentWorkspace` and `agent:<id>` storage princ
 Queue accepts ordinary input in order; steer first confirms cancellation of the displayed turn and then uses ordinary
 admission. Channel and cron snapshots disable these browser controls.
 
+The session route factory registers its conversation owner with the server. Shutdown first stops new conversation
+admission and drains admitted mutations, then cancels active turns and awaits retained outcomes and background writes
+before storage disposal. A completed turn cannot release queued work once shutdown has begun.
+
 Attention events are durable projections linked to an exact history record. Read and dismiss state are inbox metadata;
 whether an approval action is available is recomputed from the exact still-live request and turn identity.
 

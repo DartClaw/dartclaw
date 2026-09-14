@@ -67,6 +67,9 @@ void main() {
   });
 
   test('direct capture callbacks persist host turn, journal, and curation provenance', () async {
+    final primarySession = await storage.sessions.createSession();
+    final journalSession = await storage.sessions.createSession();
+    final curationSession = await storage.sessions.createSession();
     final revision = (await storage.memoryCorpus.readCorpus()).index.metadata.revision;
     await factoryConfig.onContextualMemoryApply!({
       'expectedRevision': revision,
@@ -78,11 +81,11 @@ void main() {
           'content': 'Primary remembered preference',
         },
       ],
-    }, const HarnessTurnContext(sessionId: 'session-1', turnId: 'turn-1', source: 'web', agentName: 'main'));
+    }, HarnessTurnContext(sessionId: primarySession.id, turnId: 'turn-1', source: 'web', agentName: 'main'));
     await factoryConfig.onContextualMemoryObserve!(
       {'text': 'Journal learning', 'role': 'learning'},
-      const HarnessTurnContext(
-        sessionId: 'journal-session',
+      HarnessTurnContext(
+        sessionId: journalSession.id,
         turnId: 'journal-turn',
         source: 'cron',
         agentName: 'cron:memory-journal',
@@ -103,8 +106,8 @@ void main() {
           },
         ],
       },
-      const HarnessTurnContext(
-        sessionId: 'curation-session',
+      HarnessTurnContext(
+        sessionId: curationSession.id,
         turnId: 'curation-turn',
         source: 'cron',
         agentName: 'cron:memory-curation',
@@ -117,19 +120,19 @@ void main() {
     final curated = topicEntries.singleWhere((entry) => entry.content == 'Curated remembered preference').provenance;
     final journal = corpus.learnings!.entries.singleWhere((entry) => entry.content == 'Journal learning').provenance;
     expect(primary.originKind, MemoryOriginKind.turn);
-    expect(primary.sourceLocator, 'session:session-1');
+    expect(primary.sourceLocator, 'session:${primarySession.id}');
     expect(primary.sourceEvent, 'turn:turn-1');
-    expect(primary.sessionRef, 'session-1');
+    expect(primary.sessionRef, primarySession.id);
     expect(journal.originKind, MemoryOriginKind.journal);
     expect(journal.sourceLocator, 'memory-journal');
     expect(journal.sourceEvent, 'turn:journal-turn');
     expect(journal.caller, 'cron:memory-journal');
-    expect(journal.sessionRef, 'journal-session');
+    expect(journal.sessionRef, journalSession.id);
     expect(curated.originKind, MemoryOriginKind.curation);
     expect(curated.sourceLocator, 'memory-curation');
     expect(curated.sourceEvent, 'turn:curation-turn');
     expect(curated.caller, 'cron:memory-curation');
-    expect(curated.sessionRef, 'curation-session');
+    expect(curated.sessionRef, curationSession.id);
   });
 
   test('production memory handlers reopen native KG and inbox locators', () async {

@@ -52,7 +52,7 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  test('ACP session title and usage data land on existing session and usage surfaces', () async {
+  test('ACP usage lands on the session while provider title metadata cannot rename it', () async {
     final session = await sessions.createSession();
 
     unawaited(() async {
@@ -82,7 +82,7 @@ void main() {
     expect(outcome.outputTokens, 17);
     expect(outcome.cacheReadTokens, 19);
     expect(outcome.cacheWriteTokens, 23);
-    expect(updatedSession!.title, 'Plan cleanup');
+    expect(updatedSession!.title, isNull);
     expect(costData['provider'], 'acp');
     expect(costData['input_tokens'], 13);
     expect(costData['output_tokens'], 17);

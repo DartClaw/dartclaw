@@ -38,6 +38,15 @@ abstract interface class SessionServiceObserver {
 class SessionService {
   static const maxDismissedAttentionEventIds = 200;
 
+  /// Resolves the storage principal pinned in [session], or [fallbackUserId]
+  /// when the session has no configured workspace owner.
+  static String persistedPrincipal(Session session, {String fallbackUserId = 'owner'}) =>
+      session.workspace?.storagePrincipal ?? fallbackUserId;
+
+  /// Whether [principal] may access [session] through persisted conversation surfaces.
+  static bool isVisibleToPrincipal(Session session, String principal) =>
+      principal == 'owner' || persistedPrincipal(session) == principal;
+
   final String baseDir;
   final EventBus? eventBus;
   final RepoLock _repoLock;
@@ -273,19 +282,7 @@ class SessionService {
   }
 
   Future<void> touchUpdatedAt(String id) async {
-    if (!isValidUuid(id)) return;
-    final process = _processSessions[id];
-    if (process != null) {
-      _processSessions[id] = process.copyWith(updatedAt: DateTime.now());
-      return;
-    }
-    final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return;
-
-    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    final updated = session.copyWith(updatedAt: DateTime.now());
-    await _writeSessionMeta(metaFile, updated);
+    await _mutateSession(id, (session) => session.copyWith(updatedAt: DateTime.now()));
   }
 
   /// Creates or retrieves a session by deterministic external key.
@@ -435,43 +432,14 @@ class SessionService {
   /// Persists the execution mode derived for a session that predates pinned
   /// execution modes, so later turns reuse the derived value rather than
   /// re-deriving it against a possibly changed deployment.
-  Future<Session?> updateExecutionMode(String id, ExecutionMode mode) async {
-    if (!isValidUuid(id)) return null;
-    final process = _processSessions[id];
-    if (process != null) {
-      final updated = process.copyWith(executionMode: mode, updatedAt: DateTime.now());
-      _processSessions[id] = updated;
-      return updated;
-    }
-    final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return null;
-
-    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    if (session.executionMode == mode) return session;
-    final updated = session.copyWith(executionMode: mode, updatedAt: DateTime.now());
-    await _writeSessionMeta(metaFile, updated);
-    return updated;
-  }
+  Future<Session?> updateExecutionMode(String id, ExecutionMode mode) => _mutateSession(id, (session) {
+    if (session.retention.isDurable && session.executionMode == mode) return session;
+    return session.copyWith(executionMode: mode, updatedAt: DateTime.now());
+  });
 
   /// Updates the persisted provider override for an existing session.
-  Future<Session?> updateProvider(String id, String? provider) async {
-    if (!isValidUuid(id)) return null;
-    final process = _processSessions[id];
-    if (process != null) {
-      final updated = process.copyWith(provider: provider, updatedAt: DateTime.now());
-      _processSessions[id] = updated;
-      return updated;
-    }
-    final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return null;
-
-    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    final updated = session.copyWith(provider: provider, updatedAt: DateTime.now());
-    await _writeSessionMeta(metaFile, updated);
-    return updated;
-  }
+  Future<Session?> updateProvider(String id, String? provider) =>
+      _mutateSession(id, (session) => session.copyWith(provider: provider, updatedAt: DateTime.now()));
 
   /// Reads the durable ordinary-conversation state stored with the session.
   Future<ConversationState> getConversationState(String id) async {

@@ -316,6 +316,10 @@ The final automatic record also includes the full workspace format, analysis, bu
 - TI03–TI08 and story completion remain pending actual joined-candidate qualification. Heavy/full/browser/provider/database/container checks were not executed per story under the user's timing override. Device, owner, CI, Windows, release, and clean-candidate results remain explicit holds until evidence exists.
 - The reviewed public delta applied without conflicts; all 66 protected unrelated input entries remained unchanged. Private changes remain uncommitted. Evidence: `.agent_temp/exec-plan-0.27/S09/`.
 
+### Run: 2026-09-15 01:46 CEST – external protocol inspection
+
+- TI07 inspection passed: all nine external rows name protocols, candidate identity requirements, actors or environments, pending statuses, and evidence destinations. Inspection evidence: `.agent_temp/exec-plan-0.27/S09/ti07-inspection.md`. No external execution result is claimed; Q10 and release holds remain open. TI03–TI06 and TI08 still await final-candidate qualification.
+
 ## Discovered Requirements
 
 - **Title**: Explicit workspace roots for the broad integration invocation. **Description**: TI06's broad integration command runs from the verified public root and must name `packages apps dev/fitness`: `dart test --reporter=failures-only --run-skipped -t integration --concurrency=1 packages apps dev/fitness`. **Rationale**: the virtual workspace has no root `test/`; the pinned test_core 0.6.18 executable rejects an implicit default test directory before selecting tests. Explicit roots preserve the intended full workspace integration scope, while concurrency 1 prevents the documented shared PostgreSQL schema/catalog races. **Interpretation**: retain the original TI06 literal as spec-stale evidence; use the explicit-root invocation for the same broad proof, record actual test selection and results, and never call a no-tests invocation a pass. **Traced from**: TI06, S04, SC04. **Date**: 2026-09-14.

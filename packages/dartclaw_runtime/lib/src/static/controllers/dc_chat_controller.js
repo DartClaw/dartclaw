@@ -1,8 +1,10 @@
 import {
   beginSessionDraftMutation,
+  confirmDialog,
   conversationDraftSessionIds,
   endSessionDraftMutation,
   escapeHtml,
+  inputDialog,
   isAtBottom,
   openConversationDraftDb,
   readHtmxErrorMessage,
@@ -753,24 +755,36 @@ export default class DcChatController extends Stimulus.Controller {
     });
   }
 
-  runHistoryAction(button) {
+  async runHistoryAction(button) {
     const message = button.closest('[data-message-id]');
     if (!message || !this.sessionId) return;
     const action = button.dataset.historyAction;
-    if (!window.confirm(action === 'retry'
-      ? 'Retry starts a new attempt. External tool effects may repeat.'
-      : 'Create linked conversation history? Files and external effects are not rolled back.')) return;
+    let editedMessage;
+    if (action === 'edit') {
+      editedMessage = await inputDialog({
+        title: 'Edit and continue',
+        body: 'The original conversation stays unchanged. Files and external effects are not rolled back.',
+        inputLabel: 'Message',
+        value: message.querySelector('.msg-content')?.textContent || '',
+        confirmLabel: 'Continue',
+      });
+      if (!editedMessage?.trim()) return;
+    } else {
+      const confirmed = await confirmDialog({
+        title: action === 'retry' ? 'Retry attempt?' : 'Fork from here?',
+        body: action === 'retry'
+          ? 'Retry starts a new attempt. External tool effects may repeat.'
+          : 'Create linked conversation history? Files and external effects are not rolled back.',
+        confirmLabel: action === 'retry' ? 'Retry' : 'Fork',
+      });
+      if (!confirmed) return;
+    }
     const mutationId = this.generateClientId();
     const path = action === 'retry'
       ? '/api/sessions/' + encodeURIComponent(this.sessionId) + '/attempts/' +
         encodeURIComponent(button.dataset.sourceAttemptId) + '/retry'
       : '/api/sessions/' + encodeURIComponent(this.sessionId) + '/messages/' +
         encodeURIComponent(message.dataset.messageId) + '/branch';
-    let editedMessage;
-    if (action === 'edit') {
-      editedMessage = window.prompt('Edit and continue', message.querySelector('.msg-content')?.textContent || '');
-      if (!editedMessage?.trim()) return;
-    }
     return fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1354,10 +1368,16 @@ export default class DcChatController extends Stimulus.Controller {
       });
   }
 
-  editQueueItem(event) {
+  async editQueueItem(event) {
     const item = event.currentTarget?.closest('[data-queue-id]');
-    const message = item?.querySelector('p')?.textContent || '';
-    const replacement = window.prompt('Edit queued message', message);
+    if (!item) return;
+    const message = item.querySelector('p')?.textContent || '';
+    const replacement = await inputDialog({
+      title: 'Edit queued message',
+      inputLabel: 'Message',
+      value: message,
+      confirmLabel: 'Save',
+    });
     if (replacement === null || !replacement.trim()) return;
     const queueId = item.dataset.queueId;
     const queued = this.queueItems.get(queueId);

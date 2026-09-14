@@ -46,6 +46,7 @@ import 'auth/token_service.dart';
 import 'asset_resolver.dart';
 import 'context/result_trimmer.dart';
 import 'conversation/inbox_service.dart';
+import 'conversation/conversation_service.dart';
 import 'conversation/human_command_catalog.dart';
 import 'conversation/product_conversation_search.dart';
 import 'health/health_service.dart';
@@ -107,6 +108,7 @@ class DartclawServer {
   Handler? _builtHandler;
   Handler? _requestHandler;
   bool _registrationLocked = false;
+  ConversationService? _conversation;
 
   late final MemoryPruneService _memoryPruneService = MemoryPruneService(
     pruner: _observability.memoryPruner,
@@ -299,10 +301,12 @@ class DartclawServer {
   }
 
   Future<void> shutdown() async {
+    await _conversation?.beginShutdown();
     _tasks.progressTracker?.dispose();
     for (final sessionId in _turn.turns.activeSessionIds.toList()) {
       await _turn.turns.cancelTurn(sessionId);
     }
+    await _conversation?.drain();
     await _tasks.executionDrainer?.call();
     await _channels.spaceEventsWiring?.dispose();
     await _web.inboxService?.dispose();
@@ -757,6 +761,7 @@ class DartclawServer {
       inboxService: _web.inboxService,
       conversationSearch: _web.conversationSearch,
       commandCatalog: _web.commandCatalog,
+      onConversationCreated: (conversation) => _conversation = conversation,
     );
     router.mount('/', sessionRouter.call);
   }

@@ -43,6 +43,13 @@ final class ApiRouteTestClient {
     return response;
   }
 
+  Future<Response> sendSessionMessage(String sessionId, {String body = 'message=Hello'}) => request(
+    'POST',
+    '/api/sessions/$sessionId/send',
+    body: body,
+    headers: const {'content-type': 'application/x-www-form-urlencoded'},
+  );
+
   Future<Map<String, dynamic>> expectJsonObject(
     String method,
     String path, {

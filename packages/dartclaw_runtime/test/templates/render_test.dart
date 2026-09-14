@@ -773,17 +773,18 @@ void main() {
         'data-dc-chat-target="referencesInput"',
         'data-dc-chat-target="referencePalette"',
         'composer-reference-palette card card-glass',
+        'data-slash-palette',
+        'data-slash-results="" role="listbox" aria-label="Commands"',
         'class="composer-toolbar"',
         'class="composer-hints"',
         'data-action="dc-chat#applySuggestion"',
         'Ctrl/⌘',
         'class="composer-meta"',
-        'btn btn-primary btn-icon composer-send',
-        'data-icon="arrow-up" aria-label="Send"',
+        'class="btn btn-primary composer-send"',
+        'aria-label="Send" title="Send"',
       ]);
       expect(area, isNot(contains('composer-row')));
       expect(area, isNot(contains('sse-container')));
-      expect(area, isNot(contains('aria-label="Commands"')));
       expect(area, isNot(contains('/workflow')));
       expect(area, isNot(contains('<kbd>/</kbd>')));
 

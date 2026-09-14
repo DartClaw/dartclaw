@@ -18,12 +18,18 @@ function assert(condition, message) {
 
 globalThis.Stimulus = { Controller: class {} };
 globalThis.document = { body: { classList: { add() {}, remove() {} } }, getElementById: () => null };
+globalThis.dialogState = { inputResult: 'Edited queued message', inputOptions: null };
 
 let source = await readFile(new URL(process.argv[1]), 'utf8');
 source = source.replace(/import \{[\s\S]*?\} from '\.\/shared\.js';/, `
 const beginSessionDraftMutation = () => {};
 const endSessionDraftMutation = () => {};
 const escapeHtml = (value) => String(value);
+const confirmDialog = async () => true;
+const inputDialog = async (options) => {
+  globalThis.dialogState.inputOptions = options;
+  return globalThis.dialogState.inputResult;
+};
 const isAtBottom = () => false;
 const readHtmxErrorMessage = () => '';
 const renderMarkdown = () => {};
@@ -94,6 +100,24 @@ controller.renderQueue([{ queueId: 'q1', workState: 'held', message: 'Ship after
 assert(!queue.hidden, 'held queue stayed hidden');
 assert(queue.innerHTML.includes('Ship after checks') && queue.innerHTML.includes('proof.txt'), 'queued payload was incomplete');
 assert(queue.innerHTML.includes('Send next queued message'), 'oldest held release action was absent');
+
+let queueMutation = null;
+controller.queueMutation = async (path, options) => { queueMutation = { path, options }; };
+const queueItem = {
+  dataset: { queueId: 'q1' },
+  querySelector: (selector) => selector === 'p' ? { textContent: 'Ship after checks' } : null,
+};
+await controller.editQueueItem({ currentTarget: { closest: () => queueItem } });
+const queueBody = JSON.parse(queueMutation.options.body);
+assert(queueMutation.path === '/queue/q1', 'queued edit lost its item identity');
+assert(queueBody.message === 'Edited queued message', 'queued edit did not capture the replacement');
+assert(queueBody.attachments[0].filename === 'proof.txt', 'queued edit lost its retained attachments');
+assert(dialogState.inputOptions.value === 'Ship after checks' && dialogState.inputOptions.confirmLabel === 'Save', 'queue dialog lost its source value or action');
+
+queueMutation = null;
+dialogState.inputResult = null;
+await controller.editQueueItem({ currentTarget: { closest: () => queueItem } });
+assert(queueMutation === null, 'cancelled queued edit mutated the queue');
 
 controller.showDraftSaveFailure();
 assert(saveStatus.textContent.includes('will not recover after reload'), 'save failure implied reload recovery');

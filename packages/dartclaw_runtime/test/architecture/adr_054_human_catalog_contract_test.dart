@@ -2,9 +2,13 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
-  test('human catalog allowance preserves the model-facing prose prohibition', () {
-    final adr = File('dev/adrs/054-model-first-delegation-and-one-authority-per-concern.md').readAsStringSync();
+  test('human catalog allowance preserves the model-facing prose prohibition', () async {
+    final adr = File(
+      await resolveWorkspacePath('dev', 'adrs', '054-model-first-delegation-and-one-authority-per-concern.md'),
+    ).readAsStringSync();
 
     expect(adr, contains('A human command picker is a keyboard control, not a prose grammar.'));
     expect(adr, contains('closed, typed catalog'));

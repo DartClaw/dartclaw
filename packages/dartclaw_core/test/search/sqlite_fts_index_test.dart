@@ -266,7 +266,14 @@ void main() {
     test('verifyIntegrity detects FTS5 shadow corruption', () async {
       await index.upsert([_document('stored', 'searchable')], userId: 'owner');
       await index.verifyIntegrity();
-      database.execute('DELETE FROM memory_chunks_fts_data');
+      // Permit deliberate shadow-table damage only while injecting this fixture's fault.
+      const sqliteDbConfigDefensive = 1010;
+      database.config.setIntConfig(sqliteDbConfigDefensive, 0);
+      try {
+        database.execute('DELETE FROM memory_chunks_fts_data');
+      } finally {
+        database.config.setIntConfig(sqliteDbConfigDefensive, 1);
+      }
 
       await expectLater(index.verifyIntegrity(), throwsStateError);
     });

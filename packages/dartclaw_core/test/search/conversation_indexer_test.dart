@@ -118,7 +118,7 @@ void main() {
     expect(vectorSynchronizations.last, _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: []));
   });
 
-  test('archive, resume, and delete synchronize IDs without needing deleted NDJSON', () async {
+  test('archive and resume retain searchable IDs while delete synchronizes without NDJSON', () async {
     final session = await sessions.createSession();
     final message = await messages.insertMessage(
       sessionId: session.id,
@@ -156,18 +156,15 @@ void main() {
 
     await sessions.updateSessionType(session.id, SessionType.archive);
     await indexer.idle;
-    expect(vectorSynchronizations.single, _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: []));
+    expect(vectorSynchronizations, isEmpty);
+    expect((await index.search('retained transcript', userId: 'owner')).single.id, message.id);
 
-    vectorSynchronizations.clear();
     await sessions.updateSessionType(session.id, SessionType.user);
     await indexer.idle;
-    expect(
-      vectorSynchronizations.single,
-      _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: [message.id]),
-    );
+    expect(vectorSynchronizations, isEmpty);
+    expect((await index.search('retained transcript', userId: 'owner')).single.id, message.id);
     expect(await index.search('queued transcript', userId: 'owner'), isEmpty);
 
-    vectorSynchronizations.clear();
     await sessions.deleteSession(session.id);
     await indexer.idle;
     expect(Directory('${root.path}/${session.id}').existsSync(), isFalse);

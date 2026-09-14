@@ -666,21 +666,27 @@ void main() {
       expect(result['isError'], isNull);
       expect(result['content'], contains(containsPair('text', '$agent result')));
       final sessionId = result['sessionId'] as String;
+      final followUpHarnessCount = createdHarnesses.length;
       final followUpFuture = harnessWiring!.logicalAgentSessions.handleSessionsSend({
         'session_id': sessionId,
         'message': 'Continue this',
       });
-      await logicalAgentHarness.turnInvoked;
-      expect(createdHarnesses, hasLength(harnessCount + 1));
-      expect(createdHarnesses.last, same(logicalAgentHarness));
-      expect(logicalAgentHarness.lastSessionId, internalSessionId);
-      expect(logicalAgentHarness.lastMessages, [
+      await _pollFor(() => createdHarnesses.length, (length) => length == followUpHarnessCount + 1);
+      final followUpHarness = createdHarnesses.last;
+      await followUpHarness.turnInvoked;
+      expect(followUpHarness, isNot(same(logicalAgentHarness)));
+      expect(followUpHarness.lastSessionId, internalSessionId);
+      expect(followUpHarness.lastAgentId, agent);
+      expect(followUpHarness.lastSystemPrompt, contains(persona));
+      expect(followUpHarness.lastModel, model);
+      expect(followUpHarness.lastEffort, effort);
+      expect(followUpHarness.lastMessages, [
         {'role': 'user', 'content': 'Handle this'},
         {'role': 'assistant', 'content': '$agent result'},
         {'role': 'user', 'content': 'Continue this'},
       ]);
-      logicalAgentHarness.emit(DeltaEvent('$agent follow-up'));
-      logicalAgentHarness.completeSuccess();
+      followUpHarness.emit(DeltaEvent('$agent follow-up'));
+      followUpHarness.completeSuccess();
       final followUp = await followUpFuture;
       expect(followUp['isError'], isNull);
       expect(followUp['content'], contains(containsPair('text', '$agent follow-up')));

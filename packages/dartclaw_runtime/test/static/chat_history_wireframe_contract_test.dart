@@ -2,10 +2,15 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 void main() {
-  test('history wireframes expose referenceable states and accessible relationships', () {
-    final conversation = File('dev/bundle/docs/wireframes/chat-conversation-cards.html').readAsStringSync();
-    final guard = File('dev/bundle/docs/wireframes/guard-block-chat.html').readAsStringSync();
+  test('history wireframes expose referenceable states and accessible relationships', () async {
+    final conversation = File(
+      await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/chat-conversation-cards.html'),
+    ).readAsStringSync();
+    final guard = File(await resolveWorkspacePath('dev', 'bundle', 'docs/wireframes/guard-block-chat.html'))
+        .readAsStringSync();
 
     for (final source in [conversation, guard]) {
       expect(source, contains('<!DOCTYPE html>'));

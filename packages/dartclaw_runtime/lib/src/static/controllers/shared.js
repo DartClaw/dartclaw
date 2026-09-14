@@ -140,15 +140,24 @@ export function queueToast(type, message) {
   } catch (_) {}
 }
 
-let activeConfirmDialog = null;
+let activeDialog = null;
 
-export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false } = {}) {
+function openCustomDialog({
+  title,
+  body,
+  confirmLabel,
+  danger = false,
+  inputLabel = null,
+  inputValue = '',
+} = {}) {
   // Fail closed rather than stack dialogs: a second confirmation raised while one
   // is open would ask about an action the user can no longer see the context for.
-  if (activeConfirmDialog) return Promise.resolve(false);
+  if (activeDialog) return Promise.resolve(inputLabel == null ? false : null);
 
   const dialog = document.createElement('dialog');
-  dialog.className = 'dialog dialog--confirm card card-glass';
+  dialog.className = inputLabel == null
+    ? 'dialog dialog--confirm card card-glass'
+    : 'dialog dialog--sm card card-glass';
 
   if (title) {
     const header = document.createElement('div');
@@ -172,6 +181,20 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
   const message = document.createElement('p');
   message.textContent = body == null ? '' : String(body);
   bodyElement.appendChild(message);
+
+  let input = null;
+  if (inputLabel != null) {
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.htmlFor = 'custom-dialog-input';
+    label.textContent = inputLabel;
+    input = document.createElement('textarea');
+    input.id = 'custom-dialog-input';
+    input.className = 'form-textarea';
+    input.rows = 5;
+    input.value = String(inputValue ?? '');
+    bodyElement.append(label, input);
+  }
   dialog.appendChild(bodyElement);
   dialog.setAttribute('aria-label', title || message.textContent);
 
@@ -193,8 +216,9 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
   footer.appendChild(actions);
   dialog.appendChild(footer);
 
+  const returnFocus = document.activeElement;
   document.body.appendChild(dialog);
-  activeConfirmDialog = dialog;
+  activeDialog = dialog;
 
   return new Promise((resolve) => {
     let confirmed = false;
@@ -203,8 +227,9 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
     // top layer this dialog occupies.
     dialog.addEventListener('close', () => {
       dialog.remove();
-      activeConfirmDialog = null;
-      resolve(confirmed);
+      activeDialog = null;
+      if (returnFocus?.isConnected) returnFocus.focus();
+      resolve(confirmed ? (input == null ? true : input.value) : input == null ? false : null);
     }, { once: true });
     confirmButton.addEventListener('click', () => {
       confirmed = true;
@@ -222,9 +247,28 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
     dialog.addEventListener('click', (event) => {
       if (event.target === dialog && pressStartedOnBackdrop) dialog.close();
     });
+    input?.addEventListener('keydown', (event) => {
+      if (event.isComposing || event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return;
+      event.preventDefault();
+      confirmed = true;
+      dialog.close();
+    });
     dialog.showModal();
-    if (danger) cancelButton.focus();
+    if (input) {
+      input.focus();
+      input.select();
+    } else if (danger) {
+      cancelButton.focus();
+    }
   });
+}
+
+export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false } = {}) {
+  return openCustomDialog({ title, body, confirmLabel, danger });
+}
+
+export function inputDialog({ title, body, inputLabel = 'Message', value = '', confirmLabel = 'Continue' } = {}) {
+  return openCustomDialog({ title, body, confirmLabel, inputLabel, inputValue: value });
 }
 
 export function closeAllCustomSelects(except) {

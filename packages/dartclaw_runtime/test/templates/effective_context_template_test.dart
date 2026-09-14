@@ -54,10 +54,12 @@ void main() {
     expect(html, contains('Memory contributed'));
   });
 
-  test('session projection uses the shared relative timestamp formatter', () {
-    final source = File('packages/dartclaw_runtime/lib/src/api/session_routes_support.dart').readAsStringSync();
+  test('session projection uses the shared relative timestamp formatter', () async {
+    final source = File(await resolveServerPackagePath('lib', 'src', 'api', 'session_routes_support.dart'))
+        .readAsStringSync();
     expect(source, contains('formatRelativeTimeIso(telemetry.observedAt.toIso8601String())'));
-    final template = File('packages/dartclaw_runtime/lib/src/templates/session_info.html').readAsStringSync();
+    final template = File(await resolveServerPackagePath('lib', 'src', 'templates', 'session_info.html'))
+        .readAsStringSync();
     expect(template, contains('id="session-effective-context"'));
     expect(template, contains(r'data-identicon-id=${effectiveContext.projectId}'));
     expect(template, contains('id="session-memory-provenance"'));

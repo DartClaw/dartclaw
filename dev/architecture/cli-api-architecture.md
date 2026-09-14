@@ -2,7 +2,7 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.26 hybrid search inspection and connected search commands
+**Current through**: 0.26 hybrid search inspection and connected search commands; 0.27 HTMX 4 preparation
 
 ---
 
@@ -271,7 +271,9 @@ The two launch routes are one request shaping behind two encodings: both read th
 `api_helpers.dart`, then share the definition resolution, `PROJECT` injection and required-variable validation. Only the
 field extraction and the rendering differ – the JSON route reads a `variables` object and can set `approvals`/`inline`
 and answers `errorResponse` envelopes; the form route reads `var_`-prefixed fields and answers an HTMX-swappable HTTP
-200 fragment on failure, because HTMX drops the body on a 4xx and the launch error would vanish from `/workflows`.
+200 fragment on validation failure. The layout explicitly suppresses 4xx/5xx swaps in HTMX 4, reserving those
+statuses for auth and route refusals; a validation error at 4xx would therefore vanish from `/workflows`.
+Cross-surface fragments travel OOB in the same response, and `HX-Trigger` delivers toast feedback after the swap.
 
 ## 9. Local-Only Commands
 

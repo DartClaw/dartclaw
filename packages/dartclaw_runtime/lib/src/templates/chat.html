@@ -25,7 +25,7 @@
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
 </div>
 
-<main tl:fragment="chatArea" id="main-content" tabindex="-1" hx-history-elt class="chat-area print-in" data-controller="dc-chat dc-tasks"
+<main tl:fragment="chatArea" id="main-content" tabindex="-1" class="chat-area print-in" data-controller="dc-chat dc-tasks"
   tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor}">
   <div tl:if="${chatNoticeHtml}" tl:utext="${chatNoticeHtml}">session notice</div>
   <div class="chat-load-earlier">
@@ -98,21 +98,13 @@
     <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
   </div>
   <div class="msg msg-assistant print-in" id="streaming-msg"
-       hx-ext="sse"
-       tl:attr="sse-connect=${sseUrl}"
-       sse-close="done">
+       tl:attr="hx-sse:connect=${sseUrl}"
+       hx-sse:close="done">
     <div class="msg-role">Assistant</div>
-    <div class="msg-content" id="streaming-content"
-         sse-swap="delta" hx-swap="beforeend"></div>
+    <div class="msg-content" id="streaming-content"></div>
     <div class="msg-thinking"><span class="claw-loader"><span></span><span></span><span></span></span><span
         class="msg-thinking-label">thinking</span></div>
-    <div id="tool-container"
-         sse-swap="tool_use" hx-swap="beforeend">
-    </div>
-    <div sse-swap="tool_result" hx-swap="none"></div>
-    <div sse-swap="turn_cancelled" hx-swap="none"
-         data-action="htmx:sseMessage->dc-chat#handleTurnCancelled"></div>
-    <div id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden
-         data-action="htmx:afterSwap->dc-chat#handleTurnError"></div>
+    <div id="tool-container"></div>
+    <div id="turn-error-target" hidden></div>
   </div>
 </tl:block>

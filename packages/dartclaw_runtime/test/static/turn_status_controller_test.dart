@@ -170,6 +170,7 @@ assert(panelAttributes.get('data-turn-status-turn-id') === 'turn-new', 'older ta
 const chatSource = await readFile(new URL(process.argv[2]), 'utf8');
 const chatMethods = eval('({' +
   extractMethod(chatSource, '_startTurnStatusPolling') + ',' +
+  extractMethod(chatSource, '_reconcileStreamRecovery') + ',' +
   extractMethod(chatSource, '_stopTurnStatusPolling') +
 '})');
 const chatResponses = [];
@@ -184,6 +185,7 @@ const chat = {
   sessionId: 'chat-1',
   turnStatusTimer: null,
   turnStatusPollGeneration: 0,
+  streamRecoveryTurnId: null,
   updateSendState() {},
 };
 
@@ -201,6 +203,34 @@ chat._stopTurnStatusPolling();
 chatResponses[2]({ ok: true, json: async () => ({ can_cancel: true }) });
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert(chat.canCancel === false, 'retired chat poll generation changed cancel state');
+
+let recoveryFinalized = null;
+let streamRecoveryMessage = '';
+const recoveringChat = {
+  _reconcileStreamRecovery: chatMethods._reconcileStreamRecovery,
+  streamRecoveryTurnId: 'turn-current',
+  hideRecovery() {},
+  showRecovery(message) { streamRecoveryMessage = message; },
+  finalizeTurn(options) { recoveryFinalized = options; },
+};
+assert(
+  !recoveringChat._reconcileStreamRecovery({ turn_id: 'turn-old', state: 'completed' }),
+  'an old terminal snapshot reconciled a different disconnected stream',
+);
+assert(
+  !recoveringChat._reconcileStreamRecovery({ turn_id: 'turn-current', state: 'running', can_cancel: false }),
+  'can_cancel false was mistaken for a terminal state',
+);
+assert(
+  recoveringChat._reconcileStreamRecovery({ turn_id: 'turn-current', state: 'failed' }),
+  'matching failed turn did not reconcile the disconnected stream',
+);
+assert(streamRecoveryMessage.includes('Turn failed'), 'failed stream recovery did not retain actionable feedback');
+assert(
+  recoveryFinalized?.preserveInput === true && recoveryFinalized?.deferEnableUntilRefresh === true,
+  'failed stream recovery did not preserve input until persisted history settled',
+);
+assert(recoveringChat.streamRecoveryTurnId === null, 'terminal recovery retained a stale turn identity');
 
 const lifecycleMethods = eval('({' +
   extractMethod(chatSource, 'handleTurnCancelled') + ',' +
@@ -231,7 +261,7 @@ const lifecycleChat = {
 
 // The terminal SSE can win the race with the cancel HTTP response.
 lifecycleChat.handleTurnCancelled();
-lifecycleChat.handleSseClose({ detail: { type: 'message' } });
+lifecycleChat.handleSseClose({ detail: { reason: 'message' } });
 assert(recoveryMessage.includes('Turn stopped'), 'cancel SSE did not activate recovery before close');
 assert(lifecycleChat.textarea.value === 'preserve me', 'cancel SSE close cleared the composer');
 assert(enableCount === 1, 'terminal message did not finalize exactly once');
@@ -239,6 +269,6 @@ assert(enableCount === 1, 'terminal message did not finalize exactly once');
 // The later cancel response and SSE cleanup must not finalize the same turn again.
 lifecycleChat.showRecovery('Turn stopped. Edit your message or send again.');
 lifecycleChat.finalizeTurn({ preserveInput: true, refreshMessages: true });
-lifecycleChat.handleSseClose({ detail: { type: 'nodeReplaced' } });
+lifecycleChat.handleSseClose({ detail: { reason: 'removed' } });
 assert(enableCount === 1, 'cancel response or node cleanup finalized the turn twice');
 ''';

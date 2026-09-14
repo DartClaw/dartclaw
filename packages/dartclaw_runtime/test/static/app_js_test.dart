@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -29,6 +30,22 @@ void main() {
   });
 
   group('legacy static asset removal', () {
+    test('vendored HTMX 4 core and hx-sse bytes match the recorded release', () {
+      final core = File('$baseDir/htmx.min.js').readAsBytesSync();
+      final sse = File('$baseDir/sse.js').readAsBytesSync();
+
+      expect(core, hasLength(36716));
+      expect(
+        sha384.convert(core).toString(),
+        '06f2690623bc2a1df512ab497b90d121e5ab1d69c21a4c32b4ab3d34a162f3a1e1c3de9d12a74433364378af621064dc',
+      );
+      expect(sse, hasLength(6240));
+      expect(
+        sha384.convert(sse).toString(),
+        '061e0a78492367558b5aba7ce306e8f8be066961fd7d3aea16d828391cd387e7726fc35cc849acda7ea701bcdb3a191b',
+      );
+    });
+
     test('streaming cursor retains the canonical block glyph', () {
       final appCss = File(componentsCssPath).readAsStringSync();
       final designSystemCss = File(designSystemCssPath).readAsStringSync();
@@ -130,7 +147,8 @@ void main() {
       expect(chatSource, contains('handleBeforeRequest(event)'));
       expect(chatSource, contains('handleTurnError()'));
       expect(chatSource, contains('finalizeTurn(options = {})'));
-      final turnErrorHandler = _jsFunction(chatSource, 'handleTurnError()');
+      final turnErrorStart = chatSource.indexOf('\n  handleTurnError() {');
+      final turnErrorHandler = _jsFunction(chatSource.substring(turnErrorStart + 1), 'handleTurnError()');
       expect(turnErrorHandler, contains('this.showRecovery('));
       expect(turnErrorHandler, isNot(contains('this.finalizeTurn(')));
     });
@@ -158,13 +176,12 @@ void main() {
       // .open class, so the inert boundary must be re-derived after every swap
       // and whenever the drawer breakpoint stops matching — otherwise
       // .menu-toggle is stranded inside the region it would have to un-inert.
-      // Settle, not swap: the OOB #sidebar still carries the old .open class at
-      // every afterSwap, so an earlier reconcile reads a stale open drawer.
       expect(shellSource, contains('this.reconcileDrawerState();'));
       expect(
         shellSource.indexOf('this.reconcileDrawerState();'),
-        greaterThan(shellSource.indexOf('handleAfterSettle() {')),
+        greaterThan(shellSource.indexOf('handleAfterSwap(event) {')),
       );
+      expect(shellSource, isNot(contains('handleAfterSettle')));
       expect(shellSource, contains('handleDrawerViewportChange'));
       expect(shellSource, contains("window.matchMedia('(max-width: 768px)')"));
     });
@@ -265,8 +282,8 @@ void main() {
       expect(chatSource, contains(".querySelector('.msg-thinking')?.remove()"));
       expect(chatSource, contains("classList.add('streaming')"));
       expect(chatSource, isNot(contains('#streaming-content .claw-loader')));
-      expect(chatSource, contains("if (event.detail?.type === 'delta')"));
-      expect(chatSource, isNot(contains("if (event.detail?.type !== 'delta') return")));
+      expect(chatSource, contains("if (message.event === 'delta')"));
+      expect(chatSource, contains('event.detail.waitUntil(this.processSseMessage('));
       // Auto-scroll is intent-driven: no call may re-anchor unconditionally.
       expect(chatSource, contains('scrollToBottom(this.element, { force: true })'));
       expect(chatSource, isNot(contains('scrollToBottom(this.element);')));
@@ -643,8 +660,8 @@ void main() {
       final shellSource = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
       expect(shellSource, contains("addEventListener('htmx:confirm', this.handleHtmxConfirm)"));
       expect(shellSource, contains("removeEventListener('htmx:confirm', this.handleHtmxConfirm)"));
-      // Without the argument htmx falls back to its own native confirm box.
-      expect(shellSource, contains('issueRequest(true)'));
+      expect(shellSource, contains('event.detail.issueRequest();'));
+      expect(shellSource, contains('event.detail.dropRequest();'));
     });
 
     test('the confirmation frame composes the canonical dialog classes', () {
@@ -752,7 +769,7 @@ void main() {
       // Two listeners on the same event paint two toasts for one failure, so
       // the archive-local pair was removed rather than deduplicated downstream.
       expect(shell, isNot(contains('bindHtmxRequestErrors')));
-      for (final event in ['htmx:responseError', 'htmx:sendError']) {
+      for (final event in ['htmx:response:error', 'htmx:error']) {
         expect(
           "addEventListener('$event'".allMatches(shell).length,
           1,
@@ -764,7 +781,7 @@ void main() {
           reason: '$event must be torn down in disconnect()',
         );
       }
-      expect(shell, contains('readHtmxErrorMessage(event.detail.xhr'));
+      expect(shell, contains('readHtmxErrorMessage(event.detail.ctx'));
       // Archive keeps its sidebar restoration and gains no replacement catch.
       expect(shell, contains('if (wasSidebarOpen) this.setSidebarOpen(true);'));
     });
@@ -806,7 +823,9 @@ void main() {
 
       // hx-indicator on <body> is inherited by every htmx element, so no
       // per-surface template carries a navigation indicator of its own.
-      expect(layout, contains('hx-indicator="#nav-progress"'));
+      expect(layout, contains('hx-indicator:inherited="#nav-progress"'));
+      expect(layout, contains('hx-status:4xx:inherited="swap:none"'));
+      expect(layout, contains('hx-status:5xx:inherited="swap:none"'));
       expect(layout, contains('id="nav-progress" class="scan-bar htmx-indicator"'));
       expect(appCss, contains('#nav-progress'));
       // Overlaid, not in flow: a polled region's content is already on screen,
@@ -868,13 +887,18 @@ void main() {
       expect(source, isNot(contains("from './")));
     });
 
-    test('shell reapplies identicons after swaps and history navigation', () {
+    test('shell reapplies identicons and scopes restore scrolling to its refetch', () {
       final source = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
 
       expect(source, contains('applyIdenticons();'));
       expect(RegExp(r'handleAfterSwap[\s\S]*?applyIdenticons\(\);').hasMatch(source), isTrue);
-      expect(RegExp(r'handleHistoryRestore[\s\S]*?applyIdenticons\(\);').hasMatch(source), isTrue);
-      expect(RegExp(r'handleHistoryCacheMissLoad[\s\S]*?applyIdenticons\(\);').hasMatch(source), isTrue);
+      expect(source, contains("ctx?.request?.headers?.['HX-History-Restore-Request'] === 'true'"));
+      expect(
+        RegExp(r'handleAfterSwap[\s\S]*?isHistoryRestore[\s\S]*?scrollToBottom\(document, \{ force: true \}\)')
+            .hasMatch(source),
+        isTrue,
+      );
+      expect(source, isNot(contains('historyRestorePending')));
       expect(source, contains('list.hidden = isCollapsed;'));
       expect(source, contains('list.hidden = wasExpanded;'));
       expect(source, isNot(contains('list.style.display')));
@@ -948,8 +972,8 @@ void main() {
       // and released again on every terminal outcome. A refused or failed
       // request swaps nothing, so without these the section would stay
       // permanently unsavable.
-      expect(listeners, contains("content.addEventListener('htmx:beforeRequest'"));
-      expect(listeners, contains("'htmx:afterRequest', 'htmx:sendError', 'htmx:responseError'"));
+      expect(listeners, contains("content.addEventListener('htmx:before:request'"));
+      expect(listeners, contains("content.addEventListener('htmx:finally:request'"));
       expect(listeners, contains('delete form.dataset.saving;'));
       // A refused field's message cannot outlive the value it named.
       expect(listeners, contains("content.addEventListener('input', clearFieldError);"));

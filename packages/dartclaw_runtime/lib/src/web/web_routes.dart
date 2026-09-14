@@ -249,7 +249,7 @@ Router webRoutes(
     final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appName);
     final topbar = topbarTemplate(appName: appName, restartBannerHtml: restartBannerHtml(dataDir));
     final main = emptyAppStateTemplate(appName: appName);
-    final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$main</div></div>';
+    final bodyHtml = '<div class="shell" hx-history-elt>$sidebar<div class="shell-main">$topbar$main</div></div>';
     final page = layoutTemplate(title: appName, body: bodyHtml, appName: appName, scripts: standardShellScripts());
 
     return Response.ok(page, headers: htmlHeaders);
@@ -324,7 +324,7 @@ Router webRoutes(
         return htmlFragment('$documentTitle$chat$topbar$sidebar');
       }
 
-      final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$chat</div></div>';
+      final bodyHtml = '<div class="shell" hx-history-elt>$sidebar<div class="shell-main">$topbar$chat</div></div>';
       final page = layoutTemplate(
         title: displayTitle,
         body: bodyHtml,

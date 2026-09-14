@@ -66,7 +66,7 @@ void main() {
   }
 
   Map<String, dynamic> toast(Map<String, String> headers) {
-    final trigger = jsonDecode(headers['hx-trigger-after-swap']!) as Map<String, dynamic>;
+    final trigger = jsonDecode(headers['hx-trigger']!) as Map<String, dynamic>;
     return trigger['dc:toast'] as Map<String, dynamic>;
   }
 

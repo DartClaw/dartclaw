@@ -104,6 +104,10 @@ Response sseStreamResponse(
     }
   });
 
+  // Flush the accepted response before the provider's first event so the
+  // client can retire its ordinary request timeout for this long-lived stream.
+  controller.add(utf8.encode(': connected\n\n'));
+
   // Await turn completion and emit terminal event, then close stream.
   unawaited(() async {
     try {

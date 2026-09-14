@@ -75,7 +75,7 @@ void main() {
   }
 
   Map<String, dynamic> toastFrom(Map<String, String> headers) {
-    final trigger = headers['hx-trigger-after-swap'];
+    final trigger = headers['hx-trigger'];
     expect(trigger, isNotNull, reason: 'a row action reports its outcome as a toast');
     return (jsonDecode(trigger!) as Map<String, dynamic>)['dc:toast'] as Map<String, dynamic>;
   }
@@ -198,7 +198,7 @@ void main() {
       expect(res.body, contains('value="app"'));
       expect(res.body, contains('already exists'));
       expect(res.body, contains('aria-invalid="true"'));
-      expect(res.headers, isNot(contains('hx-trigger-after-swap')));
+      expect(res.headers, isNot(contains('hx-trigger')));
       expect(projects.createCalls, hasLength(1), reason: 'the create was attempted and refused');
       expect((await projects.getAll()).where((p) => p.id == 'app'), hasLength(1));
     });

@@ -3,7 +3,8 @@
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
 **Current through**: 0.26 native hybrid retrieval, memory and conversation vector projections, PostgreSQL serving
-interlock, retrieval inspection and bounded turn-source provenance. The authoritative SQLite store is `dartclaw.db`.
+interlock, retrieval inspection and bounded turn-source provenance; 0.27 preparation upgrades Trellis and HTMX.
+The authoritative SQLite store is `dartclaw.db`.
 
 ---
 
@@ -443,17 +444,25 @@ Server-rendered HTML with declarative interactivity — zero JavaScript build to
 
 | Layer | Technology | Role |
 |-------|-----------|------|
-| Templates | Trellis (`.html` files with `tl:` attributes) | Server-side rendering with auto-escaping, fragment support |
-| Interactivity | HTMX + Stimulus controllers | HTMX owns navigation, requests, swaps, and OOB updates; Stimulus owns `dc-*` browser behavior attached to server-rendered DOM |
-| Streaming | HTMX SSE extension (`htmx-ext-sse`) | Declarative SSE: `sse-connect`, `sse-swap` attributes. Server pushes HTML fragments |
+| Templates | Trellis 0.11.1 (`.html` files with `tl:` attributes) | Server-side rendering with auto-escaping, fragment support |
+| Interactivity | HTMX 4.0.0 + Stimulus controllers | HTMX owns navigation, requests, swaps, and OOB updates; Stimulus owns `dc-*` browser behavior attached to server-rendered DOM |
+| Streaming | Bundled HTMX 4.0.0 `hx-sse` extension | `hx-sse:connect` / `hx-sse:close`; named events feed awaited controller swaps |
 | Markdown | marked.js + highlight.js | Client-side rendering of agent responses |
 | Styling | Afterglow `tokens.css` + `design-system.css`, then app-only `app-tokens.css` + `app.css` | Canonical primitives followed by product-specific tokens and composition |
 
-Navigation uses HTMX fragment rendering: `_wantsFragment()` detects `HX-Request` header and returns content-only HTML (no shell), swapped into `#main-content` with out-of-band sidebar/topbar updates.
+Navigation uses HTMX fragment rendering: `wantsFragment()` distinguishes `HX-Request` from history refetches,
+which receive full pages. Ordinary navigation swaps `#main-content` with OOB sidebar/topbar/restart updates.
+The `.shell` root carries `hx-history-elt`, so history refetches restore the route-dependent shell and main
+regions together. The layout explicitly inherits indicator and 4xx/5xx no-swap policies; ordinary form validation remains a status-200 HTML fragment. `HX-Trigger` dispatches
+toast events after the awaited swap. Core and streaming assets are vendored and served same-origin; the extension
+carries a recorded cleanup correction for an upstream unhandled cancellation Promise on close.
 
 Stimulus controllers live under `static/controllers/` and use `dc-*` controller names. Trellis templates attach behavior with `data-controller`, `data-action="event->controller#method"`, controller targets, and typed values. Controller `connect()`/`disconnect()` lifecycle handles HTMX replacement and history restoration without page-global reinitialization.
 
-SSE streaming flow: POST `/api/sessions/:id/send` → server returns HTMX SSE-connected HTML fragment → server pushes `delta`, `tool_use`, `tool_result`, `done` events as HTML fragments → HTMX handles DOM insertion.
+SSE streaming flow: POST `/api/sessions/:id/send` returns a fragment with `hx-sse:connect`. The extension reads
+the fetch stream and dispatches named messages. The chat controller awaits `htmx.swap` for `delta`, `tool_use`,
+and OOB `tool_result` fragments through the before-message event, then handles success, cancellation, or error
+and the terminal `done` close. Markdown rendering and sanitization retain their existing ownership.
 
 `PageRegistry` can include Health Dashboard, Settings, Memory, Knowledge, Scheduling, Tasks, Projects, and Workflows. Settings and Knowledge are always registered; the other pages depend on active services or configuration. The Knowledge timeline is a registered nested route but not a top-level navigation item. SDK consumers can add pages via `server.registerDashboardPage()`.
 

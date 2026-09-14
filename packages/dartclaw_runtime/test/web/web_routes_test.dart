@@ -157,7 +157,7 @@ void main() {
       expect(res.statusCode, 200);
       expect(res.headers['content-type'], contains('text/html'));
       expect(res.headers['content-type'], isNot(contains('text/plain')));
-      expect(body, contains('<div class="shell">'));
+      expect(body, contains('<div class="shell"'));
       expect(body, contains('class="sidebar"'));
       expect(body, contains('id="topbar"'));
       // A way back to the hub, and the document title in the topbar.
@@ -391,7 +391,7 @@ void main() {
 
       expect(res.statusCode, 200);
       expect(res.headers['location'], isNull);
-      expect(body, contains('<div class="shell">'));
+      expect(body, contains('<div class="shell"'));
       expect(body, contains('Guard Activity'));
       // Newest first: entry-58 heads page 1, entry-8..entry-0 are page 2.
       expect(body, contains('Page 2 of 2'));
@@ -409,7 +409,7 @@ void main() {
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
-      expect(body, contains('<div class="shell">'));
+      expect(body, contains('<div class="shell"'));
       // Newest first: entry-29 heads page 1, entry-4 heads page 2.
       expect(body, contains('entry-4'));
       expect(body, isNot(contains('entry-29')));
@@ -420,7 +420,7 @@ void main() {
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
-      expect(body, isNot(contains('<div class="shell">')));
+      expect(body, isNot(contains('<div class="shell"')));
       expect(body, isNot(contains('<html')));
       expect(res.headers['vary'], contains('HX-Request'));
     });
@@ -431,7 +431,7 @@ void main() {
       );
 
       expect(res.statusCode, 200);
-      expect(await res.readAsString(), contains('<div class="shell">'));
+      expect(await res.readAsString(), contains('<div class="shell"'));
     });
   });
 

@@ -1,8 +1,8 @@
-<div tl:fragment="projects" class="shell">
+<div tl:fragment="projects" class="shell" hx-history-elt>
   <div tl:utext="${sidebar}">sidebar</div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
+  <main id="main-content" tabindex="-1" class="page-content print-in">
     <tl:block tl:utext="${contentHtml}"></tl:block>
     <tl:block tl:utext="${dialogHostHtml}"></tl:block>
   </main>

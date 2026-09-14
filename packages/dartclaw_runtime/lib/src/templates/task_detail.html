@@ -1,8 +1,8 @@
-<div class="shell">
+<div class="shell" hx-history-elt>
   <div tl:utext="${sidebar}">sidebar</div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
+  <main id="main-content" tabindex="-1" class="page-content print-in">
     <div class="page-inner page-inner--wide task-detail-page" id="tasks-content" data-controller="dc-tasks"
          tl:attr="data-task-id=${taskId}">
 

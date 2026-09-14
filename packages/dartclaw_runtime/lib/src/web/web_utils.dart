@@ -7,13 +7,10 @@ const htmlHeaders = {'content-type': 'text/html; charset=utf-8'};
 
 /// Header asking the browser to raise a toast once the swap has settled.
 ///
-/// `dc_toast_controller.js` listens for `dc:toast` on `document.body`, and HTMX
-/// redirects the trigger there when the element that sent the request left the
-/// document — which is what a mutation swapping its own form away does. The
-/// payload is escaped to ASCII because a header carrying a non-Latin-1 message
-/// would be mangled on the wire.
+/// The payload is escaped to ASCII because a header carrying a non-Latin-1
+/// message would be mangled on the wire.
 Map<String, String> toastTriggerHeader(String type, String message) => {
-  'HX-Trigger-After-Swap': _asciiJson({
+  'HX-Trigger': _asciiJson({
     'dc:toast': {'type': type, 'message': message},
   }),
 };

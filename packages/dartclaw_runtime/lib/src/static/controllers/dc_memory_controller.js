@@ -1,13 +1,13 @@
 export default class DcMemoryController extends Stimulus.Controller {
   connect() {
     this.afterSwapHandler = (event) => this.afterSwap(event);
-    this.element.addEventListener('htmx:afterSwap', this.afterSwapHandler);
+    this.element.addEventListener('htmx:after:swap', this.afterSwapHandler);
     this.initializeView();
   }
 
   disconnect() {
     if (this.afterSwapHandler) {
-      this.element.removeEventListener('htmx:afterSwap', this.afterSwapHandler);
+      this.element.removeEventListener('htmx:after:swap', this.afterSwapHandler);
       this.afterSwapHandler = null;
     }
   }
@@ -17,7 +17,7 @@ export default class DcMemoryController extends Stimulus.Controller {
   }
 
   afterSwap(event) {
-    const target = event?.detail?.target;
+    const target = event?.detail?.ctx?.target;
     if (target?.id === 'memory-content' || target?.id === 'memory-inner') {
       this.initializeView();
     }

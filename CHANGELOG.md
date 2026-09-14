@@ -14,6 +14,17 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.27.0] - Unreleased
+
+### Changed
+
+- Upgraded the web UI to HTMX 4.0.0 and its bundled `hx-sse` streaming extension, with Trellis 0.11.1.
+  Adapted navigation, streaming, form feedback, and confirmation handling to the new browser lifecycle.
+  The streaming extension includes a local cleanup fix for an upstream unhandled error on close.
+  All browser assets continue to load from the DartClaw instance.
+
+---
+
 ## [0.26.1] - 2026-09-13
 
 ### Changed

@@ -660,8 +660,8 @@ void main() {
         loopInfo: const [],
       );
 
-      expect(html, contains('htmx:responseError->dc-workflows#showStepDetailError'));
-      expect(html, contains('htmx:sendError->dc-workflows#showStepDetailError'));
+      expect(html, contains('htmx:response:error->dc-workflows#showStepDetailError'));
+      expect(html, contains('htmx:error->dc-workflows#showStepDetailError'));
       expect(html, contains('intersect once, workflow-step-detail-retry'));
       expect(html, contains('data-step-detail-loading'));
       expect(html, contains('data-step-detail-error'));

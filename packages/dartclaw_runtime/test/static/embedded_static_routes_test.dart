@@ -86,7 +86,7 @@ void main() {
   test('serves vendored scripts same-origin without missing source-map references', () async {
     final scriptHandler = createEmbeddedStaticHandler(embeddedServerAssets, embeddedServerBinaryAssets);
 
-    for (final name in const ['htmx.min.js', 'marked.min.js', 'purify.min.js']) {
+    for (final name in const ['htmx.min.js', 'sse.js', 'marked.min.js', 'purify.min.js']) {
       final response = await scriptHandler(Request('GET', Uri.parse('http://localhost/$name')));
 
       expect(response.statusCode, 200, reason: name);

@@ -1,8 +1,8 @@
-<div tl:fragment="sessionInfo" class="shell">
+<div tl:fragment="sessionInfo" class="shell" hx-history-elt>
   <div tl:utext="${sidebar}">sidebar</div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in" data-controller="dc-tasks">
+  <main id="main-content" tabindex="-1" class="content-area print-in" data-controller="dc-tasks">
     <div class="content-inner">
 
       <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>

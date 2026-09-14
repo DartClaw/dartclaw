@@ -570,7 +570,7 @@ void main() {
       expect(res.statusCode, equals(200));
       expect(res.headers['content-type'], contains('text/html'));
       final html = await res.readAsString();
-      expect(html, contains('sse-connect="/api/sessions/'));
+      expect(html, contains('hx-sse:connect="/api/sessions/'));
       expect(html, contains('id="streaming-content"'));
       expect(html, contains('class="msg msg-user print-in"'));
       expect(html, contains('class="msg msg-assistant print-in"'));

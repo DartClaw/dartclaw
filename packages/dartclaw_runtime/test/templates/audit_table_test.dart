@@ -220,7 +220,7 @@ void main() {
       // Always on: no cancellation, pause attribute or conditional trigger.
       expect(html, isNot(contains('hx-trigger="every 30s [')));
       expect(html, isNot(contains('hx-sync')));
-      expect(html, isNot(contains('htmx:beforeRequest')));
+      expect(html, isNot(contains('htmx:before:request')));
     });
 
     test('page 1 polls without a page parameter, and a filter change restarts paging', () {

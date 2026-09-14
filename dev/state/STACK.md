@@ -81,8 +81,8 @@ All frontend assets are vendored in `packages/dartclaw_runtime/lib/src/static/`.
 
 | Library | License | Purpose |
 |---------|---------|---------|
-| HTMX | BSD-2 | Server-driven reactive UI |
-| htmx-ext-sse | BSD-2 | SSE extension for real-time streaming |
+| HTMX 4.0.0 | BSD-2 | Server-driven reactive UI |
+| hx-sse 4.0.0 | BSD-2 | Bundled HTMX extension for fetch-based event streaming |
 | highlight.js | BSD-3 | Syntax highlighting (core + Dart grammar) |
 | DOMPurify | Apache-2.0 / MPL-2.0 | Client-side HTML sanitization |
 

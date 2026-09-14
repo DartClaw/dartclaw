@@ -434,18 +434,18 @@ export function showBanner(type, message) {
   banner.querySelector('.dismiss')?.addEventListener('click', () => banner.remove());
 }
 
-export function readHtmxErrorMessage(xhr, fallbackMessage = 'Request failed') {
-  if (!xhr) return fallbackMessage;
-  const contentType = xhr.getResponseHeader('content-type') || '';
+export function readHtmxErrorMessage(ctx, fallbackMessage = 'Request failed') {
+  if (!ctx) return fallbackMessage;
+  const contentType = ctx.response?.headers?.get('content-type') || '';
   if (contentType.includes('application/json')) {
     try {
-      const parsed = JSON.parse(xhr.responseText || '{}');
+      const parsed = JSON.parse(ctx.text || '{}');
       return parsed.error?.message || fallbackMessage;
     } catch (_) {
       return fallbackMessage;
     }
   }
-  return xhr.statusText || fallbackMessage;
+  return ctx.response?.raw?.statusText || fallbackMessage;
 }
 
 export function getApiToken() {

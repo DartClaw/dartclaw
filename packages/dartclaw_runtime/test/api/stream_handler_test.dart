@@ -277,8 +277,9 @@ void main() {
         ),
       );
 
-      expect(frames, hasLength(2));
-      expect(frames.first, contains('event: turn_cancelled'));
+      expect(frames, hasLength(3));
+      expect(frames.first, ': connected');
+      expect(frames[1], contains('event: turn_cancelled'));
       expect(frames.last, contains('event: done'));
       expect(frames, everyElement(isNot(contains('event: turn_error'))));
     });

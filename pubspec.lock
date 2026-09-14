@@ -589,10 +589,10 @@ packages:
     dependency: transitive
     description:
       name: trellis
-      sha256: "03c7200336a8677e7159cbdfab123d02555f63e08e691fba7e82e676edea7ad6"
+      sha256: c7c2bb28c5207e09fd2e3ef7e759a35830f427b77a0b3dec8b0daddb7cc39e79
       url: "https://pub.dev"
     source: hosted
-    version: "0.8.1"
+    version: "0.11.1"
   typed_data:
     dependency: transitive
     description:

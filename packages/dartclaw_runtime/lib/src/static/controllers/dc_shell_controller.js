@@ -28,37 +28,28 @@ export default class DcShellController extends Stimulus.Controller {
     this.restartPollTimer = null;
     this.restartPollStart = null;
     this.globalEventSource = null;
-    // Sticky-bottom intent captured before the pending mutation, keyed by the
-    // scroll container it was measured on. Cleared once consumed so an
-    // unrelated later swap cannot inherit it.
-    this.stickyIntent = null;
-
     this.handleServerEvent = this.handleServerEvent.bind(this);
     this.handleDocumentClick = this.handleDocumentClick.bind(this);
     this.handleDocumentKeydown = this.handleDocumentKeydown.bind(this);
     this.handleAfterSwap = this.handleAfterSwap.bind(this);
+    this.handleFinallyRequest = this.handleFinallyRequest.bind(this);
     this.handleBeforeSwap = this.handleBeforeSwap.bind(this);
     this.captureStickyIntent = this.captureStickyIntent.bind(this);
     this.handleDrawerViewportChange = this.handleDrawerViewportChange.bind(this);
     this.handleHtmxConfirm = this.handleHtmxConfirm.bind(this);
-    this.handleHistoryRestore = this.handleHistoryRestore.bind(this);
-    this.handleHistoryCacheMissLoad = this.handleHistoryCacheMissLoad.bind(this);
-    this.handleAfterSettle = this.handleAfterSettle.bind(this);
     this.handleHtmxResponseError = this.handleHtmxResponseError.bind(this);
-    this.handleHtmxSendError = this.handleHtmxSendError.bind(this);
+    this.handleHtmxError = this.handleHtmxError.bind(this);
 
     document.body.addEventListener('dartclaw:server-event', this.handleServerEvent);
-    document.body.addEventListener('htmx:responseError', this.handleHtmxResponseError);
-    document.body.addEventListener('htmx:sendError', this.handleHtmxSendError);
+    document.body.addEventListener('htmx:response:error', this.handleHtmxResponseError);
+    document.body.addEventListener('htmx:error', this.handleHtmxError);
     document.addEventListener('click', this.handleDocumentClick);
     document.addEventListener('keydown', this.handleDocumentKeydown);
-    document.body.addEventListener('htmx:afterSwap', this.handleAfterSwap);
-    document.body.addEventListener('htmx:beforeSwap', this.handleBeforeSwap);
-    document.body.addEventListener('htmx:beforeSwap', this.captureStickyIntent);
+    document.body.addEventListener('htmx:after:swap', this.handleAfterSwap);
+    document.body.addEventListener('htmx:finally:request', this.handleFinallyRequest);
+    document.body.addEventListener('htmx:before:swap', this.handleBeforeSwap);
+    document.body.addEventListener('htmx:before:swap', this.captureStickyIntent);
     document.body.addEventListener('htmx:confirm', this.handleHtmxConfirm);
-    document.body.addEventListener('htmx:historyRestore', this.handleHistoryRestore);
-    document.body.addEventListener('htmx:historyCacheMissLoad', this.handleHistoryCacheMissLoad);
-    document.addEventListener('htmx:afterSettle', this.handleAfterSettle);
     // The off-canvas drawer only exists below this width.
     this.drawerViewport = window.matchMedia('(max-width: 768px)');
     this.drawerViewport.addEventListener('change', this.handleDrawerViewportChange);
@@ -78,17 +69,15 @@ export default class DcShellController extends Stimulus.Controller {
 
   disconnect() {
     document.body.removeEventListener('dartclaw:server-event', this.handleServerEvent);
-    document.body.removeEventListener('htmx:responseError', this.handleHtmxResponseError);
-    document.body.removeEventListener('htmx:sendError', this.handleHtmxSendError);
+    document.body.removeEventListener('htmx:response:error', this.handleHtmxResponseError);
+    document.body.removeEventListener('htmx:error', this.handleHtmxError);
     document.removeEventListener('click', this.handleDocumentClick);
     document.removeEventListener('keydown', this.handleDocumentKeydown);
-    document.body.removeEventListener('htmx:afterSwap', this.handleAfterSwap);
-    document.body.removeEventListener('htmx:beforeSwap', this.handleBeforeSwap);
-    document.body.removeEventListener('htmx:beforeSwap', this.captureStickyIntent);
+    document.body.removeEventListener('htmx:after:swap', this.handleAfterSwap);
+    document.body.removeEventListener('htmx:finally:request', this.handleFinallyRequest);
+    document.body.removeEventListener('htmx:before:swap', this.handleBeforeSwap);
+    document.body.removeEventListener('htmx:before:swap', this.captureStickyIntent);
     document.body.removeEventListener('htmx:confirm', this.handleHtmxConfirm);
-    document.body.removeEventListener('htmx:historyRestore', this.handleHistoryRestore);
-    document.body.removeEventListener('htmx:historyCacheMissLoad', this.handleHistoryCacheMissLoad);
-    document.removeEventListener('htmx:afterSettle', this.handleAfterSettle);
     this.drawerViewport?.removeEventListener('change', this.handleDrawerViewportChange);
     if (this.globalEventSource) {
       this.globalEventSource.close();
@@ -167,53 +156,60 @@ export default class DcShellController extends Stimulus.Controller {
   }
 
   handleAfterSwap(event) {
-    const target = event.detail && event.detail.target;
-    const source = event.detail && event.detail.elt;
+    const ctx = event.detail?.ctx;
+    const target = ctx?.target;
+    const source = ctx?.sourceElement;
     const isLoadEarlier = source && source.matches && source.matches('[data-load-earlier]');
+    const isHistoryRestore = ctx?.request?.headers?.['HX-History-Restore-Request'] === 'true';
+    const stickyIntent = ctx?.dartclawStickyIntent;
     renderMarkdown();
     applyIdenticons();
-    if (!isLoadEarlier) {
-      scrollToBottom(document, { stickToBottom: this.stickyIntent?.messages === true });
+    if (isHistoryRestore) {
+      scrollToBottom(document, { force: true });
+    } else if (!isLoadEarlier) {
+      scrollToBottom(document, { stickToBottom: stickyIntent?.messages === true });
     }
     syncRestartBannerAfterSwap();
     this.initializeShellUi();
     this.restoreAuditExpansion();
-    if (target && target.id === 'main-content') {
-      target.focus({ preventScroll: true });
+    this.applyTimelineAutoScroll({ stickToBottom: stickyIntent?.timeline === true });
+    this.reconcileDrawerState();
+    const liveTarget = target?.isConnected ? target : (target?.id ? document.getElementById(target.id) : null);
+    const focusTarget = liveTarget?.id === 'main-content'
+      ? liveTarget
+      : (liveTarget?.matches?.('[hx-history-elt]') ? document.getElementById('main-content') : null);
+    if (focusTarget) {
+      focusTarget.focus({ preventScroll: true });
+    }
+  }
+
+  handleFinallyRequest(event) {
+    const ctx = event.detail?.ctx;
+    if (ctx?.sourceElement?.matches?.('.btn-reset') && ctx.response?.status < 400) {
+      location.reload();
     }
   }
 
   // Adapts every `hx-confirm` attribute onto the canonical dialog, so the markup
   // never has to name a confirmation mechanism and future uses convert for free.
   async handleHtmxConfirm(event) {
-    // htmx fires this for every request; only those carrying hx-confirm have a question.
-    const question = event.detail && event.detail.question;
+    const question = event.detail?.ctx?.confirm;
     if (!question) return;
     event.preventDefault();
-    const element = event.detail.elt;
+    const element = event.detail.ctx.sourceElement;
     const confirmed = await confirmDialog({ body: question, danger: true });
-    if (!confirmed) return;
+    if (!confirmed) {
+      event.detail.dropRequest();
+      return;
+    }
     // htmx silently drops requests for detached elements, so an SSE-driven swap
     // during the dialog would otherwise turn a confirmed action into a no-op.
     if (element && !element.isConnected) {
       showToast('error', 'That action is no longer available – the page changed while you were confirming.');
+      event.detail.dropRequest();
       return;
     }
-    event.detail.issueRequest(true);
-  }
-
-  handleHistoryRestore() {
-    renderMarkdown();
-    applyIdenticons();
-    scrollToBottom(document, { force: true });
-    this.initializeShellUi();
-    document.getElementById('main-content')?.focus({ preventScroll: true });
-  }
-
-  handleHistoryCacheMissLoad() {
-    renderMarkdown();
-    applyIdenticons();
-    scrollToBottom(document, { force: true });
+    event.detail.issueRequest();
   }
 
   initializeShellUi() {
@@ -576,12 +572,12 @@ export default class DcShellController extends Stimulus.Controller {
   // two listeners on the same event paint two toasts for one failure.
   handleHtmxResponseError(event) {
     if (!event.detail) return;
-    showToast('error', readHtmxErrorMessage(event.detail.xhr, 'Request failed'));
+    showToast('error', readHtmxErrorMessage(event.detail.ctx, 'Request failed'));
   }
 
-  handleHtmxSendError(event) {
+  handleHtmxError(event) {
     if (!event.detail) return;
-    showToast('error', 'Could not reach the server');
+    showToast('error', event.detail.error?.message || 'Could not reach the server');
   }
 
   toggleAuditRow(toggle) {
@@ -603,7 +599,7 @@ export default class DcShellController extends Stimulus.Controller {
   // comes back – an entry that dropped out of the page leaves every row closed
   // rather than transferring its expansion to whichever row took its place.
   handleBeforeSwap(event) {
-    const target = event.detail && event.detail.target;
+    const target = event.detail?.ctx?.target;
     if (!target || target.id !== 'audit-table-container') return;
     const open = target.querySelector('.audit-row-toggle[aria-expanded="true"]');
     this.expandedAuditKey = open ? open.dataset.auditKey : null;
@@ -626,23 +622,12 @@ export default class DcShellController extends Stimulus.Controller {
   /// Records, before htmx mutates the DOM, whether each shared scroll region was
   /// at its bottom. Content growth changes that distance, so measuring after the
   /// swap would report the reader's new position rather than their intent.
-  captureStickyIntent() {
-    this.stickyIntent = {
+  captureStickyIntent(event) {
+    if (!event.detail?.ctx) return;
+    event.detail.ctx.dartclawStickyIntent = {
       messages: isAtBottom(document.querySelector('.messages')),
       timeline: isAtBottom(document.querySelector('[data-auto-scroll="true"]')),
     };
-  }
-
-  /// Settle is the last event of a swap cycle, so the timeline follows here and
-  /// the captured intent is released here — one clear per mutation, whether or
-  /// not an afterSwap handler ran.
-  handleAfterSettle() {
-    this.applyTimelineAutoScroll({ stickToBottom: this.stickyIntent?.timeline === true });
-    this.stickyIntent = null;
-    // Settle, not swap: the out-of-band `#sidebar` replacement still carries the
-    // old `.open` class at every afterSwap and only loses it once the swap
-    // settles, so reconciling any earlier reads a stale open drawer.
-    this.reconcileDrawerState();
   }
 
   connectGlobalEvents() {

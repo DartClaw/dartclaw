@@ -29,7 +29,9 @@
   <script type="module" src="/static/controllers/index.js"
           tl:attr="src=${assetPrefix} + '/controllers/index.js'"></script>
 </head>
-<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast" hx-indicator="#nav-progress">
+<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast"
+      hx-indicator:inherited="#nav-progress"
+      hx-status:4xx:inherited="swap:none" hx-status:5xx:inherited="swap:none">
 <a tl:if="${showSkipLink}" class="skip-link" href="#main-content">Skip to content</a>
 <div id="nav-progress" class="scan-bar htmx-indicator" aria-hidden="true"></div>
 <tl:block tl:utext="${body}"></tl:block>

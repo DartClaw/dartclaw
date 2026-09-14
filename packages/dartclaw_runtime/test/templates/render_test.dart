@@ -236,6 +236,7 @@ void main() {
         '<!DOCTYPE html>',
         '&lt;script&gt;',
         '/static/v$dartclawVersion/htmx.min.js',
+        '/static/v$dartclawVersion/sse.js',
         '/static/v$dartclawVersion/marked.min.js',
         'purify.min.js',
         '/static/v$dartclawVersion/fonts/jetbrains-mono-latin.woff2',
@@ -796,13 +797,13 @@ void main() {
         'Hello &lt;world&gt;',
         'msg-assistant print-in',
         'id="streaming-msg"',
-        'sse-connect="/api/sessions/s1/stream?turn=t1"',
-        'hx-ext="sse"',
-        'sse-close="done"',
-        'sse-swap="delta"',
-        'sse-swap="turn_cancelled" hx-swap="none" data-action="htmx:sseMessage->dc-chat#handleTurnCancelled"',
-        'id="turn-error-target" sse-swap="turn_error" hx-swap="innerHTML" hidden',
+        'hx-sse:connect="/api/sessions/s1/stream?turn=t1"',
+        'hx-sse:close="done"',
+        'id="streaming-content"',
+        'id="tool-container"',
+        'id="turn-error-target" hidden',
       ]);
+      expect(response, isNot(contains('sse-swap')));
       expect(response, isNot(contains('id="streaming-content" class="print-in"')));
       expect(response, isNot(contains('display:none')));
     });

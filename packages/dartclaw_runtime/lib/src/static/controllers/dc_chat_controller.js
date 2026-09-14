@@ -18,26 +18,28 @@ export default class DcChatController extends Stimulus.Controller {
     this.filteredReferences = [];
     this.activeReferenceIndex = 0;
     this.streaming = false;
+    this.chatRequestPending = false;
     this.recoveryActive = false;
     this.turnFinalized = false;
     this.canCancel = false;
     this.turnStatusTimer = null;
     this.turnStatusPollGeneration = 0;
+    this.streamRecoveryTurnId = null;
+    this.paginationAnchor = null;
+    this.paginationAnchorTop = null;
     this.handleBeforeRequest = this.handleBeforeRequest.bind(this);
-    this.handleAfterRequest = this.handleAfterRequest.bind(this);
-    this.captureSseStickyIntent = this.captureSseStickyIntent.bind(this);
-    this.handleSseMessage = this.handleSseMessage.bind(this);
+    this.handleFinallyRequest = this.handleFinallyRequest.bind(this);
+    this.handleSseBeforeMessage = this.handleSseBeforeMessage.bind(this);
     this.handleSseClose = this.handleSseClose.bind(this);
     this.handleLoadEarlierClick = this.handleLoadEarlierClick.bind(this);
     this.handleTextareaInput = this.handleTextareaInput.bind(this);
     this.handleTextareaKeydown = this.handleTextareaKeydown.bind(this);
     this.handleSendButtonClick = this.handleSendButtonClick.bind(this);
 
-    document.body.addEventListener('htmx:beforeRequest', this.handleBeforeRequest);
-    document.body.addEventListener('htmx:afterRequest', this.handleAfterRequest);
-    document.body.addEventListener('htmx:sseBeforeMessage', this.captureSseStickyIntent);
-    document.body.addEventListener('htmx:sseMessage', this.handleSseMessage);
-    document.body.addEventListener('htmx:sseClose', this.handleSseClose);
+    document.body.addEventListener('htmx:before:request', this.handleBeforeRequest);
+    document.body.addEventListener('htmx:finally:request', this.handleFinallyRequest);
+    document.body.addEventListener('htmx:sse:before:message', this.handleSseBeforeMessage);
+    document.body.addEventListener('htmx:sse:close', this.handleSseClose);
     this.element.addEventListener('click', this.handleLoadEarlierClick);
 
     this.initTextarea();
@@ -48,13 +50,15 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   disconnect() {
-    document.body.removeEventListener('htmx:beforeRequest', this.handleBeforeRequest);
-    document.body.removeEventListener('htmx:afterRequest', this.handleAfterRequest);
-    document.body.removeEventListener('htmx:sseBeforeMessage', this.captureSseStickyIntent);
-    document.body.removeEventListener('htmx:sseMessage', this.handleSseMessage);
-    document.body.removeEventListener('htmx:sseClose', this.handleSseClose);
+    document.body.removeEventListener('htmx:before:request', this.handleBeforeRequest);
+    document.body.removeEventListener('htmx:finally:request', this.handleFinallyRequest);
+    document.body.removeEventListener('htmx:sse:before:message', this.handleSseBeforeMessage);
+    document.body.removeEventListener('htmx:sse:close', this.handleSseClose);
     this.element.removeEventListener('click', this.handleLoadEarlierClick);
     this._stopTurnStatusPolling();
+    this.streamRecoveryTurnId = null;
+    document.body.classList.remove('streaming');
+    this.form?.classList.remove('composer--streaming');
     const textarea = this.textarea;
     if (textarea) {
       textarea.removeEventListener('input', this.handleTextareaInput);
@@ -177,6 +181,7 @@ export default class DcChatController extends Stimulus.Controller {
       textarea.placeholder = 'Type a message...';
     }
     this.streaming = false;
+    document.body.classList.remove('streaming');
     this.form?.classList.remove('composer--streaming');
     this._stopTurnStatusPolling();
     if (button) button.disabled = !textarea || !textarea.value.trim();
@@ -184,34 +189,52 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   isChatFormRequest(event) {
-    return event.detail && event.detail.elt && event.detail.elt.id === 'chat-form';
+    return event.detail?.ctx?.sourceElement?.id === 'chat-form';
   }
 
   handleBeforeRequest(event) {
     if (this.isChatFormRequest(event)) {
+      if (this.streaming) {
+        event.preventDefault();
+        return;
+      }
       if (!this.canSubmitRichInput()) {
         event.preventDefault();
         return;
       }
+      this.chatRequestPending = true;
       this.hideRecovery();
       beginSessionDraftMutation(this.sessionId);
       this.disableInput();
     }
   }
 
-  handleAfterRequest(event) {
+  handleFinallyRequest(event) {
+    const ctx = event.detail?.ctx;
     if (this.isChatFormRequest(event)) {
+      if (!this.chatRequestPending) return;
+      this.chatRequestPending = false;
       endSessionDraftMutation(this.sessionId);
-      if (!event.detail.successful) {
+      if (ctx.status !== 'swapped' || ctx.response?.status >= 400) {
         this.enableInput();
-        showBanner('error', readHtmxErrorMessage(event.detail.xhr));
+        showBanner('error', readHtmxErrorMessage(ctx));
       } else if (!document.getElementById('streaming-msg')) {
         this.finalizeTurn({ refreshMessages: false });
       }
       return;
     }
 
-    const elt = event.detail && event.detail.elt;
+    const streamContentType = ctx?.response?.headers?.get('content-type') || '';
+    if (ctx?.sourceElement?.id === 'streaming-msg' &&
+        (!ctx.response || ctx.response.status >= 400 || !streamContentType.includes('text/event-stream'))) {
+      const streamUrl = new URL(ctx.request.action, location.href);
+      this.streamRecoveryTurnId = streamUrl.searchParams.get('turn');
+      ctx.sourceElement.remove();
+      this.showRecovery('Live response disconnected. Waiting for the active turn to finish.');
+      return;
+    }
+
+    const elt = ctx?.sourceElement;
     if (!elt) return;
     const isMessagesReload = elt.id === 'messages';
     const isLoadEarlier = elt.matches && elt.matches('[data-load-earlier]');
@@ -220,13 +243,27 @@ export default class DcChatController extends Stimulus.Controller {
       elt.disabled = false;
       this.element.querySelector('[data-load-earlier-skeleton]')?.remove();
     }
-    if (!event.detail.successful) {
+    if (ctx.status !== 'swapped' || ctx.response?.status >= 400) {
       if (isLoadEarlier) {
-        showBanner('error', readHtmxErrorMessage(event.detail.xhr));
+        showBanner('error', readHtmxErrorMessage(ctx));
       }
+      this.paginationAnchor = null;
+      this.paginationAnchorTop = null;
       return;
     }
-    this.updateMessagePagination(event.detail.xhr);
+    this.updateMessagePagination(ctx);
+    if (isLoadEarlier && this.paginationAnchor?.isConnected && this.paginationAnchorTop !== null) {
+      const messages = this.element.querySelector('#messages');
+      const anchor = this.paginationAnchor;
+      const anchorTop = this.paginationAnchorTop;
+      requestAnimationFrame(() => {
+        if (messages?.isConnected && anchor.isConnected) {
+          messages.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+        }
+      });
+    }
+    this.paginationAnchor = null;
+    this.paginationAnchorTop = null;
   }
 
   handleSendButtonClick(event) {
@@ -254,8 +291,9 @@ export default class DcChatController extends Stimulus.Controller {
       })
       .then((response) => {
         if (!response.ok) throw new Error('Stop failed');
+        const deferEnableUntilRefresh = Boolean(this.streamRecoveryTurnId);
         this.showRecovery('Turn stopped. Edit your message or send again.');
-        this.finalizeTurn({ preserveInput: true, refreshMessages: true });
+        this.finalizeTurn({ preserveInput: true, refreshMessages: true, deferEnableUntilRefresh });
       })
       .catch(() => {
         this.sendButton.disabled = false;
@@ -281,6 +319,7 @@ export default class DcChatController extends Stimulus.Controller {
           if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
           if (request < lastAppliedRequest) return;
           lastAppliedRequest = request;
+          if (this._reconcileStreamRecovery(status)) return;
           const next = Boolean(status && status.can_cancel === true);
           if (next !== this.canCancel) {
             this.canCancel = next;
@@ -291,6 +330,23 @@ export default class DcChatController extends Stimulus.Controller {
     };
     poll();
     this.turnStatusTimer = setInterval(poll, 2500);
+  }
+
+  _reconcileStreamRecovery(status) {
+    if (!this.streamRecoveryTurnId || status?.turn_id !== this.streamRecoveryTurnId) return false;
+    if (!['completed', 'cancelled', 'failed'].includes(status.state)) return false;
+    this.streamRecoveryTurnId = null;
+    if (status.state === 'completed') {
+      this.hideRecovery();
+      this.finalizeTurn({ deferEnableUntilRefresh: true });
+    } else {
+      const message = status.state === 'cancelled'
+        ? 'Turn stopped. Edit your message or send again.'
+        : 'Turn failed after live updates disconnected. Edit your message or send again.';
+      this.showRecovery(message);
+      this.finalizeTurn({ preserveInput: true, deferEnableUntilRefresh: true });
+    }
+    return true;
   }
 
   _stopTurnStatusPolling() {
@@ -310,6 +366,8 @@ export default class DcChatController extends Stimulus.Controller {
     if (!this.sessionId || !earliestCursor) return;
     button.disabled = true;
     const messages = document.getElementById('messages');
+    this.paginationAnchor = messages?.querySelector('.msg') || null;
+    this.paginationAnchorTop = this.paginationAnchor?.getBoundingClientRect().top ?? null;
     const loading = document.createElement('div');
     loading.className = 'skeleton skeleton-text';
     loading.dataset.loadEarlierSkeleton = '1';
@@ -321,9 +379,10 @@ export default class DcChatController extends Stimulus.Controller {
     });
   }
 
-  updateMessagePagination(xhr) {
-    if (!xhr) return;
-    const earliestCursor = xhr.getResponseHeader('x-dartclaw-earliest-cursor');
+  updateMessagePagination(ctx) {
+    const headers = ctx?.response?.headers;
+    if (!headers) return;
+    const earliestCursor = headers.get('x-dartclaw-earliest-cursor');
     if (earliestCursor) {
       this.element.dataset.earliestCursor = earliestCursor;
     } else {
@@ -331,7 +390,7 @@ export default class DcChatController extends Stimulus.Controller {
     }
     const button = this.element.querySelector('[data-load-earlier]');
     if (!button) return;
-    const hasEarlierMessages = xhr.getResponseHeader('x-dartclaw-has-earlier-messages') === 'true';
+    const hasEarlierMessages = headers.get('x-dartclaw-has-earlier-messages') === 'true';
     button.hidden = !hasEarlierMessages;
     if (hasEarlierMessages) {
       button.removeAttribute('hidden');
@@ -340,17 +399,49 @@ export default class DcChatController extends Stimulus.Controller {
     }
   }
 
-  captureSseStickyIntent() {
-    this.sseStickyIntent = isAtBottom(this.element.querySelector('.messages'));
+  handleSseBeforeMessage(event) {
+    const message = event.detail?.message;
+    if (event.target?.id !== 'streaming-msg' || !message) return;
+    const stickToBottom = isAtBottom(this.element.querySelector('.messages'));
+    event.detail.waitUntil(this.processSseMessage(event.target, message, stickToBottom));
   }
 
-  handleSseMessage(event) {
-    if (event.detail?.type === 'delta') {
+  async processSseMessage(sourceElement, message, stickToBottom) {
+    if (message.event === 'delta') {
       document.getElementById('streaming-msg')?.querySelector('.msg-thinking')?.remove();
       document.getElementById('streaming-content')?.classList.add('streaming');
+      await htmx.swap({
+        text: message.data,
+        target: '#streaming-content',
+        swap: 'beforeend',
+        sourceElement,
+      });
+    } else if (message.event === 'tool_use') {
+      await htmx.swap({
+        text: message.data,
+        target: '#tool-container',
+        swap: 'beforeend',
+        sourceElement,
+      });
+    } else if (message.event === 'tool_result') {
+      await htmx.swap({
+        text: message.data,
+        target: '#tool-container',
+        swap: 'none',
+        sourceElement,
+      });
+    } else if (message.event === 'turn_cancelled') {
+      this.handleTurnCancelled();
+    } else if (message.event === 'turn_error') {
+      await htmx.swap({
+        text: message.data,
+        target: '#turn-error-target',
+        swap: 'innerHTML',
+        sourceElement,
+      });
+      this.handleTurnError();
     }
-    scrollToBottom(this.element, { stickToBottom: this.sseStickyIntent === true });
-    this.sseStickyIntent = null;
+    scrollToBottom(this.element, { stickToBottom });
   }
 
   handleTurnCancelled() {
@@ -358,7 +449,7 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   handleSseClose(event) {
-    if (event.detail?.type !== 'message') return;
+    if (event.detail?.reason !== 'message') return;
     this.finalizeTurn({ preserveInput: this.recoveryActive });
   }
 
@@ -373,8 +464,10 @@ export default class DcChatController extends Stimulus.Controller {
   finalizeTurn(options = {}) {
     if (this.turnFinalized) return;
     this.turnFinalized = true;
+    this.streamRecoveryTurnId = null;
     const preserveInput = Boolean(options.preserveInput);
     const refreshMessages = options.refreshMessages !== false;
+    const deferEnableUntilRefresh = Boolean(options.deferEnableUntilRefresh);
     document.body.classList.remove('streaming');
     document.getElementById('streaming-content')?.classList.remove('streaming');
     const textarea = this.textarea;
@@ -387,8 +480,11 @@ export default class DcChatController extends Stimulus.Controller {
       this.references = [];
       this.syncRichInputs();
     }
-    this.enableInput();
-    if (!this.sessionId || !refreshMessages) return;
+    if (!deferEnableUntilRefresh) this.enableInput();
+    if (!this.sessionId || !refreshMessages) {
+      if (deferEnableUntilRefresh) this.enableInput();
+      return;
+    }
 
     const stickToBottom = isAtBottom(this.element.querySelector('.messages'));
     htmx.ajax('GET', '/sessions/' + encodeURIComponent(this.sessionId) + '/messages-html', {
@@ -401,7 +497,10 @@ export default class DcChatController extends Stimulus.Controller {
         scrollToBottom(this.element, { stickToBottom });
         this.autoTitleSession();
       })
-      .catch(() => showToast('error', 'Failed to refresh messages'));
+      .catch(() => showToast('error', 'Failed to refresh messages'))
+      .finally(() => {
+        if (deferEnableUntilRefresh && this.element.isConnected) this.enableInput();
+      });
   }
 
   autoTitleSession() {

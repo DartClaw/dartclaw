@@ -15,7 +15,7 @@
     <button tl:if="${showReset}" class="btn btn-danger btn-sm btn-reset"
       tl:attr="hx-post=${resetHref}"
       hx-confirm="Reset this session? Conversation will be archived."
-      hx-on::after-request="location.reload()"
+      hx-swap="none"
       aria-label="Reset session">Reset</button>
     <button class="theme-toggle" aria-label="Toggle theme"></button>
   </div>

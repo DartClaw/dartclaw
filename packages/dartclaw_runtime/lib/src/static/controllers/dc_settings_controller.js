@@ -224,20 +224,18 @@ function attachSettingsListeners() {
   // Save could be re-armed is while the request is in flight. A refused or
   // failed request swaps nothing, so the flag has to be cleared explicitly —
   // without that the section stays permanently unsavable.
-  content.addEventListener('htmx:beforeRequest', function (event) {
-    var form = settingsFormFor(event.target);
+  content.addEventListener('htmx:before:request', function (event) {
+    var form = settingsFormFor(event.detail?.ctx?.sourceElement);
     if (!form) return;
     form.dataset.saving = 'true';
     applyFormDirtyState(form, form.dataset.dirty === 'true');
   });
 
-  ['htmx:afterRequest', 'htmx:sendError', 'htmx:responseError'].forEach(function (name) {
-    content.addEventListener(name, function (event) {
-      var form = settingsFormFor(event.target);
-      if (!form) return;
-      delete form.dataset.saving;
-      updateFormDirtyState(form);
-    });
+  content.addEventListener('htmx:finally:request', function (event) {
+    var form = settingsFormFor(event.detail?.ctx?.sourceElement);
+    if (!form) return;
+    delete form.dataset.saving;
+    updateFormDirtyState(form);
   });
 }
 

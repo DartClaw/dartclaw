@@ -1,10 +1,10 @@
-<div class="shell">
+<div class="shell" hx-history-elt>
   <div tl:utext="${sidebar}">sidebar</div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
+  <main id="main-content" tabindex="-1" class="content-area print-in">
     <div class="content-inner content-inner--wide workflow-detail-page" data-controller="dc-workflows"
-         data-action="htmx:responseError->dc-workflows#showStepDetailError htmx:sendError->dc-workflows#showStepDetailError"
+         data-action="htmx:response:error->dc-workflows#showStepDetailError htmx:error->dc-workflows#showStepDetailError"
          tl:attr="data-run-id=${runId},data-run-status=${status}">
 
       <!-- Workflow metadata card grid -->

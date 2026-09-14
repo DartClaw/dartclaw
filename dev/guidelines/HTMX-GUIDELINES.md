@@ -2,10 +2,11 @@
 
 High-level HTMX guidance. This is a policy document, not a reference manual.
 
-Use official docs for API details, defaults, and examples:
-- [HTMX docs](https://htmx.org/docs/)
-- [HTMX reference](https://htmx.org/reference/)
-- [SSE extension](https://htmx.org/extensions/sse/)
+DartClaw vendors HTMX 4.0.0 and the matching bundled `hx-sse` extension. Use the version-specific upstream docs:
+
+- [HTMX 4 migration guide](https://four.htmx.org/migration-guide-htmx-4)
+- [HTMX swap API](https://four.htmx.org/reference/methods/htmx-swap)
+- [hx-sse extension](https://four.htmx.org/extensions/hx-sse.md)
 
 
 ---
@@ -33,9 +34,9 @@ Stimulus is DartClaw's adopted browser interaction layer. HTMX keeps owning navi
 - Use targets for owned elements (`data-dc-chat-target="input"`) instead of repeated DOM queries from global page modules.
 - Use values for typed configuration passed from Trellis templates (`data-dc-chat-session-id-value="..."`).
 - Use Stimulus actions for local event wiring (`data-action="submit->dc-chat#send"`).
-- Let HTMX swaps create and remove controllers naturally. `connect()` replaces the old manual `initAfterSwapReinit()` pattern after `htmx:afterSwap` and history restoration.
+- Let HTMX swaps create and remove controllers naturally. `connect()` replaces the old manual `initAfterSwapReinit()` pattern after swaps and history restoration.
 
-### Prefer explicit navigation over `hx-boost` for app shells
+### Navigation and history
 
 Use explicit links when you need predictable targets, swaps, and history behavior.
 
@@ -48,7 +49,10 @@ Use explicit links when you need predictable targets, swaps, and history behavio
    hx-push-url="true">
 ```
 
-Use `hx-boost` only when whole-page or whole-body behavior is actually desired.
+Use `hx-boost` only when whole-page or whole-body behavior is actually desired. HTMX 4 restores history by
+refetching the page. Put `hx-history-elt` on the `.shell` root so the route-dependent `#topbar`, `#sidebar`,
+and `#restart-banner-slot` restore together with the single `#main-content`. A main-only boundary leaves stale
+page controls and navigation state. Test Back and Forward, including a failed refetch followed by recovery.
 
 
 ### If responses differ for HTMX vs direct navigation, handle that explicitly
@@ -116,7 +120,8 @@ reference implementation (`lib/src/templates/settings_form.html` +
    success and validation failure.** Field-level errors render inside the
    field's own `.form-error` with `aria-invalid` on the control, from the same
    `ValidationError` list the JSON API returns. 4xx is reserved for auth or
-   route-level refusal, where nothing is swapped.
+   route-level refusal. The layout explicitly inherits `hx-status:4xx="swap:none"` and
+   `hx-status:5xx="swap:none"`; HTMX 4 would otherwise swap those error bodies.
 4. **Cross-surface state rides the same response out of band** (`hx-swap-oob`) —
    restart banner, counters, sidebar. Never a second fetch after a mutation.
 5. **Static `hx-*` attributes are hardcoded in markup; dynamic URLs come from
@@ -128,11 +133,10 @@ reference implementation (`lib/src/templates/settings_form.html` +
    container.
 7. **A mutation with no form field reports through the toast trigger.** A row
    action (Remove, Fetch) has no control to carry a `.form-error`, so it answers
-   200 with the re-rendered list and an `HX-Trigger-After-Swap` carrying a
-   `dc:toast` payload (`web_utils.dart#toastTriggerHeader`), which
-   `dc_toast_controller.js` raises. It never answers 4xx for a domain refusal:
-   HTMX drops a 4xx body, so the message would vanish
-   (`api/workflow_routes.dart#_workflowFormError` records the same reason).
+   200 with the re-rendered list and an `HX-Trigger` carrying a `dc:toast` payload
+   (`web_utils.dart#toastTriggerHeader`). HTMX 4.0.0 dispatches this header after
+   the awaited swap; it does not support `HX-Trigger-After-Swap`. A domain refusal
+   also returns a fragment at 200, because the layout suppresses 4xx/5xx swaps.
 
 For a server-rendered polling surface, put `hx-get` and `hx-trigger="every Ns"`
 on the fragment root and render that root only while polling is meaningful.
@@ -146,15 +150,52 @@ For HTMX-triggered navigation after POST/DELETE/etc, prefer `HX-Location`.
 Do not rely on `HX-*` response headers on `3xx` responses. HTMX ignores them there.
 
 
-### Use SSE via the extension
+### Request lifecycle and explicit inheritance
 
-For streaming HTML fragments:
+HTMX 4 does not implicitly inherit attributes. Use `:inherited` only for an intentional ancestor policy,
+for example `hx-indicator:inherited="#nav-progress"` and `hx-status:4xx:inherited="swap:none"` on the layout.
+Keep request targets and swaps explicit on their owning elements.
+
+Lifecycle names use colons: `htmx:before:request`, `htmx:after:swap`, `htmx:finally:request`,
+`htmx:response:error`, and `htmx:error`. Request state lives in `event.detail.ctx`: `sourceElement`,
+`target`, `response.status`, `response.headers` (a `Headers` object), and `text`.
+
+- `after:request` precedes the swap. Use `finally:request` for request cleanup, including cancellation and failure.
+  If the original source was replaced, HTMX dispatches `finally:request` on `document`; body listeners do not receive it.
+- A normal request's `ctx.status === 'swapped'` does not prove HTTP success; check the response status too.
+  Locally cancelled preflight and extension-owned streams do not follow that normal swap status path.
+- `after:settle` runs for each insertion before `after:swap`. Capture scroll intent before the swap and consume it
+  after the whole swap, including OOB replacements. Resolve the live target before moving focus.
+- The `htmx:confirm` adapter reads `ctx.confirm` and must call either `issueRequest()` or `dropRequest()` after
+  preventing default behavior. Cancelling a dialog must release the queued request without sending it.
+- Identify a history refetch from `ctx.request.headers['HX-History-Restore-Request']` in the swap event.
+  Derive forced history scrolling from that request, so unrelated polling cannot consume a pending flag.
+
+### Stream named events through hx-sse
+
+The core and bundled extension must have the same base version. DartClaw carries one recorded hx-sse 4.0.0
+cleanup correction: cancel the reader with a handled Promise before aborting the fetch, avoiding an unhandled
+AbortError on terminal close. `VENDORS.md` records the original and patched checksums.
+The stream root connects and names its terminal event:
 
 ```html
-<div hx-ext="sse" sse-connect="/events" sse-close="done">
-  <div sse-swap="message" hx-swap="beforeend"></div>
+<div id="streaming-msg" hx-sse:connect="/events" hx-sse:close="done">
+  <div id="streaming-content"></div>
+  <div id="tool-container"></div>
 </div>
 ```
+
+Named events dispatch DOM events instead of using the removed `sse-swap` attribute. The chat controller listens to
+`htmx:sse:before:message`, reads `detail.message.event`/`data`, and supplies its `htmx.swap({...})` Promise to
+`detail.waitUntil(...)`. This keeps delta insertion, tool cards, OOB tool results, and terminal handling ordered.
+The existing server event names remain `delta`, `tool_use`, `tool_result`, `turn_cancelled`, `turn_error`, and `done`.
+
+Use `htmx:sse:close`'s `detail.reason`, rather than the old event-detail shape. A refused initial connection may
+never enter the SSE lifecycle. If Send already admitted the turn, connection failure is not turn completion:
+retain input and observe the matching turn ID through the existing status endpoint, keeping Stop available when
+cancellable. Matching terminal status ends that restriction; let the transcript refresh attempt settle before
+permitting another send so its swap cannot overwrite the next stream. A failed refresh reports its error and restores
+controls. The extension clears HTMX's default 60-second request timer after accepting stream headers; do not add a separate turn timeout here.
 
 Required response headers:
 
@@ -170,11 +211,11 @@ X-Accel-Buffering: no
 
 ## Asset Rules
 
-- Pin HTMX to an exact version
+- Pin HTMX and its bundled hx-sse extension to the same exact version
 - Vendor HTMX and its extensions under `lib/src/static/` and load them same-origin; DartClaw contacts no CDN at
   runtime, and `dev/tools/fitness/check_no_external_origins.sh` fails the build if one reappears
 - Record the upstream URL and published SRI hash in `VENDORS.md` so vendored bytes stay verifiable once `integrity`
-  no longer applies (it is meaningless same-origin)
+  is absent from same-origin script tags
 - Keep version and asset policy documented near the actual asset-loading code
 - Do not put package-manager setup instructions here unless the repo actually uses them
 
@@ -209,6 +250,19 @@ X-Accel-Buffering: no
 
 ---
 
+
+## Browser verification
+
+After changing this integration, regenerate embedded assets and run the explicit browser proof from the workspace root:
+
+```sh
+dart run dev/tools/embed_assets.dart
+dart test --reporter=failures-only --run-skipped packages/dartclaw_runtime/test/integration/htmx4_browser_test.dart
+```
+
+This uses real HTTP routes and a deterministic harness, with no provider credentials. Chrome or Chromium is required;
+set `CHROME_BIN` when it is outside the detected installation paths. An explicit run fails if the browser is missing.
+Screenshots default to `.agent_temp/htmx4-browser`; `DARTCLAW_HTMX4_ARTIFACT_DIR` overrides that directory.
 
 ## Checklist
 

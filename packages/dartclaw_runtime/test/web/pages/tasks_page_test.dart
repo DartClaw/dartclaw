@@ -93,7 +93,7 @@ void main() {
       );
 
       expect(response.statusCode, 200);
-      expect(response.headers['HX-Trigger-After-Swap'], contains('Cannot transition from running to queued'));
+      expect(response.headers['HX-Trigger'], contains('Cannot transition from running to queued'));
       expect((await tasks.get('task-1'))!.status, TaskStatus.running);
       expect(await response.readAsString(), contains('Running'));
     });
@@ -240,7 +240,7 @@ void main() {
         );
 
         expect(response.statusCode, 200);
-        expect(response.headers['HX-Trigger-After-Swap'], contains(testCase.message));
+        expect(response.headers['HX-Trigger'], contains(testCase.message));
         await response.readAsString();
         expect((await tasks.get('task-1'))!.status, TaskStatus.review);
       }

@@ -238,7 +238,7 @@ class InMemorySessionService implements SessionService {
       throw StateError('Cannot delete ${session.type.name} session');
     }
 
-    _notify(() => _observer?.onSessionDeleting(id));
+    _notify(() => _observer?.onSessionDeleting(id, session));
     _sessionsById.remove(id);
     _conversationStates.remove(id);
     _sessionKeys.removeWhere((_, sessionId) => sessionId == id);

@@ -588,7 +588,7 @@ final class _SessionObserver implements SessionServiceObserver {
   final deleting = <String>[];
 
   @override
-  void onSessionDeleting(String sessionId) => deleting.add(sessionId);
+  void onSessionDeleting(String sessionId, Session? session) => deleting.add(sessionId);
 
   @override
   void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType) {

@@ -49,7 +49,7 @@ final class ConversationSearchService {
   static final _log = Logger('ConversationSearchService');
 
   /// Creates a service over one conversation index instance.
-  const new({required this.index, this.query, this.userId = 'owner'});
+  const new({required this.index, this.query, this.userId = 'owner', this.userIds});
 
   /// Derived conversation index.
   final FullTextIndex index;
@@ -57,22 +57,31 @@ final class ConversationSearchService {
   /// Optional query implementation used instead of the lexical index.
   final ConversationSearchQuery? query;
 
-  /// Instance owner scope used for every query.
+  /// Fallback scope when this search surface covers one principal.
   final String userId;
+
+  /// Principal scopes included in this administrative search surface.
+  final Set<String>? userIds;
 
   /// Returns best-first matching persisted messages, or empty when unavailable.
   Future<List<ConversationHit>> search(String query, {int limit = 20, SearchDiagnosticsSink? diagnostics}) async {
     try {
       final buffered = <SearchDiagnostics>[];
-      final results =
+      final results = <SearchResult>[];
+      for (final principal in userIds ?? {userId}) {
+        results.addAll(
           await (this.query?.call(
                 query,
-                userId: userId,
+                userId: principal,
                 limit: limit,
                 diagnostics: diagnostics == null ? null : buffered.add,
               ) ??
-              index.search(query, userId: userId, limit: limit));
+              index.search(query, userId: principal, limit: limit)),
+        );
+      }
+      if ((userIds?.length ?? 1) > 1) results.sort((left, right) => left.score.compareTo(right.score));
       final hits = results
+          .take(limit)
           .map(
             (result) => ConversationHit(
               messageId: result.id,

@@ -27,6 +27,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   ownership. Behavior files and provider-native skills continue to come from that workspace during project work.
   Unsafe, overlapping, reserved-owner and changed bindings are refused without exposing the owner's workspace.
 
+- Configured named-agent workspaces now own their canonical memory, daily logs, and lexical, vector, and conversation
+  projections. Ordinary memory tools stay within the session's pinned workspace; explicitly granted
+  `context_research` still retrieves cited owner knowledge. Startup, index rebuild, and journal or curation runs keep
+  each configured workspace independent, and no other per-workspace scheduled jobs are added.
+
 - Upgraded the web UI to HTMX 4.0.0 and its bundled `hx-sse` streaming extension, with Trellis 0.11.1.
   Adapted navigation, streaming, form feedback, and confirmation handling to the new browser lifecycle.
   The streaming extension includes a local cleanup fix for an upstream unhandled error on close.

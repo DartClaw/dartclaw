@@ -1,10 +1,11 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -84,6 +85,81 @@ void main() {
       }
     });
   }
+
+  test('daily logs select the pinned workspace and consume retention eligibility', () async {
+    final root = Directory.systemTemp.createTempSync('turn_scoped_daily_log_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final sessions = SessionService(baseDir: p.join(root.path, 'sessions'));
+    final messages = MessageService(baseDir: p.join(root.path, 'sessions'));
+    addTearDown(messages.dispose);
+    final ownerFile = MemoryFileService(baseDir: p.join(root.path, 'owner'));
+    final agentFile = MemoryFileService(baseDir: p.join(root.path, 'agent-a'));
+    addTearDown(ownerFile.dispose);
+    addTearDown(agentFile.dispose);
+    final worker = FakeWorkerService();
+    addTearDown(worker.dispose);
+    final ineligible = <String>{};
+    final runner = TurnRunner(
+      harness: worker,
+      messages: messages,
+      behavior: BehaviorFileService(workspaceDir: p.join(root.path, 'owner')),
+      memoryFile: ownerFile,
+      memoryFileForSession: (session, agentName) {
+        final workspace = session.workspace;
+        if (workspace == null) return agentName == null || agentName == 'main' ? ownerFile : null;
+        if (workspace.agentId != agentName) return null;
+        return workspace.storagePrincipal == 'agent:a' ? agentFile : null;
+      },
+      dailyLogEligible: (session) => !ineligible.contains(session.id),
+      sessions: sessions,
+      turnLimits: const TurnLimitsConfig.defaults(),
+    );
+
+    Future<void> run(Session session, String marker, {String agentName = 'main'}) async {
+      unawaited(() async {
+        await worker.turnInvoked;
+        worker.emit(ToolUseEvent(toolName: 'file_read', toolId: marker, input: {'path': '$marker.md'}));
+        worker.emit(DeltaEvent(marker));
+        await pumpEventQueue();
+        worker.completeSuccess();
+      }());
+      final turnId = await runner.startTurn(session.id, [
+        {'role': 'user', 'content': marker},
+      ], agentName: agentName);
+      await runner.waitForOutcome(session.id, turnId);
+    }
+
+    final owner = await sessions.createSession();
+    final agent = await sessions.createSession(
+      workspace: AgentWorkspace(agentId: 'a', directory: p.join(root.path, 'agent-a')),
+    );
+    final missing = await sessions.createSession(
+      workspace: AgentWorkspace(agentId: 'missing', directory: p.join(root.path, 'missing')),
+    );
+    final unconfigured = await sessions.createSession();
+    final excluded = await sessions.createSession(
+      workspace: AgentWorkspace(agentId: 'a', directory: p.join(root.path, 'agent-a')),
+    );
+    ineligible.add(excluded.id);
+
+    await run(owner, 'owner-log');
+    await run(agent, 'agent-log', agentName: 'a');
+    await run(missing, 'missing-log', agentName: 'missing');
+    await run(unconfigured, 'unconfigured-log', agentName: 'persona');
+    await run(excluded, 'excluded-log', agentName: 'a');
+
+    String dailyLogContent(String directory) {
+      final memory = Directory(p.join(directory, 'memory'));
+      if (!memory.existsSync()) return '';
+      return memory.listSync().whereType<File>().map((file) => file.readAsStringSync()).join();
+    }
+
+    final ownerContent = dailyLogContent(p.join(root.path, 'owner'));
+    final agentContent = dailyLogContent(p.join(root.path, 'agent-a'));
+    expect(ownerContent, allOf(contains('owner-log'), isNot(contains('agent-log')), isNot(contains('missing-log'))));
+    expect(agentContent, allOf(contains('agent-log'), isNot(contains('owner-log')), isNot(contains('excluded-log'))));
+    expect(Directory(p.join(root.path, 'missing', 'memory')).existsSync(), isFalse);
+  });
 }
 
 CanonicalMemoryCorpus _corpus({required int revision, required String summary}) {

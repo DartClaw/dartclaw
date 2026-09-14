@@ -59,7 +59,9 @@ typedef MemoryHandlers = ({
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) onObserve,
   MemoryObserveWithContext observe,
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
+  MemoryObserveWithContext search,
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
+  MemoryObserveWithContext read,
 });
 
 /// Creates the canonical memory capture and retrieval handlers.
@@ -220,82 +222,88 @@ MemoryHandlers createMemoryHandlers({
   Future<Map<String, dynamic>> apply(Map<String, dynamic> params, MemoryCaptureContext context) async =>
       _toolJson(await applyService.apply(params, userId: context.userId, provenance: context.toSourceRef()));
 
+  Future<Map<String, dynamic>> search(Map<String, dynamic> params, MemoryCaptureContext context) async {
+    _requireOnlyKeys(params, const {'query', 'limit'});
+    final query = _requiredString(params, 'query');
+    final limit = _memoryLimit(params['limit']);
+    if (query.trim().isEmpty) {
+      final collectionRevision = (await corpus.manifest()).collectionRevision;
+      return _toolJson({'collectionRevision': collectionRevision, 'results': const <Object>[]});
+    }
+    final outcome = await searchBackend.search(query, limit: limit, userId: context.userId);
+    final collectionRevision = outcome.canonicalRevision ?? (await corpus.manifest()).collectionRevision;
+    return _toolJson({
+      'collectionRevision': collectionRevision,
+      'results': outcome.results.take(limit).map((result) => result.toRetrievalJson()).toList(growable: false),
+      'degradedLayers': outcome.degradedLayers,
+      'degradations': outcome.degradations.map((item) => item.toJson()).toList(growable: false),
+    });
+  }
+
+  Future<Map<String, dynamic>> read(Map<String, dynamic> params, MemoryCaptureContext context) async {
+    _requireOnlyKeys(params, const {'locator', 'role', 'topic', 'limit'});
+    final locator = _optionalString(params, 'locator');
+    final roleName = _optionalString(params, 'role');
+    final topic = _optionalString(params, 'topic');
+    final hasLocator = locator != null;
+    final hasRoleSelector = roleName != null || topic != null;
+    if (hasLocator == hasRoleSelector || (!hasLocator && (roleName == null || topic == null))) {
+      throw ArgumentError('provide exactly one selector: locator, or role with topic');
+    }
+    final limit = _memoryLimit(params['limit']);
+    final records = <Map<String, Object?>>[];
+    late final int collectionRevision;
+    if (locator != null) {
+      if (_isAuditDocumentLocator(locator)) {
+        throw ArgumentError.value(locator, 'locator', 'audit records are not model-readable');
+      }
+      if (!_isMemoryLocator(locator)) {
+        throw ArgumentError.value(locator, 'locator', 'must be a canonical UUID or recognized native locator');
+      }
+      final selection = await corpus.selectRecord(locator);
+      collectionRevision = selection?.collectionRevision ?? (await corpus.manifest()).collectionRevision;
+      final current = selection?.corpus;
+      final canonical = current == null ? null : _canonicalByLocator(current, locator);
+      if (canonical != null) {
+        records.add(canonical);
+      } else if (current != null && _isAuditLocator(current, locator)) {
+        throw ArgumentError.value(locator, 'locator', 'audit records are not model-readable');
+      } else {
+        MemorySearchResult? native;
+        if (nativeSourceResolver != null && _isSourceOwnedNativeLocator(locator)) {
+          native = await nativeSourceResolver.resolve(locator, userId: context.userId);
+        } else if (!_isCanonicalMemoryLocator(locator)) {
+          native = await searchBackend.resolve(locator, userId: context.userId);
+        }
+        if (native != null && native.role != 'audit') {
+          records.add(_readResult(native));
+        }
+      }
+    } else {
+      final role = _readTopicRole(roleName!);
+      validateMemoryTopic(topic!);
+      final selection = await corpus.selectDocuments(
+        include: (candidate, locator) =>
+            candidate == role && locator == 'memory/topics/$topic.md' ||
+            candidate == role && locator == 'MEMORY.archive.md',
+      );
+      collectionRevision = selection.collectionRevision;
+      final current = selection.corpus;
+      records.addAll(_canonicalByTopic(current, role, topic).take(limit));
+    }
+    return _boundedReadResult(records.take(limit).toList(growable: false), collectionRevision: collectionRevision);
+  }
+
   return (
     applyService: applyService,
     onApply: (params) => apply(params, defaultContext('memory_apply')),
     apply: apply,
     onObserve: (params) => capture(params, defaultContext('memory_observe')),
     observe: capture,
-    onSearch: (Map<String, dynamic> params) async {
-      _requireOnlyKeys(params, const {'query', 'limit'});
-      final query = _requiredString(params, 'query');
-      final limit = _memoryLimit(params['limit']);
-      if (query.trim().isEmpty) {
-        final collectionRevision = (await corpus.manifest()).collectionRevision;
-        return _toolJson({'collectionRevision': collectionRevision, 'results': const <Object>[]});
-      }
-      final outcome = await searchBackend.search(query, limit: limit, userId: 'owner');
-      final collectionRevision = outcome.canonicalRevision ?? (await corpus.manifest()).collectionRevision;
-      return _toolJson({
-        'collectionRevision': collectionRevision,
-        'results': outcome.results.take(limit).map((result) => result.toRetrievalJson()).toList(growable: false),
-        'degradedLayers': outcome.degradedLayers,
-        'degradations': outcome.degradations.map((item) => item.toJson()).toList(growable: false),
-      });
-    },
-    onRead: (Map<String, dynamic> params) async {
-      _requireOnlyKeys(params, const {'locator', 'role', 'topic', 'limit'});
-      final locator = _optionalString(params, 'locator');
-      final roleName = _optionalString(params, 'role');
-      final topic = _optionalString(params, 'topic');
-      final hasLocator = locator != null;
-      final hasRoleSelector = roleName != null || topic != null;
-      if (hasLocator == hasRoleSelector || (!hasLocator && (roleName == null || topic == null))) {
-        throw ArgumentError('provide exactly one selector: locator, or role with topic');
-      }
-      final limit = _memoryLimit(params['limit']);
-      final records = <Map<String, Object?>>[];
-      late final int collectionRevision;
-      if (locator != null) {
-        if (_isAuditDocumentLocator(locator)) {
-          throw ArgumentError.value(locator, 'locator', 'audit records are not model-readable');
-        }
-        if (!_isMemoryLocator(locator)) {
-          throw ArgumentError.value(locator, 'locator', 'must be a canonical UUID or recognized native locator');
-        }
-        final selection = await corpus.selectRecord(locator);
-        collectionRevision = selection?.collectionRevision ?? (await corpus.manifest()).collectionRevision;
-        final current = selection?.corpus;
-        final canonical = current == null ? null : _canonicalByLocator(current, locator);
-        if (canonical != null) {
-          records.add(canonical);
-        } else if (current != null && _isAuditLocator(current, locator)) {
-          throw ArgumentError.value(locator, 'locator', 'audit records are not model-readable');
-        } else {
-          MemorySearchResult? native;
-          if (nativeSourceResolver != null && _isSourceOwnedNativeLocator(locator)) {
-            native = await nativeSourceResolver.resolve(locator, userId: 'owner');
-          } else if (!_isCanonicalMemoryLocator(locator)) {
-            native = await searchBackend.resolve(locator, userId: 'owner');
-          }
-          if (native != null && native.role != 'audit') {
-            records.add(_readResult(native));
-          }
-        }
-      } else {
-        final role = _readTopicRole(roleName!);
-        validateMemoryTopic(topic!);
-        final selection = await corpus.selectDocuments(
-          include: (candidate, locator) =>
-              candidate == role && locator == 'memory/topics/$topic.md' ||
-              candidate == role && locator == 'MEMORY.archive.md',
-        );
-        collectionRevision = selection.collectionRevision;
-        final current = selection.corpus;
-        records.addAll(_canonicalByTopic(current, role, topic).take(limit));
-      }
-      return _boundedReadResult(records.take(limit).toList(growable: false), collectionRevision: collectionRevision);
-    },
+    onSearch: (params) => search(params, defaultContext('memory_search')),
+    search: search,
+    onRead: (params) => read(params, defaultContext('memory_read')),
+    read: read,
   );
 }
 

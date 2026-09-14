@@ -686,6 +686,61 @@ void main() {
       await harness.dispose();
     });
 
+    test('passes trusted active turn context to retrieval callbacks', () async {
+      final fake = _bufferedCapturingFakeProcess();
+      final received = <(String, HarnessTurnContext)>[];
+      final called = Completer<void>();
+      final harness = ClaudeCodeHarness(
+        cwd: '/tmp',
+        processFactory: _processFactory(fake),
+        commandProbe: _defaultProbe,
+        delayFactory: _noOpDelay,
+        environment: {'ANTHROPIC_API_KEY': 'sk-test'},
+        onMemoryApply: (_) async => const {},
+        onMemoryObserve: (_) async => const {},
+        onMemorySearch: (_) async => throw StateError('context callback should win'),
+        onMemoryRead: (_) async => throw StateError('context callback should win'),
+        onContextualMemorySearch: (args, context) async {
+          received.add(('memory_search', context));
+          return const {};
+        },
+        onContextualMemoryRead: (args, context) async {
+          received.add(('memory_read', context));
+          called.complete();
+          return const {};
+        },
+      );
+      await harness.start();
+      harness.setTurnContext(
+        const HarnessTurnContext(sessionId: 'session-7', turnId: 'turn-9', source: 'web', agentName: 'agent-a'),
+      );
+
+      for (final (index, name) in ['memory_search', 'memory_read'].indexed) {
+        fake.emitStdout(
+          jsonEncode({
+            'type': 'control_request',
+            'request_id': 'contextual-$index',
+            'request': {
+              'subtype': 'mcp_message',
+              'server_name': 'dartclaw',
+              'message': {
+                'jsonrpc': '2.0',
+                'id': index,
+                'method': 'tools/call',
+                'params': {'name': name, 'arguments': <String, dynamic>{}},
+              },
+            },
+          }),
+        );
+      }
+      await called.future;
+
+      expect(received.map((item) => item.$1), ['memory_search', 'memory_read']);
+      expect(received.every((item) => item.$2.sessionId == 'session-7'), isTrue);
+      expect(received.every((item) => item.$2.agentName == 'agent-a'), isTrue);
+      await harness.dispose();
+    });
+
     test('rejects contextual memory writes without an active turn context', () async {
       final fake = _bufferedCapturingFakeProcess();
       var called = false;

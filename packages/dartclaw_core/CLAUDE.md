@@ -13,6 +13,8 @@
   owns stable-identity append/replace plus torn-final-line repair; `KvService` writes atomic JSON via
   `atomicWriteJson`. `MemoryCorpusService` owns the authenticated member manifest, bounded path/record selectors,
   sparse compare-and-swap mutation, fingerprint reconciliation, crash recovery, and persisted operator status.
+  Runtime composes one instance per owner or configured named-agent workspace; the canonical directory and
+  `agent:<agent-id>` storage principal stay paired through lexical and vector projection.
   Snapshot omission is decided from authenticated metadata before a whole document read; startup
   adoption/reconciliation may scan successive bounded body batches, while ordinary requests never load the full
   aggregate corpus.
@@ -39,7 +41,10 @@
 - Memory safety ceilings live in `MemoryResourceLimits`: 64 MiB per source, 8 MiB per observation partition, and
   1,000 files/64 MiB body bytes per recursive request. Partition overflow rejects without trimming existing records.
 - Atomic JSON writes go through `src/storage/atomic_write.dart::atomicWriteJson` — temp file + rename with random suffix. Writers to shared `.git/` or `.session_keys.json` must hold `RepoLock` first. `chmodOwnerOnlySync` is `0600` (files); directories need `chmodOwnerOnlyDirSync` (`0700`) or they become untraversable.
-- `dartclaw.db` is authoritative for tasks, goals, executions, turns, and events; `search.db` is rebuildable from the canonical memory corpus. Repositories sharing an aggregate use the same prepared `DatabaseBackend`; `SqliteExecutionRepositoryTransactor` delegates to its transaction. Wiring owns backend closure.
+- `dartclaw.db` is authoritative for tasks, goals, executions, turns, and events; `search.db` is rebuildable from the
+  owner and configured workspace canonical memory corpora and session NDJSON. Memory and conversation rows use the
+  pinned session workspace principal. Repositories sharing an aggregate use the same prepared `DatabaseBackend`;
+  `SqliteExecutionRepositoryTransactor` delegates to its transaction. Wiring owns backend closure.
 - `Fts5SearchBackend` is the baseline. `QmdSearchBackend` may start the optional bounded `qmd` process and falls back to FTS5 when it is unavailable.
 - `SubscriptionCredentialStore` owns the dedicated per-provider credential stores under `DartclawConfig.credentialsDir`, and `dartclaw_kernel` never reads a credential file. `open()` and `readOnly()` refuse — before any credential is read — a store whose symlink-resolved path collides with the operator's interactive login (`$CODEX_HOME`/`~/.codex`, `$CLAUDE_CONFIG_DIR`/`~/.claude`). Nothing here opens those paths, and no Keychain probe exists: the macOS login item is unreachable by path and is protected by never being touched. A missing, unreadable, or token-less store reads as an absent credential, never a throw. A stored token whose expiry cannot be computed is **not** absent: a Claude record with a missing or unparseable `issued_at` reads as a credential with a null expiry, which consumers classify as `unknown` health — reporting it absent would page the operator to re-authenticate a token that may well work. Codex is the exception by construction: its token *is* the expiry claim, so an unreadable one leaves no token either. A host-mode `ClaudeCodeHarness` treats a non-empty `claudeOauthTokenEnvVar` in its spawn environment as configured authentication and returns before the `claude auth status` probe — the CLI authenticates itself on the injected token, and probing would answer from the operator's interactive login instead, masking a broken one. The probe stays for the nothing-configured case. The spawn env deliberately keeps `HOME`/`USER`, so `~/.claude` and the macOS keychain login stay reachable; the injected token still wins. Verified against Claude Code 2.1.233: with the variable set, `auth status` reports authMethod `oauth_token` and a turn on an invalid token fails 401 rather than falling back to a logged-in account. Pinning it by construction (a DartClaw-owned `CLAUDE_CONFIG_DIR`) is **not** an option — user-scope settings live in `~/.claude`, so it would silently defeat `providers.claude.inherit_user_settings: true`. Re-verify on a major CLI upgrade.
 - Rotating a dedicated Codex store is **not** core's job: `CodexRefreshAuthority` lives in `dartclaw_runtime` (`lib/src/task/codex_refresh_authority.dart`) beside the vendor driver it delegates to. `CodexHarness` therefore takes a plain `Future<String?> Function()? prepareSubscriptionHome` rather than the authority itself – core stays free of credential-refresh policy, and the LOC ceiling stays honest. Don't move it down.
@@ -102,7 +107,8 @@
 - `lib/src/channel/text_chunking.dart` — bounded Unicode-safe text and native chat-markup chunking.
 - `lib/src/storage/atomic_write.dart` — the only sanctioned JSON write path.
 - `lib/src/storage/conversation_state.dart` — durable ordinary-submission, attempt and queue vocabulary stored by
-  `SessionService`; its visibility rule prevents queued, held and removed inputs from entering turn history.
+  `SessionService`; `ConversationState.includesMessage` is also the conversation-index visibility authority, preventing
+  queued, held and removed inputs from entering turn history or lexical/vector projections.
 - `lib/src/storage/sqlite_backend.dart` – `SqliteBackend.open` / `openInMemory` constructors; `sqlite_schema_gate.dart` prepares task/search stores before repository use.
 - `lib/src/storage/sqlite_task_repository.dart` and sibling repositories — relational persistence against `dartclaw.db`.
 - `lib/src/search/` — FTS5, QMD, wiki, and composed search implementations.

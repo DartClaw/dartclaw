@@ -60,7 +60,17 @@ class RebuildIndexCommand extends Command<void> {
     DatabaseBackend? conversationBackend;
     DatabaseBackend? vectorBackend;
     EmbeddingProvider? embeddingProvider;
+    final workspaceCorpora =
+        <
+          ({
+            AgentWorkspace workspace,
+            MemoryCorpusService corpus,
+            MemoryCorpusManifest manifest,
+            IndexHealthStore health,
+          })
+        >[];
     final hybrid = config.search.backend == 'hybrid';
+    final workspaceFailures = <Map<String, String>>[];
     MessageService? messages;
     var failed = false;
     try {
@@ -70,6 +80,36 @@ class RebuildIndexCommand extends Command<void> {
       ).preflight();
       if (!json) write(preflight.render());
       final manifest = await corpusService.manifest();
+      for (final definition in config.agent.definitions) {
+        final workspace = definition.workspace;
+        if (workspace == null || definition.workspaceConfigurationError != null) continue;
+        final corpus = MemoryCorpusService(workspaceDir: workspace.directory);
+        try {
+          final scopedPreflight = await MemoryPreflight(
+            workspaceDir: workspace.directory,
+            corpusService: corpus,
+          ).preflight();
+          if (!json) write('${workspace.storagePrincipal}: ${scopedPreflight.render()}');
+          workspaceCorpora.add((
+            workspace: workspace,
+            corpus: corpus,
+            manifest: await corpus.manifest(),
+            health: IndexHealthStore(workspaceDir: workspace.directory),
+          ));
+        } on Object catch (error) {
+          await corpus.close();
+          if (json) {
+            workspaceFailures.add({
+              'principal': workspace.storagePrincipal,
+              'stage': 'memory-corpus-preflight',
+              'message': '$error',
+            });
+          } else {
+            write('${workspace.storagePrincipal}: memory corpus preflight failed: $error');
+          }
+          failed = true;
+        }
+      }
       final health = IndexHealthStore(workspaceDir: config.workspaceDir);
       IndexRebuildTarget? target;
       if (config.database.backend == DatabaseBackendKind.postgres) {
@@ -103,12 +143,12 @@ class RebuildIndexCommand extends Command<void> {
       final reconciler =
           _indexReconciler ??
           CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: health, target: target);
-      Stream<List<SearchDocument>> documents() async* {
-        for (final path in manifest.paths) {
+      Stream<List<SearchDocument>> documents(MemoryCorpusService corpus, MemoryCorpusManifest sourceManifest) async* {
+        for (final path in sourceManifest.paths) {
           if (path == 'MEMORY.md' || path == 'MEMORY.audit.md' || path.startsWith('memory/legacy/')) continue;
-          final selection = await corpusService.selectPaths([path]);
-          if (selection.collectionRevision != manifest.collectionRevision ||
-              selection.fingerprint != manifest.fingerprint) {
+          final selection = await corpus.selectPaths([path]);
+          if (selection.collectionRevision != sourceManifest.collectionRevision ||
+              selection.fingerprint != sourceManifest.fingerprint) {
             throw StateError('Canonical memory changed during index reconciliation');
           }
           yield MemoryIndexProjection.documents(selection.corpus);
@@ -116,7 +156,7 @@ class RebuildIndexCommand extends Command<void> {
       }
 
       final result = await reconciler.reconcileBatched(
-        rowBatches: documents,
+        rowBatches: () => documents(corpusService, manifest),
         canonicalRevision: manifest.collectionRevision,
         canonicalFingerprint: manifest.fingerprint,
         authenticateComplete: () => corpusService.authenticate(manifest),
@@ -133,9 +173,55 @@ class RebuildIndexCommand extends Command<void> {
         await SqliteSchemaGate.prepareSearch(conversationBackend, storeName: 'search.db');
         conversationIndex = SqliteFtsIndex(conversationBackend, table: SqliteFtsTable.conversationChunks);
       }
+      final memoryIndex = config.database.backend == DatabaseBackendKind.postgres
+          ? PostgresFtsIndex(backend!, table: PostgresFtsTable.memoryChunks, language: config.database.ftsLanguage)
+          : SqliteFtsIndex(conversationBackend!, table: SqliteFtsTable.memoryChunks);
+      for (final scoped in workspaceCorpora) {
+        final target = TransactionalRebuildTarget(
+          config.database.backend == DatabaseBackendKind.postgres ? backend! : conversationBackend!,
+          indexFactory: (tx) => config.database.backend == DatabaseBackendKind.postgres
+              ? PostgresFtsIndex.withinTransaction(
+                  tx,
+                  table: PostgresFtsTable.memoryChunks,
+                  language: config.database.ftsLanguage,
+                )
+              : SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.memoryChunks),
+        );
+        try {
+          final scopedResult = await CanonicalIndexReconciler(healthStore: scoped.health, target: target)
+              .reconcileBatched(
+                rowBatches: () => documents(scoped.corpus, scoped.manifest),
+                canonicalRevision: scoped.manifest.collectionRevision,
+                canonicalFingerprint: scoped.manifest.fingerprint,
+                authenticateComplete: () => scoped.corpus.authenticate(scoped.manifest),
+                userId: scoped.workspace.storagePrincipal,
+              );
+          if (!json) {
+            write(
+              '${scoped.workspace.storagePrincipal}: rebuilt ${scopedResult.rowCount} entries at collection revision '
+              '${scopedResult.revision}',
+            );
+          }
+        } on Object catch (error) {
+          if (json) {
+            workspaceFailures.add({
+              'principal': scoped.workspace.storagePrincipal,
+              'stage': 'memory-index-rebuild',
+              'message': '$error',
+            });
+          } else {
+            write('${scoped.workspace.storagePrincipal}: memory index rebuild failed: $error');
+          }
+          failed = true;
+        }
+      }
       final sessions = SessionService(baseDir: config.sessionsDir);
       messages = MessageService(baseDir: config.sessionsDir);
-      final conversationProjection = ConversationIndexProjection(sessions: sessions, messages: messages);
+      final conversationProjection = ConversationIndexProjection(
+        sessions: sessions,
+        messages: messages,
+        configuredPrincipals: {'owner', for (final scoped in workspaceCorpora) scoped.workspace.storagePrincipal},
+      );
       final conversation = await conversationProjection.rebuild(conversationIndex);
       final vectorCounts = <String, int?>{};
       final vectorDegradations = <String>[];
@@ -150,9 +236,6 @@ class RebuildIndexCommand extends Command<void> {
             : vectorBackend = await (_vectorBackendFactory ?? SqliteBackend.open)(config.vectorsDbPath);
         if (!postgres) await SqliteSchemaGate.prepareVectors(vectorStore, storeName: 'vectors.db');
         embeddingProvider = _embeddingProviderFactory?.call() ?? createConfiguredEmbeddingProvider(config);
-        final memoryIndex = postgres
-            ? PostgresFtsIndex(backend!, table: PostgresFtsTable.memoryChunks, language: config.database.ftsLanguage)
-            : SqliteFtsIndex(conversationBackend!, table: SqliteFtsTable.memoryChunks);
         for (final corpus in [
           (name: 'memory', index: memoryIndex, table: VectorTable.memoryChunks),
           (name: 'conversation', index: conversationIndex, table: VectorTable.conversationChunks),
@@ -165,13 +248,17 @@ class RebuildIndexCommand extends Command<void> {
             embeddingProvider: embeddingProvider,
             sourceLayer: corpus.name,
           );
-          try {
-            final vectors = await synchronizer.rebuild(userId: 'owner');
-            vectorCounts['${corpus.name}UnembeddedCount'] = vectors.unembeddedCount;
-            if (vectors.degradations.isNotEmpty) vectorDegradations.add(corpus.name);
-          } on Exception {
-            vectorCounts['${corpus.name}UnembeddedCount'] = null;
-            vectorDegradations.add(corpus.name);
+          for (final principal in {'owner', for (final scoped in workspaceCorpora) scoped.workspace.storagePrincipal}) {
+            try {
+              final vectors = await synchronizer.rebuild(userId: principal);
+              if (principal == 'owner') vectorCounts['${corpus.name}UnembeddedCount'] = vectors.unembeddedCount;
+              if (vectors.degradations.isNotEmpty) {
+                vectorDegradations.add(principal == 'owner' ? corpus.name : '${corpus.name}:$principal');
+              }
+            } on Exception {
+              if (principal == 'owner') vectorCounts['${corpus.name}UnembeddedCount'] = null;
+              vectorDegradations.add(principal == 'owner' ? corpus.name : '${corpus.name}:$principal');
+            }
           }
         }
       }
@@ -187,6 +274,7 @@ class RebuildIndexCommand extends Command<void> {
             'conversationSessions': conversation.sessionCount,
             ...vectorCounts,
             if (vectorDegradations.isNotEmpty) 'vectorDegradedCorpora': vectorDegradations,
+            if (workspaceFailures.isNotEmpty) 'workspaceFailures': workspaceFailures,
           }),
         );
       } else {
@@ -236,7 +324,13 @@ class RebuildIndexCommand extends Command<void> {
             try {
               await backend?.close();
             } finally {
-              await corpusService.close();
+              try {
+                for (final scoped in workspaceCorpora) {
+                  await scoped.corpus.close();
+                }
+              } finally {
+                await corpusService.close();
+              }
             }
           }
         }

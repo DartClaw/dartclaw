@@ -171,6 +171,141 @@ void main() {
     db.close();
   });
 
+  test('rebuilds explicit workspace corpora independently and reports one failed binding', () async {
+    final agentADir = p.join(tempDir.path, 'agents', 'a');
+    final agentBDir = p.join(tempDir.path, 'agents', 'b');
+    final config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      agent: AgentConfig(
+        definitions: [
+          AgentDefinition(
+            id: 'a',
+            description: 'Agent A',
+            prompt: 'A',
+            workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentADir),
+          ),
+          AgentDefinition(
+            id: 'b',
+            description: 'Agent B',
+            prompt: 'B',
+            workspace: AgentWorkspace.pinned(agentId: 'b', directory: agentBDir),
+          ),
+        ],
+      ),
+    );
+    await seedCanonicalMemory(
+      config.workspaceDir,
+      topics: const {
+        'general': ['owner-rebuild-marker'],
+      },
+    );
+    await seedCanonicalMemory(
+      agentADir,
+      topics: const {
+        'general': ['agent-a-rebuild-marker'],
+      },
+    );
+    File(p.join(agentBDir, 'MEMORY.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('## general\n- [2026-09-14 10:00] invalid-preview-marker\n');
+    int? code;
+    final runner = DartclawRunner()
+      ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
+
+    await runner.run(['rebuild-index']);
+
+    final backend = await SqliteBackend.open(config.searchDbPath);
+    try {
+      final index = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
+      expect((await index.search('owner-rebuild-marker', userId: 'owner')).single.chunk, 'owner-rebuild-marker');
+      expect((await index.search('agent-a-rebuild-marker', userId: 'agent:a')).single.chunk, 'agent-a-rebuild-marker');
+      expect(await index.search('owner-rebuild-marker', userId: 'agent:a'), isEmpty);
+      expect(await index.search('agent-a-rebuild-marker', userId: 'owner'), isEmpty);
+      expect(await index.search('invalid-preview-marker', userId: 'agent:b'), isEmpty);
+    } finally {
+      await backend.close();
+    }
+    expect(code, 1);
+    expect(output, contains(contains('agent:a: rebuilt 1 entries')));
+    expect(output, contains(allOf(contains('agent:b'), contains('preflight failed'))));
+    expect(output, isNot(contains(contains('agent:b: rebuilt'))));
+  });
+
+  test('--json reports configured workspace failures in its single structured result', () async {
+    final invalidDir = p.join(tempDir.path, 'agents', 'invalid');
+    final config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      agent: AgentConfig(
+        definitions: [
+          AgentDefinition(
+            id: 'invalid',
+            description: 'Invalid corpus',
+            prompt: '',
+            workspace: AgentWorkspace.pinned(agentId: 'invalid', directory: invalidDir),
+          ),
+        ],
+      ),
+    );
+    File(p.join(invalidDir, 'MEMORY.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('## preview\n- invalid dialect\n');
+    int? code;
+    final runner = DartclawRunner()
+      ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
+
+    await runner.run(['rebuild-index', '--json']);
+
+    expect(code, 1);
+    expect(output, hasLength(1));
+    final result = jsonDecode(output.single) as Map<String, dynamic>;
+    expect(result['canonicalRevision'], 1);
+    final failures = result['workspaceFailures'] as List;
+    expect(failures, hasLength(1));
+    final failure = failures.single as Map<String, dynamic>;
+    expect(failure['principal'], 'agent:invalid');
+    expect(failure['stage'], 'memory-corpus-preflight');
+    expect(failure['message'], contains('legacy-dialect-detected'));
+  });
+
+  test('--json keeps a configured workspace rebuild failure in the structured result', () async {
+    final agentDir = p.join(tempDir.path, 'agents', 'a');
+    final config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      agent: AgentConfig(
+        definitions: [
+          AgentDefinition(
+            id: 'a',
+            description: 'Agent A',
+            prompt: '',
+            workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+          ),
+        ],
+      ),
+    );
+    await seedCanonicalMemory(
+      agentDir,
+      topics: const {
+        'general': ['agent-a-marker'],
+      },
+    );
+    Directory(p.join(agentDir, '.dartclaw-memory-index.json')).createSync();
+    int? code;
+    final runner = DartclawRunner()
+      ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
+
+    await runner.run(['rebuild-index', '--json']);
+
+    expect(code, 1);
+    expect(output, hasLength(1));
+    final result = jsonDecode(output.single) as Map<String, dynamic>;
+    final failures = result['workspaceFailures'] as List;
+    expect(failures, hasLength(1));
+    final failure = failures.single as Map<String, dynamic>;
+    expect(failure['principal'], 'agent:a');
+    expect(failure['stage'], 'memory-index-rebuild');
+    expect(failure['message'], isNotEmpty);
+  });
+
   test('rebuild repairs an incompatible search store and leaves the next reconciliation current', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     workspaceOf(config);

@@ -106,9 +106,24 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s02-scoped-workspace-memory.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10"
+      ],
+      "verified": {
+        "at": "2026-09-14T16:49Z",
+        "summary": "Focused unit/static evidence passed: TI01 +13, TI02 +53, TI03 light +22, TI05 +21, TI06 +20, TI08 light +3, TI09 light +20, TI10 light +39, direct SDK +36, review-repair runtime +12, architecture +27; affected core/runtime/CLI/testing analysis found no issues; whole-repo format checked 2013 files with 0 changed. Heavy proofs S02-DP-TI03, TI04, TI07, TI08, TI09, TI10 remain UNEXECUTED and deferred to the final plan gate per coordinator timing."
+      },
       "owner": null,
       "scope": "Configured workspaces have independent canonical memory, daily logs, journal/curation and scoped lexical/vector retrieval. Existing context-engine access serves only granted owner knowledge. Cover W3/W4/W5 and memory/search ownership in W6; preserve owner behavior across both storage backends.",
       "sourceRefs": [
@@ -162,10 +177,10 @@
         "S01",
         "S03"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s04-inspectable-and-recoverable-history.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "codex/0.27-s04-history",
       "scope": "History remains stable to read across streaming/paging/reconnect, retains redacted tool details and partial output, resolves exact runtime approval requests once, and supports linked retry/edit/fork without destroying source history. Cover E3/E4/E5, Q2/Q3/Q7 and history/approval portions of Q6/Q9; retain eligibility and context/attachment boundaries. Own the retained shared tool/workflow-step disclosure correction (C09).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr5-stable-transcripts-and-actionable-approvals",
@@ -187,10 +202,10 @@
         "S01",
         "S03"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s05-effective-conversation-context.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "codex/0.27-s05-context",
       "scope": "The composer and session settings show truthful workspace ownership, project/directory/reference context, provider/model/effort and source-labelled telemetry. Authorized changes take effect on the next turn and revalidate references. Cover E8/Q9, workspace context in W6, project names/identicons and schema-bound title generation with manual-title precedence.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr3-effective-session-context",

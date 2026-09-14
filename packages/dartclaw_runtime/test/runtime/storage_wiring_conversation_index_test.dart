@@ -91,6 +91,32 @@ void main() {
     }
   });
 
+  test('administrative search retains a removed workspace principal without exposing it through owner scope', () async {
+    final sessions = SessionService(baseDir: config.sessionsDir);
+    final messages = MessageService(baseDir: config.sessionsDir);
+    final removed = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'removed', directory: '${dataDir.path}/removed-workspace'),
+    );
+    final message = await messages.insertMessage(
+      sessionId: removed.id,
+      role: 'assistant',
+      content: 'removedworkspace conversation evidence',
+    );
+    await messages.dispose();
+
+    final wiring = await _wire(config);
+    try {
+      expect((await wiring.conversationSearch.search('removedworkspace')).map((hit) => hit.messageId), [message.id]);
+      expect(await wiring.conversationIndex.search('removedworkspace', userId: 'owner'), isEmpty);
+      expect(
+        (await wiring.conversationIndex.search('removedworkspace', userId: 'agent:removed')).single.id,
+        message.id,
+      );
+    } finally {
+      await _close(wiring);
+    }
+  });
+
   test('the memory fast path leaves existing conversation rows untouched', () async {
     final first = await _wire(config);
     await first.conversationIndex.upsert([

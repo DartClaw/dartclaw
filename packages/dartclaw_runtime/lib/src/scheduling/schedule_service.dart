@@ -499,6 +499,7 @@ class ScheduleService {
       provider: _workerProviderId,
       securityProfile: _workerProviderId == null ? null : _workerPolicy?.containerProfile,
       executionMode: _workerProviderId == null ? null : _workerPolicy?.mode,
+      workspace: job.workspace,
     );
 
     Future<void> Function()? release;

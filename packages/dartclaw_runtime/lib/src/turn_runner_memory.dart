@@ -25,12 +25,8 @@ extension _TurnRunnerMemory on TurnRunner {
     required int toolEventCount,
     required String result,
   }) async {
-    final memFile = _memoryFile;
-    if (memFile == null || toolEventCount == 0 || toolEvents.isEmpty) return;
-    // A persona's conversation is not the owner's day: a channel-bound agent has
-    // no vault of its own yet and must not write into the owner's.
+    if (toolEventCount == 0 || toolEvents.isEmpty) return;
     final agentName = _activeTurns[sessionId]?.agentName;
-    if (agentName != null && agentName != 'main') return;
 
     final now = DateTime.now();
 
@@ -40,13 +36,41 @@ extension _TurnRunnerMemory on TurnRunner {
     try {
       final session = await sessions.getSession(sessionId);
       if (session == null || !_dailyLogSessionTypes.contains(session.type)) return;
+      if (!(_dailyLogEligible?.call(session) ?? true)) return;
+      final memFile =
+          _memoryFileForSession?.call(session, agentName) ??
+          (agentName == null || agentName == 'main' ? _memoryFile : null);
+      if (memFile == null) return;
       final t = session.title;
       if (t != null && t.isNotEmpty) title = t;
+
+      await _appendDailyLogRecord(
+        memFile: memFile,
+        sessionId: sessionId,
+        source: source,
+        userMessage: userMessage,
+        toolEvents: toolEvents,
+        toolEventCount: toolEventCount,
+        result: result,
+        title: title,
+        now: now,
+      );
     } catch (e) {
       TurnRunner._log.fine('Failed to fetch session title for daily log: $e');
-      return;
     }
+  }
 
+  Future<void> _appendDailyLogRecord({
+    required MemoryFileService memFile,
+    required String sessionId,
+    required String? source,
+    required String? userMessage,
+    required List<ToolUseEvent> toolEvents,
+    required int toolEventCount,
+    required String result,
+    required String title,
+    required DateTime now,
+  }) async {
     var loggedUserMessage = userMessage;
     if (source == 'web') {
       try {

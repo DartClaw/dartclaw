@@ -69,6 +69,25 @@ void main() {
     expect(hits.map((hit) => hit.score).toList(), orderedEquals([...hits.map((hit) => hit.score)]..sort()));
   });
 
+  test('append and delete use the workspace principal pinned in session metadata', () async {
+    final owner = await sessions.createSession();
+    final agent = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: '${root.path}/agent-a'),
+    );
+    await messages.insertMessage(sessionId: owner.id, role: 'user', content: 'owner same marker');
+    final agentMessage = await messages.insertMessage(sessionId: agent.id, role: 'user', content: 'agent same marker');
+    await indexer.idle;
+
+    expect((await index.search('same marker', userId: 'owner')).single.chunk, 'owner same marker');
+    expect((await index.search('same marker', userId: 'agent:a')).single.id, agentMessage.id);
+    expect(vectorSynchronizations.map((entry) => entry.userId).toSet(), {'owner', 'agent:a'});
+
+    await sessions.deleteSession(agent.id);
+    await indexer.idle;
+    expect(await index.search('same marker', userId: 'agent:a'), isEmpty);
+    expect((await index.search('same marker', userId: 'owner')).single.chunk, 'owner same marker');
+  });
+
   test('queued append followed by delete removes only the deletable session', () async {
     final user = await sessions.createSession();
     final channel = await sessions.createSession(type: SessionType.channel);

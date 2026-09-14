@@ -94,6 +94,8 @@ void main() {
           onMemoryObserve: factoryConfig.onMemoryObserve,
           onContextualMemoryApply: factoryConfig.onContextualMemoryApply,
           onContextualMemoryObserve: factoryConfig.onContextualMemoryObserve,
+          onContextualMemorySearch: factoryConfig.onContextualMemorySearch,
+          onContextualMemoryRead: factoryConfig.onContextualMemoryRead,
           onMemorySearch: factoryConfig.onMemorySearch,
           onMemoryRead: factoryConfig.onMemoryRead,
           onPermissionDenied: factoryConfig.onPermissionDenied,

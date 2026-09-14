@@ -120,6 +120,8 @@ class ClaudeCodeHarness extends BaseHarness {
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryObserve;
   final ContextualMemoryToolHandler? onContextualMemoryApply;
   final ContextualMemoryToolHandler? onContextualMemoryObserve;
+  final ContextualMemoryToolHandler? onContextualMemorySearch;
+  final ContextualMemoryToolHandler? onContextualMemoryRead;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
 
@@ -192,6 +194,8 @@ class ClaudeCodeHarness extends BaseHarness {
     this.onMemoryObserve,
     this.onContextualMemoryApply,
     this.onContextualMemoryObserve,
+    this.onContextualMemorySearch,
+    this.onContextualMemoryRead,
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,

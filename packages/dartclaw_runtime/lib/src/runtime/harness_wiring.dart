@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../concurrency/session_lock_manager.dart' show SessionLockNow, SessionLockTimerFactory;
+import '../mcp/mcp_server.dart' show McpCallerContext;
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
 import 'provider_resolution.dart' show sanitizeProviderRequestEnvironment;
@@ -283,6 +284,7 @@ class HarnessWiring {
   late SessionLockManager _lockManager;
   late SessionResetService _resetService;
   MemoryHandlers? _memoryHandlers;
+  final Map<String, MemoryHandlers> _workspaceMemoryHandlers = {};
   BudgetEnforcer? _budgetEnforcer;
   Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
@@ -327,6 +329,7 @@ class HarnessWiring {
   SessionResetService get resetService => _resetService;
   MemoryHandlers get memoryHandlers =>
       _memoryHandlers ?? (throw StateError('This runtime has no personal-memory handlers'));
+  Map<String, MemoryHandlers> get memoryHandlersByPrincipal => Map.unmodifiable(_workspaceMemoryHandlers);
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
   Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
   bool get authEnabled => _authEnabled;
@@ -359,32 +362,48 @@ class HarnessWiring {
 
     final memoryCorpus = _storage.personalMemoryCorpus;
     if (memoryCorpus != null) {
-      final selfImprovement = _selfImprovement = SelfImprovementService(
-        workspaceDir: config.workspaceDir,
-        corpusService: memoryCorpus,
-      );
-      _memoryHandlers = createMemoryHandlers(
-        memoryIndex: _storage.memoryIndex,
-        memoryFile: _storage.memoryFile,
-        corpusService: memoryCorpus,
-        searchBackend: _storage.searchBackend,
-        nativeSourceResolver: LiveMemorySourceResolver(
-          wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
-          kg: _storage.kg,
-          inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
-        ),
-        selfImprovement: selfImprovement,
-      );
+      for (final context in _storage.memoryContexts) {
+        final selfImprovement = SelfImprovementService(workspaceDir: context.directory, corpusService: context.corpus);
+        if (context.principal == 'owner') _selfImprovement = selfImprovement;
+        final handlers = createMemoryHandlers(
+          memoryIndex: _storage.memoryIndex,
+          memoryFile: context.file,
+          corpusService: context.corpus,
+          searchBackend: _storage.searchBackendFor(context.principal),
+          nativeSourceResolver: context.principal == 'owner'
+              ? LiveMemorySourceResolver(
+                  wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
+                  kg: _storage.kg,
+                  inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
+                )
+              : null,
+          selfImprovement: selfImprovement,
+        );
+        _workspaceMemoryHandlers[context.principal] = handlers;
+        if (context.principal == 'owner') _memoryHandlers = handlers;
+      }
     }
 
     final semanticMcpTools = <McpTool>[WebFetchTool(scan: _security.contentScan)];
     final memoryHandlers = _memoryHandlers;
     if (memoryHandlers != null) {
       semanticMcpTools.addAll([
-        MemoryApplyTool(handler: memoryHandlers.onApply, contextualHandler: memoryHandlers.apply),
-        MemoryObserveTool(handler: memoryHandlers.onObserve, contextualHandler: memoryHandlers.observe),
-        MemorySearchTool(handler: memoryHandlers.onSearch),
-        MemoryReadTool(handler: memoryHandlers.onRead),
+        MemoryApplyTool(
+          handler: memoryHandlers.onApply,
+          callerHandler: (args, caller) => _callScopedMemory('memory_apply', args, caller),
+        ),
+        MemoryObserveTool(
+          handler: memoryHandlers.onObserve,
+          callerHandler: (args, caller) => _callScopedMemory('memory_observe', args, caller),
+        ),
+        MemorySearchTool(
+          handler: memoryHandlers.onSearch,
+          callerHandler: (args, caller) => _callScopedMemory('memory_search', args, caller),
+        ),
+        MemoryReadTool(
+          handler: memoryHandlers.onRead,
+          callerHandler: (args, caller) => _callScopedMemory('memory_read', args, caller),
+        ),
       ]);
     }
     for (final entry in config.search.providers.entries) {
@@ -861,6 +880,12 @@ class HarnessWiring {
       messages: _storage.messages,
       behavior: behavior ?? _behavior,
       memoryFile: _storage.personalMemoryFile,
+      memoryFileForSession: (session, agentName) {
+        if (session.workspace == null && agentName != null && agentName != 'main' && !agentName.startsWith('cron:')) {
+          return null;
+        }
+        return _storage.memoryContextForWorkspace(session.workspace)?.file;
+      },
       sessions: _storage.sessions,
       turnState: _storage.turnStateStore,
       kv: _storage.kvService,
@@ -1309,10 +1334,16 @@ class HarnessWiring {
       onMemoryObserve: memoryHandlers?.onObserve,
       onContextualMemoryApply: memoryHandlers == null
           ? null
-          : (arguments, context) => memoryHandlers.apply(arguments, _memoryCaptureContext('memory_apply', context)),
+          : (arguments, context) => _callScopedHarnessMemory('memory_apply', arguments, context),
       onContextualMemoryObserve: memoryHandlers == null
           ? null
-          : (arguments, context) => memoryHandlers.observe(arguments, _memoryCaptureContext('memory_observe', context)),
+          : (arguments, context) => _callScopedHarnessMemory('memory_observe', arguments, context),
+      onContextualMemorySearch: memoryHandlers == null
+          ? null
+          : (arguments, context) => _callScopedHarnessMemory('memory_search', arguments, context),
+      onContextualMemoryRead: memoryHandlers == null
+          ? null
+          : (arguments, context) => _callScopedHarnessMemory('memory_read', arguments, context),
       onMemorySearch: memoryHandlers?.onSearch,
       onMemoryRead: memoryHandlers?.onRead,
       onPermissionDenied: (toolName, reason) {
@@ -1331,24 +1362,74 @@ class HarnessWiring {
     );
   }
 
-  MemoryCaptureContext _memoryCaptureContext(String toolName, HarnessTurnContext context) {
+  Future<Map<String, dynamic>> _callScopedHarnessMemory(
+    String toolName,
+    Map<String, dynamic> arguments,
+    HarnessTurnContext context,
+  ) async {
+    final memory = await _storage.memoryContextForCaller(
+      sessionId: context.sessionId,
+      agentId: context.agentName,
+      callerKind: context.source == 'cron' ? MemoryCallerKind.scheduled : MemoryCallerKind.ordinary,
+    );
+    final handlers =
+        _workspaceMemoryHandlers[memory.principal] ??
+        (throw StateError('Memory workspace is unavailable: ${memory.principal}'));
     final cronAgent = context.source == 'cron' ? context.agentName : null;
     var originKind = MemoryOriginKind.turn;
     var sourceLocator = 'session:${context.sessionId}';
-    if (cronAgent == 'cron:memory-journal') {
+    if (cronAgent?.startsWith('cron:memory-journal') ?? false) {
       originKind = MemoryOriginKind.journal;
-      sourceLocator = 'memory-journal';
-    } else if (cronAgent == 'cron:$memoryCurationJobId') {
+      sourceLocator = cronAgent!.substring('cron:'.length);
+    } else if (cronAgent?.startsWith('cron:$memoryCurationJobId') ?? false) {
       originKind = MemoryOriginKind.curation;
-      sourceLocator = memoryCurationJobId;
+      sourceLocator = cronAgent!.substring('cron:'.length);
     }
-    return MemoryCaptureContext(
+    final capture = MemoryCaptureContext(
+      userId: memory.principal,
       originKind: originKind,
       sourceLocator: sourceLocator,
       sourceEvent: 'turn:${context.turnId}',
       caller: context.agentName == 'main' ? toolName : context.agentName,
       sessionRef: context.sessionId,
     );
+    return switch (toolName) {
+      'memory_apply' => handlers.apply(arguments, capture),
+      'memory_observe' => handlers.observe(arguments, capture),
+      'memory_search' => handlers.search(arguments, capture),
+      'memory_read' => handlers.read(arguments, capture),
+      _ => throw StateError('Unsupported contextual memory tool: $toolName'),
+    };
+  }
+
+  Future<Map<String, dynamic>> _callScopedMemory(
+    String toolName,
+    Map<String, dynamic> arguments,
+    McpCallerContext caller,
+  ) async {
+    final memory = await _storage.memoryContextForCaller(sessionId: caller.sessionId, agentId: caller.agentId);
+    final handlers =
+        _workspaceMemoryHandlers[memory.principal] ??
+        (throw StateError('Memory workspace is unavailable: ${memory.principal}'));
+    final context = MemoryCaptureContext(
+      userId: memory.principal,
+      originKind: MemoryOriginKind.turn,
+      sourceLocator: caller.taskId != null
+          ? 'task:${caller.taskId}'
+          : caller.sessionId == null
+          ? 'authority:${caller.authorityId}'
+          : 'session:${caller.sessionId}',
+      caller: caller.agentId ?? 'mcp-bridge:$toolName',
+      sessionRef: caller.sessionId,
+      sourceEvent: caller.sourceEvent,
+    );
+    return switch (toolName) {
+      'memory_apply' => handlers.apply(arguments, context),
+      'memory_observe' => handlers.observe(arguments, context),
+      'memory_search' => handlers.search(arguments, context),
+      'memory_read' => handlers.read(arguments, context),
+      _ => throw StateError('Unsupported memory tool: $toolName'),
+    };
   }
 
   void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {
@@ -1414,7 +1495,7 @@ class HarnessWiring {
     if (harness is! ClaudeCodeHarness || _memoryHandlers == null) return;
     harness.onCompactionStarting = (sessionId, trigger) async {
       try {
-        await _capturePreCompactObservation(sessionId, trigger);
+        await _capturePreCompactObservation(sessionId, trigger, harness.activeTurnContext);
       } finally {
         _eventBus.fire(CompactionStartingEvent(sessionId: sessionId, trigger: trigger, timestamp: DateTime.now()));
       }
@@ -1432,8 +1513,16 @@ class HarnessWiring {
     };
   }
 
-  Future<void> _capturePreCompactObservation(String sessionId, String trigger) async {
-    final memoryHandlers = _memoryHandlers;
+  Future<void> _capturePreCompactObservation(String sessionId, String trigger, HarnessTurnContext? turnContext) async {
+    final session = await _storage.sessions.getSession(sessionId);
+    if (session == null) return;
+    final agentName = turnContext?.agentName;
+    final memory = await _storage.memoryContextForCaller(
+      sessionId: sessionId,
+      agentId: agentName,
+      callerKind: turnContext?.source == 'cron' ? MemoryCallerKind.scheduled : MemoryCallerKind.ordinary,
+    );
+    final memoryHandlers = _workspaceMemoryHandlers[memory.principal];
     if (memoryHandlers == null) return;
     final messages = await _storage.messages.getMessagesTail(sessionId, count: _preCompactMessageCount);
     if (messages.isEmpty) return;
@@ -1446,10 +1535,11 @@ class HarnessWiring {
     await memoryHandlers.observe(
       {'text': text, 'role': 'observation'},
       MemoryCaptureContext(
+        userId: memory.principal,
         originKind: MemoryOriginKind.turn,
         sourceLocator: 'session:$sessionId',
         sourceEvent: 'pre-compact:${messages.last.id}',
-        caller: 'claude:PreCompact',
+        caller: agentName == null || agentName == 'main' ? 'claude:PreCompact' : agentName,
         sessionRef: sessionId,
       ),
     );

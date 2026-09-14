@@ -283,6 +283,27 @@ void main() {
     }
   });
 
+  test('contextual retrieval sends the pinned principal through search and resolution', () async {
+    const locator = 'qmd:/agent-entry.md';
+    final recording = _RecordingBackend()
+      ..results = const [MemorySearchResult(text: 'Agent fact', source: locator, score: 0, locator: locator)];
+    handlers = createMemoryHandlers(
+      memoryIndex: memory,
+      memoryFile: memoryFile,
+      corpusService: corpus,
+      searchBackend: recording,
+    );
+    const agentContext = MemoryCaptureContext(userId: 'agent:a', sourceLocator: 'session:agent-a');
+
+    final searched = _json(await handlers.search({'query': 'Agent fact'}, agentContext));
+    final read = _json(await handlers.read({'locator': locator}, agentContext));
+
+    expect((searched['results'] as List), isNotEmpty);
+    expect((read['results'] as List), isEmpty);
+    expect(recording.searchUserIds, ['agent:a']);
+    expect(recording.resolveUserIds, ['agent:a']);
+  });
+
   test('search exposes selected-backend degradation without dropping healthy results', () async {
     final backend = _RecordingBackend()
       ..results = const [MemorySearchResult(text: 'Falcon survives', source: 'native', score: 0)]
@@ -639,6 +660,8 @@ small body
 
 final class _RecordingBackend implements SearchBackend {
   final queries = <String>[];
+  final searchUserIds = <String>[];
+  final resolveUserIds = <String>[];
   List<MemorySearchResult> results = const [];
   List<String> degradedLayers = const [];
   List<MemorySearchDegradation> degradations = const [];
@@ -652,6 +675,7 @@ final class _RecordingBackend implements SearchBackend {
     Set<SearchResultLayer>? layers,
   }) async {
     queries.add(query);
+    searchUserIds.add(userId);
     return MemorySearchOutcome(
       results: results,
       degradedLayers: degradedLayers,
@@ -661,7 +685,10 @@ final class _RecordingBackend implements SearchBackend {
   }
 
   @override
-  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async {
+    resolveUserIds.add(userId);
+    return null;
+  }
 
   @override
   Future<void> indexAfterWrite() async {}

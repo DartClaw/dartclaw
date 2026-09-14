@@ -2,8 +2,9 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.26 memory and conversation hybrid projections, embedding-fingerprint lifecycle, PostgreSQL
-serving interlock, language-aware search, bounded turn-source provenance, and filesystem-backed instance-local state.
+**Current through**: 0.27 owner and configured workspace memory and conversation projections, embedding-fingerprint
+lifecycle, PostgreSQL serving interlock, language-aware search, bounded turn-source provenance, and filesystem-backed
+instance-local state.
 The authoritative SQLite store is `dartclaw.db`.
 
 ---
@@ -32,7 +33,7 @@ transactor delegates transaction ownership to the backend shared by its particip
 
 Vector embeddings are derived data with an independent compatibility boundary. SQLite stores memory and conversation
 embeddings in a separate `vectors.db` as little-endian float32 blobs with explicit dimensions. PostgreSQL stores the
-same two owner-scoped corpora in `memory_vectors` and `conversation_vectors` through the existing application pool.
+same two principal-scoped corpora in `memory_vectors` and `conversation_vectors` through the existing application pool.
 Hybrid startup first verifies an administrator-installed pgvector extension in `public`; lexical-only preparation
 never queries the extension. An absent optional PostgreSQL vector projection is created only after the authoritative
 schema validates, while partial or incompatible vector objects refuse with derived-only recovery guidance.
@@ -124,11 +125,17 @@ not searchable — it is excluded from the derived search index, unlike `learnin
 converted to the error role by memory preflight at startup; unrecognised remainder text is preserved verbatim under
 `memory/legacy/`.
 
+The owner corpus lives in `workspace/` under principal `owner`. Every explicitly configured named-agent workspace owns
+the same canonical memory layout and daily-log partitions under principal `agent:<agent-id>`. Canonical files, health
+state, lexical rows, and vectors use that directory-principal pair together; a project working directory does not
+change it.
+
 `.dartclaw-memory-corpus.json` is non-authoritative coordination state. It records the authenticated identity, role,
 length, digest, and record IDs of each canonical member so ordinary reads and sparse writes can select only relevant
-documents while preserving unopened members. Startup authenticates the complete corpus in bounded batches before
-publishing the manifest or healthy derived-index state. A missing manifest is rebuilt from canonical Markdown; a
-semantic mismatch triggers stopped-edit reconciliation or fails closed before index publication.
+documents while preserving unopened members. Startup authenticates each complete corpus in bounded batches before
+publishing its manifest or healthy derived-index state. A failed configured corpus stays unavailable without replacing
+the owner or another workspace. A missing manifest is rebuilt from canonical Markdown; a semantic mismatch triggers
+stopped-edit reconciliation or fails closed before index publication.
 
 ### Database Backend
 
@@ -408,10 +415,14 @@ index; `errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjecti
 `SqliteFtsIndex` stores their chunks in `memory_chunks`; `PostgresFtsIndex` stores the PostgreSQL projection rows and
 binds the configured language as data. One deployment language drives memory, conversation, and KG search. KG facts remain in
 `kg_facts` and use a query-time vector; they have no stored vector or search index beyond `kg_facts_lookup`.
-**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` atomically recreates memory projection data while preserving
+Owner documents use `user_id = 'owner'`; each configured workspace uses `user_id = 'agent:<agent-id>'` in the same
+lexical and vector stores. Ordinary memory access resolves the pinned session workspace before touching canonical or
+derived data. `context_research` remains an explicitly granted read of owner knowledge with owner provenance.
+**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` enumerates the owner and explicit current configured
+workspaces and atomically recreates their memory projection data while preserving
 stable entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild authenticates
 bounded corpus batches and validates the complete projection before publication. SQLite publishes a validated sibling file; PostgreSQL
-publishes through one transaction. A failure preserves the prior index on both backends. KG search uses the new language
+publishes through one transaction. A principal failure preserves its prior index on both backends. KG search uses the new language
 after restart; stored memory vectors keep their previous language until rebuild. Mixed-language corpora can mis-stem,
 ablaut forms are not conflated, and PostgreSQL does not fold diacritics where SQLite FTS5 does.
 
@@ -420,8 +431,10 @@ ablaut forms are not conflated, and PostgreSQL does not fold diacritics where SQ
 `ConversationIndexProjection` maps each persisted `user` or `assistant` message in a chat-facing session
 (`SessionType.isChatFacing`: `user`, `main`, `channel`) to one `SearchDocument` with one content chunk. Its ID is the
 persisted message UUID; metadata contains `session_id` and `role`, and its timestamp is the message's UTC `createdAt`.
-System messages, message metadata, attachments, and non-chat session types are excluded. Every operation uses the
-instance-owner scope (`user_id = 'owner'`), independently of the memory corpus.
+System messages, message metadata, attachments, and non-chat session types are excluded.
+`ConversationState.includesMessage` is the visibility authority for both incremental re-projection and complete
+rebuild, so queued, held, or removed input does not enter search. Each eligible row uses the session's pinned workspace
+principal, or `owner` when the session has no configured workspace.
 
 **Storage**: SQLite `search.db` holds `conversation_chunks` and its external-content `conversation_chunks_fts` table;
 separate `vectors.db` holds `conversation_vectors`. PostgreSQL holds `conversation_chunks` with `content_tsv` and a
@@ -432,9 +445,10 @@ position in the document, while integer `id` is only the database row identity.
 message persistence. The same serialized queue removes rows after clear, successful deletion, or archival and restores
 them when a session becomes chat-facing again. Index failures are logged and later rebuilds reconcile missed work.
 **Query**: `ConversationSearchService` returns message/session IDs, role, UTC timestamp, text and backend score.
-It is available to Dart service integrations.
-**Rebuild**: `dartclaw rebuild-index` reconstructs both corpora from their own files. Conversation rebuilding clears stale
-rows even when there are no chat-facing sessions. A memory rebuild also re-projects conversations after SQLite publishes
+Its administrative surface aggregates the owner and configured principal scopes; agent memory tools do not receive
+that cross-workspace view.
+**Rebuild**: `dartclaw rebuild-index` reconstructs both corpora from their own files for the owner and explicit current
+configured workspaces. Conversation rebuilding clears stale rows even when there are no chat-facing sessions. A memory rebuild also re-projects conversations after SQLite publishes
 its replacement `search.db`; PostgreSQL uses the same refresh rule. SQLite's derived-store compatibility gate authenticates each corpus
 separately. Neither rebuild changes message NDJSON, wiki pages or KG facts. PostgreSQL uses `database.fts_language`;
 stored conversation text vectors change language only after rebuild. SQLite uses sanitized `unicode61` terms without
@@ -823,8 +837,8 @@ durable seam that connects workflow execution to task/worktree persistence.
 | **Session archived** | Type changes to `archive`; NDJSON is preserved and conversation rows are removed. Returning to a chat-facing type restores them. Task sessions are protected from automated archival. |
 | **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
 | **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in the configured derived index. |
-| **Memory or chat-facing message changes** | The corpus lexical projection updates first. Hybrid mode then reuses exact content-hash/provider-fingerprint vectors, embeds missing chunks, retires stale identities and refuses late results if the source changed. Embedding failure leaves lexical search current and increments that corpus's unembedded count. |
-| **Embedding provider or model changes** | The new provider fingerprint makes prior vectors ineligible. Startup and `rebuild-index` reconcile memory and conversation independently without changing either canonical source. |
+| **Memory or chat-facing message changes** | The workspace principal's lexical projection updates first. Hybrid mode then reuses exact content-hash/provider-fingerprint vectors, embeds missing chunks, retires stale identities and refuses late results if the source changed. Embedding failure leaves lexical search current and increments that corpus's unembedded count. |
+| **Embedding provider or model changes** | The new provider fingerprint makes prior vectors ineligible. Startup and `rebuild-index` reconcile owner and configured workspace memory and conversations independently without changing canonical sources. |
 | **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks. |
 
 ---
@@ -932,6 +946,9 @@ Append-only logs that must not block the caller:
 | Canonical topic entries | Archive old entries and remove exact replays; regenerate the bounded index | Nightly cron (`MemoryPruner`) |
 | Sessions | Archive after N days idle, count/disk budget | Scheduled (`SessionMaintenanceService`) |
 | SQLite `search.db` or PostgreSQL memory/conversation search tables | Rebuild memory from searchable canonical roles and conversations from session NDJSON; SQLite memory publication also restores conversation rows | Manual (`dartclaw rebuild-index`) and startup reconciliation |
+
+The memory journal and optional curation schedule each register one owner run plus one uniquely named run per configured
+workspace. No other scheduled job fans out by workspace.
 
 ---
 

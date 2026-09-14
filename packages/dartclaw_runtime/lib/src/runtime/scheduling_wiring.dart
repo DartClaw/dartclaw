@@ -35,6 +35,7 @@ class SchedulingWiring {
     required SecurityWiring security,
     required SseBroadcast sseBroadcast,
     required MemoryHandlers memoryHandlers,
+    Map<String, MemoryHandlers> memoryHandlersByPrincipal = const {},
     required CredentialHealthMonitor credentialHealth,
     required MessageRedactor messageRedactor,
     BehaviorFileService? behavior,
@@ -45,6 +46,7 @@ class SchedulingWiring {
        _security = security,
        _sseBroadcast = sseBroadcast,
        _memoryHandlers = memoryHandlers,
+       _memoryHandlersByPrincipal = memoryHandlersByPrincipal,
        _credentialHealth = credentialHealth,
        _messageRedactor = messageRedactor,
        _behavior = behavior,
@@ -57,6 +59,7 @@ class SchedulingWiring {
   final SecurityWiring _security;
   final SseBroadcast _sseBroadcast;
   final MemoryHandlers _memoryHandlers;
+  final Map<String, MemoryHandlers> _memoryHandlersByPrincipal;
   final CredentialHealthMonitor _credentialHealth;
   final MessageRedactor _messageRedactor;
   final BehaviorFileService? _behavior;
@@ -161,45 +164,58 @@ class SchedulingWiring {
     _scheduledJobs = [...composed.jobs];
 
     if (config.memory.journalEnabled) {
-      _scheduledJobs.add(
-        ScheduledJob(
-          id: 'memory-journal',
-          prompt: MemoryJournal.prompt,
-          scheduleType: ScheduleType.cron,
-          cronExpression: journalCron,
-          deliveryMode: DeliveryMode.none,
-          allowedTools: const ['file_read', 'memory_observe'],
-        ),
-      );
-      _displayJobs.add({
-        'name': 'memory-journal',
-        'schedule': config.memory.journalSchedule,
-        'delivery': 'none',
-        'status': 'active',
-        'runnable': true,
-      });
-      _systemJobNames.add('memory-journal');
-      _log.info('Memory journal scheduled (${config.memory.journalSchedule})');
+      for (final context in _storage.memoryContexts) {
+        final id = context.workspace == null ? 'memory-journal' : 'memory-journal:${context.workspace!.agentId}';
+        _scheduledJobs.add(
+          ScheduledJob(
+            id: id,
+            prompt: MemoryJournal.prompt,
+            scheduleType: ScheduleType.cron,
+            cronExpression: journalCron,
+            deliveryMode: DeliveryMode.none,
+            allowedTools: const ['file_read', 'memory_observe'],
+            workspace: context.workspace,
+          ),
+        );
+        _displayJobs.add({
+          'name': id,
+          'schedule': config.memory.journalSchedule,
+          'delivery': 'none',
+          'status': 'active',
+          'runnable': true,
+        });
+        _systemJobNames.add(id);
+        _log.info('$id scheduled (${config.memory.journalSchedule})');
+      }
     }
 
     if (curationCron != null) {
-      _scheduledJobs.add(
-        buildMemoryCurationJob(
-          cronExpression: curationCron,
-          corpus: _storage.memoryCorpus,
-          applyService: _memoryHandlers.applyService,
-          maxIndexBytes: config.memory.maxBytes,
-        ),
-      );
-      _displayJobs.add({
-        'name': memoryCurationJobId,
-        'schedule': config.memory.curationSchedule,
-        'delivery': 'none',
-        'status': 'active',
-        'runnable': true,
-      });
-      _systemJobNames.add(memoryCurationJobId);
-      _log.info('Memory curation scheduled (${config.memory.curationSchedule})');
+      for (final context in _storage.memoryContexts) {
+        final id = context.workspace == null
+            ? memoryCurationJobId
+            : '$memoryCurationJobId:${context.workspace!.agentId}';
+        final handlers = context.workspace == null ? _memoryHandlers : _memoryHandlersByPrincipal[context.principal];
+        if (handlers == null) continue;
+        _scheduledJobs.add(
+          buildMemoryCurationJob(
+            cronExpression: curationCron,
+            corpus: context.corpus,
+            applyService: handlers.applyService,
+            maxIndexBytes: config.memory.maxBytes,
+            jobId: id,
+            workspace: context.workspace,
+          ),
+        );
+        _displayJobs.add({
+          'name': id,
+          'schedule': config.memory.curationSchedule,
+          'delivery': 'none',
+          'status': 'active',
+          'runnable': true,
+        });
+        _systemJobNames.add(id);
+        _log.info('$id scheduled (${config.memory.curationSchedule})');
+      }
     }
 
     // Register memory pruner as a built-in scheduled job.

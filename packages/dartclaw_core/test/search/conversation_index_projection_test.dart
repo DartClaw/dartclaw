@@ -108,4 +108,45 @@ void main() {
     await messages.insertMessage(sessionId: first.id, role: 'user', content: 'source changed');
     expect(await projection.authenticateComplete(), isFalse);
   });
+
+  test('rebuild keeps owner and pinned workspace conversations in separate principal corpora', () async {
+    final root = Directory.systemTemp.createTempSync('conversation_projection_scoped_');
+    final sessions = SessionService(baseDir: root.path);
+    final messages = MessageService(baseDir: root.path);
+    final backend = SqliteBackend(sqlite3.openInMemory());
+    addTearDown(() async {
+      await messages.dispose();
+      await backend.close();
+      root.deleteSync(recursive: true);
+    });
+    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
+    final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+    final owner = await sessions.createSession();
+    final agentA = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: '${root.path}/agent-a'),
+    );
+    final agentB = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'b', directory: '${root.path}/agent-b'),
+    );
+    await messages.insertMessage(sessionId: owner.id, role: 'user', content: 'owner-only-marker');
+    await messages.insertMessage(sessionId: agentA.id, role: 'user', content: 'agent-a-only-marker');
+    await messages.insertMessage(sessionId: agentB.id, role: 'user', content: 'agent-b-only-marker');
+
+    final projection = ConversationIndexProjection(
+      sessions: sessions,
+      messages: messages,
+      configuredPrincipals: const {'owner', 'agent:a', 'agent:b'},
+    );
+    final result = await projection.rebuild(index);
+
+    expect((result.messageCount, result.sessionCount), (3, 3));
+    expect((await index.search('marker', userId: 'owner')).single.chunk, 'owner-only-marker');
+    expect((await index.search('marker', userId: 'agent:a')).single.chunk, 'agent-a-only-marker');
+    expect((await index.search('marker', userId: 'agent:b')).single.chunk, 'agent-b-only-marker');
+    final admin = await ConversationSearchService(
+      index: index,
+      userIds: const {'owner', 'agent:a', 'agent:b'},
+    ).search('marker');
+    expect(admin.map((hit) => hit.text).toSet(), {'owner-only-marker', 'agent-a-only-marker', 'agent-b-only-marker'});
+  });
 }

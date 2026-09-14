@@ -10,6 +10,29 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+enum MemoryCallerKind { ordinary, scheduled }
+
+/// Canonical and derived memory services bound to one storage principal.
+final class WorkspaceMemoryContext {
+  const new({
+    required this.workspace,
+    required this.principal,
+    required this.directory,
+    required this.corpus,
+    required this.manifest,
+    required this.health,
+    required this.file,
+  });
+
+  final AgentWorkspace? workspace;
+  final String principal;
+  final String directory;
+  final MemoryCorpusService corpus;
+  final MemoryCorpusManifest manifest;
+  final IndexHealthStore health;
+  final MemoryFileService file;
+}
+
 /// Constructs and exposes storage-layer services.
 ///
 /// Owns shared persistence plus the personal-memory storage that connected
@@ -79,7 +102,6 @@ class StorageWiring {
   late TaskEventRecorder _taskEventRecorder;
   late TurnStateStore _turnStateStore;
   MemoryCorpusService? _memoryCorpus;
-  MemoryCorpusManifest? _memoryManifest;
   IndexHealthStore? _indexHealth;
   MemoryFileService? _memoryFile;
   FullTextIndex? _memoryIndex;
@@ -97,6 +119,8 @@ class StorageWiring {
   late SqliteWorkflowRunRepository _workflowRunRepository;
   QmdManager? _qmdManager;
   SearchBackend? _searchService;
+  final Map<String, WorkspaceMemoryContext> _memoryContexts = {};
+  final Map<String, SearchBackend> _workspaceSearchBackends = {};
   var _searchUnavailable = false;
 
   SessionService get sessions => _sessions;
@@ -125,6 +149,44 @@ class StorageWiring {
   SqliteWorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
   QmdManager? get qmdManager => _qmdManager;
   SearchBackend get searchBackend => _searchService ?? _missingPersonalMemory('searchBackend');
+  Iterable<WorkspaceMemoryContext> get memoryContexts => _memoryContexts.values;
+
+  WorkspaceMemoryContext get ownerMemoryContext =>
+      _memoryContexts['owner'] ?? _missingPersonalMemory('ownerMemoryContext');
+
+  WorkspaceMemoryContext? memoryContextForWorkspace(AgentWorkspace? workspace) {
+    if (workspace == null) return _memoryContexts['owner'];
+    final context = _memoryContexts[workspace.storagePrincipal];
+    if (context == null || context.directory != workspace.directory) return null;
+    return context;
+  }
+
+  SearchBackend searchBackendFor(String principal) =>
+      _workspaceSearchBackends[principal] ?? (throw StateError('Memory workspace is unavailable: $principal'));
+
+  Future<WorkspaceMemoryContext> memoryContextForCaller({
+    required String? sessionId,
+    required String? agentId,
+    MemoryCallerKind callerKind = MemoryCallerKind.ordinary,
+  }) async {
+    if (sessionId == null || sessionId.isEmpty) {
+      throw StateError('Memory access requires a pinned session workspace');
+    }
+    final session = await _sessions.getSession(sessionId);
+    if (session == null) throw StateError('Memory access session is unavailable: $sessionId');
+    final workspace = session.workspace;
+    if (workspace == null) {
+      if (callerKind == MemoryCallerKind.ordinary && agentId != null && agentId != 'main') {
+        throw StateError('Agent "$agentId" has no pinned memory workspace');
+      }
+      return ownerMemoryContext;
+    }
+    if (callerKind == MemoryCallerKind.ordinary && agentId != workspace.agentId) {
+      throw StateError('Memory caller does not match the pinned session workspace');
+    }
+    return memoryContextForWorkspace(workspace) ??
+        (throw StateError('Pinned memory workspace is unavailable: ${workspace.storagePrincipal}'));
+  }
 
   Never _missingPersonalMemory(String service) =>
       throw StateError('StorageWiring.$service is not composed without personal memory');
@@ -136,7 +198,6 @@ class StorageWiring {
     _messages = MessageService(baseDir: config.sessionsDir);
 
     if (personalMemoryEnabled) {
-      _conversationProjection = ConversationIndexProjection(sessions: _sessions, messages: _messages);
       await _wirePersonalMemoryBeforeTaskStorage();
     } else {
       await _sessions.getOrCreateMainSession();
@@ -267,7 +328,15 @@ class StorageWiring {
       final result = await MemoryPreflight(workspaceDir: config.workspaceDir, corpusService: memoryCorpus).preflight();
       _log.info(result.render());
       currentManifest = await memoryCorpus.manifest();
-      _memoryManifest = currentManifest;
+      _memoryContexts['owner'] = WorkspaceMemoryContext(
+        workspace: null,
+        principal: 'owner',
+        directory: config.workspaceDir,
+        corpus: memoryCorpus,
+        manifest: currentManifest,
+        health: IndexHealthStore(workspaceDir: config.workspaceDir),
+        file: MemoryFileService(baseDir: config.workspaceDir, corpusService: memoryCorpus),
+      );
     } on MemoryPreflightException catch (e, st) {
       await memoryCorpus.close();
       _log.severe(
@@ -284,7 +353,40 @@ class StorageWiring {
       _exitFn(1);
     }
 
-    final indexHealth = _indexHealth = IndexHealthStore(workspaceDir: config.workspaceDir);
+    for (final definition in config.agent.definitions) {
+      final workspace = definition.workspace;
+      if (workspace == null || definition.workspaceConfigurationError != null) continue;
+      final corpus = MemoryCorpusService(workspaceDir: workspace.directory);
+      try {
+        final result = await MemoryPreflight(workspaceDir: workspace.directory, corpusService: corpus).preflight();
+        _log.info('${workspace.storagePrincipal}: ${result.render()}');
+        final manifest = await corpus.manifest();
+        _memoryContexts[workspace.storagePrincipal] = WorkspaceMemoryContext(
+          workspace: workspace,
+          principal: workspace.storagePrincipal,
+          directory: workspace.directory,
+          corpus: corpus,
+          manifest: manifest,
+          health: IndexHealthStore(workspaceDir: workspace.directory),
+          file: MemoryFileService(baseDir: workspace.directory, corpusService: corpus),
+        );
+      } on Object catch (error, stackTrace) {
+        await corpus.close();
+        _log.severe(
+          '${workspace.storagePrincipal} memory corpus preflight failed; this workspace is unavailable',
+          error,
+          stackTrace,
+        );
+      }
+    }
+
+    _conversationProjection = ConversationIndexProjection(
+      sessions: _sessions,
+      messages: _messages,
+      configuredPrincipals: _memoryContexts.keys.toSet(),
+    );
+
+    final indexHealth = _indexHealth = ownerMemoryContext.health;
     if (config.database.backend != DatabaseBackendKind.sqlite) return;
     final indexReconciler =
         _injectedIndexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: indexHealth);
@@ -301,19 +403,23 @@ class StorageWiring {
           healthStore: indexHealth,
           populate: (tx) async {
             final index = SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.memoryChunks);
-            var firstBatch = true;
-            await for (final batch in _canonicalRowBatches(manifest)) {
-              if (firstBatch) {
-                await index.replaceAll(batch, userId: 'owner');
-                firstBatch = false;
-              } else {
-                await index.upsert(batch, userId: 'owner');
+            for (final context in _memoryContexts.values) {
+              var firstBatch = true;
+              await for (final batch in _canonicalRowBatches(context)) {
+                if (firstBatch) {
+                  await index.replaceAll(batch, userId: context.principal);
+                  firstBatch = false;
+                } else {
+                  await index.upsert(batch, userId: context.principal);
+                }
               }
+              if (firstBatch) await index.replaceAll(const <SearchDocument>[], userId: context.principal);
             }
-            if (firstBatch) await index.replaceAll(const <SearchDocument>[], userId: 'owner');
           },
           authenticateComplete: () async {
-            await memoryCorpus.authenticate(manifest);
+            for (final context in _memoryContexts.values) {
+              await context.corpus.authenticate(context.manifest);
+            }
             return true;
           },
           corpora: [
@@ -340,7 +446,7 @@ class StorageWiring {
     if (!_searchUnavailable) {
       try {
         final recovery = await indexReconciler.ensureCurrentBatched(
-          rowBatches: () => _canonicalRowBatches(manifest),
+          rowBatches: () => _canonicalRowBatches(ownerMemoryContext),
           canonicalRevision: manifest.collectionRevision,
           canonicalFingerprint: manifest.fingerprint,
           authenticateComplete: () => memoryCorpus.authenticate(manifest),
@@ -381,6 +487,34 @@ class StorageWiring {
     }
 
     if (_hybridEnabled) _ensureEmbeddingProvider();
+
+    if (!_searchUnavailable) {
+      final backend = _searchBackend!;
+      for (final context in _memoryContexts.values.where((context) => context.principal != 'owner')) {
+        final reconciler = CanonicalIndexReconciler(
+          healthStore: context.health,
+          target: TransactionalRebuildTarget(
+            backend,
+            indexFactory: (tx) => SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.memoryChunks),
+          ),
+        );
+        try {
+          await reconciler.ensureCurrentBatched(
+            rowBatches: () => _canonicalRowBatches(context),
+            canonicalRevision: context.manifest.collectionRevision,
+            canonicalFingerprint: context.manifest.fingerprint,
+            authenticateComplete: () => context.corpus.authenticate(context.manifest),
+            userId: context.principal,
+          );
+        } on Object catch (error, stackTrace) {
+          _log.severe(
+            '${context.principal} memory index recovery failed; canonical memory remains available',
+            error,
+            stackTrace,
+          );
+        }
+      }
+    }
   }
 
   void _ensureEmbeddingProvider() {
@@ -395,31 +529,39 @@ class StorageWiring {
   }
 
   Future<void> _wirePostgresIndex(DatabaseBackend backend) async {
-    final manifest = _memoryManifest!;
-    final health = _indexHealth!;
-    final target = TransactionalRebuildTarget(
-      backend,
-      indexFactory: (tx) => PostgresFtsIndex.withinTransaction(
-        tx,
-        table: PostgresFtsTable.memoryChunks,
-        language: config.database.ftsLanguage,
-      ),
-    );
-    final reconciler = _injectedIndexReconciler ?? CanonicalIndexReconciler(healthStore: health, target: target);
-    try {
-      final recovery = await reconciler.ensureCurrentBatched(
-        rowBatches: () => _canonicalRowBatches(manifest),
-        canonicalRevision: manifest.collectionRevision,
-        canonicalFingerprint: manifest.fingerprint,
-        authenticateComplete: () => _memoryCorpus!.authenticate(manifest),
+    for (final context in _memoryContexts.values) {
+      final target = TransactionalRebuildTarget(
+        backend,
+        indexFactory: (tx) => PostgresFtsIndex.withinTransaction(
+          tx,
+          table: PostgresFtsTable.memoryChunks,
+          language: config.database.ftsLanguage,
+        ),
       );
-      _memoryIndexRebuilt = recovery.rebuilt;
-      _log.info(
-        'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
-        '(${recovery.rowCount} rows)',
-      );
-    } on Object catch (error, stackTrace) {
-      _log.severe('Memory index recovery failed; canonical memory remains available', error, stackTrace);
+      final injected = _injectedIndexReconciler;
+      final reconciler = context.principal == 'owner' && injected != null
+          ? injected
+          : CanonicalIndexReconciler(healthStore: context.health, target: target);
+      try {
+        final recovery = await reconciler.ensureCurrentBatched(
+          rowBatches: () => _canonicalRowBatches(context),
+          canonicalRevision: context.manifest.collectionRevision,
+          canonicalFingerprint: context.manifest.fingerprint,
+          authenticateComplete: () => context.corpus.authenticate(context.manifest),
+          userId: context.principal,
+        );
+        _memoryIndexRebuilt = _memoryIndexRebuilt || recovery.rebuilt;
+        _log.info(
+          '${context.principal} memory index ${recovery.health.state.name} at collection revision '
+          '${recovery.revision} (${recovery.rowCount} rows)',
+        );
+      } on Object catch (error, stackTrace) {
+        _log.severe(
+          '${context.principal} memory index recovery failed; canonical memory remains available',
+          error,
+          stackTrace,
+        );
+      }
     }
     _memoryIndex = PostgresFtsIndex(
       backend,
@@ -429,9 +571,7 @@ class StorageWiring {
   }
 
   Future<void> _wirePersonalMemoryAfterTaskStorage() async {
-    final memoryCorpus = _memoryCorpus!;
-    final indexHealth = _indexHealth;
-    _memoryFile = MemoryFileService(baseDir: config.workspaceDir, corpusService: memoryCorpus);
+    _memoryFile = ownerMemoryContext.file;
     final memoryIndex = _memoryIndex ??= _usesPostgres
         ? PostgresFtsIndex(_taskBackend!, table: PostgresFtsTable.memoryChunks, language: config.database.ftsLanguage)
         : SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.memoryChunks);
@@ -475,10 +615,22 @@ class StorageWiring {
                 );
               }
             },
+      principalForSession: (session) => session.workspace?.storagePrincipal ?? 'owner',
     );
     _messages.registerObserver(indexer);
     _sessions.registerObserver(indexer);
-    _conversationSearch = ConversationSearchService(index: conversationIndex, query: _conversationHybridSearch?.search);
+    final conversationPrincipals = {
+      ..._memoryContexts.keys,
+      for (final session in await _sessions.listSessions(
+        types: SessionType.values.where((type) => type.isChatFacing).toList(),
+      ))
+        session.workspace?.storagePrincipal ?? 'owner',
+    };
+    _conversationSearch = ConversationSearchService(
+      index: conversationIndex,
+      query: _conversationHybridSearch?.search,
+      userIds: conversationPrincipals,
+    );
 
     if (config.search.backend == 'qmd') {
       final mgr =
@@ -508,12 +660,29 @@ class StorageWiring {
           ? null
           : HybridSearchBackend(search: _memoryHybridSearch!, toMemoryResult: MemoryIndexProjection.toSearchResult),
     );
-    memoryCorpus.registerPostCommitProjection((projection, result) async {
+    _workspaceSearchBackends['owner'] = searchBackend;
+    for (final context in _memoryContexts.values.where((context) => context.principal != 'owner')) {
+      _workspaceSearchBackends[context.principal] = ComposedSearchBackend(
+        personal: _memoryHybridSearch == null
+            ? Fts5SearchBackend(index: memoryIndex)
+            : HybridSearchBackend(search: _memoryHybridSearch!, toMemoryResult: MemoryIndexProjection.toSearchResult),
+        wiki: WikiSearchSource(workspaceDir: context.directory),
+        indexHealthProbe: () => _probeWorkspaceIndexHealth(context),
+      );
+    }
+    for (final context in _memoryContexts.values) {
+      _registerMemoryProjection(context, memoryIndex);
+    }
+  }
+
+  void _registerMemoryProjection(WorkspaceMemoryContext context, FullTextIndex memoryIndex) {
+    final searchBackend = searchBackendFor(context.principal);
+    context.corpus.registerPostCommitProjection((projection, result) async {
       List<SearchDocument>? publishedDocuments;
       try {
         if (_searchUnavailable) throw StateError('persistent search index is unavailable');
         if (!projection.isComplete) {
-          final priorHealth = await indexHealth!.read(
+          final priorHealth = await context.health.read(
             canonicalRevision: projection.baseRevision,
             canonicalFingerprint: projection.baseFingerprint,
           );
@@ -523,9 +692,9 @@ class StorageWiring {
         }
         final documents = MemoryIndexProjection.documents(projection.corpus);
         if (projection.isComplete) {
-          await memoryIndex.replaceAll(documents, userId: 'owner');
+          await memoryIndex.replaceAll(documents, userId: context.principal);
         } else {
-          await memoryIndex.upsert(documents, userId: 'owner', retire: projection.priorRecordIds);
+          await memoryIndex.upsert(documents, userId: context.principal, retire: projection.priorRecordIds);
         }
         await searchBackend.indexAfterWrite();
         await memoryIndex.verifyIntegrity();
@@ -534,15 +703,16 @@ class StorageWiring {
           documents,
           projection.isComplete ? const <String>{} : projection.priorRecordIds,
           complete: projection.isComplete,
+          userId: context.principal,
         );
-        await indexHealth!.recordHealthy(
+        await context.health.recordHealthy(
           canonicalRevision: result.collectionRevision,
           canonicalFingerprint: result.fingerprint,
         );
         publishedDocuments = documents;
       } on Object catch (error) {
         try {
-          await indexHealth?.recordDegraded(
+          await context.health.recordDegraded(
             canonicalRevision: result.collectionRevision,
             canonicalFingerprint: result.fingerprint,
             stage: 'incrementalProjection',
@@ -559,11 +729,11 @@ class StorageWiring {
       if (synchronizer == null || publishedDocuments == null) return;
       try {
         final synchronization = projection.isComplete
-            ? await synchronizer.rebuild(userId: 'owner')
+            ? await synchronizer.rebuild(userId: context.principal)
             : await synchronizer.synchronize({
                 ...publishedDocuments.map((document) => document.id),
                 ...projection.priorRecordIds,
-              }, userId: 'owner');
+              }, userId: context.principal);
         _logVectorDegradations(synchronization);
       } on Object catch (error, stackTrace) {
         _log.warning('Memory vector reconciliation failed; lexical memory remains current', error, stackTrace);
@@ -626,19 +796,38 @@ class StorageWiring {
       return;
     }
 
-    try {
-      final health = await _probeIndexHealth();
-      if (health.isCurrent(health.canonicalRevision, health.canonicalFingerprint)) {
-        _logVectorDegradations(await _memoryVectorSynchronizer!.rebuild(userId: 'owner'));
+    for (final context in _memoryContexts.values) {
+      try {
+        final health = await _probeWorkspaceIndexHealth(context);
+        if (health.isCurrent(health.canonicalRevision, health.canonicalFingerprint)) {
+          _logVectorDegradations(await _memoryVectorSynchronizer!.rebuild(userId: context.principal));
+        }
+      } on Object catch (error, stackTrace) {
+        _log.warning(
+          '${context.principal} memory vector recovery failed; lexical memory remains available',
+          error,
+          stackTrace,
+        );
       }
-    } on Object catch (error, stackTrace) {
-      _log.warning('Memory vector recovery failed; lexical memory remains available', error, stackTrace);
     }
     if (conversationIndexCurrent) {
-      try {
-        _logVectorDegradations(await _conversationVectorSynchronizer!.rebuild(userId: 'owner'));
-      } on Object catch (error, stackTrace) {
-        _log.warning('Conversation vector recovery failed; lexical conversations remain available', error, stackTrace);
+      final principals = {
+        ..._memoryContexts.keys,
+        for (final session in await _sessions.listSessions(
+          types: SessionType.values.where((type) => type.isChatFacing).toList(),
+        ))
+          session.workspace?.storagePrincipal ?? 'owner',
+      };
+      for (final principal in principals) {
+        try {
+          _logVectorDegradations(await _conversationVectorSynchronizer!.rebuild(userId: principal));
+        } on Object catch (error, stackTrace) {
+          _log.warning(
+            '$principal conversation vector recovery failed; lexical conversations remain available',
+            error,
+            stackTrace,
+          );
+        }
       }
     }
   }
@@ -698,8 +887,10 @@ class StorageWiring {
   Future<void> dispose() async {
     await _taskService.dispose();
     await _turnStateStore.dispose();
-    await _memoryFile?.dispose();
-    await _memoryCorpus?.close();
+    for (final context in _memoryContexts.values) {
+      await context.file.dispose();
+      await context.corpus.close();
+    }
     await closeBackends();
   }
 
@@ -785,10 +976,11 @@ class StorageWiring {
     }
   }
 
-  Stream<List<SearchDocument>> _canonicalRowBatches(MemoryCorpusManifest manifest) async* {
+  Stream<List<SearchDocument>> _canonicalRowBatches(WorkspaceMemoryContext context) async* {
+    final manifest = context.manifest;
     for (final path in manifest.paths) {
       if (path == 'MEMORY.md' || path == 'MEMORY.audit.md' || path.startsWith('memory/legacy/')) continue;
-      final selection = await _memoryCorpus!.selectPaths([path]);
+      final selection = await context.corpus.selectPaths([path]);
       if (selection.collectionRevision != manifest.collectionRevision ||
           selection.fingerprint != manifest.fingerprint) {
         throw StateError('Canonical memory changed during index reconciliation');
@@ -802,9 +994,10 @@ class StorageWiring {
     List<SearchDocument> expected,
     Set<String> priorRecordIds, {
     required bool complete,
+    String userId = 'owner',
   }) async {
     final byId = {for (final document in expected) document.id: document};
-    final stored = await index.fetch({...priorRecordIds, ...byId.keys}, userId: 'owner');
+    final stored = await index.fetch({...priorRecordIds, ...byId.keys}, userId: userId);
     if (stored.length != byId.length) throw StateError('Index document count mismatch');
     for (final document in stored) {
       final expectedDocument = byId[document.id];
@@ -816,7 +1009,7 @@ class StorageWiring {
       }
     }
     final expectedCount = MemoryIndexProjection.chunkCount(expected);
-    final actualCount = await index.count(userId: 'owner');
+    final actualCount = await index.count(userId: userId);
     if (complete ? actualCount != expectedCount : actualCount < expectedCount) {
       throw StateError('Index row count mismatch');
     }
@@ -839,7 +1032,11 @@ class StorageWiring {
   }
 
   Future<IndexHealthEvidence> _probeIndexHealth() async {
-    final manifest = await _memoryCorpus!.manifest();
+    return _probeWorkspaceIndexHealth(ownerMemoryContext);
+  }
+
+  Future<IndexHealthEvidence> _probeWorkspaceIndexHealth(WorkspaceMemoryContext context) async {
+    final manifest = await context.corpus.manifest();
     if (_indexHealth == null) {
       return IndexHealthEvidence(
         state: IndexHealthState.unknown,
@@ -850,7 +1047,7 @@ class StorageWiring {
       );
     }
     try {
-      return await _indexHealth!.read(
+      return await context.health.read(
         canonicalRevision: manifest.collectionRevision,
         canonicalFingerprint: manifest.fingerprint,
       );

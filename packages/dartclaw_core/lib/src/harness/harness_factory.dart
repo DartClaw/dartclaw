@@ -85,6 +85,12 @@ class HarnessFactoryConfig {
   /// Context-aware memory observation callback for direct SDK MCP calls.
   final ContextualMemoryToolHandler? onContextualMemoryObserve;
 
+  /// Context-aware memory search callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemorySearch;
+
+  /// Context-aware memory read callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemoryRead;
+
   /// Memory search callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
 
@@ -128,6 +134,8 @@ class HarnessFactoryConfig {
     this.onMemoryObserve,
     this.onContextualMemoryApply,
     this.onContextualMemoryObserve,
+    this.onContextualMemorySearch,
+    this.onContextualMemoryRead,
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
@@ -256,6 +264,8 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     onMemoryObserve: config.onMemoryObserve,
     onContextualMemoryApply: config.onContextualMemoryApply,
     onContextualMemoryObserve: config.onContextualMemoryObserve,
+    onContextualMemorySearch: config.onContextualMemorySearch,
+    onContextualMemoryRead: config.onContextualMemoryRead,
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
     onPermissionDenied: config.onPermissionDenied,

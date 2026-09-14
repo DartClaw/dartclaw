@@ -45,6 +45,8 @@ class TurnRunner implements core.TurnRunner {
   final MessageService _messages;
   final BehaviorFileService _behavior;
   final MemoryFileService? _memoryFile;
+  final MemoryFileService? Function(Session session, String? agentName)? _memoryFileForSession;
+  final bool Function(Session session)? _dailyLogEligible;
   final SessionService? _sessions;
   final TurnStateStore? _turnState;
   final KvService? _kv;
@@ -116,6 +118,8 @@ class TurnRunner implements core.TurnRunner {
     required MessageService messages,
     required BehaviorFileService behavior,
     MemoryFileService? memoryFile,
+    MemoryFileService? Function(Session session, String? agentName)? memoryFileForSession,
+    bool Function(Session session)? dailyLogEligible,
     SessionService? sessions,
     TurnStateStore? turnState,
     KvService? kv,
@@ -146,6 +150,8 @@ class TurnRunner implements core.TurnRunner {
        _messages = messages,
        _behavior = behavior,
        _memoryFile = memoryFile,
+       _memoryFileForSession = memoryFileForSession,
+       _dailyLogEligible = dailyLogEligible,
        _sessions = sessions,
        _turnState = turnState,
        _kv = kv,

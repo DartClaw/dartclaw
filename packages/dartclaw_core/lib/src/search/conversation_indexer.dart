@@ -18,6 +18,7 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
     required this.messages,
     this.synchronizeVectors,
     this.userId = 'owner',
+    this.principalForSession,
   });
 
   /// Derived conversation index.
@@ -32,8 +33,11 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
   /// Reconciles vectors after a matching lexical mutation succeeds.
   final Future<void> Function(Iterable<String> documentIds, {required String userId})? synchronizeVectors;
 
-  /// Instance owner scope used for every index operation.
+  /// Fallback scope for sessions without pinned workspace ownership.
   final String userId;
+
+  /// Resolves persisted session ownership for derived rows.
+  final String Function(Session session)? principalForSession;
 
   Future<void> _pending = Future.value();
 
@@ -45,34 +49,41 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
     _enqueue(() async {
       final session = await sessions.getSession(message.sessionId);
       if (session == null) return;
+      final principal = _principal(session);
       final document = ConversationIndexProjection.document(message: message, sessionType: session.type);
       if (document == null) return;
-      await index.upsert([document], userId: userId);
-      await synchronizeVectors?.call([document.id], userId: userId);
+      await index.upsert([document], userId: principal);
+      await synchronizeVectors?.call([document.id], userId: principal);
     });
   }
 
   @override
   void onMessagesCleared(String sessionId, List<String> messageIds) {
     _enqueue(() async {
-      await index.delete(messageIds, userId: userId);
-      await synchronizeVectors?.call(messageIds, userId: userId);
+      final session = await sessions.getSession(sessionId);
+      if (session == null) return;
+      final principal = _principal(session);
+      await index.delete(messageIds, userId: principal);
+      await synchronizeVectors?.call(messageIds, userId: principal);
     });
   }
 
   @override
-  void onSessionDeleting(String sessionId) {
-    _enqueue(() => _deleteSession(sessionId));
+  void onSessionDeleting(String sessionId, Session? session) {
+    _enqueue(() => _deleteSession(sessionId, session));
   }
 
   @override
   void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType) {
     if (oldType.isChatFacing == newType.isChatFacing) return;
     if (!newType.isChatFacing) {
-      _enqueue(() => _deleteSession(sessionId));
+      _enqueue(() async => _deleteSession(sessionId, await sessions.getSession(sessionId)));
       return;
     }
     _enqueue(() async {
+      final session = await sessions.getSession(sessionId);
+      if (session == null) return;
+      final principal = _principal(session);
       final stored = await messages.getMessages(sessionId);
       final state = await sessions.getConversationState(sessionId);
       final documents = stored
@@ -81,18 +92,19 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
           .whereType<SearchDocument>()
           .toList(growable: false);
       if (documents.isEmpty) return;
-      await index.upsert(documents, userId: userId);
-      await synchronizeVectors?.call(documents.map((document) => document.id), userId: userId);
+      await index.upsert(documents, userId: principal);
+      await synchronizeVectors?.call(documents.map((document) => document.id), userId: principal);
     });
   }
 
-  Future<void> _deleteSession(String sessionId) async {
-    final chunkCount = await index.count(userId: userId);
+  Future<void> _deleteSession(String sessionId, Session? session) async {
+    final principal = session == null ? userId : _principal(session);
+    final chunkCount = await index.count(userId: principal);
     if (chunkCount == 0) return;
-    final rows = await index.listRecent(userId: userId, limit: chunkCount);
+    final rows = await index.listRecent(userId: principal, limit: chunkCount);
     final ids = rows.where((row) => row.metadata['session_id'] == sessionId).map((row) => row.id).toSet();
-    await index.delete(ids, userId: userId);
-    await synchronizeVectors?.call(ids, userId: userId);
+    await index.delete(ids, userId: principal);
+    await synchronizeVectors?.call(ids, userId: principal);
   }
 
   void _enqueue(Future<void> Function() mutation) {
@@ -104,4 +116,7 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
       }
     });
   }
+
+  String _principal(Session session) =>
+      principalForSession?.call(session) ?? session.workspace?.storagePrincipal ?? userId;
 }

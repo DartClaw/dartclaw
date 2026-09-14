@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerContext;
 import 'package:dartclaw_runtime/src/mcp/memory_tools.dart';
 import 'package:test/test.dart';
 
@@ -74,6 +75,36 @@ void main() {
       expect(result, isA<ToolResultText>());
       expect((result as ToolResultText).content, contains('Some result'));
     });
+
+    test('requires and forwards authenticated caller context', () async {
+      McpCallerContext? received;
+      final tool = MemorySearchTool(
+        handler: (_) async => throw StateError('owner handler must not run'),
+        callerHandler: (args, context) async {
+          received = context;
+          return {
+            'content': [
+              {'type': 'text', 'text': 'agent result'},
+            ],
+          };
+        },
+      );
+      const context = McpCallerContext(
+        authorityId: 'agent:a',
+        sourceEvent: 'tool-call:1',
+        sessionId: 'session-a',
+        agentId: 'a',
+      );
+
+      final result = await tool.callWithContext({'query': 'agent'}, context);
+
+      expect((result as ToolResultText).content, 'agent result');
+      expect(received, same(context));
+      expect(
+        await MemorySearchTool(handler: (_) async => {}).callWithContext({'query': 'agent'}, context),
+        isA<ToolResultError>(),
+      );
+    });
   });
 
   group('MemoryReadTool', () {
@@ -100,6 +131,36 @@ void main() {
       final result = await tool.call({'locator': 'entry-id'});
       expect(result, isA<ToolResultText>());
       expect((result as ToolResultText).content, contains('Some memory entry'));
+    });
+
+    test('requires and forwards authenticated caller context', () async {
+      McpCallerContext? received;
+      final tool = MemoryReadTool(
+        handler: (_) async => throw StateError('owner handler must not run'),
+        callerHandler: (args, context) async {
+          received = context;
+          return {
+            'content': [
+              {'type': 'text', 'text': 'agent record'},
+            ],
+          };
+        },
+      );
+      const context = McpCallerContext(
+        authorityId: 'agent:a',
+        sourceEvent: 'tool-call:2',
+        sessionId: 'session-a',
+        agentId: 'a',
+      );
+
+      final result = await tool.callWithContext({'locator': 'agent-entry'}, context);
+
+      expect((result as ToolResultText).content, 'agent record');
+      expect(received, same(context));
+      expect(
+        await MemoryReadTool(handler: (_) async => {}).callWithContext({'locator': 'agent-entry'}, context),
+        isA<ToolResultError>(),
+      );
     });
   });
 }

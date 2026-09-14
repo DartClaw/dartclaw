@@ -20,7 +20,7 @@ abstract interface class SessionServiceObserver {
   void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType);
 
   /// Called after delete protection passes and before the session directory is removed.
-  void onSessionDeleting(String sessionId);
+  void onSessionDeleting(String sessionId, Session? session);
 }
 
 /// Manages session CRUD operations backed by NDJSON file storage.
@@ -363,7 +363,7 @@ class SessionService {
       if (e is StateError) rethrow;
       // Malformed meta — allow delete
     }
-    _notify(() => _observer?.onSessionDeleting(id));
+    _notify(() => _observer?.onSessionDeleting(id, sessionForEvent));
     final dir = Directory(p.join(baseDir, id));
     await dir.delete(recursive: true);
     await _removeMappingsForSessionIdLocked(id);

@@ -99,7 +99,7 @@ Each entry under `agent.agents.<id>` supports:
 | `prompt` | Search prompt for `search`; blank otherwise | Authoritative persona for the logical agent's turn. An explicit prompt replaces workspace `SOUL.md`; a blank prompt inherits `SOUL.md` when the agent has a workspace. With an `output_schema`, the rendered output contract is appended to that persona |
 | `provider` | `agent.provider` | Harness provider for this agent's conversations; IDs are trimmed and lowercased |
 | `security_profile` | `restricted` for `search`; otherwise provider default or `workspace` | Worker isolation profile: `workspace` or `restricted` |
-| `workspace` | *(none)* | Existing execution home for behavior files and native skills; relative paths resolve beneath `data_dir` |
+| `workspace` | *(none)* | Execution and memory home for behavior files, native skills, canonical memory, and daily logs; relative paths resolve beneath `data_dir` |
 | `tools` | `[]` | Optional closed allowlist; empty or absent means no sandbox allowlist |
 | `denied_tools` | `[]` | Explicitly blocked tools (overrides allowlist) |
 | `model` | *(provider default)* | Model override for this logical agent |
@@ -115,7 +115,17 @@ Prefer canonical names because they are portable across mapped providers: `shell
 
 Each logical-agent conversation uses a worker matching its configured provider and security profile, never the caller's busy primary lane. An omitted provider inherits `agent.provider`; an omitted profile uses an ACP provider's declared `container_profile` when present, otherwise `workspace`. An ACP provider runs on the host only, so on a container-enabled deployment give the agent `execution: host` — a resolved container policy is refused before the turn starts rather than weakened. The built-in `search` agent explicitly requests `restricted`. If that profile is unavailable, the turn fails closed; select `workspace` explicitly only when host access is acceptable. Configure capacity with `providers.<id>.pool_size`. If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider/profile and capacity setting. User and assistant messages are persisted and replayed when a different worker continues the session. Successful logical-agent sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
 
-A configured `workspace` is pinned to the agent id when the conversation is created. It supplies `SOUL.md`, `USER.md`, `TOOLS.md`, `AGENTS.md`, and provider-native skills even when a turn selects an authorized project as its working directory. Claude discovers `.claude/skills` through `--add-dir`; Codex receives `.agents/skills` through its app-server additional-roots protocol. The `restricted` profile exposes no workspace, and an agent without this key does not fall back to the owner's workspace.
+A configured `workspace` is pinned to the agent id when the conversation is created. It supplies `SOUL.md`, `USER.md`,
+`TOOLS.md`, `AGENTS.md`, provider-native skills, canonical memory files, and daily logs even when a turn selects an
+authorized project as its working directory. Its ordinary memory tools and memory and conversation search projections
+use the same `agent:<agent-id>` storage principal. Startup, rebuild, and the memory journal and curation schedules
+process each configured workspace independently. The `restricted` profile exposes no workspace, and an agent without
+this key does not fall back to the owner's workspace. Claude discovers `.claude/skills` through `--add-dir`; Codex
+receives `.agents/skills` through its app-server additional-roots protocol.
+
+`context_research` is a separate, explicitly granted path to the owner's wiki, knowledge graph, inbox, and memory. Its
+citation packet keeps owner source provenance and the calling agent's audit identity; retrieval does not copy owner
+knowledge into the agent's workspace.
 
 Caller cancellation does not currently propagate into an in-flight `sessions_spawn` or `sessions_send` turn. The MCP gateway's 120-second tool timeout also returns without cancelling the underlying child turn, so its worker remains occupied until that turn completes or its harness timeout fires. Causal parent-to-child cancellation is planned with the caller-aware MCP dispatch work (Knowledge Interop & Steward milestone).
 
@@ -151,11 +161,11 @@ set for that conversation – and under a container policy the bridged MCP grant
 
 Its prompt is the persona over the task composition: the agent's `prompt` stands where its workspace `SOUL.md` stands
 (a blank `prompt` inherits `SOUL.md`), followed by its `USER.md`, `TOOLS.md`, `AGENTS.md` and the channel-origin section.
-The owner's behavior files, recent errors and memory index are not composed in, and the persona's turns
-never write the owner's daily activity log, so the nightly journal never folds a persona's conversation into the owner's
-memory. Tool-mediated memory access (`memory_read`, `memory_search` and the write tools) is bounded only by the agent's
-`tools` – a persona has no memory vault of its own yet and reads and writes the owner's corpus. An agent resolving to
-the `restricted` container profile retains its explicit prompt while omitting workspace behavior files and native skill roots.
+The owner's behavior files, recent errors and memory index are not composed in. A persona with a configured workspace
+writes its own daily activity log and reads and writes only its own corpus through `memory_read`, `memory_search`, and
+the memory write tools, subject to its `tools` policy. An unconfigured persona writes no owner log and has no owner-memory
+fallback. An agent resolving to the `restricted` container profile retains its explicit prompt while omitting workspace
+behavior files and native skill roots.
 
 Each persona chatting concurrently consumes a `providers.<id>.pool_size` worker slot on its provider; a bound turn waits
 for a slot rather than failing fast the way a nested `sessions_spawn` does. Web sessions stay on the primary agent.

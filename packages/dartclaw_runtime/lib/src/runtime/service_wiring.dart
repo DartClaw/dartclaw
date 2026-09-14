@@ -1281,6 +1281,7 @@ class _RuntimeAssembly {
       security: security,
       sseBroadcast: harness.sseBroadcast!,
       memoryHandlers: harness.memoryHandlers,
+      memoryHandlersByPrincipal: harness.memoryHandlersByPrincipal,
       credentialHealth: credentialHealth,
       messageRedactor: ctx.messageRedactor,
       behavior: harness.behavior,

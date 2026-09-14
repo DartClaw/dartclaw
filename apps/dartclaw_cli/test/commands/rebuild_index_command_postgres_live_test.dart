@@ -25,10 +25,21 @@ void main() {
 
   test('hybrid PostgreSQL rebuild reuses both corpora, recovers failures and clears empty sources', () async {
     await withPostgresBackend((backend, namespace) async {
+      final agentDir = '${temp.path}/agent-a';
       final settings = DartclawConfig(
         server: ServerConfig(dataDir: temp.path),
         database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
         search: const SearchConfig(backend: 'hybrid'),
+        agent: AgentConfig(
+          definitions: [
+            AgentDefinition(
+              id: 'a',
+              description: 'A',
+              prompt: 'A',
+              workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+            ),
+          ],
+        ),
       );
       await seedCanonicalMemory(
         settings.workspaceDir,
@@ -36,10 +47,28 @@ void main() {
           'preferences': ['memoryneedle likes tea'],
         },
       );
+      await seedCanonicalMemory(
+        agentDir,
+        topics: {
+          'preferences': ['agentmemoryneedle likes cocoa'],
+        },
+      );
       final sessions = SessionService(baseDir: settings.sessionsDir);
       final messages = MessageService(baseDir: settings.sessionsDir);
-      final session = await sessions.createSession();
-      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'conversationneedle likes coffee');
+      final ownerSession = await sessions.createSession();
+      final agentSession = await sessions.createSession(
+        workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+      );
+      await messages.insertMessage(
+        sessionId: ownerSession.id,
+        role: 'user',
+        content: 'conversationneedle likes coffee',
+      );
+      await messages.insertMessage(
+        sessionId: agentSession.id,
+        role: 'user',
+        content: 'agentconversationneedle likes cocoa',
+      );
       await messages.dispose();
       var embedded = 0;
       var failEmbedding = true;
@@ -58,7 +87,12 @@ void main() {
       final degradedData = jsonDecode(degraded.lines.single) as Map<String, dynamic>;
       expect(degradedData['memoryUnembeddedCount'], 1);
       expect(degradedData['conversationUnembeddedCount'], 1);
-      expect(degradedData['vectorDegradedCorpora'], ['memory', 'conversation']);
+      expect(degradedData['vectorDegradedCorpora'], [
+        'memory',
+        'memory:agent:a',
+        'conversation',
+        'conversation:agent:a',
+      ]);
       expect(
         await PostgresFtsIndex(
           backend,
@@ -67,6 +101,10 @@ void main() {
         ).search('memoryneedle', userId: 'owner'),
         isNotEmpty,
       );
+      final memoryIndex = PostgresFtsIndex(backend, table: PostgresFtsTable.memoryChunks, language: 'english');
+      expect(await memoryIndex.search('agentmemoryneedle', userId: 'agent:a'), isNotEmpty);
+      expect(await memoryIndex.search('memoryneedle', userId: 'agent:a'), isEmpty);
+      expect(await memoryIndex.search('agentmemoryneedle', userId: 'owner'), isEmpty);
       expect(
         await PostgresFtsIndex(
           backend,
@@ -82,22 +120,91 @@ void main() {
       final recoveredData = jsonDecode(recovered.lines.single) as Map<String, dynamic>;
       expect(recoveredData['memoryUnembeddedCount'], 0);
       expect(recoveredData['conversationUnembeddedCount'], 0);
-      expect(embedded, 2);
+      expect(embedded, 4);
       expect((await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner')), hasLength(1));
+      expect(
+        (await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'agent:a')),
+        hasLength(1),
+      );
       expect(
         (await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'owner')),
         hasLength(1),
       );
+      expect(
+        (await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'agent:a')),
+        hasLength(1),
+      );
       expect((await _run(settings, namespace, json: true, embeddingProviderFactory: provider)).code, 0);
-      expect(embedded, 2, reason: 'a second lexical publication must reuse matching vector rows');
+      expect(embedded, 4, reason: 'a second lexical publication must reuse matching vector rows');
 
       await seedCanonicalMemory(settings.workspaceDir);
       await Directory(settings.sessionsDir).delete(recursive: true);
       final cleared = await _run(settings, namespace, json: true, embeddingProviderFactory: provider);
       expect(cleared.code, 0);
       expect(await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner'), isEmpty);
+      expect(await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'agent:a'), hasLength(1));
       expect(await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'owner'), isEmpty);
+      expect(
+        await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'agent:a'),
+        isEmpty,
+      );
       expect(_databaseFiles(temp), isEmpty);
+    });
+  });
+
+  test('one invalid configured workspace does not replace healthy owner or sibling rows', () async {
+    await withPostgresBackend((backend, namespace) async {
+      final agentADir = '${temp.path}/agent-a';
+      final agentBDir = '${temp.path}/agent-b';
+      final settings = DartclawConfig(
+        server: ServerConfig(dataDir: temp.path),
+        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
+        agent: AgentConfig(
+          definitions: [
+            AgentDefinition(
+              id: 'a',
+              description: 'A',
+              prompt: 'A',
+              workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentADir),
+            ),
+            AgentDefinition(
+              id: 'b',
+              description: 'B',
+              prompt: 'B',
+              workspace: AgentWorkspace.pinned(agentId: 'b', directory: agentBDir),
+            ),
+          ],
+        ),
+      );
+      await seedCanonicalMemory(
+        settings.workspaceDir,
+        topics: const {
+          'general': ['owner-postgres-marker'],
+        },
+      );
+      await seedCanonicalMemory(
+        agentADir,
+        topics: const {
+          'general': ['agent-a-postgres-marker'],
+        },
+      );
+      File('$agentBDir/MEMORY.md')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('## general\n- invalid preview row\n');
+
+      final result = await _run(settings, namespace);
+      final index = PostgresFtsIndex(backend, table: PostgresFtsTable.memoryChunks, language: 'english');
+
+      expect(result.code, 1);
+      expect(result.lines, contains(allOf(contains('agent:b'), contains('preflight failed'))));
+      expect((await index.search('owner-postgres-marker', userId: 'owner')).single.chunk, 'owner-postgres-marker');
+      expect(
+        (await index.search('agent-a-postgres-marker', userId: 'agent:a')).single.chunk,
+        'agent-a-postgres-marker',
+      );
+      expect(await index.search('owner-postgres-marker', userId: 'agent:a'), isEmpty);
+      expect(await index.search('agent-a-postgres-marker', userId: 'owner'), isEmpty);
+      expect(await index.search('invalid', userId: 'agent:b'), isEmpty);
     });
   });
 

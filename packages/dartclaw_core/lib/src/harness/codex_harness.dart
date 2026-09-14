@@ -13,6 +13,7 @@ import 'agent_harness.dart';
 import 'base_harness.dart';
 import 'canonical_tool.dart';
 import 'codex_environment.dart';
+import 'codex_config_generator.dart';
 import 'codex_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'codex_settings.dart';
@@ -256,6 +257,27 @@ class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder, 
     await container.start();
     if (!await containerExecutableRuns(container, _containerExecutable)) {
       _throwMissingCodexExecutable('$_containerExecutable (container ${container.profileId})');
+    }
+    if (container case final VolatileContainerGeneratedState volatile) {
+      final home = p.posix.join(volatile.generatedStateContainerPath, 'codex-home');
+      await volatile.writeGeneratedStateFile(
+        'codex-home/config.toml',
+        CodexConfigGenerator.generate(
+          developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+          mcpServerUrl: container.mcpBridgeUrl,
+          gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+          nativeWebSearch: false,
+        ),
+      );
+      _environment = CodexEnvironment.containerAuthCleanPrepared(
+        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+        containerHomePath: home,
+        gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+        nativeWebSearch: false,
+        mcpServerUrl: container.mcpBridgeUrl,
+        platformCapabilities: platformCapabilities,
+      );
+      return;
     }
     final hostHome = p.join(container.generatedStateDir, 'codex-home');
     final containerHome = container.containerPathForHostPath(hostHome);
@@ -720,13 +742,13 @@ class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder, 
 
       case proto.ToolResultMessage(:final toolId, :final output, :final isError):
         if (isError) {
-          _log.warning('Tool error (id=$toolId): ${output.length > 200 ? '${output.substring(0, 200)}...' : output}');
+          _log.warning('Tool error (id=$toolId)');
         }
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ProgressMessage(:final text, :final kind):
         if (kind == 'provider_setup_warning') {
-          _log.warning(text);
+          _log.warning('Provider setup warning');
         }
         emitEvent(ProviderProgressBridgeEvent(kind: kind, text: text));
 
@@ -734,9 +756,9 @@ class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder, 
       case proto.BackgroundTasksChanged():
         break;
 
-      case proto.ProtocolDiagnostic(:final message, :final method, :final updateType):
+      case proto.ProtocolDiagnostic(:final method, :final updateType):
         if (method == 'mcpServer/startupStatus/updated' && updateType == 'failed') {
-          _log.warning(message);
+          _log.warning('MCP server startup failed');
         }
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):

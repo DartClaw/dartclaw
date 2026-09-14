@@ -363,6 +363,8 @@ Router webRoutes(
       final turnStatus = turns?.turnStatus(id);
       final chat = chatAreaTemplate(
         sessionId: id,
+        isTemporary: session.retention == ConversationRetention.process,
+        temporaryEndState: sessions.temporaryEndState(id),
         messagesHtml: msgsHtml,
         hasTitle: session.type == SessionType.main || (session.title != null && session.title!.trim().isNotEmpty),
         chatNoticeHtml: chatNoticeHtml.toString(),
@@ -384,17 +386,24 @@ Router webRoutes(
 
       if (wantsFragment(request)) {
         final documentTitle = documentTitleFragment(title: displayTitle, appName: appName);
-        return htmlFragment('$documentTitle$chat$topbar$sidebar');
+        final response = htmlFragment('$documentTitle$chat$topbar$sidebar');
+        return session.retention == ConversationRetention.process
+            ? response.change(headers: {'cache-control': 'no-store'})
+            : response;
       }
 
-      final bodyHtml = '<div class="shell" hx-history-elt>$sidebar<div class="shell-main">$topbar$chat</div></div>';
+      final history = session.retention == ConversationRetention.process ? ' hx-history="false"' : ' hx-history-elt';
+      final bodyHtml = '<div class="shell"$history>$sidebar<div class="shell-main">$topbar$chat</div></div>';
       final page = layoutTemplate(
         title: displayTitle,
         body: bodyHtml,
         appName: appName,
         scripts: standardShellScripts(),
       );
-      return Response.ok(page, headers: htmlHeaders);
+      return Response.ok(
+        page,
+        headers: {...htmlHeaders, if (session.retention == ConversationRetention.process) 'cache-control': 'no-store'},
+      );
     } catch (e) {
       return _htmlError('Failed to load session: $e');
     }
@@ -450,6 +459,7 @@ Router webRoutes(
         html,
         headers: {
           ...htmlHeaders,
+          if (session.retention == ConversationRetention.process) 'cache-control': 'no-store',
           'x-dartclaw-earliest-cursor': earliestCursor?.toString() ?? '',
           'x-dartclaw-has-earlier-messages': '$hasEarlierMessages',
         },

@@ -5,6 +5,7 @@ export 'src/models.dart'
     show
         Session,
         SessionType,
+        ConversationRetention,
         SessionTitleProvenance,
         Message,
         MemorySearchResult,

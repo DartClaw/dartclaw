@@ -35,6 +35,18 @@ enum SessionType {
   };
 }
 
+/// Governs whether a conversation may outlive the current server process.
+enum ConversationRetention {
+  /// The conversation is written to configured durable stores.
+  durable,
+
+  /// The conversation exists only in bounded process memory.
+  process;
+
+  /// Whether durable persistence consumers may observe this conversation.
+  bool get isDurable => this == durable;
+}
+
 /// Source of the current session title used to resolve automatic-title races.
 enum SessionTitleProvenance {
   /// Immediate truncation shown before a generated title is available.
@@ -69,6 +81,9 @@ class Session {
 
   /// How this session was created and routed through the runtime.
   final SessionType type;
+
+  /// Persistence boundary applied by every conversation owner.
+  final ConversationRetention retention;
 
   /// Channel-specific routing key for sessions that originate from a channel.
   final String? channelKey;
@@ -121,6 +136,7 @@ class Session {
     this.titleProvenance,
     this.automaticTitleAttempted = false,
     this.type = SessionType.user,
+    this.retention = ConversationRetention.durable,
     this.channelKey,
     this.provider,
     this.securityProfile,
@@ -142,6 +158,7 @@ class Session {
     if (titleProvenance != null) 'titleProvenance': titleProvenance!.name,
     if (automaticTitleAttempted) 'automaticTitleAttempted': true,
     'type': type.name,
+    'retention': retention.name,
     if (channelKey != null) 'channelKey': channelKey,
     if (provider != null) 'provider': provider,
     if (securityProfile != null) 'securityProfile': securityProfile,
@@ -174,6 +191,7 @@ class Session {
       titleProvenance: _parseTitleProvenance(json['titleProvenance']),
       automaticTitleAttempted: json['automaticTitleAttempted'] as bool? ?? false,
       type: _parseSessionType(json['type']),
+      retention: _parseRetention(json['retention']),
       channelKey: json['channelKey'] as String?,
       provider: json['provider'] as String?,
       securityProfile: json['securityProfile'] as String?,
@@ -200,6 +218,7 @@ class Session {
     Object? titleProvenance = _sessionFieldUnset,
     bool? automaticTitleAttempted,
     SessionType? type,
+    ConversationRetention? retention,
     Object? channelKey = _sessionFieldUnset,
     Object? provider = _sessionFieldUnset,
     Object? securityProfile = _sessionFieldUnset,
@@ -220,6 +239,7 @@ class Session {
         : titleProvenance as SessionTitleProvenance?,
     automaticTitleAttempted: automaticTitleAttempted ?? this.automaticTitleAttempted,
     type: type ?? this.type,
+    retention: retention ?? this.retention,
     channelKey: identical(channelKey, _sessionFieldUnset) ? this.channelKey : channelKey as String?,
     provider: identical(provider, _sessionFieldUnset) ? this.provider : provider as String?,
     securityProfile: identical(securityProfile, _sessionFieldUnset) ? this.securityProfile : securityProfile as String?,
@@ -249,6 +269,15 @@ class Session {
       if (type != null) return type;
     }
     throw FormatException('Unknown session type: $value');
+  }
+
+  static ConversationRetention _parseRetention(Object? value) {
+    if (value == null) return ConversationRetention.durable;
+    if (value case final String name) {
+      final retention = ConversationRetention.values.asNameMap()[name];
+      if (retention != null) return retention;
+    }
+    throw FormatException('Unknown conversation retention: $value');
   }
 
   static SessionTitleProvenance? _parseTitleProvenance(Object? value) {

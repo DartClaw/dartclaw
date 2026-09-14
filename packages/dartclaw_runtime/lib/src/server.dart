@@ -33,6 +33,7 @@ import 'api/session_routes.dart';
 import 'api/sse_broadcast.dart';
 import 'api/task_routes.dart';
 import 'api/task_sse_routes.dart';
+import 'temporary_conversation_capability.dart';
 import 'api/trace_routes.dart';
 import 'api/webhook_routes.dart';
 import 'audit/audit_log_reader.dart';
@@ -746,6 +747,7 @@ class DartclawServer {
       projectService: _tasks.projectService,
       contextCapabilities: _core.effectiveContextCapabilities,
       defaultProvider: defaultProvider,
+      temporaryConversationCapability: _core.temporaryConversationCapability,
       logicalAgentSessions: _core.logicalAgentSessions,
       sidebarData: sidebarBuilder.build,
       buildSidebarHtml: buildSidebarHtml,

@@ -17,11 +17,15 @@ class InMemorySessionService implements SessionService {
   @override
   final EventBus? eventBus;
 
+  @override
+  int get maxProcessSessions => 32;
+
   final String Function()? _idGenerator;
   SessionServiceObserver? _observer;
   final Map<String, Session> _sessionsById = <String, Session>{};
   final Map<String, String> _sessionKeys = <String, String>{};
   final Map<String, ConversationState> _conversationStates = <String, ConversationState>{};
+  final Map<String, String> _temporaryEndStates = <String, String>{};
   int _nextSessionNumber = 1;
 
   @override
@@ -33,6 +37,7 @@ class InMemorySessionService implements SessionService {
   @override
   Future<Session> createSession({
     SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
     String? channelKey,
     String? provider,
     String? securityProfile,
@@ -41,6 +46,7 @@ class InMemorySessionService implements SessionService {
   }) => createSessionWithIdentity(
     id: _createId(),
     type: type,
+    retention: retention,
     channelKey: channelKey,
     provider: provider,
     securityProfile: securityProfile,
@@ -52,6 +58,7 @@ class InMemorySessionService implements SessionService {
   Future<Session> createSessionWithIdentity({
     required String id,
     SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
     String? channelKey,
     String? provider,
     String? securityProfile,
@@ -61,6 +68,7 @@ class InMemorySessionService implements SessionService {
     final existing = _sessionsById[id];
     if (existing != null) {
       if (existing.type != type ||
+          existing.retention != retention ||
           existing.channelKey != channelKey ||
           existing.provider != provider ||
           existing.securityProfile != securityProfile ||
@@ -74,6 +82,7 @@ class InMemorySessionService implements SessionService {
     final session = Session(
       id: id,
       type: type,
+      retention: retention,
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
@@ -83,11 +92,24 @@ class InMemorySessionService implements SessionService {
       updatedAt: now,
     );
     _sessionsById[session.id] = session;
+    if (retention == ConversationRetention.process) _temporaryEndStates[session.id] = 'active';
     eventBus?.fire(
       SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
     );
     return session;
   }
+
+  @override
+  Future<ConversationRetention?> retentionFor(String id) async => _sessionsById[id]?.retention;
+
+  @override
+  String? temporaryEndState(String id) => _temporaryEndStates[id];
+
+  @override
+  void markTemporaryEnding(String id) => _temporaryEndStates[id] = 'ending';
+
+  @override
+  void markTemporaryEndFailed(String id) => _temporaryEndStates[id] = 'end_failed';
 
   @override
   Future<Session> getOrCreateMainSession() {
@@ -366,6 +388,7 @@ class InMemorySessionService implements SessionService {
     _notify(() => _observer?.onSessionDeleting(id, session));
     _sessionsById.remove(id);
     _conversationStates.remove(id);
+    _temporaryEndStates.remove(id);
     _sessionKeys.removeWhere((_, sessionId) => sessionId == id);
     eventBus?.fire(
       SessionEndedEvent(

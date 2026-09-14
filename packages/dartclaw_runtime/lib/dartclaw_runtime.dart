@@ -34,6 +34,7 @@ export 'src/execution_coordinator.dart'
 export 'src/execution_policy_resolver.dart' show ExecutionPolicyException, ExecutionPolicyResolver;
 export 'src/security/security_exports.dart' show buildGuardsFromConfig;
 export 'src/turn_manager.dart' show TurnManager;
+export 'src/temporary_conversation_capability.dart' show TemporaryConversationCapability;
 export 'src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;
 export 'src/runtime_context_telemetry.dart' show RuntimeContextTelemetryObserved;
 export 'src/runtime/embedding_configuration.dart'

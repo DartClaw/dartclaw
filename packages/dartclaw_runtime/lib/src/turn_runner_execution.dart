@@ -90,7 +90,8 @@ extension TurnRunnerExecution on TurnRunner {
 
   Future<void> _trackSessionUsage(String sessionId, String turnId, TurnResult result, String provider) async {
     final kv = _kv;
-    if (kv != null) {
+    final session = await _sessions?.getSession(sessionId);
+    if (kv != null && (session?.retention ?? ConversationRetention.durable).isDurable) {
       final key = 'session_cost:$sessionId';
       final existing = await kv.get(key);
       final costData = existing != null

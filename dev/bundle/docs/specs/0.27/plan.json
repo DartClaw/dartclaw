@@ -301,10 +301,10 @@
         "S05",
         "S06"
       ],
-      "status": "spec-ready",
+      "status": "in-progress",
       "fis": "s07-conversation-search-and-commands.md",
       "completedTaskIds": [],
-      "owner": null,
+      "owner": "codex/0.27-s07-search",
       "scope": "The owner finds exact past exchanges, including unloaded history, and invokes authorized session/skill actions through one catalog shared by slash and global palettes. Cover E7/E9, search portions of Q7 and command/provider portions of Q5/Q9. Include the ADR-054 amendment before the catalog, inventory descriptions/cache and truthful provider passthrough. Own the retained knowledge-hub layer-filter canonical-tabs correction (D13) in the existing navigation surface.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr8-conversation-discovery-and-human-commands",
@@ -326,10 +326,28 @@
         "S02",
         "S04"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s08-temporary-conversations-and-export.md",
-      "completedTaskIds": [],
-      "owner": "codex/0.27-s08-temporary",
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13"
+      ],
+      "verified": {
+        "at": "2026-09-14T20:53Z",
+        "summary": "Main focused retention/export/fixture/inbox tests +19, temporary routes +2, serializer +6; top-level analyze: No issues found; format: 2065 files (0 changed); Bash/ShellCheck/Python/JSON/JS syntax passed; PostgreSQL, Docker, provider, browser, visual, crash, integration, and build execution deferred to the final plan gate."
+      },
+      "owner": null,
       "scope": "Supported temporary conversations meet the explicit process-lifetime, in-memory draft and no-durable-content boundary; ending confirms termination/cleanup and restart never replays temporary work. Ordinary and temporary export produce authorized readable history with lineage and an honest attachment manifest. Cover E10/Q9 across every inventoried host/browser/provider retention surface.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr9-temporary-conversations-and-export",

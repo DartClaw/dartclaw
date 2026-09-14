@@ -13,6 +13,7 @@ import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;
 import 'api_helpers.dart';
 import 'session_routes_support.dart';
+import 'session_attachment_routes.dart';
 
 final _log = Logger('SessionLifecycleRoutes');
 
@@ -26,12 +27,43 @@ final _log = Logger('SessionLifecycleRoutes');
 void registerSessionLifecycleRoutes(
   Router router, {
   required SessionService sessions,
+  required MessageService messages,
   required TurnManager turns,
   required SessionMutationCoordinator sessionMutations,
   SessionResetService? resetService,
   Future<SidebarData> Function({String? activeSessionId})? sidebarData,
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
+  required ProcessAttachmentOwner processAttachments,
 }) {
+  router.post('/api/sessions/<id>/end-temporary', (Request request, String id) async {
+    try {
+      return await sessionMutations.run(id, () async {
+        final session = await sessions.getSession(id);
+        if (session == null) return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        if (session.retention != ConversationRetention.process) {
+          return errorResponse(409, 'INVALID_STATE', 'Only temporary conversations can be ended here');
+        }
+        sessions.markTemporaryEnding(id);
+        try {
+          await turns.cancelTurn(id);
+          await turns.waitForCompletion(id);
+          await turns.releaseTemporarySession(id);
+          processAttachments.clearSession(id);
+          await messages.clearMessages(id);
+          await sessions.deleteSession(id);
+        } catch (error) {
+          sessions.markTemporaryEndFailed(id);
+          return errorResponse(409, 'END_INCOMPLETE', 'Temporary conversation cleanup was not confirmed; retry ending');
+        }
+        return Response(204, headers: {'cache-control': 'no-store'});
+      });
+    } catch (e) {
+      sessions.markTemporaryEndFailed(id);
+      _log.warning('Failed to end temporary session $id: $e', e);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to end temporary conversation');
+    }
+  });
+
   // DELETE /api/sessions/<id>
   router.delete('/api/sessions/<id>', (Request request, String id) async {
     try {

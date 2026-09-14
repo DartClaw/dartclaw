@@ -521,6 +521,14 @@ class TurnManager implements core.TurnManager {
     await _executions.resetSessionContinuity(sessionId, workersOnly: true);
   }
 
+  /// Releases the idle provider authority retained for a temporary session.
+  Future<void> releaseTemporarySession(String sessionId) async {
+    if (isActive(sessionId)) {
+      throw BusyTurnException('Cannot end temporary session while its turn is running', isSameSession: true);
+    }
+    await _executions.releaseTemporarySession(sessionId);
+  }
+
   @override
   Future<String> startTurn(
     String sessionId,
@@ -726,19 +734,22 @@ class TurnManager implements core.TurnManager {
         configured: definition.workspace,
       );
     }
-    final surface = switch (session?.type) {
-      SessionType.cron => ExecutionSurface.scheduler,
-      SessionType.channel => boundChannel ? ExecutionSurface.logicalAgent : ExecutionSurface.channel,
-      SessionType.logicalAgent => ExecutionSurface.logicalAgent,
-      SessionType.task => ExecutionSurface.task,
-      _ => ExecutionSurface.interactive,
-    };
+    final surface = session?.retention == ConversationRetention.process
+        ? ExecutionSurface.temporary
+        : switch (session?.type) {
+            SessionType.cron => ExecutionSurface.scheduler,
+            SessionType.channel => boundChannel ? ExecutionSurface.logicalAgent : ExecutionSurface.channel,
+            SessionType.logicalAgent => ExecutionSurface.logicalAgent,
+            SessionType.task => ExecutionSurface.task,
+            _ => ExecutionSurface.interactive,
+          };
     final lease = await _executions.acquire(
       ExecutionRequest(
         surface: surface,
         providerId: provider,
         policy: policy,
         sessionId: sessionId,
+        retention: session?.retention ?? ConversationRetention.durable,
         admission: isLogicalAgent ? ExecutionAdmission.failFast : ExecutionAdmission.wait,
         isHumanInput: isHumanInput,
         taskId: taskId,

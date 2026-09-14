@@ -21,6 +21,7 @@ typedef ToolApprovalValidator = bool Function(String sessionId, String turnId, S
 typedef ConversationReferenceValidator = Future<void> Function(List<Map<String, dynamic>> references);
 typedef ConversationBranchFailpoint = FutureOr<void> Function(String boundary, ConversationBranchLink branch);
 typedef ConversationWorkSignalObserver = Future<void> Function(String sessionId);
+typedef ProcessAttachmentResolver = Map<String, dynamic>? Function(String sessionId, String attachmentId);
 
 final class ConversationMutationException implements Exception {
   final int statusCode;
@@ -77,6 +78,7 @@ final class ConversationService {
   final Map<String, Future<void>> _recoveries = {};
   ConversationWorkSignalObserver? _turnStartedObserver;
   ConversationWorkSignalObserver? _inputRequestedObserver;
+  final ProcessAttachmentResolver? processAttachmentResolver;
 
   new({
     required this.sessions,
@@ -95,6 +97,7 @@ final class ConversationService {
     this.contextCapabilities = const {},
     this.defaultProvider = 'claude',
     this.titleAgents,
+    this.processAttachmentResolver,
   }) : clock = clock ?? DateTime.now,
        _redactor = redactor ?? MessageRedactor();
 
@@ -236,7 +239,7 @@ final class ConversationService {
         .toSet();
     return {
       'revision': state.revision,
-      'messages': visible.map(_messageJson).toList(growable: false),
+      'messages': visible.map(_redactedMessageJson).toList(growable: false),
       'records': state.records
           .where((record) => attempts.contains(record.attemptId))
           .map((record) => record.toJson())
@@ -252,6 +255,37 @@ final class ConversationService {
       'has_earlier': hasEarlier,
       'earliest_cursor': visible.firstOrNull?.cursor,
       if (aroundMessageId != null) 'target': {'message_id': aroundMessageId, 'state': targetState},
+    };
+  }
+
+  Map<String, Object?> _redactedMessageJson(Message message) => {
+    ..._messageJson(message),
+    'content': _redactor.redact(message.content),
+  };
+
+  /// Builds export data from the same bounded, visible history projection served to the UI.
+  Future<Map<String, Object?>> preparedExport(
+    String sessionId, {
+    required Map<String, Object?> Function(ConversationAttachmentManifest attachment) attachmentAvailability,
+  }) async {
+    final pages = <Map<String, Object?>>[];
+    int? before;
+    do {
+      final page = await historyWindow(sessionId, count: 200, beforeCursor: before);
+      pages.add(page);
+      if (page['has_earlier'] != true) break;
+      before = page['earliest_cursor'] as int?;
+    } while (before != null);
+    final state = await snapshot(sessionId);
+    return {
+      'messages': pages.reversed.expand((page) => page['messages']! as List).toList(growable: false),
+      'records': pages.reversed.expand((page) => page['records']! as List).toList(growable: false),
+      'branches': pages.reversed.expand((page) => page['branches']! as List).toSet().toList(growable: false),
+      'attachments': state.submissions
+          .expand((submission) => submission.attachments)
+          .toSet()
+          .map((attachment) => {...attachment.toJson(), ...attachmentAvailability(attachment)})
+          .toList(growable: false),
     };
   }
 
@@ -743,6 +777,7 @@ final class ConversationService {
       }
       destination = await sessions.createSessionWithIdentity(
         id: branch.destinationSessionId,
+        retention: sourceSession.retention,
         provider: resolved.provider,
         securityProfile: resolved.securityProfile,
         executionMode: resolved.executionMode,
@@ -832,6 +867,14 @@ final class ConversationService {
   Future<Map<String, dynamic>> resolveAttachment(String sessionId, String attachmentId) async {
     if (!_attachmentIdPattern.hasMatch(attachmentId)) {
       throw const ConversationMutationException(400, 'UNKNOWN_ATTACHMENT', 'Attachment was not uploaded');
+    }
+    final session = await sessions.getSession(sessionId);
+    if (session?.retention == ConversationRetention.process) {
+      final resolved = processAttachmentResolver?.call(sessionId, attachmentId);
+      if (resolved == null) {
+        throw const ConversationMutationException(400, 'UNKNOWN_ATTACHMENT', 'Attachment was not uploaded');
+      }
+      return resolved;
     }
     final directory = p.join(messages.baseDir, sessionId, 'attachments');
     final dataFile = File(p.join(directory, '$attachmentId.data'));
@@ -1384,6 +1427,8 @@ final class ConversationService {
   Future<void> generateTitleAfterFirstExchange(String sessionId) async {
     final agents = titleAgents;
     if (agents == null) return;
+    final session = await sessions.getSession(sessionId);
+    if (session == null || !session.retention.isDurable) return;
     final claimed = await sessions.claimAutomaticTitle(sessionId);
     if (claimed == null) return;
     final history = await messages.getMessages(sessionId);

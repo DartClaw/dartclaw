@@ -164,6 +164,7 @@ class SecurityWiring implements Reconfigurable {
     String? artifactsDir,
     String? workspaceDir,
     bool useOwnerWorkspace = true,
+    bool volatileGeneratedState = false,
   }) async {
     final profileId = principal.containerProfile;
     final template = profileId == null ? null : _containerTemplates[profileId];
@@ -180,6 +181,7 @@ class SecurityWiring implements Reconfigurable {
       artifactsDir: artifactsDir,
       workspaceDir: workspaceDir,
       useOwnerWorkspace: useOwnerWorkspace,
+      volatileGeneratedState: volatileGeneratedState,
     );
     // Registration rejects a provider this deployment cannot mediate – an
     // unusable Claude auth mode included – before any container is created.
@@ -367,6 +369,7 @@ class SecurityWiring implements Reconfigurable {
       bool hasMcpBridge = false,
       String? workspaceDir,
       bool useOwnerWorkspace = true,
+      bool volatileGeneratedState = false,
     }) => ContainerManager(
       config: config.container,
       containerName: containerName,
@@ -383,6 +386,7 @@ class SecurityWiring implements Reconfigurable {
             ]
           : profile.workspaceMounts,
       generatedStateDir: generatedStateDir,
+      volatileGeneratedState: volatileGeneratedState,
       artifactsDir: artifactsDir,
       hasMcpBridge: hasMcpBridge,
       localPathAllowlist: config.projects.localPathAllowlist,
@@ -438,6 +442,7 @@ class SecurityWiring implements Reconfigurable {
             required artifactsDir,
             required workspaceDir,
             required useOwnerWorkspace,
+            required volatileGeneratedState,
           }) => buildManager(
             profile,
             containerName,
@@ -446,9 +451,9 @@ class SecurityWiring implements Reconfigurable {
             hasMcpBridge: hasMcpBridge,
             workspaceDir: workspaceDir,
             useOwnerWorkspace: useOwnerWorkspace,
+            volatileGeneratedState: volatileGeneratedState,
           );
     }
-
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
     _gateway = HostGateway(
       providerAdapters: buildProviderAdapters(),
@@ -845,6 +850,7 @@ typedef _ContainerTemplate = ContainerManager Function(
   required bool hasMcpBridge,
   required String? workspaceDir,
   required bool useOwnerWorkspace,
+  required bool volatileGeneratedState,
 });
 
 /// Bridges [MessageRedactor] (in dartclaw_kernel, which cannot depend on

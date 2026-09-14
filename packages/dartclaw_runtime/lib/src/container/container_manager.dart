@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart' show BridgeSurface;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ContainerExecutor, containerGeneratedStatePath, containerImageUidGid;
+    show ContainerExecutor, VolatileContainerGeneratedState, containerGeneratedStatePath, containerImageUidGid;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -75,7 +75,7 @@ Map<String, String> containerExtraEnvironment(Map<String, String>? extra, Contai
 ///
 /// Uses `docker create` + `docker start` for fast container restart,
 /// and `docker exec` for each turn to avoid per-turn container startup.
-class ContainerManager implements ContainerExecutor {
+class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedState {
   static final _log = Logger('ContainerManager');
 
   final ContainerConfig config;
@@ -92,6 +92,8 @@ class ContainerManager implements ContainerExecutor {
 
   @override
   final String generatedStateDir;
+  final bool volatileGeneratedState;
+  Process? _lifetimeProcess;
 
   /// Host directory this execution writes durable artifacts to, mounted
   /// read-write at [containerArtifactsPath].
@@ -118,6 +120,7 @@ class ContainerManager implements ContainerExecutor {
     required this.profileId,
     required this.workspaceMounts,
     required this.generatedStateDir,
+    this.volatileGeneratedState = false,
     this.artifactsDir,
     this.hasMcpBridge = false,
     this.localPathAllowlist = const [],
@@ -144,7 +147,14 @@ class ContainerManager implements ContainerExecutor {
   String? get _artifactsMount => artifactsDir == null ? null : '$artifactsDir:$containerArtifactsPath:rw';
 
   /// Every host object this container can see, as Docker `-v` specs.
-  List<String> get _allMounts => [...workspaceMounts, _generatedStateMount, ?_artifactsMount];
+  List<String> get _allMounts => [
+    ...workspaceMounts,
+    if (!volatileGeneratedState) _generatedStateMount,
+    ?_artifactsMount,
+  ];
+
+  @override
+  String get generatedStateContainerPath => containerGeneratedStatePath;
 
   /// Format: `dartclaw-<stableHash(dataDir)>-<profileId>`
   static String generateName(String dataDir, String profileId) {
@@ -312,7 +322,7 @@ class ContainerManager implements ContainerExecutor {
     // Remove stale container if exists
     await _run(_binary, ['rm', '-f', containerName]);
     _validateLocalPathProjectMounts();
-    await _createGeneratedStateDir();
+    if (!volatileGeneratedState) await _createGeneratedStateDir();
     // Bind-mount ownership passes through verbatim on native Linux, so the
     // artifacts dir must be owned by the image uid or the container cannot
     // write its outputs. The dir is created host-side before this point.
@@ -321,7 +331,8 @@ class ContainerManager implements ContainerExecutor {
     }
 
     final args = [
-      'create',
+      volatileGeneratedState ? 'run' : 'create',
+      if (volatileGeneratedState) ...['--rm', '-i', '-a', 'stdin'],
       '--name', containerName,
       '--label', _ownerLabel,
       '--network', 'none',
@@ -335,14 +346,28 @@ class ContainerManager implements ContainerExecutor {
       if (bridgeBinaryPath != null) ...['-v', '$bridgeBinaryPath:${BridgeBinaryProvisioner.containerPath}:ro'],
       // Per-authority scratch for generated client configuration. No host home
       // is ever mounted: provider login state stays outside the boundary.
-      '-v', _generatedStateMount,
+      if (volatileGeneratedState) ...[
+        '--tmpfs',
+        '$containerGeneratedStatePath:rw,noexec,nosuid,size=32m,uid=1000,gid=1000,mode=0700',
+      ] else ...[
+        '-v',
+        _generatedStateMount,
+      ],
       // Host-owned artifacts destination: the execution writes its durable
       // outputs where the host reads them back from, inside the boundary.
       if (_artifactsMount case final mount?) ...['-v', mount],
       '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
       config.image,
-      'sleep', 'infinity', // Keep container alive for docker exec
+      volatileGeneratedState ? 'cat' : 'sleep',
+      if (!volatileGeneratedState) 'infinity',
     ];
+
+    if (volatileGeneratedState) {
+      _lifetimeProcess = await _start(_binary, args, includeParentEnvironment: true);
+      _created = true;
+      _log.info('Container $containerName ($profileId) started with volatile generated state');
+      return;
+    }
 
     final createResult = await _run(_binary, args);
     if (createResult.exitCode != 0) {
@@ -403,6 +428,16 @@ class ContainerManager implements ContainerExecutor {
   /// authority still holds that authority's mounts and root process, and its
   /// name is never reused, so the owning authority must retain it for retry.
   Future<void> stop() async {
+    final lifetime = _lifetimeProcess;
+    if (lifetime != null) {
+      await lifetime.stdin.close();
+      await lifetime.exitCode.timeout(const Duration(seconds: 10));
+      _lifetimeProcess = null;
+      if (await health() != ContainerHealth.notRunning) {
+        throw StateError('Failed to destroy container $containerName after closing retained stdin');
+      }
+      return;
+    }
     await _run(_binary, ['stop', '-t', '5', containerName]);
     final removal = await _run(_binary, ['rm', '-f', containerName]);
     // Generated state is deleted whether or not removal succeeded: a leaked
@@ -415,6 +450,25 @@ class ContainerManager implements ContainerExecutor {
       throw StateError('Failed to destroy container $containerName: ${removal.stderr}');
     }
     _log.info('Container $containerName ($profileId) stopped and removed');
+  }
+
+  @override
+  Future<void> writeGeneratedStateFile(String relativePath, String content) async {
+    if (!volatileGeneratedState || relativePath.startsWith('/') || p.split(relativePath).contains('..')) {
+      throw ArgumentError.value(relativePath, 'relativePath', 'must name volatile generated state');
+    }
+    final target = p.posix.join(containerGeneratedStatePath, relativePath);
+    final directory = p.posix.dirname(target);
+    final mkdir = await exec(['mkdir', '-p', directory]);
+    await mkdir.stdin.close();
+    await mkdir.stderr.drain<void>();
+    if (await mkdir.exitCode != 0) throw StateError('Failed to prepare volatile generated state');
+    final writer = await exec(['tee', target]);
+    writer.stdin.write(content);
+    await writer.stdin.close();
+    await writer.stdout.drain<void>();
+    await writer.stderr.drain<void>();
+    if (await writer.exitCode != 0) throw StateError('Failed to write volatile generated state');
   }
 
   /// Creates an empty, owner-only generated-state directory.

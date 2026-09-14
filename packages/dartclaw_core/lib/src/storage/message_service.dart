@@ -21,6 +21,9 @@ abstract interface class MessageServiceObserver {
   void onMessagesCleared(String sessionId, List<String> messageIds);
 }
 
+/// Resolves the persistence boundary owned by the session authority.
+typedef SessionRetentionResolver = Future<ConversationRetention?> Function(String sessionId);
+
 /// Manages message persistence with cursor-based crash recovery.
 class MessageService {
   static final _log = Logger('MessageService');
@@ -30,8 +33,16 @@ class MessageService {
   final Map<String, int> _lineCounts = {};
   late final BoundedWriteQueue _queue;
   final List<MessageServiceObserver> _observers = [];
+  final SessionRetentionResolver? retentionForSession;
+  final int maxProcessMessagesPerSession;
+  final Map<String, List<Message>> _processMessages = {};
 
-  new({required this.baseDir, MessageServiceObserver? observer}) {
+  new({
+    required this.baseDir,
+    MessageServiceObserver? observer,
+    this.retentionForSession,
+    this.maxProcessMessagesPerSession = 500,
+  }) {
     if (observer != null) _observers.add(observer);
     _queue = BoundedWriteQueue(logger: _log);
   }
@@ -47,9 +58,26 @@ class MessageService {
     required String role,
     required String content,
     String? metadata,
-  }) {
+  }) async {
     if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
     if (role.trim().isEmpty) throw ArgumentError('role must not be empty');
+
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      final entries = _processMessages.putIfAbsent(sessionId, () => []);
+      if (entries.length >= maxProcessMessagesPerSession) throw StateError('Temporary message capacity reached');
+      final message = Message(
+        cursor: entries.length + 1,
+        id: _uuid.v4(),
+        sessionId: sessionId,
+        role: role,
+        content: content,
+        metadata: metadata,
+        createdAt: DateTime.now(),
+      );
+      entries.add(message);
+      _notify((observer) => observer.onMessageAppended(message));
+      return message;
+    }
 
     final completer = Completer<Message>();
     final op = WriteOp(() async {
@@ -92,9 +120,11 @@ class MessageService {
       );
     });
     _queue.add(op);
-    op.completer.future.catchError((Object e, StackTrace st) {
-      if (!completer.isCompleted) completer.completeError(e, st);
-    });
+    unawaited(
+      op.completer.future.catchError((Object e, StackTrace st) {
+        if (!completer.isCompleted) completer.completeError(e, st);
+      }),
+    );
     return completer.future.then((message) {
       _notify((observer) => observer.onMessageAppended(message));
       return message;
@@ -111,10 +141,34 @@ class MessageService {
     String? metadata,
     required DateTime createdAt,
     bool notifyObserver = true,
-  }) {
+  }) async {
     if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
     if (!isValidUuid(messageId)) throw ArgumentError('Invalid message ID');
     if (role.trim().isEmpty) throw ArgumentError('role must not be empty');
+
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      final entries = _processMessages.putIfAbsent(sessionId, () => []);
+      for (final existing in entries) {
+        if (existing.id != messageId) continue;
+        if (existing.role != role || existing.content != content || existing.metadata != metadata) {
+          throw MessageIdentityConflict(messageId);
+        }
+        return existing;
+      }
+      if (entries.length >= maxProcessMessagesPerSession) throw StateError('Temporary message capacity reached');
+      final message = Message(
+        cursor: entries.length + 1,
+        id: messageId,
+        sessionId: sessionId,
+        role: role,
+        content: content,
+        metadata: metadata,
+        createdAt: createdAt,
+      );
+      entries.add(message);
+      if (notifyObserver) _notify((observer) => observer.onMessageAppended(message));
+      return message;
+    }
 
     Message? inserted;
     var appended = false;
@@ -173,7 +227,24 @@ class MessageService {
     required String messageId,
     required String content,
     String? metadata,
-  }) {
+  }) async {
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      final entries = _processMessages[sessionId] ?? const [];
+      final index = entries.indexWhere((message) => message.id == messageId);
+      if (index < 0) throw StateError('Message does not exist: $messageId');
+      final existing = entries[index];
+      final updated = Message(
+        cursor: existing.cursor,
+        id: existing.id,
+        sessionId: existing.sessionId,
+        role: existing.role,
+        content: content,
+        metadata: metadata,
+        createdAt: existing.createdAt,
+      );
+      entries[index] = updated;
+      return updated;
+    }
     Message? replaced;
     final op = WriteOp(() async {
       final file = _messagesFile(sessionId);
@@ -211,6 +282,9 @@ class MessageService {
       _readMessagesForward(sessionId, startLine: cursor + 1);
 
   Future<List<Message>> _readMessagesForward(String sessionId, {required int startLine}) async {
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      return List.unmodifiable((_processMessages[sessionId] ?? const []).skip(startLine - 1));
+    }
     final ndjsonFile = _messagesFile(sessionId);
     if (!ndjsonFile.existsSync()) return [];
 
@@ -231,8 +305,12 @@ class MessageService {
   }
 
   Future<List<Message>> getMessagesTail(String sessionId, {int count = 200}) async {
-    final ndjsonFile = _messagesFile(sessionId);
     if (count <= 0) return [];
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      final entries = _processMessages[sessionId] ?? const [];
+      return List.unmodifiable(entries.skip(entries.length > count ? entries.length - count : 0));
+    }
+    final ndjsonFile = _messagesFile(sessionId);
 
     if (!ndjsonFile.existsSync()) return [];
 
@@ -241,8 +319,12 @@ class MessageService {
   }
 
   Future<List<Message>> getMessagesBefore(String sessionId, int cursor, {int count = 50}) async {
-    final ndjsonFile = _messagesFile(sessionId);
     if (cursor <= 1 || count <= 0) return [];
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      final entries = (_processMessages[sessionId] ?? const []).where((message) => message.cursor < cursor).toList();
+      return List.unmodifiable(entries.skip(entries.length > count ? entries.length - count : 0));
+    }
+    final ndjsonFile = _messagesFile(sessionId);
 
     if (!ndjsonFile.existsSync()) return [];
 
@@ -331,6 +413,10 @@ class MessageService {
   }
 
   Stream<Message> _streamMessages(String sessionId) async* {
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      yield* Stream.fromIterable(_processMessages[sessionId] ?? const []);
+      return;
+    }
     final file = _messagesFile(sessionId);
     if (!file.existsSync()) return;
     var cursor = 0;
@@ -348,7 +434,12 @@ class MessageService {
   }
 
   /// Clears all messages for [sessionId] by truncating the NDJSON file.
-  Future<void> clearMessages(String sessionId) {
+  Future<void> clearMessages(String sessionId) async {
+    if (await _retention(sessionId) == ConversationRetention.process) {
+      final cleared = _processMessages.remove(sessionId) ?? const [];
+      _notify((observer) => observer.onMessagesCleared(sessionId, cleared.map((message) => message.id).toList()));
+      return;
+    }
     final ndjsonFile = _messagesFile(sessionId);
     var clearedIds = const <String>[];
     final op = WriteOp(() async {
@@ -365,6 +456,14 @@ class MessageService {
     return op.completer.future.then((_) {
       _notify((observer) => observer.onMessagesCleared(sessionId, clearedIds));
     });
+  }
+
+  Future<ConversationRetention> _retention(String sessionId) async {
+    final resolver = retentionForSession;
+    if (resolver == null) return ConversationRetention.durable;
+    final retention = await resolver(sessionId);
+    if (retention == null) throw StateError('Session does not exist: $sessionId');
+    return retention;
   }
 
   Future<void> dispose() async {

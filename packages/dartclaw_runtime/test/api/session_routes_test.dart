@@ -18,6 +18,13 @@ import '../test_utils.dart';
 import '../session_turn_manager_test_support.dart';
 import 'api_test_helpers.dart';
 
+const _temporaryCapability = TemporaryConversationCapability(
+  providerId: 'codex',
+  policy: ExecutionPolicy.container('workspace'),
+  available: true,
+  reason: '',
+);
+
 void main() {
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
   tearDownAll(() => resetTemplates());
@@ -97,6 +104,79 @@ void main() {
       final code = await api.expectJsonErrorCode('GET', '/api/sessions/missing', status: 404);
 
       expect(code, equals('SESSION_NOT_FOUND'));
+    });
+  });
+
+  group('temporary conversations', () {
+    test('requires disclosure and pins the mediated Codex container row', () async {
+      final temporaryMessages = MessageService(baseDir: tempDir.path, retentionForSession: sessions.retentionFor);
+      final temporaryTurns = FakeTurnManager(temporaryMessages, worker);
+      final temporaryApi = ApiRouteTestClient(
+        localAdminMiddleware()(
+          sessionRoutes(
+            sessions,
+            temporaryMessages,
+            temporaryTurns,
+            worker,
+            defaultProvider: 'codex',
+            temporaryConversationCapability: _temporaryCapability,
+          ).call,
+        ),
+      );
+      expect(
+        await temporaryApi.expectJsonErrorCode('POST', '/api/sessions', json: {'retention': 'process'}, status: 400),
+        'DISCLOSURE_REQUIRED',
+      );
+      final response = await temporaryApi.expectResponse(
+        'POST',
+        '/api/sessions',
+        json: {'retention': 'process', 'disclosureAccepted': true},
+        status: 201,
+      );
+      expect(response.headers['cache-control'], 'no-store');
+      final created = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(created, containsPair('retention', 'process'));
+      expect(created, containsPair('provider', 'codex'));
+      expect(created, containsPair('executionMode', 'container'));
+      expect(created, containsPair('securityProfile', 'workspace'));
+      expect(Directory(p.join(tempDir.path, created['id'] as String)).existsSync(), isFalse);
+    });
+
+    test('exports visible Markdown then irreversibly ends the process conversation', () async {
+      final temporaryMessages = MessageService(baseDir: tempDir.path, retentionForSession: sessions.retentionFor);
+      final temporaryTurns = FakeTurnManager(temporaryMessages, worker);
+      final temporaryHandler = localAdminMiddleware()(
+        sessionRoutes(
+          sessions,
+          temporaryMessages,
+          temporaryTurns,
+          worker,
+          defaultProvider: 'codex',
+          temporaryConversationCapability: _temporaryCapability,
+        ).call,
+      );
+      final temporaryApi = ApiRouteTestClient(temporaryHandler);
+      final created = await temporaryApi.expectJsonObject(
+        'POST',
+        '/api/sessions',
+        json: {'retention': 'process', 'disclosureAccepted': true},
+        status: 201,
+      );
+      final id = created['id'] as String;
+      await temporaryMessages.insertMessage(sessionId: id, role: 'user', content: 'private prompt');
+      final disclosure = await temporaryApi.expectJsonObject('GET', '/api/sessions/$id/export');
+      expect(disclosure['confirmation_required'], isTrue);
+      final export = await temporaryApi.expectResponse(
+        'POST',
+        '/api/sessions/$id/export',
+        json: {'confirmed': true, 'durableCopyAccepted': true},
+        status: 200,
+      );
+      expect(export.headers['content-type'], contains('text/markdown'));
+      expect(await export.readAsString(), contains('private prompt'));
+      await temporaryApi.expectResponse('POST', '/api/sessions/$id/end-temporary', status: 204);
+      await temporaryApi.expectResponse('GET', '/api/sessions/$id', status: 404);
+      await temporaryApi.expectResponse('POST', '/api/sessions/$id/end-temporary', status: 404);
     });
   });
 
@@ -2035,6 +2115,7 @@ final class PausingUpdateTitleSessionService extends SessionService {
   @override
   Future<Session> createSession({
     SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
     String? channelKey,
     String? provider,
     String? securityProfile,
@@ -2043,6 +2124,7 @@ final class PausingUpdateTitleSessionService extends SessionService {
   }) async {
     final created = await super.createSession(
       type: type,
+      retention: retention,
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
@@ -2133,6 +2215,7 @@ final class OpenTrackingSessionService extends SessionService {
   @override
   Future<Session> createSession({
     SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
     String? channelKey,
     String? provider,
     String? securityProfile,
@@ -2142,6 +2225,7 @@ final class OpenTrackingSessionService extends SessionService {
     if (_initialSession != null) replacementCreateStarted.complete();
     final created = await super.createSession(
       type: type,
+      retention: retention,
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,

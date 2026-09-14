@@ -1,6 +1,34 @@
 part of 'execution_coordinator.dart';
 
 extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
+  Future<void> _releaseTemporarySession(String sessionId) async {
+    final workers = _cache
+        .where((worker) => worker.lastSessionId == sessionId && worker.request.surface == ExecutionSurface.temporary)
+        .toList();
+    if (_active.values.any(
+          (execution) =>
+              execution.request.sessionId == sessionId && execution.request.surface == ExecutionSurface.temporary,
+        ) ||
+        _acquiring.values.any(
+          (acquisition) =>
+              acquisition.request.sessionId == sessionId && acquisition.request.surface == ExecutionSurface.temporary,
+        )) {
+      throw BusyTurnException('Cannot end temporary session while its turn is running', isSameSession: true);
+    }
+    for (final worker in workers) {
+      _cache.remove(worker);
+      final confirmed = await _tearDownWorker(worker.runner, worker.request);
+      final quarantined = _teardownNeedsQuarantine(worker.runner, confirmed);
+      if (quarantined) {
+        worker.retainedPermit?.quarantine();
+        _completeWorkerTeardown(worker.runner, worker.request, ExecutionLane.worker, quarantined: true);
+        throw StateError('Temporary provider termination was not confirmed');
+      }
+      worker.retainedPermit?.release();
+      _completeWorkerTeardown(worker.runner, worker.request, ExecutionLane.worker, quarantined: false);
+    }
+  }
+
   /// Tears a worker down in the order the isolation boundary requires:
   /// harness termination, authority revocation, container destruction. Callers
   /// return capacity only after this completes.

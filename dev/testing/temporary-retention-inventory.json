@@ -1,0 +1,19 @@
+{
+  "markerPrefix": "DARTCLAW_TEMPORARY_PROBE_",
+  "surfaces": [
+    {"id":"session-meta","owner":"SessionService","negativeProbe":"sessions/<id>/meta.json","positiveControl":"ordinary session meta"},
+    {"id":"messages","owner":"MessageService","negativeProbe":"sessions/<id>/messages.ndjson","positiveControl":"ordinary message"},
+    {"id":"conversation-state","owner":"SessionService","negativeProbe":"conversationState in meta.json","positiveControl":"ordinary submission and telemetry"},
+    {"id":"attachments","owner":"session attachment routes","negativeProbe":"sessions/<id>/attachments","positiveControl":"ordinary attachment"},
+    {"id":"usage-kv","owner":"TurnRunner","negativeProbe":"session_cost:<id>","positiveControl":"ordinary usage key"},
+    {"id":"lexical-index","owner":"ConversationIndexProjection","negativeProbe":"session_id search row","positiveControl":"ordinary search row"},
+    {"id":"vector-index","owner":"ConversationIndexer","negativeProbe":"temporary document id","positiveControl":"ordinary vector row"},
+    {"id":"daily-log","owner":"TurnRunner","negativeProbe":"daily Markdown marker","positiveControl":"ordinary daily-log record"},
+    {"id":"memory","owner":"HarnessWiring memory tools","negativeProbe":"memory corpus marker","positiveControl":"ordinary memory observation"},
+    {"id":"audit-log","owner":"GuardAuditLogger","negativeProbe":"content marker in audit output","positiveControl":"ordinary opaque operation metadata"},
+    {"id":"process-log","owner":"CodexHarness","negativeProbe":"prompt/tool/provider marker","positiveControl":"configured process-name marker"},
+    {"id":"browser-storage","owner":"DcChatController","negativeProbe":"IndexedDB/localStorage/sessionStorage/CacheStorage/history state","positiveControl":"ordinary persisted draft record"},
+    {"id":"provider-home","owner":"ContainerManager","negativeProbe":"host generated-state bind or surviving tmpfs","positiveControl":"ordinary host-backed provider state"},
+    {"id":"replay","owner":"ConversationService","negativeProbe":"queued dispatch after restart","positiveControl":"ordinary idempotent submission replay"}
+  ]
+}

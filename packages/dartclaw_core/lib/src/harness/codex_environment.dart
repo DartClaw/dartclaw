@@ -125,7 +125,25 @@ class CodexEnvironment {
        _dedicatedHome = null,
        _nativeWebSearch = nativeWebSearch;
 
-  bool get isContainerAuthClean => _containerHostHome != null;
+  /// An auth-clean home whose files were written through a container-owned tmpfs.
+  new containerAuthCleanPrepared({
+    required this.developerInstructions,
+    required String containerHomePath,
+    required String gatewayBaseUrl,
+    required bool nativeWebSearch,
+    this.mcpServerUrl,
+    this.agentsMdContent,
+    PlatformCapabilities? platformCapabilities,
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       useSystemCodexHome = false,
+       mcpGatewayToken = null,
+       _containerHostHome = null,
+       _containerHomePath = containerHomePath,
+       _gatewayBaseUrl = gatewayBaseUrl,
+       _dedicatedHome = null,
+       _nativeWebSearch = nativeWebSearch;
+
+  bool get isContainerAuthClean => _containerHomePath != null;
 
   /// Resolves the configured system/isolated lifecycle from provider options.
   static bool useSystemHome(Map<String, dynamic> providerOptions) {
@@ -147,8 +165,9 @@ class CodexEnvironment {
   /// Whether this resolved home preserves rollout state beyond the worker lifetime.
   bool get supportsProviderSessionResume => isSetup && !isContainerAuthClean && (useSystemCodexHome || isDedicated);
 
-  bool get isSetup =>
-      isContainerAuthClean ? _containerDirectory != null : isDedicated || useSystemCodexHome || _tempDirectory != null;
+  bool get isSetup => isContainerAuthClean
+      ? _containerHostHome == null || _containerDirectory != null
+      : isDedicated || useSystemCodexHome || _tempDirectory != null;
 
   /// Prepares the Codex worker home for the configured lifecycle.
   ///
@@ -247,6 +266,8 @@ class CodexEnvironment {
   /// No authentication seeding step exists on this path by construction – the
   /// home starts empty and receives nothing but `config.toml` and `AGENTS.md`.
   Future<String> _setupContainerHome() async {
+    final containerHomePath = _containerHomePath;
+    if (_containerHostHome == null && containerHomePath != null) return containerHomePath;
     final existing = _containerDirectory;
     if (existing != null) {
       return existing.path;
@@ -304,7 +325,7 @@ class CodexEnvironment {
   /// exports no bearer at all: the execution-scoped bridge is the authority.
   Map<String, String> environmentOverrides() {
     if (isContainerAuthClean) {
-      return _containerDirectory == null ? const {} : {'CODEX_HOME': _containerHomePath!};
+      return !isSetup ? const {} : {'CODEX_HOME': _containerHomePath!};
     }
 
     final mcpBearerEntry = (mcpGatewayToken != null && mcpGatewayToken!.trim().isNotEmpty)

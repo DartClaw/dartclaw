@@ -18,6 +18,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Owner-authorized temporary conversations can run on the mediated Codex container row. Their session, messages,
+  history, attachments, usage context, provider home, and browser draft stay within process, container, or page memory;
+  explicit end revokes the conversation after confirmed shutdown, and confirmed export streams a durable Markdown copy.
+
 - Conversations now show their immutable workspace owner separately from revisioned current and next-turn project,
   directory, provider, model and effort context. Changes are authorized and captured at admission, telemetry names its
   session and source, and the one schema-bound automatic title attempt cannot overwrite a manual or newer title.

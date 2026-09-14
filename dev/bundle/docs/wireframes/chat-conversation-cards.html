@@ -84,6 +84,20 @@
 
   <!-- Chat area -->
   <div class="chat-area">
+    <section class="conversation-retention-controls" aria-label="Conversation retention" data-fixture-state="temporary-live">
+      <div class="banner banner-warning">
+        <strong>Temporary · process lifetime</strong>
+        <span role="status">Active until you end it or this server stops.</span>
+        <button type="button" class="btn btn-ghost" aria-haspopup="dialog">Export</button>
+        <button type="button" class="btn btn-danger" aria-haspopup="dialog">End</button>
+      </div>
+    </section>
+    <dialog id="temporary-export-dialog" class="dialog" aria-labelledby="temporary-export-title" aria-describedby="temporary-export-detail" data-fixture-state="export-confirmation">
+      <h2 id="temporary-export-title">Create durable Markdown copy?</h2>
+      <p id="temporary-export-detail">The export is a durable copy containing visible redacted history and an attachment manifest. It contains no attachment bytes or provider state.</p>
+      <button type="button" class="btn btn-primary">Create durable copy</button>
+      <button type="button" class="btn btn-ghost">Cancel</button>
+    </dialog>
     <div class="messages" data-history-viewport="stable-anchor" data-desktop-state="1440" data-phone-state="375 390 768">
 
       <!-- User message -->
@@ -271,6 +285,10 @@
       </div>
     </div>
   </div>
+
+  <template data-fixture-state="temporary-ending">Ending…</template>
+  <template data-fixture-state="temporary-end-failed">End failed. Retry ending this conversation.</template>
+  <template data-fixture-state="draft-loss-warning">Reloading discards this temporary draft.</template>
 
 </div>
 

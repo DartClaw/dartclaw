@@ -195,7 +195,7 @@ class StorageWiring {
     Directory(config.sessionsDir).createSync(recursive: true);
 
     _sessions = SessionService(baseDir: config.sessionsDir, eventBus: _eventBus);
-    _messages = MessageService(baseDir: config.sessionsDir);
+    _messages = MessageService(baseDir: config.sessionsDir, retentionForSession: _sessions.retentionFor);
 
     if (personalMemoryEnabled) {
       await _wirePersonalMemoryBeforeTaskStorage();

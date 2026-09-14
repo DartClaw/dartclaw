@@ -7,7 +7,7 @@ enum ExecutionLane { primary, worker }
 enum ExecutionAdmission { wait, failFast }
 
 /// Identifies the product surface requesting execution.
-enum ExecutionSurface { interactive, channel, task, workflow, logicalAgent, scheduler }
+enum ExecutionSurface { interactive, temporary, channel, task, workflow, logicalAgent, scheduler }
 
 /// Describes one post-governance execution allocation.
 final class ExecutionRequest {
@@ -16,6 +16,7 @@ final class ExecutionRequest {
     required this.providerId,
     required this.policy,
     required this.sessionId,
+    this.retention = ConversationRetention.durable,
     this.admission = ExecutionAdmission.wait,
     this.isHumanInput = false,
     this.taskId,
@@ -36,6 +37,7 @@ final class ExecutionRequest {
   /// are two container workers built from different profiles.
   final ExecutionPolicy policy;
   final String sessionId;
+  final ConversationRetention retention;
   final ExecutionAdmission admission;
   final bool isHumanInput;
   final String? taskId;
@@ -77,6 +79,7 @@ final class ExecutionRequest {
       providerId: providerId ?? this.providerId,
       policy: policy ?? this.policy,
       sessionId: sessionId,
+      retention: retention,
       admission: admission,
       isHumanInput: isHumanInput,
       taskId: taskId,

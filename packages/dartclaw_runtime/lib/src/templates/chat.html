@@ -32,7 +32,35 @@
 </div>
 
 <main tl:fragment="chatArea" id="main-content" tabindex="-1" class="chat-area print-in" data-controller="dc-chat dc-tasks"
-  tl:attr="data-session-id=${sessionId},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor},data-target-message-id=${targetMessageId}">
+  tl:attr="data-session-id=${sessionId},data-retention=${retention},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor},data-target-message-id=${targetMessageId},hx-history=${historyDisabled}">
+  <section class="conversation-retention-controls" aria-label="Conversation retention">
+    <button tl:unless="${isTemporary}" type="button" class="btn btn-ghost" data-action="dc-chat#openTemporaryCreate">New temporary chat</button>
+    <button tl:unless="${isTemporary}" type="button" class="btn btn-ghost" data-action="dc-chat#openTemporaryExport">Export</button>
+    <div tl:if="${isTemporary}" class="banner banner-warning">
+      <strong>Temporary · process lifetime</strong>
+      <span data-temporary-state role="status" tl:text="${temporaryStatus}">Active until you end it or this server stops.</span>
+      <button type="button" class="btn btn-ghost" data-action="dc-chat#openTemporaryExport" tl:attr="disabled=${temporaryEnding}">Export</button>
+      <button type="button" class="btn btn-danger" data-action="dc-chat#openTemporaryEnd" tl:attr="disabled=${temporaryEnding}">End</button>
+    </div>
+  </section>
+  <dialog id="temporary-create-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-create-title" aria-describedby="temporary-create-detail">
+    <h2 id="temporary-create-title">Start temporary conversation?</h2>
+    <p id="temporary-create-detail">Messages, attachments, and provider state stay in this server process. Drafts stay only in this page and are lost on reload. Provider processing and external tool effects may persist. Export creates a durable copy.</p>
+    <button type="button" class="btn btn-primary" data-action="dc-chat#createTemporary">Accept and start</button>
+    <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+  </dialog>
+  <dialog id="temporary-export-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-export-title" aria-describedby="temporary-export-detail">
+    <h2 id="temporary-export-title">Create durable Markdown copy?</h2>
+    <p id="temporary-export-detail">The export is a durable copy containing visible redacted history and an attachment manifest. It contains no attachment bytes or provider state.</p>
+    <button type="button" class="btn btn-primary" data-action="dc-chat#exportTemporary">Create durable copy</button>
+    <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+  </dialog>
+  <dialog id="temporary-end-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-end-title" aria-describedby="temporary-end-detail">
+    <h2 id="temporary-end-title">End temporary chat?</h2>
+    <p id="temporary-end-detail">This permanently closes the temporary conversation and discards its messages, attachments, provider state, and unsent page draft after the provider has stopped.</p>
+    <button type="button" class="btn btn-danger" data-action="dc-chat#endTemporary">End temporary chat</button>
+    <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+  </dialog>
   <div tl:if="${chatNoticeHtml}" tl:utext="${chatNoticeHtml}">session notice</div>
   <div class="chat-load-earlier">
     <button id="load-earlier-btn" type="button" class="btn btn-ghost" data-load-earlier=""

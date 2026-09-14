@@ -44,8 +44,12 @@ final class ConversationIndexProjection {
   Map<String, int>? _projectedCounts;
 
   /// Maps one eligible persisted message to its index document.
-  static SearchDocument? document({required Message message, required SessionType sessionType}) {
-    if (!sessionType.isChatFacing || (message.role != 'user' && message.role != 'assistant')) {
+  static SearchDocument? document({
+    required Message message,
+    required SessionType sessionType,
+    ConversationRetention retention = ConversationRetention.durable,
+  }) {
+    if (!retention.isDurable || !sessionType.isChatFacing || (message.role != 'user' && message.role != 'assistant')) {
       return null;
     }
     return SearchDocument(
@@ -64,7 +68,7 @@ final class ConversationIndexProjection {
       final state = await sessions.getConversationState(session.id);
       final batch = (await messages.getMessages(session.id))
           .where((message) => state.includesMessage(message.id))
-          .map((message) => document(message: message, sessionType: session.type))
+          .map((message) => document(message: message, sessionType: session.type, retention: session.retention))
           .whereType<SearchDocument>()
           .toList(growable: false);
       yield (principal: _principal(session), documents: batch);

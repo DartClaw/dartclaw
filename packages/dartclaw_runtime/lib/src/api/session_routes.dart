@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:logging/logging.dart';
@@ -13,9 +14,11 @@ import '../conversation/inbox_service.dart';
 import '../session/session_reset_service.dart';
 import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;
+import '../temporary_conversation_capability.dart';
 import 'api_helpers.dart';
 import 'session_attachment_routes.dart';
 import 'session_conversation_routes.dart';
+import 'session_export_routes.dart';
 import 'session_lifecycle_routes.dart';
 import 'session_inbox_routes.dart';
 import 'session_message_routes.dart';
@@ -43,6 +46,7 @@ Router sessionRoutes(
   ProjectService? projectService,
   Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
   String defaultProvider = 'claude',
+  TemporaryConversationCapability? temporaryConversationCapability,
   LogicalAgentSessionService? logicalAgentSessions,
   Future<SidebarData> Function({String? activeSessionId})? sidebarData,
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
@@ -51,6 +55,7 @@ Router sessionRoutes(
   ConversationFailpoint? conversationFailpoint,
   AttachmentWriteFailpoint? attachmentWriteFailpoint,
   String Function()? attachmentIdFactory,
+  ProcessAttachmentOwner? processAttachmentOwner,
 }) {
   final router = Router();
   final sessionMutations = inboxService?.mutations ?? SessionMutationCoordinator();
@@ -63,6 +68,7 @@ Router sessionRoutes(
         updates: sseBroadcast,
         isSessionRunning: turns.isActive,
       );
+  final processAttachments = processAttachmentOwner ?? ProcessAttachmentOwner();
   final conversation = ConversationService(
     sessions: sessions,
     messages: messages,
@@ -74,6 +80,7 @@ Router sessionRoutes(
     contextCapabilities: contextCapabilities,
     defaultProvider: defaultProvider,
     titleAgents: logicalAgentSessions,
+    processAttachmentResolver: processAttachments.resolve,
     redactor: redactor,
     approvalResponder: (sessionId, turnId, requestId, approved) =>
         turns.resolveToolApproval(sessionId: sessionId, turnId: turnId, requestId: requestId, approved: approved),
@@ -153,7 +160,13 @@ Router sessionRoutes(
       if (session == null) {
         return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
-      return jsonResponse(200, session.toJson());
+      final response = jsonResponse(200, {
+        ...session.toJson(),
+        if (session.retention == ConversationRetention.process) 'temporaryEndState': sessions.temporaryEndState(id),
+      });
+      return session.retention == ConversationRetention.process
+          ? response.change(headers: {'cache-control': 'no-store'})
+          : response;
     } catch (e) {
       _log.warning('Failed to get session $id: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get session');
@@ -164,11 +177,16 @@ Router sessionRoutes(
   router.post('/api/sessions', (Request request) async {
     try {
       final queryProvider = trimmedOrNull(request.url.queryParameters['provider']);
-      final parsed = queryProvider == null
-          ? await parseOptionalBodyField(request, 'provider')
-          : (value: queryProvider, error: null);
-      if (parsed.error != null) return parsed.error!;
-      if (parsed.value != null) {
+      final raw = await readRequestBody(request, maxBytes: defaultMaxJsonBodyBytes);
+      if (raw.error != null) return raw.error!;
+      var body = <String, dynamic>{};
+      if (raw.body!.trim().isNotEmpty) {
+        final parsed = decodeJsonObject(raw.body!);
+        if (parsed.error != null) return parsed.error!;
+        body = parsed.value!;
+      }
+      final provider = queryProvider ?? trimmedStringOrNull(body['provider']);
+      if (provider != null) {
         return errorResponse(
           400,
           'PROVIDER_OVERRIDE_UNSUPPORTED',
@@ -176,7 +194,36 @@ Router sessionRoutes(
           {'field': 'provider'},
         );
       }
-
+      final retention = body['retention'];
+      if (retention != null && retention != 'process') {
+        return errorResponse(400, 'INVALID_RETENTION', 'retention must be process when supplied');
+      }
+      if (retention == 'process') {
+        if (body['disclosureAccepted'] != true) {
+          return errorResponse(400, 'DISCLOSURE_REQUIRED', 'Temporary conversation disclosure must be accepted');
+        }
+        final capability = temporaryConversationCapability;
+        if (capability == null || !capability.available) {
+          return errorResponse(
+            409,
+            'TEMPORARY_UNAVAILABLE',
+            capability?.reason.isNotEmpty == true
+                ? capability!.reason
+                : 'Temporary conversations are unavailable on this host',
+          );
+        }
+        final session = await sessions.createSession(
+          retention: ConversationRetention.process,
+          provider: capability.providerId,
+          securityProfile: capability.policy.containerProfile,
+          executionMode: capability.policy.mode,
+        );
+        return Response(
+          201,
+          body: jsonEncode(session.toJson()),
+          headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'},
+        );
+      }
       final session = await sessions.createSession();
       return jsonResponse(201, session.toJson());
     } catch (e) {
@@ -251,6 +298,13 @@ Router sessionRoutes(
     projectService: projectService,
     failpoint: attachmentWriteFailpoint,
     attachmentIdFactory: attachmentIdFactory,
+    processAttachments: processAttachments,
+  );
+  registerSessionExportRoutes(
+    router,
+    sessions: sessions,
+    conversation: conversation,
+    processAttachments: processAttachments,
   );
 
   // Stuck-turn status + early-cancel endpoints (turn/stop, turn-status, turns/<turnId>/cancel).
@@ -277,11 +331,13 @@ Router sessionRoutes(
   registerSessionLifecycleRoutes(
     router,
     sessions: sessions,
+    messages: messages,
     turns: turns,
     sessionMutations: sessionMutations,
     resetService: resetService,
     sidebarData: sidebarData,
     buildSidebarHtml: buildSidebarHtml,
+    processAttachments: processAttachments,
   );
 
   return router;

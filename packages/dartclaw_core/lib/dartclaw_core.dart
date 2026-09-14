@@ -293,6 +293,7 @@ export 'src/memory/memory_corpus_service.dart'
 export 'src/container/container_executor.dart'
     show
         ContainerExecutor,
+        VolatileContainerGeneratedState,
         containerClaudeExecutable,
         containerCodexExecutable,
         containerExecutableRuns,

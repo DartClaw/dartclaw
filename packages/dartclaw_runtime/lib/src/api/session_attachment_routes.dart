@@ -23,6 +23,29 @@ const _maxAttachmentBytes = 10 * 1024 * 1024;
 const _maxAttachmentJsonBytes = 15 * 1024 * 1024;
 typedef AttachmentWriteFailpoint = FutureOr<void> Function(String boundary, String attachmentId);
 
+/// Owns the bounded, process-only attachment bytes for temporary sessions.
+final class ProcessAttachmentOwner {
+  final Map<String, Map<String, ({Map<String, dynamic> metadata, List<int> bytes})>> _sessions = {};
+
+  void put(String sessionId, Map<String, dynamic> metadata, List<int> bytes) {
+    final entries = _sessions.putIfAbsent(sessionId, () => {});
+    if (entries.length >= 20) throw StateError('Temporary attachment capacity reached');
+    entries[metadata['id'] as String] = (metadata: Map.unmodifiable(metadata), bytes: List.unmodifiable(bytes));
+  }
+
+  bool remove(String sessionId, String attachmentId) => _sessions[sessionId]?.remove(attachmentId) != null;
+
+  void clearSession(String sessionId) => _sessions.remove(sessionId);
+
+  bool contains(String sessionId, String attachmentId) => _sessions[sessionId]?.containsKey(attachmentId) ?? false;
+
+  Map<String, dynamic>? resolve(String sessionId, String attachmentId) {
+    final entry = _sessions[sessionId]?[attachmentId];
+    if (entry == null) return null;
+    return {...entry.metadata, 'bytes': entry.bytes};
+  }
+}
+
 /// Registers session attachment-upload and reference-lookup endpoints.
 ///
 /// Routes registered:
@@ -39,6 +62,7 @@ void registerSessionAttachmentRoutes(
   ProjectService? projectService,
   AttachmentWriteFailpoint? failpoint,
   String Function()? attachmentIdFactory,
+  required ProcessAttachmentOwner processAttachments,
 }) {
   // POST /api/sessions/<id>/attachments
   router.post('/api/sessions/<id>/attachments', (Request request, String id) async {
@@ -47,17 +71,24 @@ void registerSessionAttachmentRoutes(
       if (session == null) {
         return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
+      if (session.retention == ConversationRetention.process && sessions.temporaryEndState(id) != 'active') {
+        return errorResponse(409, 'TEMPORARY_ENDING', 'Temporary conversation is ending');
+      }
       final parsed = await parseJsonObjectBody(request, maxBytes: _maxAttachmentJsonBytes);
       if (parsed.error != null) return parsed.error!;
       final metadata = _validateAttachmentPayload(parsed.json, attachmentIdFactory: attachmentIdFactory);
       if (metadata.error != null) return metadata.error!;
 
       final attachment = metadata.attachment!;
-      final attachmentDir = Directory(p.join(messages.baseDir, id, 'attachments'));
-      await attachmentDir.create(recursive: true);
       final bytes = metadata.bytes!;
       attachment['digest'] = 'sha256:${sha256.convert(bytes)}';
       attachment['owner'] = 'draft';
+      if (session.retention == ConversationRetention.process) {
+        processAttachments.put(id, attachment, bytes);
+        return jsonResponse(201, attachment);
+      }
+      final attachmentDir = Directory(p.join(messages.baseDir, id, 'attachments'));
+      await attachmentDir.create(recursive: true);
       final contentFile = File(p.join(attachmentDir.path, '${attachment['id']}.data'));
       await atomicWriteBytes(contentFile, bytes);
       await failpoint?.call('attachment_data', attachment['id'] as String);
@@ -85,7 +116,8 @@ void registerSessionAttachmentRoutes(
   ) async {
     try {
       return await sessionMutations.run(id, () async {
-        if (await sessions.getSession(id) == null) {
+        final session = await sessions.getSession(id);
+        if (session == null) {
           return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
         }
         final state = await sessions.getConversationState(id);
@@ -94,6 +126,12 @@ void registerSessionAttachmentRoutes(
         );
         if (claimed) {
           return errorResponse(409, 'ATTACHMENT_ACCEPTED', 'Accepted attachment cannot be removed from a draft');
+        }
+        if (session.retention == ConversationRetention.process) {
+          if (!processAttachments.remove(id, attachmentId)) {
+            return errorResponse(404, 'ATTACHMENT_NOT_FOUND', 'Attachment not found');
+          }
+          return jsonResponse(200, {'status': 'removed', 'id': attachmentId});
         }
         final directory = p.join(messages.baseDir, id, 'attachments');
         final metadata = File(p.join(directory, '$attachmentId.json'));

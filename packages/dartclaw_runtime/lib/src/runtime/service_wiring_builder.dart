@@ -140,6 +140,7 @@ DartclawServer _composeRuntimeServer(
     resultTrimmer: harness.resultTrimmer,
     effectiveContextCapabilities: harness.effectiveContextCapabilities,
     logicalAgentSessions: harness.logicalAgentSessions,
+    temporaryConversationCapability: harness.temporaryConversationCapability,
   ),
   turn: ServerTurnDeps(turns: ctx._serverTurns, executions: harness.executions),
   channels: ServerChannelDeps(

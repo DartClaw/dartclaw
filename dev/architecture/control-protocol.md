@@ -1312,6 +1312,15 @@ ExecutionRequest(
 
 There is no policy or provider fallback. Each live container authority owns a container created when it is admitted and destroyed when it is released; a container neither reserves provider capacity nor holds conversation state.
 
+Temporary Codex execution always takes the worker lane and derives process retention from the host-owned session. The
+existing execution coordinator retains that worker and its capacity permit by trusted session ID across idle turns;
+only explicit end or coordinator shutdown releases it, and no other session may reuse it.
+Its `ContainerManager` runs `docker run --rm -i -a stdin` with a foreground `cat` root and retains that root stdin for
+the authority lifetime. Generated Codex state lives at `containerGeneratedStatePath` on an owner-only uid-1000 tmpfs;
+there is no generated-state host bind. Release closes the retained stdin, awaits root exit, and confirms container
+absence. The conformance profile records the live Docker stdin, TTY, auto-remove, command, tmpfs, mount, EOF, and parent
+SIGKILL observations before any restart or orphan reclaim.
+
 ### Container naming
 
 Containers are uniquely named from a hash of the data directory plus the owning profile and authority:

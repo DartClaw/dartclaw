@@ -32,6 +32,15 @@ The interface has three main areas:
 - **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
 - **Delete**: Click the × button on a sidebar item
 - **Auto-title**: A new non-workspace conversation gets an immediate title from the first message. After the first assistant response, one schema-bound title request may replace that fallback. A manual or newer title always wins, and the workspace **Agent** is never auto-titled.
+- **Temporary conversations**: Creation requires the retention disclosure and is available only when the effective
+  provider is a built-in Codex adapter whose exact workspace-container policy passes the launch inventory and whose
+  Docker workspace profile is available. Release support also requires the shipped candidate to pass the documented
+  real-provider EOF/SIGKILL qualification matrix. The opaque link works only in the current server process. Drafts survive
+  in-page navigation but disappear on reload or close. **End temporary chat** waits for active work and its container to
+  stop before revoking the link. Provider processing and deliberate workspace or external tool effects can persist.
+- **Export**: An authenticated owner can confirm a Markdown download for an ordinary or temporary conversation. It
+  contains visible redacted messages, UTC timestamps, branch lineage, and an attachment availability manifest. It never
+  embeds attachment bytes. The downloaded file is a deliberate durable copy.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
 - **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`

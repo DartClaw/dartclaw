@@ -86,6 +86,7 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
     String? artifactsDir,
     String? workspaceDir,
     bool useOwnerWorkspace = true,
+    bool volatileGeneratedState = false,
   }) async {
     grants.add((
       sessionId: principal.sessionId,

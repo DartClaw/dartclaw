@@ -41,6 +41,7 @@ class ServerCoreDeps {
   final ResultTrimmer? resultTrimmer;
   final Map<String, EffectiveContextCapabilities> effectiveContextCapabilities;
   final LogicalAgentSessionService? logicalAgentSessions;
+  final TemporaryConversationCapability? temporaryConversationCapability;
 
   const new({
     required this.sessions,
@@ -68,6 +69,7 @@ class ServerCoreDeps {
     this.resultTrimmer,
     this.effectiveContextCapabilities = const {},
     this.logicalAgentSessions,
+    this.temporaryConversationCapability,
   });
 }
 

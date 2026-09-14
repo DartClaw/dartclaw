@@ -12,6 +12,8 @@ import {
   showToast,
 } from './shared.js';
 
+const temporaryDrafts = new Map();
+
 export default class DcChatController extends Stimulus.Controller {
   connect() {
     this.attachments = [];
@@ -52,6 +54,10 @@ export default class DcChatController extends Stimulus.Controller {
     this.handleConnectivityChange = this.handleConnectivityChange.bind(this);
     this.handleContextDialogKeydown = this.handleContextDialogKeydown.bind(this);
     this.handleVisibleReadBoundary = this.handleVisibleReadBoundary.bind(this);
+    this.handleTemporaryBeforeUnload = this.handleTemporaryBeforeUnload.bind(this);
+    this.handleTemporaryPageHide = this.handleTemporaryPageHide.bind(this);
+    this.handleTemporaryDialogKeydown = this.handleTemporaryDialogKeydown.bind(this);
+    this.handleTemporaryDialogClose = this.handleTemporaryDialogClose.bind(this);
 
     document.body.addEventListener('htmx:before:request', this.handleBeforeRequest);
     document.body.addEventListener('htmx:finally:request', this.handleFinallyRequest);
@@ -64,6 +70,10 @@ export default class DcChatController extends Stimulus.Controller {
     window.addEventListener('offline', this.handleConnectivityChange);
     document.addEventListener('visibilitychange', this.handleVisibleReadBoundary);
     this.element.querySelector('.messages')?.addEventListener('scroll', this.handleVisibleReadBoundary, { passive: true });
+    if (this.isTemporary) {
+      window.addEventListener('beforeunload', this.handleTemporaryBeforeUnload);
+      window.addEventListener('pagehide', this.handleTemporaryPageHide);
+    }
 
     this.initTextarea();
     this.sendButton?.addEventListener('click', this.handleSendButtonClick);
@@ -75,6 +85,10 @@ export default class DcChatController extends Stimulus.Controller {
     this.initializeConversationState();
     this.initializeDraftStorage();
     this.contextDialog?.addEventListener('keydown', this.handleContextDialogKeydown);
+    this.temporaryDialogs.forEach((dialog) => {
+      dialog.addEventListener('keydown', this.handleTemporaryDialogKeydown);
+      dialog.addEventListener('close', this.handleTemporaryDialogClose);
+    });
   }
 
   disconnect() {
@@ -90,6 +104,8 @@ export default class DcChatController extends Stimulus.Controller {
     window.removeEventListener('offline', this.handleConnectivityChange);
     document.removeEventListener('visibilitychange', this.handleVisibleReadBoundary);
     this.element.querySelector('.messages')?.removeEventListener('scroll', this.handleVisibleReadBoundary);
+    window.removeEventListener('beforeunload', this.handleTemporaryBeforeUnload);
+    window.removeEventListener('pagehide', this.handleTemporaryPageHide);
     this._stopTurnStatusPolling();
     this.streamRecoveryTurnId = null;
     document.body.classList.remove('streaming');
@@ -103,6 +119,10 @@ export default class DcChatController extends Stimulus.Controller {
     clearTimeout(this.saveTimer);
     this.draftChannel?.close();
     this.contextDialog?.removeEventListener('keydown', this.handleContextDialogKeydown);
+    this.temporaryDialogs.forEach((dialog) => {
+      dialog.removeEventListener('keydown', this.handleTemporaryDialogKeydown);
+      dialog.removeEventListener('close', this.handleTemporaryDialogClose);
+    });
   }
 
   get textarea() {
@@ -175,6 +195,32 @@ export default class DcChatController extends Stimulus.Controller {
 
   get sessionId() {
     return this.element.dataset.sessionId;
+  }
+
+  get isTemporary() {
+    return this.element.dataset.retention === 'process';
+  }
+
+  handleTemporaryBeforeUnload(event) {
+    if (!this.draftTouched && !this.textarea?.value) return;
+    event.preventDefault();
+    event.returnValue = '';
+  }
+
+  handleTemporaryPageHide() {
+    clearTimeout(this.saveTimer);
+    temporaryDrafts.delete(this.sessionId);
+    if (this.textarea) this.textarea.value = '';
+    this.attachments = [];
+    this.references = [];
+    this.syncRichInputs();
+    this.draftRevisionId = this.generateClientId();
+    this.draftSubmissionId = this.generateClientId();
+    this.draftTouched = false;
+  }
+
+  get temporaryDialogs() {
+    return this.element.querySelectorAll('.temporary-dialog');
   }
 
   get contextDialog() {
@@ -869,12 +915,14 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   storeHistoryViewState() {
+    if (this.isTemporary) return;
     this.captureHistoryViewState();
     if (!this.historyViewState || !this.sessionId) return;
     sessionStorage.setItem('dartclaw:history:' + this.sessionId, JSON.stringify(this.historyViewState));
   }
 
   restoreStoredHistoryViewState() {
+    if (this.isTemporary) return;
     if (!this.sessionId) return;
     const raw = sessionStorage.getItem('dartclaw:history:' + this.sessionId);
     if (!raw) return;
@@ -1415,6 +1463,13 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   initializeDraftStorage() {
+    if (this.isTemporary) {
+      this.draftKey = this.sessionId;
+      const draft = temporaryDrafts.get(this.draftKey);
+      if (draft) this.applyStoredDraft(draft);
+      this.setSaveStatus('Held until this page closes');
+      return;
+    }
     let instanceId;
     try {
       instanceId = localStorage.getItem('dartclaw.instance-id');
@@ -1486,6 +1541,11 @@ export default class DcChatController extends Stimulus.Controller {
   saveDraftNow() {
     clearTimeout(this.saveTimer);
     const draft = this.currentDraft();
+    if (this.isTemporary) {
+      temporaryDrafts.set(this.draftKey, draft);
+      this.setSaveStatus('Held until this page closes');
+      return Promise.resolve();
+    }
     return this.draftRequest('readwrite', (store) => store.put(draft))
       .then(() => {
         this.setSaveStatus('Saved on this device');
@@ -1704,5 +1764,116 @@ export default class DcChatController extends Stimulus.Controller {
     this.recoveryActive = false;
     recovery.hidden = true;
     recovery.textContent = '';
+  }
+
+  showTemporaryDialog(id, opener) {
+    const dialog = this.element.querySelector(id);
+    if (!dialog) return;
+    this.temporaryDialogReturnFocus = opener || document.activeElement;
+    dialog.showModal();
+    dialog.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus();
+  }
+
+  openTemporaryCreate(event) {
+    this.showTemporaryDialog('#temporary-create-dialog', event?.currentTarget);
+  }
+
+  openTemporaryExport(event) {
+    this.showTemporaryDialog('#temporary-export-dialog', event?.currentTarget);
+  }
+
+  openTemporaryEnd(event) {
+    this.showTemporaryDialog('#temporary-end-dialog', event?.currentTarget);
+  }
+
+  closeTemporaryDialog(event) {
+    event.currentTarget?.closest('dialog')?.close();
+  }
+
+  handleTemporaryDialogClose() {
+    this.temporaryDialogReturnFocus?.focus();
+    this.temporaryDialogReturnFocus = null;
+  }
+
+  handleTemporaryDialogKeydown(event) {
+    if (event.key !== 'Tab') return;
+    const dialog = event.currentTarget;
+    const focusable = [...dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => !element.disabled && element.getAttribute('aria-hidden') !== 'true');
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  async createTemporary(event) {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retention: 'process', disclosureAccepted: true }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error?.message || 'Temporary conversation is unavailable');
+      window.location.assign('/sessions/' + encodeURIComponent(result.id));
+    } catch (error) {
+      button.disabled = false;
+      showBanner(error.message, 'error');
+    }
+  }
+
+  async endTemporary(event) {
+    event.currentTarget?.closest('dialog')?.close();
+    const state = this.element.querySelector('[data-temporary-state]');
+    const controls = this.element.querySelectorAll('.conversation-retention-controls button');
+    controls.forEach((button) => { button.disabled = true; });
+    if (state) state.textContent = 'Ending…';
+    try {
+      const response = await fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/end-temporary', {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error?.message || 'Ending could not be confirmed');
+      }
+      temporaryDrafts.delete(this.sessionId);
+      window.location.assign('/');
+    } catch (error) {
+      if (state) state.textContent = 'End failed: ' + error.message;
+      controls.forEach((button) => { button.disabled = false; });
+    }
+  }
+
+  async exportTemporary(event) {
+    const button = event.currentTarget;
+    const dialog = button.closest('dialog');
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed: true, durableCopyAccepted: true }),
+      });
+      if (!response.ok) throw new Error('Export could not be created');
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'dartclaw-conversation-' + this.sessionId + '.md';
+      link.click();
+      URL.revokeObjectURL(link.href);
+      dialog?.close();
+    } catch (error) {
+      showBanner(error.message, 'error');
+    } finally {
+      button.disabled = false;
+    }
   }
 }

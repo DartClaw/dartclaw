@@ -353,12 +353,14 @@ String chatAreaTemplate({
   bool hasEarlierMessages = false,
   bool autofocus = false,
   bool isNewChatDraft = false,
+  bool isTemporary = false,
+  String? temporaryEndState,
   Map<String, dynamic>? turnStatus,
   String? targetMessageId,
   Map<String, dynamic>? effectiveContext,
 }) {
   final placeholder = isStreaming ? 'Agent is responding...' : 'Type a message...';
-  final inputDisabled = isStreaming || readOnly;
+  final inputDisabled = isStreaming || readOnly || temporaryEndState == 'ending';
   final turnStatusView = sessionTurnStatusMountView(turnStatus, fallbackSessionId: sessionId);
 
   // Trellis auto-escapes attribute values set via tl:attr, so pass raw sessionId.
@@ -369,6 +371,15 @@ String chatAreaTemplate({
       'sessionId': sessionId,
       'hasTitle': hasTitle ? 'true' : 'false',
       'newChatDraft': isNewChatDraft ? 'true' : null,
+      'retention': isTemporary ? 'process' : 'durable',
+      'isTemporary': isTemporary,
+      'temporaryStatus': switch (temporaryEndState) {
+        'ending' => 'Ending…',
+        'end_failed' => 'End failed. Retry ending this conversation.',
+        _ => 'Active until you end it or this server stops.',
+      },
+      'temporaryEnding': temporaryEndState == 'ending' ? true : null,
+      'historyDisabled': isTemporary ? 'false' : null,
       'targetMessageId': targetMessageId,
       'earliestCursor': earliestCursor?.toString(),
       'loadEarlierHidden': hasEarlierMessages ? null : true,

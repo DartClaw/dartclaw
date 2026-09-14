@@ -34,6 +34,13 @@ happens within a session. Sessions provide:
 - **Deterministic routing** -- the `SessionKey` maps external context to internal UUID sessions
 - **Persistence** -- NDJSON message files with cursor-based crash recovery
 - **Concurrency safety** -- per-session write locks and global concurrency caps
+
+`Session.retention` is the single persistence classifier. `durable` is the default and preserves the file-backed
+contract. `process` is accepted only for owner web conversations. `SessionService` keeps their session and
+`ConversationState` records in bounded memory, while `MessageService` keeps bounded messages behind the same resolver.
+An installed resolver treats a missing session as revoked and refuses writes. Index, memory, daily-log, automatic-title,
+and usage-KV consumers check this classifier before writing; context telemetry remains visible through the in-memory
+conversation state. Branch destinations inherit their source retention.
 - **Lifecycle management** -- automated archival, maintenance, and reset
 
 The session subsystem spans the kernel, core, and server packages:

@@ -57,6 +57,13 @@ abstract interface class ContainerExecutor {
   String? containerPathForHostPath(String hostPath);
 }
 
+/// Container-owned generated state that never has a host bind mount.
+abstract interface class VolatileContainerGeneratedState {
+  String get generatedStateContainerPath;
+
+  Future<void> writeGeneratedStateFile(String relativePath, String content);
+}
+
 /// Whether [executable] actually runs inside [container].
 ///
 /// A missing or unrunnable image binary is statically detectable, so callers

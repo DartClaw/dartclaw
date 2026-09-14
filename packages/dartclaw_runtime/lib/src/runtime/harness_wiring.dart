@@ -304,6 +304,31 @@ class HarnessWiring {
   /// `agent.provider`, normalized – the provider a definition without one inherits.
   String get defaultProviderId => _defaultProviderId;
   ProviderExecutionInventory get executionInventory => _executionInventory;
+  TemporaryConversationCapability get temporaryConversationCapability {
+    const policy = ExecutionPolicy.container('workspace');
+    final providerId = defaultProviderId;
+    final support = _executionInventory.supports[ProviderIdentity.normalize(providerId)];
+    final verdict = _executionInventory.verdictFor(providerId: providerId, policy: policy);
+    final codex = ProviderIdentity.family(providerId) == ProviderIdentity.codex;
+    final container = _security.containersEnabled && _security.availableContainerProfiles.contains('workspace');
+    final available = codex && support != null && verdict.isSupported && container;
+    final reason = !codex
+        ? 'The effective interactive provider is not Codex'
+        : support == null
+        ? 'The effective provider has no executable built-in support row'
+        : !verdict.isSupported
+        ? verdict.message
+        : !container
+        ? 'The workspace container profile is unavailable on this host'
+        : '';
+    return TemporaryConversationCapability(
+      providerId: providerId,
+      policy: policy,
+      available: available,
+      reason: reason,
+    );
+  }
+
   HarnessLaunchOptions get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
   Map<String, AgentDefinition> get agentMap => _agentMap;
@@ -904,6 +929,7 @@ class HarnessWiring {
       },
       sessions: _storage.sessions,
       turnState: _storage.turnStateStore,
+      dailyLogEligible: (session) => session.retention.isDurable,
       kv: _storage.kvService,
       guardChain: guardChain,
       taskToolFilterGuard: toolFilter,
@@ -1014,6 +1040,7 @@ class HarnessWiring {
               artifactsDir: request.artifactsDir,
               workspaceDir: request.workspace?.directory,
               useOwnerWorkspace: request.logicalAgentId == null,
+              volatileGeneratedState: request.retention == ConversationRetention.process,
             );
           } catch (error) {
             throw WorkerCreationException(
@@ -1383,6 +1410,7 @@ class HarnessWiring {
     Map<String, dynamic> arguments,
     HarnessTurnContext context,
   ) async {
+    await _refuseTemporaryMemoryWrite(toolName, context.sessionId);
     final memory = await _storage.memoryContextForCaller(
       sessionId: context.sessionId,
       agentId: context.agentName,
@@ -1423,6 +1451,7 @@ class HarnessWiring {
     Map<String, dynamic> arguments,
     McpCallerContext caller,
   ) async {
+    await _refuseTemporaryMemoryWrite(toolName, caller.sessionId);
     final memory = await _storage.memoryContextForCaller(sessionId: caller.sessionId, agentId: caller.agentId);
     final handlers =
         _workspaceMemoryHandlers[memory.principal] ??
@@ -1446,6 +1475,14 @@ class HarnessWiring {
       'memory_read' => handlers.read(arguments, context),
       _ => throw StateError('Unsupported memory tool: $toolName'),
     };
+  }
+
+  Future<void> _refuseTemporaryMemoryWrite(String toolName, String? sessionId) async {
+    if (sessionId == null || (toolName != 'memory_apply' && toolName != 'memory_observe')) return;
+    final session = await _storage.sessions.getSession(sessionId);
+    if (session?.retention == ConversationRetention.process) {
+      throw StateError('Temporary conversations cannot write memory');
+    }
   }
 
   void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {

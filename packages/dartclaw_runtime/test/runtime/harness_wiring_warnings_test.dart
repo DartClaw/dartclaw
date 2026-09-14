@@ -45,6 +45,7 @@ class _ContainerCapableSecurityWiring extends SecurityWiring {
     String? artifactsDir,
     String? workspaceDir,
     bool useOwnerWorkspace = true,
+    bool volatileGeneratedState = false,
   }) async => FakeContainerAuthorityLease();
 }
 

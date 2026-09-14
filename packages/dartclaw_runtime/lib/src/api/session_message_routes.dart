@@ -54,7 +54,10 @@ void registerSessionMessageRoutes(
       if (request.url.queryParameters.isEmpty) {
         final state = await sessions.getConversationState(id);
         final list = (await messages.getMessages(id)).where((message) => state.includesMessage(message.id));
-        return jsonResponse(200, list.map(_messageToJson).toList());
+        final response = jsonResponse(200, list.map(_messageToJson).toList());
+        return session.retention == ConversationRetention.process
+            ? response.change(headers: {'cache-control': 'no-store'})
+            : response;
       }
 
       final count = int.tryParse(request.url.queryParameters['count'] ?? '200');
@@ -62,7 +65,7 @@ void registerSessionMessageRoutes(
       if (count == null || (beforeCursor != null && int.tryParse(beforeCursor) == null)) {
         return errorResponse(400, 'INVALID_HISTORY_WINDOW', 'History cursor or count is malformed');
       }
-      return jsonResponse(
+      final response = jsonResponse(
         200,
         await conversation.historyWindow(
           id,
@@ -71,6 +74,9 @@ void registerSessionMessageRoutes(
           aroundMessageId: request.url.queryParameters['around_message_id'],
         ),
       );
+      return session.retention == ConversationRetention.process
+          ? response.change(headers: {'cache-control': 'no-store'})
+          : response;
     } on ConversationMutationException catch (e) {
       return errorResponse(e.statusCode, e.code, e.message);
     } catch (e) {
@@ -166,6 +172,9 @@ void registerSessionMessageRoutes(
       final session = await sessions.getSession(id);
       final sessionValidation = _validateSessionForSend(session, turns.executions);
       if (sessionValidation != null) return sessionValidation;
+      if (session?.retention == ConversationRetention.process && sessions.temporaryEndState(id) != 'active') {
+        return errorResponse(409, 'TEMPORARY_ENDING', 'Temporary conversation is ending');
+      }
 
       // 2. Parse + validate message
       final parsed = await parseBodyFields(request);
@@ -208,7 +217,10 @@ void registerSessionMessageRoutes(
             (richInput.metadata?['references'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? const [],
       );
       if (request.headers['accept']?.contains('application/json') ?? false) {
-        return jsonResponse(admission.replayed ? 200 : 202, admission.toJson());
+        final response = jsonResponse(admission.replayed ? 200 : 202, admission.toJson());
+        return session.retention == ConversationRetention.process
+            ? response.change(headers: {'cache-control': 'no-store'})
+            : response;
       }
       final queued = admission.submission.queueId != null && admission.submission.turnId == null;
       final html = templateLoader.trellis.renderFragment(
@@ -230,6 +242,7 @@ void registerSessionMessageRoutes(
           'content-type': 'text/html; charset=utf-8',
           'x-dartclaw-submission-id': admission.submission.submissionId,
           'x-dartclaw-revision-id': admission.submission.revisionId,
+          if (session.retention == ConversationRetention.process) 'cache-control': 'no-store',
           'x-dartclaw-conversation-revision': '${admission.snapshot.revision}',
         },
       );

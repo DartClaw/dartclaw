@@ -50,7 +50,11 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
       final session = await sessions.getSession(message.sessionId);
       if (session == null) return;
       final principal = _principal(session);
-      final document = ConversationIndexProjection.document(message: message, sessionType: session.type);
+      final document = ConversationIndexProjection.document(
+        message: message,
+        sessionType: session.type,
+        retention: session.retention,
+      );
       if (document == null) return;
       await index.upsert([document], userId: principal);
       await synchronizeVectors?.call([document.id], userId: principal);
@@ -88,7 +92,13 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
       final state = await sessions.getConversationState(sessionId);
       final documents = stored
           .where((message) => state.includesMessage(message.id))
-          .map((message) => ConversationIndexProjection.document(message: message, sessionType: newType))
+          .map(
+            (message) => ConversationIndexProjection.document(
+              message: message,
+              sessionType: newType,
+              retention: session.retention,
+            ),
+          )
           .whereType<SearchDocument>()
           .toList(growable: false);
       if (documents.isEmpty) return;

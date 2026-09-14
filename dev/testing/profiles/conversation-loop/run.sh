@@ -12,20 +12,44 @@ while [ $# -gt 0 ]; do
     --case) CASE="${2:-}"; shift 2 ;;
     --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention [--compare-wireframes]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11 [--live-provider] [--compare-wireframes]"
       exit 0
       ;;
+    --live-provider) LIVE_PROVIDER=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention) ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11) ;;
   *) echo "--case names an unsupported conversation-loop fixture" >&2; exit 2 ;;
 esac
 
 EVIDENCE_ROOT="${DARTCLAW_CONVERSATION_EVIDENCE_DIR:-${REPO_ROOT}/.agent_temp/testing/conversation-loop/${CASE}}"
 mkdir -p "${EVIDENCE_ROOT}"
+
+if [ "${CASE}" = "q9-temporary-destruction-boundaries" ]; then
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" eof "${EVIDENCE_ROOT}/sqlite-confirmed-end" sqlite
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" graceful "${EVIDENCE_ROOT}/sqlite-graceful" sqlite
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" sigkill "${EVIDENCE_ROOT}/sqlite-sigkill" sqlite
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" eof "${EVIDENCE_ROOT}/postgres-confirmed-end" postgres
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" graceful "${EVIDENCE_ROOT}/postgres-graceful" postgres
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" sigkill "${EVIDENCE_ROOT}/postgres-sigkill" postgres
+  echo "Evidence: ${EVIDENCE_ROOT}"
+  exit 0
+fi
+if [ "${CASE}" = "q9-temporary-supported-provider" ]; then
+  test "${LIVE_PROVIDER:-0}" -eq 1 || { echo "--live-provider is required" >&2; exit 2; }
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" provider "${EVIDENCE_ROOT}"
+  echo "Evidence: ${EVIDENCE_ROOT}"
+  exit 0
+fi
+if [ "${CASE}" = "q9-temporary-browser-memory" ] || [ "${CASE}" = "q9-temporary-export-e11" ]; then
+  DARTCLAW_TEMPORARY_COMPARE_WIREFRAMES="${COMPARE_WIREFRAMES}" \
+    "${SCRIPT_DIR}/temporary_conversation_e2e.sh" browser "${EVIDENCE_ROOT}"
+  echo "Evidence: ${EVIDENCE_ROOT}"
+  exit 0
+fi
 
 if [ "${CASE}" = "fixture-self-test" ] || [ "${CASE}" = "q4-draft-send" ]; then
   cd "${REPO_ROOT}"
@@ -106,61 +130,7 @@ assert_eval() {
   ab "${session}" eval "${script}" >>"${EVIDENCE_ROOT}/browser-eval.log"
 }
 
-capture_wireframe() {
-  local wireframe="$1" artifact="${2:-$1}"
-  agent-browser --session conversation-wire --allow-file-access open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/${wireframe}.html"
-  agent-browser --session conversation-wire set viewport 1440 900
-  agent-browser --session conversation-wire set media dark reduced-motion
-  agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-${artifact}.png"
-}
-
-compare_session_to_wireframe() {
-  local session="$1" artifact="$2" max_mismatch_percent="${3:-20}"
-  local result="${EVIDENCE_ROOT}/wireframe-${artifact}-comparison.json"
-  ab "${session}" --json diff screenshot \
-    --baseline "${EVIDENCE_ROOT}/wireframe-${artifact}.png" \
-    --threshold 0.1 \
-    --output "${EVIDENCE_ROOT}/wireframe-${artifact}-diff.png" >"${result}"
-  python3 - "${result}" "${max_mismatch_percent}" <<'PY'
-import json
-import math
-import sys
-
-def find(value, key):
-    if isinstance(value, dict):
-        if key in value:
-            return value[key]
-        for nested in value.values():
-            found = find(nested, key)
-            if found is not None:
-                return found
-    if isinstance(value, list):
-        for nested in value:
-            found = find(nested, key)
-            if found is not None:
-                return found
-    return None
-
-path, maximum = sys.argv[1], float(sys.argv[2])
-with open(path, encoding='utf-8') as handle:
-    result = json.load(handle)
-if find(result, 'dimensionMismatch') is True:
-    raise SystemExit(f'{path}: compared screenshots have different dimensions')
-mismatch = find(result, 'mismatchPercentage')
-different = find(result, 'differentPixels')
-total = find(result, 'totalPixels')
-if not isinstance(mismatch, (int, float)) or not math.isfinite(mismatch):
-    raise SystemExit(f'{path}: missing numeric mismatchPercentage')
-if not isinstance(different, int) or not isinstance(total, int) or total <= 0:
-    raise SystemExit(f'{path}: missing valid pixel counts')
-if mismatch > maximum:
-    raise SystemExit(f'{path}: mismatch {mismatch:.3f}% exceeds {maximum:.3f}%')
-PY
-}
-
-compare_current_to_wireframe() {
-  compare_session_to_wireframe conversation-origin "$@"
-}
+source "${SCRIPT_DIR}/visual_comparison.sh"
 
 run_q4() {
   printf 'attachment bytes retained in IndexedDB\n' >"${EVIDENCE_ROOT}/draft-attachment.txt"

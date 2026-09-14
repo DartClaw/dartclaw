@@ -12,7 +12,7 @@ void main() {
         SessionType.user: true,
         SessionType.task: false,
         SessionType.logicalAgent: false,
-        SessionType.archive: false,
+        SessionType.archive: true,
       },
     );
   });

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 /// Describes one SQLite content table and its external-content FTS5 table.
@@ -115,7 +117,7 @@ final class SqliteFtsTable {
 }
 
 /// SQLite FTS5 implementation of [FullTextIndex].
-final class SqliteFtsIndex implements FullTextIndex {
+final class SqliteFtsIndex implements ScopedFullTextIndex {
   /// Creates an index whose mutations own their transactions.
   new(DatabaseBackend backend, {required SqliteFtsTable table})
     : _backend = backend,
@@ -138,9 +140,27 @@ final class SqliteFtsIndex implements FullTextIndex {
   }
 
   @override
-  Future<List<SearchResult>> search(String naturalLanguageQuery, {required String userId, int limit = 20}) async {
+  Future<List<SearchResult>> search(String naturalLanguageQuery, {required String userId, int limit = 20}) =>
+      _search(naturalLanguageQuery, userId: userId, limit: limit);
+
+  @override
+  Future<List<SearchResult>> searchScoped(
+    String naturalLanguageQuery, {
+    required String userId,
+    required FullTextSearchScope scope,
+    int limit = 20,
+  }) => _search(naturalLanguageQuery, userId: userId, limit: limit, scope: scope);
+
+  Future<List<SearchResult>> _search(
+    String naturalLanguageQuery, {
+    required String userId,
+    required int limit,
+    FullTextSearchScope? scope,
+  }) async {
     final encoded = _encodeQuery(naturalLanguageQuery);
     if (encoded == null) return const [];
+    final scoped = _scopeClause(scope);
+    if (scoped == null) return const [];
     final rows = await _backend.query(
       '''
       SELECT $_idExpression AS document_id, ${_table.textColumn} AS chunk,
@@ -149,11 +169,11 @@ final class SqliteFtsIndex implements FullTextIndex {
              ${_metadataSelection()}, rank
       FROM ${_table.baseTable}
       JOIN ${_table.ftsTable} ON ${_table.baseTable}.rowid = ${_table.ftsTable}.rowid
-      WHERE ${_table.ftsTable} MATCH ? AND ${_table.userColumn} = ?
+      WHERE ${_table.ftsTable} MATCH ? AND ${_table.userColumn} = ?${scoped.clause}
       ORDER BY rank
       LIMIT ?
     ''',
-      [encoded, userId, limit],
+      [encoded, userId, ...scoped.parameters, limit],
     );
     return rows.map((row) => _result(row, score: (row['rank'] as num).toDouble())).toList(growable: false);
   }
@@ -177,9 +197,24 @@ final class SqliteFtsIndex implements FullTextIndex {
   }
 
   @override
-  Future<List<SearchDocument>> fetch(Iterable<String> ids, {required String userId}) async {
+  Future<List<SearchDocument>> fetch(Iterable<String> ids, {required String userId}) => _fetch(ids, userId: userId);
+
+  @override
+  Future<List<SearchDocument>> fetchScoped(
+    Iterable<String> ids, {
+    required String userId,
+    required FullTextSearchScope scope,
+  }) => _fetch(ids, userId: userId, scope: scope);
+
+  Future<List<SearchDocument>> _fetch(
+    Iterable<String> ids, {
+    required String userId,
+    FullTextSearchScope? scope,
+  }) async {
     final requested = ids.toSet().toList(growable: false);
     if (requested.isEmpty) return const [];
+    final scoped = _scopeClause(scope);
+    if (scoped == null) return const [];
     final placeholders = List.filled(requested.length, '?').join(',');
     final rows = await _backend.query(
       '''
@@ -187,10 +222,10 @@ final class SqliteFtsIndex implements FullTextIndex {
              ${_table.timestampColumn} AS document_timestamp,
              ${_metadataSelection()}
       FROM ${_table.baseTable}
-      WHERE ${_table.userColumn} = ? AND $_idExpression IN ($placeholders)
+      WHERE ${_table.userColumn} = ?${scoped.clause} AND $_idExpression IN ($placeholders)
       ORDER BY $_idExpression, ${_table.chunkIndexColumn}
     ''',
-      [userId, ...requested],
+      [userId, ...scoped.parameters, ...requested],
     );
     final documents = <String, _StoredDocument>{};
     for (final row in rows) {
@@ -229,6 +264,24 @@ final class SqliteFtsIndex implements FullTextIndex {
     final rows = await _backend.query(
       'SELECT COUNT(*) AS count FROM ${_table.baseTable} WHERE ${clauses.join(' AND ')}',
       parameters,
+    );
+    return rows.single['count'] as int;
+  }
+
+  @override
+  Future<int> countMatches(String naturalLanguageQuery, {required String userId, FullTextSearchScope? scope}) async {
+    final encoded = _encodeQuery(naturalLanguageQuery);
+    if (encoded == null) return 0;
+    final scoped = _scopeClause(scope);
+    if (scoped == null) return 0;
+    final rows = await _backend.query(
+      '''
+      SELECT COUNT(*) AS count
+      FROM ${_table.baseTable}
+      JOIN ${_table.ftsTable} ON ${_table.baseTable}.rowid = ${_table.ftsTable}.rowid
+      WHERE ${_table.ftsTable} MATCH ? AND ${_table.userColumn} = ?${scoped.clause}
+    ''',
+      [encoded, userId, ...scoped.parameters],
     );
     return rows.single['count'] as int;
   }
@@ -365,6 +418,14 @@ final class SqliteFtsIndex implements FullTextIndex {
   Object _encodeMetadata(String key, String value) => _table.integerMetadata.contains(key) ? int.parse(value) : value;
 
   Object? _encodedMetadataValue(String? value, String key) => value == null ? null : _encodeMetadata(key, value);
+
+  ({String clause, List<Object?> parameters})? _scopeClause(FullTextSearchScope? scope) {
+    if (scope == null) return (clause: '', parameters: const []);
+    final column = _table.metadataColumns[scope.metadataKey];
+    if (column == null || scope.acceptedValues.isEmpty) return null;
+    final values = scope.acceptedValues.toList(growable: false)..sort();
+    return (clause: ' AND $column IN (SELECT value FROM json_each(?))', parameters: [jsonEncode(values)]);
+  }
 
   static String? _encodeQuery(String query) {
     var cleaned = query.replaceAll('"', ' ');

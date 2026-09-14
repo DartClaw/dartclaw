@@ -10,13 +10,16 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../concurrency/session_mutation_coordinator.dart';
 import '../conversation/conversation_service.dart';
+import '../conversation/human_command_catalog.dart';
 import '../conversation/inbox_service.dart';
+import '../conversation/product_conversation_search.dart';
 import '../session/session_reset_service.dart';
 import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;
 import '../temporary_conversation_capability.dart';
 import 'api_helpers.dart';
 import 'session_attachment_routes.dart';
+import 'conversation_search_command_routes.dart';
 import 'session_conversation_routes.dart';
 import 'session_export_routes.dart';
 import 'session_lifecycle_routes.dart';
@@ -52,6 +55,8 @@ Router sessionRoutes(
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
   SseBroadcast? sseBroadcast,
   ConversationInboxService? inboxService,
+  ProductConversationSearchService? conversationSearch,
+  HumanCommandCatalog? commandCatalog,
   ConversationFailpoint? conversationFailpoint,
   AttachmentWriteFailpoint? attachmentWriteFailpoint,
   String Function()? attachmentIdFactory,
@@ -326,6 +331,22 @@ Router sessionRoutes(
     defaultProvider: defaultProvider,
   );
   registerSessionInboxRoutes(router, inbox: inbox);
+  if (conversationSearch != null && commandCatalog != null) {
+    registerConversationSearchCommandRoutes(
+      router,
+      sessions: sessions,
+      messages: messages,
+      conversation: conversation,
+      inbox: inbox,
+      turns: turns,
+      sessionMutations: sessionMutations,
+      search: conversationSearch,
+      catalog: commandCatalog,
+      contextCapabilities: contextCapabilities,
+      defaultProvider: defaultProvider,
+      resetService: resetService,
+    );
+  }
 
   // Session lifecycle (delete / resume / archive / reset).
   registerSessionLifecycleRoutes(

@@ -322,7 +322,7 @@ void main() {
       final service = ConversationSearchService(
         index: index,
         userId: 'tenant-a',
-        query: (query, {required userId, required limit, diagnostics}) async {
+        query: (query, {required userId, required limit, scope, diagnostics}) async {
           receivedQuery = query;
           receivedUserId = userId;
           receivedLimit = limit;

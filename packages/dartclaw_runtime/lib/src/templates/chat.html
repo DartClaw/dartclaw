@@ -69,6 +69,18 @@
     </button>
   </div>
   <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
+  <button type="button" class="btn btn-ghost conversation-find" data-command-open="current" aria-haspopup="dialog">Find in conversation</button>
+  <dialog id="conversation-find-dialog" class="dialog command-dialog" data-command-dialog="current"
+          aria-labelledby="conversation-find-title">
+    <div class="dialog-header"><h2 id="conversation-find-title">Find in conversation</h2><button type="button" class="btn btn-ghost" data-command-close aria-label="Close">Close</button></div>
+    <div class="dialog-body">
+      <label class="sr-only" for="conversation-find-query">Find in conversation</label>
+      <input id="conversation-find-query" class="form-input form-input--search" type="search" autocomplete="off"
+             placeholder="Search this conversation" data-command-query="current">
+      <p class="t-caption" data-command-status role="status" aria-live="polite">Type to search.</p>
+      <div class="command-results" data-command-results role="listbox" aria-label="Conversation search results"></div>
+    </div>
+  </dialog>
   <button type="button" class="btn btn-secondary new-activity" data-jump-latest hidden>New activity · Jump to latest</button>
   <div tl:if="${hasTurnStatus}" class="turn-status-panel"
        tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
@@ -173,6 +185,10 @@
       <textarea id="message-input" name="message" rows="1"
                 aria-describedby="composer-save-status composer-live-status"
                 tl:attr="placeholder=${placeholder},disabled=${inputDisabled},autofocus=${autofocus}"></textarea>
+      <div class="composer-command-palette card card-glass" data-slash-palette hidden>
+        <div class="composer-palette-header">Commands</div>
+        <div class="composer-palette-list" data-slash-results role="listbox" aria-label="Commands"></div>
+      </div>
       <input type="hidden" name="attachments" data-dc-chat-target="attachmentsInput" value="[]">
       <input type="hidden" name="references" data-dc-chat-target="referencesInput" value="[]">
       <input type="hidden" name="submission_id" data-dc-chat-target="submissionIdInput" value="">

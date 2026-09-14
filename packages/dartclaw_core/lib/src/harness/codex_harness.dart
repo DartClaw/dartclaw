@@ -58,7 +58,8 @@ String? _sandboxPermissions(String sandboxValue) => switch (sandboxValue.trim())
 };
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
-class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider {
+class CodexHarness extends BaseHarness
+    implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider, NativeSkillCapabilityProvider {
   /// Codex executable path or name.
   final String executable;
 
@@ -196,6 +197,9 @@ class CodexHarness extends BaseHarness implements HarnessToolApprovalResponder, 
 
   @override
   String skillActivationLine(String skill) => '\$$skill';
+
+  @override
+  bool get supportsNativeSkillInvocation => true;
 
   String? get _effectiveSandbox => containerManager == null ? _stringProviderOption('sandbox') : 'danger-full-access';
 

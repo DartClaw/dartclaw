@@ -47,6 +47,12 @@ The interface has three main areas:
 - **Session cost**: Available only when every recorded turn has provider-reported cost. Missing, partial, and older records without this evidence show cost as unavailable; an explicitly reported zero remains zero. Token counts remain available independently.
 
 **Chat**
+- **Search and commands**: Choose **Find in conversation** for indexed matches in the current transcript, including
+  history outside the loaded 200-message window. Press **Cmd-K** or **Ctrl-K** for global conversation search and the
+  shared command catalog. Global search can narrow by lifecycle and project and opens the exact matching message.
+  Typing `/` in the composer filters the same nine built-ins (`/new`, `/reset`, `/stop`, `/status`, `/fork`, `/settle`,
+  `/model`, `/effort`, `/help`) plus authorized provider-native skills. An unknown slash-prefixed message is labelled
+  **Send to provider** and follows the ordinary message path without byte changes or a capability claim.
 - **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. Drafts and selected file bytes are saved in this browser and restored after reload. A persistent warning with retry, copy, and download actions replaces the saved status if browser storage fails.
 - **Active turns**: Drafting remains available while a turn runs. **Queue** accepts the draft in order, **Steer** stops the displayed turn and sends the follow-up after cancellation is confirmed, and **Stop** cancels only the displayed turn. Failed, cancelled, stopped, and restart-recovered work holds queued items for an explicit **Send next queued message** action.
 - **Streaming**: Responses appear in real-time as the agent generates them
@@ -510,6 +516,31 @@ POST /api/memory/prune
 Runs the memory pruner immediately. Returns prune results (archived, deduped, remaining).
 
 ### Search
+
+#### Search conversations
+
+```
+GET /api/conversation-search?q=marker&scope=global&lifecycle=all&project_id=docs&request_token=17
+GET /api/conversation-search/target?session_id=<session>&message_id=<message>
+```
+
+The authenticated operator route searches authorized owner and configured-agent conversation indexes. `scope` is
+`current` or `global`; lifecycle is `all`, `active`, `settled`, or `archived`. Results include the total before page
+limits, a bounded snippet and highlight offsets, conversation revision, project/origin metadata, a stable
+`conversation:<session>/message:<message>` citation, and an exact-message URL. The target route reauthorizes the
+session and message immediately before navigation. Backend failures return `503 SEARCH_BACKEND_UNAVAILABLE`; missing
+or revoked targets return `404 SEARCH_TARGET_UNAVAILABLE` without result derivatives.
+
+```
+GET /api/command-catalog?surface=global&session_id=<session>
+POST /api/command-actions
+```
+
+Catalog responses carry an identity token bound to the principal, provider, workspace, conversation revision,
+current authorized skill inventory and effective capabilities. The server refreshes that inventory when a palette
+opens and again when an action is selected. The action endpoint accepts only a catalog ID plus that token and rejects
+stale context with `409 STALE_COMMAND_CONTEXT`. Native skills appear only when workspace discovery, authorization and
+the selected provider adapter all support invocation.
 
 #### Inspect search ranking
 

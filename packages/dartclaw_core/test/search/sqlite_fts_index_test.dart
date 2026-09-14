@@ -232,6 +232,37 @@ void main() {
       expect((await conversations.search('springer', userId: 'owner')).single.id, 'swedish');
     });
 
+    test('scoped conversation queries filter before limit and retain the complete match count', () async {
+      final conversations = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+      SearchDocument message(String id, String sessionId) => SearchDocument(
+        id: id,
+        chunks: const ['bounded marker'],
+        metadata: {'session_id': sessionId, 'role': 'assistant'},
+        timestamp: DateTime.utc(2026),
+      );
+      await conversations.upsert([
+        for (var index = 0; index < 300; index++) message('excluded-$index', 'excluded-session'),
+        message('eligible-a', 'eligible-session'),
+        message('eligible-b', 'eligible-session'),
+        message('eligible-c', 'eligible-session'),
+      ], userId: 'owner');
+      final scope = FullTextSearchScope(metadataKey: 'session_id', acceptedValues: const {'eligible-session'});
+
+      final hits = await conversations.searchScoped('bounded marker', userId: 'owner', scope: scope, limit: 2);
+
+      expect(hits, hasLength(2));
+      expect(hits.every((hit) => hit.metadata['session_id'] == 'eligible-session'), isTrue);
+      expect(await conversations.countMatches('bounded marker', userId: 'owner', scope: scope), 3);
+      expect(
+        (await conversations.fetchScoped(
+          ['excluded-0', 'eligible-a'],
+          userId: 'owner',
+          scope: scope,
+        )).map((document) => document.id),
+        ['eligible-a'],
+      );
+    });
+
     test('verifyIntegrity detects FTS5 shadow corruption', () async {
       await index.upsert([_document('stored', 'searchable')], userId: 'owner');
       await index.verifyIntegrity();

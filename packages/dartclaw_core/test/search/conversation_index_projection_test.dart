@@ -146,7 +146,11 @@ void main() {
     final admin = await ConversationSearchService(
       index: index,
       userIds: const {'owner', 'agent:a', 'agent:b'},
-    ).search('marker');
-    expect(admin.map((hit) => hit.text).toSet(), {'owner-only-marker', 'agent-a-only-marker', 'agent-b-only-marker'});
+    ).searchAdministrative('marker');
+    expect(admin.hits.map((hit) => hit.text).toSet(), {
+      'owner-only-marker',
+      'agent-a-only-marker',
+      'agent-b-only-marker',
+    });
   });
 }

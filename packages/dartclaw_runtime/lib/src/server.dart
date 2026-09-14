@@ -46,6 +46,8 @@ import 'auth/token_service.dart';
 import 'asset_resolver.dart';
 import 'context/result_trimmer.dart';
 import 'conversation/inbox_service.dart';
+import 'conversation/human_command_catalog.dart';
+import 'conversation/product_conversation_search.dart';
 import 'health/health_service.dart';
 import 'generated/embedded_assets.g.dart';
 import 'memory/memory_status_service.dart';
@@ -753,6 +755,8 @@ class DartclawServer {
       buildSidebarHtml: buildSidebarHtml,
       sseBroadcast: _observability.sseBroadcast,
       inboxService: _web.inboxService,
+      conversationSearch: _web.conversationSearch,
+      commandCatalog: _web.commandCatalog,
     );
     router.mount('/', sessionRouter.call);
   }

@@ -29,12 +29,30 @@
   <script type="module" src="/static/controllers/index.js"
           tl:attr="src=${assetPrefix} + '/controllers/index.js'"></script>
 </head>
-<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast"
+<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast dc-conversation-command"
       hx-indicator:inherited="#nav-progress"
       hx-status:4xx:inherited="swap:none" hx-status:5xx:inherited="swap:none">
 <a tl:if="${showSkipLink}" class="skip-link" href="#main-content">Skip to content</a>
 <div id="nav-progress" class="scan-bar htmx-indicator" aria-hidden="true"></div>
 <tl:block tl:utext="${body}"></tl:block>
+<dialog id="global-command-dialog" class="dialog command-dialog" data-command-dialog="global"
+        aria-labelledby="global-command-title">
+  <div class="dialog-header">
+    <h2 id="global-command-title">Search and commands</h2>
+    <button type="button" class="btn btn-ghost" data-command-close aria-label="Close">Close</button>
+  </div>
+  <div class="dialog-body">
+    <label class="sr-only" for="global-command-query">Search conversations and commands</label>
+    <input id="global-command-query" class="form-input form-input--search" type="search"
+           autocomplete="off" placeholder="Search conversations or run a command" data-command-query="global">
+    <div class="command-filters" data-command-search-filters>
+      <label>Lifecycle <select class="form-select" data-search-lifecycle><option value="all">All</option><option value="active">Active</option><option value="settled">Settled</option><option value="archived">Archived</option></select></label>
+      <label>Project <input class="form-input" data-search-project placeholder="All projects"></label>
+    </div>
+    <p class="t-caption" data-command-status role="status" aria-live="polite">Type to search.</p>
+    <div class="command-results" data-command-results role="listbox" aria-label="Search and command results"></div>
+  </div>
+</dialog>
 <tl:block tl:utext="${scriptsHtml}"></tl:block>
 </body>
 </html>

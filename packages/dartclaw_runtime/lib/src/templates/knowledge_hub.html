@@ -25,11 +25,12 @@
           <input type="hidden" name="layer" tl:attr="value=${activeLayer}">
           <button class="btn btn-primary" type="submit">Search</button>
         </form>
-        <div class="chip-row" role="list">
-          <a tl:each="chip : ${layerChips}" class="chip" role="listitem"
+        <nav class="tabs" aria-label="Knowledge layers">
+          <a tl:each="chip : ${layerChips}" class="tab t-label"
+             tl:classappend="${chip.current} ? 'active' : ''"
              tl:attr="href=${chip.href},aria-current=${chip.current}"
              tl:text="${chip.label}">All</a>
-        </div>
+        </nav>
       </section>
 
       <section aria-labelledby="knowledge-summary-heading">

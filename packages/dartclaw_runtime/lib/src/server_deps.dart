@@ -211,6 +211,8 @@ class ServerWebDeps {
   final List<Map<String, dynamic>> schedulingJobs;
   final List<String> systemJobNames;
   final ConversationInboxService? inboxService;
+  final ProductConversationSearchService? conversationSearch;
+  final HumanCommandCatalog? commandCatalog;
 
   const new({
     this.workflowService,
@@ -221,6 +223,8 @@ class ServerWebDeps {
     this.schedulingJobs = const [],
     this.systemJobNames = const [],
     this.inboxService,
+    this.conversationSearch,
+    this.commandCatalog,
   });
 }
 

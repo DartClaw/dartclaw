@@ -47,6 +47,8 @@ import 'package:path/path.dart' as p;
 import '../server.dart'
     show ServerChannelDeps, ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
 import '../server_composition.dart';
+import '../conversation/human_command_catalog.dart';
+import '../conversation/product_conversation_search.dart';
 import '../restart_service.dart' show consumeRestartPending;
 import 'channel_agent_binding.dart';
 import 'channel_wiring.dart';
@@ -736,6 +738,8 @@ class _RuntimeAssembly {
           channel,
           security,
           configWriter,
+          harnessFactory,
+          skillIntrospector,
         ),
       );
       ctx.bindServer(server);

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show FullTextSearchScope;
 import 'package:dartclaw_search/dartclaw_search.dart';
 import 'package:test/test.dart';
 
@@ -154,6 +155,51 @@ void main() {
     expect(results.single.id, 'nearby');
     expect(diagnostics!.candidates.single.documentId, 'nearby');
     expect(diagnostics!.candidates.single.keywordRank, 1);
+  });
+
+  test('scoped search filters the lexical corpus before the fixed candidate limit', () async {
+    final excluded = [
+      for (var index = 0; index < 100; index++)
+        document('excluded-$index', ['marker'], metadata: const {'session_id': 'excluded'}),
+    ];
+    final eligible = [
+      document('eligible-a', ['marker'], metadata: const {'session_id': 'eligible'}),
+      document('eligible-b', ['marker'], metadata: const {'session_id': 'eligible'}),
+    ];
+    final lexical = FakeFullTextIndex(
+      documents: [...excluded, ...eligible],
+      searchResults: [
+        for (final item in excluded) lexicalResult(item.id, 'marker', 0, 100, metadata: item.metadata),
+        for (final item in eligible) lexicalResult(item.id, 'marker', 0, -1, metadata: item.metadata),
+      ],
+    );
+    final vectors = FakeVectorIndex(
+      matches: [
+        for (final item in excluded) VectorMatch(documentId: item.id, chunkIndex: 0, contentHash: alphaHash, score: 1),
+      ],
+    );
+    final search = HybridSearch(
+      lexicalIndex: lexical,
+      vectorIndex: vectors,
+      embeddingProvider: FakeEmbeddingProvider(),
+      sourceLayer: 'conversation',
+    );
+    final scope = FullTextSearchScope(metadataKey: 'session_id', acceptedValues: const {'eligible'});
+    SearchDiagnostics? diagnostics;
+
+    final results = await search.search(
+      'marker',
+      userId: 'owner',
+      scope: scope,
+      diagnostics: (value) => diagnostics = value,
+    );
+
+    expect(results.map((result) => result.id), ['eligible-a', 'eligible-b']);
+    expect(lexical.lastSearchLimit, 20);
+    expect(lexical.lastSearchScope, same(scope));
+    expect(vectors.lastSearchLimit, 20);
+    expect(diagnostics!.candidates.map((candidate) => candidate.documentId), ['eligible-a', 'eligible-b']);
+    expect(diagnostics!.unembeddedCount, isNull);
   });
 
   test('authenticates merged candidates before returning results', () async {

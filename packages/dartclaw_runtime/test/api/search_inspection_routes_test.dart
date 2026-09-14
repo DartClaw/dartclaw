@@ -66,6 +66,7 @@ void main() {
             String value, {
             required String userId,
             required int limit,
+            FullTextSearchScope? scope,
             SearchDiagnosticsSink? diagnostics,
           }) async {
             expect(value, ' query ');
@@ -154,7 +155,7 @@ void main() {
     final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
     final service = ConversationSearchService(
       index: index,
-      query: (_, {required userId, required limit, diagnostics}) async {
+      query: (_, {required userId, required limit, scope, diagnostics}) async {
         diagnostics?.call(SearchDiagnostics(candidates: const []));
         return [SearchResult(id: 'broken', chunk: 'PRIVATE', chunkIndex: 0, timestamp: DateTime.utc(2026), score: 1)];
       },

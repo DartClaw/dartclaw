@@ -28,10 +28,11 @@ enum SessionType {
 
   /// Whether messages in this session belong to the conversation index.
   ///
-  /// Internal execution sessions and archived sessions are excluded.
+  /// Internal execution sessions are excluded. Archived conversations remain
+  /// searchable by the owner even though they are read-only.
   bool get isChatFacing => switch (this) {
-    main || channel || user => true,
-    cron || task || logicalAgent || archive => false,
+    main || channel || user || archive => true,
+    cron || task || logicalAgent => false,
   };
 }
 

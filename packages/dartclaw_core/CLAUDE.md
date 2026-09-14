@@ -118,7 +118,9 @@
   Display records project provider-owned tool/approval state and never own a second approval decision path.
 - `lib/src/storage/sqlite_backend.dart` – `SqliteBackend.open` / `openInMemory` constructors; `sqlite_schema_gate.dart` prepares task/search stores before repository use.
 - `lib/src/storage/sqlite_task_repository.dart` and sibling repositories — relational persistence against `dartclaw.db`.
-- `lib/src/search/` — FTS5, QMD, wiki, and composed search implementations.
+- `lib/src/search/` — FTS5, QMD, wiki, and composed search implementations. `ConversationSearchService.search` is
+  principal-local even when the service has an administrative principal set; only `searchAdministrative` may aggregate,
+  and callers narrow that set with authorized session identities before its total and limit are applied.
 - `lib/src/storage/login_store_guard.dart` — `LoginStoreCollisionError` plus the operator-login path set and collision refusal both credential stores share.
 - `lib/src/storage/named_credential_store.dart` — operator-named credential store under `<credentialsDir>/named/`, written by `dartclaw secrets set` and read on every config load.
 - `lib/src/storage/subscription_credential_store.dart` — dedicated per-provider subscription credential stores and per-provider expiry extraction. `readCodexAuth()` exposes the access token, ChatGPT account id, expiry, and the vendor's `last_refresh`; it deliberately never reads `refresh_token`.

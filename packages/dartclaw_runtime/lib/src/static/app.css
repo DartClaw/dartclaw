@@ -3534,3 +3534,22 @@ input.form-input--search::-webkit-search-cancel-button {
 .sidebar-settled-section { border-top: 1px solid var(--border-highlight); padding-top: var(--sp-2); }
 [data-inbox-announcer]:empty { display: none; }
 @media (max-width: 768px) { .sidebar-resize-handle { display: none; } }
+.command-dialog {
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: min(42rem, calc(100vh - 2rem));
+}
+
+.command-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+.command-filters { display: flex; gap: var(--sp-3); margin-block: var(--sp-3); }
+.command-results { display: grid; gap: var(--sp-1); max-height: 26rem; overflow: auto; }
+.command-option { display: grid; gap: var(--sp-1); width: 100%; padding: var(--sp-3); border: 0; border-radius: var(--radius); color: var(--fg); background: transparent; text-align: left; }
+.command-option span { color: var(--fg-sub0); font-size: var(--text-xs); }
+.command-option:is(:hover, .active) { background: var(--bg-surface0); }
+.command-option:disabled { opacity: .5; }
+.conversation-find { align-self: center; margin: var(--sp-2); }
+.composer-command-palette { position: absolute; inset-inline: var(--sp-3); bottom: 100%; z-index: var(--z-dropdown); max-height: 18rem; overflow: auto; }
+
+@media (max-width: 640px) {
+  .command-filters { display: grid; }
+  .topbar [data-command-open] kbd { display: none; }
+}

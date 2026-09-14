@@ -12,7 +12,7 @@ while [ $# -gt 0 ]; do
     --case) CASE="${2:-}"; shift 2 ;;
     --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11 [--live-provider] [--compare-wireframes]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility [--live-provider] [--compare-wireframes]"
       exit 0
       ;;
     --live-provider) LIVE_PROVIDER=1; shift ;;
@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11) ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q6-q7-q9-history|q2-q3-q7-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility) ;;
   *) echo "--case names an unsupported conversation-loop fixture" >&2; exit 2 ;;
 esac
 
@@ -118,6 +118,13 @@ INBOX_DRAFT_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.
 INBOX_DONE_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inboxDoneSessionId"])' "${READY}")"
 INBOX_ARCHIVED_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inboxArchivedSessionId"])' "${READY}")"
 INBOX_LINEAGE_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inboxLineageSessionId"])' "${READY}")"
+SEARCH_OWNER_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["searchOwnerSessionId"])' "${READY}")"
+SEARCH_AGENT_B_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["searchAgentBSessionId"])' "${READY}")"
+SEARCH_SETTLED_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["searchSettledSessionId"])' "${READY}")"
+SEARCH_ARCHIVED_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["searchArchivedSessionId"])' "${READY}")"
+SEARCH_EXACT_MESSAGE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["searchExactMessageId"])' "${READY}")"
+SEARCH_PROJECT_ALPHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["searchProjectAlpha"])' "${READY}")"
+SEARCH_PROJECT_BETA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["searchProjectBeta"])' "${READY}")"
 SESSION_URL="${BASE_URL}/sessions/${SESSION_ID}"
 
 ab() {
@@ -490,6 +497,225 @@ run_inbox_joined_proof() {
   assert_eval conversation-passive "(() => { if(document.querySelector('#sidebar').classList.contains('open')||document.querySelector('.shell-main').hasAttribute('inert')||document.activeElement!==document.querySelector('.menu-toggle'))throw new Error('drawer close did not restore focus'); return true })()"
 }
 
+run_search_commands() {
+  local search_url="${BASE_URL}/sessions/${SEARCH_OWNER_SESSION_ID}"
+  local shortcut_modifier=Control
+  local zoom_modifier=Control
+  if [ "$(uname -s)" = Darwin ]; then shortcut_modifier=Meta; zoom_modifier=Meta; fi
+
+  ab conversation-origin open "${search_url}"
+  ab conversation-origin wait '#message-input'
+  ab conversation-origin fill '#message-input' 'draft retained across exact search navigation'
+  assert_eval conversation-origin "(() => { if(document.getElementById('message-${SEARCH_EXACT_MESSAGE_ID}'))throw new Error('old exact message was already loaded'); return true })()"
+  ab conversation-origin click '[data-command-open="current"]'
+  ab conversation-origin fill '#conversation-find-query' 's07-exact-unloaded-marker'
+  ab conversation-origin wait --text '3 results'
+  assert_eval conversation-origin "(() => { const dialog=document.querySelector('#conversation-find-dialog'); const options=[...dialog.querySelectorAll('[data-command-option]')]; const exact=options.find(option=>option.dataset.searchMessage==='${SEARCH_EXACT_MESSAGE_ID}'); if(options.length!==3||!exact)throw new Error('complete exact count or old result missing'); if(!exact.textContent.includes('conversation:${SEARCH_OWNER_SESSION_ID}/message:${SEARCH_EXACT_MESSAGE_ID}'))throw new Error('stable citation missing'); if(exact.querySelector('img')||globalThis.__s07Injected)throw new Error('snippet markup executed'); const mark=exact.querySelector('mark'); if(!mark||mark.textContent!=='s07-exact-unloaded-marker')throw new Error('escaped highlight missing'); const controller=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-conversation-command'); const index=options.indexOf(exact); controller.activeOption=index; controller.markActive(options); sessionStorage.setItem('__s07ExpectedPosition',String(index)); return {count:options.length,index,citation:exact.textContent} })()"
+  assert_eval conversation-origin "(() => { const before=document.querySelector('#conversation-find-dialog .active')?.dataset.searchMessage; document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})); const next=document.querySelector('#conversation-find-dialog .active')?.dataset.searchMessage; if(!before||!next||before===next)throw new Error('next traversal failed'); document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true})); if(document.querySelector('#conversation-find-dialog .active')?.dataset.searchMessage!==before)throw new Error('previous traversal failed'); return {previous:before,next} })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/current-search-exact.png"
+  assert_eval conversation-origin "(() => { document.querySelector('#conversation-find-dialog .active').click(); return true })()"
+  ab conversation-origin wait "#message-${SEARCH_EXACT_MESSAGE_ID}"
+  assert_eval conversation-origin "(() => { const url=new URL(location.href); const messages=document.querySelectorAll('#messages [data-message-id]'); if(url.searchParams.get('message')!=='${SEARCH_EXACT_MESSAGE_ID}'||location.hash!=='#message-${SEARCH_EXACT_MESSAGE_ID}')throw new Error('exact target URL missing'); if(!document.getElementById('message-${SEARCH_EXACT_MESSAGE_ID}')||messages.length>=180)throw new Error('bounded target window missing'); return {href:location.href,windowMessages:messages.length} })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/current-search-target.png"
+  assert_eval conversation-origin "(() => { history.back(); return true })()"
+  ab conversation-origin wait '#conversation-find-dialog[open]'
+  ab conversation-origin wait --text '3 results'
+  assert_eval conversation-origin "(() => { const dialog=document.querySelector('#conversation-find-dialog'); const options=[...dialog.querySelectorAll('[data-command-option]')]; const expected=Number(sessionStorage.getItem('__s07ExpectedPosition')); if(dialog.querySelector('[data-command-query]').value!=='s07-exact-unloaded-marker')throw new Error('query did not restore'); if(document.querySelector('#message-input').value!=='draft retained across exact search navigation')throw new Error('draft did not restore'); if(options.indexOf(dialog.querySelector('.active'))!==expected)throw new Error('position did not restore'); return {query:dialog.querySelector('[data-command-query]').value,draft:document.querySelector('#message-input').value,position:expected} })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/current-search-return.png"
+  ab conversation-origin press Escape
+
+  assert_eval conversation-origin "(() => { const dialog=document.querySelector('#global-command-dialog'); const composing=new KeyboardEvent('keydown',{key:'k',metaKey:true,bubbles:true,isComposing:true}); document.dispatchEvent(composing); if(dialog.open||composing.defaultPrevented)throw new Error('IME composition opened or consumed shortcut'); for(const modifier of ['ctrlKey','metaKey']){ const options={key:'f',bubbles:true}; options[modifier]=true; const nativeFind=new KeyboardEvent('keydown',options); document.dispatchEvent(nativeFind); if(nativeFind.defaultPrevented)throw new Error('native Find intercepted'); } const keys=[...document.querySelectorAll('kbd')].map(node=>node.textContent); if(!keys.some(key=>key.includes('Ctrl')||key.includes('⌘')))throw new Error('core shortcut lacks kbd'); return {imeIgnored:true,nativeFindPreserved:true,kbd:keys} })()"
+
+  ab conversation-origin press "${shortcut_modifier}+K"
+  ab conversation-origin fill '#global-command-query' 's07-agent-b-marker'
+  ab conversation-origin wait --text '1 results'
+  assert_eval conversation-origin "(() => { const option=document.querySelector('#global-command-dialog [data-search-session=\"${SEARCH_AGENT_B_SESSION_ID}\"]'); if(!option)throw new Error('owner aggregation omitted agent B'); return true })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/global-search-agent.png"
+
+  assert_eval conversation-origin "(() => { const lifecycle=document.querySelector('#global-command-dialog [data-search-lifecycle]'); const project=document.querySelector('#global-command-dialog [data-search-project]'); lifecycle.value='active'; project.value=''; return true })()"
+  ab conversation-origin fill '#global-command-query' 's07-scope-marker'
+  ab conversation-origin wait --text '2 results'
+  assert_eval conversation-origin "(() => { const ids=[...document.querySelectorAll('#global-command-dialog [data-search-session]')].map(row=>row.dataset.searchSession); if(!ids.includes('${SEARCH_OWNER_SESSION_ID}')||!ids.includes('${NAMED_AGENT_SESSION_ID}')||ids.includes('${SEARCH_SETTLED_SESSION_ID}')||ids.includes('${SEARCH_ARCHIVED_SESSION_ID}'))throw new Error('active lifecycle scope wrong'); return ids })()"
+  local lifecycle expected_session
+  for lifecycle in settled archived; do
+    if [ "${lifecycle}" = settled ]; then expected_session="${SEARCH_SETTLED_SESSION_ID}"; else expected_session="${SEARCH_ARCHIVED_SESSION_ID}"; fi
+    assert_eval conversation-origin "(() => { document.querySelector('#global-command-dialog [data-search-lifecycle]').value='${lifecycle}'; return true })()"
+    ab conversation-origin fill '#global-command-query' ''
+    ab conversation-origin fill '#global-command-query' 's07-scope-marker'
+    ab conversation-origin wait --text '1 results'
+    assert_eval conversation-origin "(() => { const ids=[...document.querySelectorAll('#global-command-dialog [data-search-session]')].map(row=>row.dataset.searchSession); if(ids.length!==1||ids[0]!=='${expected_session}')throw new Error('${lifecycle} lifecycle scope wrong'); return ids })()"
+  done
+  assert_eval conversation-origin "(() => { document.querySelector('#global-command-dialog [data-search-lifecycle]').value='all'; document.querySelector('#global-command-dialog [data-search-project]').value='${SEARCH_PROJECT_ALPHA}'; return true })()"
+  ab conversation-origin fill '#global-command-query' ''
+  ab conversation-origin fill '#global-command-query' 's07-scope-marker'
+  ab conversation-origin wait --text '3 results'
+  assert_eval conversation-origin "(() => { const rows=[...document.querySelectorAll('#global-command-dialog [data-search-session]')]; if(rows.length!==3||rows.some(row=>row.dataset.searchSession==='${SEARCH_ARCHIVED_SESSION_ID}'))throw new Error('project alpha scope wrong'); return rows.map(row=>row.dataset.searchSession) })()"
+  assert_eval conversation-origin "(() => { document.querySelector('#global-command-dialog [data-search-project]').value='${SEARCH_PROJECT_BETA}'; return true })()"
+  ab conversation-origin fill '#global-command-query' ''
+  ab conversation-origin fill '#global-command-query' 's07-scope-marker'
+  ab conversation-origin wait --text '1 results'
+  assert_eval conversation-origin "(() => { const rows=[...document.querySelectorAll('#global-command-dialog [data-search-session]')]; if(rows.length!==1||rows[0].dataset.searchSession!=='${SEARCH_ARCHIVED_SESSION_ID}')throw new Error('project beta scope wrong'); return rows[0].dataset.searchSession })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/global-search-scopes.png"
+
+  assert_eval conversation-origin "(() => { const original=window.fetch.bind(window); window.__s07OriginalFetch=original; window.__s07Delayed=[]; window.fetch=(input,init)=>{ const url=new URL(String(input),location.origin); if(url.pathname==='/api/conversation-search'&&url.searchParams.get('q')?.startsWith('s07-delayed-'))return new Promise((resolve,reject)=>window.__s07Delayed.push(()=>original(input,init).then(resolve,reject))); return original(input,init); }; return true })()"
+  assert_eval conversation-origin "(() => { document.querySelector('#global-command-dialog [data-search-project]').value=''; return true })()"
+  ab conversation-origin fill '#global-command-query' 's07-delayed-superseded'
+  ab conversation-origin wait 250
+  assert_eval conversation-origin "(() => { if(window.__s07Delayed.length!==1)throw new Error('slow search not captured'); return true })()"
+  ab conversation-origin fill '#global-command-query' 's07-agent-a-marker'
+  ab conversation-origin wait --text '1 results'
+  assert_eval conversation-origin "(() => { window.__s07Delayed.shift()(); return true })()"
+  ab conversation-origin wait 250
+  assert_eval conversation-origin "(() => { const rows=[...document.querySelectorAll('#global-command-dialog [data-search-session]')]; if(rows.length!==1||rows[0].dataset.searchSession!=='${NAMED_AGENT_SESSION_ID}')throw new Error('superseded search replaced newer result'); return rows[0].dataset.searchSession })()"
+  ab conversation-origin fill '#global-command-query' 's07-delayed-empty'
+  ab conversation-origin wait 250
+  ab conversation-origin fill '#global-command-query' ''
+  ab conversation-origin wait --text 'Commands for this conversation.'
+  assert_eval conversation-origin "(() => { window.__s07Delayed.shift()(); return true })()"
+  ab conversation-origin wait 250
+  assert_eval conversation-origin "(() => { const status=document.querySelector('#global-command-dialog [data-command-status]').textContent; if(status!=='Commands for this conversation.')throw new Error('old search replaced empty state'); return status })()"
+  ab conversation-origin fill '#global-command-query' 's07-delayed-slash'
+  ab conversation-origin wait 250
+  ab conversation-origin fill '#global-command-query' '/'
+  ab conversation-origin wait --text 'commands available'
+  assert_eval conversation-origin "(() => { window.__s07Delayed.shift()(); return true })()"
+  ab conversation-origin wait 250
+  assert_eval conversation-origin "(() => { const status=document.querySelector('#global-command-dialog [data-command-status]').textContent; if(!status.includes('commands available')||!document.querySelector('[data-command-id=\"built-in:status\"]'))throw new Error('old search replaced slash catalog'); window.fetch=window.__s07OriginalFetch; return status })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/search-races.png"
+
+  assert_eval conversation-origin "(() => { const status=document.querySelector('#global-command-dialog [data-command-status]'); window.__s07Announcements=[]; window.__s07AnnouncementStart=performance.now(); window.__s07AnnouncementObserver=new MutationObserver(()=>window.__s07Announcements.push({message:status.textContent,at:performance.now()-window.__s07AnnouncementStart})); window.__s07AnnouncementObserver.observe(status,{childList:true,subtree:true,characterData:true}); return true })()"
+  ab conversation-origin fill '#global-command-query' 's07-agent-a-marker'
+  ab conversation-origin wait --text '1 results'
+  assert_eval conversation-origin "(() => { window.__s07AnnouncementObserver.disconnect(); const announcements=window.__s07Announcements; const elapsed=performance.now()-window.__s07AnnouncementStart; if(!announcements.length||announcements.length>4||elapsed>=2000)throw new Error('announcement count or timing exceeded bound'); if(announcements.some((item,index)=>item.message.length>160||(index&&item.message===announcements[index-1].message)))throw new Error('announcement verbose or duplicated'); return {elapsedMs:elapsed,announcements} })()"
+  ab conversation-origin --json eval "JSON.stringify({elapsedMs:performance.now()-window.__s07AnnouncementStart,announcements:window.__s07Announcements})" >"${EVIDENCE_ROOT}/announcement-timing.json"
+
+  assert_eval conversation-origin "(async () => { const input=document.querySelector('#global-command-dialog [data-command-query]'); input.value='s07-agent-b-marker'; await window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-conversation-command').refreshDialog(document.querySelector('#global-command-dialog')); const row=document.querySelector('#global-command-dialog [data-search-session=\"${SEARCH_AGENT_B_SESSION_ID}\"]'); if(!row)throw new Error('target result missing'); await fetch('/api/sessions/${SEARCH_AGENT_B_SESSION_ID}',{method:'DELETE'}); row.click(); const started=performance.now(); while(performance.now()-started<2000&&!document.body.textContent.includes('no longer available'))await new Promise(resolve=>setTimeout(resolve,20)); if(!document.body.textContent.includes('no longer available'))throw new Error('missing-target recovery absent'); if(document.querySelector('#message-input').value!=='draft retained across exact search navigation')throw new Error('missing target changed draft'); return true })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/missing-target.png"
+  ab conversation-origin press Escape
+  touch "${EVIDENCE_ROOT}/asserted-conversation-search"
+
+  ab conversation-origin fill '#message-input' '/help'
+  ab conversation-origin wait --text '/help (skill)'
+  assert_eval conversation-origin "(() => { const rows=[...document.querySelectorAll('[data-slash-results] [data-command-option]')]; const builtIn=rows.find(row=>row.dataset.commandId==='built-in:help'); const skill=rows.find(row=>row.dataset.commandId==='skill:help'); if(!builtIn||!skill||!skill.textContent.includes('(skill)'))throw new Error('catalog collision missing'); return {builtIn:builtIn.textContent,skill:skill.textContent} })()"
+  assert_eval conversation-origin "(() => { const original=window.fetch.bind(window); window.__s07Actions=[]; window.fetch=async(input,init)=>{ const isAction=new URL(String(input),location.origin).pathname==='/api/command-actions'; const started=performance.now(); const response=await original(input,init); if(isAction)window.__s07Actions.push({body:JSON.parse(init.body),durationMs:performance.now()-started,status:response.status}); return response; }; return true })()"
+  ab conversation-origin fill '#message-input' '/status'
+  ab conversation-origin wait '[data-command-id="built-in:status"]'
+  ab conversation-origin click '[data-command-id="built-in:status"]'
+  ab conversation-origin wait --text 'Conversation revision'
+  assert_eval conversation-origin "(() => { const action=window.__s07Actions.find(item=>item.body.command_id==='built-in:status'); if(!action||action.durationMs>=1000||action.status!==200)throw new Error('typed status route unused or too slow'); return window.__s07Actions })()"
+
+  ab conversation-origin fill '#message-input' '/review'
+  ab conversation-origin wait '[data-command-id="skill:review"]'
+  ab conversation-origin click '[data-command-id="skill:review"]'
+  ab conversation-origin wait 200
+  assert_eval conversation-origin "(() => { if(document.querySelector('#message-input').value!=='/review')throw new Error('native invocation not inserted'); const action=window.__s07Actions.find(item=>item.body.command_id==='skill:review'); if(!action||action.durationMs>=1000||action.status!==200)throw new Error('native skill bypassed action route or exceeded timing bound'); return window.__s07Actions })()"
+  ab conversation-origin --json eval "JSON.stringify(window.__s07Actions)" >"${EVIDENCE_ROOT}/command-action-timing.json"
+
+  ab conversation-origin fill '#message-input' '/review'
+  ab conversation-origin wait '[data-command-id="skill:review"]'
+  assert_eval conversation-origin "(async () => { const stale=document.querySelector('[data-command-id=\"skill:review\"]'); const before=document.querySelector('#message-input').value; const response=await fetch('/__fixture/native-skills/disable?session_id=${SEARCH_OWNER_SESSION_ID}',{method:'POST'}); if(!response.ok)throw new Error('fixture skill revocation failed'); stale.click(); const started=performance.now(); while(performance.now()-started<2000&&!document.body.textContent.includes('Command context changed'))await new Promise(resolve=>setTimeout(resolve,20)); if(!document.body.textContent.includes('Command context changed'))throw new Error('stale native selection not rejected'); if(document.querySelector('#message-input').value!==before)throw new Error('stale native selection mutated composer'); return {unchanged:before} })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/stale-native-selection.png"
+  assert_eval conversation-origin "(async () => { const response=await fetch('/__fixture/native-skills/enable?session_id=${SEARCH_OWNER_SESSION_ID}',{method:'POST'}); if(!response.ok)throw new Error('fixture skill restore failed'); return true })()"
+
+  ab conversation-origin fill '#message-input' '/unowned  keep bytes exactly'
+  ab conversation-origin wait --text 'Send to provider'
+  assert_eval conversation-origin "(() => { const input=document.querySelector('#message-input'); const pass=[...document.querySelectorAll('[data-command-option]')].find(row=>row.textContent.includes('Send to provider')); if(!pass)throw new Error('passthrough row missing'); pass.click(); if(input.value!=='/unowned  keep bytes exactly')throw new Error('unknown slash bytes changed before submit'); return true })()"
+  ab conversation-origin press Control+Enter
+  assert_eval conversation-origin "(async () => { const expected='/unowned  keep bytes exactly'; const started=performance.now(); let matches=[]; while(performance.now()-started<2000){ const messages=await fetch('/api/sessions/${SEARCH_OWNER_SESSION_ID}/messages').then(response=>response.json()); matches=messages.filter(message=>message.content===expected); if(matches.length)break; await new Promise(resolve=>setTimeout(resolve,20)); } if(matches.length!==1)throw new Error('unknown slash not submitted byte-exactly once'); return {messageId:matches[0].id,content:matches[0].content} })()"
+  curl -fsS -X POST "${BASE_URL}/__fixture/harness/primary/complete" >"${EVIDENCE_ROOT}/passthrough-complete.json"
+  touch "${EVIDENCE_ROOT}/asserted-typed-commands" "${EVIDENCE_ROOT}/asserted-native-skills"
+
+  ab conversation-origin press "${shortcut_modifier}+K"
+  ab conversation-origin fill '#global-command-query' '/'
+  assert_eval conversation-origin "(() => { const labels=[...document.querySelectorAll('#global-command-dialog [data-command-option]')].map(row=>row.querySelector('strong').textContent); for(const command of ['/new','/reset','/stop','/status','/fork','/settle','/model','/effort','/help'])if(!labels.includes(command))throw new Error('missing '+command); return labels })()"
+  assert_eval conversation-origin "(() => { const dialog=document.querySelector('#global-command-dialog'); const opener=document.querySelector('[data-command-open=\"global\"]'); if(!opener)throw new Error('global opener missing'); dialog.close(); opener.focus(); opener.click(); const focusable=[...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),a[href]')].filter(element=>!element.hidden); focusable.at(-1).focus(); focusable.at(-1).dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true})); if(document.activeElement!==focusable[0])throw new Error('focus trap failed'); dialog.querySelector('[data-command-close]').click(); if(document.activeElement!==opener)throw new Error('focus restore failed'); opener.click(); return {focusTrap:true,restored:true} })()"
+  ab conversation-origin a11y --selector '#global-command-dialog' --json >"${EVIDENCE_ROOT}/global-command-a11y.json"
+  assert_eval conversation-origin "(() => { const parse=value=>{ const match=value.match(/[\\d.]+/g); if(!match)return null; const [r,g,b,a=1]=match.map(Number); return {r,g,b,a}; }; const blend=(front,back)=>({r:front.r*front.a+back.r*(1-front.a),g:front.g*front.a+back.g*(1-front.a),b:front.b*front.a+back.b*(1-front.a),a:1}); const background=element=>{ let color={r:255,g:255,b:255,a:1}; const chain=[]; for(let node=element;node;node=node.parentElement)chain.push(node); for(const node of chain.reverse()){ const candidate=parse(getComputedStyle(node).backgroundColor); if(candidate)color=blend(candidate,color); } return color; }; const luminance=color=>{ const channel=value=>{ value/=255; return value<=.04045?value/12.92:Math.pow((value+.055)/1.055,2.4); }; return .2126*channel(color.r)+.7152*channel(color.g)+.0722*channel(color.b); }; const contrast=(a,b)=>{ const left=luminance(a),right=luminance(b); return (Math.max(left,right)+.05)/(Math.min(left,right)+.05); }; window.__s07VisualAudit=()=>{ const dialog=document.querySelector('#global-command-dialog'); const controls=[...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled])')].filter(element=>!element.hidden); for(const control of controls){ const rect=control.getBoundingClientRect(); if(rect.width<44||rect.height<44)throw new Error('touch target '+control.tagName+' '+rect.width+'x'+rect.height); } const option=dialog.querySelector('.command-option:not([disabled])'); const bg=background(option); const textChecks=[option.querySelector('strong'),option.querySelector('span')].map(node=>contrast(parse(getComputedStyle(node).color),bg)); if(textChecks.some(value=>value<4.5))throw new Error('text contrast '+textChecks.join(',')); option.focus(); const outline=parse(getComputedStyle(option).outlineColor); if(!outline||contrast(outline,bg)<3)throw new Error('focus contrast below 3:1'); if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('horizontal overflow'); if(!matchMedia('(prefers-reduced-motion: reduce)').matches)throw new Error('reduced motion inactive'); if(document.getAnimations().some(animation=>animation.effect?.getTiming().duration>100&&animation.playState==='running'))throw new Error('long reduced-motion animation'); return {targets:controls.map(control=>{const rect=control.getBoundingClientRect();return {tag:control.tagName,width:rect.width,height:rect.height};}),textContrast:textChecks,outlineContrast:contrast(outline,bg),reducedMotion:true}; }; return true })()"
+  for width in 375 390 768 1440; do
+    for theme in dark light; do
+      ab conversation-origin press "${zoom_modifier}+0"
+      ab conversation-origin set viewport "${width}" 900
+      ab conversation-origin set media "${theme}" reduced-motion
+      assert_eval conversation-origin "(() => { const audit=window.__s07VisualAudit(); if(!document.querySelector('#global-command-dialog').open||innerWidth!==${width})throw new Error('viewport or dialog state wrong'); return {width:innerWidth,theme:'${theme}',audit} })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/global-command-${width}-${theme}.png"
+      assert_eval conversation-origin "(() => { window.__s07ZoomBaseline={width:innerWidth,dpr:devicePixelRatio}; return window.__s07ZoomBaseline })()"
+      for _ in 1 2 3 4 5; do ab conversation-origin press "${zoom_modifier}++"; done
+      assert_eval conversation-origin "(() => { const baseline=window.__s07ZoomBaseline; if(!(innerWidth<=baseline.width*.6||devicePixelRatio>=baseline.dpr*1.8))throw new Error('browser did not reach 200% zoom'); return {width:innerWidth,dpr:devicePixelRatio,theme:'${theme}',audit:window.__s07VisualAudit()} })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/global-command-${width}-${theme}-zoom200.png"
+    done
+  done
+  ab conversation-origin press "${zoom_modifier}+0"
+  ab conversation-origin set viewport 1440 900
+  ab conversation-origin set media dark reduced-motion
+  ab conversation-origin --json eval "JSON.stringify(window.__s07VisualAudit())" >"${EVIDENCE_ROOT}/computed-style-audit.json"
+  touch "${EVIDENCE_ROOT}/asserted-accessibility"
+  ab conversation-origin press Escape
+
+  ab conversation-origin press "${shortcut_modifier}+K"
+  ab conversation-origin network route '**/api/conversation-search*' --abort
+  ab conversation-origin fill '#global-command-query' 'failure-probe'
+  ab conversation-origin wait --text 'Search is unavailable'
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/search-failure.png"
+  ab conversation-origin network unroute '**/api/conversation-search*'
+  ab conversation-origin press Escape
+
+  ab conversation-origin open "${BASE_URL}/knowledge?q=retained-layer-query"
+  ab conversation-origin wait 'nav[aria-label="Knowledge layers"]'
+  ab conversation-origin click 'nav[aria-label="Knowledge layers"] .tab:not([aria-current="page"])'
+  ab conversation-origin wait 'nav[aria-label="Knowledge layers"]'
+  assert_eval conversation-origin "(() => { const tabs=[...document.querySelectorAll('nav[aria-label=\"Knowledge layers\"] .tab')]; const url=new URL(location.href); if(tabs.filter(tab=>tab.getAttribute('aria-current')==='page').length!==1||!url.searchParams.get('layer')||url.searchParams.get('q')!=='retained-layer-query')throw new Error('knowledge tab selection or query retention wrong'); return {tabs:tabs.map(tab=>tab.textContent),href:location.href} })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/knowledge-layer-tabs.png"
+
+  python3 - "${EVIDENCE_ROOT}" "${CASE}" <<'PY'
+import json
+import pathlib
+import sys
+root = pathlib.Path(sys.argv[1])
+case = sys.argv[2]
+required = [
+    "current-search-exact.png", "current-search-target.png", "current-search-return.png",
+    "global-search-agent.png", "global-search-scopes.png", "search-races.png", "missing-target.png",
+    "stale-native-selection.png", "global-command-a11y.json", "announcement-timing.json", "command-action-timing.json",
+    "computed-style-audit.json", "search-failure.png", "knowledge-layer-tabs.png",
+    "browser-eval.log", "server.log", "passthrough-complete.json",
+]
+for width in (375, 390, 768, 1440):
+    for theme in ("dark", "light"):
+        required.extend((f"global-command-{width}-{theme}.png", f"global-command-{width}-{theme}-zoom200.png"))
+missing = [name for name in required if not (root / name).is_file()]
+if missing:
+    raise SystemExit(f"missing search-command artifacts: {missing}")
+markers = {
+    "conversationSearch": root / "asserted-conversation-search",
+    "typedCommands": root / "asserted-typed-commands",
+    "nativeSkills": root / "asserted-native-skills",
+    "accessibility": root / "asserted-accessibility",
+}
+capabilities = {name: marker.is_file() for name, marker in markers.items()}
+if not all(capabilities.values()):
+    raise SystemExit(f"incomplete search-command assertions: {capabilities}")
+requirement_map = {
+    "S01": ["three-result exact count", "escaped mark", "keyboard next/previous", "bounded exact target", "query/draft/position return"],
+    "S02": ["owner agent aggregation", "active/settled/archived filters", "project alpha/beta filters", "deleted-target reauthorization"],
+    "S03": ["search-to-search supersession", "search-to-empty supersession", "search-to-slash supersession", "backend failure recovery", "missing-target recovery"],
+    "S04": ["same catalog collision", "exact nine built-ins"],
+    "S05": ["typed status POST", "native skill POST and adapter spelling", "stale native rejection without mutation"],
+    "S06": ["unknown slash selection retains bytes", "ordinary send persists exact bytes once"],
+    "S07": ["IME and native Find", "focus trap and restore", "bounded announcements and timing", "44px and contrast computed styles", "375/390/768/1440 both themes at normal and 200% zoom", "reduced motion", "knowledge tab query retention"],
+}
+(root / "requirement-assertion-map.json").write_text(json.dumps(requirement_map, indent=2) + "\n", encoding="utf-8")
+required.append("requirement-assertion-map.json")
+(root / "search-command-evidence.json").write_text(json.dumps({
+    "case": case,
+    "canonicalCase": "search-commands",
+    "result": "passed",
+    "capabilities": capabilities,
+    "assertionMarkers": {name: marker.name for name, marker in markers.items()},
+    "requirementMap": "requirement-assertion-map.json",
+    "artifacts": required,
+}, indent=2) + "\n", encoding="utf-8")
+PY
+}
 case "${CASE}" in
   fixture-self-test) run_q4; run_q6 ;;
   q4-draft-send) run_q4 ;;
@@ -501,6 +727,7 @@ case "${CASE}" in
   e11-effective-context) run_e11_effective_context ;;
   q6-q8-q10-inbox-attention) run_q6; run_inbox_attention; run_inbox_joined_proof ;;
   q8-q10-inbox-attention) run_inbox_attention ;;
+  search-commands|current-search-history|search-recovery|search-command-accessibility) run_search_commands ;;
 esac
 
 echo "Evidence: ${EVIDENCE_ROOT}"

@@ -11,7 +11,8 @@ export 'src/models.dart'
         MemorySearchResult,
         MemorySearchDegradation,
         MemorySearchOutcome;
-export 'src/full_text_index.dart' show FullTextIndex, SearchDocument, SearchResult;
+export 'src/full_text_index.dart'
+    show FullTextIndex, FullTextSearchScope, ScopedFullTextIndex, SearchDocument, SearchResult;
 export 'src/vector_search.dart'
     show
         EmbeddingProvider,

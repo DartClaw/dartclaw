@@ -85,7 +85,7 @@ const _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
 class ClaudeCodeHarness extends BaseHarness
-    implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider {
+    implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider, NativeSkillCapabilityProvider {
   final String claudeExecutable;
   final Map<String, String> _environment;
   final Map<String, String> _containerEnvironment;
@@ -262,6 +262,9 @@ class ClaudeCodeHarness extends BaseHarness
 
   @override
   String skillActivationLine(String skill) => '/$skill';
+
+  @override
+  bool get supportsNativeSkillInvocation => true;
 
   @override
   bool get supportsPreCompactHook => true;

@@ -247,6 +247,22 @@ class HarnessFactory {
     return created.skillActivationLine(skill);
   }
 
+  /// Returns verified provider-native skill capability for [providerId].
+  bool supportsNativeSkillInvocationFor(String? providerId) {
+    if (providerId == null) return false;
+    final probe = _activationProbes[providerId];
+    if (probe != null) {
+      return probe is NativeSkillCapabilityProvider &&
+          (probe as NativeSkillCapabilityProvider).supportsNativeSkillInvocation;
+    }
+    final factory = _factories[providerId];
+    if (factory == null) return false;
+    final created = factory(const HarnessFactoryConfig(cwd: '/'));
+    _activationProbes[providerId] = created;
+    return created is NativeSkillCapabilityProvider &&
+        (created as NativeSkillCapabilityProvider).supportsNativeSkillInvocation;
+  }
+
   /// Warns when the factory has no registered providers — indicates that
   /// a caller constructed us outside the normal wiring path, which
   /// silently breaks provider lookup and skill-activation dispatch.

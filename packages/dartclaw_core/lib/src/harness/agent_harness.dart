@@ -30,6 +30,11 @@ abstract interface class EffectiveContextCapabilityProvider {
   EffectiveContextCapabilities get effectiveContextCapabilities;
 }
 
+/// Adapter evidence that provider-native skill invocation is supported.
+abstract interface class NativeSkillCapabilityProvider {
+  bool get supportsNativeSkillInvocation;
+}
+
 /// Host-owned identity for the turn currently executing in a harness.
 final class HarnessTurnContext {
   const new({

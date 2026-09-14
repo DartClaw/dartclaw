@@ -18,6 +18,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Conversation search now spans authorized owner and configured-agent history, including exact matches outside the
+  loaded transcript, with current/global, lifecycle and project scopes and exact-message navigation. One typed catalog
+  supplies the Cmd-K and slash palettes with nine built-ins plus authorized provider-native skills; unknown slash text
+  remains ordinary provider input, unchanged.
+
 - Owner-authorized temporary conversations can run on the mediated Codex container row. Their session, messages,
   history, attachments, usage context, provider home, and browser draft stay within process, container, or page memory;
   explicit end revokes the conversation after confirmed shutdown, and confirmed export streams a durable Markdown copy.

@@ -6,14 +6,17 @@ import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
+import 'package:dartclaw_runtime/src/conversation/human_command_catalog.dart';
+import 'package:dartclaw_runtime/src/conversation/product_conversation_search.dart';
 import 'package:dartclaw_runtime/src/server.dart'
-    show ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps;
+    show ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
 import 'package:dartclaw_runtime/src/server_composition.dart';
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
+import 'package:sqlite3/sqlite3.dart' hide Session;
 
 Future<void> main(List<String> arguments) async {
   if (arguments.length != 2) {
@@ -49,6 +52,7 @@ Future<void> main(List<String> arguments) async {
     workspace: AgentWorkspace.pinned(agentId: 'fixture-agent', directory: projectDirectory.path),
   );
   final historyFixture = await _seedHistoryFixture(sessions, messages, dataDirectory);
+  final searchFixture = await seedSearchCommandFixture(sessions, messages, namedAgentSession, dataDirectory);
   final channelSession = await _seedExternalSession(
     sessions,
     messages,
@@ -112,6 +116,21 @@ Future<void> main(List<String> arguments) async {
     origin: (channel: SessionType.cron.name, contact: null, group: false),
   );
   final broadcast = SseBroadcast();
+  final searchBackend = SqliteBackend(sqlite3.openInMemory());
+  await SqliteSchemaGate.prepareSearch(searchBackend, storeName: 'search.db');
+  final conversationIndex = SqliteFtsIndex(searchBackend, table: SqliteFtsTable.conversationChunks);
+  await ConversationIndexProjection(
+    sessions: sessions,
+    messages: messages,
+    configuredPrincipals: const {'owner', 'agent:fixture-agent', 'agent:fixture-agent-b', 'agent:fixture-search-owner'},
+  ).populate(conversationIndex);
+  final harnessFactory = HarnessFactory();
+  final nativeSkillInventory = _BrowserNativeSkillInventory();
+  final commandCatalog = HumanCommandCatalog(
+    harnessFactory: harnessFactory,
+    nativeSkills: ({required provider, required workspaceDir}) async =>
+        provider == 'claude' ? nativeSkillInventory.entries : const [],
+  );
   final server = composeServer(
     core: ServerCoreDeps(
       sessions: sessions,
@@ -128,12 +147,25 @@ Future<void> main(List<String> arguments) async {
     turn: ServerTurnDeps(turns: turns, executions: executions),
     tasks: ServerTaskDeps(projectService: projectService),
     observability: ServerObservabilityDeps(sseBroadcast: broadcast, eventBus: eventBus),
+    web: ServerWebDeps(
+      conversationSearch: ProductConversationSearchService(
+        search: ConversationSearchService(
+          index: conversationIndex,
+          userIds: const {'owner', 'agent:fixture-agent', 'agent:fixture-agent-b', 'agent:fixture-search-owner'},
+        ),
+        sessions: sessions,
+        messages: messages,
+      ),
+      commandCatalog: commandCatalog,
+    ),
   );
   final revokedViewers = File(p.join(dataDirectory, 'revoked-viewers.txt'));
   final handler = _fixtureHarnessControls(
     _fixtureControl(_revocationGuard(server.handler, revokedViewers), harness),
     primary: harness,
     secondary: secondaryHarness,
+    sessions: sessions,
+    nativeSkillInventory: nativeSkillInventory,
   );
   final httpServer = await shelf_io.serve(handler, InternetAddress.loopbackIPv4, port);
   File(p.join(dataDirectory, 'conversation-browser-ready.json')).writeAsStringSync(
@@ -151,6 +183,15 @@ Future<void> main(List<String> arguments) async {
       'inboxDoneSessionId': historyFixture.doneSessionId,
       'inboxArchivedSessionId': historyFixture.archivedSessionId,
       'inboxLineageSessionId': historyFixture.lineageSessionId,
+      'searchOwnerSessionId': searchFixture.ownerSessionId,
+      'searchAgentASessionId': namedAgentSession.id,
+      'searchAgentBSessionId': searchFixture.agentBSessionId,
+      'searchSettledSessionId': searchFixture.settledSessionId,
+      'searchArchivedSessionId': searchFixture.archivedSessionId,
+      'searchExactMessageId': searchFixture.exactMessageId,
+      'searchMarker': 's07-exact-unloaded-marker',
+      'searchProjectAlpha': 's07-project-alpha',
+      'searchProjectBeta': 's07-project-beta',
     }),
     flush: true,
   );
@@ -160,15 +201,135 @@ Future<void> main(List<String> arguments) async {
   await turnState.dispose();
   await kv.dispose();
   await eventBus.dispose();
+  await searchBackend.close();
+}
+
+Future<
+  ({
+    String ownerSessionId,
+    String agentBSessionId,
+    String settledSessionId,
+    String archivedSessionId,
+    String exactMessageId,
+  })
+>
+seedSearchCommandFixture(SessionService sessions, MessageService messages, Session agentA, String dataDirectory) async {
+  const projectAlpha = 's07-project-alpha';
+  const projectBeta = 's07-project-beta';
+  EffectiveConversationContext context(String projectId) => EffectiveConversationContext(
+    projectId: projectId,
+    directory: dataDirectory,
+    referenceRoot: dataDirectory,
+    provider: 'claude',
+  );
+
+  await sessions.updateConversationState(
+    agentA.id,
+    (await sessions.getConversationState(agentA.id)).stageContext(context(projectAlpha)),
+  );
+  await sessions.updateTitle(agentA.id, 'Search agent A');
+  await messages.insertMessage(sessionId: agentA.id, role: 'assistant', content: 's07-agent-a-marker s07-scope-marker');
+  final agentB = await sessions.createSession(
+    provider: 'claude',
+    workspace: AgentWorkspace.pinned(agentId: 'fixture-agent-b', directory: p.join(dataDirectory, 'agent-b')),
+  );
+  await sessions.updateConversationState(
+    agentB.id,
+    (await sessions.getConversationState(agentB.id)).stageContext(context(projectBeta)),
+  );
+  await sessions.updateTitle(agentB.id, 'Search agent B');
+  await messages.insertMessage(sessionId: agentB.id, role: 'assistant', content: 's07-agent-b-marker');
+
+  final owner = await sessions.createSession(
+    provider: 'claude',
+    workspace: AgentWorkspace.pinned(agentId: 'fixture-search-owner', directory: p.join(dataDirectory, 'search-owner')),
+  );
+  await sessions.updateConversationState(
+    owner.id,
+    (await sessions.getConversationState(owner.id)).stageContext(context(projectAlpha)),
+  );
+  await sessions.updateTitle(owner.id, 'Unloaded exact match');
+  for (var index = 0; index < 180; index++) {
+    final exact = index == 7 || index == 91 || index == 175;
+    await messages.insertMessage(
+      sessionId: owner.id,
+      role: index.isEven ? 'user' : 'assistant',
+      content: exact
+          ? 'unsafe <img src=x onerror=globalThis.__s07Injected=true> s07-exact-unloaded-marker result $index'
+          : index == 179
+          ? 's07-scope-marker active owner result'
+          : 'search filler $index',
+    );
+  }
+  final exactMessage = (await messages.getMessages(owner.id))
+      .firstWhere((message) => message.content.endsWith('result 7'));
+
+  final settled = await sessions.createSession(provider: 'claude');
+  await sessions.updateConversationState(
+    settled.id,
+    (await sessions.getConversationState(settled.id)).stageContext(context(projectAlpha)),
+  );
+  await sessions.updateTitle(settled.id, 'Settled search result');
+  await messages.insertMessage(
+    sessionId: settled.id,
+    role: 'assistant',
+    content: 's07-settled-marker s07-scope-marker',
+  );
+  final settledState = await sessions.getConversationState(settled.id);
+  await sessions.updateInboxMetadata(
+    id: settled.id,
+    expectedConversationRevision: settledState.revision,
+    settledAt: DateTime.utc(2026, 9, 14),
+  );
+
+  final archived = await sessions.createSession(type: SessionType.archive, provider: 'claude');
+  await sessions.updateConversationState(
+    archived.id,
+    (await sessions.getConversationState(archived.id)).stageContext(context(projectBeta)),
+  );
+  await sessions.updateTitle(archived.id, 'Archived search result');
+  await messages.insertMessage(
+    sessionId: archived.id,
+    role: 'assistant',
+    content: 's07-archived-marker s07-scope-marker',
+  );
+  return (
+    ownerSessionId: owner.id,
+    agentBSessionId: agentB.id,
+    settledSessionId: settled.id,
+    archivedSessionId: archived.id,
+    exactMessageId: exactMessage.id,
+  );
 }
 
 Handler _fixtureHarnessControls(
   Handler inner, {
   required FakeAgentHarness primary,
   required FakeAgentHarness secondary,
+  required SessionService sessions,
+  required _BrowserNativeSkillInventory nativeSkillInventory,
 }) {
   return (request) async {
     final segments = request.url.pathSegments;
+    if (request.method == 'POST' &&
+        segments.length == 3 &&
+        segments[0] == '__fixture' &&
+        segments[1] == 'native-skills' &&
+        (segments[2] == 'enable' || segments[2] == 'disable')) {
+      final sessionId = request.url.queryParameters['session_id'];
+      if (sessionId == null || await sessions.getSession(sessionId) == null) {
+        return Response.notFound('session missing');
+      }
+      nativeSkillInventory.enabled = segments[2] == 'enable';
+      await sessions.updateConversationState(
+        sessionId,
+        (await sessions.getConversationState(sessionId)).bumpRevision(),
+      );
+      return Response.ok(
+        jsonEncode({'enabled': nativeSkillInventory.enabled}),
+        headers: const {'content-type': 'application/json'},
+      );
+    }
     if (request.method == 'POST' &&
         segments.length == 4 &&
         segments[0] == '__fixture' &&
@@ -202,6 +363,17 @@ Handler _fixtureHarnessControls(
     }
     return inner(request);
   };
+}
+
+final class _BrowserNativeSkillInventory {
+  bool enabled = true;
+
+  List<NativeSkillCatalogItem> get entries => enabled
+      ? const [
+          NativeSkillCatalogItem(name: 'review', description: 'Review the current change'),
+          NativeSkillCatalogItem(name: 'help', description: 'Fixture collision skill'),
+        ]
+      : const [];
 }
 
 Future<

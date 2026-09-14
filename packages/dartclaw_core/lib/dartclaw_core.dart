@@ -93,7 +93,7 @@ export 'src/search/vector_index.dart' show VectorTable, SqliteVectorIndex, Postg
 export 'src/search/conversation_index_projection.dart' show ConversationIndexProjection, ConversationProjectionResult;
 export 'src/search/conversation_indexer.dart' show ConversationIndexer;
 export 'src/search/conversation_search_service.dart'
-    show ConversationHit, ConversationSearchQuery, ConversationSearchService;
+    show ConversationHit, ConversationSearchOutcome, ConversationSearchQuery, ConversationSearchService;
 export 'src/search/search_backend_factory.dart' show createSearchBackend;
 export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
 export 'src/search/qmd_manager.dart' show QmdManager;
@@ -169,6 +169,7 @@ export 'src/harness/agent_harness.dart'
         AgentHarness,
         EffectiveContextCapabilities,
         EffectiveContextCapabilityProvider,
+        NativeSkillCapabilityProvider,
         ContextualMemoryToolHandler,
         HarnessTurnContext,
         HarnessTurnContextSink,

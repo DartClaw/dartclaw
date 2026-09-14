@@ -610,11 +610,20 @@ final class ConversationService {
     required String mutationId,
     required ConversationBranchKind kind,
     String? editedMessage,
+    int? expectedRevision,
   }) => mutations.run(sessionId, () async {
     if (kind == ConversationBranchKind.retry) {
       throw const ConversationMutationException(400, 'INVALID_BRANCH_KIND', 'Retry uses an attempt boundary');
     }
     var sourceState = await sessions.getConversationState(sessionId);
+    if (expectedRevision != null && sourceState.revision != expectedRevision) {
+      throw ConversationMutationException(
+        409,
+        'STALE_CONVERSATION_REVISION',
+        'Conversation changed since this action was shown',
+        current: sourceState,
+      );
+    }
     final sourceSession = await sessions.getSession(sessionId);
     if (sourceSession == null) {
       throw const ConversationMutationException(404, 'SESSION_NOT_FOUND', 'Source conversation is unavailable');
@@ -1103,10 +1112,18 @@ final class ConversationService {
         }),
       );
 
-  Future<ConversationState> stop({required String sessionId, required String turnId}) =>
+  Future<ConversationState> stop({required String sessionId, required String turnId, int? expectedRevision}) =>
       _ensureRecovered(sessionId).then(
         (_) => mutations.run(sessionId, () async {
           var state = await sessions.getConversationState(sessionId);
+          if (expectedRevision != null && state.revision != expectedRevision) {
+            throw ConversationMutationException(
+              409,
+              'STALE_CONVERSATION_REVISION',
+              'Conversation changed since this action was shown',
+              current: state,
+            );
+          }
           final current = _submissionForTurn(state, turnId);
           if (current == null) {
             final outcome = turns.recentOutcome(sessionId, turnId);

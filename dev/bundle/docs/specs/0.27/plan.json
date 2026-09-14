@@ -301,10 +301,28 @@
         "S05",
         "S06"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s07-conversation-search-and-commands.md",
-      "completedTaskIds": [],
-      "owner": "codex/0.27-s07-search",
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13"
+      ],
+      "verified": {
+        "at": "2026-09-14T21:41Z",
+        "summary": "Isolated combined S07/S08 focused tests +80 and SQLite scoped query/count +1 passed; deterministic fixture stale expectations were exposed by retained main +14 -1, repaired, and reran +1; main top-level analysis found no issues and format checked 2083 files with 0 changed; Bash/JS/diff syntax and 2 wireframes passed. PostgreSQL, production integration, browser/visual, Docker, provider, crash, build, and broad fast/full execution remain UNEXECUTED and deferred to the final plan gate."
+      },
+      "owner": null,
       "scope": "The owner finds exact past exchanges, including unloaded history, and invokes authorized session/skill actions through one catalog shared by slash and global palettes. Cover E7/E9, search portions of Q7 and command/provider portions of Q5/Q9. Include the ADR-054 amendment before the catalog, inventory descriptions/cache and truthful provider passthrough. Own the retained knowledge-hub layer-filter canonical-tabs correction (D13) in the existing navigation surface.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27/prd.md#fr8-conversation-discovery-and-human-commands",

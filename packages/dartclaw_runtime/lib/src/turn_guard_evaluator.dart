@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 import 'behavior/self_improvement_service.dart';
+import 'memory/daily_log_record.dart';
 import 'session/session_reset_service.dart';
 import 'task/tool_call_summary.dart';
 import 'turn_governance_enforcer.dart';
@@ -187,10 +188,11 @@ class TurnToolHookCallbackHandler {
     if (!_pendingToolCalls.containsKey(event.toolId) && _pendingToolCalls.length >= maxRetainedToolEvents) {
       _pendingToolCalls.remove(_pendingToolCalls.keys.last);
     }
+    final arguments = DailyLogToolSerializer(_redactor ?? MessageRedactor()).serializeInput(event.input);
     _pendingToolCalls[event.toolId] = (
       name: event.toolName,
       context: summarizeToolInput(event.toolName, event.input),
-      arguments: _historyText(jsonEncode(event.input)),
+      arguments: arguments.truncated ? '${arguments.summary}\n[Display payload truncated]' : arguments.summary,
       startedAt: DateTime.now(),
     );
     _toolCallCount += 1;

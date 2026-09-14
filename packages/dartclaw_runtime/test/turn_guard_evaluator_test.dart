@@ -32,7 +32,7 @@ void main() {
         isError: false,
         output: jsonEncode({
           'results': [
-            for (final locator in locators) {'locator': locator, 'snippet': 'never retained'},
+            for (final locator in locators) {'locator': locator, 'snippet': 'returned excerpt'},
           ],
         }),
       ),
@@ -41,7 +41,7 @@ void main() {
     expect(record.sourceLocators, [' first ', 'first', for (var i = 0; i < 48; i++) 'source-$i']);
     expect(record.success, isTrue);
     expect(record.name, 'memory_search');
-    expect(record.toJson().toString(), isNot(contains('never retained')));
+    expect(record.result, contains('returned excerpt'));
     expect(() => record.sourceLocators.add('invented'), throwsUnsupportedError);
     expect(handler.pendingToolCallCount, 1);
     expect(handler.toolCallCount, 2);

@@ -381,3 +381,8 @@ wire   | ../../wireframes/guard-block-chat.html:183                             
   two decisions against the exact card, verifies one adapter response, drives edit/fork with retained attachment and
   reference input, and reloads those terminal records after restart. Its screenshots and visual comparisons remain
   unexecuted for the integrated release gate.
+- A later focused owner check reproduced a display-input regression on the integrated tree: tool history encoded and
+  redacted 4,267,542 code units before truncation, violating the existing 262,144 bound. The display consumer now reuses
+  the existing streaming daily-log serializer moved to its shared record library. Exact provenance remains unchanged;
+  the older test's whole-record no-excerpt assertion was updated for S04's explicit redacted display-result contract.
+  Daily-log, hook, and history checks passed 30 tests on both isolated and integrated trees; analysis and formatting passed.

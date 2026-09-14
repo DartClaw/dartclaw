@@ -106,6 +106,32 @@ void main() {
       role: 'assistant',
       content: 'retained transcript',
     );
+    final queuedAt = DateTime.utc(2026, 9, 14);
+    await messages.insertMessageWithIdentity(
+      sessionId: session.id,
+      messageId: '33333333-3333-4333-8333-333333333333',
+      role: 'user',
+      content: 'queued transcript must remain hidden',
+      createdAt: queuedAt,
+      notifyObserver: false,
+    );
+    await sessions.updateConversationState(
+      session.id,
+      ConversationState().put(
+        ConversationSubmissionClaim(
+          submissionId: 'queued-submission',
+          revisionId: 'queued-revision',
+          messageId: '33333333-3333-4333-8333-333333333333',
+          queueId: 'queued-work',
+          payloadDigest: 'sha256:queued',
+          message: 'queued transcript must remain hidden',
+          commitState: SubmissionCommitState.committed,
+          workState: ConversationWorkState.queued,
+          createdAt: queuedAt,
+          updatedAt: queuedAt,
+        ),
+      ),
+    );
     await indexer.idle;
     vectorSynchronizations.clear();
 
@@ -120,6 +146,7 @@ void main() {
       vectorSynchronizations.single,
       _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: [message.id]),
     );
+    expect(await index.search('queued transcript', userId: 'owner'), isEmpty);
 
     vectorSynchronizations.clear();
     await sessions.deleteSession(session.id);

@@ -123,9 +123,25 @@
       "id": "S03",
       "name": "Reliable conversation loop",
       "dependsOn": [],
-      "status": "spec-ready",
+      "status": "done",
       "fis": "s03-reliable-conversation-loop.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11"
+      ],
+      "verified": {
+        "at": "2026-09-14T15:43Z",
+        "summary": "Focused: conversation contract +9, storage +22/+53, provider +4, route +4, event +1, search +2/+1, UI static +1/+1/+1; analyze No issues found; format 2009 files 0 changed. Browser/visual, hard-crash integration, build, Docker, broad fast/full/integration proofs deferred unexecuted to final plan gate."
+      },
       "owner": null,
       "scope": "An ordinary conversation preserves drafts and attachments, acknowledges one submission once, exposes live authoritative work state to initiating and passive viewers, and provides durable queue/edit/remove/release plus truthful steer/stop. Cover E1/E2 and Q1/Q4/Q5 plus live-delivery Q6. Establish the deterministic fixture and timing probes with this slice. Own the combined admission, attachment transfer, restart reconciliation and browser writing lifecycle.",
       "sourceRefs": [

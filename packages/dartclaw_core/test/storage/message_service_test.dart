@@ -77,6 +77,60 @@ void main() {
     });
   });
 
+  group('insertMessageWithIdentity', () {
+    test('reuses matching durable identity and repairs a torn final line', () async {
+      final session = await sessions.createSession();
+      const messageId = '11111111-1111-4111-8111-111111111111';
+      final createdAt = DateTime.utc(2026, 9, 14);
+      final first = await messages.insertMessageWithIdentity(
+        sessionId: session.id,
+        messageId: messageId,
+        role: 'user',
+        content: 'accepted once',
+        createdAt: createdAt,
+      );
+      final file = File('${tempDir.path}/${session.id}/messages.ndjson');
+      await file.writeAsString('{"id":"torn"', mode: FileMode.append);
+
+      final recovered = await messages.insertMessageWithIdentity(
+        sessionId: session.id,
+        messageId: messageId,
+        role: 'user',
+        content: 'accepted once',
+        createdAt: createdAt,
+      );
+
+      expect(recovered.id, first.id);
+      expect(await messages.getMessages(session.id), hasLength(1));
+      expect(await file.readAsString(), endsWith('\n'));
+      expect(await file.readAsString(), isNot(contains('torn')));
+    });
+
+    test('rejects a stable identity reused with different content', () async {
+      final session = await sessions.createSession();
+      const messageId = '22222222-2222-4222-8222-222222222222';
+      final createdAt = DateTime.utc(2026, 9, 14);
+      await messages.insertMessageWithIdentity(
+        sessionId: session.id,
+        messageId: messageId,
+        role: 'user',
+        content: 'first',
+        createdAt: createdAt,
+      );
+
+      expect(
+        () => messages.insertMessageWithIdentity(
+          sessionId: session.id,
+          messageId: messageId,
+          role: 'user',
+          content: 'changed',
+          createdAt: createdAt,
+        ),
+        throwsA(isA<MessageIdentityConflict>()),
+      );
+    });
+  });
+
   group('getMessages', () {
     test('returns empty list for session with no messages', () async {
       final session = await sessions.createSession();

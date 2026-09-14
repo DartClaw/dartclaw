@@ -66,6 +66,60 @@ void main() {
     });
   });
 
+  group('conversation state', () {
+    test('survives ordinary session metadata updates', () async {
+      final session = await sessions.createSession();
+      final now = DateTime.utc(2026, 9, 14);
+      final state = ConversationState().put(
+        ConversationSubmissionClaim(
+          submissionId: 'submission-1',
+          revisionId: 'revision-1',
+          messageId: '11111111-1111-4111-8111-111111111111',
+          attemptId: 'attempt-1',
+          payloadDigest: 'sha256:payload',
+          message: 'hello',
+          commitState: SubmissionCommitState.committed,
+          workState: ConversationWorkState.running,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await sessions.updateConversationState(session.id, state);
+      await sessions.updateTitle(session.id, 'Renamed');
+
+      final restored = await sessions.getConversationState(session.id);
+      expect(restored.revision, 1);
+      expect(restored.findSubmission('submission-1')?.message, 'hello');
+    });
+
+    test('serializes a claim update with an ordinary metadata update', () async {
+      final session = await sessions.createSession();
+      final now = DateTime.utc(2026, 9, 14);
+      final state = ConversationState().put(
+        ConversationSubmissionClaim(
+          submissionId: 'submission-race',
+          revisionId: 'revision-race',
+          messageId: '22222222-2222-4222-8222-222222222222',
+          attemptId: 'attempt-race',
+          payloadDigest: 'sha256:race',
+          message: 'kept',
+          commitState: SubmissionCommitState.committed,
+          workState: ConversationWorkState.running,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await Future.wait([
+        sessions.updateConversationState(session.id, state),
+        sessions.updateTitle(session.id, 'Also kept'),
+      ]);
+
+      expect((await sessions.getSession(session.id))?.title, 'Also kept');
+      expect((await sessions.getConversationState(session.id)).findSubmission('submission-race')?.message, 'kept');
+    });
+  });
+
   group('listSessions', () {
     test('returns empty list when no sessions', () async {
       final list = await sessions.listSessions();

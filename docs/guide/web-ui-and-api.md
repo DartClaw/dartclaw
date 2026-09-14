@@ -36,7 +36,8 @@ The interface has three main areas:
 - **Session cost**: Available only when every recorded turn has provider-reported cost. Missing, partial, and older records without this evidence show cost as unavailable; an explicitly reported zero remains zero. Token counts remain available independently.
 
 **Chat**
-- **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. During streaming the button changes to stop.
+- **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. Drafts and selected file bytes are saved in this browser and restored after reload. A persistent warning with retry, copy, and download actions replaces the saved status if browser storage fails.
+- **Active turns**: Drafting remains available while a turn runs. **Queue** accepts the draft in order, **Steer** stops the displayed turn and sends the follow-up after cancellation is confirmed, and **Stop** cancels only the displayed turn. Failed, cancelled, stopped, and restart-recovered work holds queued items for an explicit **Send next queued message** action.
 - **Streaming**: Responses appear in real-time as the agent generates them
 - **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
@@ -196,6 +197,8 @@ Content-Type: application/json
 
 Stores an attachment under the session and returns structured metadata for the composer chip. Size and payload limits are enforced before storage.
 
+The composer reads the server limit from `GET /api/sessions/:id/attachments/limits`. An unclaimed draft attachment can be removed with `DELETE /api/sessions/:id/attachments/:attachment_id`; a handle owned by accepted work is retained.
+
 #### Lookup context references
 
 ```
@@ -213,12 +216,26 @@ Content-Type: application/x-www-form-urlencoded
 message=Help+me+write+a+test&attachments=[]&references=[]
 ```
 
-Stores the user message, validates rich input metadata, composes the system prompt, and starts an agent turn. Attachments and references are persisted with the message and appended to the turn payload as a JSON-fenced `rich_input_context` block marked as untrusted data. Returns an HTML fragment (for HTMX) containing an `sse-connect` attribute that connects to the SSE stream via the HTMX SSE extension.
+The web composer also sends stable `submission_id` and `revision_id` fields. DartClaw durably claims that identity, validates rich input metadata, and accepts it once. If no turn is active, the committed submission starts a turn. Otherwise it enters the ordered queue. Attachments and references are persisted with the message and appended to the turn payload as a JSON-fenced `rich_input_context` block marked as untrusted data. An HTML request returns the matching active-turn or queued fragment. A request accepting JSON receives the stable message, attempt or queue identity and the authoritative conversation revision.
 
 **Error responses**:
 - `400` – empty message
 - `404` – session not found
-- `409` – another turn is already active on this session
+- `409` – the same submission identity names different content or its durable state cannot be reconciled safely
+
+#### Conversation and queue state
+
+```
+GET /api/sessions/:id/conversation-state
+PATCH /api/sessions/:id/queue/:queue_id
+DELETE /api/sessions/:id/queue/:queue_id
+POST /api/sessions/:id/queue/release
+POST /api/sessions/:id/steer
+```
+
+The snapshot is the authority for submission, attempt, and queue state. Each persisted mutation advances its `revision`; clients include that revision when editing, removing, or releasing a queue item. A stale mutation returns the current snapshot without changing accepted work. Queue editing preserves its accepted attachment handles. Release sends only the oldest held item when no active or uncertain dispatch blocks it. Steer performs confirmed stop followed by ordinary admission.
+
+Its `activity` projection reads the latest retained message identity and current turn status from the existing message and turn authorities. Channel and cron sessions set `ordinary_controls` to false: their existing admission and Stop behavior remains available, while browser Queue and Steer actions are not offered.
 
 #### Turn status
 
@@ -678,7 +695,7 @@ enabled. Requires operator/admin access; without it the request is refused with 
 GET /api/events
 ```
 
-Global SSE stream for system-level events (e.g., `server_restart`). Separate from per-session chat SSE.
+Global SSE stream for system-level events (e.g., `server_restart`). Separate from per-session chat SSE. A `conversation_changed` event carries `session_id` and `revision`, plus retained turn identity/state when a turn transition caused the invalidation. Clients fetch the authoritative conversation snapshot rather than treating the event as state.
 
 #### Task events stream
 

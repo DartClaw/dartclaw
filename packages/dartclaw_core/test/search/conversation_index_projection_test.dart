@@ -60,6 +60,32 @@ void main() {
     await messages.insertMessage(sessionId: first.id, role: 'user', content: 'one');
     await messages.insertMessage(sessionId: first.id, role: 'assistant', content: 'two');
     await messages.insertMessage(sessionId: first.id, role: 'system', content: 'hidden');
+    final queuedAt = DateTime.utc(2026, 9, 14);
+    await messages.insertMessageWithIdentity(
+      sessionId: first.id,
+      messageId: '33333333-3333-4333-8333-333333333333',
+      role: 'user',
+      content: 'queued and not searchable',
+      createdAt: queuedAt,
+      notifyObserver: false,
+    );
+    await sessions.updateConversationState(
+      first.id,
+      ConversationState().put(
+        ConversationSubmissionClaim(
+          submissionId: 'queued-submission',
+          revisionId: 'queued-revision',
+          messageId: '33333333-3333-4333-8333-333333333333',
+          queueId: 'queued-work',
+          payloadDigest: 'sha256:queued',
+          message: 'queued and not searchable',
+          commitState: SubmissionCommitState.committed,
+          workState: ConversationWorkState.queued,
+          createdAt: queuedAt,
+          updatedAt: queuedAt,
+        ),
+      ),
+    );
     await messages.insertMessage(sessionId: second.id, role: 'assistant', content: 'three');
     await messages.insertMessage(sessionId: task.id, role: 'assistant', content: 'internal');
     File('${root.path}/${second.id}/messages.ndjson').writeAsStringSync('malformed\n', mode: FileMode.append);

@@ -108,4 +108,37 @@ void main() {
     final hasFrame = await iterator.moveNext().timeout(const Duration(milliseconds: 150), onTimeout: () => false);
     expect(hasFrame, isFalse);
   });
+
+  test('channel and cron turn activity invalidates the shared conversation snapshot', () async {
+    final client = broadcast.subscribe();
+    final iterator = StreamIterator(client.stream.transform(utf8.decoder));
+    addTearDown(iterator.cancel);
+
+    final bridge = EventBusSseBridge(bus: eventBus, broadcast: broadcast);
+    addTearDown(bridge.cancel);
+    final firstTimestamp = DateTime.parse('2026-09-14T10:00:00Z');
+
+    for (final (sessionId, timestamp) in [
+      ('channel-session', firstTimestamp),
+      ('cron-session', firstTimestamp.add(const Duration(seconds: 1))),
+    ]) {
+      eventBus.fire(
+        TurnWaitStateChangedEvent(
+          sessionId: sessionId,
+          turnId: '$sessionId-turn',
+          state: TurnWaitState.running,
+          waitReason: TurnWaitReason.unknown,
+          canCancel: true,
+          timestamp: timestamp,
+        ),
+      );
+      final frame = await _nextFrame(iterator);
+      expect(_decodeEventName(frame), 'conversation_changed');
+      final payload = _decodeDataPayload(frame);
+      expect(payload['session_id'], sessionId);
+      expect(payload['turn_id'], '$sessionId-turn');
+      expect(payload['work_state'], 'running');
+      expect(payload['revision'], timestamp.microsecondsSinceEpoch);
+    }
+  });
 }

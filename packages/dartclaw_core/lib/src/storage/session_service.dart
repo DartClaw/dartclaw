@@ -11,6 +11,7 @@ import '../concurrency/repo_lock.dart';
 import '../events/dartclaw_event.dart';
 import '../events/event_bus.dart';
 import 'atomic_write.dart';
+import 'conversation_state.dart';
 import 'uuid_validation.dart';
 
 /// Receives synchronous notifications around authoritative session mutations.
@@ -127,7 +128,7 @@ class SessionService {
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
     final session = Session.fromJson(json);
     final updated = session.copyWith(title: title, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
+    await _writeSessionMeta(metaFile, updated);
     return 1;
   }
 
@@ -139,7 +140,7 @@ class SessionService {
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
     final session = Session.fromJson(json);
     final updated = session.copyWith(updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
+    await _writeSessionMeta(metaFile, updated);
   }
 
   /// Creates or retrieves a session by deterministic external key.
@@ -276,7 +277,7 @@ class SessionService {
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
     final session = Session.fromJson(json);
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
+    await _writeSessionMeta(metaFile, updated);
     _notify(() => _observer?.onSessionTypeChanged(id, session.type, type));
     return updated;
   }
@@ -293,7 +294,7 @@ class SessionService {
     final session = Session.fromJson(json);
     if (session.executionMode == mode) return session;
     final updated = session.copyWith(executionMode: mode, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
+    await _writeSessionMeta(metaFile, updated);
     return updated;
   }
 
@@ -306,8 +307,34 @@ class SessionService {
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
     final session = Session.fromJson(json);
     final updated = session.copyWith(provider: provider, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
+    await _writeSessionMeta(metaFile, updated);
     return updated;
+  }
+
+  /// Reads the durable ordinary-conversation state stored with the session.
+  Future<ConversationState> getConversationState(String id) async {
+    if (!isValidUuid(id)) throw ArgumentError('Invalid session ID');
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) throw StateError('Session does not exist: $id');
+    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+    final value = json['conversationState'];
+    if (value == null) return ConversationState();
+    if (value is! Map) throw const FormatException('conversationState must be an object');
+    return ConversationState.fromJson(Map<String, dynamic>.from(value));
+  }
+
+  /// Atomically replaces the session's ordinary-conversation state.
+  Future<void> updateConversationState(String id, ConversationState state) async {
+    if (!isValidUuid(id)) throw ArgumentError('Invalid session ID');
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) throw StateError('Session does not exist: $id');
+    await _repoLock.acquire(metaFile.path, () async {
+      final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+      json['conversationState'] = state.toJson();
+      final session = Session.fromJson(json);
+      json.addAll(session.copyWith(updatedAt: DateTime.now()).toJson());
+      await atomicWriteJson(metaFile, json);
+    });
   }
 
   /// Types that cannot be deleted (system-managed sessions).
@@ -372,6 +399,19 @@ class SessionService {
   /// Writes updated session metadata to disk.
   Future<void> _updateSession(Session session) async {
     final metaFile = File(p.join(baseDir, session.id, 'meta.json'));
-    await atomicWriteJson(metaFile, session.toJson());
+    await _writeSessionMeta(metaFile, session);
+  }
+
+  Future<void> _writeSessionMeta(File metaFile, Session session) async {
+    await _repoLock.acquire(metaFile.path, () async {
+      final existing = metaFile.existsSync()
+          ? jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>
+          : <String, dynamic>{};
+      final next = session.toJson();
+      if (existing['conversationState'] case final conversationState?) {
+        next['conversationState'] = conversationState;
+      }
+      await atomicWriteJson(metaFile, next);
+    });
   }
 }

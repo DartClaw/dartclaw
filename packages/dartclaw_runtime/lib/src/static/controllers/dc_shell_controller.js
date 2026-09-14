@@ -39,8 +39,10 @@ export default class DcShellController extends Stimulus.Controller {
     this.handleHtmxConfirm = this.handleHtmxConfirm.bind(this);
     this.handleHtmxResponseError = this.handleHtmxResponseError.bind(this);
     this.handleHtmxError = this.handleHtmxError.bind(this);
+    this.handleAuthorizationRevoked = this.handleAuthorizationRevoked.bind(this);
 
     document.body.addEventListener('dartclaw:server-event', this.handleServerEvent);
+    document.body.addEventListener('dartclaw:authorization-revoked', this.handleAuthorizationRevoked);
     document.body.addEventListener('htmx:response:error', this.handleHtmxResponseError);
     document.body.addEventListener('htmx:error', this.handleHtmxError);
     document.addEventListener('click', this.handleDocumentClick);
@@ -69,6 +71,7 @@ export default class DcShellController extends Stimulus.Controller {
 
   disconnect() {
     document.body.removeEventListener('dartclaw:server-event', this.handleServerEvent);
+    document.body.removeEventListener('dartclaw:authorization-revoked', this.handleAuthorizationRevoked);
     document.body.removeEventListener('htmx:response:error', this.handleHtmxResponseError);
     document.body.removeEventListener('htmx:error', this.handleHtmxError);
     document.removeEventListener('click', this.handleDocumentClick);
@@ -95,6 +98,14 @@ export default class DcShellController extends Stimulus.Controller {
     if (detail.type === 'restart-required') {
       this.showRestartBanner(detail.payload || {});
     }
+  }
+
+  handleAuthorizationRevoked() {
+    if (this.globalEventSource) {
+      this.globalEventSource.close();
+      this.globalEventSource = null;
+    }
+    this.setConnectionState('lost');
   }
 
   handleDocumentClick(event) {
@@ -636,6 +647,11 @@ export default class DcShellController extends Stimulus.Controller {
     this.globalEventSource = new EventSource(url);
     this.globalEventSource.addEventListener('server_restart', () => this.showRestartOverlay());
     this.globalEventSource.addEventListener('context_warning', (event) => this.showContextWarning(event));
+    this.globalEventSource.addEventListener('conversation_changed', (event) => {
+      try {
+        document.body.dispatchEvent(new CustomEvent('dartclaw:conversation-changed', { detail: JSON.parse(event.data) }));
+      } catch (_) {}
+    });
     this.globalEventSource.onopen = () => this.setConnectionState('live');
     this.globalEventSource.onerror = () => {
       if (document.getElementById('restart-overlay')) {

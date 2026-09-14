@@ -1,0 +1,264 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+CASE=""
+COMPARE_WIREFRAMES=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --case) CASE="${2:-}"; shift 2 ;;
+    --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
+    --help|-h)
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11 [--compare-wireframes]"
+      exit 0
+      ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+case "${CASE}" in
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11) ;;
+  *) echo "--case must name fixture-self-test, q4-draft-send, q6-live-delivery, or q1-e11" >&2; exit 2 ;;
+esac
+
+EVIDENCE_ROOT="${DARTCLAW_CONVERSATION_EVIDENCE_DIR:-${REPO_ROOT}/.agent_temp/testing/conversation-loop/${CASE}}"
+mkdir -p "${EVIDENCE_ROOT}"
+
+if [ "${CASE}" = "fixture-self-test" ] || [ "${CASE}" = "q4-draft-send" ]; then
+  cd "${REPO_ROOT}"
+  if ! dart test --reporter=failures-only --run-skipped -t integration \
+    packages/dartclaw_runtime/test/integration/conversation_submission_crash_recovery_test.dart \
+    >"${EVIDENCE_ROOT}/crash-fixture.log" 2>&1; then
+    cat "${EVIDENCE_ROOT}/crash-fixture.log" >&2
+    exit 1
+  fi
+fi
+
+DATA_DIR="$(mktemp -d "${EVIDENCE_ROOT}/runtime-data-XXXXXX")"
+PORT="${DARTCLAW_CONVERSATION_PORT:-$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')}"
+FIXTURE="${REPO_ROOT}/packages/dartclaw_runtime/test/integration/_fixtures/conversation_loop_browser_process.dart"
+READY="${DATA_DIR}/conversation-browser-ready.json"
+SERVER_PID=""
+
+close_all() {
+  agent-browser --session conversation-origin close >/dev/null 2>&1 || true
+  agent-browser --session conversation-passive close >/dev/null 2>&1 || true
+  agent-browser --session conversation-draft close >/dev/null 2>&1 || true
+  agent-browser --session conversation-quota close >/dev/null 2>&1 || true
+  agent-browser --session conversation-wire close >/dev/null 2>&1 || true
+  if [ -n "${SERVER_PID}" ]; then
+    kill "${SERVER_PID}" >/dev/null 2>&1 || true
+    wait "${SERVER_PID}" >/dev/null 2>&1 || true
+  fi
+}
+trap close_all EXIT
+
+start_server() {
+  dart run "${FIXTURE}" "${DATA_DIR}" "${PORT}" >>"${EVIDENCE_ROOT}/server.log" 2>&1 &
+  SERVER_PID=$!
+  for _ in $(seq 1 600); do
+    if [ -s "${READY}" ]; then return; fi
+    if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+      cat "${EVIDENCE_ROOT}/server.log" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  echo "conversation browser fixture did not become ready" >&2
+  exit 1
+}
+
+restart_server() {
+  kill "${SERVER_PID}"
+  wait "${SERVER_PID}" || true
+  mv "${READY}" "${READY}.before-restart"
+  start_server
+}
+
+start_server
+BASE_URL="http://127.0.0.1:${PORT}"
+curl -fsS -X POST -H 'content-type: application/json' -d '{}' "${BASE_URL}/api/sessions" >"${EVIDENCE_ROOT}/session.json"
+SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${EVIDENCE_ROOT}/session.json")"
+CHANNEL_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["channelSessionId"])' "${READY}")"
+CRON_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["cronSessionId"])' "${READY}")"
+SESSION_URL="${BASE_URL}/sessions/${SESSION_ID}"
+
+ab() {
+  local session="$1"; shift
+  agent-browser --session "${session}" "$@"
+}
+
+assert_eval() {
+  local session="$1" script="$2"
+  ab "${session}" eval "${script}" >>"${EVIDENCE_ROOT}/browser-eval.log"
+}
+
+run_q4() {
+  printf 'attachment bytes retained in IndexedDB\n' >"${EVIDENCE_ROOT}/draft-attachment.txt"
+  ab conversation-draft open "${SESSION_URL}" >"${EVIDENCE_ROOT}/draft-open.log"
+  ab conversation-draft wait '#message-input'
+  assert_eval conversation-draft "(async () => { const limits=await fetch('/api/sessions/${SESSION_ID}/attachments/limits').then(r=>r.json()); if(!Number.isInteger(limits.max_attachment_bytes)) throw new Error('server attachment limit missing'); return limits })()"
+  assert_eval conversation-draft "(async () => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const started=performance.now(); while(!c.draftDb && performance.now()-started<2000) await new Promise(r=>setTimeout(r,20)); const provisional={key:c.provisionalDraftKey,submissionId:'provisional-submission',revisionId:'provisional-revision',text:'Provisional transfer proof',references:[],attachments:[{id:'local-file',filename:'provisional.txt',mediaType:'text/plain',size:5,state:'local',file:new File(['bytes'],'provisional.txt',{type:'text/plain'})}],updatedAt:Date.now()}; await c.draftRequest('readwrite',s=>s.put(provisional)); await c.draftRequest('readwrite',s=>s.delete(c.draftKey)); return true })()"
+  ab conversation-draft reload
+  ab conversation-draft wait '#message-input'
+  ab conversation-draft wait 300
+  assert_eval conversation-draft "(async () => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const started=performance.now(); while(!c.attachments.some(a=>a.filename==='provisional.txt' && a.state==='ready' && a.id!=='local-file') && performance.now()-started<2000) await new Promise(r=>setTimeout(r,20)); if(document.querySelector('#message-input').value!=='Provisional transfer proof' || !c.attachments.some(a=>a.filename==='provisional.txt' && a.state==='ready' && a.id!=='local-file')) throw new Error('provisional draft did not transfer and upload'); return true })()"
+  assert_eval conversation-draft "(async () => { const i=document.querySelector('#message-input'); const t=performance.now(); i.value='Draft line one\\nDraft line two'; i.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'o'})); await new Promise(requestAnimationFrame); const ms=performance.now()-t; if(ms>=100) throw new Error('input feedback '+ms); return {inputFeedbackMs:ms} })()"
+  ab conversation-draft fill '#message-input' $'Draft line one\nDraft line two'
+  ab conversation-draft upload '#composer-files' "${EVIDENCE_ROOT}/draft-attachment.txt"
+  ab conversation-draft wait 500
+  assert_eval conversation-draft "(() => { const s=document.querySelector('[data-dc-chat-target=saveStatus]').textContent; if(!s.includes('Saved on this device')) throw new Error(s); if(!document.body.textContent.includes('draft-attachment.txt')) throw new Error('attachment preview missing'); return true })()"
+  ab conversation-draft screenshot "${EVIDENCE_ROOT}/draft-saved.png"
+  assert_eval conversation-draft "(async () => { const target=document.querySelector('.input-area'); const drop=new DataTransfer(); drop.items.add(new File(['drop bytes'],'dropped.txt',{type:'text/plain'})); target.dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:drop})); const paste=new DataTransfer(); paste.items.add(new File(['paste bytes'],'pasted.txt',{type:'text/plain'})); target.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,clipboardData:paste})); const started=performance.now(); while((!document.body.textContent.includes('dropped.txt') || !document.body.textContent.includes('pasted.txt')) && performance.now()-started<2000) await new Promise(r=>setTimeout(r,20)); if(!document.body.textContent.includes('dropped.txt') || !document.body.textContent.includes('pasted.txt')) throw new Error('drop/paste upload missing'); return true })()"
+  assert_eval conversation-draft "(async () => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const original=window.fetch; window.fetch=(url,options) => String(url).includes('/attachments') ? Promise.resolve(new Response('{\"error\":{\"message\":\"fixture failure\"}}',{status:500,headers:{'content-type':'application/json'}})) : original(url,options); const input=new DataTransfer(); input.items.add(new File(['retry bytes'],'retry.txt',{type:'text/plain'})); document.querySelector('.input-area').dispatchEvent(new DragEvent('drop',{bubbles:true,dataTransfer:input})); const started=performance.now(); while(!c.attachments.some(a=>a.filename==='retry.txt' && a.state==='failed') && performance.now()-started<2000) await new Promise(r=>setTimeout(r,20)); window.fetch=original; const failed=c.attachments.find(a=>a.filename==='retry.txt' && a.state==='failed'); if(!failed) throw new Error('failed upload state missing'); const retry=document.querySelector('[data-attachment-id=\"'+failed.id+'\"][data-action=\"dc-chat#retryAttachment\"]'); if(!retry) throw new Error('failed upload had no retry'); retry.click(); const retryStarted=performance.now(); while(!c.attachments.some(a=>a.filename==='retry.txt' && a.state==='ready') && performance.now()-retryStarted<2000) await new Promise(r=>setTimeout(r,20)); if(!c.attachments.some(a=>a.filename==='retry.txt' && a.state==='ready')) throw new Error('retry never reached ready'); return true })()"
+  assert_eval conversation-draft "(() => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); c.references.push({type:'session',id:'reference-proof',label:'Reference proof',state:'resolved'}); c.syncRichInputs(); const remove=document.querySelector('[data-reference-id=\"reference-proof\"]'); if(!remove || !document.body.textContent.includes('@Reference proof')) throw new Error('reference preview missing'); remove.click(); if(c.references.some(r=>r.id==='reference-proof')) throw new Error('reference removal failed'); return true })()"
+  assert_eval conversation-draft "(() => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const oversized=new File([new Uint8Array(c.maxAttachmentBytes+1)],'too-large.bin'); c.uploadAttachment(oversized); if(!document.body.textContent.includes('exceeds the server limit')) throw new Error('host limit was not enforced'); return true })()"
+  ab conversation-draft reload
+  ab conversation-draft wait '#message-input'
+  ab conversation-draft wait 300
+  assert_eval conversation-draft "(() => { if(document.querySelector('#message-input').value !== 'Draft line one\\nDraft line two') throw new Error('saved text did not restore'); if(!document.body.textContent.includes('draft-attachment.txt')) throw new Error('saved file did not restore'); return true })()"
+
+  ab conversation-draft set offline on
+  ab conversation-draft fill '#message-input' 'Offline edit that must not send'
+  ab conversation-draft wait 300
+  ab conversation-draft set offline off
+  ab conversation-draft wait 300
+  assert_eval conversation-draft "(() => { if(document.querySelectorAll('#messages .msg-user').length !== 0) throw new Error('reconnect auto-sent'); return true })()"
+
+  ab conversation-draft tab new --label second "${SESSION_URL}"
+  ab conversation-draft wait '#message-input'
+  ab conversation-draft wait 300
+  ab conversation-draft fill '#message-input' 'Second tab edit'
+  ab conversation-draft wait 300
+  ab conversation-draft tab t1
+  ab conversation-draft fill '#message-input' 'First tab conflicting edit'
+  ab conversation-draft wait 300
+  ab conversation-draft tab second
+  ab conversation-draft fill '#message-input' 'Second tab wins storage'
+  ab conversation-draft wait 300
+  ab conversation-draft tab t1
+  ab conversation-draft wait 300
+  assert_eval conversation-draft "(() => { if(!document.body.textContent.includes('Another tab saved a different revision')) throw new Error('conflict was overwritten'); return true })()"
+  ab conversation-draft screenshot "${EVIDENCE_ROOT}/draft-conflict.png"
+  assert_eval conversation-draft "(() => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); c.recoverConflictingDraft(); if(document.querySelector('#message-input').value!=='Second tab wins storage' || c.pendingConflict) throw new Error('conflicting draft did not recover'); return true })()"
+
+  ab conversation-draft reload
+  ab conversation-draft wait '#message-input'
+  ab conversation-draft tab second
+  ab conversation-draft reload
+  ab conversation-draft wait '#message-input'
+  ab conversation-draft tab t1
+  ab conversation-draft press Control+Enter
+  ab conversation-draft wait '#streaming-msg'
+  ab conversation-draft tab second
+  assert_eval conversation-draft "(() => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const attachment=c.attachments.find(a=>a.filename==='draft-attachment.txt'); if(!attachment) throw new Error('losing-tab attachment missing'); const remove=document.querySelector('[data-attachment-id=\"'+attachment.id+'\"][data-action=\"dc-chat#removeAttachment\"]'); if(!remove) throw new Error('losing-tab attachment remove missing'); remove.click(); if(c.attachments.some(a=>a.id===attachment.id)) throw new Error('losing-tab attachment removal failed'); return true })()"
+  ab conversation-draft fill '#message-input' 'Newer losing-tab edit remains recoverable'
+  assert_eval conversation-draft "(async () => { const state=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); const accepted=state.submissions.find(i=>i.message==='Second tab wins storage'); if(!accepted) throw new Error('accepted revision missing'); const response=await fetch('/api/sessions/${SESSION_ID}/send',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({submission_id:accepted.submissionId,revision_id:accepted.revisionId,message:accepted.message,attachments:accepted.attachments,references:accepted.references})}); const retry=await response.json(); if(!response.ok || retry.replayed!==true || retry.message_id!==accepted.messageId || retry.attempt_id!==accepted.attemptId) throw new Error('same revision did not reuse stable result'); const current=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); if(current.submissions.filter(i=>i.submissionId===accepted.submissionId).length!==1) throw new Error('submission duplicated'); const messages=await fetch('/api/sessions/${SESSION_ID}/messages').then(r=>r.json()); if(messages.filter(i=>i.id===accepted.messageId).length!==1) throw new Error('message duplicated'); return {submissionId:accepted.submissionId,messageId:accepted.messageId,attemptId:accepted.attemptId} })()"
+  assert_eval conversation-draft "(() => { if(document.querySelector('#message-input').value!=='Newer losing-tab edit remains recoverable') throw new Error('newer edit was cleared'); if(document.body.textContent.includes('draft-attachment.txt')) throw new Error('losing-tab attachment removal was overwritten'); return true })()"
+  curl -fsS -X POST "${BASE_URL}/api/sessions/${SESSION_ID}/turn/stop" >"${EVIDENCE_ROOT}/duplicate-stop.json"
+
+  ab conversation-quota addinitscript "Object.defineProperty(globalThis,'indexedDB',{configurable:true,value:{open(){throw new DOMException('quota','QuotaExceededError')}}})"
+  ab conversation-quota open "${SESSION_URL}"
+  ab conversation-quota wait '#message-input'
+  ab conversation-quota fill '#message-input' 'Unsaved quota draft'
+  ab conversation-quota wait 300
+  assert_eval conversation-quota "(() => { const text=document.body.textContent; if(!text.includes('will not recover after reload') || !text.includes('Copy draft') || !text.includes('Download draft')) throw new Error('quota recovery incomplete'); return true })()"
+  ab conversation-quota screenshot "${EVIDENCE_ROOT}/draft-quota-failure.png"
+}
+
+run_q1() {
+  ab conversation-origin open "${SESSION_URL}"
+  ab conversation-origin wait '#message-input'
+  assert_eval conversation-origin "(async () => { const i=document.querySelector('#message-input'); const samples=[]; for(let n=0;n<20;n++){ const t=performance.now(); i.value='latency probe '+n; i.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:'e'})); await new Promise(requestAnimationFrame); samples.push(performance.now()-t); } samples.sort((a,b)=>a-b); const p95=samples[Math.ceil(samples.length*.95)-1]; if(p95>=100) throw new Error('input feedback p95 '+p95); return {inputFeedbackSamplesMs:samples,p95} })()"
+  assert_eval conversation-origin "(async () => { const form=document.querySelector('#chat-form'); const t=performance.now(); form.requestSubmit(); while(!document.querySelector('#streaming-msg,.msg-queued')) { if(performance.now()-t>500) throw new Error('accepted state exceeded 500ms'); await new Promise(requestAnimationFrame); } return {acceptedStateMs:performance.now()-t} })()"
+  ab conversation-origin fill '#message-input' 'Control shortcut queue proof'
+  ab conversation-origin press Control+Enter
+  ab conversation-origin wait --text 'Control shortcut queue proof'
+  ab conversation-origin fill '#message-input' 'Command shortcut queue proof'
+  ab conversation-origin press Meta+Enter
+  ab conversation-origin wait --text 'Command shortcut queue proof'
+  for width in 375 390 768 1440; do
+    for theme in dark light; do
+      ab conversation-origin set viewport "${width}" 900
+      ab conversation-origin set media "${theme}" reduced-motion
+      assert_eval conversation-origin "(() => { for(const b of document.querySelectorAll('#send-btn,[data-dc-chat-target=stopButton],[data-dc-chat-target=steerButton]')) { const r=b.getBoundingClientRect(); if(r.width<44 || r.height<44) throw new Error('undersized action '+r.width+'x'+r.height); } const i=document.querySelector('#message-input'); if(parseFloat(getComputedStyle(i).maxHeight)>innerHeight*.34) throw new Error('composer growth unbounded'); return true })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/composer-${width}-${theme}.png"
+    done
+  done
+  assert_eval conversation-origin "(async () => { const i=document.querySelector('#message-input'); i.focus(); const before=document.activeElement; document.body.dispatchEvent(new CustomEvent('dartclaw:conversation-changed',{detail:{session_id:'${SESSION_ID}',revision:9999}})); await new Promise(r=>setTimeout(r,100)); if(document.activeElement!==before) throw new Error('reconciliation stole composer focus'); if(document.querySelectorAll('[role=status][aria-live]').length!==1) throw new Error('live region is not bounded'); const selection=getComputedStyle(document.querySelector('#messages')).userSelect; if(selection==='none') throw new Error('streaming disabled selection'); return true })()"
+  assert_eval conversation-origin "(() => { const stop=document.querySelector('[data-dc-chat-target=\"stopButton\"]'); if(!stop || stop.hidden) throw new Error('keyboard stop control unavailable'); stop.focus(); if(document.activeElement!==stop) throw new Error('stop control could not receive focus'); return true })()"
+  ab conversation-origin press Enter
+  ab conversation-origin wait 200
+  assert_eval conversation-origin "(() => { if(!document.querySelector('[data-dc-chat-target=\"liveStatus\"]').textContent.includes('Stopping')) throw new Error('keyboard stop was not announced'); return true })()"
+  ab conversation-origin set viewport 390 900
+  ab conversation-origin set media light reduced-motion
+  assert_eval conversation-origin "(() => { document.documentElement.style.zoom='2'; if(!document.querySelector('#send-btn').checkVisibility()) throw new Error('send hidden at 200% zoom'); return true })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/composer-390-light-zoom200.png"
+  ab conversation-origin a11y --selector '.input-area' --json >"${EVIDENCE_ROOT}/composer-a11y.json"
+  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
+    agent-browser --session conversation-wire --allow-file-access open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/chat-composer.html"
+    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-composer.png"
+    ab conversation-origin diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-composer.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-composer-diff.png" >"${EVIDENCE_ROOT}/wireframe-comparison.txt"
+    agent-browser --session conversation-wire open "file://${REPO_ROOT}/dev/bundle/docs/wireframes/chat-conversation-cards.html"
+    agent-browser --session conversation-wire screenshot "${EVIDENCE_ROOT}/wireframe-conversation-cards.png"
+    ab conversation-origin diff screenshot --baseline "${EVIDENCE_ROOT}/wireframe-conversation-cards.png" --threshold 0.1 --output "${EVIDENCE_ROOT}/wireframe-conversation-cards-diff.png" >"${EVIDENCE_ROOT}/wireframe-cards-comparison.txt"
+  fi
+}
+
+run_q6() {
+  local origin_headers='{"x-conversation-viewer":"origin"}'
+  local passive_headers='{"x-conversation-viewer":"passive"}'
+  agent-browser --session conversation-origin --headers "${origin_headers}" open "${SESSION_URL}"
+  agent-browser --session conversation-passive --headers "${passive_headers}" open "${SESSION_URL}"
+  ab conversation-origin wait '#message-input'
+  ab conversation-passive wait '#message-input'
+  for external_id in "${CHANNEL_SESSION_ID}" "${CRON_SESSION_ID}"; do
+    ab conversation-passive open "${BASE_URL}/sessions/${external_id}"
+    ab conversation-passive wait '#message-input'
+    assert_eval conversation-passive "(async () => { const snapshot=await fetch('/api/sessions/${external_id}/conversation-state').then(r=>r.json()); if(snapshot.activity.ordinary_controls!==false || !snapshot.activity.message_id || !snapshot.activity.turn.turn_id || snapshot.activity.turn.can_cancel!==true) throw new Error('external activity projection incomplete'); const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); await c.reconcileConversationState(); if(document.querySelector('#send-btn').textContent==='Queue' || !document.querySelector('[data-dc-chat-target=\"steerButton\"]').hidden) throw new Error('external destination advertised ordinary controls'); const stop=document.querySelector('[data-dc-chat-target=\"stopButton\"]'); if(!stop || stop.hidden) throw new Error('external stop unavailable'); stop.click(); const started=performance.now(); let terminal; while(performance.now()-started<2000){ terminal=await fetch('/api/sessions/${external_id}/conversation-state').then(r=>r.json()); if(terminal.activity.turn.can_cancel===false) break; await new Promise(r=>setTimeout(r,20)); } if(terminal.activity.turn.can_cancel!==false) throw new Error('external cancellation did not settle'); return {before:snapshot.activity,after:terminal.activity} })()"
+  done
+  ab conversation-passive open "${SESSION_URL}"
+  ab conversation-passive wait '#message-input'
+  ab conversation-origin fill '#message-input' 'Keep the first turn active'
+  ab conversation-origin press Control+Enter
+  ab conversation-origin wait '#streaming-msg'
+  ab conversation-origin fill '#message-input' 'Queued from origin'
+  ab conversation-origin press Control+Enter
+  ab conversation-passive wait 500
+  assert_eval conversation-passive "(() => { if(!document.body.textContent.includes('Queued from origin')) throw new Error('passive viewer missed queue'); return true })()"
+
+  ab conversation-passive set offline on
+  ab conversation-origin fill '#message-input' 'Missed while passive is offline'
+  ab conversation-origin press Control+Enter
+  ab conversation-passive set offline off
+  ab conversation-passive wait 500
+  assert_eval conversation-passive "(() => { if(!document.body.textContent.includes('Missed while passive is offline')) throw new Error('reconnect did not reconcile'); document.body.dispatchEvent(new CustomEvent('dartclaw:conversation-changed',{detail:{session_id:'${SESSION_ID}',revision:999}})); document.body.dispatchEvent(new CustomEvent('dartclaw:conversation-changed',{detail:{session_id:'${SESSION_ID}',revision:999}})); return true })()"
+  ab conversation-passive wait 300
+  assert_eval conversation-passive "(() => { const ids=[...document.querySelectorAll('[data-queue-id]')].map(n=>n.dataset.queueId); if(new Set(ids).size!==ids.length) throw new Error('duplicate invalidation duplicated queue'); return true })()"
+
+  printf 'passive\n' >"${DATA_DIR}/revoked-viewers.txt"
+  ab conversation-origin fill '#message-input' 'Revocation invalidation'
+  ab conversation-origin press Control+Enter
+  ab conversation-passive wait 500
+  assert_eval conversation-passive "(() => { const shell=document.querySelector('.shell'); if(shell?.dataset.connection!=='lost') throw new Error('revoked stream retained'); if(!document.body.textContent.includes('Conversation access was revoked') && document.querySelector('#send-btn')?.disabled!==true) throw new Error('revoked snapshot stayed actionable'); return true })()"
+  ab conversation-passive screenshot "${EVIDENCE_ROOT}/passive-revoked.png"
+
+  restart_server
+  agent-browser --session conversation-origin --headers "${origin_headers}" open "${SESSION_URL}"
+  ab conversation-origin wait '#message-input'
+  ab conversation-origin wait 500
+  assert_eval conversation-origin "(() => { const text=document.body.textContent; if(!text.includes('Held') && !text.includes('uncertain')) throw new Error('restart state was not recoverable'); return true })()"
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/restart-reconciled.png"
+}
+
+case "${CASE}" in
+  fixture-self-test) run_q4; run_q6 ;;
+  q4-draft-send) run_q4 ;;
+  q1-e11) run_q1 ;;
+  q6-live-delivery) run_q6 ;;
+esac
+
+echo "Evidence: ${EVIDENCE_ROOT}"

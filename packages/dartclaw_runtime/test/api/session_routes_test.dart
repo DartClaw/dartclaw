@@ -100,6 +100,60 @@ void main() {
     });
   });
 
+  test('conversation snapshot projects channel and cron activity from retained authorities', () async {
+    for (final type in const [SessionType.channel, SessionType.cron]) {
+      final session = await sessions.createSession(
+        type: type,
+        provider: type == SessionType.cron ? 'claude' : null,
+        channelKey: type == SessionType.channel ? 'signal:owner' : null,
+      );
+      final message = await messages.insertMessage(sessionId: session.id, role: 'user', content: '${type.name} input');
+      final turnId = await turns.reserveTurn(
+        session.id,
+        isHumanInput: type == SessionType.channel,
+        promptScope: PromptScope.primary,
+        origin: (channel: type.name, contact: null, group: false),
+      );
+
+      final body = await api.expectJsonObject('GET', '/api/sessions/${session.id}/conversation-state');
+      final activity = body['activity'] as Map<String, dynamic>;
+      expect(activity['ordinary_controls'], isFalse, reason: type.name);
+      expect(activity['message_id'], message.id, reason: type.name);
+      expect(activity['message_cursor'], message.cursor, reason: type.name);
+      final turn = activity['turn'] as Map<String, dynamic>;
+      expect(turn['turn_id'], turnId, reason: type.name);
+      expect(turn['state'], anyOf('running', 'waiting'), reason: type.name);
+
+      turns.releaseTurn(session.id, turnId);
+    }
+  });
+
+  test('steer rejects unavailable and nonordinary capability without side effects', () async {
+    final ordinary = await sessions.createSession();
+    final unavailable = await api.expectJsonErrorCode(
+      'POST',
+      '/api/sessions/${ordinary.id}/steer',
+      body: jsonEncode({'submission_id': 'submission', 'revision_id': 'revision', 'message': 'must stay unsent'}),
+      headers: {'content-type': 'application/json'},
+      status: 409,
+    );
+    expect(unavailable, 'STEER_UNSUPPORTED');
+
+    final channel = await sessions.createSession(type: SessionType.channel, channelKey: 'signal:owner');
+    final nonordinary = await api.expectJsonErrorCode(
+      'POST',
+      '/api/sessions/${channel.id}/steer',
+      body: jsonEncode({'submission_id': 'submission', 'revision_id': 'revision', 'message': 'must stay unsent'}),
+      headers: {'content-type': 'application/json'},
+      status: 409,
+    );
+    expect(nonordinary, 'STEER_UNSUPPORTED');
+    expect((await sessions.getConversationState(ordinary.id)).revision, 0);
+    expect((await sessions.getConversationState(channel.id)).revision, 0);
+    expect(await messages.getMessages(ordinary.id), isEmpty);
+    expect(await messages.getMessages(channel.id), isEmpty);
+  });
+
   group('GET /api/sessions/<id>/commands', () {
     for (final type in const [SessionType.user, SessionType.archive, SessionType.task]) {
       test('is not registered for ${type.name} sessions', () async {
@@ -1110,6 +1164,88 @@ void main() {
 
       expect(res.statusCode, equals(200));
       expect(turns.isActive(session.id), isFalse);
+    });
+
+    test('POST /turn/stop preserves channel and cron admission while cancelling their active turns', () async {
+      for (final type in const [SessionType.channel, SessionType.cron]) {
+        final session = await sessions.createSession(
+          type: type,
+          provider: type == SessionType.cron ? 'claude' : null,
+          channelKey: type == SessionType.channel ? 'signal:owner' : null,
+        );
+        await turns.reserveTurn(
+          session.id,
+          isHumanInput: type == SessionType.channel,
+          origin: (channel: type.name, contact: null, group: false),
+        );
+
+        final response = await handler(
+          Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/turn/stop')),
+        );
+
+        expect(response.statusCode, 200, reason: type.name);
+        expect(turns.isActive(session.id), isFalse, reason: type.name);
+        expect((await sessions.getConversationState(session.id)).submissions, isEmpty, reason: type.name);
+      }
+    });
+
+    test('accepted attachment cannot be deleted while its submission claim is committing', () async {
+      final session = await sessions.createSession();
+      final claimEntered = Completer<void>();
+      final releaseClaim = Completer<void>();
+      final raceHandler = localAdminMiddleware()(
+        sessionRoutes(
+          sessions,
+          messages,
+          turns,
+          worker,
+          conversationFailpoint: (boundary, _) async {
+            if (boundary != 'preparing_claim') return;
+            claimEntered.complete();
+            await releaseClaim.future;
+          },
+        ).call,
+      );
+      final attachment = await uploadAttachment(session.id, target: raceHandler);
+      final send = raceHandler(
+        apiRequest(
+          'POST',
+          '/api/sessions/${session.id}/send',
+          jsonBody: {
+            'submission_id': 'attachment-race',
+            'revision_id': 'attachment-race-revision',
+            'message': 'Commit the attachment',
+            'attachments': [attachment],
+          },
+          headers: {'accept': 'application/json'},
+        ),
+      );
+      await claimEntered.future;
+      var deleteCompleted = false;
+      final delete =
+          Future<Response>.sync(
+            () => raceHandler(
+              Request(
+                'DELETE',
+                Uri.parse('http://localhost/api/sessions/${session.id}/attachments/${attachment['id']}'),
+              ),
+            ),
+          ).then((response) {
+            deleteCompleted = true;
+            return response;
+          });
+      await Future<void>.delayed(Duration.zero);
+      expect(deleteCompleted, isFalse);
+
+      releaseClaim.complete();
+      expect((await send).statusCode, 202);
+      final deleteResponse = await delete;
+      expect(deleteResponse.statusCode, 409);
+      expect(await errorCode(deleteResponse), 'ATTACHMENT_ACCEPTED');
+      final attachmentDirectory = p.join(tempDir.path, session.id, 'attachments');
+      expect(File(p.join(attachmentDirectory, '${attachment['id']}.data')).existsSync(), isTrue);
+      expect(File(p.join(attachmentDirectory, '${attachment['id']}.json')).existsSync(), isTrue);
+      expect((await sessions.getConversationState(session.id)).submissions, hasLength(1));
     });
 
     test('POST /turn/stop fails closed without admin context', () async {

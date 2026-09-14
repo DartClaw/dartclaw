@@ -18,6 +18,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Conversation drafts now survive reload with file bytes intact, remain editable while a turn runs, and can be queued,
+  stopped, or steered explicitly. Stable submission claims prevent duplicate dispatch across retries and restart, while
+  passive browser views reconcile ordered queue and recovery state from one durable session snapshot.
+
 - Named agents can now use an operator-configured workspace as their isolated execution home. The agent id pins the
   storage identity for the conversation, while project context can change the working directory without changing
   ownership. Behavior files and provider-native skills continue to come from that workspace during project work.

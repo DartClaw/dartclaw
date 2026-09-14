@@ -8,8 +8,9 @@
 - **Channel layer** — inbound message routing scaffolding plus shared standard-Markdown/native-chat conversion and Unicode-safe/native-markup chunking. `Channel` (interface; concrete impls in `dartclaw_*` channel packages), `ChannelManager` (per-channel ownership via `ownsJid`; `resolveRow` / `deriveSessionKey` carry an allowlist row's `agent` into the session key's agent component through the one `GroupConfigResolver`, which indexes DM rows beside group rows), `ChannelTaskBridge` (reserved command → binding lookup → rate limit → bound routing → fall-through policy), `SidecarProcessManager` (shared spawn/startup-health/teardown/crash-restart machinery for channel sidecar subprocesses; `GowaManager` and `SignalCliManager` extend it).
 - **Event bus** — `EventBus` (broadcast, fire-and-forget); `BridgeEvent` (sealed; protocol-stream signals from harnesses); `DartclawEvent` (sealed; app-semantics events surfaced to subscribers).
 - **File-backed services** — workspace-state primitives. `SessionService` pins optional `AgentWorkspace` ownership in
-  the existing filesystem `meta.json` and refuses changed, removed or newly added bindings on keyed reuse;
-  `MessageService` keeps the 1-based cursor over `messages.ndjson`; `KvService` writes atomic JSON via
+  the existing filesystem `meta.json`, keeps the conversation submission claim there, and refuses changed, removed or
+  newly added workspace bindings on keyed reuse; `MessageService` keeps the 1-based cursor over `messages.ndjson` and
+  owns stable-identity append/replace plus torn-final-line repair; `KvService` writes atomic JSON via
   `atomicWriteJson`. `MemoryCorpusService` owns the authenticated member manifest, bounded path/record selectors,
   sparse compare-and-swap mutation, fingerprint reconciliation, crash recovery, and persisted operator status.
   Snapshot omission is decided from authenticated metadata before a whole document read; startup
@@ -100,6 +101,8 @@
 - `lib/src/channel/sidecar_process_manager.dart` — protected spawn/health/teardown/restart primitives for channel sidecars; each adopter keeps its own `start`/`stop`/`reset` sequence and implements the bodiless restart-scheduling seam.
 - `lib/src/channel/text_chunking.dart` — bounded Unicode-safe text and native chat-markup chunking.
 - `lib/src/storage/atomic_write.dart` — the only sanctioned JSON write path.
+- `lib/src/storage/conversation_state.dart` — durable ordinary-submission, attempt and queue vocabulary stored by
+  `SessionService`; its visibility rule prevents queued, held and removed inputs from entering turn history.
 - `lib/src/storage/sqlite_backend.dart` – `SqliteBackend.open` / `openInMemory` constructors; `sqlite_schema_gate.dart` prepares task/search stores before repository use.
 - `lib/src/storage/sqlite_task_repository.dart` and sibling repositories — relational persistence against `dartclaw.db`.
 - `lib/src/search/` — FTS5, QMD, wiki, and composed search implementations.

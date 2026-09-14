@@ -21,6 +21,7 @@ class InMemorySessionService implements SessionService {
   SessionServiceObserver? _observer;
   final Map<String, Session> _sessionsById = <String, Session>{};
   final Map<String, String> _sessionKeys = <String, String>{};
+  final Map<String, ConversationState> _conversationStates = <String, ConversationState>{};
   int _nextSessionNumber = 1;
 
   @override
@@ -64,6 +65,20 @@ class InMemorySessionService implements SessionService {
 
   @override
   Future<Session?> getSession(String id) async => _sessionsById[id];
+
+  @override
+  Future<ConversationState> getConversationState(String id) async {
+    if (!_sessionsById.containsKey(id)) throw StateError('Session not found: $id');
+    return _conversationStates[id] ?? ConversationState();
+  }
+
+  @override
+  Future<void> updateConversationState(String id, ConversationState state) async {
+    final session = _sessionsById[id];
+    if (session == null) throw StateError('Session not found: $id');
+    _conversationStates[id] = state;
+    _sessionsById[id] = session.copyWith(updatedAt: DateTime.now());
+  }
 
   @override
   Future<List<Session>> listSessions({
@@ -225,6 +240,7 @@ class InMemorySessionService implements SessionService {
 
     _notify(() => _observer?.onSessionDeleting(id));
     _sessionsById.remove(id);
+    _conversationStates.remove(id);
     _sessionKeys.removeWhere((_, sessionId) => sessionId == id);
     eventBus?.fire(
       SessionEndedEvent(

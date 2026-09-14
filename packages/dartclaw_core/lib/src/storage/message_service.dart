@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'atomic_write.dart';
 import 'uuid_validation.dart';
 import 'write_op.dart';
 
@@ -97,6 +98,110 @@ class MessageService {
       _notify(() => _observer?.onMessageAppended(message));
       return message;
     });
+  }
+
+  /// Appends a message under a caller-supplied stable identity, or returns the
+  /// matching durable row when recovery repeats the same write.
+  Future<Message> insertMessageWithIdentity({
+    required String sessionId,
+    required String messageId,
+    required String role,
+    required String content,
+    String? metadata,
+    required DateTime createdAt,
+    bool notifyObserver = true,
+  }) {
+    if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
+    if (!isValidUuid(messageId)) throw ArgumentError('Invalid message ID');
+    if (role.trim().isEmpty) throw ArgumentError('role must not be empty');
+
+    Message? inserted;
+    var appended = false;
+    final op = WriteOp(() async {
+      final sessionDir = Directory(p.join(baseDir, sessionId));
+      if (!sessionDir.existsSync()) throw StateError('Session directory does not exist: $sessionId');
+      final file = File(p.join(sessionDir.path, 'messages.ndjson'));
+      final lines = await _repairTornFinalLine(file);
+      for (var index = 0; index < lines.length; index++) {
+        final line = lines[index].trim();
+        if (line.isEmpty) continue;
+        final json = jsonDecode(line) as Map<String, dynamic>;
+        if (json['id'] != messageId) continue;
+        json['cursor'] = index + 1;
+        final existing = Message.fromJson(json);
+        if (existing.sessionId != sessionId ||
+            existing.role != role ||
+            existing.content != content ||
+            existing.metadata != metadata) {
+          throw MessageIdentityConflict(messageId);
+        }
+        inserted = existing;
+        _lineCounts[sessionId] = lines.where((item) => item.trim().isNotEmpty).length;
+        return;
+      }
+
+      final cursor = lines.where((item) => item.trim().isNotEmpty).length + 1;
+      final message = Message(
+        cursor: cursor,
+        id: messageId,
+        sessionId: sessionId,
+        role: role,
+        content: content,
+        metadata: metadata,
+        createdAt: createdAt,
+      );
+      await file.writeAsString('${jsonEncode(message.toJson())}\n', mode: FileMode.append);
+      _lineCounts[sessionId] = cursor;
+      inserted = message;
+      appended = true;
+    });
+    _queue.add(op);
+    return op.completer.future.then((_) {
+      final message = inserted!;
+      if (appended && notifyObserver) _notify(() => _observer?.onMessageAppended(message));
+      return message;
+    });
+  }
+
+  /// Publishes a previously inserted stable message to the configured observer.
+  void publishMessage(Message message) => _notify(() => _observer?.onMessageAppended(message));
+
+  /// Rewrites one queued user message while preserving its stable identity and cursor.
+  Future<Message> replaceMessageWithIdentity({
+    required String sessionId,
+    required String messageId,
+    required String content,
+    String? metadata,
+  }) {
+    Message? replaced;
+    final op = WriteOp(() async {
+      final file = _messagesFile(sessionId);
+      final lines = await _repairTornFinalLine(file);
+      for (var index = 0; index < lines.length; index++) {
+        final line = lines[index].trim();
+        if (line.isEmpty) continue;
+        final json = jsonDecode(line) as Map<String, dynamic>;
+        if (json['id'] != messageId) continue;
+        json['cursor'] = index + 1;
+        final existing = Message.fromJson(json);
+        final updated = Message(
+          cursor: existing.cursor,
+          id: existing.id,
+          sessionId: existing.sessionId,
+          role: existing.role,
+          content: content,
+          metadata: metadata,
+          createdAt: existing.createdAt,
+        );
+        lines[index] = jsonEncode(updated.toJson());
+        await atomicWriteBytes(file, utf8.encode('${lines.join('\n')}\n'));
+        replaced = updated;
+        return;
+      }
+      throw StateError('Message does not exist: $messageId');
+    });
+    _queue.add(op);
+    return op.completer.future.then((_) => replaced!);
   }
 
   Future<List<Message>> getMessages(String sessionId) => _readMessagesForward(sessionId, startLine: 1);
@@ -190,6 +295,28 @@ class MessageService {
     return lines.where((line) => line.trim().isNotEmpty).length;
   }
 
+  Future<List<String>> _repairTornFinalLine(File file) async {
+    if (!file.existsSync()) return [];
+    final source = await file.readAsString();
+    if (source.isEmpty) return [];
+    final lines = source.split('\n');
+    if (source.endsWith('\n')) {
+      lines.removeLast();
+      return lines;
+    }
+    final finalLine = lines.removeLast();
+    try {
+      jsonDecode(finalLine);
+      await file.writeAsString('$source\n');
+      lines.add(finalLine);
+    } on FormatException {
+      final repaired = lines.isEmpty ? '' : '${lines.join('\n')}\n';
+      await file.writeAsString(repaired);
+      _log.warning('Removed a torn final NDJSON line in ${file.path}');
+    }
+    return lines;
+  }
+
   File _messagesFile(String sessionId) {
     if (!isValidUuid(sessionId)) throw ArgumentError('Invalid session ID');
     return File(p.join(baseDir, sessionId, 'messages.ndjson'));
@@ -215,4 +342,14 @@ class MessageService {
     }
     return messages.reversed.toList();
   }
+}
+
+/// A stable message identity already names different durable content.
+final class MessageIdentityConflict implements Exception {
+  final String messageId;
+
+  const new(this.messageId);
+
+  @override
+  String toString() => 'MessageIdentityConflict: $messageId';
 }

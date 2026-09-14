@@ -79,6 +79,49 @@
 }
 .composer-hints > span { flex-shrink: 0; }
 
+.composer textarea {
+  max-height: min(12rem, 32vh);
+  overflow-y: auto;
+}
+
+.composer-save-status {
+  min-height: 1.25rem;
+  color: var(--fg-sub0);
+  font-size: var(--text-xs);
+}
+
+.composer-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.conversation-queue {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.conversation-queue[hidden],
+.composer-recovery-actions[hidden] { display: none; }
+
+.conversation-queue-item {
+  border: 1px solid var(--bg-surface1);
+  border-radius: var(--radius);
+  background: var(--bg-surface0);
+  padding: var(--sp-3);
+}
+
+.conversation-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.conversation-queue-actions .btn,
+.composer-meta .btn { min-height: 44px; }
+
 @media (max-width: 768px) {
   .composer-palette-option {
     display: grid;

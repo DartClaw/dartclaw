@@ -743,6 +743,7 @@ class DartclawServer {
       projectService: _tasks.projectService,
       sidebarData: sidebarBuilder.build,
       buildSidebarHtml: buildSidebarHtml,
+      sseBroadcast: _observability.sseBroadcast,
     );
     router.mount('/', sessionRouter.call);
   }

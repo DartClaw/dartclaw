@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Conversation Cards</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* =================================================================
+       PAGE-LOCAL GLUE ONLY — /sessions/<id> conversation view.
+       All cards and the composer use canonical component classes
+       (input-area + composer, tool-call, approval-card, chip, msg-thinking);
+       nothing here re-styles them. This block only groups the tool-call
+       stack between assistant prose.
+       ================================================================= */
+    .tool-call-group {
+      display: grid;
+      gap: var(--sp-1);
+      margin: var(--sp-3) 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session" style="width:calc(100% - var(--sp-6));margin:0 var(--sp-3) var(--sp-2);">New Session</button>
+      <div class="session-item active" data-icon="message-circle">
+        Release-prep 0.17
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle">
+        Refactor harness pool
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle">
+        Debug Signal channel
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <input class="session-title" type="text" name="session-title" value="Release-prep 0.17" aria-label="Session title">
+    <div class="topbar-actions">
+      <button class="btn btn-icon btn-ghost" data-icon="info" aria-label="Session info" title="Session info"></button>
+      <button class="btn btn-ghost" style="font-size:var(--text-sm);">Reset</button>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Chat area -->
+  <div class="chat-area">
+    <div class="messages">
+
+      <!-- User message -->
+      <div class="msg msg-user">
+        <div class="msg-role">You</div>
+        <div class="msg-content">
+          <p>Run the release-prep workflow for 0.17 — check the harness pool health, run the integration suite, then draft the tag.</p>
+        </div>
+      </div>
+
+      <!-- Assistant message with a stack of tool-call cards -->
+      <div class="msg msg-assistant">
+        <div class="msg-role">Assistant</div>
+        <div class="msg-content">
+          <p>Starting the release-prep workflow on the <code>claude-code</code> harness. I'll verify the pool, run tests, and prepare the tag — pausing for your approval before anything is pushed.</p>
+
+          <div class="tool-call-group well-flush">
+            <!-- --success collapsed -->
+            <details class="tool-call tool-call--success">
+              <summary class="tool-call-summary">
+                <span class="tool-call-name">Read</span>
+                <span class="tool-call-detail">packages/dartclaw_core/lib/src/harness/harness_pool.dart</span>
+                <span class="tool-call-time">0.3s</span>
+              </summary>
+              <div class="tool-call-body">
+                <div class="tool-call-io"><span class="tool-call-io-label">result</span>
+                  <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code>4 runners healthy · claude-code x2, codex x2</code></pre></div>
+                </div>
+              </div>
+            </details>
+
+            <!-- --success expanded showing args + result wells -->
+            <details class="tool-call tool-call--success" open>
+              <summary class="tool-call-summary">
+                <span class="tool-call-name">Read</span>
+                <span class="tool-call-detail">packages/dartclaw_workflow/lib/src/release_prep.dart</span>
+                <span class="tool-call-time">0.5s</span>
+              </summary>
+              <div class="tool-call-body">
+                <div class="tool-call-io"><span class="tool-call-io-label">args</span>
+                  <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-punctuation">{</span><span class="hljs-attr">"file_path"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"packages/dartclaw_workflow/lib/src/release_prep.dart"</span><span class="hljs-punctuation">}</span></code></pre></div>
+                </div>
+                <div class="tool-call-io"><span class="tool-call-io-label">result</span>
+                  <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-type">WorkflowDefinition</span> releasePrep = <span class="hljs-title class_">WorkflowDefinition</span>(
+  id: <span class="hljs-string">'release-prep'</span>,
+  steps: [checkPool, runTests, draftTag, pushRelease],
+);</code></pre></div>
+                </div>
+              </div>
+            </details>
+
+            <!-- --pending with scan sweep -->
+            <details class="tool-call tool-call--pending">
+              <summary class="tool-call-summary">
+                <span class="tool-call-name">Bash</span>
+                <span class="tool-call-detail">dart test -t integration</span>
+                <span class="tool-call-time">14s</span>
+                <div class="scan-bar"></div>
+              </summary>
+              <div class="tool-call-body">
+                <div class="tool-call-io"><span class="tool-call-io-label">args</span>
+                  <div class="well-deep"><pre style="margin:0;background:transparent;border:none;box-shadow:none;padding:0"><code class="hljs"><span class="hljs-punctuation">{</span><span class="hljs-attr">"command"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dart test -t integration"</span><span class="hljs-punctuation">}</span></code></pre></div>
+                </div>
+              </div>
+            </details>
+
+            <!-- --blocked with a guard verdict -->
+            <details class="tool-call tool-call--blocked">
+              <summary class="tool-call-summary">
+                <span class="icon icon-shield-alert" aria-hidden="true"></span>
+                <span class="tool-call-name">Bash</span>
+                <span class="tool-call-detail">blocked: git push --tags origin main &mdash; PushGuard</span>
+              </summary>
+              <div class="tool-call-body">
+                <div class="tool-call-io"><span class="tool-call-io-label">verdict</span>
+                  <div class="well-deep">Guard PushGuard held the command: release pushes require an approved plan gate. Awaiting operator approval before the tag is pushed.</div>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <p>Tests are still running; the push is held behind the approval gate below.</p>
+        </div>
+      </div>
+
+      <!-- Approval gate — waiting -->
+      <div class="card approval-card approval-card--waiting">
+        <div class="card-header">
+          <span class="status-dot status-dot--attention"></span>
+          Plan approval requested
+          <span class="approval-card-meta">workflow: release-prep &middot; step 4</span>
+        </div>
+        <div class="card-body">
+          <div class="well-content approval-card-plan">
+            <p style="margin-bottom:var(--sp-2)"><strong style="color:var(--fg)">Proposed plan</strong></p>
+            <ol style="padding-left:var(--sp-5)">
+              <li>Bump <code>dartclawVersion</code> to 0.17.0</li>
+              <li>Regenerate the CHANGELOG from merged PRs</li>
+              <li>Tag <code>v0.17.0</code> and push the release branch</li>
+            </ol>
+          </div>
+        </div>
+        <div class="card-footer approval-card-actions">
+          <button type="button" class="btn btn-primary">Approve</button>
+          <button type="button" class="btn btn-danger">Reject</button>
+          <button type="button" class="btn btn-ghost">Comment</button>
+        </div>
+      </div>
+
+      <!-- Thinking slot -->
+      <div class="msg msg-assistant msg-thinking">
+        <span class="msg-role">Agent</span>
+        <span class="claw-loader" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="msg-thinking-label">thinking</span>
+      </div>
+
+    </div>
+
+    <!-- Composer -->
+    <div class="input-area">
+      <div class="composer">
+        <div class="chip-row">
+          <span class="chip chip--file">
+            <span class="icon icon-paperclip" aria-hidden="true"></span>
+            <span class="chip-name">CHANGELOG.md</span> <span class="chip-meta">6.2 KB</span>
+            <button type="button" class="chip-remove" aria-label="Remove attachment"></button>
+          </span>
+          <button type="button" class="chip chip--ref">
+            <span class="icon icon-at-sign" aria-hidden="true"></span> <span class="chip-name">session:release-prep</span>
+          </button>
+        </div>
+        <label class="sr-only" for="msg">Message</label>
+        <textarea id="msg" name="message" rows="1" placeholder="Reply, or steer the agent..."></textarea>
+        <div class="composer-toolbar">
+          <button type="button" class="btn btn-ghost btn-icon" data-icon="plus" aria-label="Attach"></button>
+          <span class="status-badge"><span class="icon icon-shield-alert" aria-hidden="true"></span> guards: standard</span>
+          <div class="composer-meta">
+            <button type="button" class="composer-model">claude &middot; high</button>
+            <button type="button" class="btn btn-ghost" aria-label="Steer: stop the current turn, then send this follow-up">Steer</button>
+            <button type="button" class="btn btn-ghost" aria-label="Stop current turn">Stop</button>
+            <button type="submit" class="btn btn-primary composer-send" aria-label="Queue message">Queue</button>
+          </div>
+        </div>
+        <div class="status-badge" role="status">Saved on this device</div>
+        <div class="status-badge" role="status" data-conversation-state="submitting">Submitting…</div>
+        <div class="status-badge" role="status" data-conversation-state="queued">Queued · waiting behind the active turn</div>
+        <div class="status-badge" role="status" data-conversation-state="stopping">Stopping current turn…</div>
+        <div class="banner banner-warning" role="status" data-conversation-state="reconnect">Disconnected. Saving remains available; reconnect will not send.</div>
+        <div class="banner banner-danger" role="alert" data-conversation-state="unsaved">Unsaved — retry save, copy, or download before reloading.</div>
+        <div class="chip chip--file" role="status" data-conversation-state="upload-failed">
+          <span class="chip-name">migration.md</span><span class="chip-meta">Upload failed</span>
+          <button type="button" class="btn btn-ghost" aria-label="Retry migration.md upload">Retry</button>
+        </div>
+        <article class="card" aria-label="Held queued message" data-conversation-state="held">
+          <strong>Held · oldest</strong>
+          <p>Publish the migration notes after the checks finish.</p>
+          <span class="chip chip--file"><span class="chip-name">migration.md</span><span class="chip-meta">ready</span></span>
+          <button type="button" class="btn btn-primary">Send next queued message</button>
+        </article>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+
+</body>
+</html>

@@ -55,11 +55,19 @@ export 'src/storage/webhook_delivery_store.dart'
 export 'src/storage/task_event_service.dart' show TaskEventService;
 export 'src/storage/turn_trace_service.dart' show TurnTraceService, TraceQueryResult;
 export 'src/storage/session_service.dart' show SessionService, SessionServiceObserver;
-export 'src/storage/message_service.dart' show MessageService, MessageServiceObserver;
+export 'src/storage/message_service.dart' show MessageService, MessageServiceObserver, MessageIdentityConflict;
+export 'src/storage/conversation_state.dart'
+    show
+        SubmissionCommitState,
+        ConversationWorkState,
+        ConversationAttachmentManifest,
+        ConversationSubmissionClaim,
+        ConversationState;
 export 'src/storage/kv_service.dart' show KvService;
 export 'src/storage/atomic_write.dart'
     show
         atomicWriteJson,
+        atomicWriteBytes,
         secureWriteFile,
         secureWriteFileSync,
         chmodOwnerOnly,

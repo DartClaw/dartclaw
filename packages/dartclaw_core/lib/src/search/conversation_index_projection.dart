@@ -49,7 +49,9 @@ final class ConversationIndexProjection {
     final chatTypes = SessionType.values.where((type) => type.isChatFacing).toList(growable: false);
     final selected = await sessions.listSessions(types: chatTypes);
     for (final session in selected) {
+      final state = await sessions.getConversationState(session.id);
       final batch = (await messages.getMessages(session.id))
+          .where((message) => state.includesMessage(message.id))
           .map((message) => document(message: message, sessionType: session.type))
           .whereType<SearchDocument>()
           .toList(growable: false);

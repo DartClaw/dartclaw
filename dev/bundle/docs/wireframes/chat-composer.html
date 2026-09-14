@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Chat Composer (Proposal 1)</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <!-- Historical 0.17 composer proposal — page-local p-composer* classes are intentionally NOT the canonical .composer (which supersedes these proposals). -->
+  <style>
+    /* =================================================================
+       PROPOSAL 1: THE COMPOSER
+       Composable input container with context bar, toolbar, and
+       circular send button. Replaces flat textarea+button layout.
+       ================================================================= */
+
+    /* --- New icon data URIs (not yet in icons.css) --- */
+    :root {
+      --icon-arrow-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 7-7 7 7'/%3E%3Cpath d='M12 19V5'/%3E%3C/svg%3E");
+      --icon-paperclip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E");
+      --icon-command: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 4 3 8l4 4'/%3E%3Cpath d='M17 4l4 4-4 4'/%3E%3C/svg%3E");
+      --radius-input: 8px;
+    }
+    [data-icon="arrow-up"]::before    { -webkit-mask-image: var(--icon-arrow-up);   mask-image: var(--icon-arrow-up); }
+    [data-icon="paperclip"]::before   { -webkit-mask-image: var(--icon-paperclip);  mask-image: var(--icon-paperclip); }
+    [data-icon="command"]::before     { -webkit-mask-image: var(--icon-command);    mask-image: var(--icon-command); }
+    .icon-arrow-up   { -webkit-mask-image: var(--icon-arrow-up);  mask-image: var(--icon-arrow-up); }
+    .icon-paperclip  { -webkit-mask-image: var(--icon-paperclip); mask-image: var(--icon-paperclip); }
+    .icon-command    { -webkit-mask-image: var(--icon-command);   mask-image: var(--icon-command); }
+
+    /* --- Composer container --- */
+    .p-composer {
+      background: linear-gradient(0deg,
+        color-mix(in oklab, var(--bg-crust) 30%, var(--bg-mantle)) 0%,
+        var(--bg-mantle) 100%);
+      border-top: 1px solid var(--border-highlight);
+      padding: 0 var(--sp-4) var(--sp-3);
+      position: relative;
+    }
+
+    /* Scan bar (streaming indicator) */
+    .p-composer.streaming::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        var(--accent) 30%,
+        var(--info) 60%,
+        transparent 100%);
+      background-size: 200% 100%;
+      animation: scan 2s ease-in-out infinite;
+    }
+    @keyframes scan {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* --- Context bar --- */
+    .input-context {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--sp-2) 0;
+      font-size: var(--text-xs);
+      color: var(--fg-sub0);
+      border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
+      margin-bottom: var(--sp-2);
+    }
+
+    .input-context-session {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-weight: var(--weight-medium);
+    }
+
+    .connection-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+    .connection-dot.disconnected {
+      background: var(--error);
+      animation: pulse-error 2s ease-in-out infinite;
+    }
+    @keyframes pulse-error {
+      0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--error) 40%, transparent); }
+      50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--error) 0%, transparent); }
+    }
+
+    .input-context-meta {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+    }
+
+    .token-budget {
+      font-variant-numeric: tabular-nums;
+      color: var(--fg-overlay);
+    }
+
+    /* --- Composer form layout --- */
+    .p-composer form {
+      display: flex;
+      gap: var(--sp-3);
+      align-items: center;            /* vertically center button against textarea */
+    }
+
+    .input-wrapper {
+      flex: 1;
+      position: relative;
+    }
+
+    .p-composer textarea {
+      display: block;                    /* prevent inline-block baseline gap */
+      width: 100%;
+      background: var(--bg-base);
+      color: var(--fg);
+      border: var(--border);
+      border-radius: var(--radius-input);
+      padding: var(--sp-3) var(--sp-4);
+      font: inherit;
+      font-size: var(--text-base);
+      line-height: var(--leading-tight);
+      resize: none;
+      min-height: 44px;
+      max-height: 240px;
+      outline: none;
+      box-shadow: var(--inset-sm);
+      transition: border-color var(--transition), box-shadow var(--transition-glow);
+    }
+    .p-composer textarea:focus {
+      border-color: var(--accent);
+      background: color-mix(in oklab, var(--bg-base) 92%, var(--accent));
+      box-shadow: var(--inset-sm), 0 0 0 1px var(--accent),
+                  0 0 12px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
+    .p-composer textarea::placeholder { color: var(--fg-overlay); }
+    .p-composer textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* --- Circular send button --- */
+    .btn-send-circle {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: var(--bg-crust);
+      border: none;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: background var(--transition), transform 80ms ease-out, box-shadow var(--transition-glow);
+      flex-shrink: 0;
+    }
+    .btn-send-circle:hover {
+      transform: scale(1.06);
+      box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 35%, transparent);
+    }
+    .btn-send-circle:active {
+      transform: scale(0.92);
+    }
+    .btn-send-circle:disabled {
+      opacity: 0.3;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+    .btn-send-circle .icon {
+      width: 18px;
+      height: 18px;
+      background-color: var(--bg-crust);
+    }
+
+    /* Stop variant (during streaming) */
+    .btn-stop-circle {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--error) 15%, var(--bg-surface0));
+      color: var(--error);
+      border: none;
+      outline: 1px solid var(--error);  /* outline doesn't affect box size */
+      outline-offset: -1px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: background var(--transition), transform 80ms ease-out;
+      flex-shrink: 0;
+    }
+    .btn-stop-circle:hover {
+      background: color-mix(in srgb, var(--error) 25%, var(--bg-surface0));
+      transform: scale(1.06);
+    }
+    .btn-stop-circle:active { transform: scale(0.92); }
+    .btn-stop-circle .icon {
+      width: 14px;
+      height: 14px;
+      background-color: var(--error);
+    }
+
+    /* --- Input toolbar --- */
+    .input-toolbar {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+      padding: var(--sp-1) 0 0;
+    }
+
+    .input-toolbar .btn-icon {
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      min-height: 28px;
+      color: var(--fg-overlay);
+      opacity: 0.6;
+      transition: opacity var(--transition), color var(--transition);
+    }
+    .input-toolbar .btn-icon:hover {
+      opacity: 1;
+      color: var(--fg-sub1);
+    }
+
+    .input-toolbar-spacer { flex: 1; }
+
+    .char-count {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* --- Keyboard hint --- */
+    .input-hint {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      padding: var(--sp-1) 0 0;
+      text-align: right;
+      opacity: 0.6;
+    }
+
+    kbd {
+      background: var(--bg-surface0);
+      border: 1px solid var(--bg-surface1);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+      line-height: 1;
+    }
+
+    /* --- State section dividers (wireframe annotation) --- */
+    .state-divider {
+      max-width: var(--container-max);
+      margin: var(--sp-6) auto var(--sp-4);
+      padding: var(--sp-2) var(--sp-4);
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    }
+    .state-divider .state-note {
+      font-weight: var(--weight-normal);
+      text-transform: none;
+      letter-spacing: normal;
+      color: var(--fg-sub0);
+      margin-left: var(--sp-2);
+    }
+
+    /* Showcase: secondary shells have constrained height for state comparison */
+    .shell--showcase {
+      height: auto;
+      min-height: 420px;
+      max-height: 520px;
+      grid-template-columns: 1fr;  /* no sidebar */
+    }
+
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+      .p-composer {
+        padding: 0 var(--sp-3) var(--sp-2);
+        padding-bottom: max(var(--sp-2), env(safe-area-inset-bottom));
+      }
+      .p-composer textarea {
+        font-size: 16px; /* prevent iOS auto-zoom */
+        padding: var(--sp-3);
+      }
+      .input-context { padding: var(--sp-1) 0; }
+      .input-hint { display: none; }
+      .char-count { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session" style="width:calc(100% - var(--sp-6));margin:0 var(--sp-3) var(--sp-2);">New Session</button>
+      <div class="session-item active" data-icon="message-circle">
+        Refactor auth module
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle">
+        Debug API endpoints
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle">
+        Setup project scaffold
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <input class="session-title" type="text" value="Refactor auth module" aria-label="Session title">
+    <div class="topbar-actions">
+      <button class="btn btn-icon btn-ghost" data-icon="info" aria-label="Session info" title="Session info"></button>
+      <button class="btn btn-ghost" style="font-size:var(--text-sm);">Reset</button>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Chat area -->
+  <div class="chat-area">
+    <div class="messages">
+
+      <!-- STATE A: Idle — active session with messages -->
+      <div class="state-divider">State A: Idle<span class="state-note">Composer with context bar, toolbar, and circular send button</span></div>
+
+      <!-- User message -->
+      <div class="msg msg-user">
+        <div class="msg-role">You</div>
+        <div class="msg-content">
+          <p>Can you refactor the auth module to use JWT?</p>
+        </div>
+      </div>
+
+      <!-- Assistant message -->
+      <div class="msg msg-assistant">
+        <div class="msg-role">Assistant</div>
+        <div class="msg-content">
+          <p>I'll look at the current auth code first.</p>
+          <div class="tool-indicator success">Reading src/auth/handler.ts</div>
+          <div class="tool-indicator success">Reading src/auth/middleware.ts</div>
+          <div class="tool-indicator success">Writing src/auth/jwt.ts</div>
+          <p>Done. Here's the new JWT middleware with proper token validation, expiry handling, and role-based access control.</p>
+        </div>
+      </div>
+
+      <!-- User message 2 -->
+      <div class="msg msg-user">
+        <div class="msg-role">You</div>
+        <div class="msg-content">
+          <p>Looks good. Can you add tests?</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- =============================================
+         COMPOSER: Idle State
+         ============================================= -->
+    <div class="p-composer" id="composer-idle">
+      <!-- Context bar -->
+      <div class="input-context" aria-label="Current context">
+        <span class="input-context-session">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span>Refactor auth module</span>
+        </span>
+        <span class="input-context-meta">
+          <span class="token-budget">4.2k / 10k tokens</span>
+        </span>
+      </div>
+
+      <!-- Form -->
+      <form>
+        <label class="sr-only" for="message-input-idle">Message</label>
+        <div class="input-wrapper">
+          <textarea id="message-input-idle" name="message" rows="2" placeholder="Message DartClaw..." style="height:64px;">Can you also add integration tests for the database layer?</textarea>
+        </div>
+        <button type="button" class="btn-send-circle" aria-label="Send message" title="Send message">
+          <span class="icon icon-arrow-up" aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <!-- Toolbar -->
+      <div class="input-toolbar">
+        <button class="btn btn-icon btn-ghost" data-icon="command" aria-label="Commands" title="Commands (/)"></button>
+        <button class="btn btn-icon btn-ghost" data-icon="paperclip" aria-label="Attach file" title="Attach file"></button>
+        <span class="input-toolbar-spacer"></span>
+        <span class="char-count">56 chars</span>
+      </div>
+
+      <!-- Keyboard hint -->
+      <div class="input-hint" aria-hidden="true">
+        <kbd>&#8984;</kbd><span>+</span><kbd>Enter</kbd> to send
+      </div>
+      <div class="status-badge" role="status" data-conversation-state="saved">Saved on this device</div>
+      <div class="banner banner-danger" role="alert" data-conversation-state="unsaved">
+        Unsaved — retry save, copy, or download before reloading.
+      </div>
+      <div class="chip chip--file" role="status" data-conversation-state="upload-failed">
+        <span class="chip-name">schema.sql</span><span class="chip-meta">Upload failed</span>
+        <button type="button" class="btn btn-ghost" aria-label="Retry schema.sql upload">Retry</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- =============================================
+     SECOND CHAT AREA: Streaming State
+     ============================================= -->
+<div class="shell shell--showcase" style="margin-top: var(--sp-8);">
+
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" aria-label="Menu"></button>
+    <input class="session-title" value="Refactor auth module" aria-label="Session title">
+    <div class="topbar-actions">
+      <button class="btn btn-icon btn-ghost" data-icon="info" aria-label="Session info"></button>
+      <button class="btn btn-ghost" style="font-size:var(--text-sm);opacity:0.4;cursor:not-allowed;" disabled>Reset</button>
+      <button class="theme-toggle" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <div class="chat-area">
+    <div class="messages">
+      <div class="state-divider">State B: Streaming + draftable<span class="state-note">The running turn stays visible while the composer queues by default</span></div>
+
+      <div class="msg msg-user">
+        <div class="msg-role">You</div>
+        <div class="msg-content">
+          <p>Can you also add integration tests for the database layer?</p>
+        </div>
+      </div>
+
+      <div class="msg msg-assistant">
+        <div class="msg-role">Assistant</div>
+        <div class="msg-content">
+          <p>I'll set up the test infrastructure for database integration testing.</p>
+          <div class="tool-indicator success">Reading src/db/connection.ts</div>
+          <div class="tool-indicator pending">Writing test/db/integration.test.ts</div>
+          <p>Setting up test fixtures and connection pool for<span class="streaming"></span></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPOSER: Streaming State -->
+    <div class="p-composer streaming">
+      <div class="input-context" aria-label="Current context">
+        <span class="input-context-session">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span>Refactor auth module</span>
+        </span>
+        <span class="input-context-meta">
+          <span class="token-budget">6.8k / 10k tokens</span>
+        </span>
+      </div>
+
+      <form>
+        <label class="sr-only" for="message-input-streaming">Message</label>
+        <div class="input-wrapper">
+          <textarea id="message-input-streaming" name="message" rows="1" placeholder="Write the next message while the agent works…">Please verify the migration path too.</textarea>
+        </div>
+        <button type="submit" class="btn-send-circle" aria-label="Queue message" title="Queue this message"><span class="icon icon-arrow-up" aria-hidden="true"></span></button>
+      </form>
+
+      <div class="input-toolbar">
+        <button class="btn btn-icon btn-ghost" data-icon="paperclip" aria-label="Attach file"></button>
+        <button class="btn btn-ghost" aria-label="Steer: stop the current turn, then send this follow-up">Steer</button>
+        <button class="btn btn-ghost" aria-label="Stop current turn">Stop</button>
+        <span class="input-toolbar-spacer"></span>
+        <span class="status-badge" role="status">Saved on this device · Queue</span>
+      </div>
+      <div class="status-badge" role="status" data-conversation-state="submitting">Submitting…</div>
+      <div class="status-badge" role="status" data-conversation-state="queued">Queued · waiting behind the active turn</div>
+      <div class="status-badge" role="status" data-conversation-state="stopping">Stopping current turn…</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="shell shell--showcase" style="margin-top: var(--sp-8);">
+  <div class="chat-area">
+    <div class="messages">
+      <div class="state-divider">State C: Held after stop or reconnect<span class="state-note">Durable order, visible payloads, one explicit release</span></div>
+      <article class="card" aria-label="Held queued message" data-conversation-state="held">
+        <strong>Held · 1</strong>
+        <p>Please verify the migration path too.</p>
+        <span class="chip chip--file"><span class="chip-name">migration.md</span><span class="chip-meta">ready</span></span>
+        <button class="btn btn-primary" type="button">Send next queued message</button>
+      </article>
+      <div class="banner banner-warning" role="status" data-conversation-state="reconnect">Live updates disconnected. Drafting and Save locally remain available; reconnect will not send.</div>
+      <div class="banner banner-danger" role="alert">Not saved on this device. Retry save, copy text, or download the draft before reloading.</div>
+    </div>
+  </div>
+</div>
+
+<!-- =============================================
+     FOURTH CHAT AREA: Empty / New Session State
+     ============================================= -->
+<div class="shell shell--showcase" style="margin-top: var(--sp-8);">
+
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" aria-label="Menu"></button>
+    <input class="session-title" placeholder="Untitled session" aria-label="Session title">
+    <div class="topbar-actions">
+      <button class="theme-toggle" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <div class="chat-area">
+    <div class="messages">
+      <div class="state-divider">State C: New Session<span class="state-note">Empty messages, "Start a conversation..." placeholder</span></div>
+    </div>
+
+    <!-- COMPOSER: New session (empty, focused) -->
+    <div class="p-composer">
+      <div class="input-context" aria-label="Current context">
+        <span class="input-context-session">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span style="color:var(--fg-overlay);">New session</span>
+        </span>
+      </div>
+
+      <form>
+        <label class="sr-only" for="message-input-new">Message</label>
+        <div class="input-wrapper">
+          <textarea id="message-input-new" name="message" rows="1" placeholder="Start a conversation..."></textarea>
+        </div>
+        <button type="button" class="btn-send-circle" disabled aria-label="Send message">
+          <span class="icon icon-arrow-up" aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <div class="input-toolbar">
+        <button class="btn btn-icon btn-ghost" data-icon="command" aria-label="Commands" title="Commands (/)"></button>
+        <button class="btn btn-icon btn-ghost" data-icon="paperclip" aria-label="Attach file" title="Attach file"></button>
+        <span class="input-toolbar-spacer"></span>
+      </div>
+
+      <div class="input-hint" aria-hidden="true">
+        <kbd>&#8984;</kbd><span>+</span><kbd>Enter</kbd> to send
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+
+</body>
+</html>

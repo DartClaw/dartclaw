@@ -262,14 +262,21 @@ Router webRoutes(
       if (session == null) return _htmlNotFound('Session not found: $id');
 
       final sidebarData = await pageContext.sidebar.build(activeSessionId: id);
-      final msgs = await messages.getMessagesTail(id);
+      final conversationState = await sessions.getConversationState(id);
+      final visibleMessages = (await messages.getMessages(id))
+          .where((message) => conversationState.includesMessage(message.id))
+          .toList(growable: false);
+      final msgs = visibleMessages.length <= 200
+          ? visibleMessages
+          : visibleMessages.sublist(visibleMessages.length - 200);
       final messageList = msgs
           .map(
             (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
           )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
-      final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
+      final hasEarlierMessages =
+          earliestCursor != null && visibleMessages.any((message) => message.cursor < earliestCursor);
 
       final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appName);
       final displayTitle = displaySessionTitle(session.title, session.type);
@@ -344,16 +351,23 @@ Router webRoutes(
       if (session == null) return _htmlNotFound('Session not found: $id');
 
       final beforeCursor = int.tryParse(request.url.queryParameters['before'] ?? '');
-      final msgs = beforeCursor == null
-          ? await messages.getMessagesTail(id)
-          : await messages.getMessagesBefore(id, beforeCursor);
+      final state = await sessions.getConversationState(id);
+      final visibleMessages = (await messages.getMessages(id))
+          .where((message) => state.includesMessage(message.id))
+          .where((message) => beforeCursor == null || message.cursor < beforeCursor)
+          .toList(growable: false);
+      final count = beforeCursor == null ? 200 : 50;
+      final msgs = visibleMessages.length <= count
+          ? visibleMessages
+          : visibleMessages.sublist(visibleMessages.length - count);
       final messageList = msgs
           .map(
             (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
           )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
-      final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
+      final hasEarlierMessages =
+          earliestCursor != null && visibleMessages.any((message) => message.cursor < earliestCursor);
       final html = beforeCursor == null || messageList.isNotEmpty ? messagesHtmlFragment(messageList) : '';
 
       return Response.ok(
@@ -375,7 +389,10 @@ Router webRoutes(
       final session = await sessions.getSession(id);
       if (session == null) return _htmlNotFound('Session not found: $id');
 
-      final msgs = await messages.getMessages(id);
+      final state = await sessions.getConversationState(id);
+      final msgs = (await messages.getMessages(id))
+          .where((message) => state.includesMessage(message.id))
+          .toList(growable: false);
 
       final recentTurns = msgs.reversed
           .take(8)

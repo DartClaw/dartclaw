@@ -8,15 +8,18 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../concurrency/session_mutation_coordinator.dart';
+import '../conversation/conversation_service.dart';
 import '../session/session_reset_service.dart';
 import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;
 import 'api_helpers.dart';
 import 'session_attachment_routes.dart';
+import 'session_conversation_routes.dart';
 import 'session_lifecycle_routes.dart';
 import 'session_message_routes.dart';
 import 'session_routes_support.dart';
 import 'session_turn_status_routes.dart';
+import 'sse_broadcast.dart';
 
 final _log = Logger('SessionRoutes');
 
@@ -38,9 +41,21 @@ Router sessionRoutes(
   ProjectService? projectService,
   Future<SidebarData> Function({String? activeSessionId})? sidebarData,
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
+  SseBroadcast? sseBroadcast,
+  ConversationFailpoint? conversationFailpoint,
+  AttachmentWriteFailpoint? attachmentWriteFailpoint,
+  String Function()? attachmentIdFactory,
 }) {
   final router = Router();
   final sessionMutations = SessionMutationCoordinator();
+  final conversation = ConversationService(
+    sessions: sessions,
+    messages: messages,
+    turns: turns,
+    mutations: sessionMutations,
+    updates: sseBroadcast,
+    failpoint: conversationFailpoint,
+  );
   Future<({Session session, bool created})>? openNewChatPromise;
 
   Future<({Session session, bool created})> openNewChat() {
@@ -164,13 +179,30 @@ Router sessionRoutes(
     redactor: redactor,
     projectService: projectService,
     sessionMutations: sessionMutations,
+    conversation: conversation,
   );
 
   // Attachment upload + reference autocomplete.
-  registerSessionAttachmentRoutes(router, sessions: sessions, messages: messages, projectService: projectService);
+  registerSessionAttachmentRoutes(
+    router,
+    sessions: sessions,
+    messages: messages,
+    sessionMutations: sessionMutations,
+    projectService: projectService,
+    failpoint: attachmentWriteFailpoint,
+    attachmentIdFactory: attachmentIdFactory,
+  );
 
   // Stuck-turn status + early-cancel endpoints (turn/stop, turn-status, turns/<turnId>/cancel).
-  registerSessionTurnStatusRoutes(router, sessions: sessions, turns: turns);
+  registerSessionTurnStatusRoutes(
+    router,
+    sessions: sessions,
+    turns: turns,
+    conversation: conversation,
+    sessionMutations: sessionMutations,
+  );
+
+  registerSessionConversationRoutes(router, sessions: sessions, conversation: conversation, turns: turns);
 
   // Session lifecycle (delete / resume / archive / reset).
   registerSessionLifecycleRoutes(

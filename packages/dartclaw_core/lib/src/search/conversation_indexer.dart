@@ -74,7 +74,9 @@ final class ConversationIndexer implements MessageServiceObserver, SessionServic
     }
     _enqueue(() async {
       final stored = await messages.getMessages(sessionId);
+      final state = await sessions.getConversationState(sessionId);
       final documents = stored
+          .where((message) => state.includesMessage(message.id))
           .map((message) => ConversationIndexProjection.document(message: message, sessionType: newType))
           .whereType<SearchDocument>()
           .toList(growable: false);

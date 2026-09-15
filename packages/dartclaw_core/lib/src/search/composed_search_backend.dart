@@ -7,17 +7,18 @@ import '../storage/index_reconciler.dart';
 /// Reads persisted index health relative to one current canonical identity.
 typedef SearchIndexHealthProbe = Future<IndexHealthEvidence> Function();
 
-/// Request-level composition of personal-memory and native wiki retrieval.
+/// Request-level composition and current-index guard for personal memory, with
+/// optional native wiki retrieval.
 final class ComposedSearchBackend implements SearchBackend {
   /// Hard output ceiling shared by retrieval surfaces.
   static const maxResults = MemoryResourceLimits.searchResults;
 
   final SearchBackend _personal;
-  final WikiSearchSource _wiki;
+  final WikiSearchSource? _wiki;
   final SearchIndexHealthProbe? _indexHealthProbe;
 
   /// Creates the single composition owner for one configured search backend.
-  new({required SearchBackend personal, required WikiSearchSource wiki, SearchIndexHealthProbe? indexHealthProbe})
+  new({required SearchBackend personal, WikiSearchSource? wiki, SearchIndexHealthProbe? indexHealthProbe})
     : _personal = personal,
       _wiki = wiki,
       _indexHealthProbe = indexHealthProbe;
@@ -112,11 +113,12 @@ final class ComposedSearchBackend implements SearchBackend {
         );
       }
     }
-    if (layers != null && !layers.contains(SearchResultLayer.wiki)) {
+    final wikiSource = _wiki;
+    if (wikiSource == null || layers != null && !layers.contains(SearchResultLayer.wiki)) {
       wiki = const [];
     } else {
       try {
-        final scan = await _wiki.searchScan(query);
+        final scan = await wikiSource.searchScan(query);
         wiki = scan.results;
         wikiDegradations = scan.degradations;
         if (scan.degraded) {
@@ -173,7 +175,8 @@ final class ComposedSearchBackend implements SearchBackend {
   @override
   Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async {
     final personal = await _personal.resolve(locator, userId: userId);
-    return personal ?? _wiki.resolve(locator);
+    final wiki = _wiki;
+    return personal ?? (wiki == null ? null : await wiki.resolve(locator));
   }
 
   @override

@@ -107,13 +107,13 @@ channels:
   }
 
   Future<String> nextSseFrame(StreamIterator<String> iterator) async {
-    final hasFrame = await iterator.moveNext().timeout(const Duration(seconds: 1));
-    expect(hasFrame, isTrue);
-    return iterator.current;
+    while (true) {
+      final hasFrame = await iterator.moveNext().timeout(const Duration(seconds: 1));
+      expect(hasFrame, isTrue);
+      if (iterator.current != ': connected\n\n') return iterator.current;
+    }
   }
 
-  /// Writes jobs to the YAML config file so [ConfigWriter.readSchedulingJobs]
-  /// returns them (tests that need pre-existing jobs must call this).
   void writeJobsToYaml(List<Map<String, dynamic>> jobs) {
     final jobsYaml = jobs
         .map((j) {

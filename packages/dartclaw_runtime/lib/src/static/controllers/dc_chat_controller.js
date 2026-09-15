@@ -27,6 +27,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.recoveryActive = false;
     this.turnFinalized = false;
     this.canCancel = false;
+    this.activeTurnId = null;
     this.turnStatusTimer = null;
     this.turnStatusPollGeneration = 0;
     this.streamRecoveryTurnId = null;
@@ -275,6 +276,8 @@ export default class DcChatController extends Stimulus.Controller {
       provider: fields.get('provider'),
       model: optionalValue('model'),
       effort: optionalValue('effort'),
+      attachments: this.attachments.filter((item) => item.state === 'ready'),
+      references: this.references.filter((item) => item.state === 'resolved'),
     };
     apply.disabled = true;
     if (validation) validation.hidden = true;
@@ -531,6 +534,7 @@ export default class DcChatController extends Stimulus.Controller {
         this.updateSendState();
         showBanner('error', readHtmxErrorMessage(ctx));
       } else {
+        this.element.querySelector('#messages > .prompt-hero')?.remove();
         this.acknowledgeSubmittedDraft();
         if (document.getElementById('streaming-msg')) {
           this.disableInput();
@@ -790,7 +794,12 @@ export default class DcChatController extends Stimulus.Controller {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(action === 'retry'
         ? { mutation_id: mutationId }
-        : { mutation_id: mutationId, kind: action, message: editedMessage?.trim() }),
+        : {
+            mutation_id: mutationId,
+            kind: action,
+            message: editedMessage?.trim(),
+            conversation_revision: this.conversationRevision,
+          }),
     }).then(async (response) => {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error?.message || 'History action is unavailable');
@@ -1316,10 +1325,12 @@ export default class DcChatController extends Stimulus.Controller {
         const projectedActive = projectedTurn && ['running', 'waiting', 'stuck', 'cancelling'].includes(projectedTurn.state);
         if (active || projectedActive) {
           this.streaming = true;
-          this.canCancel = active ? active.workState !== 'stopping' : Boolean(projectedTurn.can_cancel);
+          this.canCancel = Boolean(projectedTurn?.can_cancel) && active?.workState !== 'stopping';
+          this.activeTurnId = active?.turnId || projectedTurn?.turn_id || null;
         } else if (!document.getElementById('streaming-msg')) {
           this.streaming = false;
           this.canCancel = false;
+          this.activeTurnId = null;
         }
         this.updateSendState();
         this.handleVisibleReadBoundary();
@@ -1413,7 +1424,7 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   steer() {
-    if (!this.canSubmitRichInput() || !this.textarea?.value.trim() || !this.canCancel) return;
+    if (!this.canSubmitRichInput() || !this.textarea?.value.trim() || !this.canCancel || !this.activeTurnId) return;
     const draft = this.currentDraft();
     this.chatRequestPending = true;
     this.submittedRevisionId = draft.revisionId;
@@ -1426,6 +1437,8 @@ export default class DcChatController extends Stimulus.Controller {
       body: JSON.stringify({
         submission_id: draft.submissionId,
         revision_id: draft.revisionId,
+        turn_id: this.activeTurnId,
+        conversation_revision: this.conversationRevision,
         message: draft.text.trim(),
         attachments: draft.attachments.filter((item) => item.state === 'ready'),
         references: draft.references,

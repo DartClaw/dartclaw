@@ -62,6 +62,23 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   The streaming extension includes a local cleanup fix for an upstream unhandled error on close.
   All browser assets continue to load from the DartClaw instance.
 
+### Fixed
+
+- Workspace maintenance rotates its internal session when an agent binding changes. Conversation vector rebuilds
+  include removed but persisted principals, and ordinary agent memory excludes wiki sources.
+- Reused attachments retain every submission claim. Steer serializes cancellation and follow-up admission, context
+  changes validate retained draft inputs, and edit/fork rejects a stale conversation revision.
+- Paged transcript history retains the owning turn's records. Search rejects a result if its authorized snapshot
+  changes during retrieval, and attention read markers cannot move backward.
+- Temporary search navigation keeps drafts in page memory. Generic deletion uses confirmed temporary teardown;
+  Markdown exports contain message text separately from generated lineage and attachment sections.
+- Configured-agent containers expose only their workspace and authorized execution path. Attachment deletion rejects
+  non-UUID identifiers before filesystem access, including Windows separators.
+- Browser qualification rejects accessibility violations and incomplete audits, resolves CSS colors through the
+  browser before computing contrast, and starts its channel fixture with the production session-key format.
+- Idle global event streams open immediately. Composer controls wrap within the viewport and retain 44px action targets.
+- Stop and Steer follow the server's cancellable state. Live conversation updates no longer discard pending searches.
+
 ### Release holds
 
 - The 0.27 release remains held until the full repository gate passes on the exact committed candidate with an empty

@@ -47,6 +47,16 @@
 
 /* Floating composer palettes compose the canonical glass card; app CSS owns placement only. */
 .input-area .composer { position: relative; }
+.conversation-input-area > .composer { min-width: 0; }
+.conversation-input-area .composer-toolbar,
+.conversation-input-area .composer-meta {
+  flex-wrap: wrap;
+}
+.conversation-input-area .composer-meta {
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-end;
+}
 
 .composer-reference-palette {
   position: absolute;
@@ -167,7 +177,13 @@
 .conversation-queue-actions .btn,
 .composer-meta .btn { min-height: 44px; }
 
+.conversation-queue-actions .btn-ghost { color: var(--fg-sub1); }
+
 @media (max-width: 768px) {
+  .conversation-input-area {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .composer-palette-option {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -3524,9 +3540,31 @@ input.form-input--search::-webkit-search-cancel-button {
 .sidebar-settle-selected { margin-inline: var(--sp-3); }
 .sidebar-chat-section .session-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .sidebar-chat-section [data-inbox-select] { align-self: center; margin-inline-start: var(--sp-2); }
+.sidebar-chat-section .session-item-link { gap: var(--sp-2); padding-inline: var(--sp-2); }
+.sidebar-chat-section .session-item-link > .identicon { margin-right: 0; }
+.session-item-copy { display: grid; min-width: 0; gap: 1px; }
+.session-item-copy .session-item-title { display: block; }
+.session-item-meta {
+  display: flex;
+  min-width: 0;
+  gap: var(--sp-1);
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--fg-sub0);
+  font-size: var(--text-xs);
+}
+.session-item-meta > * { flex: 0 0 auto; }
+.session-item-meta > :empty { display: none; }
 .session-item-state,
 .session-item-lineage { color: var(--fg-sub0); font-size: var(--text-xs); }
-.session-item .session-settle { position: static; transform: none; }
+.sidebar-chat-section .session-item :is(.session-settle, .session-archive) {
+  position: static;
+  margin: 0;
+  transform: none;
+}
+/* Anchor the absolute resize target to the desktop rail. Mobile owns a fixed
+   drawer and must keep that positioning context. */
+@media (min-width: 769px) { .sidebar { position: relative; } }
 .sidebar-resize-handle {
   position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; touch-action: none;
 }

@@ -194,6 +194,26 @@ void main() {
     expect(outcome.degradations.single.reason, 'indexChangedDuringSearch');
   });
 
+  test('wiki-less composition retains the double-probe current-index guard', () async {
+    final personal = _S07RecordingBackend()
+      ..results = const [MemorySearchResult(text: 'raced memory', source: 'memory-id', score: 0)];
+    final evidence = [_health(IndexHealthState.healthy, 41), _health(IndexHealthState.healthy, 42)].iterator;
+    final backend = ComposedSearchBackend(
+      personal: personal,
+      indexHealthProbe: () async {
+        evidence.moveNext();
+        return evidence.current;
+      },
+    );
+
+    final outcome = await backend.search('Falcon');
+
+    expect(personal.calls, [('Falcon', 'owner')]);
+    expect(outcome, isEmpty);
+    expect(outcome.degradedLayers, ['memory']);
+    expect(outcome.degradations.single.reason, 'indexChangedDuringSearch');
+  });
+
   test('double-probe discards personal rows when health degrades during query', () async {
     final personal = _S07RecordingBackend()
       ..results = const [MemorySearchResult(text: 'unvalidated memory', source: 'memory-id', score: 0)];

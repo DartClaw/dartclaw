@@ -661,12 +661,13 @@ class StorageWiring {
     );
     _workspaceSearchBackends['owner'] = searchBackend;
     for (final context in _memoryContexts.values.where((context) => context.principal != 'owner')) {
-      _workspaceSearchBackends[context.principal] = ComposedSearchBackend(
-        personal: _memoryHybridSearch == null
-            ? Fts5SearchBackend(index: memoryIndex)
-            : HybridSearchBackend(search: _memoryHybridSearch!, toMemoryResult: MemoryIndexProjection.toSearchResult),
-        wiki: WikiSearchSource(workspaceDir: context.directory),
+      _workspaceSearchBackends[context.principal] = createSearchBackend(
+        backend: 'fts5',
+        index: memoryIndex,
         indexHealthProbe: () => _probeWorkspaceIndexHealth(context),
+        personalBackend: _memoryHybridSearch == null
+            ? null
+            : HybridSearchBackend(search: _memoryHybridSearch!, toMemoryResult: MemoryIndexProjection.toSearchResult),
       );
     }
     for (final context in _memoryContexts.values) {

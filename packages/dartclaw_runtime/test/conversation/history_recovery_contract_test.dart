@@ -98,6 +98,33 @@ void main() {
     expect(await messages.getMessages(sessionId), hasLength(sourceMessageCount));
 
     final rawHandler = sessionRoutes(sessions, messages, turns, worker).call;
+    final branchAdminHandler = localAdminMiddleware()(rawHandler);
+    final sessionsBeforeStaleBranch = (await sessions.listSessions()).map((session) => session.id).toSet();
+    final revisionBeforeStaleBranch = (await sessions.getConversationState(sessionId)).revision;
+    final missingRevision = await branchAdminHandler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/sessions/$sessionId/messages/${source.submission.messageId}/branch'),
+        headers: const {'content-type': 'application/json'},
+        body: jsonEncode({'mutation_id': 'missing-revision-branch', 'kind': 'fork'}),
+      ),
+    );
+    expect(missingRevision.statusCode, 400);
+    final staleRevision = await branchAdminHandler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/sessions/$sessionId/messages/${source.submission.messageId}/branch'),
+        headers: const {'content-type': 'application/json'},
+        body: jsonEncode({
+          'mutation_id': 'stale-revision-branch',
+          'kind': 'fork',
+          'conversation_revision': revisionBeforeStaleBranch - 1,
+        }),
+      ),
+    );
+    expect(staleRevision.statusCode, 409);
+    expect((await sessions.listSessions()).map((session) => session.id).toSet(), sessionsBeforeStaleBranch);
+    expect((await sessions.getConversationState(sessionId)).findBranch('stale-revision-branch'), isNull);
     final unauthorized = await rawHandler(
       Request(
         'POST',
@@ -269,19 +296,37 @@ void main() {
       ),
     );
 
+    final branchRevision = (await sessions.getConversationState(sessionId)).revision;
     final fork = await conversation.branchFromMessage(
       sessionId: sessionId,
       sourceMessageId: answer.id,
       mutationId: 'fork-1',
       kind: ConversationBranchKind.fork,
+      expectedRevision: branchRevision,
     );
     final forkRepeat = await conversation.branchFromMessage(
       sessionId: sessionId,
       sourceMessageId: answer.id,
       mutationId: 'fork-1',
       kind: ConversationBranchKind.fork,
+      expectedRevision: branchRevision,
     );
     expect(forkRepeat['destinationSessionId'], fork['destinationSessionId']);
+    final sessionsAfterFork = (await sessions.listSessions()).map((session) => session.id).toSet();
+    await expectLater(
+      conversation.branchFromMessage(
+        sessionId: sessionId,
+        sourceMessageId: answer.id,
+        mutationId: 'stale-new-fork',
+        kind: ConversationBranchKind.fork,
+        expectedRevision: branchRevision,
+      ),
+      throwsA(
+        isA<ConversationMutationException>().having((error) => error.code, 'code', 'STALE_CONVERSATION_REVISION'),
+      ),
+    );
+    expect((await sessions.listSessions()).map((session) => session.id).toSet(), sessionsAfterFork);
+    expect((await sessions.getConversationState(sessionId)).findBranch('stale-new-fork'), isNull);
     await expectLater(
       conversation.branchFromMessage(
         sessionId: sessionId,
@@ -511,6 +556,7 @@ void main() {
       'branch_destination_linked',
     ]) {
       final mutationId = 'crash-fork-$boundary';
+      final originalRevision = (await sessions.getConversationState(sessionId)).revision;
       var failed = false;
       final interrupted = ConversationService(
         sessions: sessions,
@@ -530,6 +576,7 @@ void main() {
           sourceMessageId: answer.id,
           mutationId: mutationId,
           kind: ConversationBranchKind.fork,
+          expectedRevision: originalRevision,
         ),
         throwsStateError,
       );
@@ -540,6 +587,7 @@ void main() {
         sourceMessageId: answer.id,
         mutationId: mutationId,
         kind: ConversationBranchKind.fork,
+        expectedRevision: originalRevision,
       );
       expect(recovered['destinationSessionId'], reserved.destinationSessionId, reason: boundary);
       expect((await sessions.getConversationState(sessionId)).findBranch(mutationId)?.completed, isTrue);

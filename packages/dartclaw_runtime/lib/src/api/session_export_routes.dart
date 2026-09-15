@@ -69,10 +69,16 @@ void registerSessionExportRoutes(
       ..writeln();
     for (final value in prepared['messages']! as List) {
       final message = value as Map<String, Object?>;
+      final content = '${message['content']}';
+      final fence = _messageFence(content);
       output
         ..writeln('## ${_escapeInline('${message['role']}')} · ${_escapeInline('${message['createdAt']}')}')
         ..writeln()
-        ..writeln('${message['content']}')
+        ..writeln(fence)
+        ..write(content);
+      if (!content.endsWith('\n')) output.writeln();
+      output
+        ..writeln(fence)
         ..writeln();
     }
     final records = prepared['records']! as List;
@@ -132,3 +138,17 @@ void registerSessionExportRoutes(
 String _escapeInline(String value) =>
     value.replaceAll(r'\', r'\\').replaceAllMapped(RegExp(r'([`*_{}\[\]()#+.!|>-])'), (m) => '\\${m[0]}');
 String _escapeCode(String value) => value.replaceAll('`', r'\`');
+
+String _messageFence(String content) {
+  var longest = 0;
+  var current = 0;
+  for (final codeUnit in content.codeUnits) {
+    if (codeUnit == 0x7e) {
+      current += 1;
+      if (current > longest) longest = current;
+    } else {
+      current = 0;
+    }
+  }
+  return List.filled(longest < 3 ? 3 : longest + 1, '~').join();
+}

@@ -431,6 +431,7 @@ class TurnManager implements core.TurnManager {
         taskId: taskId,
         isHumanInput: isHumanInput,
         agentName: agentName,
+        directory: directory,
         allowedTools: allowedTools,
         providerOverride: providerOverride,
       ),
@@ -704,6 +705,7 @@ class TurnManager implements core.TurnManager {
     String? taskId,
     required bool isHumanInput,
     String? agentName,
+    String? directory,
     List<String>? allowedTools,
     String? providerOverride,
   }) async {
@@ -755,6 +757,7 @@ class TurnManager implements core.TurnManager {
         taskId: taskId,
         logicalAgentId: isLogicalAgent || boundChannel ? effectiveAgent : null,
         workspace: session?.workspace,
+        directory: directory,
         allowedTools: allowedTools,
       ),
     );

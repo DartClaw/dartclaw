@@ -70,6 +70,47 @@ void main() {
     expect(response['results'], hasLength(1));
   });
 
+  test('search fails closed when the top-page session becomes ineligible during the bounded query', () async {
+    final fixture = await _SearchRouteFixture.create();
+    addTearDown(fixture.dispose);
+    final raw = await ConversationSearchService(
+      index: fixture.index,
+      userIds: const {'owner', 'agent:a'},
+    ).searchAdministrative('exact', sessionIds: {fixture.owner.id, fixture.agent.id}, limit: 1);
+    final topSessionId = raw.hits.single.sessionId;
+    fixture.sessions.revalidationMutation = () async {
+      await fixture.sessions.updateSessionType(topSessionId, SessionType.archive);
+    };
+
+    final outcome = await fixture.product.find(query: 'exact', lifecycle: ConversationSearchLifecycle.active, limit: 1);
+
+    expect(outcome.succeeded, isFalse);
+    expect(outcome.failure, 'SEARCH_RESULTS_CHANGED');
+    expect(outcome.results, isEmpty);
+    expect(outcome.total, 0);
+  });
+
+  test('search fails closed when a non-page eligibility revision changes during the bounded query', () async {
+    final fixture = await _SearchRouteFixture.create();
+    addTearDown(fixture.dispose);
+    final raw = await ConversationSearchService(
+      index: fixture.index,
+      userIds: const {'owner', 'agent:a'},
+    ).searchAdministrative('exact', sessionIds: {fixture.owner.id, fixture.agent.id}, limit: 1);
+    final nonPageSessionId = {fixture.owner.id, fixture.agent.id}.difference({raw.hits.single.sessionId}).single;
+    fixture.sessions.revalidationMutation = () async {
+      final state = await fixture.sessions.getConversationState(nonPageSessionId);
+      await fixture.sessions.updateConversationState(nonPageSessionId, state.bumpRevision());
+    };
+
+    final outcome = await fixture.product.find(query: 'exact', limit: 1);
+
+    expect(outcome.succeeded, isFalse);
+    expect(outcome.failure, 'SEARCH_RESULTS_CHANGED');
+    expect(outcome.results, isEmpty);
+    expect(outcome.total, 0);
+  });
+
   test('selected target is reauthorized and missing targets disclose no derivative', () async {
     final fixture = await _SearchRouteFixture.create();
     addTearDown(fixture.dispose);
@@ -130,21 +171,23 @@ final class _SearchRouteFixture {
     required this.messages,
     required this.owner,
     required this.agent,
+    required this.product,
     required this.client,
   });
 
   final Directory root;
   final SqliteBackend backend;
   final SqliteFtsIndex index;
-  final SessionService sessions;
+  final _RevalidationSessionService sessions;
   final MessageService messages;
   final Session owner;
   final Session agent;
+  final ProductConversationSearchService product;
   final ApiRouteTestClient client;
 
   static Future<_SearchRouteFixture> create() async {
     final root = Directory.systemTemp.createTempSync('conversation_search_routes_');
-    final sessions = SessionService(baseDir: root.path);
+    final sessions = _RevalidationSessionService(baseDir: root.path);
     final messages = MessageService(baseDir: root.path, retentionForSession: sessions.retentionFor);
     final owner = await sessions.createSession();
     await sessions.updateTitle(owner.id, 'Owner conversation');
@@ -212,6 +255,7 @@ final class _SearchRouteFixture {
       messages: messages,
       owner: owner,
       agent: agent,
+      product: product,
       client: ApiRouteTestClient(handler),
     );
   }
@@ -220,5 +264,27 @@ final class _SearchRouteFixture {
     await messages.dispose();
     await backend.close();
     root.deleteSync(recursive: true);
+  }
+}
+
+final class _RevalidationSessionService extends SessionService {
+  new({required super.baseDir});
+
+  Future<void> Function()? revalidationMutation;
+  var _listCalls = 0;
+
+  @override
+  Future<List<Session>> listSessions({
+    SessionType? type,
+    List<SessionType>? types,
+    bool includeTaskSessions = false,
+  }) async {
+    _listCalls += 1;
+    if (_listCalls == 2) {
+      final mutation = revalidationMutation;
+      revalidationMutation = null;
+      await mutation?.call();
+    }
+    return super.listSessions(type: type, types: types, includeTaskSessions: includeTaskSessions);
   }
 }

@@ -332,6 +332,7 @@ final class ExecutionCoordinator {
           worker.lastSessionId == request.sessionId &&
           worker.request.logicalAgentId == request.logicalAgentId &&
           worker.request.workspace == request.workspace &&
+          worker.request.directory == request.directory &&
           (!worker.runner.executionPolicy.isContainer ||
               worker.request.surface == ExecutionSurface.logicalAgent &&
                   request.surface == ExecutionSurface.logicalAgent &&
@@ -347,7 +348,8 @@ final class ExecutionCoordinator {
             worker.runner.providerId == request.providerId &&
             worker.runner.executionPolicy == request.policy &&
             worker.request.logicalAgentId == request.logicalAgentId &&
-            worker.request.workspace == request.workspace,
+            worker.request.workspace == request.workspace &&
+            worker.request.directory == request.directory,
       );
     }
     return index < 0 ? null : _cache.removeAt(index);

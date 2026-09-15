@@ -55,6 +55,7 @@ export 'src/storage/webhook_delivery_store.dart'
 export 'src/storage/task_event_service.dart' show TaskEventService;
 export 'src/storage/turn_trace_service.dart' show TurnTraceService, TraceQueryResult;
 export 'src/storage/session_service.dart' show SessionService, SessionServiceObserver, ConversationRevisionMismatch;
+export 'src/storage/uuid_validation.dart' show isValidUuid;
 export 'src/storage/message_service.dart' show MessageService, MessageServiceObserver, MessageIdentityConflict;
 export 'src/storage/conversation_state.dart'
     show

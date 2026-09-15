@@ -150,7 +150,7 @@ void main() {
         config: const ContainerConfig(enabled: true, image: agentProbeImage),
         containerName: 'dartclaw-agent-workspace-${DateTime.now().microsecondsSinceEpoch}',
         profileId: 'workspace',
-        workspaceMounts: SecurityProfile.workspace(workspaceDir: agentA.path, projectDir: checkoutRoot).workspaceMounts,
+        workspaceMounts: SecurityProfile.workspace(workspaceDir: agentA.path, projectDir: null).workspaceMounts,
         generatedStateDir: p.join(dataDir.path, 'containers', 'agent-a'),
         hasMcpBridge: false,
         buildContextDir: checkoutRoot,
@@ -181,6 +181,10 @@ void main() {
       final ownerDir = await createImageOwnedWorkspace(p.join(dataDir.path, 'workspace'));
       final agentADir = await createImageOwnedWorkspace(p.join(dataDir.path, 'agents', 'a'));
       final agentBDir = await createImageOwnedWorkspace(p.join(dataDir.path, 'agents', 'b'));
+      final authorizedProject = Directory(p.join(dataDir.path, 'projects', 'authorized'))..createSync(recursive: true);
+      final unrelatedProject = Directory(p.join(dataDir.path, 'projects', 'unrelated'))..createSync();
+      File(p.join(authorizedProject.path, 'authority-marker.txt')).writeAsStringSync('AUTHORIZED-PROJECT-ONLY');
+      File(p.join(unrelatedProject.path, 'unrelated-marker.txt')).writeAsStringSync('UNRELATED-PROJECT-DENIED');
       await writeWorkspacePromptFiles(ownerDir.path);
       await writeWorkspacePromptFiles(agentADir.path);
       await writeWorkspacePromptFiles(agentBDir.path);
@@ -220,6 +224,10 @@ void main() {
         ),
         credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'integration-key')}),
         gateway: const GatewayConfig(authMode: 'none'),
+        projects: ProjectConfig(
+          definitions: {'unrelated': ProjectDefinition(id: 'unrelated', localPath: unrelatedProject.path)},
+          localPathAllowlist: [unrelatedProject.path],
+        ),
       );
       final eventBus = EventBus();
       final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: unexpectedExit);
@@ -258,6 +266,7 @@ void main() {
         required Session session,
         required String? agentId,
         required AgentWorkspace? workspace,
+        String? directory,
       }) async {
         final before = harnessConfigs.length;
         final lease = await wiring.executions.acquire(
@@ -268,6 +277,7 @@ void main() {
             sessionId: session.id,
             logicalAgentId: agentId,
             workspace: workspace,
+            directory: directory,
             allowedTools: const [],
           ),
         );
@@ -301,12 +311,23 @@ void main() {
       final owner = await acquire(session: ownerSession, agentId: null, workspace: null);
       final ownerMounts = await mounts(owner.config);
       await owner.lease.release();
-      final a = await acquire(session: aSession, agentId: 'a', workspace: workspaceA);
+      final a = await acquire(
+        session: aSession,
+        agentId: 'a',
+        workspace: workspaceA,
+        directory: authorizedProject.path,
+      );
       final aMounts = await mounts(a.config);
       final aContainer = a.config.containerManager! as ContainerManager;
       final codexVersion = (await execOutput(aContainer, [containerCodexExecutable, '--version'])).trim();
       expect(codexVersion, contains(_pinnedCodexVersion(checkoutRoot)), reason: 'actual image version: $codexVersion');
       final nativeSkills = await _codexSkillsList(aContainer, cwd: '/project');
+      final authorizedContent = await execOutput(aContainer, ['cat', '/project/authority-marker.txt']);
+      final visibleContent = await execOutput(aContainer, [
+        'sh',
+        '-c',
+        'find /workspace /project -type f -exec cat {} \\;',
+      ]);
       await a.lease.release();
       final b = await acquire(session: bSession, agentId: 'b', workspace: workspaceB);
       final bMounts = await mounts(b.config);
@@ -318,11 +339,24 @@ void main() {
       expect(_mountSourceMatches(aMounts['/workspace']!['Source']! as String, agentADir.path), isTrue);
       expect(_mountSourceMatches(bMounts['/workspace']!['Source']! as String, agentBDir.path), isTrue);
       expect(cMounts, isNot(contains('/workspace')));
-      for (final entry in [owner.config, a.config, b.config, c.config]) {
+      expect(_mountSourceMatches(aMounts['/project']!['Source']! as String, authorizedProject.path), isTrue);
+      expect(aMounts, isNot(contains('/projects')));
+      expect(bMounts, isNot(anyOf(contains('/project'), contains('/projects'))));
+      expect(
+        aMounts.values.any((mount) => _mountSourceMatches(mount['Source']! as String, unrelatedProject.path)),
+        isFalse,
+      );
+      expect(aMounts.values.any((mount) => _mountSourceMatches(mount['Source']! as String, checkoutRoot)), isFalse);
+      expect(authorizedContent, contains('AUTHORIZED-PROJECT-ONLY'));
+      expect(visibleContent, isNot(contains('UNRELATED-PROJECT-DENIED')));
+      for (final entry in [owner.config, c.config]) {
         final manager = entry.containerManager!;
         expect(manager.containerPathForHostPath(checkoutRoot), '/project');
         expect(entry.cwd, checkoutRoot);
       }
+      expect(a.config.containerManager!.containerPathForHostPath(authorizedProject.path), '/project');
+      expect(a.config.containerManager!.containerPathForHostPath(checkoutRoot), isNull);
+      expect(b.config.containerManager!.containerPathForHostPath(checkoutRoot), isNull);
       expect(a.config.skillWorkspaceDir, agentADir.path);
       expect(a.config.containerManager!.containerPathForHostPath(a.config.skillWorkspaceDir!), '/workspace');
       expect(b.config.skillWorkspaceDir, agentBDir.path);

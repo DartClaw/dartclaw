@@ -11,12 +11,16 @@ import 'package:dartclaw_runtime/src/conversation/product_conversation_search.da
 import 'package:dartclaw_runtime/src/server.dart'
     show ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
 import 'package:dartclaw_runtime/src/server_composition.dart';
+import 'package:dartclaw_runtime/src/turn_manager.dart' as server_turns show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:sqlite3/sqlite3.dart' hide Session;
+
+const _searchProjectAlpha = 's07-project-alpha';
+const _searchProjectBeta = 's07-project-beta';
 
 Future<void> main(List<String> arguments) async {
   if (arguments.length != 2) {
@@ -32,6 +36,9 @@ Future<void> main(List<String> arguments) async {
   final eventBus = EventBus();
   final sessions = SessionService(baseDir: dataDirectory, eventBus: eventBus);
   final projectDirectory = Directory(p.join(dataDirectory, 'fixture-docs'))..createSync(recursive: true);
+  final searchProjectAlphaDirectory = Directory(p.join(dataDirectory, _searchProjectAlpha))
+    ..createSync(recursive: true);
+  final searchProjectBetaDirectory = Directory(p.join(dataDirectory, _searchProjectBeta))..createSync(recursive: true);
   File(p.join(projectDirectory.path, 'reference.md')).writeAsStringSync('effective context reference');
   File(p.join(dataDirectory, 'TOOLS.md')).writeAsStringSync('Fixture browser behavior');
   final projectService = FakeProjectService(
@@ -45,9 +52,29 @@ Future<void> main(List<String> arguments) async {
         status: ProjectStatus.ready,
         createdAt: DateTime.now(),
       ),
+      Project(
+        id: _searchProjectAlpha,
+        name: 'Search Project Alpha',
+        remoteUrl: '',
+        localPath: searchProjectAlphaDirectory.path,
+        defaultBranch: 'main',
+        status: ProjectStatus.ready,
+        createdAt: DateTime.now(),
+      ),
+      Project(
+        id: _searchProjectBeta,
+        name: 'Search Project Beta',
+        remoteUrl: '',
+        localPath: searchProjectBetaDirectory.path,
+        defaultBranch: 'main',
+        status: ProjectStatus.ready,
+        createdAt: DateTime.now(),
+      ),
     ],
     defaultProjectId: 'fixture-docs',
   );
+  final config = DartclawConfig(server: ServerConfig(dataDir: dataDirectory));
+  final configWriter = ConfigWriter(configPath: p.join(dataDirectory, 'dartclaw.yaml'));
   final namedAgentSession = await sessions.createSession(
     workspace: AgentWorkspace.pinned(agentId: 'fixture-agent', directory: projectDirectory.path),
   );
@@ -57,17 +84,21 @@ Future<void> main(List<String> arguments) async {
     sessions,
     messages,
     type: SessionType.channel,
-    channelKey: 'signal:fixture-owner',
+    channelKey: SessionKey.dmPerChannelContact(channelType: ChannelType.signal.name, peerId: 'fixture-owner'),
   );
   final cronSession = await _seedExternalSession(sessions, messages, type: SessionType.cron, provider: 'claude');
   final harness = _HistoryBrowserHarness();
   final secondaryHarness = FakeAgentHarness();
+  const fixtureTurnLimits = TurnLimitsConfig(
+    stallTimeout: Duration(milliseconds: 500),
+    stallAction: TurnProgressAction.warn,
+  );
   final packageUri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
   final packageRoot = p.normalize(p.join(p.dirname(packageUri!.toFilePath()), '..'));
   initTemplates(p.join(packageRoot, 'lib', 'src', 'templates'));
 
   final runner = TurnRunner(
-    turnLimits: const TurnLimitsConfig.defaults(),
+    turnLimits: fixtureTurnLimits,
     harness: harness,
     messages: messages,
     behavior: BehaviorFileService(workspaceDir: dataDirectory),
@@ -77,13 +108,13 @@ Future<void> main(List<String> arguments) async {
     eventBus: eventBus,
   );
   final executions = ExecutionCoordinator(
-    providerCapacities: const {'acp': 1},
+    providerCapacities: const {'claude': 1, 'acp': 1},
     primary: runner,
     admitExecution: (request) => runner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
     releaseAdmission: runner.releaseAdmission,
     createWorker: (request) async => TurnRunner(
-      turnLimits: const TurnLimitsConfig.defaults(),
-      harness: secondaryHarness,
+      turnLimits: fixtureTurnLimits,
+      harness: request.providerId == 'acp' ? secondaryHarness : FakeAgentHarness(),
       messages: messages,
       behavior: BehaviorFileService(workspaceDir: dataDirectory),
       sessions: sessions,
@@ -104,17 +135,6 @@ Future<void> main(List<String> arguments) async {
     sessionsForTurns: sessions,
   );
   final recoveredSessions = await turns.detectAndCleanOrphanedTurns();
-  await turns.reserveTurn(
-    channelSession.id,
-    isHumanInput: true,
-    promptScope: PromptScope.primary,
-    origin: (channel: SessionType.channel.name, contact: null, group: false),
-  );
-  await turns.reserveTurn(
-    cronSession.id,
-    promptScope: PromptScope.primary,
-    origin: (channel: SessionType.cron.name, contact: null, group: false),
-  );
   final broadcast = SseBroadcast();
   final searchBackend = SqliteBackend(sqlite3.openInMemory());
   await SqliteSchemaGate.prepareSearch(searchBackend, storeName: 'search.db');
@@ -137,8 +157,13 @@ Future<void> main(List<String> arguments) async {
       messages: messages,
       worker: harness,
       staticDir: p.join(packageRoot, 'lib', 'src', 'static'),
+      dataDir: dataDirectory,
       kvService: kv,
       authEnabled: false,
+      config: config,
+      configWriter: configWriter,
+      runtimeConfig: RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false),
+      restartService: RestartService(turns: turns, exit: (_) {}),
       effectiveContextCapabilities: const {
         'claude': EffectiveContextCapabilities(model: true, effort: true),
         'acp': EffectiveContextCapabilities.unavailable,
@@ -165,6 +190,9 @@ Future<void> main(List<String> arguments) async {
     primary: harness,
     secondary: secondaryHarness,
     sessions: sessions,
+    turns: turns,
+    channelSession: channelSession,
+    cronSession: cronSession,
     nativeSkillInventory: nativeSkillInventory,
   );
   final httpServer = await shelf_io.serve(handler, InternetAddress.loopbackIPv4, port);
@@ -190,14 +218,14 @@ Future<void> main(List<String> arguments) async {
       'searchArchivedSessionId': searchFixture.archivedSessionId,
       'searchExactMessageId': searchFixture.exactMessageId,
       'searchMarker': 's07-exact-unloaded-marker',
-      'searchProjectAlpha': 's07-project-alpha',
-      'searchProjectBeta': 's07-project-beta',
+      'searchProjectAlpha': _searchProjectAlpha,
+      'searchProjectBeta': _searchProjectBeta,
     }),
     flush: true,
   );
   await ProcessSignal.sigterm.watch().first;
   await httpServer.close(force: true);
-  await executions.dispose();
+  await server.shutdown();
   await turnState.dispose();
   await kv.dispose();
   await eventBus.dispose();
@@ -214,18 +242,18 @@ Future<
   })
 >
 seedSearchCommandFixture(SessionService sessions, MessageService messages, Session agentA, String dataDirectory) async {
-  const projectAlpha = 's07-project-alpha';
-  const projectBeta = 's07-project-beta';
+  Directory(p.join(dataDirectory, _searchProjectAlpha)).createSync(recursive: true);
+  Directory(p.join(dataDirectory, _searchProjectBeta)).createSync(recursive: true);
   EffectiveConversationContext context(String projectId) => EffectiveConversationContext(
     projectId: projectId,
-    directory: dataDirectory,
-    referenceRoot: dataDirectory,
+    directory: p.join(dataDirectory, projectId),
+    referenceRoot: p.join(dataDirectory, projectId),
     provider: 'claude',
   );
 
   await sessions.updateConversationState(
     agentA.id,
-    (await sessions.getConversationState(agentA.id)).stageContext(context(projectAlpha)),
+    (await sessions.getConversationState(agentA.id)).stageContext(context(_searchProjectAlpha)),
   );
   await sessions.updateTitle(agentA.id, 'Search agent A');
   await messages.insertMessage(sessionId: agentA.id, role: 'assistant', content: 's07-agent-a-marker s07-scope-marker');
@@ -235,7 +263,7 @@ seedSearchCommandFixture(SessionService sessions, MessageService messages, Sessi
   );
   await sessions.updateConversationState(
     agentB.id,
-    (await sessions.getConversationState(agentB.id)).stageContext(context(projectBeta)),
+    (await sessions.getConversationState(agentB.id)).stageContext(context(_searchProjectBeta)),
   );
   await sessions.updateTitle(agentB.id, 'Search agent B');
   await messages.insertMessage(sessionId: agentB.id, role: 'assistant', content: 's07-agent-b-marker');
@@ -246,17 +274,17 @@ seedSearchCommandFixture(SessionService sessions, MessageService messages, Sessi
   );
   await sessions.updateConversationState(
     owner.id,
-    (await sessions.getConversationState(owner.id)).stageContext(context(projectAlpha)),
+    (await sessions.getConversationState(owner.id)).stageContext(context(_searchProjectAlpha)),
   );
   await sessions.updateTitle(owner.id, 'Unloaded exact match');
-  for (var index = 0; index < 180; index++) {
+  for (var index = 0; index < 280; index++) {
     final exact = index == 7 || index == 91 || index == 175;
     await messages.insertMessage(
       sessionId: owner.id,
       role: index.isEven ? 'user' : 'assistant',
       content: exact
           ? 'unsafe <img src=x onerror=globalThis.__s07Injected=true> s07-exact-unloaded-marker result $index'
-          : index == 179
+          : index == 279
           ? 's07-scope-marker active owner result'
           : 'search filler $index',
     );
@@ -267,7 +295,7 @@ seedSearchCommandFixture(SessionService sessions, MessageService messages, Sessi
   final settled = await sessions.createSession(provider: 'claude');
   await sessions.updateConversationState(
     settled.id,
-    (await sessions.getConversationState(settled.id)).stageContext(context(projectAlpha)),
+    (await sessions.getConversationState(settled.id)).stageContext(context(_searchProjectAlpha)),
   );
   await sessions.updateTitle(settled.id, 'Settled search result');
   await messages.insertMessage(
@@ -285,7 +313,7 @@ seedSearchCommandFixture(SessionService sessions, MessageService messages, Sessi
   final archived = await sessions.createSession(type: SessionType.archive, provider: 'claude');
   await sessions.updateConversationState(
     archived.id,
-    (await sessions.getConversationState(archived.id)).stageContext(context(projectBeta)),
+    (await sessions.getConversationState(archived.id)).stageContext(context(_searchProjectBeta)),
   );
   await sessions.updateTitle(archived.id, 'Archived search result');
   await messages.insertMessage(
@@ -307,10 +335,51 @@ Handler _fixtureHarnessControls(
   required FakeAgentHarness primary,
   required FakeAgentHarness secondary,
   required SessionService sessions,
+  required server_turns.TurnManager turns,
+  required Session channelSession,
+  required Session cronSession,
   required _BrowserNativeSkillInventory nativeSkillInventory,
 }) {
+  var externalActivityStarted = false;
+  String? channelTurnId;
+  String? cronTurnId;
   return (request) async {
     final segments = request.url.pathSegments;
+    if (request.method == 'POST' &&
+        segments.length == 3 &&
+        segments[0] == '__fixture' &&
+        segments[1] == 'external' &&
+        segments[2] == 'start') {
+      if (!externalActivityStarted) {
+        channelTurnId = await turns.reserveTurn(
+          channelSession.id,
+          isHumanInput: true,
+          promptScope: PromptScope.primary,
+          origin: (channel: SessionType.channel.name, contact: null, group: false),
+        );
+        cronTurnId = await turns.reserveTurn(
+          cronSession.id,
+          promptScope: PromptScope.primary,
+          origin: (channel: SessionType.cron.name, contact: null, group: false),
+        );
+        externalActivityStarted = true;
+      }
+      return Response.ok('{}', headers: const {'content-type': 'application/json'});
+    }
+    if (request.method == 'POST' &&
+        segments.length == 3 &&
+        segments[0] == '__fixture' &&
+        segments[1] == 'external' &&
+        segments[2] == 'release') {
+      final channelId = channelTurnId;
+      final cronId = cronTurnId;
+      if (channelId != null) turns.releaseTurn(channelSession.id, channelId);
+      if (cronId != null) turns.releaseTurn(cronSession.id, cronId);
+      channelTurnId = null;
+      cronTurnId = null;
+      externalActivityStarted = false;
+      return Response.ok('{}', headers: const {'content-type': 'application/json'});
+    }
     if (request.method == 'POST' &&
         segments.length == 3 &&
         segments[0] == '__fixture' &&
@@ -406,29 +475,32 @@ _seedHistoryFixture(SessionService sessions, MessageService messages, String dat
   }
 
   final now = DateTime.utc(2026, 9, 14, 12);
-  final source = await sessions.createSession(provider: 'fixture');
+  final source = await sessions.createSession(provider: 'claude');
   late Message oldMessage;
+  late Message prompt;
   for (var index = 0; index < 1998; index++) {
     final message = await messages.insertMessage(
       sessionId: source.id,
       role: index.isEven ? 'user' : 'assistant',
       content: 'Retained history message ${index + 1}',
     );
-    if (index == 19) oldMessage = message;
+    if (index == 19) {
+      oldMessage = message;
+      prompt = await messages.insertMessage(
+        sessionId: source.id,
+        role: 'user',
+        content: 'Run the retained fixture tool',
+        metadata: jsonEncode({
+          'attachments': [
+            {'id': '00000000-0000-4000-8000-000000000301', 'filename': 'fixture.txt', 'mediaType': 'text/plain'},
+          ],
+          'references': [
+            {'type': 'session', 'id': source.id, 'label': 'Fixture conversation'},
+          ],
+        }),
+      );
+    }
   }
-  final prompt = await messages.insertMessage(
-    sessionId: source.id,
-    role: 'user',
-    content: 'Run the retained fixture tool',
-    metadata: jsonEncode({
-      'attachments': [
-        {'id': '00000000-0000-4000-8000-000000000301', 'filename': 'fixture.txt', 'mediaType': 'text/plain'},
-      ],
-      'references': [
-        {'type': 'session', 'id': source.id, 'label': 'Fixture conversation'},
-      ],
-    }),
-  );
   const attachmentId = '00000000-0000-4000-8000-000000000301';
   final attachmentBytes = utf8.encode('retained fixture attachment');
   final attachmentDirectory = Directory(p.join(dataDirectory, source.id, 'attachments'))..createSync(recursive: true);
@@ -441,6 +513,7 @@ _seedHistoryFixture(SessionService sessions, MessageService messages, String dat
       'size': attachmentBytes.length,
       'digest': 'sha256:${sha256.convert(attachmentBytes)}',
       'state': 'ready',
+      'owner': 'accepted',
     }),
   );
   await messages.insertMessage(
@@ -506,7 +579,7 @@ _seedHistoryFixture(SessionService sessions, MessageService messages, String dat
       ),
     ],
   );
-  final destination = await sessions.createSession(provider: 'fixture');
+  final destination = await sessions.createSession(provider: 'claude');
   final destinationMessage = await messages.insertMessage(
     sessionId: destination.id,
     role: 'user',
@@ -528,11 +601,12 @@ _seedHistoryFixture(SessionService sessions, MessageService messages, String dat
 
   final inboxSessions = <Session>[];
   for (var index = 0; index < 202; index++) {
-    inboxSessions.add(await sessions.createSession(provider: 'fixture'));
+    inboxSessions.add(await sessions.createSession(provider: 'claude'));
   }
   final unread = inboxSessions[0];
   await sessions.updateTitle(unread.id, 'Unread build notes');
   await messages.insertMessage(sessionId: unread.id, role: 'assistant', content: 'Unread fixture result');
+  await messages.insertMessage(sessionId: unread.id, role: 'assistant', content: 'Unread fixture follow-up');
 
   final done = inboxSessions[1];
   await sessions.updateTitle(done.id, 'Completed release notes');

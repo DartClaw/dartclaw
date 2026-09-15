@@ -44,6 +44,7 @@ class _ContainerCapableSecurityWiring extends SecurityWiring {
     Set<String> allowedMcpTools = const {},
     String? artifactsDir,
     String? workspaceDir,
+    String? executionDir,
     bool useOwnerWorkspace = true,
     bool volatileGeneratedState = false,
   }) async => FakeContainerAuthorityLease();

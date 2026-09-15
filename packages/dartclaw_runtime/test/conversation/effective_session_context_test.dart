@@ -168,6 +168,63 @@ void main() {
     expect(turns.reserveCalled, isFalse);
   });
 
+  test('context changes reject retained draft references before changing state', () async {
+    final projectA = Directory('${root.path}/draft-a')..createSync();
+    final projectB = Directory('${root.path}/draft-b')..createSync();
+    File('${projectA.path}/retained.md').writeAsStringSync('retained draft reference');
+    final service = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      projects: FakeProjectService(
+        localProject: Project(
+          id: 'draft-a',
+          name: 'Draft A',
+          remoteUrl: '',
+          localPath: projectA.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.utc(2026, 9, 14),
+        ),
+        projects: [
+          Project(
+            id: 'draft-b',
+            name: 'Draft B',
+            remoteUrl: '',
+            localPath: projectB.path,
+            defaultBranch: 'main',
+            status: ProjectStatus.ready,
+            createdAt: DateTime.utc(2026, 9, 14),
+          ),
+        ],
+        defaultProjectId: 'draft-a',
+      ),
+    );
+    final draftSession = (await sessions.createSession()).id;
+    final before = await service.snapshot(draftSession);
+
+    await expectLater(
+      service.updateContext(
+        sessionId: draftSession,
+        expectedRevision: before.revision,
+        projectId: 'draft-b',
+        directory: projectB.path,
+        provider: 'claude',
+        references: const [
+          {'type': 'file', 'id': 'retained.md', 'state': 'resolved'},
+        ],
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_REFERENCE')),
+    );
+
+    final after = await service.snapshot(draftSession);
+    expect(after.revision, before.revision);
+    expect(after.nextContext?.toJson(), before.nextContext?.toJson());
+    expect(after.submissions, isEmpty);
+    expect(await messages.getMessages(draftSession), isEmpty);
+  });
+
   test('queue edits validate references against the item admitted context before mutation', () async {
     final projectA = Directory('${root.path}/project-a')..createSync();
     final projectB = Directory('${root.path}/project-b')..createSync();

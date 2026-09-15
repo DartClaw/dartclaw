@@ -21,14 +21,16 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 /// [reserveCalled] lets command-intercept tests assert a turn was never
 /// reserved.
 class FakeTurnManager extends TurnManager {
-  new(MessageService messages, AgentHarness worker)
-    : super(
+  new(MessageService messages, AgentHarness worker, {String Function()? turnIdFactory})
+    : _turnIdFactory = turnIdFactory,
+      super(
         turnLimits: const TurnLimitsConfig.defaults(),
         messages: messages,
         worker: worker,
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
       );
 
+  final String Function()? _turnIdFactory;
   bool _busy = false;
   final Map<String, String> _activeTurns = {};
   final Map<String, TurnOutcome> _outcomes = {};
@@ -73,7 +75,7 @@ class FakeTurnManager extends TurnManager {
       throw BusyTurnException('global busy', isSameSession: false);
     }
     lastPromptScope = promptScope;
-    const turnId = 'fake-turn-id';
+    final turnId = _turnIdFactory?.call() ?? 'fake-turn-id';
     _activeTurns[sessionId] = turnId;
     return turnId;
   }

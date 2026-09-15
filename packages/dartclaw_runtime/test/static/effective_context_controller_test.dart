@@ -20,6 +20,8 @@ void main() {
     final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     expect(source, contains('async applyContext(event)'));
     expect(source, contains('conversation_revision: this.conversationRevision'));
+    expect(source, contains("attachments: this.attachments.filter((item) => item.state === 'ready')"));
+    expect(source, contains("references: this.references.filter((item) => item.state === 'resolved')"));
     expect(source, contains("'/context'"));
     expect(source, contains("result.error?.message || 'Context change was rejected'"));
     final method = source.substring(

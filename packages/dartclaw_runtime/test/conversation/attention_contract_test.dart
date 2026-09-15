@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_runtime/src/concurrency/session_mutation_coordinator.dart';
 import 'package:dartclaw_runtime/src/conversation/conversation_service.dart';
 import 'package:dartclaw_runtime/src/conversation/inbox_service.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
@@ -208,6 +209,64 @@ void main() {
     await fixture.sessions.updateConversationState(id, state);
     final second = await fixture.inbox.attention(limit: 2, cursor: first.nextCursor);
     expect(second.items.map((item) => item.eventId), ['record:terminal-2', 'record:terminal-3']);
+  });
+
+  test('attention read markers never move backward, including after service restart', () async {
+    final fixture = await InboxTestFixture.create(count: 1);
+    addTearDown(fixture.dispose);
+    final id = fixture.sessionIds.single;
+    var state = await fixture.sessions.getConversationState(id);
+    for (final (recordId, offset) in [('older', 0), ('newer', 1)]) {
+      state = state.putRecord(
+        ConversationDisplayRecord(
+          id: recordId,
+          attemptId: 'attempt-$recordId',
+          turnId: 'turn-$recordId',
+          kind: ConversationRecordKind.tool,
+          state: ConversationRecordState.succeeded,
+          label: recordId,
+          createdAt: InboxTestFixture.now.add(Duration(minutes: offset)),
+          updatedAt: InboxTestFixture.now.add(Duration(minutes: offset)),
+        ),
+      );
+    }
+    await fixture.sessions.updateConversationState(id, state);
+
+    final advanced = await fixture.inbox.markAttentionRead(
+      sessionId: id,
+      expectedRevision: state.revision,
+      eventId: 'record:newer',
+    );
+    expect(advanced.accepted, isTrue);
+    final refused = await fixture.inbox.markAttentionRead(
+      sessionId: id,
+      expectedRevision: advanced.revision,
+      eventId: 'record:older',
+    );
+    expect(refused.accepted, isFalse);
+    expect(refused.code, 'ALREADY_READ');
+    expect(refused.revision, advanced.revision);
+    expect((await fixture.sessions.getSession(id))!.attentionReadEventId, 'record:newer');
+
+    final restartedSessions = SessionService(baseDir: fixture.root.path);
+    final restartedMessages = MessageService(baseDir: fixture.root.path);
+    final restartedInbox = ConversationInboxService(
+      sessions: restartedSessions,
+      messages: restartedMessages,
+      mutations: SessionMutationCoordinator(),
+    );
+    addTearDown(() async {
+      await restartedInbox.dispose();
+      await restartedMessages.dispose();
+    });
+    final afterRestart = await restartedInbox.markAttentionRead(
+      sessionId: id,
+      expectedRevision: advanced.revision,
+      eventId: 'record:older',
+    );
+    expect(afterRestart.accepted, isFalse);
+    expect(afterRestart.code, 'ALREADY_READ');
+    expect((await restartedSessions.getSession(id))!.attentionReadEventId, 'record:newer');
   });
 
   test('serialized approval authority rejects a revision changed after attention prevalidation', () async {

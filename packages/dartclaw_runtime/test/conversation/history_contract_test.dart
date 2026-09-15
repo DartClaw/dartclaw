@@ -153,6 +153,68 @@ void main() {
     expect(record.arguments!.length, lessThan(66 * 1024));
   });
 
+  test('split history windows retain their owning attempt records without export duplicates', () async {
+    final conversation = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+    final admitted = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'split-history',
+      revisionId: 'split-history-r1',
+      message: 'Start a long answer',
+      attachments: const [],
+      references: const [],
+    );
+    await conversation.recordToolTransition(
+      sessionId: sessionId,
+      attemptId: admitted.submission.attemptId!,
+      turnId: admitted.submission.turnId!,
+      toolId: 'split-tool',
+      toolName: 'shell',
+      state: ConversationRecordState.succeeded,
+      result: 'done',
+    );
+    final continuations = <Message>[];
+    for (var index = 0; index < 201; index += 1) {
+      continuations.add(
+        await messages.insertMessage(sessionId: sessionId, role: 'assistant', content: 'Continuation $index'),
+      );
+    }
+    var state = await sessions.getConversationState(sessionId);
+    state = state.put(
+      admitted.submission.copyWith(workState: ConversationWorkState.completed, updatedAt: DateTime.utc(2026, 9, 14)),
+    );
+    await sessions.updateConversationState(sessionId, state);
+    final boundedMessages = _RejectingFullHistoryMessageService(baseDir: root.path);
+    addTearDown(boundedMessages.dispose);
+    final boundedConversation = ConversationService(
+      sessions: sessions,
+      messages: boundedMessages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+
+    final tail = await boundedConversation.historyWindow(sessionId, count: 1);
+    expect((tail['messages'] as List).single['id'], continuations.last.id);
+    expect((tail['records'] as List).single['id'], 'split-tool');
+    final before = await boundedConversation.historyWindow(
+      sessionId,
+      count: 1,
+      beforeCursor: continuations.last.cursor,
+    );
+    expect((before['messages'] as List).single['id'], continuations[199].id);
+    expect((before['records'] as List).single['id'], 'split-tool');
+    final around = await boundedConversation.historyWindow(sessionId, count: 3, aroundMessageId: continuations[100].id);
+    expect((around['records'] as List).single['id'], 'split-tool');
+
+    final exported = await boundedConversation.preparedExport(sessionId, attachmentAvailability: (_) => const {});
+    expect((exported['messages'] as List), hasLength(202));
+    expect((exported['records'] as List).where((record) => (record as Map)['id'] == 'split-tool'), hasLength(1));
+  });
+
   test('approval state serializes competing decisions across expiry and mismatched identity', () async {
     var responses = 0;
     final conversation = ConversationService(
@@ -549,6 +611,13 @@ Future<void> _eventually(Future<bool> Function() condition) async {
     await Future<void>.delayed(const Duration(milliseconds: 1));
   }
   fail('Condition did not become true');
+}
+
+final class _RejectingFullHistoryMessageService extends MessageService {
+  new({required super.baseDir});
+
+  @override
+  Future<List<Message>> getMessages(String sessionId) => throw StateError('History paging used the unbounded reader');
 }
 
 final class _OperatorApprovalHarness extends FakeAgentHarness

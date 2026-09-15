@@ -32,7 +32,6 @@ export default class DcConversationCommandController extends Stimulus.Controller
 
   handleConversationChanged() {
     this.catalogs.clear();
-    this.searchGeneration++;
   }
 
   handlePopstate() {
@@ -41,6 +40,10 @@ export default class DcConversationCommandController extends Stimulus.Controller
 
   get sessionId() {
     return document.querySelector('.chat-area')?.dataset.sessionId || '';
+  }
+
+  get isTemporary() {
+    return document.querySelector('.chat-area')?.dataset.retention === 'process';
   }
 
   handleClick(event) {
@@ -306,13 +309,17 @@ export default class DcConversationCommandController extends Stimulus.Controller
       option.remove();
       return;
     }
-    sessionStorage.setItem('dartclaw-search-return', JSON.stringify({
-      href: location.href,
-      scope: option.closest('dialog')?.dataset.commandDialog || 'global',
-      query: option.closest('dialog')?.querySelector('[data-command-query]')?.value || '',
-      draft: this.textarea()?.value || '',
-      position: this.activeOption,
-    }));
+    if (this.isTemporary) {
+      sessionStorage.removeItem('dartclaw-search-return');
+    } else {
+      sessionStorage.setItem('dartclaw-search-return', JSON.stringify({
+        href: location.href,
+        scope: option.closest('dialog')?.dataset.commandDialog || 'global',
+        query: option.closest('dialog')?.querySelector('[data-command-query]')?.value || '',
+        draft: this.textarea()?.value || '',
+        position: this.activeOption,
+      }));
+    }
     location.assign(this.withToken(option.dataset.searchHref));
   }
 
@@ -364,6 +371,10 @@ export default class DcConversationCommandController extends Stimulus.Controller
   }
 
   async restoreSearchReturn() {
+    if (this.isTemporary) {
+      sessionStorage.removeItem('dartclaw-search-return');
+      return;
+    }
     let saved;
     try {
       saved = JSON.parse(sessionStorage.getItem('dartclaw-search-return') || 'null');
@@ -371,7 +382,7 @@ export default class DcConversationCommandController extends Stimulus.Controller
       sessionStorage.removeItem('dartclaw-search-return');
       return;
     }
-    if (!saved || new URL(saved.href, location.origin).pathname !== location.pathname) return;
+    if (!saved || new URL(saved.href, location.origin).href !== location.href) return;
     sessionStorage.removeItem('dartclaw-search-return');
     const textarea = this.textarea();
     if (textarea && typeof saved.draft === 'string') {

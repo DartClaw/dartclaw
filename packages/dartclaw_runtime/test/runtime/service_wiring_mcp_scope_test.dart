@@ -60,6 +60,12 @@ void main() {
         'general': ['agent-service-marker'],
       },
     );
+    File(p.join(config.workspaceDir, 'wiki', 'owner.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('owner-wiki-boundary-marker');
+    File(p.join(agentDir, 'wiki', 'agent.md'))
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('agent-wiki-boundary-marker');
     final configFile = File(p.join(root.path, 'dartclaw.yaml'))..writeAsStringSync('# test config\n');
     runtime = await DartclawRuntime.build(
       config,
@@ -152,6 +158,10 @@ void main() {
       final search = await _call(handler, 'memory_search', {'query': 'service-marker'});
       expect(search, contains('agent-service-marker'));
       expect(search, isNot(contains('owner-service-marker')));
+      final wikiSearch = await _call(handler, 'memory_search', {'query': 'wiki-boundary-marker'});
+      expect(wikiSearch, isNot(anyOf(contains('owner-wiki-boundary-marker'), contains('agent-wiki-boundary-marker'))));
+      final wikiRead = await _call(handler, 'memory_read', {'locator': 'wiki/agent.md'});
+      expect(wikiRead, isNot(contains('agent-wiki-boundary-marker')));
       final observed = await _call(handler, 'memory_observe', {
         'text': 'agent-observed-service-marker',
         'role': 'observation',
@@ -160,8 +170,9 @@ void main() {
       expect(runtime.server!.mcpHandler.toolNames, contains('context_research'));
 
       final beforeContext = File(p.join(root.path, 'agent-a', 'MEMORY.md')).readAsBytesSync();
-      final researched = await _call(handler, 'context_research', {'query': 'owner-service-marker'});
-      expect(researched, allOf(contains('owner-service-marker'), contains('"layer":"memory"')));
+      final researched = await _call(handler, 'context_research', {'query': 'owner-wiki-boundary-marker'});
+      expect(researched, allOf(contains('owner-wiki-boundary-marker'), contains('"layer":"wiki"')));
+      expect(researched, isNot(contains('agent-wiki-boundary-marker')));
       expect(File(p.join(root.path, 'agent-a', 'MEMORY.md')).readAsBytesSync(), beforeContext);
       final audit = await AuditLogReader(dataDir: root.path).read(pageSize: 100);
       expect(
@@ -193,6 +204,32 @@ void main() {
       expect(await _callRaw(denied, 'context_research', {'query': 'owner'}), contains('Tool not available'));
     },
   );
+
+  test('agent memory search suppresses stale rows when its workspace index health is degraded', () async {
+    final agentDir = p.join(root.path, 'agent-a');
+    final agent = await runtime.sessionService.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+    );
+    final handler = runtime.server!.mcpHandler.scopedTo(
+      const _AllowMemoryOnly(),
+      callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+    );
+    expect(await _call(handler, 'memory_search', {'query': 'agent-service-marker'}), contains('agent-service-marker'));
+    final corpus = MemoryCorpusService(workspaceDir: agentDir);
+    addTearDown(corpus.close);
+    final manifest = await corpus.manifest();
+    await IndexHealthStore(workspaceDir: agentDir).recordDegraded(
+      canonicalRevision: manifest.collectionRevision,
+      canonicalFingerprint: manifest.fingerprint,
+      stage: 'incrementalProjection',
+      reason: StateError('projection failed'),
+    );
+
+    final stale = await _call(handler, 'memory_search', {'query': 'agent-service-marker'});
+
+    expect(stale, isNot(contains('agent-service-marker')));
+    expect(stale, allOf(contains('"degradedLayers":["memory"]'), contains('"reason":"indexNotCurrent"')));
+  });
 
   test('missing or forged caller binding cannot fall back to owner memory', () async {
     final agent = await runtime.sessionService.createSession(

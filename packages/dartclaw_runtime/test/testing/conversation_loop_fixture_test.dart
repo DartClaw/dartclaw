@@ -25,7 +25,7 @@ void main() {
     expect((await messages.getMessages(agentA.id)).single.content, 's07-agent-a-marker s07-scope-marker');
     expect((await messages.getMessages(fixture.agentBSessionId)).single.content, 's07-agent-b-marker');
     final ownerMessages = await messages.getMessages(fixture.ownerSessionId);
-    expect(ownerMessages, hasLength(180));
+    expect(ownerMessages, hasLength(280));
     expect(
       ownerMessages.firstWhere((message) => message.id == fixture.exactMessageId).content,
       'unsafe <img src=x onerror=globalThis.__s07Injected=true> s07-exact-unloaded-marker result 7',

@@ -163,6 +163,7 @@ class SecurityWiring implements Reconfigurable {
     Set<String> allowedMcpTools = const {},
     String? artifactsDir,
     String? workspaceDir,
+    String? executionDir,
     bool useOwnerWorkspace = true,
     bool volatileGeneratedState = false,
   }) async {
@@ -180,6 +181,7 @@ class SecurityWiring implements Reconfigurable {
       hasMcpBridge: allowedMcpTools.isNotEmpty,
       artifactsDir: artifactsDir,
       workspaceDir: workspaceDir,
+      executionDir: executionDir,
       useOwnerWorkspace: useOwnerWorkspace,
       volatileGeneratedState: volatileGeneratedState,
     );
@@ -368,6 +370,7 @@ class SecurityWiring implements Reconfigurable {
       String? artifactsDir,
       bool hasMcpBridge = false,
       String? workspaceDir,
+      String? executionDir,
       bool useOwnerWorkspace = true,
       bool volatileGeneratedState = false,
     }) => ContainerManager(
@@ -376,14 +379,16 @@ class SecurityWiring implements Reconfigurable {
       ownerLabel: ContainerManager.ownerLabel(_dataDir),
       profileId: profile.id,
       workspaceMounts: profile.id == 'workspace'
-          ? [
-              ...SecurityProfile.workspace(
-                workspaceDir: workspaceDir ?? (useOwnerWorkspace ? config.workspaceDir : null),
-                projectDir: Directory.current.path,
-                projectsClonesDir: config.projectsClonesDir,
-              ).workspaceMounts,
-              ...localPathProjectMounts,
-            ]
+          ? workspaceDir != null && !useOwnerWorkspace
+                ? SecurityProfile.workspace(workspaceDir: workspaceDir, projectDir: executionDir).workspaceMounts
+                : [
+                    ...SecurityProfile.workspace(
+                      workspaceDir: useOwnerWorkspace ? config.workspaceDir : null,
+                      projectDir: Directory.current.path,
+                      projectsClonesDir: config.projectsClonesDir,
+                    ).workspaceMounts,
+                    ...localPathProjectMounts,
+                  ]
           : profile.workspaceMounts,
       generatedStateDir: generatedStateDir,
       volatileGeneratedState: volatileGeneratedState,
@@ -394,7 +399,7 @@ class SecurityWiring implements Reconfigurable {
       buildContextDir: Directory.current.path,
       workingDir: profile.id == SecurityProfile.restricted.id
           ? '/tmp'
-          : workspaceDir != null && !useOwnerWorkspace
+          : workspaceDir != null && !useOwnerWorkspace && executionDir == null
           ? '/workspace'
           : '/project',
     );
@@ -441,6 +446,7 @@ class SecurityWiring implements Reconfigurable {
             required hasMcpBridge,
             required artifactsDir,
             required workspaceDir,
+            required executionDir,
             required useOwnerWorkspace,
             required volatileGeneratedState,
           }) => buildManager(
@@ -450,6 +456,7 @@ class SecurityWiring implements Reconfigurable {
             artifactsDir: artifactsDir,
             hasMcpBridge: hasMcpBridge,
             workspaceDir: workspaceDir,
+            executionDir: executionDir,
             useOwnerWorkspace: useOwnerWorkspace,
             volatileGeneratedState: volatileGeneratedState,
           );
@@ -849,6 +856,7 @@ typedef _ContainerTemplate = ContainerManager Function(
   required String? artifactsDir,
   required bool hasMcpBridge,
   required String? workspaceDir,
+  required String? executionDir,
   required bool useOwnerWorkspace,
   required bool volatileGeneratedState,
 });

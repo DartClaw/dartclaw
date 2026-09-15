@@ -467,8 +467,15 @@ final class ConversationInboxService implements MessageServiceObserver {
     if (current.state.revision != expectedRevision) {
       return _unchanged(current, 'STALE_CONVERSATION_REVISION', 'Conversation state changed');
     }
-    if (!_attentionEventExists(current.state, eventId)) {
+    final positions = _attentionEventIds(current.state);
+    final candidatePosition = positions.indexOf(eventId);
+    if (candidatePosition < 0) {
       return _unchanged(current, 'ATTENTION_EVENT_NOT_FOUND', 'Attention event is unavailable');
+    }
+    final currentMarker = current.session.attentionReadEventId;
+    final currentPosition = currentMarker == null ? -1 : positions.indexOf(currentMarker);
+    if (currentPosition >= 0 && candidatePosition >= currentPosition) {
+      return _unchanged(current, 'ALREADY_READ', 'Attention feed is already read through this event');
     }
     return _writeMetadata(
       current,
@@ -765,6 +772,17 @@ final class ConversationInboxService implements MessageServiceObserver {
   }
 
   bool _hasUnreadAttention(Session session, ConversationState state) {
+    final eventIds = _attentionEventIds(state);
+    final marker = session.attentionReadEventId;
+    final markerIndex = marker == null ? -1 : eventIds.indexOf(marker);
+    for (var index = 0; index < eventIds.length; index += 1) {
+      if (session.dismissedAttentionEventIds.contains(eventIds[index])) continue;
+      if (markerIndex < 0 || index < markerIndex) return true;
+    }
+    return false;
+  }
+
+  List<String> _attentionEventIds(ConversationState state) {
     final candidates =
         <({String id, DateTime at})>[
           for (final record in state.records) (id: 'record:${record.id}', at: record.updatedAt),
@@ -774,12 +792,7 @@ final class ConversationInboxService implements MessageServiceObserver {
           final byTime = right.at.compareTo(left.at);
           return byTime != 0 ? byTime : left.id.compareTo(right.id);
         });
-    final markerIndex = candidates.indexWhere((candidate) => candidate.id == session.attentionReadEventId);
-    for (var index = 0; index < candidates.length; index += 1) {
-      if (session.dismissedAttentionEventIds.contains(candidates[index].id)) continue;
-      if (markerIndex < 0 || index < markerIndex) return true;
-    }
-    return false;
+    return candidates.map((candidate) => candidate.id).toList(growable: false);
   }
 }
 

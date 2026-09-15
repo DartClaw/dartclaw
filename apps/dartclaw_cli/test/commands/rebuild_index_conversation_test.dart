@@ -109,6 +109,70 @@ void main() {
     expect(disposals, 3);
   });
 
+  test('hybrid rebuild reconciles conversation vectors for a removed persisted principal', () async {
+    config = DartclawConfig(
+      server: ServerConfig(dataDir: dataDir.path),
+      search: const SearchConfig(backend: 'hybrid'),
+    );
+    await seedCanonicalMemory(config.workspaceDir);
+    final removedWorkspace = AgentWorkspace.pinned(agentId: 'removed', directory: p.join(dataDir.path, 'removed'));
+    const sessionId = '00000000-0000-4000-8000-000000000002';
+    await _writeSession(
+      config,
+      id: sessionId,
+      type: SessionType.user,
+      workspace: removedWorkspace,
+      messages: [_message('removed-message', 'assistant', 'removed principal conversation')],
+    );
+    Future<void> rebuild() async {
+      output.clear();
+      final runner = DartclawRunner()
+        ..addCommand(
+          RebuildIndexCommand(
+            config: config,
+            writeLine: output.add,
+            embeddingProviderFactory: () => CallbackEmbeddingProvider(
+              embedDocuments: (documents) async => [
+                for (final _ in documents) [1.0, 0.0],
+              ],
+            ),
+          ),
+        );
+      await runner.run(['rebuild-index', '--json']);
+    }
+
+    await rebuild();
+    var vectors = await SqliteBackend.open(config.vectorsDbPath);
+    try {
+      expect(
+        (await SqliteVectorIndex(vectors, table: VectorTable.conversationChunks).list(userId: 'agent:removed'))
+            .map((row) => row.documentId),
+        ['removed-message'],
+      );
+      expect(await SqliteVectorIndex(vectors, table: VectorTable.memoryChunks).list(userId: 'agent:removed'), isEmpty);
+    } finally {
+      await vectors.close();
+    }
+
+    await _writeSession(config, id: sessionId, type: SessionType.user, workspace: removedWorkspace, messages: []);
+    await rebuild();
+    vectors = await SqliteBackend.open(config.vectorsDbPath);
+    try {
+      expect(
+        await SqliteVectorIndex(vectors, table: VectorTable.conversationChunks).list(userId: 'agent:removed'),
+        isEmpty,
+      );
+    } finally {
+      await vectors.close();
+    }
+    final lexical = await SqliteBackend.open(config.searchDbPath);
+    try {
+      expect(await SqliteFtsIndex(lexical, table: SqliteFtsTable.conversationChunks).count(userId: 'agent:removed'), 0);
+    } finally {
+      await lexical.close();
+    }
+  });
+
   for (final failedBoundary in ['provider', 'vector store']) {
     test('hybrid $failedBoundary failure leaves both lexical corpora queryable with separate missing counts', () async {
       config = DartclawConfig(
@@ -269,12 +333,14 @@ Future<void> _writeSession(
   required String id,
   required SessionType type,
   required List<Map<String, Object?>> messages,
+  AgentWorkspace? workspace,
   bool trailingMalformedLine = false,
 }) async {
   final directory = Directory(p.join(config.sessionsDir, id))..createSync(recursive: true);
   final timestamp = DateTime.utc(2026, 9, 9, 12);
-  File(p.join(directory.path, 'meta.json'))
-      .writeAsStringSync(jsonEncode(Session(id: id, type: type, createdAt: timestamp, updatedAt: timestamp).toJson()));
+  File(p.join(directory.path, 'meta.json')).writeAsStringSync(
+    jsonEncode(Session(id: id, type: type, workspace: workspace, createdAt: timestamp, updatedAt: timestamp).toJson()),
+  );
   final lines = messages.map((message) => jsonEncode({...message, 'sessionId': id})).join('\n');
   File(p.join(directory.path, 'messages.ndjson'))
       .writeAsStringSync('$lines\n${trailingMalformedLine ? 'malformed\n' : ''}');

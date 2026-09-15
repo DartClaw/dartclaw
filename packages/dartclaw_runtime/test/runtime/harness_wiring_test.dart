@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -208,9 +209,13 @@ void main() {
     await wireHarness(fakeFactory(['claude']));
     final broadcast = harnessWiring!.sseBroadcast!;
     final client = broadcast.subscribe();
-    final frame = client.stream.first;
+    final iterator = StreamIterator(client.stream);
+    expect(await iterator.moveNext(), isTrue);
+    expect(utf8.decode(iterator.current), ': connected\n\n');
     broadcast.broadcast('budget_warning', {'percentage': 80});
-    expect(utf8.decode(await frame), 'event: budget_warning\ndata: {"percentage":80}\n\n');
+    expect(await iterator.moveNext(), isTrue);
+    expect(utf8.decode(iterator.current), 'event: budget_warning\ndata: {"percentage":80}\n\n');
+    await iterator.cancel();
     await broadcast.dispose();
   });
 

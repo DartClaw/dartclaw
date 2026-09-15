@@ -6,13 +6,17 @@ import '../storage/session_service.dart';
 /// Counts produced while projecting the authoritative conversation corpus.
 final class ConversationProjectionResult {
   /// Creates projection counts.
-  const new({required this.messageCount, required this.sessionCount});
+  new({required this.messageCount, required this.sessionCount, required Iterable<String> principals})
+    : principals = Set.unmodifiable(principals);
 
   /// Number of indexed messages.
   final int messageCount;
 
   /// Number of chat-facing sessions containing indexed messages.
   final int sessionCount;
+
+  /// Principals reconciled from configured and persisted session ownership.
+  final Set<String> principals;
 }
 
 /// Maps authoritative session NDJSON messages into the conversation index.
@@ -88,6 +92,7 @@ final class ConversationIndexProjection {
     return ConversationProjectionResult(
       messageCount: counts.values.fold(0, (total, count) => total + count),
       sessionCount: counts.length,
+      principals: principals,
     );
   }
 

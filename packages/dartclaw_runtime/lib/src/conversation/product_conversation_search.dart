@@ -124,21 +124,37 @@ final class ProductConversationSearchService {
       return ProductConversationSearchOutcome(results: const [], total: 0, failure: outcome.failure);
     }
 
-    final revalidated = <ProductConversationHit>[];
-    for (final hit in outcome.hits) {
-      final current = await sessions.getSession(hit.sessionId);
-      if (current == null) continue;
+    final currentEligible = <String, _EligibleSession>{};
+    for (final session in await sessions.listSessions(types: SessionType.values, includeTaskSessions: true)) {
       final candidate = await _eligible(
-        current,
+        session,
         principal: principal,
         scope: scope,
         lifecycle: lifecycle,
         currentSessionId: currentSessionId,
         projectId: projectId,
       );
-      if (candidate == null) continue;
+      if (candidate != null) currentEligible[session.id] = candidate;
+    }
+    if (!_sameEligibility(eligible, currentEligible)) {
+      return const ProductConversationSearchOutcome(results: [], total: 0, failure: 'SEARCH_RESULTS_CHANGED');
+    }
+
+    final revalidated = <ProductConversationHit>[];
+    for (final hit in outcome.hits) {
+      final current = await sessions.getSession(hit.sessionId);
+      final candidate = currentEligible[hit.sessionId];
+      if (current == null || candidate == null) {
+        return const ProductConversationSearchOutcome(results: [], total: 0, failure: 'SEARCH_RESULTS_CHANGED');
+      }
       final message = await messages.getMessage(hit.sessionId, hit.messageId);
-      if (message == null || !candidate.state.includesMessage(message.id)) continue;
+      if (message == null ||
+          !candidate.state.includesMessage(message.id) ||
+          message.role != hit.role ||
+          message.createdAt.toUtc() != hit.createdAt ||
+          message.content != hit.text) {
+        return const ProductConversationSearchOutcome(results: [], total: 0, failure: 'SEARCH_RESULTS_CHANGED');
+      }
       final snippet = _snippet(message.content, normalizedQuery);
       revalidated.add(
         ProductConversationHit(
@@ -157,6 +173,20 @@ final class ProductConversationSearchService {
       );
     }
     return ProductConversationSearchOutcome(results: revalidated, total: outcome.total);
+  }
+
+  bool _sameEligibility(Map<String, _EligibleSession> before, Map<String, _EligibleSession> after) {
+    if (before.length != after.length) return false;
+    for (final entry in before.entries) {
+      final current = after[entry.key];
+      if (current == null ||
+          current.principal != entry.value.principal ||
+          current.projectId != entry.value.projectId ||
+          current.state.revision != entry.value.state.revision) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<ProductConversationHit?> resolveTarget({

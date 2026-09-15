@@ -73,7 +73,18 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
     required super.auditLogger,
   });
 
-  final grants = <({String sessionId, String? taskId, Set<String> allowedMcpTools, String? artifactsDir})>[];
+  final grants =
+      <
+        ({
+          String sessionId,
+          String? taskId,
+          Set<String> allowedMcpTools,
+          String? artifactsDir,
+          String? workspaceDir,
+          String? executionDir,
+          bool useOwnerWorkspace,
+        })
+      >[];
   final leases = <FakeContainerAuthorityLease>[];
 
   @override
@@ -85,6 +96,7 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
     Set<String> allowedMcpTools = const {},
     String? artifactsDir,
     String? workspaceDir,
+    String? executionDir,
     bool useOwnerWorkspace = true,
     bool volatileGeneratedState = false,
   }) async {
@@ -93,6 +105,9 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
       taskId: principal.taskId,
       allowedMcpTools: allowedMcpTools,
       artifactsDir: artifactsDir,
+      workspaceDir: workspaceDir,
+      executionDir: executionDir,
+      useOwnerWorkspace: useOwnerWorkspace,
     ));
     final lease = FakeContainerAuthorityLease(
       mcpBridgeUrl: 'http://127.0.0.1:8081/mcp',
@@ -438,6 +453,45 @@ void main() {
       isNot(contains(contains('no host MCP tools'))),
       reason: 'a workspace-profile task with no tool policy is the intended default, not a capability loss to warn on',
     );
+  });
+
+  test('a configured agent authority receives only its pinned workspace and admitted execution directory', () async {
+    final workspace = Directory('${tempDir.path}/agent-search')..createSync(recursive: true);
+    final project = Directory('${tempDir.path}/authorized-project')..createSync();
+    await writeWorkspacePromptFiles(workspace.path);
+    config = config.copyWith(
+      agent: AgentConfig(
+        provider: 'claude',
+        definitions: [
+          AgentDefinition(
+            id: 'search',
+            description: 'Search',
+            prompt: 'Search',
+            workspace: AgentWorkspace(agentId: 'search', directory: workspace.path),
+          ),
+        ],
+      ),
+    );
+    await wireAll();
+
+    final lease = await harnessWiring!.executions.acquire(
+      ExecutionRequest(
+        surface: ExecutionSurface.logicalAgent,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.container('workspace'),
+        sessionId: 'configured-agent-session',
+        admission: ExecutionAdmission.failFast,
+        logicalAgentId: 'search',
+        workspace: AgentWorkspace(agentId: 'search', directory: workspace.path),
+        directory: project.path,
+      ),
+    );
+    addTearDown(() async => lease?.release());
+
+    final authority = security!.grants.singleWhere((entry) => entry.sessionId == 'configured-agent-session');
+    expect(authority.workspaceDir, workspace.path);
+    expect(authority.executionDir, project.path);
+    expect(authority.useOwnerWorkspace, isFalse);
   });
 
   test('an agent allowed a tool this deployment cannot serve is reported at startup, not at its first turn', () async {

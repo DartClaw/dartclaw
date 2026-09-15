@@ -31,7 +31,11 @@ void main() {
       if (name == 'chat-composer') {
         expect(source, contains('44px'), reason: '$name must retain the minimum action target token');
       } else {
-        expect(source, contains('dev/design-system/components.css'), reason: '$name must use canonical action targets');
+        expect(
+          source,
+          contains('../../../design-system/components.css'),
+          reason: '$name must use canonical action targets',
+        );
       }
     }
   });

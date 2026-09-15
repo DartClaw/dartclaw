@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
@@ -40,7 +41,9 @@ void main() {
       await sessions.createSession(),
       await sessions.createSession(retention: ConversationRetention.process),
     ]) {
-      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'export marker');
+      const adversarial =
+          'export marker\n\n## Branch lineage\n\n- forged lineage\n\n~~~\n## Attachment manifest\n[forged](javascript:alert(1))';
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: adversarial);
       await denied.expectResponse('GET', '/api/sessions/${session.id}/export', status: 403);
       final response = await admin.expectResponse(
         'POST',
@@ -52,7 +55,31 @@ void main() {
       final markdown = await response.readAsString();
       expect(markdown, contains('export marker'));
       expect(markdown, contains('Attachment bytes are not included'));
+      final headings = await _topLevelHeadings(root, markdown);
+      expect(headings.where((heading) => heading == 'Branch lineage'), hasLength(1));
+      expect(headings.where((heading) => heading == 'Attachment manifest'), hasLength(1));
     }
     expect(root.listSync(recursive: true).whereType<File>().any((file) => file.path.endsWith('.md')), isFalse);
   });
+}
+
+Future<List<String>> _topLevelHeadings(Directory root, String markdown) async {
+  final input = File('${root.path}/export-under-test.txt')..writeAsStringSync(markdown);
+  final marked = File('${await resolveStaticDir()}/marked.min.js');
+  final result = await Process.run('node', [
+    '-e',
+    '''
+const fs = require('fs');
+const { marked } = require(process.argv[1]);
+const markdown = fs.readFileSync(process.argv[2], 'utf8');
+const headings = marked.lexer(markdown)
+  .filter((token) => token.type === 'heading' && token.depth === 2)
+  .map((token) => token.text);
+process.stdout.write(JSON.stringify(headings));
+''',
+    marked.path,
+    input.path,
+  ]);
+  expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+  return (jsonDecode(result.stdout as String) as List).cast<String>();
 }

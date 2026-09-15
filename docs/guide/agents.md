@@ -122,6 +122,9 @@ use the same `agent:<agent-id>` storage principal. Startup, rebuild, and the mem
 process each configured workspace independently. The `restricted` profile exposes no workspace, and an agent without
 this key does not fall back to the owner's workspace. Claude discovers `.claude/skills` through `--add-dir`; Codex
 receives `.agents/skills` through its app-server additional-roots protocol.
+For a configured-workspace container, `/workspace` mounts that workspace and `/project` mounts only the admitted
+execution directory, when one was selected. The checkout, all-projects collection, and unrelated local projects are
+not added. Worker reuse also requires the same admitted directory.
 
 There is no implicit workspace assignment: a project, task working directory, agent name, or missing key never infers
 one and never grants the owner's workspace.

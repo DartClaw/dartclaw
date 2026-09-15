@@ -125,12 +125,126 @@ extension _ConversationServicePersistence on ConversationService {
       }
       final metadataFile = File(p.join(messages.baseDir, sessionId, 'attachments', '${attachment.id}.json'));
       final attachmentMetadata = jsonDecode(await metadataFile.readAsString());
-      if (attachmentMetadata is! Map<String, dynamic> ||
-          attachmentMetadata['owner'] != 'accepted' ||
-          attachmentMetadata['submissionId'] != submission.submissionId) {
+      if (attachmentMetadata is! Map<String, dynamic> || attachmentMetadata['owner'] != 'accepted') {
         throw StateError('Attachment ownership does not match ${attachment.id}');
       }
     }
+  }
+
+  Future<void> _ensureRecovered(String sessionId) {
+    final existing = _recoveries[sessionId];
+    if (existing != null) return existing;
+    final recovery = recoverAfterRestart(sessionId);
+    _recoveries[sessionId] = recovery;
+    return recovery.catchError((Object error, StackTrace stackTrace) {
+      _recoveries.remove(sessionId);
+      Error.throwWithStackTrace(error, stackTrace);
+    });
+  }
+
+  Future<ConversationAdmission> _recoverExisting(
+    String sessionId,
+    ConversationState state,
+    ConversationSubmissionClaim submission,
+  ) async {
+    var next = state;
+    var current = submission;
+    if (current.commitState == SubmissionCommitState.preparing) {
+      final recovered = await _completeDurableSequence(sessionId, next, current);
+      next = recovered.snapshot;
+      current = recovered.submission;
+    }
+    if (current.commitState == SubmissionCommitState.integrityFailed) {
+      throw ConversationMutationException(
+        409,
+        'SUBMISSION_INTEGRITY_FAILED',
+        'Submission recovery failed integrity checks',
+        current: next,
+      );
+    }
+    if (current.workState == ConversationWorkState.dispatching ||
+        current.workState == ConversationWorkState.running ||
+        current.workState == ConversationWorkState.uncertain) {
+      if (current.workState != ConversationWorkState.uncertain) {
+        current = current.copyWith(workState: ConversationWorkState.uncertain, updatedAt: clock().toUtc());
+        next = next.put(current);
+        await _persist(sessionId, next, current, 'dispatch_uncertain');
+      }
+      return ConversationAdmission(submission: current, snapshot: next, replayed: true);
+    }
+    if (current.workState == ConversationWorkState.accepted && !turns.isActive(sessionId)) {
+      return _dispatch(sessionId, next, current, replayed: true);
+    }
+    return ConversationAdmission(submission: current, snapshot: next, replayed: true);
+  }
+
+  Future<ConversationAdmission> _completeDurableSequence(
+    String sessionId,
+    ConversationState state,
+    ConversationSubmissionClaim submission,
+  ) async {
+    for (final attachment in submission.attachments) {
+      final dataFile = File(p.join(messages.baseDir, sessionId, 'attachments', '${attachment.id}.data'));
+      final metadataFile = File(p.join(messages.baseDir, sessionId, 'attachments', '${attachment.id}.json'));
+      final metadata = jsonDecode(await metadataFile.readAsString()) as Map<String, dynamic>;
+      final bytes = await dataFile.readAsBytes();
+      final digest = 'sha256:${sha256.convert(bytes)}';
+      if (metadata['digest'] != attachment.digest ||
+          metadata['size'] != attachment.size ||
+          bytes.length != attachment.size ||
+          digest != attachment.digest) {
+        throw StateError('Attachment manifest does not match ${attachment.id}');
+      }
+      await _hit('attachment_data', submission);
+      metadata['owner'] = 'accepted';
+      await atomicWriteJson(metadataFile, metadata);
+      await _hit('attachment_metadata', submission);
+    }
+    if (submission.attachments.isNotEmpty) {
+      final manifestFile = File(
+        p.join(sessions.baseDir, sessionId, 'conversation', 'manifests', '${submission.submissionId}.json'),
+      );
+      await manifestFile.parent.create(recursive: true);
+      final expectedManifest = <String, Object?>{
+        'submissionId': submission.submissionId,
+        'attachments': submission.attachments.map((attachment) => attachment.toJson()).toList(growable: false),
+      };
+      if (manifestFile.existsSync()) {
+        final existing = jsonDecode(await manifestFile.readAsString());
+        if (jsonEncode(existing) != jsonEncode(expectedManifest)) {
+          throw StateError('Accepted attachment manifest does not match ${submission.submissionId}');
+        }
+      } else {
+        await atomicWriteJson(manifestFile, expectedManifest);
+      }
+      await _hit('accepted_manifest', submission);
+    }
+    final metadata = await _metadataFor(sessionId, submission);
+    if (submission.replacesRevisionId == null) {
+      await messages.insertMessageWithIdentity(
+        sessionId: sessionId,
+        messageId: submission.messageId,
+        role: 'user',
+        content: submission.message,
+        metadata: metadata.isEmpty ? null : jsonEncode(metadata),
+        createdAt: submission.createdAt,
+        notifyObserver: false,
+      );
+    } else {
+      await messages.replaceMessageWithIdentity(
+        sessionId: sessionId,
+        messageId: submission.messageId,
+        content: submission.message,
+        metadata: metadata.isEmpty ? null : jsonEncode(metadata),
+      );
+    }
+    await _hit('transcript_append', submission);
+    await _writeWorkRecords(sessionId, submission, allowUpdate: submission.replacesRevisionId != null);
+    await _hit(submission.queueId == null ? 'attempt_write' : 'queue_write', submission);
+    final committed = submission.copyWith(commitState: SubmissionCommitState.committed, updatedAt: clock().toUtc());
+    final next = state.put(committed);
+    await _persist(sessionId, next, committed, 'committed_claim');
+    return ConversationAdmission(submission: committed, snapshot: next, replayed: false);
   }
 
   Future<void> _writeWorkRecords(
@@ -230,6 +344,11 @@ extension _ConversationServicePersistence on ConversationService {
     await sessions.updateConversationState(sessionId, state);
     _broadcast(sessionId, state.revision);
     await _hit(boundary, submission);
+  }
+
+  Future<void> _persistSnapshot(String sessionId, ConversationState state) async {
+    await sessions.updateConversationState(sessionId, state);
+    _broadcast(sessionId, state.revision);
   }
 
   Future<void> _hit(String boundary, ConversationSubmissionClaim submission) async {
@@ -462,5 +581,18 @@ extension _ConversationServicePersistence on ConversationService {
       next = next.putRecord(record);
     }
     return next;
+  }
+
+  ({String text, bool truncated}) _displayPayload(Object value) {
+    if (value is Map<String, dynamic>) {
+      final serialized = DailyLogToolSerializer(_redactor).serializeInput(value);
+      return (text: serialized.summary, truncated: serialized.truncated);
+    }
+    final redacted = _redactor.redact(value is String ? value : jsonEncode(value));
+    if (redacted.length <= ConversationService._maxDisplayPayloadChars) return (text: redacted, truncated: false);
+    return (
+      text: '${redacted.substring(0, ConversationService._maxDisplayPayloadChars)}\n[Display payload truncated]',
+      truncated: true,
+    );
   }
 }

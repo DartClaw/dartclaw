@@ -198,6 +198,7 @@ void main() {
     Future<ExecutionRequest> requestFor(
       String sessionId, {
       String agentName = 'main',
+      String? directory,
       List<String>? allowedTools,
     }) async {
       final (coordinator, requests) = recordingCoordinator();
@@ -208,7 +209,12 @@ void main() {
         policyResolver: resolverFor(containersEnabled: false),
       );
       addTearDown(turns.executions.dispose);
-      final turnId = await turns.reserveTurn(sessionId, agentName: agentName, allowedTools: allowedTools);
+      final turnId = await turns.reserveTurn(
+        sessionId,
+        agentName: agentName,
+        directory: directory,
+        allowedTools: allowedTools,
+      );
       final outcome = turns.waitForOutcome(sessionId, turnId);
       turns.releaseTurn(sessionId, turnId);
       await expectLater(outcome, throwsStateError);
@@ -241,6 +247,14 @@ void main() {
       final request = await requestFor(session.id, agentName: 'ana', allowedTools: const []);
 
       expect(request.allowedTools, isEmpty);
+    });
+
+    test('a turn carries its admitted execution directory into worker construction', () async {
+      final session = await sessions.createSession(type: SessionType.logicalAgent);
+
+      final request = await requestFor(session.id, agentName: 'ana', directory: '/authorized/project');
+
+      expect(request.directory, '/authorized/project');
     });
 
     test('a main channel turn requests exactly what it does today', () async {

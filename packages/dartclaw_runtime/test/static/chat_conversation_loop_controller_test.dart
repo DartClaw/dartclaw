@@ -60,6 +60,7 @@ const contextTray = { hidden: true, innerHTML: '' };
 const submissionId = { value: '' };
 const revisionId = { value: '' };
 const form = { classList: classes(), dispatchEvent() { this.submitted = true; } };
+const emptyHero = { removed: false, remove() { this.removed = true; } };
 const nodes = new Map([
   ['#message-input', textarea], ['#send-btn', send], ['#chat-form', form],
   ['[data-dc-chat-target="stopButton"]', stop], ['[data-dc-chat-target="steerButton"]', steer],
@@ -72,6 +73,7 @@ const nodes = new Map([
   ['[data-dc-chat-target="contextTray"]', contextTray],
   ['[data-dc-chat-target="submissionIdInput"]', submissionId],
   ['[data-dc-chat-target="revisionIdInput"]', revisionId],
+  ['#messages > .prompt-hero', emptyHero],
 ]);
 const element = { dataset: { sessionId: 'session-1' }, querySelector: (selector) => nodes.get(selector) || null };
 const controller = new module.default();
@@ -141,8 +143,42 @@ form.submitted = false;
 controller.handleTextareaKeydown({ isComposing: false, metaKey: true, key: 'Enter', preventDefault() { prevented = true; } });
 assert(prevented && form.submitted, 'Cmd+Enter did not submit');
 
+let authoritativeCanCancel = false;
+let authoritativeRevision = 20;
+globalThis.fetch = async () => ({
+  ok: true,
+  status: 200,
+  json: async () => ({
+    revision: authoritativeRevision,
+    submissions: [{ workState: 'running', turnId: 'turn-authoritative' }],
+    queue: [],
+    activity: {
+      ordinary_controls: true,
+      turn: { turn_id: 'turn-authoritative', state: authoritativeCanCancel ? 'waiting' : 'running', can_cancel: authoritativeCanCancel },
+    },
+  }),
+});
+controller.reconcileContext = () => {};
+controller.handleVisibleReadBoundary = () => {};
+controller.conversationRevision = 0;
+await controller.refreshConversationState();
+assert(controller.streaming && !stop.hidden && stop.disabled, 'running claim overrode authoritative non-cancellable state');
+authoritativeCanCancel = true;
+authoritativeRevision += 1;
+await controller.refreshConversationState();
+assert(!stop.disabled && !steer.disabled, 'authoritative cancellable state did not enable controls');
+
 let refreshes = 0;
 controller.refreshConversationState = () => { refreshes += 1; return Promise.resolve(); };
+controller.conversationRevision = 7;
+controller.chatRequestPending = true;
+controller.submittedDraft = controller.currentDraft();
+controller.submittedRevisionId = controller.draftRevisionId;
+controller.handleFinallyRequest({ detail: { ctx: {
+  sourceElement: { id: 'chat-form' }, status: 'swapped', response: { status: 200 },
+} } });
+assert(emptyHero.removed, 'successful admission retained the empty conversation state');
+refreshes = 0;
 controller.handleConversationChanged({ detail: { session_id: 'other', revision: 9 } });
 controller.handleConversationChanged({ detail: { session_id: 'session-1', revision: 6 } });
 controller.handleConversationChanged({ detail: { session_id: 'session-1', revision: 8 } });

@@ -187,20 +187,11 @@ PY
 for width in 375 390 768 1440; do
   for theme in dark light; do
     browser set viewport "$width" 900
-    browser set media "$theme" reduced-motion
+    set_app_theme "$SESSION" "$theme"
     artifact="temporary-${width}-${theme}"
     check "(()=>{const root=document.querySelector('#main-content');if(document.documentElement.scrollWidth>innerWidth+1)throw Error('horizontal overflow');for(const e of root.querySelectorAll('.conversation-retention-controls button')){const r=e.getBoundingClientRect();if(r.width<44||r.height<44)throw Error('retention touch target below 44px');if(!e.textContent.trim()&&!e.getAttribute('aria-label'))throw Error('unlabelled control')}if(!matchMedia('(prefers-reduced-motion: reduce)').matches)throw Error('reduced motion inactive');return {width:innerWidth,theme:'${theme}'}})()"
     browser screenshot "${EVIDENCE_ROOT}/${artifact}.png"
-    browser --json a11y --selector '#main-content' >"${EVIDENCE_ROOT}/${artifact}-a11y.json"
-    python3 - "${EVIDENCE_ROOT}/${artifact}-a11y.json" <<'PY'
-import json, sys
-result = json.load(open(sys.argv[1]))
-data = result.get('data', result)
-if 'violations' not in data or not isinstance(data['violations'], list):
-    raise SystemExit('missing structured accessibility result')
-if data['violations']:
-    raise SystemExit('accessibility violations: ' + ', '.join(v['id'] for v in data['violations']))
-PY
+    capture_accessibility "$SESSION" '#main-content' "${artifact}-a11y"
     if [ "$COMPARE_WIREFRAMES" -eq 1 ]; then
       capture_wireframe chat-conversation-cards "$artifact" "$width" "$theme"
       compare_session_to_wireframe "$SESSION" "$artifact" 20

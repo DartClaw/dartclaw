@@ -236,9 +236,15 @@ class RebuildIndexCommand extends Command<void> {
             : vectorBackend = await (_vectorBackendFactory ?? SqliteBackend.open)(config.vectorsDbPath);
         if (!postgres) await SqliteSchemaGate.prepareVectors(vectorStore, storeName: 'vectors.db');
         embeddingProvider = _embeddingProviderFactory?.call() ?? createConfiguredEmbeddingProvider(config);
+        final memoryPrincipals = {'owner', for (final scoped in workspaceCorpora) scoped.workspace.storagePrincipal};
         for (final corpus in [
-          (name: 'memory', index: memoryIndex, table: VectorTable.memoryChunks),
-          (name: 'conversation', index: conversationIndex, table: VectorTable.conversationChunks),
+          (name: 'memory', index: memoryIndex, table: VectorTable.memoryChunks, principals: memoryPrincipals),
+          (
+            name: 'conversation',
+            index: conversationIndex,
+            table: VectorTable.conversationChunks,
+            principals: conversation.principals,
+          ),
         ]) {
           final synchronizer = VectorSynchronizer(
             lexicalIndex: corpus.index,
@@ -248,7 +254,7 @@ class RebuildIndexCommand extends Command<void> {
             embeddingProvider: embeddingProvider,
             sourceLayer: corpus.name,
           );
-          for (final principal in {'owner', for (final scoped in workspaceCorpora) scoped.workspace.storagePrincipal}) {
+          for (final principal in corpus.principals) {
             try {
               final vectors = await synchronizer.rebuild(userId: principal);
               if (principal == 'owner') vectorCounts['${corpus.name}UnembeddedCount'] = vectors.unembeddedCount;

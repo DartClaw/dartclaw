@@ -311,6 +311,70 @@ void main() {
     expect(repeat.findSubmission('completion-race')?.workState, ConversationWorkState.completed);
   });
 
+  test('steer serializes cancellation and admission against completion and queued work', () async {
+    final active = await _submit(conversation, sessionId, 'steer-active', 'Original turn');
+    final queued = await _submit(conversation, sessionId, 'steer-queued', 'Already queued');
+
+    await expectLater(
+      conversation.steer(
+        sessionId: sessionId,
+        turnId: active.submission.turnId!,
+        expectedRevision: queued.snapshot.revision,
+        submissionId: 'invalid-steer',
+        revisionId: 'invalid-steer-r1',
+        message: 'Must not cancel before validation',
+        attachments: const [
+          {'id': '00000000-0000-4000-8000-000000000099'},
+        ],
+        references: const [],
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_ATTACHMENT')),
+    );
+    final afterRejectedInput = await conversation.snapshot(sessionId);
+    expect(afterRejectedInput.revision, queued.snapshot.revision);
+    expect(afterRejectedInput.findSubmission('steer-active')?.workState, ConversationWorkState.running);
+    expect(afterRejectedInput.findSubmission('invalid-steer'), isNull);
+    expect(turns.activeTurnId(sessionId), active.submission.turnId);
+
+    final steered = await conversation.steer(
+      sessionId: sessionId,
+      turnId: active.submission.turnId!,
+      expectedRevision: queued.snapshot.revision,
+      submissionId: 'steered',
+      revisionId: 'steered-r1',
+      message: 'Replacement instruction',
+      attachments: const [],
+      references: const [],
+    );
+    expect(steered.submission.workState, ConversationWorkState.running);
+    expect(steered.snapshot.findSubmission('steer-active')?.workState, ConversationWorkState.cancelled);
+    expect(steered.snapshot.findSubmission('steer-queued')?.workState, ConversationWorkState.held);
+
+    final completionSession = (await sessions.createSession()).id;
+    final completing = await _submit(conversation, completionSession, 'completing', 'Complete first');
+    final pending = await _submit(conversation, completionSession, 'completion-queued', 'Dispatch after completion');
+    turns.complete(completionSession, completing.submission.turnId!);
+    await _waitForWorkState(conversation, completionSession, 'completion-queued', ConversationWorkState.running);
+    await expectLater(
+      conversation.steer(
+        sessionId: completionSession,
+        turnId: completing.submission.turnId!,
+        expectedRevision: pending.snapshot.revision,
+        submissionId: 'must-not-steer',
+        revisionId: 'must-not-steer-r1',
+        message: 'Stale replacement',
+        attachments: const [],
+        references: const [],
+      ),
+      throwsA(
+        isA<ConversationMutationException>().having((error) => error.code, 'code', 'STALE_CONVERSATION_REVISION'),
+      ),
+    );
+    final afterCompletion = await conversation.snapshot(completionSession);
+    expect(afterCompletion.findSubmission('completion-queued')?.workState, ConversationWorkState.running);
+    expect(afterCompletion.findSubmission('must-not-steer'), isNull);
+  });
+
   test('conversation mutations reject no-match and stale input without side effects', () async {
     await expectLater(
       conversation.submit(
@@ -515,6 +579,79 @@ void main() {
     expect(opaque.submission.workState, ConversationWorkState.running);
     expect(turns.executeCount, 2);
   });
+
+  test('one accepted attachment supports queued claims retry and restart integrity', () async {
+    const attachmentId = '00000000-0000-4000-8000-000000000012';
+    await _writeReadyAttachment(temporaryDirectory, sessionId, attachmentId, utf8.encode('shared attachment'));
+    final active = await _submit(conversation, sessionId, 'shared-active', 'Active turn');
+    final first = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'shared-first',
+      revisionId: 'shared-first-r1',
+      message: 'First claim',
+      attachments: const [
+        {'id': attachmentId},
+      ],
+      references: const [],
+    );
+    final second = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'shared-second',
+      revisionId: 'shared-second-r1',
+      message: 'Second claim',
+      attachments: const [
+        {'id': attachmentId},
+      ],
+      references: const [],
+    );
+    expect(first.submission.workState, ConversationWorkState.queued);
+    expect(second.submission.workState, ConversationWorkState.queued);
+    final metadataFile = File('${temporaryDirectory.path}/$sessionId/attachments/$attachmentId.json');
+    final metadata = jsonDecode(await metadataFile.readAsString()) as Map<String, dynamic>;
+    expect(metadata['owner'], 'accepted');
+    expect(metadata, isNot(contains('submissionId')));
+
+    final stopped = await conversation.stop(sessionId: sessionId, turnId: active.submission.turnId!);
+    final released = await conversation.releaseNext(sessionId: sessionId, expectedRevision: stopped.revision);
+    expect(released.submission.submissionId, 'shared-first');
+    turns.complete(sessionId, released.submission.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'shared-first', ConversationWorkState.completed);
+    final afterFirst = await sessions.getConversationState(sessionId);
+    final secondRelease = await conversation.releaseNext(sessionId: sessionId, expectedRevision: afterFirst.revision);
+    expect(secondRelease.submission.submissionId, 'shared-second');
+    final runningSecond = secondRelease.submission;
+    turns.complete(sessionId, runningSecond.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'shared-second', ConversationWorkState.completed);
+    var state = await sessions.getConversationState(sessionId);
+    final failed = state
+        .findSubmission('shared-first')!
+        .copyWith(workState: ConversationWorkState.failed, updatedAt: DateTime.utc(2026, 9, 14, 15));
+    state = state.put(failed);
+    await sessions.updateConversationState(sessionId, state);
+    final retry = await conversation.retry(
+      sessionId: sessionId,
+      sourceAttemptId: failed.attemptId!,
+      mutationId: 'shared-retry',
+    );
+    expect(retry.submission.attachments.single.id, attachmentId);
+
+    turns.complete(sessionId, retry.submission.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'shared-retry', ConversationWorkState.completed);
+    final restarted = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+    final recovered = await restarted.snapshot(sessionId);
+    expect(recovered.findSubmission('shared-first')?.commitState, SubmissionCommitState.committed);
+    expect(recovered.findSubmission('shared-second')?.commitState, SubmissionCommitState.committed);
+    expect(recovered.findSubmission('shared-retry')?.commitState, SubmissionCommitState.committed);
+    expect(
+      recovered.submissions.where((submission) => submission.attachments.any((item) => item.id == attachmentId)),
+      hasLength(3),
+    );
+  });
 }
 
 Future<void> _writeReadyAttachment(Directory root, String sessionId, String attachmentId, List<int> bytes) async {
@@ -556,13 +693,18 @@ Future<void> _waitForWorkState(
   for (var attempt = 0; attempt < 100; attempt += 1) {
     final state = await conversation.snapshot(sessionId);
     if (state.findSubmission(submissionId)?.workState == expected) return;
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
   }
   fail('Submission $submissionId did not reach ${expected.name}');
 }
 
 final class _CompletingTurnManager extends FakeTurnManager {
-  new(super.messages, super.worker);
+  new(super.messages, super.worker) : super(turnIdFactory: _turnIds());
+
+  static String Function() _turnIds() {
+    var next = 0;
+    return () => 'fake-turn-${next++}';
+  }
 
   final Map<String, Completer<TurnOutcome>> _waiting = {};
   final List<List<Map<String, dynamic>>> executedMessages = [];
@@ -579,14 +721,14 @@ final class _CompletingTurnManager extends FakeTurnManager {
     String? source,
     String agentName = 'main',
   }) {
-    if (_waiting[sessionId]?.isCompleted ?? true) _waiting[sessionId] = Completer<TurnOutcome>();
+    if (_waiting[turnId]?.isCompleted ?? true) _waiting[turnId] = Completer<TurnOutcome>();
     executedMessages.add(messages);
     if (executedMessages.length >= 2 && !_secondDispatch.isCompleted) _secondDispatch.complete();
     super.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
   }
 
   @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => _waiting[sessionId]!.future;
+  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => _waiting[turnId]!.future;
 
   void complete(String sessionId, String turnId) {
     final outcome = TurnOutcome(
@@ -597,7 +739,7 @@ final class _CompletingTurnManager extends FakeTurnManager {
     );
     setRecentOutcome(turnId, outcome);
     releaseTurn(sessionId, turnId);
-    _waiting[sessionId]?.complete(outcome);
+    _waiting[turnId]?.complete(outcome);
   }
 }
 

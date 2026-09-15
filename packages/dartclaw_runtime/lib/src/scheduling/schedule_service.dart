@@ -1,8 +1,9 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 
 import '../api/sse_broadcast.dart';
@@ -476,7 +477,11 @@ class ScheduleService {
   Future<String?> _runJobTurn(ScheduledJob job) async {
     // Built-in callback jobs run directly — no agent turn needed.
     if (job.onExecute != null) {
-      await _sessions.getOrCreateByKey(SessionKey.cronSession(jobId: job.id), type: SessionType.cron);
+      await _sessions.getOrCreateByKey(
+        SessionKey.cronSession(jobId: _sessionJobId(job)),
+        type: SessionType.cron,
+        workspace: job.workspace,
+      );
       return job.onExecute!();
     }
 
@@ -488,9 +493,10 @@ class ScheduleService {
       prompt = resolved;
     }
 
+    final sessionJobId = _sessionJobId(job);
     final sessionKey = job.perFireSession
-        ? SessionKey.cronSession(jobId: '${job.id}:${DateTime.now().toUtc().toIso8601String()}')
-        : SessionKey.cronSession(jobId: job.id);
+        ? SessionKey.cronSession(jobId: '$sessionJobId:${DateTime.now().toUtc().toIso8601String()}')
+        : SessionKey.cronSession(jobId: sessionJobId);
 
     // Create isolated session for this cron job
     final session = await _sessions.getOrCreateByKey(
@@ -552,4 +558,11 @@ class ScheduleService {
     if (!_started || _paused.contains(job.id)) return;
     _scheduleNext(job, completedCronBoundary: completedCronBoundary);
   }
+}
+
+String _sessionJobId(ScheduledJob job) {
+  final workspace = job.workspace;
+  if (workspace == null) return job.id;
+  final binding = '${workspace.storagePrincipal}\u0000${workspace.directory}';
+  return '${job.id}:workspace-${sha256.convert(utf8.encode(binding))}';
 }

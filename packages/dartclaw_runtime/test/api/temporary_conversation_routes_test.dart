@@ -164,4 +164,94 @@ void main() {
     await expectLater(messages.insertMessage(sessionId: id, role: 'user', content: 'forged'), throwsStateError);
     expect(Directory('${root.path}/$id').existsSync(), isFalse);
   });
+
+  test('generic deletion uses the complete retryable temporary teardown authority', () async {
+    final root = Directory.systemTemp.createTempSync('temporary-delete-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final events = <String>[];
+    final sessions = _RecordingDeleteSessionService(baseDir: root.path, events: events);
+    final observer = _RecordingMessageObserver(events);
+    final messages = MessageService(baseDir: root.path, retentionForSession: sessions.retentionFor, observer: observer);
+    final worker = FakeAgentHarness();
+    final turns = _TemporaryCleanupTurnManager(messages, worker, events)..failRelease = true;
+    final processAttachments = ProcessAttachmentOwner();
+    final handler = localAdminMiddleware()(
+      sessionRoutes(
+        sessions,
+        messages,
+        turns,
+        worker,
+        defaultProvider: 'codex',
+        temporaryConversationCapability: _temporaryCapability,
+        processAttachmentOwner: processAttachments,
+      ).call,
+    );
+    final api = ApiRouteTestClient(handler);
+    final created = await api.expectJsonObject(
+      'POST',
+      '/api/sessions',
+      json: {'retention': 'process', 'disclosureAccepted': true},
+      status: 201,
+    );
+    final id = created['id'] as String;
+    final message = await messages.insertMessage(sessionId: id, role: 'user', content: 'process secret');
+    final attachment = await uploadSessionAttachment(handler, id, content: 'attachment secret');
+    final attachmentId = attachment['id'] as String;
+
+    expect(await api.expectJsonErrorCode('DELETE', '/api/sessions/$id', status: 409), 'END_INCOMPLETE');
+    expect(events, ['provider']);
+    expect(sessions.temporaryEndState(id), 'end_failed');
+    expect(await sessions.getSession(id), isNotNull);
+    expect((await messages.getMessages(id)).single.id, message.id);
+    expect(processAttachments.contains(id, attachmentId), isTrue);
+
+    turns.failRelease = false;
+    final response = await api.expectResponse('DELETE', '/api/sessions/$id', status: 204);
+    expect(response.headers['cache-control'], 'no-store');
+    expect(events, ['provider', 'provider', 'messages', 'session']);
+    expect(observer.clearedMessageIds, [message.id]);
+    expect(processAttachments.contains(id, attachmentId), isFalse);
+    expect(await sessions.getSession(id), isNull);
+  });
+}
+
+final class _RecordingDeleteSessionService extends SessionService {
+  new({required super.baseDir, required this.events});
+
+  final List<String> events;
+
+  @override
+  Future<int> deleteSession(String id) {
+    events.add('session');
+    return super.deleteSession(id);
+  }
+}
+
+final class _RecordingMessageObserver implements MessageServiceObserver {
+  new(this.events);
+
+  final List<String> events;
+  List<String> clearedMessageIds = const [];
+
+  @override
+  void onMessageAppended(Message message) {}
+
+  @override
+  void onMessagesCleared(String sessionId, List<String> messageIds) {
+    events.add('messages');
+    clearedMessageIds = messageIds;
+  }
+}
+
+final class _TemporaryCleanupTurnManager extends FakeTurnManager {
+  new(super.messages, super.worker, this.events);
+
+  final List<String> events;
+  bool failRelease = false;
+
+  @override
+  Future<void> releaseTemporarySession(String sessionId) async {
+    events.add('provider');
+    if (failRelease) throw StateError('provider release not confirmed');
+  }
 }

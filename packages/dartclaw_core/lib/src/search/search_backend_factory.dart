@@ -32,7 +32,7 @@ SearchBackend createSearchBackend({
     personal = fts5;
   }
 
-  return wikiSearch == null
+  return wikiSearch == null && indexHealthProbe == null
       ? personal
       : ComposedSearchBackend(personal: personal, wiki: wikiSearch, indexHealthProbe: indexHealthProbe);
 }

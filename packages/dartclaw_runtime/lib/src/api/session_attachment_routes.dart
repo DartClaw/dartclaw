@@ -114,6 +114,9 @@ void registerSessionAttachmentRoutes(
     String id,
     String attachmentId,
   ) async {
+    if (!isValidUuid(attachmentId)) {
+      return errorResponse(400, 'INVALID_ATTACHMENT_ID', 'Attachment ID must be a lowercase UUID');
+    }
     try {
       return await sessionMutations.run(id, () async {
         final session = await sessions.getSession(id);

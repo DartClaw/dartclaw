@@ -43,19 +43,13 @@ void registerSessionLifecycleRoutes(
         if (session.retention != ConversationRetention.process) {
           return errorResponse(409, 'INVALID_STATE', 'Only temporary conversations can be ended here');
         }
-        sessions.markTemporaryEnding(id);
-        try {
-          await turns.cancelTurn(id);
-          await turns.waitForCompletion(id);
-          await turns.releaseTemporarySession(id);
-          processAttachments.clearSession(id);
-          await messages.clearMessages(id);
-          await sessions.deleteSession(id);
-        } catch (error) {
-          sessions.markTemporaryEndFailed(id);
-          return errorResponse(409, 'END_INCOMPLETE', 'Temporary conversation cleanup was not confirmed; retry ending');
-        }
-        return Response(204, headers: {'cache-control': 'no-store'});
+        return _endTemporarySession(
+          id,
+          sessions: sessions,
+          messages: messages,
+          turns: turns,
+          processAttachments: processAttachments,
+        );
       });
     } catch (e) {
       sessions.markTemporaryEndFailed(id);
@@ -74,6 +68,15 @@ void registerSessionLifecycleRoutes(
         }
         if (SessionService.protectedTypes.contains(session.type)) {
           return errorResponse(403, 'FORBIDDEN', 'Cannot delete ${session.type.name} session');
+        }
+        if (session.retention == ConversationRetention.process) {
+          return _endTemporarySession(
+            id,
+            sessions: sessions,
+            messages: messages,
+            turns: turns,
+            processAttachments: processAttachments,
+          );
         }
 
         await turns.cancelTurn(id);
@@ -197,6 +200,28 @@ void registerSessionLifecycleRoutes(
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to reset session');
     }
   });
+}
+
+Future<Response> _endTemporarySession(
+  String id, {
+  required SessionService sessions,
+  required MessageService messages,
+  required TurnManager turns,
+  required ProcessAttachmentOwner processAttachments,
+}) async {
+  sessions.markTemporaryEnding(id);
+  try {
+    await turns.cancelTurn(id);
+    await turns.waitForCompletion(id);
+    await turns.releaseTemporarySession(id);
+    processAttachments.clearSession(id);
+    await messages.clearMessages(id);
+    await sessions.deleteSession(id);
+  } catch (error) {
+    sessions.markTemporaryEndFailed(id);
+    return errorResponse(409, 'END_INCOMPLETE', 'Temporary conversation cleanup was not confirmed; retry ending');
+  }
+  return Response(204, headers: {'cache-control': 'no-store'});
 }
 
 String _withSidebarOobSwap(String html) {

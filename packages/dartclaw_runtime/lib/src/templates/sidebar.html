@@ -123,13 +123,17 @@
       hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
       hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
       <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
-      <span class="session-item-title" tl:attr="data-session-title-id=${entry.id}" tl:text="${entry.title}">Session</span>
-      <span class="session-item-state" data-inbox-state-label></span>
-      <span class="session-item-lineage" data-inbox-lineage></span>
-      <span class="running-elapsed" data-inbox-running-elapsed></span>
-      <span tl:if="${entry.showProvider}" class="provider-badge"
-        tl:classappend="'provider-badge-' + ${entry.provider}"
-        tl:text="${entry.providerLabel}">Claude</span></a>
+      <span class="session-item-copy">
+        <span class="session-item-title" tl:attr="data-session-title-id=${entry.id}" tl:text="${entry.title}">Session</span>
+        <span class="session-item-meta">
+          <span class="session-item-state" data-inbox-state-label></span>
+          <span class="session-item-lineage" data-inbox-lineage></span>
+          <span class="running-elapsed" data-inbox-running-elapsed></span>
+          <span tl:if="${entry.showProvider}" class="provider-badge"
+            tl:classappend="'provider-badge-' + ${entry.provider}"
+            tl:text="${entry.providerLabel}">Claude</span>
+        </span>
+      </span></a>
     <button class="session-action session-settle" type="button" data-inbox-settle aria-label="Settle chat">Settle</button>
     <button class="session-action session-archive" data-session-archive="true"
       tl:attr="data-session-id=${entry.id},data-icon=${'archive'}" aria-label="Archive chat"></button>

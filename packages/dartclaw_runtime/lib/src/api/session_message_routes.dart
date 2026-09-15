@@ -152,12 +152,17 @@ void registerSessionMessageRoutes(
       if (kind == null) return errorResponse(400, 'INVALID_BRANCH_KIND', 'kind must be edit or fork');
       final mutationId = fields['mutation_id']?.trim() ?? '';
       if (mutationId.isEmpty) return errorResponse(400, 'INVALID_MUTATION_ID', 'mutation_id is required');
+      final expectedRevision = int.tryParse(fields['conversation_revision'] ?? '');
+      if (expectedRevision == null) {
+        return errorResponse(400, 'INVALID_INPUT', 'conversation_revision is required');
+      }
       final link = await conversation.branchFromMessage(
         sessionId: id,
         sourceMessageId: messageId,
         mutationId: mutationId,
         kind: kind,
         editedMessage: fields['message'],
+        expectedRevision: expectedRevision,
       );
       return jsonResponse(201, link);
     } on ConversationMutationException catch (e) {

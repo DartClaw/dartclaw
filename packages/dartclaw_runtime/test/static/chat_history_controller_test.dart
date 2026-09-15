@@ -93,7 +93,7 @@ const element = {
   },
 };
 const controller = new module.default();
-Object.assign(controller, { element, historyViewState: null });
+Object.assign(controller, { element, historyViewState: null, conversationRevision: 17 });
 controller.captureHistoryFocus = () => ({ messageId: 'message-2', toolId: 'tool-1' });
 controller.captureHistorySelection = () => ({ messageId: 'message-2', start: 2, end: 5 });
 let selectionRestored = null;
@@ -157,6 +157,7 @@ await controller.runHistoryAction(edit);
 const editBody = JSON.parse(request.options.body);
 assert(request.url.endsWith('/messages/message-1/branch'), 'edit source boundary was not addressed');
 assert(editBody.kind === 'edit' && editBody.message === 'Edited prompt', 'edited message was not captured before branching');
+assert(editBody.conversation_revision === 17, 'edit omitted the rendered conversation revision');
 assert(dialogState.inputOptions.value === 'Original' && dialogState.inputOptions.confirmLabel === 'Continue', 'edit dialog lost its source value or action');
 
 request = null;
@@ -176,5 +177,6 @@ dialogState.confirmResult = true;
 await controller.runHistoryAction(fork);
 const forkBody = JSON.parse(request.options.body);
 assert(forkBody.kind === 'fork' && !('message' in forkBody), 'fork did not preserve its completed boundary');
+assert(forkBody.conversation_revision === 17, 'fork omitted the rendered conversation revision');
 assert(dialogState.confirmOptions.title === 'Fork from here?' && dialogState.confirmOptions.confirmLabel === 'Fork', 'fork confirmation was not explicit');
 ''';

@@ -59,6 +59,9 @@ void main() {
       final agentSession = await sessions.createSession(
         workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
       );
+      final removedSession = await sessions.createSession(
+        workspace: AgentWorkspace.pinned(agentId: 'removed', directory: '${temp.path}/removed-agent'),
+      );
       await messages.insertMessage(
         sessionId: ownerSession.id,
         role: 'user',
@@ -68,6 +71,11 @@ void main() {
         sessionId: agentSession.id,
         role: 'user',
         content: 'agentconversationneedle likes cocoa',
+      );
+      await messages.insertMessage(
+        sessionId: removedSession.id,
+        role: 'user',
+        content: 'removedconversationneedle remains administratively visible',
       );
       await messages.dispose();
       var embedded = 0;
@@ -92,6 +100,7 @@ void main() {
         'memory:agent:a',
         'conversation',
         'conversation:agent:a',
+        'conversation:agent:removed',
       ]);
       expect(
         await PostgresFtsIndex(
@@ -120,7 +129,7 @@ void main() {
       final recoveredData = jsonDecode(recovered.lines.single) as Map<String, dynamic>;
       expect(recoveredData['memoryUnembeddedCount'], 0);
       expect(recoveredData['conversationUnembeddedCount'], 0);
-      expect(embedded, 4);
+      expect(embedded, 5);
       expect((await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner')), hasLength(1));
       expect(
         (await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'agent:a')),
@@ -134,11 +143,21 @@ void main() {
         (await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'agent:a')),
         hasLength(1),
       );
+      expect(
+        (await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'agent:removed')),
+        hasLength(1),
+      );
+      expect(
+        await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'agent:removed'),
+        isEmpty,
+      );
       expect((await _run(settings, namespace, json: true, embeddingProviderFactory: provider)).code, 0);
-      expect(embedded, 4, reason: 'a second lexical publication must reuse matching vector rows');
+      expect(embedded, 5, reason: 'a second lexical publication must reuse matching vector rows');
 
       await seedCanonicalMemory(settings.workspaceDir);
-      await Directory(settings.sessionsDir).delete(recursive: true);
+      for (final session in [ownerSession, agentSession, removedSession]) {
+        File('${settings.sessionsDir}/${session.id}/messages.ndjson').writeAsStringSync('');
+      }
       final cleared = await _run(settings, namespace, json: true, embeddingProviderFactory: provider);
       expect(cleared.code, 0);
       expect(await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner'), isEmpty);
@@ -146,6 +165,10 @@ void main() {
       expect(await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'owner'), isEmpty);
       expect(
         await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'agent:a'),
+        isEmpty,
+      );
+      expect(
+        await PostgresVectorIndex(backend, table: VectorTable.conversationChunks).list(userId: 'agent:removed'),
         isEmpty,
       );
       expect(_databaseFiles(temp), isEmpty);

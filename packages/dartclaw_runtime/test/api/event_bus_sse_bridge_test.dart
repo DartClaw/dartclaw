@@ -12,6 +12,10 @@ Future<String> _nextFrame(StreamIterator<String> iterator) async {
   return iterator.current;
 }
 
+Future<void> _expectConnected(StreamIterator<String> iterator) async {
+  expect(await _nextFrame(iterator), ': connected\n\n');
+}
+
 Map<String, dynamic> _decodeDataPayload(String frame) {
   final lines = frame.trim().split('\n');
   final dataLine = lines.firstWhere((line) => line.startsWith('data: '));
@@ -42,6 +46,7 @@ void main() {
     final client = broadcast.subscribe();
     final iterator = StreamIterator(client.stream.transform(utf8.decoder));
     addTearDown(iterator.cancel);
+    await _expectConnected(iterator);
 
     final bridge = EventBusSseBridge(bus: eventBus, broadcast: broadcast);
     addTearDown(bridge.cancel);
@@ -92,6 +97,7 @@ void main() {
     final client = broadcast.subscribe();
     final iterator = StreamIterator(client.stream.transform(utf8.decoder));
     addTearDown(iterator.cancel);
+    await _expectConnected(iterator);
 
     final bridge = EventBusSseBridge(bus: eventBus, broadcast: broadcast);
     addTearDown(bridge.cancel);
@@ -113,6 +119,7 @@ void main() {
     final client = broadcast.subscribe();
     final iterator = StreamIterator(client.stream.transform(utf8.decoder));
     addTearDown(iterator.cancel);
+    await _expectConnected(iterator);
 
     final bridge = EventBusSseBridge(bus: eventBus, broadcast: broadcast);
     addTearDown(bridge.cancel);

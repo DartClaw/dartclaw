@@ -72,6 +72,8 @@ void registerSessionConversationRoutes(
         provider: value['provider'] as String,
         model: value['model'] as String?,
         effort: value['effort'] as String?,
+        attachments: _objects(value['attachments']),
+        references: _objects(value['references']),
       );
       final session = await sessions.getSession(id);
       if (session == null) return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
@@ -168,22 +170,29 @@ void registerSessionConversationRoutes(
       if (session.type != SessionType.user && session.type != SessionType.main) {
         return errorResponse(409, 'STEER_UNSUPPORTED', 'Steer is available only for ordinary conversations');
       }
-      final status = turns.turnStatus(id);
-      if (status.turnId == null || !status.canCancel) {
-        return errorResponse(409, 'STEER_UNSUPPORTED', 'Steer requires a cancellable active turn');
-      }
       final body = await readJsonObject(request);
       if (body.error != null) return errorResponse(400, 'INVALID_INPUT', 'JSON body must be an object');
       final value = body.value!;
-      if (value['submission_id'] is! String || value['revision_id'] is! String || value['message'] is! String) {
-        return errorResponse(400, 'INVALID_INPUT', 'submission_id, revision_id, and message are required');
+      if (value['turn_id'] is! String ||
+          value['conversation_revision'] is! int ||
+          value['submission_id'] is! String ||
+          value['revision_id'] is! String ||
+          value['message'] is! String) {
+        return errorResponse(
+          400,
+          'INVALID_INPUT',
+          'turn_id, conversation_revision, submission_id, revision_id, and message are required',
+        );
       }
-      await conversation.stop(sessionId: id, turnId: status.turnId!);
-      final result = await conversation.submit(
+      final message = (value['message'] as String).trim();
+      if (message.isEmpty) return errorResponse(400, 'INVALID_INPUT', 'message must not be empty');
+      final result = await conversation.steer(
         sessionId: id,
+        turnId: value['turn_id'] as String,
+        expectedRevision: value['conversation_revision'] as int,
         submissionId: value['submission_id'] as String,
         revisionId: value['revision_id'] as String,
-        message: value['message'] as String,
+        message: message,
         attachments: _objects(value['attachments']),
         references: _objects(value['references']),
       );

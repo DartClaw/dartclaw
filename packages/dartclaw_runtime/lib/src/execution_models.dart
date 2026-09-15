@@ -22,6 +22,7 @@ final class ExecutionRequest {
     this.taskId,
     this.logicalAgentId,
     this.workspace,
+    this.directory,
     this.allowedTools,
     this.artifactsDir,
     this.spawnEnvironment,
@@ -52,6 +53,12 @@ final class ExecutionRequest {
   /// Workspace identity pinned to the session, separate from any selected
   /// project or per-turn working directory.
   final AgentWorkspace? workspace;
+
+  /// The execution directory already admitted by the requesting surface.
+  ///
+  /// This remains separate from [workspace]: selecting a project changes where
+  /// the turn runs without changing its workspace principal.
+  final String? directory;
 
   /// The tool policy already in force for this execution, when it carries one
   /// of its own rather than a logical agent's.
@@ -85,6 +92,7 @@ final class ExecutionRequest {
       taskId: taskId,
       logicalAgentId: logicalAgentId,
       workspace: workspace,
+      directory: directory,
       allowedTools: allowedTools,
       artifactsDir: artifactsDir,
       spawnEnvironment: spawnEnvironment,

@@ -520,7 +520,7 @@ A security profile defines one container's mounts, network, and capabilities. It
 
 | Profile | Container Name | Mounts | Used By |
 |---------|---------------|--------|---------|
-| **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw` when granted, `/projects:ro`, `/project:ro` (legacy alias) | Owner and configured named-agent chats, default tasks, cron jobs |
+| **workspace** | `dartclaw-<hash>-workspace` | Configured agents: `/workspace:rw` plus admitted directory at `/project:ro`; legacy owner/unconfigured grants retain `/projects:ro` and `/project:ro` | Owner and configured named-agent chats, default tasks, cron jobs |
 | **restricted** | `dartclaw-<hash>-restricted` | No workspace or project mounts | Search agent, explicitly declared tasks |
 
 **Container naming**: `dartclaw-<fnv1a8(dataDir)>-<profileId>-<epoch><authorityId>` uses a deterministic
@@ -558,7 +558,8 @@ ADR-016 makes provider selection first-class, so sandbox settings need to reflec
 The worktree rows are intentionally narrower than the Docker rows: they assume a trusted host-side task workspace and preserve Codex's own sandboxing instead of widening to `danger-full-access`. That keeps task execution deterministic while still respecting the per-provider boundary described in ADR-016.
 
 A named agent's configured workspace is a separate execution principal input. Workspace-profile containers mount that
-directory at `/workspace`; an authorized project remains `/project`, and absent-workspace agents receive no
+directory at `/workspace`; only the admitted execution directory is added at `/project`, with no checkout, clones-root,
+or unrelated local-project mounts. Cached workers must match that directory. Absent-workspace agents receive no
 `/workspace` mount. The same pinned directory supplies Claude's additional-directory skill root and Codex's
 process-scoped `.agents/skills` root. Codex host `workspaceWrite` turns include the permitted workspace in
 `sandboxPolicy.writableRoots`; `readOnly` and restricted workers do not inherit it. Tool grants remain the authority for
@@ -1056,7 +1057,8 @@ TaskFileGuard (multi-project)
 - Registration is removed on task completion (accept, reject, cancel) but preserved on failure for debugging
 - In multi-project mode, worktrees are nested under `<dataDir>/projects/<projectId>/`, so each task is scoped to its assigned project's directory
 
-**Multi-project scoping note**: The parent-directory mount (`/projects:ro`) gives the agent OS-level read access to all project clones. `TaskFileGuard` provides the application-layer write scoping — the agent is constrained to its assigned task's worktree directory and cannot write to other project directories. This application-layer boundary is acceptable for DartClaw's single-user product scope, where the primary security boundary remains Docker container isolation.
+**Multi-project scoping note**: Legacy owner and unconfigured-agent profiles retain the parent-directory mount (`/projects:ro`) gives the agent OS-level read access to all project clones. `TaskFileGuard` provides the application-layer write scoping — the agent is constrained to its assigned task's worktree directory and cannot write to other project directories. This application-layer boundary is acceptable for DartClaw's single-user product scope, where the primary security boundary remains Docker container isolation. Configured-workspace agents instead receive
+only their workspace and admitted execution directory, as described above.
 
 This is distinct from `FileGuard` (which protects sensitive system paths globally). `TaskFileGuard` provides path
 containment for a task after its declared git worktree has been registered.

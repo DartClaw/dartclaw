@@ -115,10 +115,18 @@ void main() {
 
   test('steer rejects unavailable and nonordinary capability without side effects', () async {
     final ordinary = await sessions.createSession();
+    final ordinaryTurnId = await turns.reserveTurn(ordinary.id);
+    turns.canCancelActiveTurn = false;
     final unavailable = await api.expectJsonErrorCode(
       'POST',
       '/api/sessions/${ordinary.id}/steer',
-      body: jsonEncode({'submission_id': 'submission', 'revision_id': 'revision', 'message': 'must stay unsent'}),
+      body: jsonEncode({
+        'turn_id': ordinaryTurnId,
+        'conversation_revision': 0,
+        'submission_id': 'submission',
+        'revision_id': 'revision',
+        'message': 'must stay unsent',
+      }),
       headers: {'content-type': 'application/json'},
       status: 409,
     );
@@ -1429,34 +1437,57 @@ void main() {
       expect(body['state'], equals('ready'));
       expect(body, isNot(contains('contentPath')));
       expect(body, isNot(contains('contentPreview')));
-      expect(File('${tempDir.path}/${session.id}/attachments/${body['id']}.json').existsSync(), isTrue);
-      expect(
-        File('${tempDir.path}/${session.id}/attachments/${body['id']}.json').readAsStringSync(),
-        isNot(contains('contentPath')),
-      );
-      expect(
-        File('${tempDir.path}/${session.id}/attachments/${body['id']}.data').readAsStringSync(),
-        'attached content',
-      );
+      final metadata = File('${tempDir.path}/${session.id}/attachments/${body['id']}.json');
+      expect(metadata.existsSync(), isTrue);
+      expect(metadata.readAsStringSync(), isNot(contains('contentPath')));
+      final content = File('${tempDir.path}/${session.id}/attachments/${body['id']}.data').readAsStringSync();
+      expect(content, 'attached content');
+    });
+
+    test('attachment deletion rejects path syntax before touching files on every host', () async {
+      final session = await sessions.createSession();
+      final attachment = await uploadSessionAttachment(handler, session.id);
+      final route = '/api/sessions/${session.id}/attachments';
+      final sentinel = File(p.join(tempDir.path, session.id, 'outside.data'))..writeAsStringSync('outside marker');
+      final metadata = File(p.join(tempDir.path, session.id, 'outside.json'))..writeAsStringSync('{}');
+      for (final invalid in [
+        r'..\outside',
+        '../outside',
+        r'../..\outside',
+        '.',
+        '..',
+        '',
+        r'..%5coutside',
+        'not-issued',
+        (attachment['id'] as String).toUpperCase(),
+      ]) {
+        final response = await api.request('DELETE', '$route/${Uri.encodeComponent(invalid)}');
+        expect(
+          response.statusCode,
+          invalid.isEmpty || invalid == '.' || invalid == '..' || invalid.contains('/') ? anyOf(400, 404) : 400,
+          reason: invalid,
+        );
+        expect(sentinel.readAsStringSync(), 'outside marker', reason: invalid);
+        expect(metadata.readAsStringSync(), '{}', reason: invalid);
+      }
+      await api.expectResponse('DELETE', '$route/${attachment['id']}', status: 200);
+      expect(File(p.join(tempDir.path, session.id, 'attachments', '${attachment['id']}.data')).existsSync(), isFalse);
+      expect(sentinel.readAsStringSync(), 'outside marker');
     });
 
     test('allows attachment-only sends', () async {
       final session = await sessions.createSession();
       final attachment = await uploadSessionAttachment(handler, session.id);
 
-      final res = await handler(
-        Request(
-          'POST',
-          Uri.parse('http://localhost/api/sessions/${session.id}/send'),
-          body: jsonEncode({
-            'message': '',
-            'attachments': [attachment],
-          }),
-          headers: {'content-type': 'application/json'},
-        ),
+      await api.expectResponse(
+        'POST',
+        '/api/sessions/${session.id}/send',
+        json: {
+          'message': '',
+          'attachments': [attachment],
+        },
+        status: 200,
       );
-
-      expect(res.statusCode, equals(200));
       expect(
         (jsonDecode((await messages.getMessages(session.id)).single.metadata!) as Map)['attachments'],
         hasLength(1),
@@ -1483,12 +1514,7 @@ void main() {
       final session = await sessions.createSession();
       await sessions.updateTitle(session.id, 'Release planning');
 
-      final res = await handler(
-        Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/references?q=release')),
-      );
-
-      expect(res.statusCode, equals(200));
-      final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
+      final body = await api.expectJsonObject('GET', '/api/sessions/${session.id}/references?q=release');
       final refs = body['references'] as List<dynamic>;
       expect(refs, contains(predicate((ref) => (ref as Map<String, dynamic>)['label'] == 'Release planning')));
     });

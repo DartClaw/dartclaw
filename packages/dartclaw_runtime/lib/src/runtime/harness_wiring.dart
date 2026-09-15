@@ -1041,6 +1041,7 @@ class HarnessWiring {
               allowedMcpTools: bridgedMcpTools,
               artifactsDir: request.artifactsDir,
               workspaceDir: request.workspace?.directory,
+              executionDir: request.directory,
               useOwnerWorkspace: request.logicalAgentId == null,
               volatileGeneratedState: request.retention == ConversationRetention.process,
             );

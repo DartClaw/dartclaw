@@ -99,18 +99,20 @@ void main() {
           expect(await fixture.run('none'), 0, reason: '$boundary retry');
           final metadata = jsonDecode(fixture.attachmentMetadata.readAsStringSync()) as Map<String, dynamic>;
           expect(metadata['owner'], 'accepted', reason: boundary);
-          expect(metadata['submissionId'], 'stable-submission', reason: boundary);
+          expect(metadata, isNot(contains('submissionId')), reason: boundary);
           expect(fixture.attachmentData.readAsBytesSync(), utf8.encode('attachment bytes'), reason: boundary);
           expect(fixture.acceptedManifest.existsSync(), isTrue, reason: boundary);
           final manifest = jsonDecode(fixture.acceptedManifest.readAsStringSync()) as Map<String, dynamic>;
           expect(manifest['submissionId'], 'stable-submission', reason: boundary);
-          expect((manifest['attachments'] as List<dynamic>).single, {
+          final acceptedAttachment = {
             'id': fixture.attachmentId,
             'filename': 'proof.txt',
             'mediaType': 'text/plain',
             'size': utf8.encode('attachment bytes').length,
             'digest': 'sha256:${sha256.convert(utf8.encode('attachment bytes'))}',
-          });
+          };
+          expect({for (final key in acceptedAttachment.keys) key: metadata[key]}, acceptedAttachment, reason: boundary);
+          expect((manifest['attachments'] as List<dynamic>).single, acceptedAttachment, reason: boundary);
           expect(fixture.invocationCount, 1, reason: boundary);
         } finally {
           fixture.dispose();

@@ -104,7 +104,7 @@
   <div tl:if="${readOnly}" class="input-area">
     <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>
   </div>
-  <div tl:unless="${readOnly}" class="input-area">
+  <div tl:unless="${readOnly}" class="input-area conversation-input-area">
     <section tl:if="${hasEffectiveContext}" id="effective-context-summary" class="card card-compact"
              aria-label="Effective context">
       <div><span class="meta-label">Workspace owner</span>
@@ -195,7 +195,7 @@
       <input type="hidden" name="revision_id" data-dc-chat-target="revisionIdInput" value="">
       <input id="composer-files" type="file" multiple hidden data-action="change->dc-chat#chooseFiles">
       <div class="composer-toolbar">
-        <div class="composer-hints" aria-label="Composer shortcuts">
+        <div class="composer-hints" role="group" aria-label="Composer shortcuts">
           <span><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> send</span>
         </div>
         <div class="chip-row" aria-label="Suggested prompts">

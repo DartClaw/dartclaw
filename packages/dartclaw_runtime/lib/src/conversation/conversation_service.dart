@@ -160,6 +160,8 @@ final class ConversationService {
     required String provider,
     String? model,
     String? effort,
+    List<Map<String, dynamic>> attachments = const [],
+    List<Map<String, dynamic>> references = const [],
   }) => _ensureRecovered(sessionId).then(
     (_) => mutations.run(sessionId, () async {
       var state = await sessions.getConversationState(sessionId);
@@ -172,6 +174,8 @@ final class ConversationService {
         model: model,
         effort: effort,
       );
+      await _validateReferences(context, references);
+      await _attachmentManifests(sessionId, attachments);
       final next = state.stageContext(context);
       await sessions.updateConversationState(sessionId, next);
       _broadcast(sessionId, next.revision);
@@ -263,11 +267,28 @@ final class ConversationService {
       visible = hasEarlier ? bounded.sublist(1) : bounded;
     }
     final visibleIds = visible.map((message) => message.id).toSet();
+    final claimsByMessageId = <String, ConversationSubmissionClaim>{
+      for (final submission in state.submissions)
+        if (state.includesMessage(submission.messageId)) submission.messageId: submission,
+    };
     final attempts = state.submissions
         .where((submission) => visibleIds.contains(submission.messageId))
         .map((submission) => submission.attemptId)
         .nonNulls
         .toSet();
+    if (visible case [final first, ...]) {
+      if (!claimsByMessageId.containsKey(first.id)) {
+        final preceding = await messages.getMessagesBeforeWhere(
+          sessionId,
+          first.cursor,
+          include: (message) => claimsByMessageId.containsKey(message.id),
+          count: 1,
+        );
+        if (preceding.lastOrNull case final message?) {
+          if (claimsByMessageId[message.id]?.attemptId case final attemptId?) attempts.add(attemptId);
+        }
+      }
+    }
     return {
       'revision': state.revision,
       'messages': visible.map(_redactedMessageJson).toList(growable: false),
@@ -308,9 +329,13 @@ final class ConversationService {
       before = page['earliest_cursor'] as int?;
     } while (before != null);
     final state = await snapshot(sessionId);
+    final recordIds = <String>{};
     return {
       'messages': pages.reversed.expand((page) => page['messages']! as List).toList(growable: false),
-      'records': pages.reversed.expand((page) => page['records']! as List).toList(growable: false),
+      'records': pages.reversed
+          .expand((page) => page['records']! as List)
+          .where((record) => record is Map && record['id'] is String && recordIds.add(record['id'] as String))
+          .toList(growable: false),
       'branches': pages.reversed.expand((page) => page['branches']! as List).toSet().toList(growable: false),
       'attachments': state.submissions
           .expand((submission) => submission.attachments)
@@ -651,7 +676,20 @@ final class ConversationService {
       throw const ConversationMutationException(400, 'INVALID_BRANCH_KIND', 'Retry uses an attempt boundary');
     }
     var sourceState = await sessions.getConversationState(sessionId);
-    if (expectedRevision != null && sourceState.revision != expectedRevision) {
+    final repeated = sourceState.findBranch(mutationId);
+    if (repeated != null) {
+      if (repeated.kind != kind ||
+          repeated.sourceSessionId != sessionId ||
+          repeated.sourceMessageId != sourceMessageId) {
+        throw const ConversationMutationException(
+          409,
+          'HISTORY_IDENTITY_CONFLICT',
+          'Mutation identity belongs to a different recovery action',
+        );
+      }
+      if (repeated.completed) return repeated.toJson();
+    }
+    if (repeated == null && expectedRevision != null && sourceState.revision != expectedRevision) {
       throw ConversationMutationException(
         409,
         'STALE_CONVERSATION_REVISION',
@@ -706,18 +744,7 @@ final class ConversationService {
     final retainedReferences = kind == ConversationBranchKind.edit
         ? sourceClaim?.references ?? const <Map<String, dynamic>>[]
         : copiedClaims.expand((claim) => claim.references).toList(growable: false);
-    final repeated = sourceState.findBranch(mutationId);
     if (repeated != null) {
-      if (repeated.kind != kind ||
-          repeated.sourceSessionId != sessionId ||
-          repeated.sourceMessageId != sourceMessageId) {
-        throw const ConversationMutationException(
-          409,
-          'HISTORY_IDENTITY_CONFLICT',
-          'Mutation identity belongs to a different recovery action',
-        );
-      }
-      if (repeated.completed) return repeated.toJson();
       final context = await _branchDestinationContext(sourceSession, sourceState, ownerClaim, repeated);
       await _validateReferences(context, retainedReferences);
       return _continueBranch(
@@ -834,63 +861,144 @@ final class ConversationService {
   }) async {
     _requireAdmission();
     return _ensureRecovered(sessionId).then(
-      (_) => mutations.run(sessionId, () async {
-        _requireAdmission();
-        requireSession(await sessions.getSession(sessionId), writable: true);
-        var state = await sessions.getConversationState(sessionId);
-        state = await _ensureContext(sessionId, state, persist: false);
-        final admittedContext = retainedContext ?? state.nextContext!;
-        if (retainedContext != null) await _revalidateContext(retainedContext);
-        await _validateReferences(admittedContext, references);
-        final manifests = await _attachmentManifests(sessionId, attachments);
-        final payloadDigest = _payloadDigest(
-          revisionId: revisionId,
-          message: message,
-          attachments: manifests,
-          references: references,
-        );
-        final existing = state.findSubmission(submissionId);
-        if (existing != null) {
-          if (existing.revisionId != revisionId || existing.payloadDigest != payloadDigest) {
-            throw ConversationMutationException(
-              409,
-              'SUBMISSION_CONFLICT',
-              'Submission identity already names a different revision',
-              current: state,
-            );
-          }
-          final recovered = await _recoverExisting(sessionId, state, existing);
-          return ConversationAdmission(submission: recovered.submission, snapshot: recovered.snapshot, replayed: true);
-        }
-
-        final now = clock().toUtc();
-        final queued = turns.isActive(sessionId) || _hasBlockingDispatch(state);
-        var submission = ConversationSubmissionClaim(
+      (_) => mutations.run(
+        sessionId,
+        () => _submitLocked(
+          sessionId: sessionId,
           submissionId: submissionId,
           revisionId: revisionId,
-          messageId: _uuid.v4(),
-          attemptId: queued ? null : _uuid.v4(),
-          queueId: queued ? _uuid.v4() : null,
-          payloadDigest: payloadDigest,
           message: message,
+          attachments: attachments,
           references: references,
-          attachments: manifests,
-          commitState: SubmissionCommitState.preparing,
-          workState: queued ? ConversationWorkState.queued : ConversationWorkState.accepted,
-          createdAt: now,
-          updatedAt: now,
-          admittedContext: admittedContext,
-        );
-        var next = state.put(submission);
-        await _persist(sessionId, next, submission, 'preparing_claim');
-        final committed = await _completeDurableSequence(sessionId, next, submission);
-        submission = committed.submission;
-        next = committed.snapshot;
-        await sessions.setAutomaticTitleFallback(sessionId, _fallbackTitle(message));
-        if (queued) return ConversationAdmission(submission: submission, snapshot: next, replayed: false);
-        return _dispatch(sessionId, next, submission, replayed: false);
-      }),
+          retainedContext: retainedContext,
+        ),
+      ),
     );
+  }
+
+  Future<ConversationAdmission> steer({
+    required String sessionId,
+    required String turnId,
+    required int expectedRevision,
+    required String submissionId,
+    required String revisionId,
+    required String message,
+    required List<Map<String, dynamic>> attachments,
+    required List<Map<String, dynamic>> references,
+  }) async {
+    _requireAdmission();
+    await _ensureRecovered(sessionId);
+    return mutations.run(
+      sessionId,
+      () => _submitLocked(
+        sessionId: sessionId,
+        submissionId: submissionId,
+        revisionId: revisionId,
+        message: message,
+        attachments: attachments,
+        references: references,
+        steerTurnId: turnId,
+        expectedRevision: expectedRevision,
+      ),
+    );
+  }
+
+  Future<ConversationAdmission> _submitLocked({
+    required String sessionId,
+    required String submissionId,
+    required String revisionId,
+    required String message,
+    required List<Map<String, dynamic>> attachments,
+    required List<Map<String, dynamic>> references,
+    EffectiveConversationContext? retainedContext,
+    String? steerTurnId,
+    int? expectedRevision,
+  }) async {
+    _requireAdmission();
+    requireSession(await sessions.getSession(sessionId), writable: true);
+    var state = await sessions.getConversationState(sessionId);
+    state = await _ensureContext(sessionId, state, persist: false);
+    if (expectedRevision != null) _requireRevision(state, expectedRevision);
+    if (steerTurnId != null) {
+      final status = turns.turnStatus(sessionId);
+      if (status.turnId != steerTurnId) {
+        throw ConversationMutationException(
+          409,
+          'STALE_CONVERSATION_TURN',
+          'The displayed turn is no longer active',
+          current: state,
+        );
+      }
+      if (!status.canCancel) {
+        throw ConversationMutationException(
+          409,
+          'STEER_UNSUPPORTED',
+          'Steer requires a cancellable active turn',
+          current: state,
+        );
+      }
+      if (_submissionForTurn(state, steerTurnId) == null) {
+        throw ConversationMutationException(
+          409,
+          'STALE_CONVERSATION_TURN',
+          'The displayed turn is no longer active',
+          current: state,
+        );
+      }
+    }
+    final admittedContext = retainedContext ?? state.nextContext!;
+    if (retainedContext != null) await _revalidateContext(retainedContext);
+    await _validateReferences(admittedContext, references);
+    final manifests = await _attachmentManifests(sessionId, attachments);
+    final payloadDigest = _payloadDigest(
+      revisionId: revisionId,
+      message: message,
+      attachments: manifests,
+      references: references,
+    );
+    final existing = state.findSubmission(submissionId);
+    if (existing != null) {
+      if (existing.revisionId != revisionId || existing.payloadDigest != payloadDigest) {
+        throw ConversationMutationException(
+          409,
+          'SUBMISSION_CONFLICT',
+          'Submission identity already names a different revision',
+          current: state,
+        );
+      }
+      final recovered = await _recoverExisting(sessionId, state, existing);
+      return ConversationAdmission(submission: recovered.submission, snapshot: recovered.snapshot, replayed: true);
+    }
+    if (steerTurnId != null) {
+      state = await _stopLocked(sessionId, steerTurnId, state, rejectCompleted: true);
+    }
+
+    final now = clock().toUtc();
+    final queued = turns.isActive(sessionId) || _hasBlockingDispatch(state);
+    var submission = ConversationSubmissionClaim(
+      submissionId: submissionId,
+      revisionId: revisionId,
+      messageId: _uuid.v4(),
+      attemptId: queued ? null : _uuid.v4(),
+      queueId: queued ? _uuid.v4() : null,
+      payloadDigest: payloadDigest,
+      message: message,
+      references: references,
+      attachments: manifests,
+      commitState: SubmissionCommitState.preparing,
+      workState: queued ? ConversationWorkState.queued : ConversationWorkState.accepted,
+      createdAt: now,
+      updatedAt: now,
+      admittedContext: admittedContext,
+    );
+    var next = state.put(submission);
+    await _persist(sessionId, next, submission, 'preparing_claim');
+    final committed = await _completeDurableSequence(sessionId, next, submission);
+    submission = committed.submission;
+    next = committed.snapshot;
+    await sessions.setAutomaticTitleFallback(sessionId, _fallbackTitle(message));
+    if (queued) return ConversationAdmission(submission: submission, snapshot: next, replayed: false);
+    return _dispatch(sessionId, next, submission, replayed: false);
   }
 
   Future<ConversationAdmission> editQueueItem({
@@ -1017,31 +1125,48 @@ final class ConversationService {
               current: state,
             );
           }
-          final current = _submissionForTurn(state, turnId);
-          if (current == null) {
-            final outcome = turns.recentOutcome(sessionId, turnId);
-            if (outcome != null) return state;
-            throw ConversationMutationException(404, 'TURN_NOT_FOUND', 'Turn not found', current: state);
-          }
-          if (current.workState == ConversationWorkState.stopping || _isTerminal(current.workState)) return state;
-          var stopping = current.copyWith(workState: ConversationWorkState.stopping, updatedAt: clock().toUtc());
-          state = state.put(stopping);
-          await _writeWorkRecords(sessionId, stopping, allowUpdate: true);
-          await _persist(sessionId, state, stopping, 'stopping');
-          final result = await turns.cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel);
-          stopping = stopping.copyWith(
-            workState: result.status == TurnWaitState.completed
-                ? ConversationWorkState.completed
-                : ConversationWorkState.cancelled,
-            updatedAt: clock().toUtc(),
-          );
-          state = _holdPending(state.put(stopping));
-          await _writeWorkRecords(sessionId, stopping, allowUpdate: true);
-          await _writeQueueRecords(sessionId, state);
-          await _persist(sessionId, state, stopping, 'stop_confirmed');
-          return state;
+          return _stopLocked(sessionId, turnId, state);
         }),
       );
+
+  Future<ConversationState> _stopLocked(
+    String sessionId,
+    String turnId,
+    ConversationState state, {
+    bool rejectCompleted = false,
+  }) async {
+    final current = _submissionForTurn(state, turnId);
+    if (current == null) {
+      final outcome = turns.recentOutcome(sessionId, turnId);
+      if (outcome != null) return state;
+      throw ConversationMutationException(404, 'TURN_NOT_FOUND', 'Turn not found', current: state);
+    }
+    if (current.workState == ConversationWorkState.stopping || _isTerminal(current.workState)) return state;
+    var stopping = current.copyWith(workState: ConversationWorkState.stopping, updatedAt: clock().toUtc());
+    state = state.put(stopping);
+    await _writeWorkRecords(sessionId, stopping, allowUpdate: true);
+    await _persist(sessionId, state, stopping, 'stopping');
+    final result = await turns.cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel);
+    if (rejectCompleted && result.status == TurnWaitState.completed) {
+      throw ConversationMutationException(
+        409,
+        'STALE_CONVERSATION_TURN',
+        'The displayed turn completed before it could be steered',
+        current: state,
+      );
+    }
+    stopping = stopping.copyWith(
+      workState: result.status == TurnWaitState.completed
+          ? ConversationWorkState.completed
+          : ConversationWorkState.cancelled,
+      updatedAt: clock().toUtc(),
+    );
+    state = _holdPending(state.put(stopping));
+    await _writeWorkRecords(sessionId, stopping, allowUpdate: true);
+    await _writeQueueRecords(sessionId, state);
+    await _persist(sessionId, state, stopping, 'stop_confirmed');
+    return state;
+  }
 
   Future<ConversationState> recoverAfterRestart(String sessionId) => mutations.run(sessionId, () async {
     requireSession(await sessions.getSession(sessionId));
@@ -1088,123 +1213,6 @@ final class ConversationService {
     _broadcast(sessionId, state.revision);
     return state;
   });
-
-  Future<void> _ensureRecovered(String sessionId) {
-    final existing = _recoveries[sessionId];
-    if (existing != null) return existing;
-    final recovery = recoverAfterRestart(sessionId);
-    _recoveries[sessionId] = recovery;
-    return recovery.catchError((Object error, StackTrace stackTrace) {
-      _recoveries.remove(sessionId);
-      Error.throwWithStackTrace(error, stackTrace);
-    });
-  }
-
-  Future<ConversationAdmission> _recoverExisting(
-    String sessionId,
-    ConversationState state,
-    ConversationSubmissionClaim submission,
-  ) async {
-    var next = state;
-    var current = submission;
-    if (current.commitState == SubmissionCommitState.preparing) {
-      final recovered = await _completeDurableSequence(sessionId, next, current);
-      next = recovered.snapshot;
-      current = recovered.submission;
-    }
-    if (current.commitState == SubmissionCommitState.integrityFailed) {
-      throw ConversationMutationException(
-        409,
-        'SUBMISSION_INTEGRITY_FAILED',
-        'Submission recovery failed integrity checks',
-        current: next,
-      );
-    }
-    if (current.workState == ConversationWorkState.dispatching ||
-        current.workState == ConversationWorkState.running ||
-        current.workState == ConversationWorkState.uncertain) {
-      if (current.workState != ConversationWorkState.uncertain) {
-        current = current.copyWith(workState: ConversationWorkState.uncertain, updatedAt: clock().toUtc());
-        next = next.put(current);
-        await _persist(sessionId, next, current, 'dispatch_uncertain');
-      }
-      return ConversationAdmission(submission: current, snapshot: next, replayed: true);
-    }
-    if (current.workState == ConversationWorkState.accepted && !turns.isActive(sessionId)) {
-      return _dispatch(sessionId, next, current, replayed: true);
-    }
-    return ConversationAdmission(submission: current, snapshot: next, replayed: true);
-  }
-
-  Future<ConversationAdmission> _completeDurableSequence(
-    String sessionId,
-    ConversationState state,
-    ConversationSubmissionClaim submission,
-  ) async {
-    for (final attachment in submission.attachments) {
-      final dataFile = File(p.join(messages.baseDir, sessionId, 'attachments', '${attachment.id}.data'));
-      final metadataFile = File(p.join(messages.baseDir, sessionId, 'attachments', '${attachment.id}.json'));
-      final metadata = jsonDecode(await metadataFile.readAsString()) as Map<String, dynamic>;
-      final bytes = await dataFile.readAsBytes();
-      final digest = 'sha256:${sha256.convert(bytes)}';
-      if (metadata['digest'] != attachment.digest ||
-          metadata['size'] != attachment.size ||
-          bytes.length != attachment.size ||
-          digest != attachment.digest) {
-        throw StateError('Attachment manifest does not match ${attachment.id}');
-      }
-      await _hit('attachment_data', submission);
-      metadata['owner'] = 'accepted';
-      metadata['submissionId'] = submission.submissionId;
-      await atomicWriteJson(metadataFile, metadata);
-      await _hit('attachment_metadata', submission);
-    }
-    if (submission.attachments.isNotEmpty) {
-      final manifestFile = File(
-        p.join(sessions.baseDir, sessionId, 'conversation', 'manifests', '${submission.submissionId}.json'),
-      );
-      await manifestFile.parent.create(recursive: true);
-      final expectedManifest = <String, Object?>{
-        'submissionId': submission.submissionId,
-        'attachments': submission.attachments.map((attachment) => attachment.toJson()).toList(growable: false),
-      };
-      if (manifestFile.existsSync()) {
-        final existing = jsonDecode(await manifestFile.readAsString());
-        if (jsonEncode(existing) != jsonEncode(expectedManifest)) {
-          throw StateError('Accepted attachment manifest does not match ${submission.submissionId}');
-        }
-      } else {
-        await atomicWriteJson(manifestFile, expectedManifest);
-      }
-      await _hit('accepted_manifest', submission);
-    }
-    final metadata = await _metadataFor(sessionId, submission);
-    if (submission.replacesRevisionId == null) {
-      await messages.insertMessageWithIdentity(
-        sessionId: sessionId,
-        messageId: submission.messageId,
-        role: 'user',
-        content: submission.message,
-        metadata: metadata.isEmpty ? null : jsonEncode(metadata),
-        createdAt: submission.createdAt,
-        notifyObserver: false,
-      );
-    } else {
-      await messages.replaceMessageWithIdentity(
-        sessionId: sessionId,
-        messageId: submission.messageId,
-        content: submission.message,
-        metadata: metadata.isEmpty ? null : jsonEncode(metadata),
-      );
-    }
-    await _hit('transcript_append', submission);
-    await _writeWorkRecords(sessionId, submission, allowUpdate: submission.replacesRevisionId != null);
-    await _hit(submission.queueId == null ? 'attempt_write' : 'queue_write', submission);
-    final committed = submission.copyWith(commitState: SubmissionCommitState.committed, updatedAt: clock().toUtc());
-    final next = state.put(committed);
-    await _persist(sessionId, next, committed, 'committed_claim');
-    return ConversationAdmission(submission: committed, snapshot: next, replayed: false);
-  }
 
   Future<ConversationAdmission> _dispatch(
     String sessionId,
@@ -1377,21 +1385,6 @@ final class ConversationService {
       if (submission.attemptId == attemptId && submission.turnId == turnId) return;
     }
     throw const ConversationMutationException(409, 'ATTEMPT_MISMATCH', 'Attempt does not own this turn');
-  }
-
-  ({String text, bool truncated}) _displayPayload(Object value) {
-    if (value is Map<String, dynamic>) {
-      final serialized = DailyLogToolSerializer(_redactor).serializeInput(value);
-      return (text: serialized.summary, truncated: serialized.truncated);
-    }
-    final redacted = _redactor.redact(value is String ? value : jsonEncode(value));
-    if (redacted.length <= _maxDisplayPayloadChars) return (text: redacted, truncated: false);
-    return (text: '${redacted.substring(0, _maxDisplayPayloadChars)}\n[Display payload truncated]', truncated: true);
-  }
-
-  Future<void> _persistSnapshot(String sessionId, ConversationState state) async {
-    await sessions.updateConversationState(sessionId, state);
-    _broadcast(sessionId, state.revision);
   }
 }
 

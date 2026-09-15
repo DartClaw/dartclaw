@@ -102,6 +102,7 @@ void main() {
     final result = await projection.rebuild(index);
 
     expect((result.messageCount, result.sessionCount), (3, 2));
+    expect(result.principals, {'owner'});
     expect(await index.count(userId: 'owner'), 3);
     expect(await index.fetch(['stale'], userId: 'owner'), isEmpty);
     expect(await projection.authenticateComplete(), isTrue);
@@ -140,6 +141,7 @@ void main() {
     final result = await projection.rebuild(index);
 
     expect((result.messageCount, result.sessionCount), (3, 3));
+    expect(result.principals, {'owner', 'agent:a', 'agent:b'});
     expect((await index.search('marker', userId: 'owner')).single.chunk, 'owner-only-marker');
     expect((await index.search('marker', userId: 'agent:a')).single.chunk, 'agent-a-only-marker');
     expect((await index.search('marker', userId: 'agent:b')).single.chunk, 'agent-b-only-marker');

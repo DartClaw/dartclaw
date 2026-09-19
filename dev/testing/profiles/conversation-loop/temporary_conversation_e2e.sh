@@ -20,7 +20,6 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 source "${SCRIPT_DIR}/temporary_history_checks.sh"
-DART_LOCK="${REPO_ROOT}/.agent_temp/exec-plan-0.27/with-dart-lock.py"
 RUNTIME="${DARTCLAW_CONTAINER_RUNTIME:-docker}"
 DARTCLAW_EXECUTABLE="${DARTCLAW_EXECUTABLE:-${REPO_ROOT}/build/bin/dartclaw}"
 if ! command -v codex >/dev/null 2>&1 || ! codex login status >/dev/null 2>&1; then
@@ -221,7 +220,7 @@ elif [ "$MODE" = eof ]; then
   if kill -0 "$LIFETIME_CLIENT_PID" 2>/dev/null; then echo 'provider client survived confirmed end' >&2; exit 1; fi
   if "$RUNTIME" inspect "$FIRST_CONTAINER" >/dev/null 2>&1; then echo 'container survived confirmed end' >&2; exit 1; fi
   run_sink_checks after-boundary
-  DARTCLAW_TEMPORARY_EOF_EVIDENCE="${EVIDENCE}/owner-eof" python3 "$DART_LOCK" dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/container/temporary_container_manager_live_test.dart
+  DARTCLAW_TEMPORARY_EOF_EVIDENCE="${EVIDENCE}/owner-eof" dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/container/temporary_container_manager_live_test.dart
 elif [ "$MODE" = graceful ] || [ "$MODE" = sigkill ]; then
   if [ "$MODE" = graceful ]; then
     kill "$SERVER_PID"

@@ -402,7 +402,7 @@ void main() {
     });
 
     test('ignores unsafe directory names and falls back to the skill name for invalid metadata', () {
-      File(p.join(workspace.path, '.agents', 'skills', '../unsafe', 'SKILL.md'))
+      File(p.join(workspace.path, '.agents', 'skills', 'unsafe name', 'SKILL.md'))
         ..createSync(recursive: true)
         ..writeAsStringSync('---\ndescription: unsafe\n---\n');
       File(p.join(workspace.path, '.agents', 'skills', 'valid-skill', 'SKILL.md'))

@@ -496,15 +496,7 @@ final class ConversationState {
     } else {
       next[index] = submission;
     }
-    return ConversationState(
-      revision: revision + 1,
-      submissions: next,
-      records: records,
-      branches: branches,
-      currentContext: currentContext,
-      nextContext: nextContext,
-      telemetry: telemetry,
-    );
+    return _next(submissions: next);
   }
 
   ConversationDisplayRecord? findRecord(String id) => records.where((record) => record.id == id).firstOrNull;
@@ -517,15 +509,7 @@ final class ConversationState {
     } else {
       next[index] = record;
     }
-    return ConversationState(
-      revision: revision + 1,
-      submissions: submissions,
-      records: next,
-      branches: branches,
-      currentContext: currentContext,
-      nextContext: nextContext,
-      telemetry: telemetry,
-    );
+    return _next(records: next);
   }
 
   ConversationBranchLink? findBranch(String mutationId) =>
@@ -544,55 +528,32 @@ final class ConversationState {
         existing.completed == branch.completed) {
       return this;
     }
-    return ConversationState(
-      revision: revision + 1,
-      submissions: submissions,
-      records: records,
-      branches: [...branches.where((item) => item.mutationId != branch.mutationId), branch],
-      currentContext: currentContext,
-      nextContext: nextContext,
-      telemetry: telemetry,
-    );
+    return _next(branches: [...branches.where((item) => item.mutationId != branch.mutationId), branch]);
   }
 
-  ConversationState stageContext(EffectiveConversationContext context) => ConversationState(
-    revision: revision + 1,
-    submissions: submissions,
-    records: records,
-    branches: branches,
-    currentContext: currentContext,
-    nextContext: context,
-    telemetry: telemetry,
-  );
+  ConversationState stageContext(EffectiveConversationContext context) => _next(nextContext: context);
 
-  ConversationState admitContext(EffectiveConversationContext context) => ConversationState(
-    revision: revision + 1,
-    submissions: submissions,
-    records: records,
-    branches: branches,
-    currentContext: context,
-    nextContext: nextContext,
-    telemetry: telemetry,
-  );
+  ConversationState admitContext(EffectiveConversationContext context) => _next(currentContext: context);
 
-  ConversationState recordTelemetry(SessionContextTelemetry value) => ConversationState(
-    revision: revision + 1,
-    submissions: submissions,
-    records: records,
-    branches: branches,
-    currentContext: currentContext,
-    nextContext: nextContext,
-    telemetry: value,
-  );
+  ConversationState recordTelemetry(SessionContextTelemetry value) => _next(telemetry: value);
 
-  ConversationState bumpRevision() => ConversationState(
+  ConversationState bumpRevision() => _next();
+
+  ConversationState _next({
+    List<ConversationSubmissionClaim>? submissions,
+    List<ConversationDisplayRecord>? records,
+    List<ConversationBranchLink>? branches,
+    EffectiveConversationContext? currentContext,
+    EffectiveConversationContext? nextContext,
+    SessionContextTelemetry? telemetry,
+  }) => ConversationState(
     revision: revision + 1,
-    submissions: submissions,
-    records: records,
-    branches: branches,
-    currentContext: currentContext,
-    nextContext: nextContext,
-    telemetry: telemetry,
+    submissions: submissions ?? this.submissions,
+    records: records ?? this.records,
+    branches: branches ?? this.branches,
+    currentContext: currentContext ?? this.currentContext,
+    nextContext: nextContext ?? this.nextContext,
+    telemetry: telemetry ?? this.telemetry,
   );
 
   Map<String, Object> toJson() => {

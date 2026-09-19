@@ -64,19 +64,15 @@ class MessageService {
 
     if (await _retention(sessionId) == ConversationRetention.process) {
       final entries = _processMessages.putIfAbsent(sessionId, () => []);
-      if (entries.length >= maxProcessMessagesPerSession) throw StateError('Temporary message capacity reached');
-      final message = Message(
-        cursor: entries.length + 1,
-        id: _uuid.v4(),
+      return _appendProcessMessage(
+        entries,
+        messageId: _uuid.v4(),
         sessionId: sessionId,
         role: role,
         content: content,
         metadata: metadata,
         createdAt: DateTime.now(),
       );
-      entries.add(message);
-      _notify((observer) => observer.onMessageAppended(message));
-      return message;
     }
 
     final completer = Completer<Message>();
@@ -155,19 +151,16 @@ class MessageService {
         }
         return existing;
       }
-      if (entries.length >= maxProcessMessagesPerSession) throw StateError('Temporary message capacity reached');
-      final message = Message(
-        cursor: entries.length + 1,
-        id: messageId,
+      return _appendProcessMessage(
+        entries,
+        messageId: messageId,
         sessionId: sessionId,
         role: role,
         content: content,
         metadata: metadata,
         createdAt: createdAt,
+        notifyObserver: notifyObserver,
       );
-      entries.add(message);
-      if (notifyObserver) _notify((observer) => observer.onMessageAppended(message));
-      return message;
     }
 
     Message? inserted;
@@ -232,16 +225,7 @@ class MessageService {
       final entries = _processMessages[sessionId] ?? const [];
       final index = entries.indexWhere((message) => message.id == messageId);
       if (index < 0) throw StateError('Message does not exist: $messageId');
-      final existing = entries[index];
-      final updated = Message(
-        cursor: existing.cursor,
-        id: existing.id,
-        sessionId: existing.sessionId,
-        role: existing.role,
-        content: content,
-        metadata: metadata,
-        createdAt: existing.createdAt,
-      );
+      final updated = _replaceMessageContent(entries[index], content: content, metadata: metadata);
       entries[index] = updated;
       return updated;
     }
@@ -256,15 +240,7 @@ class MessageService {
         if (json['id'] != messageId) continue;
         json['cursor'] = index + 1;
         final existing = Message.fromJson(json);
-        final updated = Message(
-          cursor: existing.cursor,
-          id: existing.id,
-          sessionId: existing.sessionId,
-          role: existing.role,
-          content: content,
-          metadata: metadata,
-          createdAt: existing.createdAt,
-        );
+        final updated = _replaceMessageContent(existing, content: content, metadata: metadata);
         lines[index] = jsonEncode(updated.toJson());
         await atomicWriteBytes(file, utf8.encode('${lines.join('\n')}\n'));
         replaced = updated;
@@ -465,6 +441,41 @@ class MessageService {
     if (retention == null) throw StateError('Session does not exist: $sessionId');
     return retention;
   }
+
+  Message _appendProcessMessage(
+    List<Message> entries, {
+    required String messageId,
+    required String sessionId,
+    required String role,
+    required String content,
+    required String? metadata,
+    required DateTime createdAt,
+    bool notifyObserver = true,
+  }) {
+    if (entries.length >= maxProcessMessagesPerSession) throw StateError('Temporary message capacity reached');
+    final message = Message(
+      cursor: entries.length + 1,
+      id: messageId,
+      sessionId: sessionId,
+      role: role,
+      content: content,
+      metadata: metadata,
+      createdAt: createdAt,
+    );
+    entries.add(message);
+    if (notifyObserver) _notify((observer) => observer.onMessageAppended(message));
+    return message;
+  }
+
+  Message _replaceMessageContent(Message existing, {required String content, required String? metadata}) => Message(
+    cursor: existing.cursor,
+    id: existing.id,
+    sessionId: existing.sessionId,
+    role: existing.role,
+    content: content,
+    metadata: metadata,
+    createdAt: existing.createdAt,
+  );
 
   Future<void> dispose() async {
     await _queue.close();

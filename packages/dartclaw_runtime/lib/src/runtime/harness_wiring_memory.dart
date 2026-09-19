@@ -33,13 +33,7 @@ extension _HarnessWiringMemory on HarnessWiring {
       caller: context.agentName == 'main' ? toolName : context.agentName,
       sessionRef: context.sessionId,
     );
-    return switch (toolName) {
-      'memory_apply' => handlers.apply(arguments, capture),
-      'memory_observe' => handlers.observe(arguments, capture),
-      'memory_search' => handlers.search(arguments, capture),
-      'memory_read' => handlers.read(arguments, capture),
-      _ => throw StateError('Unsupported contextual memory tool: $toolName'),
-    };
+    return _dispatchMemoryTool(toolName, arguments, handlers, capture, 'Unsupported contextual memory tool: $toolName');
   }
 
   Future<Map<String, dynamic>> _callScopedMemory(
@@ -64,14 +58,22 @@ extension _HarnessWiringMemory on HarnessWiring {
       sessionRef: caller.sessionId,
       sourceEvent: caller.sourceEvent,
     );
-    return switch (toolName) {
-      'memory_apply' => handlers.apply(arguments, context),
-      'memory_observe' => handlers.observe(arguments, context),
-      'memory_search' => handlers.search(arguments, context),
-      'memory_read' => handlers.read(arguments, context),
-      _ => throw StateError('Unsupported memory tool: $toolName'),
-    };
+    return _dispatchMemoryTool(toolName, arguments, handlers, context, 'Unsupported memory tool: $toolName');
   }
+
+  Future<Map<String, dynamic>> _dispatchMemoryTool(
+    String toolName,
+    Map<String, dynamic> arguments,
+    MemoryHandlers handlers,
+    MemoryCaptureContext context,
+    String unsupportedToolError,
+  ) => switch (toolName) {
+    'memory_apply' => handlers.apply(arguments, context),
+    'memory_observe' => handlers.observe(arguments, context),
+    'memory_search' => handlers.search(arguments, context),
+    'memory_read' => handlers.read(arguments, context),
+    _ => throw StateError(unsupportedToolError),
+  };
 
   /// Wires compaction EventBus callbacks onto a [ClaudeCodeHarness] instance.
   ///

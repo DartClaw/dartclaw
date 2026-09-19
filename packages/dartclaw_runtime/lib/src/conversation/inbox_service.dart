@@ -627,17 +627,14 @@ final class ConversationInboxService implements MessageServiceObserver {
       return (ok: false, code: 'INELIGIBLE_SESSION', message: 'Only ordinary conversations can settle');
     }
     if (localDraft) return (ok: false, code: 'LOCAL_DRAFT', message: 'This device has a local draft');
-    if (isSessionRunning(current.session.id) || current.state.submissions.any((item) => _isActive(item.workState))) {
+    final status = _projectStatus(current.session, current.state);
+    if (status.running) {
       return (ok: false, code: 'WORK_RUNNING', message: 'Conversation still has running work');
     }
-    if (current.state.records.any(
-      (record) => record.kind == ConversationRecordKind.approval && record.state == ConversationRecordState.pending,
-    )) {
+    if (status.waiting) {
       return (ok: false, code: 'WAITING_FOR_INPUT', message: 'Conversation is waiting for input');
     }
-    final latestSubmission = [...current.state.submissions]
-      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
-    if (latestSubmission.isEmpty || latestSubmission.first.workState != ConversationWorkState.completed) {
+    if (status.latestState != ConversationWorkState.completed) {
       return (ok: false, code: 'WORK_NOT_COMPLETED', message: 'Conversation has not completed successfully');
     }
     final stored = await messages.getMessages(current.session.id);
@@ -654,23 +651,35 @@ final class ConversationInboxService implements MessageServiceObserver {
   Future<InboxEntry> _entry(Session session, ConversationState state, bool localDraft, String? parentSessionId) async {
     final stored = await messages.getMessages(session.id);
     final latestCursor = stored.lastOrNull?.cursor ?? 0;
-    final running = isSessionRunning(session.id) || state.submissions.any((item) => _isActive(item.workState));
-    final waiting = state.records.any(
-      (record) => record.kind == ConversationRecordKind.approval && record.state == ConversationRecordState.pending,
-    );
-    final latest = [...state.submissions]..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
-    final latestState = latest.firstOrNull?.workState;
+    final status = _projectStatus(session, state);
     return InboxEntry(
       session: session,
       revision: state.revision,
       latestMessageCursor: latestCursor,
       unread: session.readMessageCursor < latestCursor,
-      waiting: waiting,
-      running: running,
-      failed: latestState == ConversationWorkState.failed,
-      done: latestState == ConversationWorkState.completed,
+      waiting: status.waiting,
+      running: status.running,
+      failed: status.latestState == ConversationWorkState.failed,
+      done: status.latestState == ConversationWorkState.completed,
       localDraft: localDraft,
       parentSessionId: parentSessionId,
+      runningSince: status.runningSince,
+    );
+  }
+
+  ({bool running, bool waiting, ConversationWorkState? latestState, DateTime? runningSince}) _projectStatus(
+    Session session,
+    ConversationState state,
+  ) {
+    final running = isSessionRunning(session.id) || state.submissions.any((item) => _isActive(item.workState));
+    final waiting = state.records.any(
+      (record) => record.kind == ConversationRecordKind.approval && record.state == ConversationRecordState.pending,
+    );
+    final latest = [...state.submissions]..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    return (
+      running: running,
+      waiting: waiting,
+      latestState: latest.firstOrNull?.workState,
       runningSince: latest.where((item) => _isActive(item.workState)).firstOrNull?.updatedAt,
     );
   }

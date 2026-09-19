@@ -542,24 +542,24 @@ dart test --run-skipped -t integration packages/dartclaw_core
 
 #### PostgreSQL contract
 
-Start PostgreSQL 14, point the live suites at it, and run the same explicit contract command as CI:
+```bash
+# With Docker running, locally and in CI:
+bash dev/tools/postgres_contract.sh
+```
+
+The script starts pinned PostgreSQL 14/pgvector on an ephemeral loopback port, waits up to 60 readiness attempts,
+installs `vector` in `public`, and removes its container and volume on success, failure or interruption.
+
+Alternatively, set `DARTCLAW_TEST_POSTGRES_URL` to a **disposable PostgreSQL 14+ test database** with `public.vector`
+already installed. Use a superuser URL with `sslmode=disable`: fixtures create/drop schemas, roles and databases,
+and terminate test connections. The vector fixture creates its own restricted role; a supplied database needs no Docker.
+
+Coverage: backend/repository contracts, schema/vector preparation, lexical/vector search, serving interlocks,
+hybrid/runtime wiring, workspace isolation and CLI rebuilds. The `full` workspace tier skips these live suites.
+Provider-dependent retention is excluded. Run it from the workspace root with `DARTCLAW_POSTGRES_URL` and `CODEX_API_KEY`:
 
 ```bash
-docker run -d --rm --name dartclaw-postgres-contract \
-  -e POSTGRES_PASSWORD=dartclaw_dev \
-  -e POSTGRES_DB=dartclaw_test \
-  -p 5432:5432 pgvector/pgvector:pg14
-
-until docker exec dartclaw-postgres-contract pg_isready --username postgres --dbname dartclaw_test; do
-  sleep 1
-done
-
-docker exec dartclaw-postgres-contract \
-  psql --username postgres --dbname dartclaw_test --set ON_ERROR_STOP=1 \
-  --command 'CREATE EXTENSION vector WITH SCHEMA public'
-
-export DARTCLAW_TEST_POSTGRES_URL='postgres://postgres:dartclaw_dev@localhost:5432/dartclaw_test?sslmode=disable'
-bash dev/tools/postgres_contract.sh
+dart test --run-skipped -t integration packages/dartclaw_runtime/test/integration/temporary_retention_postgres_live_test.dart
 ```
 
 Every contract group name starts with `[contract:<id>]`, and the same change must classify that id in

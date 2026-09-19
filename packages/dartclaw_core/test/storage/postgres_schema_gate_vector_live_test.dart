@@ -40,7 +40,7 @@ void main() {
         throwsA(isA<SchemaIncompatibleException>()),
       );
       expect(await _catalog(backend), before);
-    });
+    }, restrictedRole: true);
   });
 
   test('absent vector projection bootstraps exactly and current reopen is read-only', () async {

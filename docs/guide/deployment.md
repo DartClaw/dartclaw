@@ -127,8 +127,13 @@ codex --version
 Use the repo build entrypoint to produce the production binary from source:
 
 ```bash
-bash dev/tools/build.sh
+DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1 bash dev/tools/build.sh
 ```
+
+The first build downloads the manifest-pinned native embedding archive and verifies its size and SHA-256. Later
+builds can use `bash dev/tools/build.sh` without the download flag. Archives are cached under `.agent_temp/native-cache`
+in the repository; `DARTCLAW_NATIVE_ARCHIVE_CACHE` overrides that location. Windows uses the same settings: set
+`$env:DARTCLAW_NATIVE_ALLOW_DOWNLOAD = '1'` before the first `./dev/tools/build_windows.ps1` invocation.
 
 `dev/tools/build.sh` runs `dart build cli` for both entry points, producing `build/bin/dartclaw` and
 `build/bin/dartclaw-workflow` with one bundled SQLite library in `build/lib/` (`libsqlite3.dylib` on macOS,

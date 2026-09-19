@@ -18,6 +18,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- PostgreSQL verification provisions a disposable pgvector database when no test URL is supplied and includes vector,
+  conversation, workspace and interlock suites. Native release builds default to `.agent_temp/native-cache` and verify
+  their archive before replacing build outputs.
+
 - Server shutdown now waits for conversation outcomes and pending writes before closing storage, and holds queued
   conversation work instead of starting another turn during shutdown.
 

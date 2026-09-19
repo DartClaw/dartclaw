@@ -66,8 +66,16 @@ dart run dev/tools/embed_assets.dart
 # Build both binaries via `dart build cli`: build/bin/dartclaw and
 # build/bin/dartclaw-workflow, with SQLite in sibling build/lib/.
 # Keep bin/ and lib/ together. Each binary gets its own release tarball + checksum.
+# First build: allow the manifest-pinned native embedding archive download.
+DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1 bash dev/tools/build.sh
+# Later builds reuse .agent_temp/native-cache without downloading.
 bash dev/tools/build.sh
 ```
+
+`DARTCLAW_NATIVE_ARCHIVE_CACHE` overrides the default `.agent_temp/native-cache` directory under the repository root.
+The archive's size and SHA-256 are verified before build outputs are cleared or assets generated. On Windows, set
+`$env:DARTCLAW_NATIVE_ALLOW_DOWNLOAD = '1'` for the first `./dev/tools/build_windows.ps1` invocation; the same cache
+default and override apply. Unset the download flag for subsequent offline archive reuse.
 
 
 ## Parallels Windows VM
@@ -139,7 +147,8 @@ dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 bash dev/tools/test_workspace.sh
-# Requires PostgreSQL 14 and DARTCLAW_TEST_POSTGRES_URL with sslmode=disable.
+# Starts a disposable PostgreSQL/pgvector container; requires a running Docker engine.
+# DARTCLAW_TEST_POSTGRES_URL can instead select an existing disposable test database.
 bash dev/tools/postgres_contract.sh
 dart run dev/tools/arch_check.dart
 bash dev/tools/fitness/run_all.sh
@@ -216,6 +225,10 @@ substituted from a FIS proof line. Keep them in step with the commands below and
 | fast | `dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli` |
 | full | `bash dev/tools/test_workspace.sh` |
 | run one test | `dart test --reporter=failures-only {file} --name "{test}"` |
+
+The `full` tier runs the default workspace suites; it does not include integration-tagged live checks or a release
+build. The CI-equivalent gate above adds PostgreSQL explicitly. Provider-dependent checks remain separate and must
+be named as unexecuted when reporting only the default or database suites.
 
 Use the workspace root for package-wide server/CLI validation. On supported local/CI environments, the
 `dart test packages/dartclaw_runtime` and `dart test apps/dartclaw_cli` commands should run without manual sqlite

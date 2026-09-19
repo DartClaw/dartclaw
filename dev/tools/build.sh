@@ -7,7 +7,7 @@ VERSION_FILE="$ROOT_DIR/packages/dartclaw_runtime/lib/src/version.dart"
 TARGET="${DARTCLAW_RELEASE_TARGET:-}"
 SKIP_COMPILE="${DARTCLAW_BUILD_SKIP_COMPILE:-}"
 NATIVE_MANIFEST="${DARTCLAW_NATIVE_MANIFEST:-$ROOT_DIR/dev/native_artifacts.json}"
-NATIVE_CACHE="${DARTCLAW_NATIVE_ARCHIVE_CACHE:-}"
+NATIVE_CACHE="${DARTCLAW_NATIVE_ARCHIVE_CACHE:-$ROOT_DIR/.agent_temp/native-cache}"
 NATIVE_ALLOW_DOWNLOAD="${DARTCLAW_NATIVE_ALLOW_DOWNLOAD:-}"
 
 stage_root="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-build.XXXXXX")"
@@ -100,6 +100,26 @@ sha256_file() {
   fi
 }
 
+release_os="$(platform_name)"
+release_arch="$(arch_name)"
+if [[ -n "$TARGET" ]]; then
+  release_os="$(target_os_name "$TARGET")"
+  release_arch="$(target_arch_name "$TARGET")"
+fi
+release_target="$release_os-$release_arch"
+prepare_args=(
+  --manifest "$NATIVE_MANIFEST"
+  --target "$release_target"
+  --cache "$NATIVE_CACHE"
+  --stage-parent "$stage_root"
+  --hook-root-only
+)
+if [[ "$NATIVE_ALLOW_DOWNLOAD" == "1" ]]; then
+  prepare_args+=(--allow-download)
+fi
+echo "==> Verifying native archive for $release_target"
+native_hook_root="$(cd "$ROOT_DIR" && dart run apps/dartclaw_cli/tool/native_artifact_preparation.dart "${prepare_args[@]}")"
+
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
@@ -113,30 +133,6 @@ bash "$ROOT_DIR/dev/tools/build_bridge.sh" --embed
 # before compiling or the build fails on a fresh checkout.
 echo "==> Generating embedded assets"
 dart run "$ROOT_DIR/dev/tools/embed_assets.dart"
-
-release_os="$(platform_name)"
-release_arch="$(arch_name)"
-if [[ -n "$TARGET" ]]; then
-  release_os="$(target_os_name "$TARGET")"
-  release_arch="$(target_arch_name "$TARGET")"
-fi
-release_target="$release_os-$release_arch"
-if [[ -z "$NATIVE_CACHE" ]]; then
-  echo "DARTCLAW_NATIVE_ARCHIVE_CACHE is required for release builds" >&2
-  exit 1
-fi
-prepare_args=(
-  --manifest "$NATIVE_MANIFEST"
-  --target "$release_target"
-  --cache "$NATIVE_CACHE"
-  --stage-parent "$stage_root"
-  --hook-root-only
-)
-if [[ "$NATIVE_ALLOW_DOWNLOAD" == "1" ]]; then
-  prepare_args+=(--allow-download)
-fi
-echo "==> Verifying native archive for $release_target"
-native_hook_root="$(cd "$ROOT_DIR" && dart run apps/dartclaw_cli/tool/native_artifact_preparation.dart "${prepare_args[@]}")"
 
 if [[ -z "$SKIP_COMPILE" ]]; then
   native_workspace="$stage_root/workspace"

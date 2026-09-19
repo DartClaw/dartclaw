@@ -9,6 +9,7 @@ Future<T> withPostgresBackend<T>(
   Future<T> Function(PostgresBackend backend, String namespace) body, {
   GuardAuditLogger? auditLogger,
   String credentialRef = 'DARTCLAW_TEST_POSTGRES_URL',
+  bool restrictedRole = false,
 }) async {
   final configured = Platform.environment['DARTCLAW_TEST_POSTGRES_URL'];
   if (configured == null || configured.isEmpty) {
@@ -19,10 +20,20 @@ Future<T> withPostgresBackend<T>(
   final namespace = 'dc_test_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 20)}';
   final admin = await Connection.openFromUrl(dsn);
   await admin.execute('CREATE SCHEMA "$namespace"');
+  final role = '${namespace}_runtime';
+  var roleCreated = false;
   PostgresBackend? backend;
   try {
+    var backendDsn = dsn;
+    if (restrictedRole) {
+      const password = 'RestrictedVectorFixturePasswordX9';
+      await admin.execute('CREATE ROLE "$role" LOGIN PASSWORD \'$password\' NOSUPERUSER NOCREATEDB NOCREATEROLE');
+      roleCreated = true;
+      await admin.execute('ALTER SCHEMA "$namespace" OWNER TO "$role"');
+      backendDsn = Uri.parse(dsn).replace(userInfo: '$role:$password').toString();
+    }
     backend = await PostgresBackend.open(
-      dsn: dsn,
+      dsn: backendDsn,
       poolSize: 3,
       namespace: namespace,
       auditLogger: auditLogger,
@@ -32,6 +43,7 @@ Future<T> withPostgresBackend<T>(
   } finally {
     await backend?.close();
     await admin.execute('DROP SCHEMA IF EXISTS "$namespace" CASCADE');
+    if (roleCreated) await admin.execute('DROP ROLE "$role"');
     await admin.close();
   }
 }

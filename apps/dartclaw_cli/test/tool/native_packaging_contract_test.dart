@@ -32,6 +32,28 @@ void main() {
     expect(windows, isNot(contains(r'--release $nativeManifest.release')));
   });
 
+  test('native prerequisites use a repo-local default and precede release output mutations', () {
+    expect(posix, contains(r'NATIVE_CACHE="${DARTCLAW_NATIVE_ARCHIVE_CACHE:-$ROOT_DIR/.agent_temp/native-cache}"'));
+    expect(windows, contains(r"Join-Path $script:RootDir '.agent_temp/native-cache'"));
+
+    final posixPreparation = posix.indexOf('native_artifact_preparation.dart');
+    expect(posixPreparation, lessThan(posix.indexOf(r'rm -rf "$BUILD_DIR"')));
+    expect(posixPreparation, lessThan(posix.indexOf(r'bash "$ROOT_DIR/dev/tools/build_bridge.sh" --embed')));
+    expect(posixPreparation, lessThan(posix.indexOf(r'dart run "$ROOT_DIR/dev/tools/embed_assets.dart"')));
+
+    final outputDeletion = posix.indexOf(r'rm -rf "$BUILD_DIR"');
+    final bridgeBuild = posix.indexOf(r'bash "$ROOT_DIR/dev/tools/build_bridge.sh" --embed');
+    final assetGeneration = posix.indexOf(r'dart run "$ROOT_DIR/dev/tools/embed_assets.dart"');
+    final workspaceStaging = posix.indexOf('stage_native_build_workspace.dart');
+    expect(outputDeletion, lessThan(bridgeBuild));
+    expect(bridgeBuild, lessThan(assetGeneration));
+    expect(workspaceStaging, greaterThan(assetGeneration));
+    expect(workspaceStaging, lessThan(posix.indexOf('for binary_name in')));
+
+    final windowsPreparation = windows.indexOf('native_artifact_preparation.dart');
+    expect(windowsPreparation, lessThan(windows.indexOf(r'Remove-Item -LiteralPath $buildDir -Recurse -Force')));
+  });
+
   test('source mutations cannot bypass verification or broaden the selected runtime', () {
     expect(
       () => _expectBuildContract(posix.replaceFirst('native_artifact_preparation.dart', 'unchecked.dart'), windows),

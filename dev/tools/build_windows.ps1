@@ -185,17 +185,14 @@ if ($MyInvocation.InvocationName -ne '.') {
 
   $cliDir = Join-Path $script:RootDir 'apps/dartclaw_cli'
   $buildDir = Join-Path $script:RootDir 'build'
-  if (Test-Path -LiteralPath $buildDir) {
-    Remove-Item -LiteralPath $buildDir -Recurse -Force
-  }
-  New-Item -ItemType Directory -Path $buildDir | Out-Null
 
   $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-windows-build-$([guid]::NewGuid())"
   try {
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
-    $cacheDirectory = $env:DARTCLAW_NATIVE_ARCHIVE_CACHE
-    if (-not $cacheDirectory) {
-      throw 'DARTCLAW_NATIVE_ARCHIVE_CACHE must name the verified native archive cache.'
+    $cacheDirectory = if ($env:DARTCLAW_NATIVE_ARCHIVE_CACHE) {
+      $env:DARTCLAW_NATIVE_ARCHIVE_CACHE
+    } else {
+      Join-Path $script:RootDir '.agent_temp/native-cache'
     }
     $manifestPath = if ($env:DARTCLAW_NATIVE_MANIFEST) {
       $env:DARTCLAW_NATIVE_MANIFEST
@@ -239,6 +236,11 @@ if ($MyInvocation.InvocationName -ne '.') {
     }
     $cliDir = Join-Path $releaseWorkspace 'apps/dartclaw_cli'
     $nativeLibraryRoot = Join-Path $tempRoot 'native-libraries'
+
+    if (Test-Path -LiteralPath $buildDir) {
+      Remove-Item -LiteralPath $buildDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $buildDir | Out-Null
 
     foreach ($binary in @(
         @{ Name = 'dartclaw'; Entry = 'dartclaw' },

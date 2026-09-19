@@ -7,7 +7,7 @@ SHA, avoiding a same-SHA pull-request run whose `Check` job may be intentionally
 `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green *by name*; an unpushed commit, an
 unfinished run, or a run with a skipped job fails it. This gate exists because the local host does not reproduce all
 four jobs: macOS Docker Desktop remaps uids so the container posture passes locally regardless, the system
-`libsqlite3` masks a skipped build hook, PostgreSQL is supplied by a CI service container, and no `pwsh` is present
+`libsqlite3` masks a skipped build hook, PostgreSQL is supplied by the gate's disposable container, and no `pwsh` is present
 to parse a `.ps1`.
 
 ## One-time required-check setup

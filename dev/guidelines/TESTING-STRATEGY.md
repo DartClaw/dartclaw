@@ -1,7 +1,7 @@
 # DartClaw Testing Strategy
 
 > **Status**: Active
-> **Current through**: 0.24
+> **Current through**: 0.27; verification scope revised 2026-09-19
 > **Scope**: All packages in the DartClaw pub workspace
 
 ---
@@ -38,6 +38,35 @@
 **BDD frameworks: evaluated, not adopted.** Dart BDD packages either target Flutter/widget tests or mostly rename `group`/`test` without removing DartClaw's real friction (fixture/harness setup, route requests, filesystem and workflow matrices). Use BDD *language* — behavior-first test names, scenario grouping, and small table- or `Given/When/Then`-shaped helpers — where it improves scanning. Do not add a BDD framework dependency.
 
 ---
+
+## Verification Scope at the Experimental Stage
+
+This is the default for development, reviews, and experimental releases. It supersedes older blanket accessibility
+qualification requirements, including the 0.27 Q10/E11 matrices. An explicit accessibility or compatibility task can
+select a broader scope; do not infer one from a generic request for review, integration tests, or E2E verification.
+
+| Required for the affected surface | Deferred unless explicitly requested or needed to reproduce a defect |
+|---|---|
+| Security boundaries, data integrity, persistence/recovery, public contracts | Full WCAG conformance audits and scanner-wide zero-finding targets |
+| Core user journeys through the assembled app, including relevant failure/recovery paths | Screen-reader and physical-device/browser matrices |
+| Basic keyboard operation, focus/labels, readable text, usable controls and no blocking overflow | Exhaustive contrast measurements, gradient adjudication, zoom/theme/viewport combinations |
+
+Basic usability remains part of ordinary UI work: fix an observed keyboard trap, unreadable control, or inaccessible
+primary action. A scanner's incomplete result alone is not a functional defect or an experimental-release blocker.
+Retain audit output as advisory evidence; deferred checks are not passes and confer no accessibility claim.
+
+Run focused regressions, affected integration/API tests, then a few browser journeys for wiring and interactions
+lower layers cannot prove. Use one desktop browser by default; add a narrow viewport for layout changes and other
+environments only for a named risk. Keep the mandatory gates in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md).
+This policy does not waive security or data-loss checks.
+
+During diagnosis, rerun the failing step, not every previously passing journey or crash test. Repeat broader checks
+when subsequent changes invalidate their evidence, and run the required final gate after implementation settles.
+Documentation-only strategy edits need document/diff checks, not application builds or browser sweeps.
+
+Keep functional assertions separate from optional audits in runners and reports. Existing strict profiles may still
+combine them: select an affected journey or separate the phases before execution; never suppress a command failure
+or manufacture a full-suite receipt. Report functional results, unexecuted checks, and advisory audits separately.
 
 ## Test Layers
 
@@ -160,42 +189,14 @@ test('GET /api/tasks returns task list', () async {
 
 **What**: Tests that require real external systems, real binaries, or the fully assembled runtime wiring.
 
-**Characteristics**:
-- Tagged with `@Tags(['integration'])` — skipped by default in `dart_test.yaml`
-- Run explicitly with the package/profile command that selects real files and opts into skipped tests
-- Long timeouts (`Timeout(Duration(seconds: 60))`)
-- Require environment setup (API keys, binaries, hardware)
+Tagged `@Tags(['integration'])` and skipped by default in `dart_test.yaml`; run explicit files through their package/profile command with skipped tests enabled.
+Allow long timeouts (`Timeout(Duration(seconds: 60))`) and prepare required API keys, binaries or hardware.
 
 **When to write**: For protocol-level verification (JSONL round-trip with real binary), channel E2E pairing flows, deployment smoke tests, live workflow canaries, and server-builder wiring that must exercise the real package composition.
 
 **When to skip**: Almost always — prefer Layer 2 integration tests with `FakeAgentHarness` / `FakeProcess`. Only write Layer 4 tests when the real binary's behavior cannot be faithfully simulated.
 
-```dart
-@Tags(['integration'])
-test('real harness completes a turn', () async {
-  await harness.start();
-  final result = await harness.turn(
-    sessionId: 'test',
-    messages: [{'role': 'user', 'content': 'Reply with: OK'}],
-  );
-  expect(result['stop_reason'], isNotNull);
-}, timeout: Timeout(Duration(seconds: 60)));
-```
-
 The composition-root E2E coverage lives in [`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`](../../packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart), which boots the real `DartclawRuntime`, uses `FakeAgentHarness` plus in-memory SQLite, and verifies that the assembled server serves `/` and `/health`.
-
-```dart
-@Tags(['integration'])
-test('DartclawRuntime builds a server that serves / and /health', () async {
-  final result = await DartclawRuntime.build(config, /* … */);
-
-  final rootResponse = await result.server!.handler(Request('GET', Uri.parse('http://localhost/')));
-  expect(rootResponse.statusCode, equals(302));
-
-  final healthResponse = await result.server!.handler(Request('GET', Uri.parse('http://localhost/health')));
-  expect(healthResponse.statusCode, equals(200));
-});
-```
 
 ### Workflow Validation Ladder
 
@@ -270,18 +271,11 @@ DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-5 \
 
 **What**: Browser-based visual validation of the HTMX web UI. Manual or agent-driven via `chrome-devtools` MCP / `agent-browser`.
 
-**Targets**: Page layout, navigation, real-time updates (SSE), responsive behavior, error states.
-
-**Characteristics**:
-- Defined in [`dev/testing/UI-SMOKE-TEST.md`](../testing/UI-SMOKE-TEST.md) (18+ numbered test cases)
-- Run against a testing profile (`plain` or `channels`)
-- Not part of the `dart test` suite — triggered manually or via visual validation workflow
-
-**When to run**: Before releases, after UI changes, after template/CSS modifications.
+Select affected journeys from [`UI-SMOKE-TEST.md`](../testing/UI-SMOKE-TEST.md) against `plain` or `channels`.
+These are explicit browser checks, outside `dart test`. After UI changes, inspect the changed flow; before releases,
+smoke the core flows. Apply the experimental-stage scope above rather than every optional audit in the inventory.
 
 **Note**: Template rendering correctness (HTML structure, XSS escaping) is tested at Layer 2/3 via string assertions on rendered output. Browser tests cover layout and interactivity that string assertions cannot verify.
-
-**Future automation**: A strategy for automating 13 of 24 smoke TCs as Dart `puppeteer` browser E2E tests (tagged `@Tags(['e2e'])`) is documented in [`docs/research/e2e-test-strategy/research.md`](../research/e2e-test-strategy/research.md). This would add a Layer 4 sub-tier for browser automation without introducing Node.js. Tracked in the [product backlog](../PRODUCT-BACKLOG.md#automated-browser-e2e-tests).
 
 ---
 

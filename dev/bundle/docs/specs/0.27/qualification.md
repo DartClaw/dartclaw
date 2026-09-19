@@ -4,6 +4,20 @@ This is the runbook and result ledger for the 0.27 workspace and conversation mi
 `conversation-loop` profile and consumes the producer-owned tests and artifacts. It does not replace those tests or
 their assertion receipts.
 
+This is a transient plan artifact. Follow the [spec lifecycle](../../../../state/SPEC-LIFECYCLE.md); reusable test
+instructions live in the [testing index](../../../../testing/README.md).
+
+## Current-stage scope (2026-09-19)
+
+The [testing strategy](../../../../guidelines/TESTING-STRATEGY.md#verification-scope-at-the-experimental-stage) supersedes the
+blanket accessibility/device qualification requirement in this ledger. For experimental 0.27, full machine audits,
+screen-reader/physical-device matrices and exhaustive zoom checks are deferred and non-blocking. Basic usability,
+functional journeys, security and data-integrity checks remain required for the affected surface.
+
+The strict joined runner and receipt schema below are unchanged; use them only when full qualification is explicitly
+requested. A failed strict receipt remains failed. Record scoped functional evidence separately; no deferred audit
+may be marked passed, and this policy does not assert accessibility conformance or waive the other release gates.
+
 Current record: protocol and fail-closed binder authored on 2026-09-14. The focused binder contract passes. Joined
 browser, full workspace, PostgreSQL, provider, Docker, device, CI, Windows, owner evaluation, release check, and clean
 committed-candidate qualification remain pending until their commands actually run against one bound candidate.
@@ -127,27 +141,10 @@ candidate producer receipts supply the database, maintenance, provider, Docker, 
 browser fixture does not own. It also verifies actual checkout identity after its served assertions and before writing
 the joined receipt.
 
-Run the canonical local gates separately so every failure stays visible:
-
-```bash
-dart pub get --enforce-lockfile
-dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
-dart run dev/tools/embed_assets.dart
-dart format --line-length=120 --output=none --set-exit-if-changed .
-dart analyze --fatal-infos
-bash dev/tools/test_workspace.sh
-DARTCLAW_NATIVE_ARCHIVE_CACHE="$PWD/.agent_temp/exec-plan-0.27/native-cache" DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1 bash dev/tools/build.sh
-git diff --check
-bash dev/tools/postgres_contract.sh
-dart test --run-skipped -t integration packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart
-dart test --reporter=failures-only --run-skipped -t integration --concurrency=1 packages apps dev/fitness
-dart run dev/tools/arch_check.dart
-bash dev/tools/fitness/run_all.sh
-```
-
-The broad integration command explicitly names `packages apps dev/fitness`; this workspace has no root `test/`.
-PostgreSQL schema-changing commands remain serialized. The live workflow runner may combine its existing hermetic
-Codex/plugin preflight with explicit roots and a JSON file reporter:
+Use [Key Development Commands](../../../../guidelines/KEY_DEVELOPMENT_COMMANDS.md) for canonical repository gates,
+builds and integration commands, and [Release Preparation](../../../../guidelines/RELEASE_PREPARATION.md) for release
+requirements. Record each command's result separately; this ledger does not own another copy of those instructions.
+The live workflow runner may combine its existing hermetic Codex/plugin preflight with explicit roots and a JSON file reporter:
 
 ```bash
 bash dev/testing/profiles/workflow-live/run.sh --full -- --reporter=failures-only --file-reporter=json:.agent_temp/exec-plan-0.27/S09/results/workflow-live/tests.json packages apps dev/fitness
@@ -158,8 +155,8 @@ candidate. Never report an exact child command as executed when only the broader
 
 ## Q1–Q10 ledger
 
-All rows currently remain pending final-candidate execution. Producer paths below refer to their existing profile case
-or final-gate receipt; the joined receipt must bind them to the same identity.
+Rows record pending full qualification or an explicit current-stage deferral. Producer paths below refer to their
+existing profile case or final-gate receipt; a joined receipt must bind executed rows to the same identity.
 
 | Gate | Requirement | Direct evidence | Status | Current artifact |
 |---|---|---|---|---|
@@ -172,8 +169,8 @@ or final-gate receipt; the joined receipt must bind them to the same identity.
 | `Q27-Q07` | Server search, filters, result navigation, actions | history and `search-commands` | pending | same |
 | `Q27-Q08` | Attention, queue, settle/restore, deterministic triage | inbox/attention journey | pending | same |
 | `Q27-Q09` | Context, privacy, history, temporary destruction | context/history plus real temporary-provider receipts | pending | same |
-| `Q27-Q10A` | Machine accessibility clauses | Q1, inbox, search, UI smoke | pending | same |
-| `Q27-Q10B` | Physical devices, screen readers, owner evaluation | external protocols below | pending release hold | `results/external/` |
+| `Q27-Q10A` | Full machine accessibility audit | Q1, inbox, search, UI smoke | deferred; opt-in, non-blocking | same |
+| `Q27-Q10B` | Physical devices and screen readers; owner evaluation remains Q27-X02 | external protocols below | device/a11y matrix deferred; non-blocking | `results/external/` |
 
 ## W1–W6 ledger
 
@@ -192,7 +189,7 @@ Each attempt must use the complete row shape above. Environment availability is 
 
 | Gate | Required protocol | Environment or actor | Status | Evidence destination |
 |---|---|---|---|---|
-| `Q27-X01` | Keyboard, safe-area, paste/upload, and screen-reader journeys | Physical iOS Safari and Android Chrome with VoiceOver/TalkBack | pending | `results/external/devices/` |
+| `Q27-X01` | Keyboard, safe-area, paste/upload, and screen-reader device matrix | Physical iOS Safari and Android Chrome with VoiceOver/TalkBack | deferred; opt-in, non-blocking | `results/external/devices/` |
 | `Q27-X02` | Start/attach, redirect, draft recovery, old-answer search, resolve/settle; then ten mixed-state conversations with off-screen action rows and filters | Owner | pending | `results/external/owner/` |
 | `Q27-X03` | `bash dev/testing/profiles/workflow-live/run.sh --full` | Real configured provider and credentials | pending; installed Codex/Claude login availability alone is insufficient | `results/external/provider/` |
 | `Q27-X04` | TC-01…TC-31 and R-01…R-14 from `UI-SMOKE-TEST.md` | Real browser | pending | `results/external/ui-smoke/` |

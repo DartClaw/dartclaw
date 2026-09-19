@@ -129,7 +129,7 @@ S01–S08 emit executable tests, visual results, and stable evidence manifests. 
 
 ```
 # type | path#anchor                                      | why needed (intent)
-file   | dev/testing/README.md#profile-quick-reference      | register the qualification protocol in the existing testing index
+file   | dev/testing/README.md#evidence-and-milestone-records | reuse profile/evidence guidance and keep milestone protocols with the plan
 file   | s03-reliable-conversation-loop.md#implementation-tasks | extend producer TI01's joined fixture rather than invent a baseline file
 file   | dev/testing/UI-SMOKE-TEST.md#core-pages            | retain the established TC-01...TC-31 and R-01...R-14 visual protocol
 file   | docs/guide/workspace.md#workspace-files            | match operator-facing workspace terminology and configuration style
@@ -160,8 +160,8 @@ wire   | ../dartclaw-private/docs/wireframes/ux-spec-pagination.md#ux-spec-pagin
 ### Implementation Tasks
 
 - **TI01** The public testing index and 0.27 qualification protocol define the planned proof before execution
-  - Update `dev/testing/README.md` and create `dev/testing/0.27-qualification.md` at the public root. Define working-tree and committed-candidate identity fields, environment fields, Q1–Q10 and W1–W6 accounting, exact invocations, external protocols, status values, artifacts, and retry lineage without introducing a reusable reporting subsystem.
-  - **Verify**: `inspect: dev/testing/0.27-qualification.md:1` – statically review the protocol and testing-index link for complete identifiers, fields, commands, external holds, and retry rules; this check does not claim any runtime gate passed
+  - Keep reusable guidance in `dev/testing/README.md` and the milestone protocol beside this plan at `dev/bundle/docs/specs/0.27/qualification.md`. Define working-tree and committed-candidate identity fields, environment fields, Q1–Q10 and W1–W6 accounting, exact invocations, external protocols, status values, artifacts, and retry lineage without introducing a reusable reporting subsystem.
+  - **Verify**: `inspect: dev/bundle/docs/specs/0.27/qualification.md:1` – statically review the protocol and general testing guidance for complete identifiers, fields, commands, external holds, and retry rules; this check does not claim any runtime gate passed
   - **SATISFIES**: SC02, SC04
 
 - **TI02** The joined qualification fixture rejects empty or mismatched producer evidence
@@ -191,12 +191,12 @@ wire   | ../dartclaw-private/docs/wireframes/ux-spec-pagination.md#ux-spec-pagin
 
 - **TI07** External device, owner, provider, CI, container, Windows, and release gates have executable protocols and honest statuses
   - Prepare and record physical iOS Safari and Android Chrome keyboard/safe-area/paste checks and screen-reader journeys; owner execution of start/attach, redirect, recover draft, find old answer, and resolve/settle plus ten mixed-state conversations with actionable rows off-screen and filters active; real-provider `bash dev/testing/profiles/workflow-live/run.sh --full`; the plain-profile TC-01…TC-31/R-01…R-14 UI smoke; named CI `Check`, `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract`; container conformance via `dart test --run-skipped -t integration packages/dartclaw_runtime/test/integration/` on Linux Docker and Docker Desktop/OrbStack; Windows artifact smoke via `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders`; and `bash dev/tools/release_check.sh --version 0.27.0`. The committed-candidate protocol must run `git rev-parse HEAD` and `test -z "$(git status --porcelain=v1 --untracked-files=all)"`, then actually rerun/revalidate required gates on that SHA after all changes are committed. Execute only where the real environment, credential, artifact, and actor exist; do not commit within this story merely to close the hold.
-  - **Verify**: `inspect: dev/testing/0.27-qualification.md:1` – each external gate names its protocol, candidate, environment/actor, evidence, and pass/fail/pending status; Q10 and release stay blocked until every required actual result is attached
+  - **Verify**: `inspect: dev/bundle/docs/specs/0.27/qualification.md:1` – each external gate names its protocol, candidate, environment/actor, evidence, and pass/fail/pending/deferred status; release stays blocked until every currently required actual result is attached
   - **SATISFIES**: S05, S06, SC04
 
 - **TI08** The qualification ledger accounts for every Q and W clause against durable evidence
-  - Populate `dev/testing/0.27-qualification.md` from real TI02–TI07 and producer results. Map every Q1–Q10 and W1–W6 clause to an artifact and status, including all E11 viewports/themes/zoom/motion/focus/contrast/targets/announcements and the exact external portions of Q10. Preserve `passed (working tree)` separately from the pending clean committed-candidate rerun; never relabel a prior row automatically.
-  - **Verify**: `inspect: dev/testing/0.27-qualification.md:1` – audit all Q1–Q10 and W1–W6 rows against the PRD clauses and source artifacts; no clause is missing, inferred from an empty result, or marked passed by a different SHA/diff/untracked-input identity, and the clean release row requires actual empty-porcelain evidence
+  - Populate `dev/bundle/docs/specs/0.27/qualification.md` from real TI02–TI07 and producer results. Map every Q1–Q10 and W1–W6 clause to an artifact and status, recording the experimental-stage accessibility deferrals explicitly. Preserve `passed (working tree)` separately from the pending clean committed-candidate rerun; never relabel a prior row automatically.
+  - **Verify**: `inspect: dev/bundle/docs/specs/0.27/qualification.md:1` – audit all Q1–Q10 and W1–W6 rows against the current scope and source artifacts; no clause is missing, inferred from an empty result, or marked passed by a different SHA/diff/untracked-input identity, and the clean release row requires actual empty-porcelain evidence
   - **SATISFIES**: S05, S06, SC04
 
 - **TI09** The public operator guide explains the shipped workspace and conversation journeys
@@ -246,7 +246,7 @@ wire   | ../dartclaw-private/docs/wireframes/ux-spec-pagination.md#ux-spec-pagin
 
 - **TI18** Final semantic reconciliation accepts only claims supported by the candidate
   - Review the complete public and private documentation diffs against code, route/config examples, producer evidence, joined scenarios, full-gate results, and external holds. Resolve contradictions in the owning source and retain unresolved failures as release findings; static checks may prove structure but not semantic correctness.
-  - **Verify**: `inspect: dev/testing/0.27-qualification.md:1` – semantically review every changed document against implemented behavior and matching-identity artifacts; all Q/W statuses are honest, cross-repository destinations are canonical, and no open gate is described as complete
+  - **Verify**: `inspect: dev/bundle/docs/specs/0.27/qualification.md:1` – semantically review every changed document against implemented behavior and matching-identity artifacts; all Q/W statuses are honest, cross-repository destinations are canonical, and no open gate is described as complete
   - **SATISFIES**: S01, S02, SC01, SC02, SC03, SC04, SC05, SC06
 
 ### Testing Strategy

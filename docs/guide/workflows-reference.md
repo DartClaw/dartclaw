@@ -276,7 +276,7 @@ outputs:
 stepDefaults:
   - match: "implement*"
     provider: claude
-    model: claude-sonnet-4
+    model: claude-sonnet-5
     maxRetries: 2
     turn_timeout: 1800
     allowedTools: [shell, file_read, file_write, file_edit]

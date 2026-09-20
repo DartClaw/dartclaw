@@ -169,9 +169,6 @@ const _externalConstraintInventory = <String, List<String>>{
 
 const _membershipLiteralResiduals = <String, List<String>>{
   'top-level config key acceptance': ['config_parser.dart|if (!_knownKeys.contains(key)) {'],
-  'recognized model advisory': [
-    'config_parser.dart|if (_recognizedClaudeModels.hasMatch(lower) || _recognizedCodexModels.contains(lower)) return;',
-  ],
   'scheduling.jobs[].type': ["config_parser.dart|if (typeStr == 'task') {"],
   'knowledge.inbox.delivery_mode': [
     "config_parser.dart|if (value == 'none' || value == 'announce' || value == 'webhook') return value;",

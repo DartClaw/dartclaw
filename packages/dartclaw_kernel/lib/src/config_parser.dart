@@ -5,25 +5,17 @@ final _recognizedClaudeModels = RegExp(
   caseSensitive: false,
 );
 const _invalidYamlRoot = FormatException('YAML configuration root must be a map — refusing to start with defaults');
-const _recognizedCodexModels = <String>{
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.4-nano',
-  'gpt-5.6-luna',
-  'gpt-5',
-  'gpt-5-mini',
-  'gpt-5-nano',
-  'gpt-5-codex',
-  'gpt-5.3-codex',
-  'gpt-5.2-codex',
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-max',
-  'gpt-5.1-codex-mini',
-  'codex-mini-latest',
-  'o1',
-  'o3',
-  'o4-mini',
-};
+
+/// Matches Codex model identifiers by shape, like [_recognizedClaudeModels].
+///
+/// An enumerated list of vendor model names went stale on OpenAI's release
+/// schedule and still could not catch the failure that matters — a retired
+/// model the CLI rejects at dispatch. Only the `o<digit>` branch is narrowed,
+/// so `opus` cannot match here.
+final _recognizedCodexModels = RegExp(
+  r'^(gpt-[a-z0-9][a-z0-9.\-]*|o[0-9][a-z0-9.\-]*|codex-[a-z0-9][a-z0-9.\-]*)$',
+  caseSensitive: false,
+);
 
 const _knownKeys = {
   'port',
@@ -434,7 +426,7 @@ void _warnIfUnrecognizedModel(List<String> warns, String field, String? value) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) return;
   final lower = trimmed.toLowerCase();
-  if (_recognizedClaudeModels.hasMatch(lower) || _recognizedCodexModels.contains(lower)) return;
+  if (_recognizedClaudeModels.hasMatch(lower) || _recognizedCodexModels.hasMatch(lower)) return;
   addConfigAdvisory(warns, 'Unrecognized $field: "$trimmed" — keeping value as configured');
 }
 

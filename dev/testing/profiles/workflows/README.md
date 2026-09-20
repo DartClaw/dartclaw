@@ -36,7 +36,7 @@ That command removes known smoke-generated artifacts, verifies the boundary inst
 
 This testing profile is configured to use Codex explicitly:
 
-- `agent.provider: codex` with `agent.model: gpt-5.4`
+- `agent.provider: codex` with `agent.model: gpt-5.6-sol`
 - `workflow.defaults.*` pinned to Codex models for workflow/planner/executor/reviewer roles
 - `providers.codex.approval: never` to avoid Codex approval deadlocks on non-interactive workflow turns
 - `providers.codex.sandbox: danger-full-access` so Codex-side sandboxing does not block the workflow profile

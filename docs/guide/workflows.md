@@ -379,7 +379,7 @@ stepDefaults:
     provider: claude
     turn_timeout: 1800
   - match: "review*"
-    model: claude-opus-4
+    model: claude-opus-5
 
 steps:
   - id: plan
@@ -830,7 +830,7 @@ Use `stepDefaults` to apply pattern-based defaults without repeating configurati
 ```yaml
 stepDefaults:
   - match: "review*"
-    model: claude-opus-4
+    model: claude-opus-5
   - match: "*"
     provider: claude
 ```
@@ -1016,9 +1016,9 @@ Recommended presets:
 - Claude-first: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=claude/sonnet`, `reviewer=claude/opus`
 - Codex-first: `workflow=codex/gpt-5.6-sol` (effort `medium`), `planner=codex/gpt-5.6-sol` (effort `high`),
   `executor=codex/gpt-5.6-sol` (effort `high`), `reviewer=codex/gpt-5.6-sol` (effort `medium`)
-- Mixed: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=codex/gpt-5.4-mini`, `reviewer=claude/opus`
+- Mixed: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=codex/gpt-5.6-sol`, `reviewer=claude/opus`
 
-Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.4-mini`, which automatically populate the sibling provider field. Effort sits beside `model` as
+Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.6-sol`, which automatically populate the sibling provider field. Effort sits beside `model` as
 `workflow.defaults.<role>.effort`; planner, executor and reviewer inherit the workflow role's effort when unset. On Codex,
 keep one model across roles and vary effort per role: a smaller model in the executor or reviewer seat trades
 correctness for speed, which is a test-fixture trade rather than a production one.

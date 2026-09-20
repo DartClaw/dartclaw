@@ -80,7 +80,7 @@ class WorkflowRoleDefaultsConfig {
     this.workflow = const WorkflowRoleModelConfig(provider: 'claude'),
     this.planner = const WorkflowRoleModelConfig(),
     this.executor = const WorkflowRoleModelConfig(),
-    this.reviewer = const WorkflowRoleModelConfig(model: 'claude-opus-4'),
+    this.reviewer = const WorkflowRoleModelConfig(model: 'claude-opus-5'),
   });
 
   /// Creates a [WorkflowRoleDefaultsConfig.defaults] value.
@@ -388,7 +388,7 @@ WorkflowRoleModelConfig _parseWorkflowRoleModel(Map<Object?, Object?> defaultsMa
 
 WorkflowRoleModelConfig _defaultWorkflowRoleModel(String role) => switch (role) {
   'workflow' => const WorkflowRoleModelConfig(provider: 'claude'),
-  'reviewer' => const WorkflowRoleModelConfig(model: 'claude-opus-4'),
+  'reviewer' => const WorkflowRoleModelConfig(model: 'claude-opus-5'),
   _ => const WorkflowRoleModelConfig(),
 };
 

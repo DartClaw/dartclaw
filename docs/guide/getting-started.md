@@ -167,7 +167,7 @@ dartclaw init --non-interactive \
   --auth-claude oauth \
   --auth-codex env \
   --model-claude sonnet \
-  --model-codex gpt-5 \
+  --model-codex gpt-5.6-sol \
   --primary-provider claude
 
 # dartclaw setup is an alias for dartclaw init

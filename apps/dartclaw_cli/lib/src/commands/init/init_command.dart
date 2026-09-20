@@ -647,7 +647,10 @@ abstract class _InitImpl extends Command<void> {
         display: (value) => value == 'oauth' ? 'oauth  (use codex login)' : 'env    (read CODEX_API_KEY)',
       );
       models['codex'] = _logger
-          .prompt('Codex model', defaultValue: _providerModelOption('codex') ?? defaults.models['codex'] ?? 'gpt-5')
+          .prompt(
+            'Codex model',
+            defaultValue: _providerModelOption('codex') ?? defaults.models['codex'] ?? 'gpt-5.6-sol',
+          )
           .trim();
     }
 
@@ -735,7 +738,10 @@ abstract class _InitImpl extends Command<void> {
     );
     final model = provider == 'codex'
         ? _logger
-              .prompt('Codex model', defaultValue: _providerModelOption('codex') ?? defaults.models['codex'] ?? 'gpt-5')
+              .prompt(
+                'Codex model',
+                defaultValue: _providerModelOption('codex') ?? defaults.models['codex'] ?? 'gpt-5.6-sol',
+              )
               .trim()
         : _logger.chooseOne<String>(
             'Claude model',

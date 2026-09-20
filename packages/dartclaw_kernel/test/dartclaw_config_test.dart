@@ -708,6 +708,22 @@ projects:
         expect(config.warnings, anyElement(contains('Invalid type for model')));
       });
 
+      test('Codex model recognition is by shape, so a new family name never warns', () {
+        for (final model in ['gpt-5.6-sol', 'gpt-6-astra', 'gpt-5.1-codex-max', 'codex-mini-latest', 'o4-mini']) {
+          final config = loadYaml('sessions:\n  model: $model\n');
+          expect(config.sessions.scopeConfig.model, model);
+          expect(config.warnings, isNot(anyElement(contains('Unrecognized sessions.model'))), reason: model);
+        }
+      });
+
+      test('a misspelled Codex model still warns and is kept as configured', () {
+        for (final model in ['gpt5.6-sol', 'gtp-5.6-sol', 'sol']) {
+          final config = loadYaml('sessions:\n  model: $model\n');
+          expect(config.sessions.scopeConfig.model, model);
+          expect(config.warnings, anyElement(contains('Unrecognized sessions.model')), reason: model);
+        }
+      });
+
       test('invalid channel override value produces warning and omits the channel', () {
         final config = loadYaml('sessions:\n  channels:\n    signal:\n      dm_scope: bogus\n');
         // Invalid value ignored, channel not added (no valid overrides)

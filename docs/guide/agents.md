@@ -304,7 +304,7 @@ of the Windows qualification. See [Windows](windows.md#capability-matrix).
    ```yaml
    agent:
      provider: codex
-     model: gpt-4o                  # or: o3, gpt-5, etc.
+     model: gpt-5.6-sol             # or: gpt-5.6-luna, etc.
 
    credentials:
      openai:
@@ -346,7 +346,7 @@ Content-Type: application/json
   "title": "Analyze competitor pricing",
   "description": "Compare current public pricing tiers and summarize the differences.",
   "provider": "codex",
-  "configJson": { "model": "gpt-5" }
+  "configJson": { "model": "gpt-5.6-sol" }
 }
 ```
 

@@ -68,6 +68,13 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
+- Retired model identifiers no longer ship as defaults: the workflow `reviewer` role defaults to `claude-opus-5`
+  instead of the retired `claude-opus-4`, and `dartclaw init` offers `gpt-5.6-sol` instead of `gpt-5`, which a ChatGPT
+  subscription cannot serve.
+- Codex model recognition now matches by identifier shape, as Claude model recognition already did, instead of an
+  enumerated list of vendor model names that went stale on each Codex release. `sessions.model`,
+  `sessions.channels.<key>.model` and `governance.crowd_coding.model` no longer raise an unrecognized-model advisory
+  for a current Codex model; a malformed identifier still warns and is still kept as configured.
 - Workspace maintenance rotates its internal session when an agent binding changes. Conversation vector rebuilds
   include removed but persisted principals, and ordinary agent memory excludes wiki sources.
 - Reused attachments retain every submission claim. Steer serializes cancellation and follow-up admission, context

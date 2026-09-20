@@ -86,7 +86,7 @@ void main() {
         'workflow': {'provider': 'claude', 'model': null},
         'planner': {'provider': null, 'model': null},
         'executor': {'provider': null, 'model': null},
-        'reviewer': {'provider': null, 'model': 'claude-opus-4'},
+        'reviewer': {'provider': null, 'model': 'claude-opus-5'},
       });
     });
 

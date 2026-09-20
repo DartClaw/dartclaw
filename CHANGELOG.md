@@ -70,6 +70,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   text to 13px while message bodies stay 14px. Icon-only buttons are borderless at rest and scrollbars are invisible
   at rest. Below 769px or under a coarse pointer every control keeps its 44px touch box.
 
+- Touch targets across the whole web UI are that same 44px on the width-or-coarse-pointer query. They were a separate
+  48px regime keyed on width alone, which both disagreed with the design system and left a touch-screen laptop at
+  desktop width on 28px targets: generic controls, the topbar menu and theme toggles, tab and pager anchors, login
+  inputs, chat rail rows and the task and project dialogs.
+
 - Rebuilt the chat shell and transcript on those components: a 760px transcript column, a 240–420px resizable rail
   (280px default) carrying project lines, an all-projects scope selector and grouping by none, project or status,
   per-turn tool disclosures that stay expanded while running, failed or blocked, and a floating composer whose 28px
@@ -120,6 +125,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - The chat layout gate asserts 44px targets only at the touch tier, skips controls that are not rendered, and reads
   the send control's stop state from the send button the rebuild folded it into. It also fails a dock control that
   the viewport clips or that something else covers.
+- The browser accessibility gate still fails every violation and every other incomplete, but exempts a contrast result
+  whose every node reports only that axe could not resolve the element's background, and prints how many it exempted.
+  Chat controls that hit-test as topmost and in view, on an opaque ground, were reported that way.
 - `dev/tools/test_workspace.sh` runs the renamed conversation-loop visual checks test; it called the pre-rename name,
   which aborted the whole workspace test tier at that line.
 

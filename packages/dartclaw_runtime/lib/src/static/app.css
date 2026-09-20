@@ -530,16 +530,14 @@
    not the 48px this row carried before the density tier. */
 @media (max-width: 768px), (pointer: coarse) {
   .sidebar-archive-toggle { min-height: 44px; }
-}
-
-@media (max-width: 768px) {
   .session-item-link,
   .session-item .session-action,
   .session-item .session-delete {
-    min-height: 48px;
+    min-height: 44px;
   }
+  /* A finger has no hover, so the row actions cannot stay hover-revealed. */
   .session-item :is(.session-action, .session-delete) {
-    min-width: 48px;
+    min-width: 44px;
     opacity: 1;
   }
 }
@@ -1157,7 +1155,7 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 }
 
 /* Canon's density tier: .form-select is 28px at a fine pointer, and this button
-   stands in for one. It is a <button>, so the ≤768 rule below floors it at 48px
+   stands in for one. It is a <button>, so the touch-tier rule below floors it at 44px
    with every other control. */
 .custom-select-trigger {
   width: 100%;
@@ -1971,7 +1969,7 @@ select.form-select.channel-mode-select-hidden {
     display: none;
   }
 
-  /* Four columns and three 48px action buttons only fit a 375px viewport
+  /* Four columns and three 44px action buttons only fit a 375px viewport
      with sp-2 cell padding and the actions free to wrap, so the desktop
      min-width is released rather than lowered. */
   .scheduling-jobs-table,
@@ -2589,7 +2587,7 @@ select.form-select.channel-mode-select-hidden {
 }
 
 /* No all-width floor: these are ordinary form controls and take canon's 28px
-   tier. The ≤768 block raises the same five to 48px. */
+   tier. The touch-tier block raises the same five to 44px. */
 
 #new-task-dialog .form-textarea {
   min-height: 5.5rem;
@@ -3707,22 +3705,25 @@ input.form-input--search::-webkit-search-cancel-button {
   flex: 1 1 220px;
 }
 
-@media (max-width: 768px) {
+/* Touch floors on canon's query — width OR coarse pointer, at canon's 44px.
+   These were 48px on width alone, which both missed a touch-screen laptop at
+   desktop width and disagreed with the design system's own tier. */
+@media (max-width: 768px), (pointer: coarse) {
   /* Height only: a min-width floor here stretches narrow inline chips that
-     happen to be buttons into 48px slabs. Controls that need a square target
+     happen to be buttons into 44px slabs. Controls that need a square target
      set their own width below. */
   button,
   summary,
   [role="button"] {
-    min-height: 48px;
+    min-height: 44px;
   }
 
   .topbar .menu-toggle,
   .theme-toggle {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    min-height: 48px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   /* Anchor-based controls. An <a> gets no touch floor from the bare `button`
@@ -3734,13 +3735,13 @@ input.form-input--search::-webkit-search-cancel-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 48px;
-    min-height: 48px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .login-input,
   .login-checkbox {
-    min-height: 48px;
+    min-height: 44px;
   }
 
   .custom-select-trigger,
@@ -3758,7 +3759,7 @@ input.form-input--search::-webkit-search-cancel-button {
   #new-task-dialog .custom-select-trigger,
   #add-project-dialog .form-input,
   #add-project-dialog .form-select {
-    min-height: 48px;
+    min-height: 44px;
   }
 }
 /* ================================================================

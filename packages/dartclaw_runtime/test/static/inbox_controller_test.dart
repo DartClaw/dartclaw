@@ -102,6 +102,8 @@ assert(controller.relativeLabel(new Date(now - 3 * 3600 * 1000).toISOString()) =
 assert(controller.relativeLabel(new Date(now - 3 * 86400 * 1000).toISOString()) === '3d', 'days did not read as Nd');
 assert(controller.elapsedLabel(new Date(now - 72 * 1000).toISOString()) === '1m12s',
   'a running turn did not read as minutes and seconds');
+assert(controller.elapsedLabel(new Date(now - 3734 * 1000).toISOString()) === '1h02m',
+  'an hour-long turn did not compact to hours and minutes');
 
 // View state is per device. A value the menu cannot produce falls back rather
 // than filtering the rail down to nothing the user can undo.

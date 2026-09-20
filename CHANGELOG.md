@@ -30,7 +30,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   supplies the Cmd-K and slash palettes with nine built-ins plus authorized provider-native skills; unknown slash text
   remains ordinary provider input, unchanged.
 
-- Owner-authorized temporary conversations can run on the mediated Codex container row. Their session, messages,
+- Owner-authorized temporary conversations are implemented for the mediated Codex container row; end-to-end container
+  conformance for that row has not been verified yet. Their session, messages,
   history, attachments, usage context, provider home, and browser draft stay within process, container, or page memory;
   explicit end revokes the conversation after confirmed shutdown, and confirmed export streams a durable Markdown copy.
 
@@ -61,6 +62,22 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   `context_research` still retrieves cited owner knowledge. Startup, index rebuild, and journal or curation runs keep
   each configured workspace independent, and no other per-workspace scheduled jobs are added.
 
+- `dartclaw_core` and `dartclaw_runtime` `lib/` LOC ceilings rebaselined for the milestone's backend scope
+  (core 31254 → 34710, runtime 68649 → 75596), each cut to the ratchet's own maximum for the measured size.
+
+- The web UI takes a desktop density tier at ≥769px with a fine pointer: buttons and form controls drop from ~37px to
+  28px, their small variants to 24px, the topbar from 48px to 40px, chat rail rows to a 30px single line, and chrome
+  text to 13px while message bodies stay 14px. Icon-only buttons are borderless at rest and scrollbars are invisible
+  at rest. Below 769px or under a coarse pointer every control keeps its 44px touch box.
+
+- Rebuilt the chat shell and transcript on those components: a 760px transcript column, a 240–420px resizable rail
+  (280px default) carrying project lines, an all-projects scope selector and grouping by none, project or status,
+  per-turn tool disclosures that stay expanded while running, failed or blocked, and a floating composer whose 28px
+  send icon replaces the 44px labelled button.
+
+- The chat visual gate replaces its 20% pixel diff with measured layout assertions at 1440px and 390px — control
+  heights, idle composer height, horizontal overflow, column width, and touch-tier floors — plus a pointer hit test.
+
 - Upgraded the web UI to HTMX 4.0.0 and its bundled `hx-sse` streaming extension, with Trellis 0.11.1.
   Adapted navigation, streaming, form feedback, and confirmation handling to the new browser lifecycle.
   The streaming extension includes a local cleanup fix for an upstream unhandled error on close.
@@ -75,6 +92,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   enumerated list of vendor model names that went stale on each Codex release. `sessions.model`,
   `sessions.channels.<key>.model` and `governance.crowd_coding.model` no longer raise an unrecognized-model advisory
   for a current Codex model; a malformed identifier still warns and is still kept as configured.
+- The inbox and attention endpoints now require operator/admin access, like the other owner conversation endpoints.
+- An agent's explicit `context_research` grant is now reachable from a container: the tool carries a canonical name, so
+  the bridged-MCP allowlist can admit it instead of denying it as unmapped.
 - Workspace maintenance rotates its internal session when an agent binding changes. Conversation vector rebuilds
   include removed but persisted principals, and ordinary agent memory excludes wiki sources.
 - Reused attachments retain every submission claim. Steer serializes cancellation and follow-up admission, context
@@ -87,8 +107,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   non-UUID identifiers before filesystem access, including Windows separators.
 - Browser qualification rejects accessibility violations and incomplete audits, resolves CSS colors through the
   browser before computing contrast, and starts its channel fixture with the production session-key format.
-- Idle global event streams open immediately. Composer controls wrap within the viewport and retain 44px action targets.
+- Idle global event streams open immediately. Composer controls wrap within the viewport and retain 44px action targets
+  at the touch tier.
 - Stop and Steer follow the server's cancellable state. Live conversation updates no longer discard pending searches.
+- Rail elapsed time for a turn running past an hour reads `1h02m` instead of `62m14s`.
 
 ### Release holds
 

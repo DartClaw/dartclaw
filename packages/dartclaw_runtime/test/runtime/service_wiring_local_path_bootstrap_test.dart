@@ -585,6 +585,7 @@ steps:
         'task_bind',
         'task_unbind',
         ..._orchestrationAndContentTools,
+        'context_research',
         'web_fetch',
         'memory_apply',
         'memory_observe',

@@ -74,7 +74,7 @@ This table is the main registry of document locations relevant to development an
 | Testing strategy | `dev/guidelines/TESTING-STRATEGY.md` | 650 lines | Before writing tests: philosophy, four-layer pyramid, async patterns, coverage, shared fakes, anti-patterns |
 | HTMX patterns | `dev/guidelines/HTMX-GUIDELINES.md` | 250 lines | Before writing web UI fragments: attributes, server-side rendering, streaming updates, error handling, security |
 | Trellis templates | `dev/guidelines/TRELLIS-GUIDELINES.md` | 150 lines | Before writing templates: escaping rules, fragment patterns, HTMX integration, security |
-| Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | 1400 lines | Single source of truth for visual design; YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Before any UI/CSS/template work |
+| Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | 1450 lines | Single source of truth for visual design; YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Before any UI/CSS/template work |
 | Key dev commands | `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | 350 lines | Before/after modifying code; the Testing section declares the `fast` and `full` tiers and the run-one-test row that `andthen:ops complete-story` executes |
 
 

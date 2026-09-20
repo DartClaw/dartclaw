@@ -1082,7 +1082,11 @@ export default class DcShellController extends Stimulus.Controller {
   elapsedLabel(startedAt) {
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(startedAt)) / 1000));
     if (elapsedSeconds < 60) return elapsedSeconds + 's';
-    return Math.floor(elapsedSeconds / 60) + 'm' + String(elapsedSeconds % 60).padStart(2, '0') + 's';
+    if (elapsedSeconds < 3600) {
+      return Math.floor(elapsedSeconds / 60) + 'm' + String(elapsedSeconds % 60).padStart(2, '0') + 's';
+    }
+    const minutes = Math.floor(elapsedSeconds / 60);
+    return Math.floor(minutes / 60) + 'h' + String(minutes % 60).padStart(2, '0') + 'm';
   }
 
   async settleInboxRows(rows) {

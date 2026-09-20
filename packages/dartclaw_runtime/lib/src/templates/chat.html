@@ -131,7 +131,7 @@
         <button type="button" class="btn btn-sm" data-action="dc-chat#downloadDraft">Download draft</button>
       </div>
       <div class="request-strip" data-dc-chat-target="requestStrip" role="status" hidden></div>
-      <div class="conversation-queue" data-dc-chat-target="queue" aria-label="Queued messages" hidden></div>
+      <div class="conversation-queue" data-dc-chat-target="queue" role="list" aria-label="Queued messages" hidden></div>
       <form id="chat-form" class="composer" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend"
             data-action="drop->dc-chat#handleDrop dragover->dc-chat#handleDragOver paste->dc-chat#handlePaste">
         <div class="composer-context chip-row" data-dc-chat-target="contextTray" hidden></div>
@@ -153,8 +153,8 @@
         <input type="hidden" name="revision_id" data-dc-chat-target="revisionIdInput" value="">
         <input id="composer-files" type="file" multiple hidden data-action="change->dc-chat#chooseFiles">
         <div class="composer-toolbar">
-          <label id="composer-attach" for="composer-files" class="btn btn-icon" data-icon="attach" role="button"
-                 tabindex="0" aria-label="Attach files" title="Attach files"></label>
+          <button id="composer-attach" type="button" class="btn btn-icon" data-icon="attach"
+                  aria-label="Attach files" title="Attach files" data-action="dc-chat#openAttach"></button>
           <button type="button" class="btn btn-icon" data-icon="terminal" title="Commands  /" aria-label="Commands"
                   data-action="dc-chat#openCommands"></button>
           <button tl:if="${hasEffectiveContext}" id="effective-context-open" type="button"

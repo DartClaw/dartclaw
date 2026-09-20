@@ -1401,6 +1401,13 @@ export default class DcChatController extends Stimulus.Controller {
     files.forEach((file) => this.uploadAttachment(file));
   }
 
+  /// The file input is hidden, so the toolbar button opens it. A `<label for>`
+  /// would do it without script but cannot carry a button role, and its
+  /// `tabindex` gives focus without Enter/Space activation.
+  openAttach() {
+    this.element.querySelector('#composer-files')?.click();
+  }
+
   chooseFiles(event) {
     this.addFiles(event.currentTarget?.files);
     if (event.currentTarget) event.currentTarget.value = '';
@@ -1537,7 +1544,7 @@ export default class DcChatController extends Stimulus.Controller {
         ? '<button type="button" class="btn btn-sm" data-action="dc-chat#releaseQueueItem" ' +
           'title="Send next queued message" aria-label="Send next queued message">Release</button>'
         : '';
-      return '<div class="queue-row' + (held ? ' queue-row--held' : '') + '" data-queue-id="' +
+      return '<div class="queue-row' + (held ? ' queue-row--held' : '') + '" role="listitem" data-queue-id="' +
         escapeHtml(item.queueId) + '"' + title + '>' +
         '<span class="queue-label">' + (held ? 'Held' : 'Queued') + '</span>' +
         '<span class="queue-text">' + escapeHtml(item.message) + '</span>' + release +

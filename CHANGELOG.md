@@ -111,6 +111,17 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   at the touch tier.
 - Stop and Steer follow the server's cancellable state. Live conversation updates no longer discard pending searches.
 - Rail elapsed time for a turn running past an hour reads `1h02m` instead of `62m14s`.
+- A queued or held message row no longer pushes its remove button past the right edge at 390px, where the viewport
+  clipped it out of reach; the message text ellipsizes instead.
+- The chat rail's Archived disclosure takes the density tier's 30px instead of 36px, and its touch floor is canon's
+  44px on the width-or-coarse-pointer query rather than 48px on width alone.
+- The composer's attach control is a real button; it was a `<label>` carrying `role="button"`, which ARIA does not
+  permit on that element. The queued-message list is marked up as a list.
+- The chat layout gate asserts 44px targets only at the touch tier, skips controls that are not rendered, and reads
+  the send control's stop state from the send button the rebuild folded it into. It also fails a dock control that
+  the viewport clips or that something else covers.
+- `dev/tools/test_workspace.sh` runs the renamed conversation-loop visual checks test; it called the pre-rename name,
+  which aborted the whole workspace test tier at that line.
 
 ### Release holds
 

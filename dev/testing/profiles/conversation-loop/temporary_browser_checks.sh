@@ -188,7 +188,7 @@ for width in 375 390 768 1440; do
     browser set viewport "$width" 900
     set_app_theme "$SESSION" "$theme"
     artifact="temporary-${width}-${theme}"
-    check "(()=>{const root=document.querySelector('#main-content');if(document.documentElement.scrollWidth>innerWidth+1)throw Error('horizontal overflow');for(const e of root.querySelectorAll('.conversation-retention-controls button')){const r=e.getBoundingClientRect();if(r.width<44||r.height<44)throw Error('retention touch target below 44px');if(!e.textContent.trim()&&!e.getAttribute('aria-label'))throw Error('unlabelled control')}if(!matchMedia('(prefers-reduced-motion: reduce)').matches)throw Error('reduced motion inactive');return {width:innerWidth,theme:'${theme}'}})()"
+    check "(()=>{const root=document.querySelector('#main-content');if(document.documentElement.scrollWidth>innerWidth+1)throw Error('horizontal overflow');for(const e of root.querySelectorAll('.conversation-retention-controls button')){const r=e.getBoundingClientRect();if(innerWidth<=768&&(r.width<44||r.height<44))throw Error('retention touch target below 44px');if(!e.textContent.trim()&&!e.getAttribute('aria-label'))throw Error('unlabelled control')}if(!matchMedia('(prefers-reduced-motion: reduce)').matches)throw Error('reduced motion inactive');return {width:innerWidth,theme:'${theme}'}})()"
     browser screenshot "${EVIDENCE_ROOT}/${artifact}.png"
     capture_accessibility "$SESSION" '#main-content' "${artifact}-a11y"
     assert_layout_canon "$SESSION" "$artifact"

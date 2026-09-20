@@ -160,6 +160,7 @@
 .queue-row {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: var(--sp-2);
   min-height: 28px;
   padding: 0 var(--sp-2);
@@ -350,8 +351,13 @@
   gap: var(--sp-1);
 }
 
+/* minmax(0, 1fr), not the implicit auto track — same reason as .composer-stack:
+   a grid item's automatic minimum size is min-content, so at 390 a row with a
+   Release button sized its track to max-content and pushed its own remove
+   button 15px past the viewport, clipped by .shell rather than scrollable. */
 .conversation-queue {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
 }
 
@@ -455,8 +461,11 @@
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  min-height: 28px;
-  padding: var(--sp-1) var(--sp-2) var(--sp-1) 10px;
+  /* 30px, the rail row height it sits beside. The vertical padding is 0 because
+     the 28px chevron well already fills the row; keeping it made the button
+     36px, over the density tier's 32px ceiling. */
+  min-height: 30px;
+  padding: 0 var(--sp-2) 0 10px;
   border: none;
   background: none;
   color: var(--fg-sub0);
@@ -517,8 +526,13 @@
   .session-item:has(.session-action, .session-delete):is(:hover, :focus-within, .active) .provider-badge { opacity: 0; }
 }
 
+/* Touch floor on the canon query (width OR coarse pointer), at canon's 44px —
+   not the 48px this row carried before the density tier. */
+@media (max-width: 768px), (pointer: coarse) {
+  .sidebar-archive-toggle { min-height: 44px; }
+}
+
 @media (max-width: 768px) {
-  .sidebar-archive-toggle { min-height: 48px; }
   .session-item-link,
   .session-item .session-action,
   .session-item .session-delete {

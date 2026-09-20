@@ -3,37 +3,155 @@ import 'package:test/test.dart';
 import 'controller_test_support.dart';
 
 void main() {
-  late String source;
-  late String shared;
+  final controller = controllerAsset('dc_shell_controller.js');
 
-  setUpAll(() async {
-    source = (await controllerAsset('dc_shell_controller.js')).readAsStringSync();
-    shared = (await controllerAsset('shared.js')).readAsStringSync();
+  test('rail view state classifies rows, formats times and survives bad storage', () async {
+    await expectNodeHarness(_inboxViewHarness, [(await controller).absolute.uri.toString()]);
   });
 
-  test('controller overlays IndexedDB drafts and pages remote settled truth', () {
-    expect(source, contains('conversationDraftSessionIds()'));
-    expect(shared, contains('const db = await openConversationDraftDb()'));
-    expect(shared, contains("indexedDB.open('dartclaw-conversation-drafts', 1)"));
-    expect(shared, contains("createObjectStore('drafts', { keyPath: 'key' })"));
-    expect(source, contains("fetch('/api/inbox?'"));
-    expect(source, contains('settled remotely'));
-    expect(source, contains('conversation_revision'));
-    expect(source, contains('settleInboxRows'));
-    expect(source, contains('nextAttentionSessionId'));
-    expect(source, contains('missingActiveRow'));
-    expect(source, contains('refreshInboxMarkup(values)'));
-    expect(source, contains("fetch(location.href, { headers: { accept: 'text/html' } })"));
-    expect(source, contains("sourceRef: 'conversation-inbox', recovered: true"));
-  });
-
-  test('resize and drawer preserve keyboard focus commands and touch targets', () {
-    expect(source, contains('sidebarDefaultWidth = 260'));
-    expect(source, contains('sidebarMinWidth = 220'));
-    expect(source, contains('sidebarMaxWidth = 420'));
-    expect(source, contains("event.key === 'ArrowLeft'"));
-    expect(source, contains("event.key === 'ArrowRight'"));
-    expect(source, contains("event.key === 'Home'"));
-    expect(source, contains('setSidebarOpen(false)'));
+  test('rail width defaults to 280, clamps 240-420 and persists every change', () async {
+    await expectNodeHarness(_resizeHarness, [(await controller).absolute.uri.toString()]);
   });
 }
+
+/// Shared prelude: the controller is a Stimulus class with one shared-module
+/// import, so both harnesses stub the same two seams and instantiate it without
+/// `connect()`.
+const _prelude = r'''
+import { readFile } from 'node:fs/promises';
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+globalThis.Stimulus = { Controller: class {} };
+globalThis.storage = new Map();
+globalThis.localStorage = {
+  getItem: (key) => (globalThis.storage.has(key) ? globalThis.storage.get(key) : null),
+  setItem: (key, value) => globalThis.storage.set(key, String(value)),
+  removeItem: (key) => globalThis.storage.delete(key),
+};
+globalThis.documentElement = { style: { properties: {}, setProperty(name, value) { this.properties[name] = value; } }, dataset: {} };
+globalThis.handleAttributes = {};
+globalThis.handle = {
+  dataset: {},
+  getAttribute: (name) => globalThis.handleAttributes[name] ?? null,
+  setAttribute: (name, value) => { globalThis.handleAttributes[name] = value; },
+  addEventListener() {},
+};
+globalThis.document = {
+  documentElement: globalThis.documentElement,
+  body: { addEventListener() {}, removeEventListener() {} },
+  addEventListener() {},
+  removeEventListener() {},
+  getElementById: () => null,
+  querySelector: (selector) => (selector === '.sidebar-resize-handle' ? globalThis.handle : null),
+  querySelectorAll: () => [],
+};
+
+let source = await readFile(new URL(process.argv[1]), 'utf8');
+source = source.replace(/import \{[\s\S]*?\} from '\.\/shared\.js';/, `
+const apiQs = () => '';
+const applyIdenticons = () => {};
+const beginSessionDraftMutation = () => {};
+const closeAllCustomSelects = () => {};
+const conversationDraftSessionIds = async () => [];
+const confirmDialog = async () => true;
+const dismissRestartBannerState = () => {};
+const endSessionDraftMutation = () => {};
+const getApiToken = () => null;
+const initCustomSelects = () => {};
+const isAtBottom = () => false;
+const queueToast = () => {};
+const readHtmxErrorMessage = () => '';
+const reconcileRestartBanner = () => {};
+const renderMarkdown = () => {};
+const scrollToBottom = () => {};
+const showToast = () => {};
+const syncSidebarSessionTitle = () => {};
+const syncRestartBannerAfterSwap = () => {};
+const TOAST_QUEUE_KEY = 'toast-queue';
+`);
+
+const module = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const controller = new module.default();
+''';
+
+const _inboxViewHarness =
+    _prelude +
+    r'''
+// A row's state order decides both its dot and its status group, so the most
+// urgent state has to win over every state it coexists with.
+const entry = { waiting: true, running: true, unread: true, failed: false, done: false, local_draft: false };
+assert(controller.inboxStates(entry)[0] === 'waiting', 'a waiting row did not lead with its attention state');
+assert(controller.inboxStates({ done: true, unread: true })[0] === 'unread',
+  'an unread row reported itself as merely done');
+
+// Show filters select on the row's own flags; "All" never hides anything.
+assert(controller.matchesInboxFilter({ failed: true }, 'all'), 'the All filter hid a row');
+assert(controller.matchesInboxFilter({ failed: true }, 'failed'), 'the Failed filter dropped a failed row');
+assert(!controller.matchesInboxFilter({ failed: true }, 'waiting'), 'the Waiting filter kept a failed row');
+assert(controller.matchesInboxFilter({ local_draft: true }, 'drafts'), 'the Drafts filter dropped a device draft');
+assert(!controller.matchesInboxFilter({ unread: true }, 'drafts'), 'the Drafts filter kept a non-draft row');
+
+// The rail reads elapsed time for a running turn and relative time otherwise.
+const now = Date.now();
+assert(controller.relativeLabel(new Date(now - 30 * 1000).toISOString()) === 'now', 'sub-minute age did not read as now');
+assert(controller.relativeLabel(new Date(now - 4 * 60 * 1000).toISOString()) === '4m', 'minutes did not read as Nm');
+assert(controller.relativeLabel(new Date(now - 3 * 3600 * 1000).toISOString()) === '3h', 'hours did not read as Nh');
+assert(controller.relativeLabel(new Date(now - 3 * 86400 * 1000).toISOString()) === '3d', 'days did not read as Nd');
+assert(controller.elapsedLabel(new Date(now - 72 * 1000).toISOString()) === '1m12s',
+  'a running turn did not read as minutes and seconds');
+
+// View state is per device. A value the menu cannot produce falls back rather
+// than filtering the rail down to nothing the user can undo.
+globalThis.storage.set('dartclaw-inbox-view', '{"filter":"bogus","group":"project","scope":"p1"}');
+let view = controller.loadInboxView();
+assert(view.filter === 'all', 'an unknown stored filter was applied');
+assert(view.group === 'project', 'a valid stored grouping was discarded');
+assert(view.scope === 'p1', 'a stored scope was discarded');
+assert(view.selectMode === false, 'select mode was restored from storage');
+
+controller.inboxView = null;
+globalThis.storage.set('dartclaw-inbox-view', 'not json');
+view = controller.loadInboxView();
+assert(view.filter === 'all' && view.group === 'none' && view.scope === '',
+  'unreadable view state did not fall back to the default view');
+
+controller.inboxView.filter = 'waiting';
+controller.inboxView.selectMode = true;
+controller.persistInboxView();
+const persisted = JSON.parse(globalThis.storage.get('dartclaw-inbox-view'));
+assert(persisted.filter === 'waiting', 'the chosen filter was not persisted');
+assert(!('selectMode' in persisted), 'select mode was persisted as a preference');
+''';
+
+const _resizeHarness =
+    _prelude +
+    r'''
+const width = () => Number.parseInt(globalThis.documentElement.style.properties['--sidebar-w'], 10);
+
+controller.applySidebarWidth(280, false);
+assert(width() === 280, 'the rail did not take the 280px default');
+assert(globalThis.storage.get('dartclaw-sidebar-width') === undefined,
+  'a non-persisting application still wrote the stored width');
+
+controller.applySidebarWidth(120, true);
+assert(width() === 240, 'the rail was allowed below its 240px floor');
+controller.applySidebarWidth(900, true);
+assert(width() === 420, 'the rail was allowed above its 420px ceiling');
+assert(globalThis.storage.get('dartclaw-sidebar-width') === '420', 'the dragged width was not persisted');
+assert(globalThis.handleAttributes['aria-valuenow'] === '420',
+  'the separator did not report its new value to assistive technology');
+
+controller.applySidebarWidth(317.6, true);
+assert(width() === 318, 'a fractional pointer position was not rounded to a whole pixel');
+
+// The collapse toggle hands the width back and records the choice, so a reload
+// does not reopen a rail the operator closed.
+controller.setRailCollapsed(true);
+assert(globalThis.documentElement.dataset.railCollapsed === 'true', 'collapsing did not mark the document');
+assert(globalThis.storage.get('dartclaw-rail-collapsed') === 'true', 'the collapsed rail was not remembered');
+controller.setRailCollapsed(false);
+assert(globalThis.documentElement.dataset.railCollapsed === 'false', 'expanding did not clear the marker');
+''';

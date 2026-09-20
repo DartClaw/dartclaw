@@ -571,9 +571,7 @@ extension _ConversationServicePersistence on ConversationService {
         label: _redactor.redact(call.name),
         arguments: call.arguments,
         result: call.result,
-        isTruncated:
-            call.arguments?.contains('[Display payload truncated]') == true ||
-            call.result?.contains('[Display payload truncated]') == true,
+        isTruncated: call.isTruncated,
         elapsedMs: call.durationMs,
         createdAt: existing?.createdAt ?? now.subtract(Duration(milliseconds: call.durationMs)),
         updatedAt: now,

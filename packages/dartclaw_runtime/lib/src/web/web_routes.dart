@@ -323,16 +323,27 @@ Router webRoutes(
 
       final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appName);
       final displayTitle = displaySessionTitle(session.title, session.type);
+      // The crumb labels the conversation, so it reads the same context the rail
+      // row does — `currentContext ?? nextContext`. `effectiveContext` answers
+      // the *next* turn's editable selection and would name a different project
+      // for a conversation whose staged context has not been touched.
+      final crumb = conversationState.currentContext ?? conversationState.nextContext;
+      final crumbProject = crumb == null ? null : await projectService?.get(crumb.projectId);
       final topbar = topbarTemplate(
         title: session.title,
         sessionId: id,
         sessionType: session.type,
         appName: appName,
         restartBannerHtml: restartBannerHtml(dataDir),
+        projectId: crumb?.projectId,
+        projectName: crumbProject?.name ?? crumb?.projectId,
+        providerLabel: crumb?.provider,
+        model: crumb?.model,
       );
       final msgsHtml = messagesHtmlFragment(
         messageList,
         conversationState: conversationState,
+        effectiveContext: effectiveContext,
         approvalAvailable: (record) =>
             turns?.canResolveToolApproval(sessionId: id, turnId: record.turnId, requestId: record.id) ?? false,
       );

@@ -1,12 +1,14 @@
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import '../auth/request_auth_context.dart';
 import '../conversation/inbox_service.dart';
 import '../conversation/conversation_service.dart';
 import 'api_helpers.dart';
 
 void registerSessionInboxRoutes(Router router, {required ConversationInboxService inbox}) {
   router.get('/api/inbox', (Request request) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     try {
       final query = request.url.queryParameters;
       final filter = InboxFilter.values.asNameMap()[query['filter'] ?? 'all'];
@@ -36,6 +38,7 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
   });
 
   router.get('/api/attention', (Request request) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     try {
       final limit = int.tryParse(request.url.queryParameters['limit'] ?? '50');
       if (limit == null) return errorResponse(400, 'INVALID_PAGE_SIZE', 'Page size must be an integer');
@@ -52,6 +55,7 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
   });
 
   router.post('/api/inbox/settle', (Request request) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     final parsed = await readJsonObject(request);
     if (parsed.error != null) return parsed.error!;
     final rawMembers = parsed.value!['members'];
@@ -71,12 +75,14 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
   });
 
   router.post('/api/inbox/<id>/restore', (Request request, String id) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     final revision = await _revision(request);
     if (revision.error != null) return revision.error!;
     return _mutation(() => inbox.restore(decodePathSegment(id), revision.value!));
   });
 
   router.post('/api/inbox/<id>/read', (Request request, String id) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     final parsed = await readJsonObject(request);
     if (parsed.error != null) return parsed.error!;
     final revision = parsed.value!['conversation_revision'];
@@ -108,6 +114,7 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
   });
 
   router.post('/api/attention/read', (Request request) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     final values = await _attentionMarker(request);
     if (values.error != null) return values.error!;
     final value = values.value!;
@@ -118,6 +125,7 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
   });
 
   router.post('/api/attention/dismiss', (Request request) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     final values = await _attentionMarker(request);
     if (values.error != null) return values.error!;
     final value = values.value!;
@@ -128,6 +136,7 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
   });
 
   router.post('/api/attention/action', (Request request) async {
+    if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     final parsed = await readJsonObject(request);
     if (parsed.error != null) return parsed.error!;
     final body = parsed.value!;
@@ -174,6 +183,10 @@ Map<String, Object?> _entryJson(InboxEntry entry) => {
   'local_draft': entry.localDraft,
   'parent_session_id': entry.parentSessionId,
   'running_since': entry.runningSince?.toIso8601String(),
+  'project_id': entry.projectId,
+  'project_name': entry.projectName,
+  'provider': entry.provider,
+  'model': entry.model,
 };
 
 Map<String, Object?> _attentionJson(AttentionItem item) => {

@@ -5,14 +5,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 CASE=""
-COMPARE_WIREFRAMES=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --case) CASE="${2:-}"; shift 2 ;;
-    --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|integrated-qualification|workspace-chat-integration [--live-provider] [--compare-wireframes]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|integrated-qualification|workspace-chat-integration [--live-provider]"
       exit 0
       ;;
     --live-provider) LIVE_PROVIDER=1; shift ;;
@@ -106,11 +104,11 @@ PY
       exit "${status}"
     fi
   }
-  run_qualification_child q1-e11 --compare-wireframes
+  run_qualification_child q1-e11
   run_qualification_child q4-draft-send
-  run_qualification_child q2-q3-q7-history --compare-wireframes
-  run_qualification_child q9-effective-context --compare-wireframes
-  run_qualification_child q6-q8-q10-inbox-attention --compare-wireframes
+  run_qualification_child q2-q3-q7-history
+  run_qualification_child q9-effective-context
+  run_qualification_child q6-q8-q10-inbox-attention
   run_qualification_child search-commands
   python3 - "${EVIDENCE_ROOT}" <<'PY'
 import json
@@ -212,8 +210,7 @@ if [ "${CASE}" = "q9-temporary-supported-provider" ]; then
   exit 0
 fi
 if [ "${CASE}" = "q9-temporary-browser-memory" ] || [ "${CASE}" = "q9-temporary-export-e11" ]; then
-  DARTCLAW_TEMPORARY_COMPARE_WIREFRAMES="${COMPARE_WIREFRAMES}" \
-    "${SCRIPT_DIR}/temporary_conversation_e2e.sh" browser "${EVIDENCE_ROOT}"
+  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" browser "${EVIDENCE_ROOT}"
   echo "Evidence: ${EVIDENCE_ROOT}"
   exit 0
 fi
@@ -240,7 +237,6 @@ close_all() {
   agent-browser --session conversation-draft close >/dev/null 2>&1 || true
   agent-browser --session conversation-quota close >/dev/null 2>&1 || true
   agent-browser --session conversation-history close >/dev/null 2>&1 || true
-  agent-browser --session conversation-wire close >/dev/null 2>&1 || true
   if [ -n "${SERVER_PID}" ]; then
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
     wait "${SERVER_PID}" >/dev/null 2>&1 || true
@@ -309,7 +305,7 @@ assert_global_events_live() {
   assert_eval "${session}" "(async () => { const shell=document.querySelector('.shell'); const started=performance.now(); while(shell?.dataset.connection!=='live' && performance.now()-started<3000) await new Promise(r=>setTimeout(r,20)); if(shell?.dataset.connection!=='live') throw new Error('global event stream did not connect'); if(document.getElementById('connection-lost-banner')) throw new Error('global event stream retained a disconnect banner'); return true })()"
 }
 
-source "${SCRIPT_DIR}/visual_comparison.sh"
+source "${SCRIPT_DIR}/visual_checks.sh"
 
 run_q4() {
   printf 'attachment bytes retained in IndexedDB\n' >"${EVIDENCE_ROOT}/draft-attachment.txt"
@@ -419,15 +415,8 @@ run_q1() {
   assert_eval conversation-origin "(() => { document.documentElement.style.zoom='2'; if(!document.querySelector('#send-btn').checkVisibility()) throw new Error('send hidden at 200% zoom'); return true })()"
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/composer-390-light-zoom200.png"
   capture_accessibility conversation-origin '.input-area' composer-a11y
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    ab conversation-origin set viewport 1440 900
-    set_app_theme conversation-origin dark
-    assert_eval conversation-origin "(() => { document.documentElement.style.zoom='1'; return true })()"
-    capture_wireframe chat-composer
-    compare_current_to_wireframe chat-composer
-    capture_wireframe chat-conversation-cards
-    compare_current_to_wireframe chat-conversation-cards
-  fi
+  assert_eval conversation-origin "(() => { document.documentElement.style.zoom='1'; return true })()"
+  assert_layout_tiers conversation-origin chat-composer
 }
 
 run_q6() {
@@ -512,14 +501,7 @@ run_history() {
   done
   capture_accessibility conversation-history '#messages' history-a11y
   assert_eval conversation-history "(() => { const resources=performance.getEntriesByType('resource').filter(entry=>entry.name.includes('/api/sessions/${HISTORY_SESSION_ID}')); const longTasks=performance.getEntriesByType('longtask').map(entry=>entry.duration); return {resources:resources.map(entry=>({name:entry.name,duration:entry.duration,transferSize:entry.transferSize})),longTasks} })()"
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    ab conversation-history set viewport 1440 900
-    set_app_theme conversation-history dark
-    capture_wireframe chat-conversation-cards history-cards
-    compare_session_to_wireframe conversation-history history-cards
-    capture_wireframe guard-block-chat history-guard
-    compare_session_to_wireframe conversation-history history-guard
-  fi
+  assert_layout_tiers conversation-history history-transcript
 }
 
 run_q9_effective_context() {
@@ -529,12 +511,7 @@ run_q9_effective_context() {
   ab conversation-passive wait '#effective-context-summary'
   ab conversation-passive fill '#message-input' 'Passive draft survives context reconciliation'
   assert_eval conversation-passive "(() => { document.querySelector('#message-input').focus(); return {revision:window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat').conversationRevision} })()"
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    ab conversation-origin set viewport 1440 900
-    set_app_theme conversation-origin dark
-    capture_wireframe new-session
-    compare_current_to_wireframe new-session
-  fi
+  assert_layout_tiers conversation-origin q9-new-session
   assert_eval conversation-origin "(async () => { const initial=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); if(!initial.next_context || initial.next_context.projectId!=='fixture-docs') throw new Error('configured default project context missing'); if(!document.body.textContent.includes('Fixture Docs') || document.querySelector('[data-identicon-id=\"fixture-docs\"]')===null) throw new Error('project name or stable identity missing'); const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); const input=document.querySelector('#message-input'); input.value='Draft retained across context validation'; input.dispatchEvent(new InputEvent('input',{bubbles:true})); document.querySelector('#effective-context-model-input').value='fixture-model'; document.querySelector('#effective-context-effort-input').value='high'; document.querySelector('#effective-context-form').requestSubmit(); const started=performance.now(); while(c.conversationRevision===initial.revision && performance.now()-started<2000) await new Promise(r=>setTimeout(r,20)); if(c.conversationRevision===initial.revision || input.value!=='Draft retained across context validation') throw new Error('context form did not apply without changing draft'); return {revision:c.conversationRevision} })()"
   ab conversation-origin fill '#message-input' 'Active context capture'
   ab conversation-origin press Control+Enter
@@ -549,10 +526,7 @@ run_q9_effective_context() {
   ab conversation-origin wait '#effective-context-summary'
   assert_eval conversation-origin "(() => { const text=document.querySelector('#effective-context-summary').textContent; if(!text.includes('Workspace owner') || !text.includes('Current') || !text.includes('Next turn')) throw new Error('ownership/context projection incomplete'); document.querySelector('#effective-context-open').click(); const d=document.querySelector('#effective-context-dialog'); if(!d.open || !d.textContent.includes('Provider-native session and tool state do not')) throw new Error('continuity disclosure missing'); if(!d.textContent.includes('0 tokens') || !d.textContent.includes('TOOLS.md (configured workspace)') || !document.querySelector('#effective-context-memory').hidden) throw new Error('measured zero or provenance missing'); if(!document.querySelector('#effective-context-model-input').disabled || !document.querySelector('#effective-context-effort-input').disabled) throw new Error('ACP unavailable controls stayed editable'); document.querySelector('#effective-context-close').click(); return true })()"
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/effective-context-chat.png"
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    capture_wireframe chat-conversation-cards
-    compare_current_to_wireframe chat-conversation-cards
-  fi
+  assert_layout_tiers conversation-origin q9-effective-context-chat
   restart_server
   ab conversation-origin open "${SESSION_URL}"
   ab conversation-origin wait '#effective-context-summary'
@@ -560,10 +534,7 @@ run_q9_effective_context() {
   ab conversation-origin open "${BASE_URL}/sessions/${SESSION_ID}/info"
   ab conversation-origin wait '#session-effective-context'
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/effective-context-session-info.png"
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    capture_wireframe session-info-panel
-    compare_current_to_wireframe session-info-panel
-  fi
+  assert_layout_canon conversation-origin q9-session-info
   ab conversation-origin open "${BASE_URL}/sessions/${NAMED_AGENT_SESSION_ID}"
   ab conversation-origin wait '#effective-context-workspace'
   assert_eval conversation-origin "(() => { if(document.querySelector('#effective-context-workspace').textContent.trim()!=='agent:fixture-agent') throw new Error('named-agent workspace principal changed'); return true })()"
@@ -573,12 +544,7 @@ run_q9_effective_context() {
 run_e11_effective_context() {
   ab conversation-origin open "${SESSION_URL}"
   ab conversation-origin wait '#effective-context-open'
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    ab conversation-origin set viewport 1440 900
-    set_app_theme conversation-origin dark
-    capture_wireframe new-session
-    compare_current_to_wireframe new-session
-  fi
+  assert_layout_tiers conversation-origin e11-new-session
   for width in 375 390 768 1440; do
     for theme in dark light; do
       ab conversation-origin set viewport "${width}" 900
@@ -590,17 +556,11 @@ run_e11_effective_context() {
   ab conversation-origin set viewport 390 900
   assert_eval conversation-origin "(() => { document.documentElement.style.zoom='2'; if(!document.querySelector('#effective-context-open').checkVisibility() || !document.querySelector('#send-btn').checkVisibility()) throw new Error('controls hidden at 200% zoom'); return true })()"
   capture_accessibility conversation-origin '.input-area' effective-context-a11y
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    assert_eval conversation-origin "(() => { document.documentElement.style.zoom='1'; return true })()"
-    ab conversation-origin set viewport 1440 900
-    set_app_theme conversation-origin dark
-    capture_wireframe chat-conversation-cards
-    compare_current_to_wireframe chat-conversation-cards
-    ab conversation-origin open "${BASE_URL}/sessions/${SESSION_ID}/info"
-    ab conversation-origin wait '#session-effective-context'
-    capture_wireframe session-info-panel
-    compare_current_to_wireframe session-info-panel
-  fi
+  assert_eval conversation-origin "(() => { document.documentElement.style.zoom='1'; return true })()"
+  assert_layout_tiers conversation-origin e11-effective-context-chat
+  ab conversation-origin open "${BASE_URL}/sessions/${SESSION_ID}/info"
+  ab conversation-origin wait '#session-effective-context'
+  assert_layout_canon conversation-origin e11-session-info
 }
 
 run_workspace_chat_integration() {
@@ -702,12 +662,7 @@ run_inbox_attention() {
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/attention-desktop.png"
   capture_accessibility conversation-origin '#sidebar' inbox-a11y
   capture_accessibility conversation-origin '[data-attention-panel]' attention-a11y
-  if [ "${COMPARE_WIREFRAMES}" -eq 1 ]; then
-    capture_wireframe session-sidebar-control-plane inbox-reference
-    compare_session_to_wireframe conversation-origin inbox-reference 15
-    capture_wireframe notification-center attention-reference
-    compare_session_to_wireframe conversation-origin attention-reference 15
-  fi
+  assert_layout_tiers conversation-origin inbox-attention
   curl -fsS -X POST "${BASE_URL}/__fixture/external/release" >"${EVIDENCE_ROOT}/inbox-external-release.json"
 }
 
@@ -754,6 +709,11 @@ run_inbox_joined_proof() {
   assert_eval conversation-passive "(() => { if(document.querySelector('#sidebar').classList.contains('open')||document.querySelector('.shell-main').hasAttribute('inert')||document.activeElement!==document.querySelector('.menu-toggle'))throw new Error('drawer close did not restore focus'); return true })()"
 }
 
+assert_visible_read_settled() {
+  local session="$1"
+  assert_eval "${session}" "(async () => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); c.handleVisibleReadBoundary(); const started=performance.now(); while(performance.now()-started<3000) { const visible=[...document.querySelectorAll('[data-message-id]')].filter(message=>{const b=message.getBoundingClientRect();return b.bottom>0&&b.top<innerHeight}); const latest=visible.at(-1); if(c.conversationReady&&latest&&c.lastReadMessageId===latest.dataset.messageId)return {readAcknowledged:c.lastReadMessageId,revision:c.conversationRevision}; await new Promise(r=>setTimeout(r,20)); } throw new Error('visible read boundary did not settle: '+JSON.stringify({ready:c.conversationReady,lastRead:c.lastReadMessageId,visibility:document.visibilityState,revision:c.conversationRevision,visible:[...document.querySelectorAll('[data-message-id]')].filter(m=>{const b=m.getBoundingClientRect();return b.bottom>0&&b.top<innerHeight}).map(m=>m.dataset.messageId)})); })()"
+}
+
 run_search_commands() {
   local search_url="${BASE_URL}/sessions/${SEARCH_OWNER_SESSION_ID}"
   local shortcut_modifier=Control
@@ -762,11 +722,13 @@ run_search_commands() {
 
   ab conversation-origin open "${search_url}"
   ab conversation-origin wait '#message-input'
+  # Finish the initial read acknowledgement before testing a stable search snapshot.
+  assert_visible_read_settled conversation-origin
   ab conversation-origin fill '#message-input' 'draft retained across exact search navigation'
   assert_eval conversation-origin "(() => { if(document.getElementById('message-${SEARCH_EXACT_MESSAGE_ID}'))throw new Error('old exact message was already loaded'); return true })()"
   ab conversation-origin click '[data-command-open="current"]'
   ab conversation-origin fill '#conversation-find-query' 's07-exact-unloaded-marker'
-  ab conversation-origin wait 250
+  ab conversation-origin wait "#conversation-find-dialog [data-search-message=\"${SEARCH_EXACT_MESSAGE_ID}\"]"
   assert_eval conversation-origin "(() => { const dialog=document.querySelector('#conversation-find-dialog'); const options=[...dialog.querySelectorAll('[data-command-option]')]; const exact=options.find(option=>option.dataset.searchMessage==='${SEARCH_EXACT_MESSAGE_ID}'); if(options.length!==3||!exact)throw new Error('complete exact count or old result missing'); if(!exact.textContent.includes('conversation:${SEARCH_OWNER_SESSION_ID}/message:${SEARCH_EXACT_MESSAGE_ID}'))throw new Error('stable citation missing'); if(exact.querySelector('img')||globalThis.__s07Injected)throw new Error('snippet markup executed'); const mark=exact.querySelector('mark'); if(!mark||mark.textContent!=='s07-exact-unloaded-marker')throw new Error('escaped highlight missing'); const controller=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.body,'dc-conversation-command'); const index=options.indexOf(exact); controller.activeOption=index; controller.markActive(options); sessionStorage.setItem('__s07ExpectedPosition',String(index)); return {count:options.length,index,citation:exact.textContent} })()"
   assert_eval conversation-origin "(() => { const before=document.querySelector('#conversation-find-dialog .active')?.dataset.searchMessage; document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})); const next=document.querySelector('#conversation-find-dialog .active')?.dataset.searchMessage; if(!before||!next||before===next)throw new Error('next traversal failed'); document.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true})); if(document.querySelector('#conversation-find-dialog .active')?.dataset.searchMessage!==before)throw new Error('previous traversal failed'); return {previous:before,next} })()"
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/current-search-exact.png"
@@ -780,6 +742,7 @@ run_search_commands() {
   assert_eval conversation-origin "(() => { const dialog=document.querySelector('#conversation-find-dialog'); const options=[...dialog.querySelectorAll('[data-command-option]')]; const expected=Number(sessionStorage.getItem('__s07ExpectedPosition')); if(dialog.querySelector('[data-command-query]').value!=='s07-exact-unloaded-marker')throw new Error('query did not restore'); if(document.querySelector('#message-input').value!=='draft retained across exact search navigation')throw new Error('draft did not restore'); if(options.indexOf(dialog.querySelector('.active'))!==expected)throw new Error('position did not restore'); return {query:dialog.querySelector('[data-command-query]').value,draft:document.querySelector('#message-input').value,position:expected} })()"
   ab conversation-origin screenshot "${EVIDENCE_ROOT}/current-search-return.png"
   ab conversation-origin press Escape
+  assert_visible_read_settled conversation-origin
 
   assert_eval conversation-origin "(() => { const dialog=document.querySelector('#global-command-dialog'); const composing=new KeyboardEvent('keydown',{key:'k',metaKey:true,bubbles:true,isComposing:true}); document.dispatchEvent(composing); if(dialog.open||composing.defaultPrevented)throw new Error('IME composition opened or consumed shortcut'); for(const modifier of ['ctrlKey','metaKey']){ const options={key:'f',bubbles:true}; options[modifier]=true; const nativeFind=new KeyboardEvent('keydown',options); document.dispatchEvent(nativeFind); if(nativeFind.defaultPrevented)throw new Error('native Find intercepted'); } const keys=[...document.querySelectorAll('kbd')].map(node=>node.textContent); if(!keys.some(key=>key.includes('Ctrl')||key.includes('⌘')))throw new Error('core shortcut lacks kbd'); return {imeIgnored:true,nativeFindPreserved:true,kbd:keys} })()"
 
@@ -892,6 +855,15 @@ run_search_commands() {
   touch "${EVIDENCE_ROOT}/asserted-typed-commands" "${EVIDENCE_ROOT}/asserted-native-skills"
 
   ab conversation-origin press "${shortcut_modifier}+K"
+  ab conversation-origin network route '**/api/conversation-search*' --abort
+  ab conversation-origin fill '#global-command-query' 'failure-probe'
+  ab conversation-origin wait 250
+  ab conversation-origin wait --text 'Search is unavailable'
+  ab conversation-origin screenshot "${EVIDENCE_ROOT}/search-failure.png"
+  ab conversation-origin network unroute '**/api/conversation-search*'
+  ab conversation-origin press Escape
+
+  ab conversation-origin press "${shortcut_modifier}+K"
   ab conversation-origin fill '#global-command-query' '/'
   ab conversation-origin wait 250
   assert_eval conversation-origin "(() => { const labels=[...document.querySelectorAll('#global-command-dialog [data-command-option]')].map(row=>row.querySelector('strong').textContent); for(const command of ['/new','/reset','/stop','/status','/fork','/settle','/model','/effort','/help'])if(!labels.includes(command))throw new Error('missing '+command); return labels })()"
@@ -916,15 +888,6 @@ run_search_commands() {
   set_app_theme conversation-origin dark
   ab conversation-origin --json eval "JSON.stringify(window.__s07VisualAudit())" >"${EVIDENCE_ROOT}/computed-style-audit.json"
   touch "${EVIDENCE_ROOT}/asserted-accessibility"
-  ab conversation-origin press Escape
-
-  ab conversation-origin press "${shortcut_modifier}+K"
-  ab conversation-origin network route '**/api/conversation-search*' --abort
-  ab conversation-origin fill '#global-command-query' 'failure-probe'
-  ab conversation-origin wait 250
-  ab conversation-origin wait --text 'Search is unavailable'
-  ab conversation-origin screenshot "${EVIDENCE_ROOT}/search-failure.png"
-  ab conversation-origin network unroute '**/api/conversation-search*'
   ab conversation-origin press Escape
 
   ab conversation-origin open "${BASE_URL}/knowledge?q=retained-layer-query"

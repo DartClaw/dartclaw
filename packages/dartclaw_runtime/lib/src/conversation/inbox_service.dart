@@ -57,6 +57,15 @@ final class InboxEntry {
   final String? parentSessionId;
   final DateTime? runningSince;
 
+  /// Effective context the rail row labels itself with: the project the
+  /// conversation is bound to, and the provider and model it last ran on. All
+  /// null before a first context is staged; [projectName] falls back to the id
+  /// when no project record matches.
+  final String? projectId;
+  final String? projectName;
+  final String? provider;
+  final String? model;
+
   const new({
     required this.session,
     required this.revision,
@@ -69,6 +78,10 @@ final class InboxEntry {
     required this.localDraft,
     this.parentSessionId,
     this.runningSince,
+    this.projectId,
+    this.projectName,
+    this.provider,
+    this.model,
   });
 }
 
@@ -154,6 +167,10 @@ final class ConversationInboxService implements MessageServiceObserver {
   final MessageService messages;
   final SessionMutationCoordinator mutations;
   final SseBroadcast? updates;
+
+  /// Resolves the display name of a row's project. Absent in sparse
+  /// compositions, which project the id alone.
+  final ProjectService? projects;
   final bool Function(String sessionId) isSessionRunning;
   final DateTime Function() clock;
   final int autoSettleIdleDays;
@@ -165,6 +182,7 @@ final class ConversationInboxService implements MessageServiceObserver {
     required this.messages,
     required this.mutations,
     this.updates,
+    this.projects,
     bool Function(String sessionId)? isSessionRunning,
     DateTime Function()? clock,
     this.autoSettleIdleDays = 0,
@@ -222,6 +240,7 @@ final class ConversationInboxService implements MessageServiceObserver {
         .where((session) => SessionService.isVisibleToPrincipal(session, principal))
         .where((session) => session.type != SessionType.task && session.type != SessionType.logicalAgent)
         .toList(growable: false);
+    final projectNames = await _projectNames();
     final states = <String, ConversationState>{};
     final parentSessionIds = <String, String>{};
     for (final session in visibleSessions) {
@@ -243,6 +262,7 @@ final class ConversationInboxService implements MessageServiceObserver {
           states[session.id]!,
           localDraftSessionIds.contains(session.id),
           parentSessionIds[session.id],
+          projectNames,
         ),
       );
     }
@@ -648,10 +668,26 @@ final class ConversationInboxService implements MessageServiceObserver {
     return (ok: true, code: 'ELIGIBLE', message: 'Conversation is eligible to settle');
   }
 
-  Future<InboxEntry> _entry(Session session, ConversationState state, bool localDraft, String? parentSessionId) async {
+  /// Display names keyed by project id, read once per page so a rail of N rows
+  /// costs one project read rather than N.
+  Future<Map<String, String>> _projectNames() async {
+    final service = projects;
+    if (service == null) return const {};
+    return {for (final project in await service.getAll()) project.id: project.name};
+  }
+
+  Future<InboxEntry> _entry(
+    Session session,
+    ConversationState state,
+    bool localDraft,
+    String? parentSessionId,
+    Map<String, String> projectNames,
+  ) async {
     final stored = await messages.getMessages(session.id);
     final latestCursor = stored.lastOrNull?.cursor ?? 0;
     final status = _projectStatus(session, state);
+    final context = state.currentContext ?? state.nextContext;
+    final projectId = context?.projectId;
     return InboxEntry(
       session: session,
       revision: state.revision,
@@ -664,6 +700,10 @@ final class ConversationInboxService implements MessageServiceObserver {
       localDraft: localDraft,
       parentSessionId: parentSessionId,
       runningSince: status.runningSince,
+      projectId: projectId,
+      projectName: projectId == null ? null : projectNames[projectId] ?? projectId,
+      provider: context?.provider ?? session.provider,
+      model: context?.model,
     );
   }
 

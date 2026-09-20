@@ -6,14 +6,18 @@ import '../test_utils.dart';
 import 'controller_test_support.dart';
 
 void main() {
-  test('context dialog traps and restores focus through the lifecycle controller', () async {
+  test('the context popover traps and restores focus through the lifecycle controller', () async {
     final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
-    expect(source, contains('openContextDialog(event)'));
-    expect(source, contains('dialog.showModal()'));
+    expect(source, contains('openContextPopover(event)'));
     expect(source, contains('handleContextDialogKeydown(event)'));
     expect(source, contains("event.key !== 'Tab'"));
-    expect(source, contains('this.contextDialogReturnFocus?.focus()'));
+    expect(source, contains('this.contextPopoverReturnFocus?.focus()'));
     expect(source, contains("event.key === 'Escape'"));
+    // Anchored to the chip, not a modal: a modal steals the transcript behind it
+    // for a read-and-edit surface the reader is comparing against that transcript.
+    final start = source.indexOf('openContextPopover(event) {');
+    final open = source.substring(start, source.indexOf('closeContextPopover() {', start));
+    expect(open, isNot(contains('showModal')));
   });
 
   test('context mutation posts the current revision and leaves the draft outside reconciliation', () async {
@@ -49,7 +53,7 @@ void main() {
     }
     for (final selector in const [
       '#effective-context-current',
-      '#effective-context-next',
+      '#effective-context-current-row',
       '#effective-context-telemetry',
       '#effective-context-behavior',
       '#effective-context-memory',
@@ -63,24 +67,17 @@ void main() {
     expect(method, isNot(contains('this.textarea')));
   });
 
-  test('browser profile gates every S05 wireframe comparison by mismatch percentage', () async {
+  test('the Q9 and E11 browser cases run the layout gate on the chat and session-info surfaces', () async {
     final script = File(await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/run.sh'))
         .readAsStringSync();
-    final comparison = File(
-      await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/visual_comparison.sh'),
-    ).readAsStringSync();
-    expect(comparison, contains('compare_current_to_wireframe()'));
-    expect(comparison, contains("find(result, 'mismatchPercentage')"));
-    expect(comparison, contains("find(result, 'differentPixels')"));
-    expect(comparison, contains("find(result, 'dimensionMismatch')"));
     final q9 = script.substring(
       script.indexOf('run_q9_effective_context()'),
       script.indexOf('run_e11_effective_context()'),
     );
     final e11 = script.substring(script.indexOf('run_e11_effective_context()'), script.lastIndexOf(r'case "${CASE}"'));
-    for (final wireframe in const ['chat-conversation-cards', 'session-info-panel', 'new-session']) {
-      expect(RegExp('compare_current_to_wireframe $wireframe').allMatches(q9).length, 1, reason: 'Q9 $wireframe');
-      expect(RegExp('compare_current_to_wireframe $wireframe').allMatches(e11).length, 1, reason: 'E11 $wireframe');
+    for (final section in {'Q9': q9, 'E11': e11}.entries) {
+      expect(section.value, contains('assert_layout_tiers'), reason: '${section.key} chat surface');
+      expect(section.value, contains('assert_layout_canon'), reason: '${section.key} session-info surface');
     }
   });
 }

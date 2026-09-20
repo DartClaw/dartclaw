@@ -127,7 +127,7 @@ Run each attempt into a new directory and retain stdout, stderr, exit status, ca
 Run these commands serially on the shared checkout.
 
 ```bash
-DARTCLAW_QUALIFICATION_INPUT="$PWD/.agent_temp/exec-plan-0.27/S09/qualification-input.json" DARTCLAW_CONVERSATION_EVIDENCE_DIR="$PWD/.agent_temp/exec-plan-0.27/S09/results/integrated-qualification/<attempt-id>" bash dev/testing/profiles/conversation-loop/run.sh --case integrated-qualification --compare-wireframes
+DARTCLAW_QUALIFICATION_INPUT="$PWD/.agent_temp/exec-plan-0.27/S09/qualification-input.json" DARTCLAW_CONVERSATION_EVIDENCE_DIR="$PWD/.agent_temp/exec-plan-0.27/S09/results/integrated-qualification/<attempt-id>" bash dev/testing/profiles/conversation-loop/run.sh --case integrated-qualification
 DARTCLAW_QUALIFICATION_INPUT="$PWD/.agent_temp/exec-plan-0.27/S09/qualification-input.json" DARTCLAW_CONVERSATION_EVIDENCE_DIR="$PWD/.agent_temp/exec-plan-0.27/S09/results/workspace-chat-integration/<attempt-id>" bash dev/testing/profiles/conversation-loop/run.sh --case workspace-chat-integration
 ```
 

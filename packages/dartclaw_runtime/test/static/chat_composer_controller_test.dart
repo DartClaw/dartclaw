@@ -42,7 +42,7 @@ const textarea = {
   focus() {},
   setSelectionRange(start) { this.selectionStart = start; },
 };
-const sendButton = { disabled: false, classList: { add() {}, remove() {} }, setAttribute() {} };
+const sendButton = { disabled: false, dataset: {}, classList: { add() {}, remove() {} }, setAttribute() {} };
 const list = {
   innerHTML: '',
   querySelectorAll() { return []; },

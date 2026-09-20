@@ -41,6 +41,11 @@ export default class DcChatController extends Stimulus.Controller {
     this.saveTimer = null;
     this.pendingConflict = null;
     this.queueItems = new Map();
+    this.findStops = [];
+    this.findIndex = 0;
+    this.findGeneration = 0;
+    this.findTruncated = false;
+    this.appliedProvider = null;
     this.paginationAnchor = null;
     this.paginationAnchorTop = null;
     this.historyViewState = null;
@@ -56,6 +61,9 @@ export default class DcChatController extends Stimulus.Controller {
     this.handleConversationChanged = this.handleConversationChanged.bind(this);
     this.handleConnectivityChange = this.handleConnectivityChange.bind(this);
     this.handleContextDialogKeydown = this.handleContextDialogKeydown.bind(this);
+    this.handleDocumentPointerDown = this.handleDocumentPointerDown.bind(this);
+    this.handleChatAction = this.handleChatAction.bind(this);
+    this.handleViewportChange = this.handleViewportChange.bind(this);
     this.handleVisibleReadBoundary = this.handleVisibleReadBoundary.bind(this);
     this.handleTemporaryBeforeUnload = this.handleTemporaryBeforeUnload.bind(this);
     this.handleTemporaryPageHide = this.handleTemporaryPageHide.bind(this);
@@ -69,8 +77,11 @@ export default class DcChatController extends Stimulus.Controller {
     this.element.addEventListener('click', this.handleLoadEarlierClick);
     this.element.addEventListener('click', this.handleHistoryClick);
     document.body.addEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
+    this.element.addEventListener('dartclaw:chat-action', this.handleChatAction);
+    document.addEventListener('pointerdown', this.handleDocumentPointerDown);
     window.addEventListener('online', this.handleConnectivityChange);
     window.addEventListener('offline', this.handleConnectivityChange);
+    window.addEventListener('resize', this.handleViewportChange);
     document.addEventListener('visibilitychange', this.handleVisibleReadBoundary);
     this.element.querySelector('.messages')?.addEventListener('scroll', this.handleVisibleReadBoundary, { passive: true });
     if (this.isTemporary) {
@@ -81,13 +92,15 @@ export default class DcChatController extends Stimulus.Controller {
     this.initTextarea();
     this.sendButton?.addEventListener('click', this.handleSendButtonClick);
     this.updateSendState();
+    this.observeComposerStack();
+    this.handleViewportChange();
     renderMarkdown(this.element);
     scrollToBottom(this.element, { force: true });
     this.restoreStoredHistoryViewState();
     this.revealHistoryTarget();
     this.initializeConversationState();
     this.initializeDraftStorage();
-    this.contextDialog?.addEventListener('keydown', this.handleContextDialogKeydown);
+    this.contextPopover?.addEventListener('keydown', this.handleContextDialogKeydown);
     this.temporaryDialogs.forEach((dialog) => {
       dialog.addEventListener('keydown', this.handleTemporaryDialogKeydown);
       dialog.addEventListener('close', this.handleTemporaryDialogClose);
@@ -103,8 +116,12 @@ export default class DcChatController extends Stimulus.Controller {
     this.element.removeEventListener('click', this.handleLoadEarlierClick);
     this.element.removeEventListener('click', this.handleHistoryClick);
     document.body.removeEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
+    this.element.removeEventListener('dartclaw:chat-action', this.handleChatAction);
+    document.removeEventListener('pointerdown', this.handleDocumentPointerDown);
     window.removeEventListener('online', this.handleConnectivityChange);
     window.removeEventListener('offline', this.handleConnectivityChange);
+    window.removeEventListener('resize', this.handleViewportChange);
+    this.stackObserver?.disconnect();
     document.removeEventListener('visibilitychange', this.handleVisibleReadBoundary);
     this.element.querySelector('.messages')?.removeEventListener('scroll', this.handleVisibleReadBoundary);
     window.removeEventListener('beforeunload', this.handleTemporaryBeforeUnload);
@@ -120,8 +137,10 @@ export default class DcChatController extends Stimulus.Controller {
     }
     this.sendButton?.removeEventListener('click', this.handleSendButtonClick);
     clearTimeout(this.saveTimer);
+    clearTimeout(this.saveStatusTimer);
+    clearTimeout(this.findTimer);
     this.draftChannel?.close();
-    this.contextDialog?.removeEventListener('keydown', this.handleContextDialogKeydown);
+    this.contextPopover?.removeEventListener('keydown', this.handleContextDialogKeydown);
     this.temporaryDialogs.forEach((dialog) => {
       dialog.removeEventListener('keydown', this.handleTemporaryDialogKeydown);
       dialog.removeEventListener('close', this.handleTemporaryDialogClose);
@@ -164,6 +183,46 @@ export default class DcChatController extends Stimulus.Controller {
     return this.element.querySelector('[data-dc-chat-target="saveStatus"]');
   }
 
+  get saveGlyph() {
+    return this.element.querySelector('[data-dc-chat-target="saveGlyph"]');
+  }
+
+  get composerStack() {
+    return this.element.querySelector('[data-dc-chat-target="composerStack"]');
+  }
+
+  get requestStrip() {
+    return this.element.querySelector('[data-dc-chat-target="requestStrip"]');
+  }
+
+  get findBar() {
+    return this.element.querySelector('[data-dc-chat-target="findBar"]');
+  }
+
+  get findQuery() {
+    return this.element.querySelector('[data-dc-chat-target="findQuery"]');
+  }
+
+  get findCount() {
+    return this.element.querySelector('[data-dc-chat-target="findCount"]');
+  }
+
+  get queueButton() {
+    return this.element.querySelector('[data-dc-chat-target="queueButton"]');
+  }
+
+  get steerToggle() {
+    return this.element.querySelector('[data-dc-chat-target="steerToggle"]');
+  }
+
+  get steerMenu() {
+    return this.element.querySelector('[data-dc-chat-target="steerMenu"]');
+  }
+
+  get contextPopover() {
+    return this.element.querySelector('[data-dc-chat-target="contextPopover"]');
+  }
+
   get liveStatus() {
     return this.element.querySelector('[data-dc-chat-target="liveStatus"]');
   }
@@ -178,10 +237,6 @@ export default class DcChatController extends Stimulus.Controller {
 
   get queue() {
     return this.element.querySelector('[data-dc-chat-target="queue"]');
-  }
-
-  get stopButton() {
-    return this.element.querySelector('[data-dc-chat-target="stopButton"]');
   }
 
   get steerButton() {
@@ -226,21 +281,113 @@ export default class DcChatController extends Stimulus.Controller {
     return this.element.querySelectorAll('.temporary-dialog');
   }
 
-  get contextDialog() {
-    return this.element.querySelector('[data-dc-chat-target="contextDialog"]');
+  /// The dock's measured height drives the transcript's bottom padding and the
+  /// fade that hides the last turn behind the floating composer. It grows with
+  /// queue rows, the approval strip and recovery actions, so it is measured
+  /// rather than guessed.
+  observeComposerStack() {
+    const stack = this.composerStack;
+    if (!stack || typeof ResizeObserver !== 'function') return;
+    const publish = () => {
+      const area = stack.closest('.input-area');
+      this.element.style.setProperty('--stack-h', (area?.offsetHeight || 0) + 'px');
+    };
+    this.stackObserver = new ResizeObserver(publish);
+    this.stackObserver.observe(stack);
+    publish();
   }
 
-  openContextDialog(event) {
-    const dialog = this.contextDialog;
-    if (!dialog) return;
-    this.contextDialogReturnFocus = event?.currentTarget || document.activeElement;
-    dialog.showModal();
-    dialog.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus();
+  /// The shortcut hint is a desktop-only placeholder: there is no modifier key
+  /// at the touch tier, and the longer string wraps onto a second line.
+  handleViewportChange() {
+    const textarea = this.textarea;
+    if (!textarea || this.streaming) return;
+    const narrow = globalThis.matchMedia?.('(max-width: 768px)').matches;
+    textarea.placeholder = narrow ? 'Message DartClaw…' : 'Message DartClaw…  ⌘↵ to send';
   }
 
-  closeContextDialog() {
-    this.contextDialog?.close();
-    this.contextDialogReturnFocus?.focus();
+  /// The topbar overflow menu and the command palette live outside this
+  /// controller's element, so they reach these surfaces by dispatching
+  /// `dartclaw:chat-action` on `#main-content` with one of these four actions.
+  /// The model/effort commands keep their own route: they click
+  /// `#effective-context-open` and focus the field they name.
+  handleChatAction(event) {
+    const actions = {
+      find: () => this.openFind(),
+      export: () => this.openTemporaryExport(),
+      'temporary-create': () => this.openTemporaryCreate(),
+      'temporary-end': () => this.openTemporaryEnd(),
+    };
+    const run = actions[event.detail?.action];
+    if (!run) return;
+    event.stopPropagation();
+    run();
+  }
+
+  openCommands() {
+    const textarea = this.textarea;
+    if (!textarea) return;
+    if (!textarea.value.startsWith('/')) textarea.value = '/' + textarea.value;
+    textarea.focus();
+    textarea.setSelectionRange(1, 1);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  toggleContextPopover(event) {
+    if (this.contextPopover && !this.contextPopover.hidden) {
+      this.closeContextPopover();
+      return;
+    }
+    this.openContextPopover(event);
+  }
+
+  openContextPopover(event) {
+    const popover = this.contextPopover;
+    if (!popover) return;
+    this.contextPopoverReturnFocus = event?.currentTarget || document.activeElement;
+    popover.hidden = false;
+    this.setContextExpanded(true);
+    // The first editable row, not the close button that precedes it in the head.
+    popover.querySelector('form select, form input:not([type="hidden"])')?.focus();
+  }
+
+  closeContextPopover() {
+    const popover = this.contextPopover;
+    if (!popover || popover.hidden) return;
+    popover.hidden = true;
+    this.setContextExpanded(false);
+    this.contextPopoverReturnFocus?.focus();
+  }
+
+  setContextExpanded(open) {
+    this.element.querySelectorAll('[data-action~="dc-chat#toggleContextPopover"]')
+      .forEach((trigger) => trigger.setAttribute('aria-expanded', String(open)));
+  }
+
+  handleDocumentPointerDown(event) {
+    const popover = this.contextPopover;
+    if (popover && !popover.hidden && !event.target.closest('.pop-context') &&
+        !event.target.closest('[data-action~="dc-chat#toggleContextPopover"]')) {
+      this.closeContextPopover();
+    }
+    const menu = this.steerMenu;
+    if (menu && !menu.hidden && !event.target.closest('.composer-send-group')) this.closeSteerMenu();
+  }
+
+  toggleSteerMenu() {
+    const menu = this.steerMenu;
+    if (!menu) return;
+    menu.hidden = !menu.hidden;
+    this.steerToggle?.setAttribute('aria-expanded', String(!menu.hidden));
+  }
+
+  closeSteerMenu() {
+    if (this.steerMenu) this.steerMenu.hidden = true;
+    this.steerToggle?.setAttribute('aria-expanded', 'false');
+  }
+
+  submitForm() {
+    this.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   }
 
   contextProviderChanged(event) {
@@ -257,6 +404,7 @@ export default class DcChatController extends Stimulus.Controller {
       effort.disabled = option.dataset.effortEditable !== 'true';
       if (effort.disabled) effort.value = '';
     }
+    this.updateContinuityWarning();
   }
 
   async applyContext(event) {
@@ -335,42 +483,58 @@ export default class DcChatController extends Stimulus.Controller {
       '#effective-context-workspace': view.workspace,
       '#effective-context-project-name': view.project,
       '#effective-context-current': view.current,
-      '#effective-context-next': view.next,
       '#effective-context-composer-provider': view.composer,
-      '#effective-context-detail-workspace': view.workspace,
-      '#effective-context-detail-project': view.project,
-      '#effective-context-detail-directory': view.directory,
-      '#effective-context-detail-provider': view.provider,
-      '#effective-context-model': view.model,
-      '#effective-context-effort': view.effort,
       '#effective-context-telemetry': view.telemetry,
       '#effective-context-behavior': view.behavior,
+      '#effective-context-memory': view.memory,
     };
     for (const [selector, value] of Object.entries(text)) {
       const mount = this.element.querySelector(selector);
       if (mount) mount.textContent = value || '';
     }
-    const identicon = this.element.querySelector('#effective-context-summary [data-identicon-id]');
-    if (identicon) identicon.dataset.identiconId = view.projectId;
-    const memory = this.element.querySelector('#effective-context-memory');
-    if (memory) {
-      memory.textContent = view.memory || '';
-      memory.hidden = !view.memory;
+    const usage = this.element.querySelector('#effective-context-usage');
+    if (usage) {
+      usage.textContent = view.usage || '';
+      usage.hidden = !view.usage;
     }
+    const identicon = this.element.querySelector('.composer-context-chip [data-identicon-id]');
+    if (identicon) identicon.dataset.identiconId = view.projectId;
+    const memoryRow = this.element.querySelector('#effective-context-memory-row');
+    if (memoryRow) memoryRow.hidden = !view.memory;
+    // The editable rows are the statement of next-turn context; the current one
+    // appears only while it differs from them.
+    const currentRow = this.element.querySelector('#effective-context-current-row');
+    if (currentRow) currentRow.hidden = view.currentHidden === true;
+    for (const id of ['#effective-context-directory', '#effective-context-behavior']) {
+      const mount = this.element.querySelector(id);
+      if (mount) mount.title = mount.value ?? mount.textContent ?? '';
+    }
+    this.appliedProvider = view.provider;
+    this.updateContinuityWarning();
 
     this.conversationRevision = nextRevision;
-    const revision = this.contextDialog?.querySelector('[name="conversation_revision"]');
+    const revision = this.contextPopover?.querySelector('[name="conversation_revision"]');
     if (revision) revision.value = String(nextRevision);
+  }
+
+  /// The continuity notice is a consequence of switching providers, not a
+  /// standing caption: it appears only while the form's selection differs from
+  /// the provider the conversation is actually on.
+  updateContinuityWarning() {
+    const warning = this.element.querySelector('#effective-context-continuity');
+    const selected = this.element.querySelector('#effective-context-provider')?.value;
+    if (!warning) return;
+    warning.hidden = !selected || !this.appliedProvider || selected === this.appliedProvider;
   }
 
   handleContextDialogKeydown(event) {
     if (event.key === 'Escape') {
       event.preventDefault();
-      this.closeContextDialog();
+      this.closeContextPopover();
       return;
     }
     if (event.key !== 'Tab') return;
-    const focusable = [...this.contextDialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    const focusable = [...this.contextPopover.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
       .filter((element) => !element.disabled && !element.hidden);
     if (!focusable.length) return;
     const first = focusable[0];
@@ -442,35 +606,47 @@ export default class DcChatController extends Stimulus.Controller {
     this.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   }
 
+  /// One filled control. Idle it sends; while a turn runs its glyph becomes
+  /// `stop` and it cancels, with Queue and the Steer menu beside it for the
+  /// follow-up the user is typing.
   updateSendState() {
     const textarea = this.textarea;
     const button = this.sendButton;
+    const hasInput = Boolean(textarea && (textarea.value.trim() || this.attachments.length || this.references.length));
+    const richReady = !this.attachments.some((attachment) => attachment.state !== 'ready') &&
+      !(textarea?.value || '').match(/(^|\s)@[\w./:-]+/);
+    const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+    const submittable = hasInput && richReady && online && this.conversationReady && !this.chatRequestPending;
+    const canQueue = this.streaming && this.ordinaryControls !== false;
     if (button) {
-      const hasInput = Boolean(textarea && (textarea.value.trim() || this.attachments.length || this.references.length));
-      const richReady = !this.attachments.some((attachment) => attachment.state !== 'ready') &&
-        !(textarea?.value || '').match(/(^|\s)@[\w./:-]+/);
-      const online = typeof navigator === 'undefined' || navigator.onLine !== false;
-      button.disabled = !hasInput || !richReady || !online || !this.conversationReady || this.chatRequestPending;
-      button.type = 'submit';
-      const canQueue = this.streaming && this.ordinaryControls !== false;
-      button.textContent = canQueue ? 'Queue' : 'Send';
-      button.setAttribute('aria-label', canQueue ? 'Queue message' : 'Send message');
-      button.title = canQueue ? 'Queue this message' : 'Send message';
-      button.classList.remove('btn-stop');
+      if (this.streaming) {
+        button.type = 'button';
+        button.dataset.icon = 'stop';
+        button.disabled = !this.canCancel;
+        button.setAttribute('aria-label', 'Stop the current turn');
+        button.title = 'Stop the current turn';
+      } else {
+        button.type = 'submit';
+        button.dataset.icon = 'arrow-up';
+        button.disabled = !submittable;
+        button.setAttribute('aria-label', 'Send message');
+        button.title = 'Send message';
+      }
     }
-    if (this.stopButton) {
-      this.stopButton.hidden = !this.streaming;
-      this.stopButton.disabled = !this.canCancel;
+    if (this.queueButton) {
+      this.queueButton.hidden = !canQueue;
+      this.queueButton.disabled = !submittable;
     }
-    if (this.steerButton) {
-      this.steerButton.hidden = !this.streaming || this.ordinaryControls === false;
-      this.steerButton.disabled = !this.canCancel;
+    if (this.steerToggle) {
+      this.steerToggle.hidden = !canQueue;
+      this.steerToggle.disabled = !submittable || !this.canCancel;
     }
+    if (this.steerButton) this.steerButton.disabled = !submittable || !this.canCancel;
+    if (!canQueue) this.closeSteerMenu();
   }
 
   disableInput() {
     const textarea = this.textarea;
-    const button = this.sendButton;
     if (textarea) {
       textarea.disabled = false;
       textarea.placeholder = 'Write the next message while the agent works…';
@@ -479,24 +655,18 @@ export default class DcChatController extends Stimulus.Controller {
     this.turnFinalized = false;
     document.body.classList.add('streaming');
     this.form?.classList.add('composer--streaming');
-    if (button) button.disabled = false;
     this.closePalettes();
     this._startTurnStatusPolling();
     this.updateSendState();
   }
 
   enableInput() {
-    const textarea = this.textarea;
-    const button = this.sendButton;
-    if (textarea) {
-      textarea.disabled = false;
-      textarea.placeholder = 'Type a message...';
-    }
     this.streaming = false;
+    if (this.textarea) this.textarea.disabled = false;
+    this.handleViewportChange();
     document.body.classList.remove('streaming');
     this.form?.classList.remove('composer--streaming');
     this._stopTurnStatusPolling();
-    if (button) button.disabled = !textarea || !textarea.value.trim();
     this.updateSendState();
   }
 
@@ -517,7 +687,7 @@ export default class DcChatController extends Stimulus.Controller {
       if (this.revisionIdInput) this.revisionIdInput.value = this.submittedRevisionId;
       this.hideRecovery();
       beginSessionDraftMutation(this.sessionId);
-      this.setSaveStatus('Submitting…');
+      this.setSaveStatus('Submitting…', { transient: true });
       this.updateSendState();
     }
     if (event.detail?.ctx?.sourceElement?.id === 'messages') this.captureHistoryViewState();
@@ -530,11 +700,11 @@ export default class DcChatController extends Stimulus.Controller {
       this.chatRequestPending = false;
       endSessionDraftMutation(this.sessionId);
       if (ctx.status !== 'swapped' || ctx.response?.status >= 400) {
-        this.setSaveStatus('Saved on this device');
+        this.setSaveStatus('Saved on this device', { transient: true });
         this.updateSendState();
         showBanner('error', readHtmxErrorMessage(ctx));
       } else {
-        this.element.querySelector('#messages > .prompt-hero')?.remove();
+        this.element.querySelector('#chat-empty-state')?.remove();
         this.acknowledgeSubmittedDraft();
         if (document.getElementById('streaming-msg')) {
           this.disableInput();
@@ -590,6 +760,11 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   handleSendButtonClick(event) {
+    if (this.streaming) {
+      event.preventDefault();
+      this.stopTurn();
+      return;
+    }
     if (!this.chatRequestPending) return;
     event.preventDefault();
   }
@@ -719,9 +894,9 @@ export default class DcChatController extends Stimulus.Controller {
     if (copy) {
       const text = copy.closest('[data-message-id]')?.querySelector('.msg-content')?.textContent || '';
       navigator.clipboard?.writeText(text).then(() => {
-        copy.textContent = 'Copied';
+        copy.dataset.icon = 'check';
         this.announce('Message copied');
-        setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 1200);
+        setTimeout(() => { if (copy.isConnected) copy.dataset.icon = 'copy'; }, 1200);
       }).catch(() => showToast('error', 'Could not copy message'));
       return;
     }
@@ -1311,6 +1486,7 @@ export default class DcChatController extends Stimulus.Controller {
         this.reconcileContext(snapshot);
         this.conversationReady = true;
         this.renderQueue(Array.isArray(snapshot.queue) ? snapshot.queue : []);
+        this.renderRequestStrip(Array.isArray(snapshot.records) ? snapshot.records : []);
         const projectedTurn = snapshot.activity?.turn;
         this.ordinaryControls = snapshot.activity?.ordinary_controls !== false;
         const recovery = (snapshot.submissions || []).find((item) =>
@@ -1343,26 +1519,61 @@ export default class DcChatController extends Stimulus.Controller {
       });
   }
 
+  /// One compact row per pending turn, stacked above the composer. Release is
+  /// offered on the oldest held item only — it sends the next queued message,
+  /// which is a queue-level action, not a per-row one.
   renderQueue(items) {
     const queue = this.queue;
     if (!queue) return;
     const pending = items.filter((item) => ['queued', 'held'].includes(item.workState));
     this.queueItems = new Map(pending.map((item) => [item.queueId, item]));
     queue.hidden = pending.length === 0;
+    const firstHeld = pending.findIndex((item) => item.workState === 'held');
     queue.innerHTML = pending.map((item, index) => {
-      const attachments = (item.attachments || []).map((attachment) => escapeHtml(attachment.filename)).join(', ');
-      const attachmentLine = attachments ? '<div class="t-caption">Files: ' + attachments + '</div>' : '';
-      const release = item.workState === 'held' && index === 0
-        ? '<button type="button" class="btn btn-primary" data-action="dc-chat#releaseQueueItem">Send next queued message</button>'
+      const held = item.workState === 'held';
+      const files = (item.attachments || []).map((attachment) => attachment.filename).join(', ');
+      const title = files ? ' title="' + escapeHtml(item.message + ' · files: ' + files) + '"' : '';
+      const release = held && index === firstHeld
+        ? '<button type="button" class="btn btn-sm" data-action="dc-chat#releaseQueueItem" ' +
+          'title="Send next queued message" aria-label="Send next queued message">Release</button>'
         : '';
-      return '<article class="conversation-queue-item" data-queue-id="' + escapeHtml(item.queueId) + '">' +
-        '<strong>' + escapeHtml(item.workState === 'held' ? 'Held' : 'Queued') + '</strong>' +
-        '<p>' + escapeHtml(item.message) + '</p>' + attachmentLine +
-        '<div class="conversation-queue-actions">' +
-        '<button type="button" class="btn btn-ghost" data-action="dc-chat#editQueueItem">Edit</button>' +
-        '<button type="button" class="btn btn-ghost" data-action="dc-chat#removeQueueItem">Remove</button>' + release +
-        '</div></article>';
+      return '<div class="queue-row' + (held ? ' queue-row--held' : '') + '" data-queue-id="' +
+        escapeHtml(item.queueId) + '"' + title + '>' +
+        '<span class="queue-label">' + (held ? 'Held' : 'Queued') + '</span>' +
+        '<span class="queue-text">' + escapeHtml(item.message) + '</span>' + release +
+        '<button type="button" class="btn btn-icon-sm" data-icon="pencil" aria-label="Edit queued turn" ' +
+        'title="Edit" data-action="dc-chat#editQueueItem"></button>' +
+        '<button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="' +
+        (held ? 'Discard held turn' : 'Remove from queue') + '" title="Remove" ' +
+        'data-action="dc-chat#removeQueueItem"></button>' +
+        '</div>';
     }).join('');
+  }
+
+  /// A notice plus a jump, never a shortcut past reading the request: the
+  /// verdict stays on the approval card the strip points at (PRD E4).
+  renderRequestStrip(records) {
+    const strip = this.requestStrip;
+    if (!strip) return;
+    const pending = records.find((record) => record.kind === 'approval' && record.state === 'pending');
+    strip.hidden = !pending;
+    if (!pending) {
+      strip.replaceChildren();
+      return;
+    }
+    strip.innerHTML = '<span class="icon icon-shield-alert" aria-hidden="true"></span>' +
+      '<span>Waiting on you — <code>' + escapeHtml(pending.label || 'approval required') + '</code></span>' +
+      '<span class="strip-actions"><button type="button" class="btn btn-sm" ' +
+      'data-action="dc-chat#reviewRequest" data-request-id="' + escapeHtml(pending.id) + '">Review</button></span>';
+  }
+
+  reviewRequest(event) {
+    const id = event.currentTarget?.dataset.requestId;
+    const card = [...this.element.querySelectorAll('[data-approval-request-id]')]
+      .find((item) => item.dataset.approvalRequestId === id);
+    if (!card) return;
+    card.scrollIntoView({ block: 'center' });
+    card.focus({ preventScroll: true });
   }
 
   queueMutation(path, options) {
@@ -1382,16 +1593,15 @@ export default class DcChatController extends Stimulus.Controller {
   async editQueueItem(event) {
     const item = event.currentTarget?.closest('[data-queue-id]');
     if (!item) return;
-    const message = item.querySelector('p')?.textContent || '';
+    const queueId = item.dataset.queueId;
+    const queued = this.queueItems.get(queueId);
     const replacement = await inputDialog({
       title: 'Edit queued message',
       inputLabel: 'Message',
-      value: message,
+      value: queued?.message || '',
       confirmLabel: 'Save',
     });
     if (replacement === null || !replacement.trim()) return;
-    const queueId = item.dataset.queueId;
-    const queued = this.queueItems.get(queueId);
     this.queueMutation('/queue/' + encodeURIComponent(queueId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1458,6 +1668,183 @@ export default class DcChatController extends Stimulus.Controller {
       });
   }
 
+  // --- Find in conversation -------------------------------------------------
+  // Occurrences inside loaded messages are marked and stepped through in place.
+  // The conversation-search service is still consulted, because it is the only
+  // thing that knows about matches on pages this view has not loaded (PRD E7);
+  // those remain message-level stops that navigate.
+
+  openFind() {
+    const bar = this.findBar;
+    if (!bar) return;
+    bar.hidden = false;
+    this.findQuery?.focus();
+    this.findQuery?.select();
+    if (this.findQuery?.value.trim()) this.runFind();
+  }
+
+  closeFind() {
+    if (this.findBar) this.findBar.hidden = true;
+    this.clearFindMarks();
+    this.findStops = [];
+    this.findIndex = 0;
+    this.findGeneration = (this.findGeneration || 0) + 1;
+    this.setFindCount('');
+    this.textarea?.focus();
+  }
+
+  findInput() {
+    clearTimeout(this.findTimer);
+    this.findTimer = setTimeout(() => this.runFind(), 180);
+  }
+
+  findKeydown(event) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closeFind();
+      return;
+    }
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (event.shiftKey) this.findPrevious(); else this.findNext();
+  }
+
+  /// Unwraps every mark this bar added, restoring the original text nodes.
+  clearFindMarks() {
+    for (const mark of [...this.element.querySelectorAll('mark.find-hit')]) {
+      const parent = mark.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(document.createTextNode(mark.textContent), mark);
+      parent.normalize();
+    }
+  }
+
+  /// Wraps each occurrence in the loaded transcript. Text nodes only, so no
+  /// attribute value and no element the markup owns can be split; code blocks
+  /// are skipped because their spans are the highlighter's, not the text's.
+  markFindOccurrences(needle) {
+    const marks = [];
+    for (const content of this.element.querySelectorAll('.messages .msg-content')) {
+      const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) =>
+          node.data.toLowerCase().includes(needle) && !node.parentElement?.closest('pre')
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT,
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      for (const node of nodes) marks.push(...this.markTextNode(node, needle));
+    }
+    return marks;
+  }
+
+  markTextNode(node, needle) {
+    const text = node.data;
+    const lower = text.toLowerCase();
+    const marks = [];
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    for (let index = lower.indexOf(needle); index >= 0; index = lower.indexOf(needle, cursor)) {
+      if (index > cursor) fragment.appendChild(document.createTextNode(text.slice(cursor, index)));
+      const mark = document.createElement('mark');
+      mark.className = 'find-hit';
+      mark.textContent = text.slice(index, index + needle.length);
+      fragment.appendChild(mark);
+      marks.push(mark);
+      cursor = index + needle.length;
+    }
+    if (!marks.length) return marks;
+    if (cursor < text.length) fragment.appendChild(document.createTextNode(text.slice(cursor)));
+    node.parentNode?.replaceChild(fragment, node);
+    return marks;
+  }
+
+  runFind() {
+    const query = this.findQuery?.value.trim() || '';
+    const generation = (this.findGeneration = (this.findGeneration || 0) + 1);
+    this.clearFindMarks();
+    this.findStops = [];
+    this.findIndex = 0;
+    this.findTruncated = false;
+    if (!query || !this.sessionId) {
+      this.setFindCount('');
+      return;
+    }
+
+    // Local occurrences are known without asking anyone, so they are marked and
+    // counted before the request goes out.
+    const marks = this.markFindOccurrences(query.toLowerCase());
+    this.findStops = marks.map((mark) => ({ mark }));
+    if (this.findStops.length) this.revealFindMatch();
+    else this.setFindCount('Searching…');
+
+    const parameters = new URLSearchParams({
+      q: query,
+      scope: 'current',
+      lifecycle: 'all',
+      limit: '100',
+      session_id: this.sessionId,
+      request_token: String(generation),
+    });
+    fetch('/api/conversation-search?' + parameters.toString())
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('unavailable')))
+      .then((payload) => {
+        if (generation !== this.findGeneration) return;
+        const results = Array.isArray(payload.results) ? payload.results : [];
+        // A hit whose message is on screen is already covered by its own
+        // occurrences; only the unloaded ones become extra stops.
+        const loaded = new Set(
+          [...this.element.querySelectorAll('[data-message-id]')].map((item) => item.dataset.messageId),
+        );
+        const remote = results.filter((hit) => !loaded.has(hit.message_id));
+        this.findTruncated = Number(payload.total || 0) > results.length;
+        this.findStops = [...this.findStops, ...remote.map((hit) => ({ hit }))];
+        if (!this.findStops.length) {
+          this.setFindCount('No matches');
+          return;
+        }
+        this.revealFindMatch();
+      })
+      .catch(() => {
+        if (generation !== this.findGeneration) return;
+        // Local occurrences still stand; only the unloaded pages are unknown.
+        if (!this.findStops.length) this.setFindCount('Search unavailable');
+        else this.revealFindMatch();
+      });
+  }
+
+  findNext() {
+    if (!this.findStops?.length) return;
+    this.findIndex = (this.findIndex + 1) % this.findStops.length;
+    this.revealFindMatch();
+  }
+
+  findPrevious() {
+    if (!this.findStops?.length) return;
+    this.findIndex = (this.findIndex - 1 + this.findStops.length) % this.findStops.length;
+    this.revealFindMatch();
+  }
+
+  revealFindMatch() {
+    const stop = this.findStops[this.findIndex];
+    this.setFindCount((this.findIndex + 1) + ' of ' + this.findStops.length + (this.findTruncated ? '+' : ''));
+    if (!stop) return;
+    this.element.querySelectorAll('mark.find-hit--active')
+      .forEach((mark) => mark.classList.remove('find-hit--active'));
+    if (stop.mark?.isConnected) {
+      stop.mark.classList.add('find-hit--active');
+      stop.mark.scrollIntoView({ block: 'center' });
+      return;
+    }
+    // A match on a page this view has not loaded: the hit's own href re-renders
+    // the transcript around it.
+    if (stop.hit?.href) location.assign(stop.hit.href);
+  }
+
+  setFindCount(text) {
+    if (this.findCount) this.findCount.textContent = text;
+  }
+
   handleConnectivityChange() {
     if (navigator.onLine === false) {
       this.setSaveStatus('Offline — draft stays on this device');
@@ -1491,7 +1878,7 @@ export default class DcChatController extends Stimulus.Controller {
 
   scheduleDraftSave() {
     clearTimeout(this.saveTimer);
-    this.setSaveStatus('Saving…');
+    this.setSaveStatus('Saving…', { transient: true });
     this.saveTimer = setTimeout(() => this.saveDraftNow(), 150);
   }
 
@@ -1526,7 +1913,7 @@ export default class DcChatController extends Stimulus.Controller {
       })
       .then((draft) => {
         if (draft) this.applyStoredDraft(draft);
-        this.setSaveStatus(draft ? 'Saved on this device' : 'No saved draft');
+        this.setSaveStatus(draft ? 'Draft restored' : '', { transient: true });
         this.updateSendState();
       })
       .catch(() => this.showDraftSaveFailure());
@@ -1581,7 +1968,7 @@ export default class DcChatController extends Stimulus.Controller {
     }
     return this.draftRequest('readwrite', (store) => store.put(draft))
       .then(() => {
-        this.setSaveStatus('Saved on this device');
+        this.setSaveStatus('Saved on this device', { transient: true });
         this.hideDraftRecoveryActions();
         this.draftChannel?.postMessage({ key: draft.key, revisionId: draft.revisionId, updatedAt: draft.updatedAt });
       })
@@ -1589,7 +1976,7 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   showDraftSaveFailure() {
-    this.setSaveStatus('Unsaved — this draft will not recover after reload');
+    this.setSaveStatus('Unsaved — this draft will not recover after reload', { failed: true });
     this.showRecovery('Could not save this draft on this device. Keep editing, retry, copy, or download it.');
     if (this.recoveryActions) this.recoveryActions.hidden = false;
   }
@@ -1605,6 +1992,8 @@ export default class DcChatController extends Stimulus.Controller {
       if (!draft) return;
       if (this.draftTouched) {
         this.pendingConflict = draft;
+        // An unresolved conflict outlives any save report, so it holds the row.
+        this.setSaveStatus('Conflicting draft in another tab', { failed: true });
         this.showRecovery('Another tab saved a different revision. Recover it or keep your current draft.');
         if (this.recoveryActions) this.recoveryActions.hidden = false;
         if (this.conflictAction) this.conflictAction.hidden = false;
@@ -1619,6 +2008,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.applyStoredDraft(this.pendingConflict);
     this.pendingConflict = null;
     if (this.conflictAction) this.conflictAction.hidden = true;
+    this.setSaveStatus('Draft restored', { transient: true });
     this.hideRecovery();
     this.hideDraftRecoveryActions();
   }
@@ -1656,7 +2046,7 @@ export default class DcChatController extends Stimulus.Controller {
     }
     this.submittedDraft = null;
     this.submittedRevisionId = null;
-    this.setSaveStatus('Saved on this device');
+    this.setSaveStatus('Saved on this device', { transient: true });
   }
 
   copyDraft() {
@@ -1672,8 +2062,38 @@ export default class DcChatController extends Stimulus.Controller {
     URL.revokeObjectURL(link.href);
   }
 
-  setSaveStatus(message) {
-    if (this.saveStatus) this.saveStatus.textContent = message;
+  /// The status is text inside the toolbar row and a glyph carrying the same
+  /// label at the touch tier, where the text would cost the model pill its
+  /// width. Nothing renders below the composer box.
+  ///
+  /// At rest it says nothing: a composer with no draft and nothing to report is
+  /// not a status, and a standing "No saved draft" is chrome the reader has to
+  /// re-read every time. A save in flight or just landed shows and fades; a
+  /// failure, a conflict or a degraded retention state stays until it clears.
+  setSaveStatus(message, { failed = false, transient = false } = {}) {
+    clearTimeout(this.saveStatusTimer);
+    this.applySaveStatus(message, failed);
+    if (!transient || !message) return;
+    this.saveStatusTimer = setTimeout(() => this.applySaveStatus('', false), 2000);
+  }
+
+  applySaveStatus(message, failed) {
+    const status = this.saveStatus;
+    if (status) {
+      // The element stays in the DOM and keeps its role="status": clearing the
+      // text is what hides it, and an aria-live region that is removed stops
+      // announcing the next save.
+      status.textContent = message;
+      status.classList.toggle('composer-save--error', failed && Boolean(message));
+    }
+    const glyph = this.saveGlyph;
+    if (glyph) {
+      glyph.hidden = !message;
+      glyph.dataset.icon = failed ? 'triangle-alert' : 'check';
+      glyph.title = message;
+      glyph.setAttribute('aria-label', message);
+      glyph.classList.toggle('composer-save--error', failed && Boolean(message));
+    }
   }
 
   announce(message) {
@@ -1745,17 +2165,20 @@ export default class DcChatController extends Stimulus.Controller {
     tray.hidden = chips.length === 0;
   }
 
+  /// A failed upload is a state of its own chip, not a second chip beside it:
+  /// the retry has to sit on the file it retries.
   renderAttachmentChip(attachment) {
     const failed = attachment.state === 'failed';
     const id = escapeHtml(attachment.id);
     const retry = failed
-      ? '<button type="button" class="chip" data-action="dc-chat#retryAttachment" data-attachment-id="' + id + '"><span class="chip-name">Retry upload</span></button>'
+      ? '<button type="button" class="chip-action" data-action="dc-chat#retryAttachment" ' +
+        'data-attachment-id="' + id + '">Retry</button>'
       : '';
     return '<span class="chip">' +
       '<span class="chip-name">' + escapeHtml(attachment.filename) + '</span>' +
-      '<span class="chip-meta">' + escapeHtml(attachment.state || 'ready') + '</span>' +
+      '<span class="chip-meta">' + escapeHtml(attachment.state || 'ready') + '</span>' + retry +
       '<button type="button" class="chip-remove" aria-label="Remove attachment" data-action="dc-chat#removeAttachment" data-attachment-id="' + id + '"></button>' +
-      '</span>' + retry;
+      '</span>';
   }
 
   renderReferenceChip(reference) {
@@ -1866,7 +2289,7 @@ export default class DcChatController extends Stimulus.Controller {
   async endTemporary(event) {
     event.currentTarget?.closest('dialog')?.close();
     const state = this.element.querySelector('[data-temporary-state]');
-    const controls = this.element.querySelectorAll('.conversation-retention-controls button');
+    const controls = this.element.querySelectorAll('.conversation-temporary-banner button');
     controls.forEach((button) => { button.disabled = true; });
     if (state) state.textContent = 'Ending…';
     try {

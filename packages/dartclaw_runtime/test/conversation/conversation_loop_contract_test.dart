@@ -57,6 +57,38 @@ void main() {
     expect(observed.writes, 0, reason: 'late admission must not rewrite state');
   });
 
+  test('the settlement backstop takes truncation from the record, not from the marker text', () async {
+    final admission = await _submit(conversation, sessionId, 'truncation-owner', 'Run two tools');
+    turns.complete(
+      sessionId,
+      admission.submission.turnId!,
+      toolCalls: [
+        ToolCallRecord(
+          id: 'cut-tool',
+          name: 'shell',
+          success: true,
+          durationMs: 1,
+          result: 'cut output\n[Display payload truncated]',
+          isTruncated: true,
+        ),
+        // A tool whose own output happens to carry the marker. Grepping the
+        // display text for it mislabelled this record as truncated.
+        ToolCallRecord(
+          id: 'quoting-tool',
+          name: 'shell',
+          success: true,
+          durationMs: 1,
+          result: 'grep found the string [Display payload truncated] in a log',
+        ),
+      ],
+    );
+    await conversation.drain();
+
+    final settled = await conversation.snapshot(sessionId);
+    expect(settled.records.firstWhere((record) => record.id == 'cut-tool').isTruncated, isTrue);
+    expect(settled.records.firstWhere((record) => record.id == 'quoting-tool').isTruncated, isFalse);
+  });
+
   for (final closing in [false, true]) {
     test('shutdown retains the complete approval ${closing ? 'close' : 'request'} callback', () async {
       final observed = _PausingApprovalSessionService(baseDir: temporaryDirectory.path);
@@ -730,12 +762,13 @@ final class _CompletingTurnManager extends FakeTurnManager {
   @override
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => _waiting[turnId]!.future;
 
-  void complete(String sessionId, String turnId) {
+  void complete(String sessionId, String turnId, {List<ToolCallRecord> toolCalls = const []}) {
     final outcome = TurnOutcome(
       turnId: turnId,
       sessionId: sessionId,
       status: TurnStatus.completed,
       completedAt: DateTime.utc(2026, 9, 14, 12),
+      toolCalls: toolCalls,
     );
     setRecentOutcome(turnId, outcome);
     releaseTurn(sessionId, turnId);

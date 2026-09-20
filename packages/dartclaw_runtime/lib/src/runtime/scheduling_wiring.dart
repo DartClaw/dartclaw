@@ -136,6 +136,7 @@ class SchedulingWiring {
     required ContextMonitor contextMonitor,
     required ExecutionPolicyResolver policyResolver,
     required ConfigWriter configWriter,
+    required ProjectService projects,
   }) async {
     // Scheduled prompts, heartbeat, and knowledge extraction carry neither
     // logical-agent identity nor a task execution declaration, so they take the deployment
@@ -153,6 +154,7 @@ class SchedulingWiring {
       messages: _storage.messages,
       mutations: SessionMutationCoordinator(),
       updates: _sseBroadcast,
+      projects: projects,
       isSessionRunning: turns.isActive,
       autoSettleIdleDays: config.sessions.autoSettleIdleDays,
     );

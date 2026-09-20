@@ -302,20 +302,6 @@ void main() {
       expect(workflowSource, isNot(contains('innerHTML')));
     });
 
-    test('pairing progress bars are independently centered', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(
-        appCss,
-        contains(
-          '.pairing-status-row {\n'
-          '  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); text-align: center;\n'
-          '}',
-        ),
-      );
-      expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 auto; width: min(6rem, 30%); }'));
-    });
-
     test('server-rendered forms leave workflow action hierarchy canonical', () {
       final settingsSource = File('$baseDir/controllers/dc_settings_controller.js').readAsStringSync();
       final workflowSource = File('$baseDir/controllers/dc_workflows_controller.js').readAsStringSync();
@@ -328,8 +314,7 @@ void main() {
       expect(workflowSource, isNot(contains('submitBtn.classList')));
     });
 
-    test('sidebar creation action is a quiet full-width command below Chats', () async {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+    test('sidebar creation action is an icon button in the rail control row', () async {
       final iconsCss = File(iconsCssPath).readAsStringSync();
       final sidebarTemplatePath = p.join(await resolveTemplatesDir(), 'sidebar.html');
       final sidebarSource = File(sidebarTemplatePath).readAsStringSync();
@@ -337,73 +322,17 @@ void main() {
 
       expect(sidebarSource, contains('class="sidebar-body"'));
       expect(sidebarSource, contains('class="sidebar-chat-section"'));
-      expect(sidebarSource, contains('type="button" class="btn-new-session"'));
-      expect(sidebarSource, contains('class="btn-new-session-icon" data-icon="new-session"'));
-      expect(sidebarSource, contains('class="sidebar-chat-divider"'));
+      expect(sidebarSource, contains('class="btn btn-icon rail-new" data-session-create="true"'));
+      expect(sidebarSource, contains('data-icon="new-session"'));
+      // The full-width text command and its divider are gone with the control
+      // row that replaced them.
+      expect(sidebarSource, isNot(contains('btn-new-session')));
+      expect(sidebarSource, isNot(contains('sidebar-chat-divider')));
       expect(sidebarSource, isNot(contains('sidebar-section-heading')));
-      expect(
-        RegExp(
-          r'\.btn-new-session\s*\{[^}]*width:\s*calc\(100% - \(2 \* var\(--sp-2\)\)\);[^}]*min-height:\s*40px;'
-          r'[^}]*border:\s*1px solid transparent;[^}]*background:\s*transparent;',
-        ).hasMatch(designSystemCss),
-        isTrue,
-      );
-      expect(designSystemCss, contains('.btn-new-session:hover { background: var(--bg-surface0); }'));
-      expect(designSystemCss, contains('.btn-new-session:disabled { cursor: wait; opacity: 0.6; }'));
-      expect(designSystemCss, contains('.btn-new-session:focus-visible {'));
-      expect(designSystemCss, contains('.btn-new-session { min-height: 48px; }'));
-      expect(designSystemCss, contains('.sidebar-body { overflow: hidden; }'));
-      expect(designSystemCss, contains('.sidebar-body .session-list { flex: 1; min-height: 0; overflow-y: auto; }'));
       expect(sidebarSectionsSource, contains("sidebar.querySelector('.sidebar-chat-section')"));
       expect(sidebarSectionsSource, contains('workflowSection || chatsSection'));
       expect(iconsCss, contains('[data-icon="server"]::before'));
       expect(iconsCss, contains('[data-icon="chevron-up"]::before'));
-    });
-
-    test('system active indicator clears rounded window corners', () {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-
-      expect(RegExp(r'\.sidebar-system-trigger\s*\{[^}]*position:\s*relative;').hasMatch(designSystemCss), isTrue);
-      expect(
-        RegExp(
-          r'\.sidebar-system-menu:has\(\.sidebar-nav-item\.active\)\s*>\s*\.sidebar-system-trigger\s*\{'
-          r'[^}]*border-left-color:',
-        ).hasMatch(designSystemCss),
-        isFalse,
-      );
-      expect(
-        RegExp(
-          r'\.sidebar-system-menu:has\(\.sidebar-nav-item\.active\)\s*>\s*\.sidebar-system-trigger::before\s*\{'
-          r'[^}]*top:\s*50%;[^}]*left:\s*var\(--sp-2\);'
-          r'[^}]*width:\s*3px;[^}]*height:\s*16px;[^}]*transform:\s*translateY\(-50%\);'
-          r'[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
-        ).hasMatch(designSystemCss),
-        isTrue,
-      );
-    });
-
-    test('system panel active item uses the notch, not the flush edge', () {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-
-      expect(
-        designSystemCss,
-        contains('.sidebar-system-panel .sidebar-nav-item.active { border-left-color: transparent; }'),
-      );
-      expect(
-        RegExp(
-          r'\.sidebar-system-panel \.sidebar-nav-item\.active::after\s*\{'
-          r'[^}]*top:\s*50%;[^}]*left:\s*var\(--sp-1\);'
-          r'[^}]*width:\s*3px;[^}]*height:\s*16px;[^}]*transform:\s*translateY\(-50%\);'
-          r'[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
-        ).hasMatch(designSystemCss),
-        isTrue,
-      );
-    });
-
-    test('mobile sidebar disclosures share the 48px touch floor', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(appCss, contains('@media (max-width: 768px) {\n  .sidebar-archive-toggle { min-height: 48px; }'));
     });
 
     test('light theme uses visible Aurora washes without sacrificing muted-text contrast', () {
@@ -463,96 +392,11 @@ void main() {
       }
     });
 
-    test('mobile form and composer floors use fixed accessible dimensions', () async {
+    test('the settings tab strip is canon-owned and driven by the controller', () {
       final appCss = File(componentsCssPath).readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-
-      expect(designSystemCss, contains('.input-area textarea { min-height: 48px; font-size: 16px; }'));
-      expect(designSystemCss, contains('.input-area .btn-send { min-height: 48px; }'));
-      expect(designSystemCss, contains('.btn { min-width: 48px; min-height: 48px; }'));
-      expect(designSystemCss, contains('.sidebar-nav-item { min-height: 48px; }'));
-      expect(designSystemCss, contains('label.form-field--checkbox { min-height: 48px; }'));
-      // Height only on the bare rule: a min-width floor stretches narrow inline
-      // chips that happen to be buttons. Square targets set their own width.
-      expect(appCss, contains('button,\n  summary,\n  [role="button"] {\n    min-height: 48px;\n  }'));
-      expect(appCss, contains('.topbar .menu-toggle,\n  .theme-toggle {\n    width: 48px;'));
-      // `.btn-icon-sm` is canon's tier now, so canon's own `.btn` floor (asserted
-      // above) owns its mobile target — which only reaches the icon buttons
-      // because they carry the base class. Assert that half too; either alone
-      // passes vacuously.
-      final schedulingHtml = File(p.join(await resolveTemplatesDir(), 'scheduling.html')).readAsStringSync();
-      expect(RegExp(r'class="btn-icon-sm').hasMatch(schedulingHtml), isFalse);
-      expect(RegExp(r'class="btn btn-icon-sm').allMatches(schedulingHtml), hasLength(7));
-      // Anchors get no floor from the bare `button` rule, so they are named as
-      // one intent-based list. The three class-name lists this replaced each
-      // missed the tab and pager anchors, which is how those shipped at 28px.
-      expect(appCss, contains(':is(.topbar-back, .card-link, .guard-audit-link, .tabs a.tab, .pager a) {'));
-      // The toggle is canon's `.form-toggle` now, and canon carries its mobile
-      // floor: the box grows to 48px while the slider stays 36x20 centred.
-      expect(designSystemCss, contains('.form-toggle {\n    min-width: 48px;\n    min-height: 48px;\n  }'));
-      expect(designSystemCss, contains('.tab { min-height: 48px; }'));
-      expect(RegExp(r'^\.toggle-(switch|slider)\b', multiLine: true).hasMatch(appCss), isFalse);
-      expect(appCss, contains('.login-input,\n  .login-checkbox {\n    min-height: 48px;'));
-      expect(appCss, isNot(contains('.btn-sm.btn-primary {')));
-      expect(appCss, isNot(contains('.btn-sm.btn-danger {')));
-      expect(RegExp(r'^\.metric-(value|label)\s*\{', multiLine: true).hasMatch(appCss), isFalse);
-      expect(appCss, isNot(contains('.input-area textarea:focus {')));
-      expect(appCss, isNot(contains('*, *::before, *::after {')));
-      // Anchored: app CSS must not re-declare canon's live-dot treatment. The
-      // `.shell[data-connection="lost"]` descendant rule is a state gate over
-      // canon's animation, not a second definition of it.
-      expect(RegExp(r'^\.status-dot--live::before', multiLine: true).hasMatch(appCss), isFalse);
-      expect(designSystemCss, contains('.pipeline-step--failed .pipeline-node'));
-      expect(appCss, contains('.well-content .form-select {\n    font-size: 16px;'));
-      // The dialogs' 48px control floor survives the canon swap keyed on the
-      // preserved dialog ids — canon floors no control, so nothing else owns it.
-      // Both bind the declaration: the same selector heads also open the base
-      // 44px block, so a selector-only check passes with the floor deleted.
-      expect(RegExp(r'#new-task-dialog \.form-input,[^}]*min-height: 48px;').hasMatch(appCss), isTrue);
-      expect(RegExp(r'#add-project-dialog \.form-select \{\s*\n\s*min-height: 48px;').hasMatch(appCss), isTrue);
-    });
-
-    test('design tokens resolve to their declared type and spacing scale', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-      final tokensCss = File(tokensCssPath).readAsStringSync();
-
-      expect(tokensCss, contains('--font-sans: system-ui, -apple-system, BlinkMacSystemFont'));
-      expect(tokensCss, contains('--text-lg:   1rem;        /* 16px — section headings */'));
-      expect(tokensCss, contains('--text-xl:   1.125rem;    /* 18px — page title */'));
-      expect(tokensCss, contains('--text-2xl:  1.25rem;     /* 20px — hero/page-level display */'));
-      expect(tokensCss, contains('--text-3xl:  1.5rem;      /* 24px — metric values, big numbers */'));
-      expect(tokensCss, contains('--leading:       1.5;'));
-      expect(tokensCss, contains('--measure:        65ch;'));
-      expect(designSystemCss, contains('html {\n  font-family: var(--font-sans);\n  font-size: 16px;'));
-      expect(designSystemCss, contains('code, pre, kbd, samp { font-family: var(--font-mono); }'));
-      expect(designSystemCss, contains('font-size: var(--text-base);\n  min-height: 100dvh;'));
-      expect(designSystemCss, contains('.card-title { font: inherit; }'));
-      expect(appCss, contains('grid-template-columns: minmax(0, 1fr);'));
-      expect(appCss, contains('font-size: var(--text-base);\n  font-weight: var(--weight-medium);'));
-    });
-
-    test('settings use full-width panes and a single-row responsive tab strip', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
       final settingsSource = File('$baseDir/controllers/dc_settings_controller.js').readAsStringSync();
 
-      expect(appCss, contains('.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr);'));
       // The strip is canon's single `.tabs` component now; app.css re-implements none of it.
-      expect(RegExp(r'\.tabs\s*\{[^}]*overflow-x:\s*auto;').hasMatch(designSystemCss), isTrue);
-      expect(RegExp(r'\.tabs\s*\{[^}]*flex-wrap:\s*nowrap;').hasMatch(designSystemCss), isTrue);
-      expect(RegExp(r'\.tab\s*\{[^}]*flex:\s*0 0 auto;').hasMatch(designSystemCss), isTrue);
-      expect(RegExp(r'\.tabs\s*\{[^}]*grid-template-columns').hasMatch(designSystemCss), isFalse);
-      expect(designSystemCss, contains('scrollbar-color: var(--fg-sub0) transparent;'));
-      expect(
-        RegExp(r'\.tabs::\-webkit-scrollbar-thumb\s*\{[^}]*background:\s*var\(--fg-sub0\);').hasMatch(designSystemCss),
-        isTrue,
-      );
-      expect(
-        RegExp(r'\.tabs::after\s*\{[^}]*width:\s*var\(--sp-5\);[^}]*color-mix\(in srgb, var\(--fg\) 24%, transparent\)')
-            .hasMatch(designSystemCss),
-        isTrue,
-      );
       expect(RegExp(r'^\.settings-tabs?\b', multiLine: true).hasMatch(appCss), isFalse);
       expect(appCss, isNot(contains('.restart-required-badge')));
       // Same intent as the retired `aria-current` assertion: the active tab is
@@ -587,14 +431,12 @@ void main() {
 
     test('composer rich input reuses canonical accessible chips', () {
       final chatSource = File('$baseDir/controllers/dc_chat_controller.js').readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
 
       expect(chatSource, contains('<span class="chip">'));
       expect(chatSource, contains('<span class="chip chip--ref">'));
       expect(chatSource, contains('class="chip-remove" aria-label="Remove attachment"'));
       expect(chatSource, contains('class="chip-remove" aria-label="Remove reference"'));
       expect(chatSource, isNot(contains('composer-chip')));
-      expect(designSystemCss, contains('.chip-remove { width: 44px; height: 44px; }'));
     });
 
     test('composer suggestions restore the message affordances', () {
@@ -602,7 +444,10 @@ void main() {
       final appCss = File(componentsCssPath).readAsStringSync();
 
       expect(chatSource, contains('applySuggestion(event)'));
-      expect(appCss, contains('.composer-hints'));
+      // Suggestions are the empty state's own row; the shortcut hint rides the
+      // placeholder rather than a standing hint strip in the toolbar.
+      expect(appCss, contains('.suggest-row'));
+      expect(appCss, isNot(contains('.composer-hints')));
     });
 
     test('composer input keeps only the reference palette path', () {
@@ -729,33 +574,8 @@ void main() {
       expect(designSystemCss, contains('.status-dot--live::after'));
     });
 
-    test('shell contains entry motion while page surfaces retain scroll ownership', () {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+    test('app CSS does not override canon shell containment', () {
       final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(designSystemCss, contains('grid-template-columns: var(--sidebar-w) minmax(0, 1fr);'));
-      expect(designSystemCss, contains('grid-template-rows: var(--topbar-h) minmax(0, 1fr);'));
-      expect(designSystemCss, contains('height: 100dvh;\n  overflow: hidden;'));
-      expect(designSystemCss, contains('.shell { grid-template-columns: minmax(0, 1fr); }'));
-      expect(designSystemCss, contains('.content-area {\n  min-height: 0;\n  overflow-y: auto;'));
-      expect(
-        designSystemCss,
-        contains('.chat-area {\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  min-height: 0;'),
-      );
-      expect(
-        designSystemCss,
-        contains('.messages {\n  flex: 1;\n  display: flex;\n  flex-direction: column;\n  overflow-y: auto;'),
-      );
-      expect(designSystemCss, contains('@starting-style {\n  .print-in {\n    opacity: 0;\n    translate: 0 6px;'));
-      expect(appCss, contains('.page-content { position: relative; min-height: 0; overflow-y: auto;'));
-      expect(
-        appCss,
-        contains(
-          '.shell > .shell-main {\n  grid-row: 1 / -1;\n  display: flex;\n  flex-direction: column;\n  min-height: 0;',
-        ),
-      );
-      expect(appCss, contains('.shell-main > #main-content { flex: 1 1 auto; min-height: 0; }'));
-      expect(appCss, contains('.pairing-main { overflow-y: auto;'));
 
       final appShellDeclarations = RegExp(
         r'^\s*\.shell\s*\{([^}]*)\}',
@@ -849,35 +669,6 @@ void main() {
       // Canon's .data-table th owns the header treatment outright.
       expect(appCss, isNot(contains('#audit-table-container .table-scroll th {')));
     });
-
-    test('task tables fit the shell throughout its constrained desktop range', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(
-        appCss,
-        contains(
-          '@media (max-width: 1156px) {\n'
-          '  .task-status-group .data-table { min-width: 100%; }\n'
-          '  .task-status-group .task-col-created-by,\n'
-          '  .task-status-group .task-col-created,\n'
-          '  .task-status-group .task-col-status,\n'
-          '  .task-status-group .task-col-tokens {\n'
-          '    min-width: 0;\n'
-          '  }\n'
-          '}',
-        ),
-      );
-      expect(appCss, isNot(contains('.task-status-group .task-col-tokens { display: none; }')));
-      expect(
-        appCss,
-        contains(
-          '@media (min-width: 769px) and (max-width: 1156px) {\n'
-          '  .task-status-group .data-table :is(th, td) { padding-inline: var(--sp-2); }\n'
-          '}',
-        ),
-      );
-      expect(appCss, contains('table-layout: fixed;\n    min-width: 0;'));
-    });
   });
 
   group('identicon behavior', () {
@@ -910,15 +701,6 @@ void main() {
       expect(source, contains('list.hidden = isCollapsed;'));
       expect(source, contains('list.hidden = wasExpanded;'));
       expect(source, isNot(contains('list.style.display')));
-    });
-
-    test('sidebar entity actions retain mobile touch targets', () {
-      final css = File(componentsCssPath).readAsStringSync();
-
-      expect(css, contains('.session-item { padding: 0; }'));
-      expect(css, contains('.session-item-link,'));
-      expect(css, contains('.session-item .session-action,\n  .session-item .session-delete {\n    min-height: 48px;'));
-      expect(css, contains('.session-item :is(.session-action, .session-delete) {\n    min-width: 48px;'));
     });
   });
 

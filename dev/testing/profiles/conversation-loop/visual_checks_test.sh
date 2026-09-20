@@ -6,7 +6,7 @@ repo_root="$(cd "${script_dir}/../../../.." && pwd)"
 mkdir -p "${repo_root}/.agent_temp"
 test_dir="$(mktemp -d "${repo_root}/.agent_temp/accessibility-report-test.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
-source "${script_dir}/visual_comparison.sh"
+source "${script_dir}/visual_checks.sh"
 
 python3 - "$test_dir" <<'PY'
 import json

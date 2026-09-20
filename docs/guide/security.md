@@ -310,8 +310,9 @@ probe step that failed — and links back here.
 
 Container isolation costs the agent no host tool it reaches on the host lane: a containerized primary agent is granted
 the same bridged MCP surface (web, memory, and the task, review and binding tools) minus the session-spawning tools,
-which are excluded on both lanes. Tools with no canonical mapping — `kg_*`, `context_research`, `onboarding_complete`
-and the outbound MCP adapters — are unreachable from a container, as they were before this became the default.
+which are excluded on both lanes. An agent's explicit `context_research` grant carries across the same way. Tools with
+no canonical mapping — `kg_*`, `onboarding_complete` and the outbound MCP adapters — are unreachable from a container,
+as they were before this became the default.
 
 ### Emergency Stop Without a Channel
 

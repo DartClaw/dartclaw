@@ -13,7 +13,10 @@ void main() {
     for (final topbar in [topbarTemplate(), pageTopbarTemplate(title: 'Settings')]) {
       expect(topbar, contains('data-command-open="global"'));
       expect(topbar, contains('aria-haspopup="dialog"'));
-      expect(topbar, contains('<kbd>⌘K</kbd>'));
+      // The trigger is an icon button; the shortcut rides beside it as a hint
+      // that the touch tier drops.
+      expect(topbar, contains('class="btn btn-icon tb-search"'));
+      expect(topbar, contains('<kbd class="tb-kbd">⌘K</kbd>'));
     }
   });
 

@@ -197,7 +197,7 @@ SESSION_ID="$TEMPORARY_SESSION_ID"
 
 if [ "$MODE" = browser ]; then
   command -v agent-browser >/dev/null || { echo 'agent-browser is required' >&2; exit 2; }
-  bash "${SCRIPT_DIR}/temporary_browser_checks.sh" "http://127.0.0.1:${PORT}" "$SESSION_ID" "${EVIDENCE}/browser" "${DARTCLAW_TEMPORARY_COMPARE_WIREFRAMES:-0}"
+  bash "${SCRIPT_DIR}/temporary_browser_checks.sh" "http://127.0.0.1:${PORT}" "$SESSION_ID" "${EVIDENCE}/browser"
 fi
 
 temporary_queue_setup "$BASE_URL" "$SESSION_ID" "$EVIDENCE"

@@ -36,7 +36,7 @@ Map<String, dynamic> _sidebarContext(Map<String, dynamic> overrides) => {
   'showDmLabel': false,
   'dmChannels': <Map<String, dynamic>>[],
   'groupChannels': <Map<String, dynamic>>[],
-  'noActiveEntries': true,
+  'hasRailSections': true,
   'activeEntries': <Map<String, dynamic>>[],
   'hasArchivedEntries': false,
   'archivedEntries': <Map<String, dynamic>>[],
@@ -282,7 +282,18 @@ void main() {
           'resetHref': '/api/sessions/sess-1/reset',
         },
       );
-      _expectAll(session, ['session-title', 'My Chat', 'sess-1', 'data-icon="menu"', 'data-icon="info"']);
+      // Session info, find, export, temporary and reset moved into the overflow
+      // menu; the bar itself keeps title, crumb, state and the icon cluster.
+      _expectAll(session, [
+        'session-title',
+        'My Chat',
+        'sess-1',
+        'data-icon="menu"',
+        'data-icon="overflow"',
+        'data-topbar-menu',
+        'icon-info',
+        'data-session-reset="true"',
+      ]);
 
       final archive = await engine.renderFileFragment(
         'topbar',
@@ -299,7 +310,8 @@ void main() {
           'resetHref': '/api/sessions/a1/reset',
         },
       );
-      expect(archive, contains('>Resume<'));
+      expect(archive, contains('Resume conversation'));
+      expect(archive, isNot(contains('data-session-reset')));
 
       final plain = await engine.renderFileFragment(
         'topbar',
@@ -349,7 +361,10 @@ void main() {
 
     test('renders empty, provider, navigation, and action states', () async {
       final empty = await engine.renderFileFragment('sidebar', fragment: 'sidebar', context: _sidebarContext({}));
-      _expectAll(empty, ['No active channels', 'No chats yet']);
+      // One empty state for the conversation list, and it is the only one the
+      // rail renders — 0.27 shipped two that could both be visible at once.
+      _expectAll(empty, ['No active channels', 'data-inbox-empty', 'No chats yet']);
+      expect('No chats yet'.allMatches(empty), hasLength(1));
 
       final providers = await engine.renderFileFragment(
         'sidebar',
@@ -427,7 +442,6 @@ void main() {
         'data-identicon-id="s1"',
         'data-identicon-id="s2"',
         'data-icon="new-session"',
-        'class="btn-new-session-label">New Chat</span>',
         'data-icon="x"',
         'data-icon="archive"',
         'data-icon="chevron-down"',
@@ -467,7 +481,7 @@ void main() {
         'Research',
         'data-session-archive="true"',
         'data-session-delete="true"',
-        'class="session-action session-archive"',
+        'session-archive',
         'class="delete-btn session-delete"',
         'aria-label="Archive chat"',
         'aria-label="Delete session"',
@@ -776,17 +790,28 @@ void main() {
         'data-slash-palette',
         'data-slash-results="" role="listbox" aria-label="Commands"',
         'class="composer-toolbar"',
-        'class="composer-hints"',
-        'data-action="dc-chat#applySuggestion"',
-        'Ctrl/⌘',
         'class="composer-meta"',
-        'class="btn btn-primary composer-send"',
+        'data-icon="attach"',
+        'title="Commands  /"',
+        'composer-send',
+        'data-icon="arrow-up"',
         'aria-label="Send" title="Send"',
+        'data-dc-chat-target="queueButton"',
+        'data-dc-chat-target="steerButton"',
+        'data-dc-chat-target="requestStrip"',
+        'data-dc-chat-target="queue"',
+        'data-dc-chat-target="composerStack"',
       ]);
       expect(area, isNot(contains('composer-row')));
       expect(area, isNot(contains('sse-container')));
       expect(area, isNot(contains('/workflow')));
       expect(area, isNot(contains('<kbd>/</kbd>')));
+      // Nothing renders below the composer box: the save status and the
+      // recovery row live inside the floating stack.
+      expect(area, isNot(contains('class="composer-save-status"')));
+      expect(area, isNot(contains('class="composer-hints"')));
+      // The suggestion chips belong to the empty state, not the toolbar.
+      expect(area, isNot(contains('dc-chat#applySuggestion')));
 
       final response = await engine.renderFileFragment(
         'chat',

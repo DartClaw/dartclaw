@@ -132,7 +132,8 @@ class TurnToolHookCallbackHandler {
   final MessageRedactor? _redactor;
 
   final List<ToolUseEvent> _toolEvents = [];
-  final Map<String, ({String name, String? context, String arguments, DateTime startedAt})> _pendingToolCalls = {};
+  final Map<String, ({String name, String? context, String arguments, bool truncated, DateTime startedAt})>
+  _pendingToolCalls = {};
   final List<ToolCallRecord> _completedToolCalls = [];
   int _toolCallCount = 0;
   int _failedToolCallCount = 0;
@@ -193,6 +194,7 @@ class TurnToolHookCallbackHandler {
       name: event.toolName,
       context: summarizeToolInput(event.toolName, event.input),
       arguments: arguments.truncated ? '${arguments.summary}\n[Display payload truncated]' : arguments.summary,
+      truncated: arguments.truncated,
       startedAt: DateTime.now(),
     );
     _toolCallCount += 1;
@@ -221,6 +223,7 @@ class TurnToolHookCallbackHandler {
     }
 
     final durationMs = DateTime.now().difference(pending.startedAt).inMilliseconds;
+    final history = _historyText(event.output);
     _retainCompletedToolCall(
       ToolCallRecord(
         id: event.toolId,
@@ -230,7 +233,8 @@ class TurnToolHookCallbackHandler {
         errorType: event.isError ? 'tool_error' : null,
         context: pending.context,
         arguments: pending.arguments,
-        result: _historyText(event.output),
+        result: history.text,
+        isTruncated: pending.truncated || history.truncated,
         sourceLocators: !event.isError && pending.name == 'memory_search' ? _returnedLocators(event.output) : const [],
       ),
     );
@@ -269,6 +273,7 @@ class TurnToolHookCallbackHandler {
           errorType: 'incomplete',
           context: entry.value.context,
           arguments: entry.value.arguments,
+          isTruncated: entry.value.truncated,
         ),
       );
     }
@@ -277,10 +282,11 @@ class TurnToolHookCallbackHandler {
     _pendingToolCalls.clear();
   }
 
-  String _historyText(String value) {
+  ({String text, bool truncated}) _historyText(String value) {
     const maxChars = 64 * 1024;
     final redacted = _redactor?.redact(value) ?? value;
-    return redacted.length <= maxChars ? redacted : '${redacted.substring(0, maxChars)}\n[Display payload truncated]';
+    if (redacted.length <= maxChars) return (text: redacted, truncated: false);
+    return (text: '${redacted.substring(0, maxChars)}\n[Display payload truncated]', truncated: true);
   }
 
   void _retainCompletedToolCall(ToolCallRecord record) {

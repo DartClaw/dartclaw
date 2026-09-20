@@ -174,8 +174,9 @@ function assert(condition, message) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise(done => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 globalThis.Stimulus = { Controller: class {} };
@@ -188,7 +189,8 @@ controller.searchGeneration = 0;
 controller.searchTimer = null;
 
 const status = { textContent: 'Type to search.' };
-const results = { replaceChildren() {} };
+let clearedResults = 0;
+const results = { replaceChildren() { clearedResults += 1; } };
 const lifecycle = { value: 'all' };
 const project = { value: '', trim() { return ''; } };
 const dialog = {
@@ -244,6 +246,41 @@ pending.get('inflight').resolve({
 });
 await inflight;
 assert(rendered.at(-1) === 'inflight', 'conversation update discarded in-flight search');
+
+const failedGeneration = ++controller.searchGeneration;
+const failedSearch = controller.search(dialog, 'failed', failedGeneration);
+pending.get('failed').resolve({
+  ok: false,
+  json: async () => ({ error: { message: 'Conversation search is temporarily unavailable' } }),
+});
+await failedSearch;
+assert(status.textContent === 'Conversation search is temporarily unavailable', 'tokenless search failure stayed pending');
+assert(clearedResults === 1, 'live search failure retained stale results');
+
+const networkFailureGeneration = ++controller.searchGeneration;
+const networkFailure = controller.search(dialog, 'network-failure', networkFailureGeneration);
+pending.get('network-failure').reject(new TypeError('Failed to fetch'));
+await networkFailure;
+assert(status.textContent === 'Search is unavailable', 'network failure exposed a raw browser error');
+assert(clearedResults === 2, 'network failure retained stale results');
+
+const staleFailureGeneration = ++controller.searchGeneration;
+const staleFailure = controller.search(dialog, 'stale-failure', staleFailureGeneration);
+const recoveredGeneration = ++controller.searchGeneration;
+const recoveredSearch = controller.search(dialog, 'recovered', recoveredGeneration);
+pending.get('recovered').resolve({
+  ok: true,
+  json: async () => ({ request_token: String(recoveredGeneration), total: 1, results: [{ message_id: 'recovered' }] }),
+});
+await recoveredSearch;
+pending.get('stale-failure').resolve({
+  ok: false,
+  json: async () => ({ error: { message: 'Stale search failure' } }),
+});
+await staleFailure;
+assert(rendered.at(-1) === 'recovered', 'stale search failure replaced newer results');
+assert(status.textContent === '1 results', 'stale search failure replaced newer status');
+assert(clearedResults === 2, 'stale search failure cleared newer results');
 
 const oldGeneration = ++controller.searchGeneration;
 const oldSearch = controller.search(dialog, 'old', oldGeneration);

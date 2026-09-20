@@ -35,22 +35,29 @@
 <a tl:if="${showSkipLink}" class="skip-link" href="#main-content">Skip to content</a>
 <div id="nav-progress" class="scan-bar htmx-indicator" aria-hidden="true"></div>
 <tl:block tl:utext="${body}"></tl:block>
-<dialog id="global-command-dialog" class="dialog command-dialog" data-command-dialog="global"
-        aria-labelledby="global-command-title">
-  <div class="dialog-header">
-    <h2 id="global-command-title">Search and commands</h2>
-    <button type="button" class="btn btn-ghost" data-command-close aria-label="Close">Close</button>
-  </div>
-  <div class="dialog-body">
+<dialog id="global-command-dialog" class="dialog command-dialog card-glass" data-command-dialog="global"
+        data-search-lifecycle="all" aria-label="Search and commands">
+  <div class="palette-input-row">
+    <span class="icon icon-search" aria-hidden="true"></span>
     <label class="sr-only" for="global-command-query">Search conversations and commands</label>
-    <input id="global-command-query" class="form-input form-input--search" type="search"
+    <input id="global-command-query" class="form-input" type="search"
            autocomplete="off" placeholder="Search conversations or run a command" data-command-query="global">
-    <div class="command-filters" data-command-search-filters>
-      <label>Lifecycle <select class="form-select" data-search-lifecycle><option value="all">All</option><option value="active">Active</option><option value="settled">Settled</option><option value="archived">Archived</option></select></label>
-      <label>Project <input class="form-input" data-search-project placeholder="All projects"></label>
-    </div>
-    <p class="t-caption" data-command-status role="status" aria-live="polite">Type to search.</p>
-    <div class="command-results" data-command-results role="listbox" aria-label="Search and command results"></div>
+    <button type="button" class="btn btn-icon-sm" data-command-close data-icon="x" aria-label="Close"></button>
+  </div>
+  <div class="palette-filters" data-command-search-filters>
+    <button type="button" class="chip" aria-pressed="true" data-search-lifecycle-option="all">All</button>
+    <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="active">Active</button>
+    <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="settled">Settled</button>
+    <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="archived">Archived</button>
+    <label class="sr-only" for="global-command-project">Project</label>
+    <input id="global-command-project" class="form-input form-input--search palette-project"
+           data-search-project placeholder="All projects">
+  </div>
+  <div class="command-results" data-command-results role="listbox" aria-label="Search and command results"></div>
+  <div class="palette-foot">
+    <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
+    <span><kbd>&#9166;</kbd> open</span>
+    <span data-command-status role="status" aria-live="polite">Type to search.</span>
   </div>
 </dialog>
 <tl:block tl:utext="${scriptsHtml}"></tl:block>

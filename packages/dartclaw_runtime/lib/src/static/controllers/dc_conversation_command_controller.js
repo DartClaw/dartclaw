@@ -1,6 +1,10 @@
 import { apiQs, showToast } from './shared.js';
 
 const searchDelayMs = 160;
+// The page renders exactly this many results, so it is also what the status line
+// may claim is reachable — a bare total over a shorter page reports matches the
+// reader cannot get to (0.27 said "137 results" and rendered 20).
+const searchPageSize = 50;
 
 export default class DcConversationCommandController extends Stimulus.Controller {
   connect() {
@@ -57,6 +61,17 @@ export default class DcConversationCommandController extends Stimulus.Controller
       this.closeDialog(event.target.closest('dialog'));
       return;
     }
+    const lifecycle = event.target.closest('[data-search-lifecycle-option]');
+    if (lifecycle) {
+      event.preventDefault();
+      const dialog = lifecycle.closest('dialog');
+      dialog.dataset.searchLifecycle = lifecycle.dataset.searchLifecycleOption;
+      for (const chip of dialog.querySelectorAll('[data-search-lifecycle-option]')) {
+        chip.setAttribute('aria-pressed', String(chip === lifecycle));
+      }
+      this.refreshDialog(dialog);
+      return;
+    }
     const option = event.target.closest('[data-command-option]');
     if (option) {
       event.preventDefault();
@@ -89,9 +104,9 @@ export default class DcConversationCommandController extends Stimulus.Controller
       this.markActive(options);
       return;
     }
-    if (event.key === 'Enter' && host.querySelector('[data-command-option].active')) {
+    if (event.key === 'Enter' && host.querySelector('[data-command-option].palette-item--active')) {
       event.preventDefault();
-      this.chooseOption(host.querySelector('[data-command-option].active'));
+      this.chooseOption(host.querySelector('[data-command-option].palette-item--active'));
       return;
     }
     if (event.key === 'Tab' && dialog) this.trapFocus(event, dialog);
@@ -172,10 +187,12 @@ export default class DcConversationCommandController extends Stimulus.Controller
   async search(dialog, query, generation) {
     const scope = dialog.dataset.commandDialog;
     this.setStatus(dialog, 'Searching…');
+    let failureMessage = 'Search is unavailable';
     const parameters = new URLSearchParams({
       q: query,
       scope,
-      lifecycle: dialog.querySelector('[data-search-lifecycle]')?.value || 'all',
+      lifecycle: dialog.dataset.searchLifecycle || 'all',
+      limit: String(searchPageSize),
       request_token: String(generation),
     });
     if (scope === 'current') parameters.set('session_id', this.sessionId);
@@ -184,14 +201,24 @@ export default class DcConversationCommandController extends Stimulus.Controller
     try {
       const response = await fetch(this.apiUrl('/api/conversation-search', parameters));
       const data = await response.json();
-      if (generation !== this.searchGeneration || data.request_token !== String(generation)) return;
-      if (!response.ok) throw new Error(data.error?.message || 'Search is unavailable');
-      this.renderSearch(dialog.querySelector('[data-command-results]'), data.results || []);
-      this.setStatus(dialog, data.total ? data.total + ' results' : 'No matching conversations.');
-    } catch (error) {
+      if (generation !== this.searchGeneration) return;
+      if (!response.ok) {
+        failureMessage = data.error?.message || failureMessage;
+        throw new Error(failureMessage);
+      }
+      if (data.request_token !== String(generation)) return;
+      const results = data.results || [];
+      this.renderSearch(dialog.querySelector('[data-command-results]'), results);
+      const total = Number(data.total) || 0;
+      this.setStatus(dialog, !total
+        ? 'No matching conversations.'
+        : total > results.length
+          ? results.length + ' of ' + total + ' results — narrow the search to reach the rest'
+          : total + ' results');
+    } catch (_) {
       if (generation !== this.searchGeneration) return;
       dialog.querySelector('[data-command-results]').replaceChildren();
-      this.setStatus(dialog, error.message || 'Search is unavailable');
+      this.setStatus(dialog, failureMessage);
     }
   }
 
@@ -238,11 +265,8 @@ export default class DcConversationCommandController extends Stimulus.Controller
   renderSearch(target, results) {
     target.replaceChildren();
     for (const result of results) {
-      const button = this.optionButton({
-        label: result.title,
-        description: '',
-      });
-      const description = button.querySelector('span');
+      const button = this.optionButton({ label: result.title, description: '' });
+      const description = button.querySelector('.palette-item-context');
       const snippet = String(result.snippet || '');
       const start = Math.max(0, Math.min(Number(result.highlight_start) || 0, snippet.length));
       const end = Math.max(start, Math.min(Number(result.highlight_end) || 0, snippet.length));
@@ -262,25 +286,34 @@ export default class DcConversationCommandController extends Stimulus.Controller
     this.markActive([...target.querySelectorAll('[data-command-option]')]);
   }
 
+  /// Canon `.palette-item`: icon · label · context · shortcut. The bespoke
+  /// `.command-option` this replaced carried its own borders and text tiers.
   optionButton(entry) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'command-option';
+    button.className = 'palette-item';
     button.dataset.commandOption = 'true';
     button.setAttribute('role', 'option');
-    const label = document.createElement('strong');
+    const icon = document.createElement('span');
+    // A `/name` entry is a command; everything else in these lists is a chat.
+    icon.className = 'icon ' + (entry.label?.startsWith('/') ? 'icon-terminal' : 'icon-message-circle');
+    icon.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.className = 'palette-item-label';
     label.textContent = entry.label;
     const description = document.createElement('span');
+    description.className = 'palette-item-context';
     description.textContent = entry.description;
-    button.append(label, description);
+    button.append(icon, label, description);
     return button;
   }
 
   markActive(options) {
     options.forEach((option, index) => {
       const active = index === this.activeOption;
-      option.classList.toggle('active', active);
+      option.classList.toggle('palette-item--active', active);
       option.setAttribute('aria-selected', String(active));
+      if (active) option.scrollIntoView({ block: 'nearest' });
     });
   }
 

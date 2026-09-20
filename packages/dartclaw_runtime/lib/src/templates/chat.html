@@ -1,16 +1,43 @@
-<div tl:fragment="userMessage" class="msg msg-user print-in" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
-  <div class="msg-role"><span tl:if="${hasSenderName}" tl:text="${senderName}">Alice</span><span tl:unless="${hasSenderName}">You</span></div>
+<tl:block tl:fragment="chatEmptyState">
+  <div id="chat-empty-state" class="chat-empty">
+    <tl:block tl:utext="${heroHtml}">hero</tl:block>
+    <div class="suggest-row" aria-label="Suggested prompts">
+      <button type="button" class="chip" data-action="dc-chat#applySuggestion"
+              data-text="Summarize this session">Summarize this session</button>
+      <button type="button" class="chip" data-action="dc-chat#applySuggestion"
+              data-text="What changed since the last turn?">What changed since the last turn?</button>
+    </div>
+  </div>
+</tl:block>
+
+<div tl:fragment="userMessage" class="msg msg-user print-in" tabindex="-1" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
+  <div class="msg-head"><span class="msg-role t-caption tracking-caps"><span tl:if="${hasSenderName}" tl:text="${senderName}">Alice</span><span tl:unless="${hasSenderName}">You</span></span></div>
   <div class="msg-content"><p tl:text="${content}">Message</p></div>
   <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
-  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
-  <div class="msg-meta"><time tl:if="${hasTimestamp}" tl:attr="datetime=${fullTimestamp},title=${fullTimestamp}" tl:text="${timestamp}">time</time><button type="button" class="btn btn-ghost msg-copy" data-copy-message aria-label="Copy whole message">Copy</button><button type="button" class="btn btn-ghost" data-history-action="edit" tl:attr="data-source-attempt-id=${sourceAttemptId},disabled=${editAvailable ? null : 'disabled'},title=${editAvailable ? 'Create a new conversation from this edited prompt' : 'Edit is available after this prompt completes'}">Edit and continue</button><button type="button" class="btn btn-ghost" data-history-action="fork" tl:attr="disabled=${forkAvailable ? null : 'disabled'},title=${forkAvailable ? 'Create a linked conversation through this message' : 'Fork is available after this message completes'}">Fork from here</button><button tl:if="${hasSourceAttempt}" type="button" class="btn btn-ghost" data-history-action="retry" tl:attr="data-source-attempt-id=${sourceAttemptId},disabled=${retryAvailable ? null : 'disabled'},title=${retryAvailable ? 'Start a new attempt from the retained input' : 'Retry is available only for failed or cancelled attempts'}">Retry</button></div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">lineage</div>
+  <div class="msg-foot">
+    <time class="msg-time" tl:if="${hasTimestamp}" tl:attr="datetime=${fullTimestamp},title=${fullTimestamp}" tl:text="${timestamp}">time</time>
+    <span class="msg-actions">
+      <button type="button" class="btn btn-icon-sm msg-copy" data-icon="copy" data-copy-message aria-label="Copy message" title="Copy"></button>
+      <button type="button" class="btn btn-icon-sm" data-icon="pencil" data-history-action="edit" aria-label="Edit and continue" tl:attr="data-source-attempt-id=${sourceAttemptId},disabled=${editAvailable ? null : 'disabled'},title=${editAvailable ? 'Create a new conversation from this edited prompt' : 'Edit is available after this prompt completes'}"></button>
+      <button type="button" class="btn btn-icon-sm" data-icon="fork" data-history-action="fork" aria-label="Fork from here" tl:attr="disabled=${forkAvailable ? null : 'disabled'},title=${forkAvailable ? 'Create a linked conversation through this message' : 'Fork is available after this message completes'}"></button>
+      <button tl:if="${hasSourceAttempt}" type="button" class="btn btn-icon-sm" data-icon="retry" data-history-action="retry" aria-label="Retry" tl:attr="data-source-attempt-id=${sourceAttemptId},disabled=${retryAvailable ? null : 'disabled'},title=${retryAvailable ? 'Start a new attempt from the retained input' : 'Retry is available only for failed or cancelled attempts'}"></button>
+    </span>
+  </div>
 </div>
 
-<div tl:fragment="assistantMessage" class="msg msg-assistant print-in" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
-  <div class="msg-role">Assistant</div>
+<div tl:fragment="assistantMessage" class="msg msg-assistant print-in" tabindex="-1" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
+  <div class="msg-head"><span class="msg-role t-caption tracking-caps">Assistant</span></div>
+  <div tl:if="${recordsHtml}" tl:utext="${recordsHtml}">tools</div>
   <div class="msg-content" data-markdown="" tl:text="${content}">Response</div>
-  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
-  <div class="msg-meta"><time tl:if="${hasTimestamp}" tl:attr="datetime=${fullTimestamp},title=${fullTimestamp}" tl:text="${timestamp}">time</time><button type="button" class="btn btn-ghost msg-copy" data-copy-message aria-label="Copy whole message">Copy</button><button type="button" class="btn btn-ghost" data-history-action="fork" tl:attr="disabled=${forkAvailable ? null : 'disabled'},title=${forkAvailable ? 'Create a linked conversation through this message' : 'Fork is available after this message completes'}">Fork from here</button></div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">lineage</div>
+  <div class="msg-foot">
+    <time class="msg-time" tl:if="${hasTimestamp}" tl:attr="datetime=${fullTimestamp},title=${fullTimestamp}" tl:text="${timestamp}">time</time>
+    <span class="msg-actions">
+      <button type="button" class="btn btn-icon-sm msg-copy" data-icon="copy" data-copy-message aria-label="Copy message" title="Copy"></button>
+      <button type="button" class="btn btn-icon-sm" data-icon="fork" data-history-action="fork" aria-label="Fork from here" tl:attr="disabled=${forkAvailable ? null : 'disabled'},title=${forkAvailable ? 'Create a linked conversation through this message' : 'Fork is available after this message completes'}"></button>
+    </span>
+  </div>
 </div>
 
 <div tl:fragment="guardBlock" class="msg msg-guard-block" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
@@ -18,8 +45,9 @@
     <span class="guard-block-icon icon icon-shield-alert" aria-hidden="true"></span>
     <span class="guard-block-label">GUARD BLOCKED</span>
   </div>
+  <div tl:if="${recordsHtml}" tl:utext="${recordsHtml}">tools</div>
   <div class="guard-block-reason" tl:text="${detail}">Blocked</div>
-  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">lineage</div>
 </div>
 
 <div tl:fragment="turnFailed" class="msg msg-turn-failed" tl:attr="id=${messageDomId},data-message-id=${messageId},data-cursor=${cursor}">
@@ -27,234 +55,279 @@
     <span class="msg-turn-failed-icon icon icon-triangle-alert" aria-hidden="true"></span>
     <span class="msg-turn-failed-label">Turn failed</span>
   </div>
+  <div tl:if="${recordsHtml}" tl:utext="${recordsHtml}">tools</div>
   <div tl:if="${detail}" class="msg-turn-failed-detail" tl:text="${detail}">Error detail</div>
-  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">history</div>
+  <div tl:if="${historyHtml}" tl:utext="${historyHtml}">lineage</div>
+</div>
+
+<div tl:fragment="assistantRecords" class="msg msg-assistant msg-assistant--records print-in" tabindex="-1">
+  <div class="msg-head"><span class="msg-role t-caption tracking-caps">Assistant</span></div>
+  <tl:block tl:utext="${recordsHtml}">tools</tl:block>
 </div>
 
 <main tl:fragment="chatArea" id="main-content" tabindex="-1" class="chat-area print-in" data-controller="dc-chat dc-tasks"
   tl:attr="data-session-id=${sessionId},data-retention=${retention},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor},data-target-message-id=${targetMessageId},hx-history=${historyDisabled}">
-  <section class="conversation-retention-controls" aria-label="Conversation retention">
-    <button tl:unless="${isTemporary}" type="button" class="btn btn-ghost" data-action="dc-chat#openTemporaryCreate">New temporary chat</button>
-    <button tl:unless="${isTemporary}" type="button" class="btn btn-ghost" data-action="dc-chat#openTemporaryExport">Export</button>
-    <div tl:if="${isTemporary}" class="banner banner-warning">
-      <strong>Temporary · process lifetime</strong>
-      <span data-temporary-state role="status" tl:text="${temporaryStatus}">Active until you end it or this server stops.</span>
-      <button type="button" class="btn btn-ghost" data-action="dc-chat#openTemporaryExport" tl:attr="disabled=${temporaryEnding}">Export</button>
-      <button type="button" class="btn btn-danger" data-action="dc-chat#openTemporaryEnd" tl:attr="disabled=${temporaryEnding}">End</button>
-    </div>
-  </section>
-  <dialog id="temporary-create-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-create-title" aria-describedby="temporary-create-detail">
-    <h2 id="temporary-create-title">Start temporary conversation?</h2>
-    <p id="temporary-create-detail">Messages, attachments, and provider state stay in this server process. Drafts stay only in this page and are lost on reload. Provider processing and external tool effects may persist. Export creates a durable copy.</p>
-    <button type="button" class="btn btn-primary" data-action="dc-chat#createTemporary">Accept and start</button>
-    <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
-  </dialog>
-  <dialog id="temporary-export-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-export-title" aria-describedby="temporary-export-detail">
-    <h2 id="temporary-export-title">Create durable Markdown copy?</h2>
-    <p id="temporary-export-detail">The export is a durable copy containing visible redacted history and an attachment manifest. It contains no attachment bytes or provider state.</p>
-    <button type="button" class="btn btn-primary" data-action="dc-chat#exportTemporary">Create durable copy</button>
-    <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
-  </dialog>
-  <dialog id="temporary-end-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-end-title" aria-describedby="temporary-end-detail">
-    <h2 id="temporary-end-title">End temporary chat?</h2>
-    <p id="temporary-end-detail">This permanently closes the temporary conversation and discards its messages, attachments, provider state, and unsent page draft after the provider has stopped.</p>
-    <button type="button" class="btn btn-danger" data-action="dc-chat#endTemporary">End temporary chat</button>
-    <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
-  </dialog>
+  <div tl:if="${isTemporary}" class="banner banner-info conversation-temporary-banner">
+    <span class="icon icon-clock" aria-hidden="true"></span>
+    <span data-temporary-state role="status" tl:text="${temporaryStatus}">Active until you end it or this server stops.</span>
+    <button type="button" class="btn btn-sm" data-action="dc-chat#openTemporaryExport" tl:attr="disabled=${temporaryEnding}">Export</button>
+    <button type="button" class="btn btn-sm btn-danger" data-action="dc-chat#openTemporaryEnd" tl:attr="disabled=${temporaryEnding}">End</button>
+  </div>
+  <div class="find-bar" data-dc-chat-target="findBar" role="search" aria-label="Find in conversation" hidden>
+    <span class="icon icon-search" aria-hidden="true"></span>
+    <label class="sr-only" for="conversation-find-query">Find in conversation</label>
+    <input id="conversation-find-query" class="form-input" type="search" autocomplete="off"
+           placeholder="Find in conversation" data-dc-chat-target="findQuery"
+           data-action="input->dc-chat#findInput keydown->dc-chat#findKeydown">
+    <span class="find-count" data-dc-chat-target="findCount" role="status" aria-live="polite"></span>
+    <button type="button" class="btn btn-icon-sm" data-icon="chevron-up" aria-label="Previous match"
+            data-action="dc-chat#findPrevious"></button>
+    <button type="button" class="btn btn-icon-sm" data-icon="chevron-down" aria-label="Next match"
+            data-action="dc-chat#findNext"></button>
+    <button type="button" class="btn btn-icon-sm find-close" data-icon="x" aria-label="Close find"
+            data-action="dc-chat#closeFind"></button>
+  </div>
   <div tl:if="${chatNoticeHtml}" tl:utext="${chatNoticeHtml}">session notice</div>
   <div class="chat-load-earlier">
-    <button id="load-earlier-btn" type="button" class="btn btn-ghost" data-load-earlier=""
+    <button id="load-earlier-btn" type="button" class="btn btn-sm btn-ghost" data-load-earlier=""
             tl:attr="hidden=${loadEarlierHidden}">
       Load earlier messages
     </button>
   </div>
   <div class="messages" id="messages" tl:utext="${messagesHtml}">messages</div>
-  <button type="button" class="btn btn-ghost conversation-find" data-command-open="current" aria-haspopup="dialog">Find in conversation</button>
-  <dialog id="conversation-find-dialog" class="dialog command-dialog" data-command-dialog="current"
-          aria-labelledby="conversation-find-title">
-    <div class="dialog-header"><h2 id="conversation-find-title">Find in conversation</h2><button type="button" class="btn btn-ghost" data-command-close aria-label="Close">Close</button></div>
-    <div class="dialog-body">
-      <label class="sr-only" for="conversation-find-query">Find in conversation</label>
-      <input id="conversation-find-query" class="form-input form-input--search" type="search" autocomplete="off"
-             placeholder="Search this conversation" data-command-query="current">
-      <p class="t-caption" data-command-status role="status" aria-live="polite">Type to search.</p>
-      <div class="command-results" data-command-results role="listbox" aria-label="Conversation search results"></div>
-    </div>
-  </dialog>
-  <button type="button" class="btn btn-secondary new-activity" data-jump-latest hidden>New activity · Jump to latest</button>
-  <div tl:if="${hasTurnStatus}" class="turn-status-panel"
-       tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
-    <div class="turn-status-row">
-      <span class="meta-label">Turn</span>
-      <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">waiting</span>
-      <span class="meta-value" data-turn-status-reason
-            tl:classappend="${turnStatus.reasonAbsent} ? 'value-absent' : ''"
-            tl:text="${turnStatus.reasonLabel}">session lock</span>
-    </div>
-    <div class="turn-status-times">
-      <span class="turn-status-time"><span class="turn-status-time-label t-caption">waiting since</span><span class="turn-status-time-value" data-turn-status-waiting tl:text="${turnStatus.waitingSince}"></span></span>
-      <span class="turn-status-time"><span class="turn-status-time-label t-caption">stuck since</span><span class="turn-status-time-value" data-turn-status-stuck tl:text="${turnStatus.stuckSince}"></span></span>
-      <span class="turn-status-time"><span class="turn-status-time-label t-caption">times out</span><span class="turn-status-time-value" data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}"></span></span>
-    </div>
-    <button type="button" class="btn btn-ghost" data-turn-cancel
-            tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},hidden=${turnStatus.cancelHidden},disabled=${turnStatus.cancelDisabled}">
-      Cancel Turn
-    </button>
-  </div>
   <div tl:if="${readOnly}" class="input-area">
-    <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>
+    <div class="composer-stack">
+      <div class="archive-notice">This is an archived session. Resume it to continue the conversation.</div>
+    </div>
   </div>
   <div tl:unless="${readOnly}" class="input-area conversation-input-area">
-    <section tl:if="${hasEffectiveContext}" id="effective-context-summary" class="card card-compact"
-             aria-label="Effective context">
-      <div><span class="meta-label">Workspace owner</span>
-        <span id="effective-context-workspace" class="meta-value meta-value-mono" tl:text="${effectiveContext.workspace}">web</span>
-      </div>
-      <div><span class="meta-label">Project</span>
-        <span class="identicon" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span>
-        <span id="effective-context-project-name" class="meta-value" tl:text="${effectiveContext.project}">project</span>
-      </div>
-      <div><span class="meta-label">Current</span>
-        <span id="effective-context-current" class="meta-value" tl:text="${effectiveContext.current}">project</span>
-      </div>
-      <div><span class="meta-label">Next turn</span>
-        <span id="effective-context-next" class="meta-value" tl:text="${effectiveContext.next}">project</span>
-      </div>
-      <button id="effective-context-open" type="button" class="btn btn-ghost"
-              data-action="dc-chat#openContextDialog" aria-haspopup="dialog">Context</button>
-    </section>
-    <dialog tl:if="${hasEffectiveContext}" id="effective-context-dialog" class="dialog"
-            data-dc-chat-target="contextDialog" aria-labelledby="effective-context-title">
-      <div class="dialog-header"><h2 id="effective-context-title">Conversation context</h2></div>
-      <div class="tabs" role="tablist" aria-label="Context details"></div>
-      <div class="dialog-body">
-      <p id="effective-context-continuity" class="banner banner-warning">Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
-      <form id="effective-context-form" class="effective-context-form" data-action="submit->dc-chat#applyContext">
-        <input type="hidden" name="conversation_revision" tl:attr="value=${effectiveContext.revision}">
-        <label for="effective-context-project">Project</label>
-        <select id="effective-context-project" name="project_id" class="form-select">
-          <option tl:each="project : ${effectiveContext.projects}" tl:text="${project.label}"
-                  tl:attr="value=${project.value},selected=${project.selected}">project</option>
-        </select>
-        <label for="effective-context-directory">Directory</label>
-        <input id="effective-context-directory" name="directory" class="form-input" required
-               tl:attr="value=${effectiveContext.directory}">
-        <label for="effective-context-provider">Provider</label>
-        <select id="effective-context-provider" name="provider" class="form-select"
-                data-action="change->dc-chat#contextProviderChanged">
-          <option tl:each="provider : ${effectiveContext.providers}" tl:text="${provider.label}"
-                  tl:attr="value=${provider.value},selected=${provider.selected},data-model-editable=${provider.model},data-effort-editable=${provider.effort}">provider</option>
-        </select>
-        <label for="effective-context-model-input">Model</label>
-        <input id="effective-context-model-input" name="model" class="form-input"
-               tl:attr="value=${effectiveContext.modelValue},disabled=${effectiveContext.modelEditable ? null : 'disabled'}">
-        <span tl:unless="${effectiveContext.modelEditable}" class="value-absent">Unavailable for this adapter</span>
-        <label for="effective-context-effort-input">Effort</label>
-        <input id="effective-context-effort-input" name="effort" class="form-input"
-               tl:attr="value=${effectiveContext.effortValue},disabled=${effectiveContext.effortEditable ? null : 'disabled'}">
-        <span tl:unless="${effectiveContext.effortEditable}" class="value-absent">Unavailable for this adapter</span>
-        <button id="effective-context-apply" type="submit" class="btn btn-primary">Apply to next turn</button>
-      </form>
-      <dl>
-        <dt>Workspace owner</dt><dd id="effective-context-detail-workspace" tl:text="${effectiveContext.workspace}">web</dd>
-        <dt>Project</dt><dd id="effective-context-detail-project" tl:text="${effectiveContext.project}">project</dd>
-        <dt>Directory</dt><dd id="effective-context-detail-directory" class="meta-value-mono" tl:text="${effectiveContext.directory}">directory</dd>
-        <dt>Provider</dt><dd id="effective-context-detail-provider" tl:text="${effectiveContext.provider}">provider</dd>
-        <dt>Model</dt><dd id="effective-context-model" tl:text="${effectiveContext.model}">unavailable</dd>
-        <dt>Effort</dt><dd id="effective-context-effort" tl:text="${effectiveContext.effort}">unavailable</dd>
-        <dt>Measurement</dt><dd id="effective-context-telemetry" tl:text="${effectiveContext.telemetry}">unavailable</dd>
-        <dt>Behavior files</dt><dd id="effective-context-behavior" tl:text="${effectiveContext.behavior}">none recorded</dd>
-      </dl>
-      <div id="effective-context-memory" class="status-badge"
-           tl:attr="hidden=${effectiveContext.memoryHidden}"
-           tl:text="${effectiveContext.memory}">Memory contributed</div>
-      <p id="effective-context-validation" role="alert" hidden></p>
-      </div>
-      <div class="dialog-footer">
-      <button id="effective-context-close" type="button" class="btn btn-primary" data-action="dc-chat#closeContextDialog">Done</button>
-      </div>
-    </dialog>
-    <form id="chat-form" class="composer" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend"
-          data-action="drop->dc-chat#handleDrop dragover->dc-chat#handleDragOver paste->dc-chat#handlePaste">
-      <div class="composer-context" data-dc-chat-target="contextTray" hidden></div>
-      <div class="composer-reference-palette card card-glass" data-dc-chat-target="referencePalette" hidden>
-        <div class="composer-palette-header">References</div>
-        <div class="composer-palette-list" role="listbox" aria-label="References"></div>
-      </div>
-      <label class="sr-only" for="message-input">Message</label>
-      <textarea id="message-input" name="message" rows="1"
-                aria-describedby="composer-save-status composer-live-status"
-                tl:attr="placeholder=${placeholder},disabled=${inputDisabled},autofocus=${autofocus}"></textarea>
-      <div class="composer-command-palette card card-glass" data-slash-palette hidden>
-        <div class="composer-palette-header">Commands</div>
-        <div class="composer-palette-list" data-slash-results role="listbox" aria-label="Commands"></div>
-      </div>
-      <input type="hidden" name="attachments" data-dc-chat-target="attachmentsInput" value="[]">
-      <input type="hidden" name="references" data-dc-chat-target="referencesInput" value="[]">
-      <input type="hidden" name="submission_id" data-dc-chat-target="submissionIdInput" value="">
-      <input type="hidden" name="revision_id" data-dc-chat-target="revisionIdInput" value="">
-      <input id="composer-files" type="file" multiple hidden data-action="change->dc-chat#chooseFiles">
-      <div class="composer-toolbar">
-        <div class="composer-hints" role="group" aria-label="Composer shortcuts">
-          <span><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> send</span>
+    <div class="composer-stack" data-dc-chat-target="composerStack">
+      <button type="button" class="btn btn-sm new-activity" data-jump-latest hidden>New activity · Jump to latest</button>
+      <div tl:if="${hasTurnStatus}" class="turn-status-panel"
+           tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
+        <div class="turn-status-row">
+          <span class="meta-label">Turn</span>
+          <span class="status-badge" data-turn-status-state tl:text="${turnStatus.stateLabel}">waiting</span>
+          <span class="meta-value" data-turn-status-reason
+                tl:classappend="${turnStatus.reasonAbsent} ? 'value-absent' : ''"
+                tl:text="${turnStatus.reasonLabel}">session lock</span>
+          <button type="button" class="btn btn-sm" data-turn-cancel
+                  tl:attr="data-session-id=${turnStatus.sessionId},data-turn-id=${turnStatus.turnId},hidden=${turnStatus.cancelHidden},disabled=${turnStatus.cancelDisabled}">
+            Cancel Turn
+          </button>
         </div>
-        <div class="chip-row" aria-label="Suggested prompts">
-          <button type="button" class="chip chip--ref" data-action="dc-chat#applySuggestion"
-                  data-text="Summarize this session">Summarize</button>
-          <button type="button" class="chip chip--ref" data-action="dc-chat#applySuggestion"
-                  data-text="What changed since the last turn?">What's changed?</button>
-        </div>
-        <div class="composer-meta">
-          <label for="composer-files" class="btn btn-ghost" aria-label="Attach files">Attach</label>
-          <button id="effective-context-open-composer" type="button" class="btn btn-ghost"
-                  data-action="dc-chat#openContextDialog" aria-haspopup="dialog">Context</button>
-          <button type="button" class="btn btn-ghost" data-dc-chat-target="steerButton" data-action="dc-chat#steer"
-                  aria-label="Steer: stop the current turn, then send this follow-up" hidden>Steer</button>
-          <button type="button" class="btn btn-ghost" data-dc-chat-target="stopButton" data-action="dc-chat#stopTurn"
-                  aria-label="Stop current turn" hidden>Stop</button>
-          <span id="effective-context-composer-provider" class="meta-value"
-                tl:text="${effectiveContext.composer}">provider · model · effort</span>
-          <button id="send-btn" class="btn btn-primary composer-send" type="submit"
-                  aria-label="Send" title="Send"
-                  tl:attr="disabled=${inputDisabled}"></button>
+        <div class="turn-status-times">
+          <span class="turn-status-time"><span class="turn-status-time-label t-caption">waiting since</span><span class="turn-status-time-value" data-turn-status-waiting tl:text="${turnStatus.waitingSince}"></span></span>
+          <span class="turn-status-time"><span class="turn-status-time-label t-caption">stuck since</span><span class="turn-status-time-value" data-turn-status-stuck tl:text="${turnStatus.stuckSince}"></span></span>
+          <span class="turn-status-time"><span class="turn-status-time-label t-caption">times out</span><span class="turn-status-time-value" data-turn-status-timeout tl:text="${turnStatus.globalTimeoutAt}"></span></span>
         </div>
       </div>
-      <div id="composer-save-status" class="composer-save-status" data-dc-chat-target="saveStatus" role="status">Loading saved draft…</div>
-      <div id="composer-live-status" class="sr-only" data-dc-chat-target="liveStatus" role="status" aria-live="polite"></div>
       <div class="composer-recovery" data-dc-chat-target="recovery" role="alert" hidden></div>
       <div class="composer-recovery-actions" data-dc-chat-target="recoveryActions" hidden>
-        <button type="button" class="btn btn-ghost" data-action="dc-chat#saveDraftNow">Retry save</button>
-        <button type="button" class="btn btn-ghost" data-dc-chat-target="conflictAction"
+        <button type="button" class="btn btn-sm" data-action="dc-chat#saveDraftNow">Retry save</button>
+        <button type="button" class="btn btn-sm" data-dc-chat-target="conflictAction"
                 data-action="dc-chat#recoverConflictingDraft" hidden>Recover other revision</button>
-        <button type="button" class="btn btn-ghost" data-action="dc-chat#copyDraft">Copy draft</button>
-        <button type="button" class="btn btn-ghost" data-action="dc-chat#downloadDraft">Download draft</button>
+        <button type="button" class="btn btn-sm" data-action="dc-chat#copyDraft">Copy draft</button>
+        <button type="button" class="btn btn-sm" data-action="dc-chat#downloadDraft">Download draft</button>
       </div>
-    </form>
-    <section class="conversation-queue" data-dc-chat-target="queue" aria-label="Queued messages" hidden></section>
+      <div class="request-strip" data-dc-chat-target="requestStrip" role="status" hidden></div>
+      <div class="conversation-queue" data-dc-chat-target="queue" aria-label="Queued messages" hidden></div>
+      <form id="chat-form" class="composer" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend"
+            data-action="drop->dc-chat#handleDrop dragover->dc-chat#handleDragOver paste->dc-chat#handlePaste">
+        <div class="composer-context chip-row" data-dc-chat-target="contextTray" hidden></div>
+        <div class="composer-reference-palette card card-glass" data-dc-chat-target="referencePalette" hidden>
+          <div class="composer-palette-header">References</div>
+          <div class="composer-palette-list" role="listbox" aria-label="References"></div>
+        </div>
+        <label class="sr-only" for="message-input">Message</label>
+        <textarea id="message-input" name="message" rows="1"
+                  aria-describedby="composer-save-status composer-live-status"
+                  tl:attr="placeholder=${placeholder},disabled=${inputDisabled},autofocus=${autofocus}"></textarea>
+        <div class="composer-command-palette card card-glass" data-slash-palette hidden>
+          <div class="composer-palette-header">Commands</div>
+          <div class="composer-palette-list" data-slash-results role="listbox" aria-label="Commands"></div>
+        </div>
+        <input type="hidden" name="attachments" data-dc-chat-target="attachmentsInput" value="[]">
+        <input type="hidden" name="references" data-dc-chat-target="referencesInput" value="[]">
+        <input type="hidden" name="submission_id" data-dc-chat-target="submissionIdInput" value="">
+        <input type="hidden" name="revision_id" data-dc-chat-target="revisionIdInput" value="">
+        <input id="composer-files" type="file" multiple hidden data-action="change->dc-chat#chooseFiles">
+        <div class="composer-toolbar">
+          <label id="composer-attach" for="composer-files" class="btn btn-icon" data-icon="attach" role="button"
+                 tabindex="0" aria-label="Attach files" title="Attach files"></label>
+          <button type="button" class="btn btn-icon" data-icon="terminal" title="Commands  /" aria-label="Commands"
+                  data-action="dc-chat#openCommands"></button>
+          <button tl:if="${hasEffectiveContext}" id="effective-context-open" type="button"
+                  class="chip chip--ref composer-context-chip" aria-haspopup="dialog" aria-expanded="false"
+                  data-action="dc-chat#toggleContextPopover">
+            <span class="identicon" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span>
+            <span class="chip-name" id="effective-context-project-name" tl:text="${effectiveContext.project}">project</span>
+            <span class="chip-meta" id="effective-context-usage"
+                  tl:attr="hidden=${effectiveContext.usageHidden}" tl:text="${effectiveContext.usage}"></span>
+          </button>
+          <div class="composer-meta">
+            <!-- Empty at rest. dc-chat fills it for a save in flight or just landed and
+                 clears it again; a failure or a conflict holds it. -->
+            <span id="composer-save-status" class="composer-save" data-dc-chat-target="saveStatus" role="status"></span>
+            <span class="composer-save-glyph" data-dc-chat-target="saveGlyph" data-icon="check" role="img"
+                  aria-hidden="true" hidden></span>
+            <button tl:if="${hasEffectiveContext}" type="button" class="composer-model"
+                    id="effective-context-composer-provider" aria-haspopup="dialog" aria-expanded="false"
+                    data-action="dc-chat#toggleContextPopover"
+                    tl:text="${effectiveContext.composer}">provider</button>
+            <span class="composer-send-group">
+              <button type="button" class="btn btn-sm btn-queue" data-dc-chat-target="queueButton"
+                      data-action="dc-chat#submitForm" hidden>Queue</button>
+              <button type="button" class="btn btn-sm split-caret" data-icon="chevron-down"
+                      data-dc-chat-target="steerToggle" data-action="dc-chat#toggleSteerMenu"
+                      aria-haspopup="menu" aria-expanded="false" aria-label="Queue options" hidden></button>
+              <button id="send-btn" class="btn btn-primary btn-icon composer-send" type="submit"
+                      data-icon="arrow-up" aria-label="Send" title="Send"
+                      tl:attr="disabled=${inputDisabled}"></button>
+              <div class="pop pop-steer card card-elevated" data-dc-chat-target="steerMenu" role="menu" hidden>
+                <button type="button" class="palette-item" role="menuitem" data-dc-chat-target="steerButton"
+                        data-action="dc-chat#steer">
+                  <span class="icon icon-arrow-right" aria-hidden="true"></span>
+                  <span class="palette-item-label">Steer</span>
+                  <span class="palette-item-context">Stop this turn, then send</span>
+                </button>
+              </div>
+            </span>
+          </div>
+        </div>
+      </form>
+      <div id="composer-live-status" class="sr-only" data-dc-chat-target="liveStatus" role="status" aria-live="polite"></div>
+      <div tl:if="${hasEffectiveContext}" class="pop pop-context card card-elevated"
+           data-dc-chat-target="contextPopover" role="dialog" aria-labelledby="effective-context-title" hidden>
+        <div class="pop-head">
+          <span id="effective-context-title">Effective context</span>
+          <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Close"
+                  data-action="dc-chat#closeContextPopover"></button>
+        </div>
+        <p id="effective-context-continuity" class="banner banner-warning" hidden>Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
+        <form id="effective-context-form" data-action="submit->dc-chat#applyContext">
+          <input type="hidden" name="conversation_revision" tl:attr="value=${effectiveContext.revision}">
+          <div class="meta-row">
+            <label class="meta-key" for="effective-context-project">Project</label>
+            <select id="effective-context-project" name="project_id" class="form-select meta-val">
+              <option tl:each="project : ${effectiveContext.projects}" tl:text="${project.label}"
+                      tl:attr="value=${project.value},selected=${project.selected}">project</option>
+            </select>
+          </div>
+          <div class="meta-row">
+            <label class="meta-key" for="effective-context-directory">Directory</label>
+            <input id="effective-context-directory" name="directory" class="form-input meta-val meta-value-mono"
+                   required tl:attr="value=${effectiveContext.directory},title=${effectiveContext.directory}">
+          </div>
+          <div class="meta-row">
+            <label class="meta-key" for="effective-context-provider">Provider</label>
+            <select id="effective-context-provider" name="provider" class="form-select meta-val"
+                    data-action="change->dc-chat#contextProviderChanged">
+              <option tl:each="provider : ${effectiveContext.providers}" tl:text="${provider.label}"
+                      tl:attr="value=${provider.value},selected=${provider.selected},data-model-editable=${provider.model},data-effort-editable=${provider.effort}">provider</option>
+            </select>
+          </div>
+          <div class="meta-row">
+            <label class="meta-key" for="effective-context-model-input">Model</label>
+            <input id="effective-context-model-input" name="model" class="form-input meta-val"
+                   tl:attr="value=${effectiveContext.modelValue},disabled=${effectiveContext.modelEditable ? null : 'disabled'},placeholder=${effectiveContext.modelEditable ? 'provider default' : 'unavailable for this adapter'}">
+          </div>
+          <div class="meta-row">
+            <label class="meta-key" for="effective-context-effort-input">Effort</label>
+            <input id="effective-context-effort-input" name="effort" class="form-input meta-val"
+                   tl:attr="value=${effectiveContext.effortValue},disabled=${effectiveContext.effortEditable ? null : 'disabled'},placeholder=${effectiveContext.effortEditable ? 'provider default' : 'unavailable for this adapter'}">
+          </div>
+          <div class="pop-sep"></div>
+          <div class="meta-row">
+            <span class="meta-key">Workspace</span>
+            <span id="effective-context-workspace" class="meta-val meta-value-mono" tl:text="${effectiveContext.workspace}">web</span>
+          </div>
+          <div class="meta-row" id="effective-context-current-row" tl:attr="hidden=${effectiveContext.currentHidden}">
+            <span class="meta-key">Current turn</span>
+            <span id="effective-context-current" class="meta-val" tl:text="${effectiveContext.current}">project</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Measurement</span>
+            <span id="effective-context-telemetry" class="meta-val" tl:text="${effectiveContext.telemetry}">unavailable</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key">Behavior</span>
+            <span id="effective-context-behavior" class="meta-val meta-value-mono"
+                  tl:attr="title=${effectiveContext.behavior}" tl:text="${effectiveContext.behavior}">none recorded</span>
+          </div>
+          <div class="meta-row" id="effective-context-memory-row" tl:attr="hidden=${effectiveContext.memoryHidden}">
+            <span class="meta-key">Memory</span>
+            <span id="effective-context-memory" class="meta-val" tl:text="${effectiveContext.memory}">Memory contributed</span>
+          </div>
+          <p id="effective-context-validation" class="pop-validation" role="alert" hidden></p>
+          <div class="pop-foot">
+            <button id="effective-context-apply" type="submit" class="btn btn-sm btn-primary">Apply to next turn</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
+  <dialog id="temporary-create-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-create-title" aria-describedby="temporary-create-detail">
+    <div class="dialog-header"><h2 id="temporary-create-title">Start temporary conversation?</h2></div>
+    <div class="dialog-body">
+      <p id="temporary-create-detail">Messages, attachments, and provider state stay in this server process. Drafts stay only in this page and are lost on reload. Provider processing and external tool effects may persist. Export creates a durable copy.</p>
+    </div>
+    <div class="dialog-footer">
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-sm" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" data-action="dc-chat#createTemporary">Accept and start</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="temporary-export-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-export-title" aria-describedby="temporary-export-detail">
+    <div class="dialog-header"><h2 id="temporary-export-title">Create durable Markdown copy?</h2></div>
+    <div class="dialog-body">
+      <p id="temporary-export-detail">The export is a durable copy containing visible redacted history and an attachment manifest. It contains no attachment bytes or provider state.</p>
+    </div>
+    <div class="dialog-footer">
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-sm" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" data-action="dc-chat#exportTemporary">Create durable copy</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="temporary-end-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-end-title" aria-describedby="temporary-end-detail">
+    <div class="dialog-header"><h2 id="temporary-end-title">End temporary chat?</h2></div>
+    <div class="dialog-body">
+      <p id="temporary-end-detail">This permanently closes the temporary conversation and discards its messages, attachments, provider state, and unsent page draft after the provider has stopped.</p>
+    </div>
+    <div class="dialog-footer">
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-sm" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+        <button type="button" class="btn btn-sm btn-danger" data-action="dc-chat#endTemporary">End temporary chat</button>
+      </div>
+    </div>
+  </dialog>
 </main>
 
 <tl:block tl:fragment="sendResponse">
-  <div class="msg msg-user print-in">
-    <div class="msg-role">You</div>
+  <div class="msg msg-user print-in" tabindex="-1">
+    <div class="msg-head"><span class="msg-role t-caption tracking-caps">You</span></div>
     <div class="msg-content"><p tl:text="${message}">message</p></div>
     <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
   </div>
-  <div class="msg msg-assistant print-in" id="streaming-msg"
+  <div class="msg msg-assistant print-in" id="streaming-msg" tabindex="-1"
        tl:attr="hx-sse:connect=${sseUrl}"
        hx-sse:close="done">
-    <div class="msg-role">Assistant</div>
+    <div class="msg-head"><span class="msg-role t-caption tracking-caps">Assistant</span></div>
+    <!-- Same place the persisted run lands, so the turn-end reload swaps in
+         history without the transcript jumping. -->
+    <div id="tool-container"></div>
     <div class="msg-content" id="streaming-content"></div>
     <div class="msg-thinking"><span class="claw-loader"><span></span><span></span><span></span></span><span
         class="msg-thinking-label">thinking</span></div>
-    <div id="tool-container"></div>
     <div id="turn-error-target" hidden></div>
   </div>
 </tl:block>
 
 <tl:block tl:fragment="queuedResponse">
   <div class="msg msg-user msg-queued print-in" tl:attr="data-queue-id=${queueId}">
-    <div class="msg-role">Queued</div>
+    <div class="msg-head"><span class="msg-role t-caption tracking-caps">Queued</span></div>
     <div class="msg-content"><p tl:text="${message}">message</p></div>
     <div tl:if="${richInputHtml}" tl:utext="${richInputHtml}">rich input</div>
   </div>

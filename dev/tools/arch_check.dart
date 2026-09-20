@@ -146,16 +146,26 @@ int _maxCeilingFor(int loc) {
 // judgment reduces runtime to 67166 and search to 1496. Ratchet their ceilings
 // down to _maxCeilingFor; retain shared schema decoding and tool enforcement.
 // 2026-09-10: shared endpoint validation reduces search to 1490 lines; ratchet to 1986.
+//
+// Milestone rebaseline, 2026-09-19 (0.27):
+//   dartclaw_core    31254 -> 34710 (measured 33210)
+//   dartclaw_runtime 68649 -> 75596 (measured 74096)
+//   The milestone's backend scope (FR1-FR9: agent workspaces, scoped workspace
+//   memory, effective session context, the submission/queue/steer loop, durable
+//   display records, branch recovery, inbox and attention, conversation search
+//   and human commands, temporary conversations and export) landed against
+//   ceilings last cut before it opened. Both are cut to _maxCeilingFor(measured),
+//   so neither banks headroom beyond the band.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 12719,
   'dartclaw_client': 625,
-  'dartclaw_core': 31254,
+  'dartclaw_core': 34710,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 68649,
+  'dartclaw_runtime': 75596,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 5026,

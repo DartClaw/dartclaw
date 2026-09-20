@@ -196,14 +196,16 @@ void main() {
 
       expect(html, contains('class="tabs" aria-label="Knowledge layers"'));
       expect(html, contains('class="tab t-label'));
-      expect(html, isNot(contains('filter-chip')));
-      expect(html, isNot(contains('aria-pressed')));
       expect(_tabFor(html, 'Memory'), contains('aria-current="page"'));
       expect(_tabFor(html, 'Wiki'), isNot(contains('aria-current')));
+      // Scoped to the strip: the page also carries the shell's command palette,
+      // whose lifecycle filters are legitimately pressed chips.
       final layerTabs = html.substring(
         html.indexOf('aria-label="Knowledge layers"'),
         html.indexOf('</nav>', html.indexOf('aria-label="Knowledge layers"')),
       );
+      expect(layerTabs, isNot(contains('chip')));
+      expect(layerTabs, isNot(contains('aria-pressed')));
       expect(RegExp('aria-current="page"').allMatches(layerTabs), hasLength(1));
     });
   });

@@ -263,7 +263,7 @@
       <div><span class="label">metric-value</span> <span class="t-metric">1,402 tokens (24px / 600)</span></div>
       <div><span class="label">code</span> <code>The quick brown fox jumps (14px / 400)</code></div>
     </div>
-    <p class="use-case">Uppercase micro-labels compose <code>.tracking-caps</code> on top of <code>.t-caption</code> rather than getting their own tier. There is no 13px tier &mdash; it was indistinguishable from the body tier and collapsed into it.</p>
+    <p class="use-case">Uppercase micro-labels compose <code>.tracking-caps</code> on top of <code>.t-caption</code> rather than getting their own tier. Below body sits <code>--text-sm</code> (13px) &mdash; the <em>chrome</em> tier: rail rows, toolbars, button and field labels, the topbar. Content never takes it. It is a raw token, not a composite <code>.t-*</code> tier.</p>
     <div class="type-scale">
       <div><span class="label">caption</span> <span class="t-caption">SERVICES &mdash; caption tier alone, tracking reset to normal</span></div>
       <div><span class="label">+ tracking-caps</span> <span class="t-caption tracking-caps">SERVICES &mdash; composed, caps tracking restored</span></div>
@@ -935,7 +935,7 @@ done.<span class="streaming"></span></code></pre>
     <p class="use-case"><code>.btn-secondary</code> is the orchestration action (run workflow, open studio) &mdash; info-tinted fill and ring between primary (create) and danger (destroy).</p>
 
     <h3>Size tier &amp; filled destructive</h3>
-    <p class="use-case"><code>.btn-sm</code> / <code>.btn-icon-sm</code> differ by padding and <code>min-height</code> only &mdash; neither declares a <code>font-size</code>. <code>.btn-danger-fill</code> is the committed destructive step; outlined <code>.btn-danger</code> stays the default.</p>
+    <p class="use-case"><code>.btn</code> / <code>.btn-icon</code> are 28px, <code>.btn-sm</code> / <code>.btn-icon-sm</code> 24px &mdash; they differ by padding and <code>min-height</code> only, and neither size modifier declares a <code>font-size</code> (the base does). <code>.btn-danger-fill</code> is the committed destructive step; outlined <code>.btn-danger</code> stays the default.</p>
     <div class="btn-row">
       <button type="button" class="btn btn-sm">Default</button>
       <button type="button" class="btn btn-primary btn-sm">Primary</button>
@@ -947,8 +947,8 @@ done.<span class="streaming"></span></code></pre>
       <button type="button" class="btn btn-icon-sm" aria-label="Remove"><span class="icon icon-x"></span></button>
     </div>
 
-    <h3>Ghost buttons at rest &mdash; on both planes</h3>
-    <p class="use-case">Resting boundary holds &ge;3:1 (WCAG 1.4.11) against the card plane <em>and</em> the page ground, in both themes &mdash; identifiable without hovering.</p>
+    <h3>Text ghost buttons at rest &mdash; on both planes</h3>
+    <p class="use-case">A ghost button whose affordance is a <em>label</em> keeps a resting boundary, holding &ge;3:1 (WCAG 1.4.11) against the card plane <em>and</em> the page ground, in both themes &mdash; identifiable without hovering. An icon-only <code>.btn-icon</code> is the exception: its glyph is already the non-text affordance, so it rests borderless and fills on hover (see the two icon buttons above).</p>
     <div class="grid-2">
       <div class="card" id="ghost-plane-card">
         <div class="card-body" style="margin-bottom:var(--sp-3)">On <code>.card</code></div>
@@ -1134,6 +1134,18 @@ done.<span class="streaming"></span></code></pre>
       </div>
     </div>
 
+    <h3>Selection bar</h3>
+    <p class="use-case"><code>.bulk-bar</code> &mdash; sticky to the bottom of the list it belongs to, never floating over the page: the rows it acts on stay visible while it is open. It declares no <code>display</code>, so the app owns when it appears.</p>
+    <div class="well-content" style="padding:0">
+      <div class="bulk-bar">
+        <span class="bulk-count">3 selected</span>
+        <span class="bulk-spacer"></span>
+        <button type="button" class="btn btn-sm">Archive</button>
+        <button type="button" class="btn btn-sm">Settle</button>
+        <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Clear selection"></button>
+      </div>
+    </div>
+
 
     <!-- BANNERS -->
     <h2>Banners</h2>
@@ -1298,7 +1310,7 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- COMPOSER -->
     <h2>Composer</h2>
-    <p><code>.input-area</code> is the anchored strip (gradient + top highlight); <code>.composer</code> is the input object it holds &mdash; textarea on top, toolbar inside, focus ring on the container. The bare textarea + Send layout is superseded for chat.</p>
+    <p><code>.input-area</code> is the dock &mdash; padding only, no fill and no top rule; <code>.composer</code> is the input object it holds &mdash; textarea on top, toolbar inside, focus ring on the container. The bare textarea + Send layout is superseded for chat, and <code>.composer-send</code> is a 28px <code>arrow-up</code> icon button.</p>
 
     <h3>Idle &mdash; toolbar + context row</h3>
     <div class="input-area" style="border-radius:var(--radius-lg)">
@@ -1334,7 +1346,7 @@ done.<span class="streaming"></span></code></pre>
       </div>
     </div>
 
-    <p class="use-case" style="margin-top:var(--sp-3)"><code>.input-area</code> alone remains the anchored strip; a mode is a <code>.status-badge</code> (neutral / <code>--warning</code> when elevated &mdash; never a chip), and refs are chips in <code>.composer-context</code> or a <code>.chip-row</code> above the toolbar.</p>
+    <p class="use-case" style="margin-top:var(--sp-3)"><code>.input-area</code> alone remains the dock; a mode is a <code>.status-badge</code> (neutral / <code>--warning</code> when elevated &mdash; never a chip), and refs are chips in <code>.composer-context</code> or a <code>.chip-row</code> above the toolbar.</p>
 
 
     <!-- EMPTY STATE -->
@@ -1418,13 +1430,14 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- ICONS -->
     <h2>Icons</h2>
-    <p>49 Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
+    <p>Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
 
     <h3>Inline Icons (<code>.icon.icon-*</code>)</h3>
     <div class="card" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:var(--sp-3); padding:var(--sp-4)">
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-activity"></span><span class="text-xs">activity</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-archive"></span><span class="text-xs">archive</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-left"></span><span class="text-xs">arrow-left</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-down"></span><span class="text-xs">arrow-down</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-right"></span><span class="text-xs">arrow-right</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-at-sign"></span><span class="text-xs">at-sign</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-bell"></span><span class="text-xs">bell</span></span>
@@ -1438,7 +1451,9 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-x"></span><span class="text-xs">circle-x</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clipboard-list"></span><span class="text-xs">clipboard-list</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clock"></span><span class="text-xs">clock</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-copy"></span><span class="text-xs">copy</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-corner-down-right"></span><span class="text-xs">corner-down-right</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-ellipsis"></span><span class="text-xs">ellipsis</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-file-json"></span><span class="text-xs">file-json</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-file-warning"></span><span class="text-xs">file-warning</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-folder-kanban"></span><span class="text-xs">folder-kanban</span></span>
@@ -1450,13 +1465,16 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-message-circle"></span><span class="text-xs">message-circle</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-messages-square"></span><span class="text-xs">messages-square</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-moon"></span><span class="text-xs">moon</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-panel-left"></span><span class="text-xs">panel-left</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-paperclip"></span><span class="text-xs">paperclip</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-pencil"></span><span class="text-xs">pencil</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-radio-tower"></span><span class="text-xs">radio-tower</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-rotate-ccw"></span><span class="text-xs">rotate-ccw</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-search"></span><span class="text-xs">search</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-server"></span><span class="text-xs">server</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-settings"></span><span class="text-xs">settings</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-shield-alert"></span><span class="text-xs">shield-alert</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-sliders"></span><span class="text-xs">sliders-horizontal</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-square"></span><span class="text-xs">square</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-square-pen"></span><span class="text-xs">square-pen</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-sun"></span><span class="text-xs">sun</span></span>

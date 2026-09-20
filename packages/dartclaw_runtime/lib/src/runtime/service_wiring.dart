@@ -1296,6 +1296,7 @@ class _RuntimeAssembly {
       contextMonitor: harness.contextMonitor,
       policyResolver: harness.policyResolver,
       configWriter: configWriter,
+      projects: _project.projectService,
     );
     return scheduling;
   }

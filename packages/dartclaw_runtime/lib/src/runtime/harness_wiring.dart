@@ -485,6 +485,7 @@ class HarnessWiring {
       'schedule_list': CanonicalTool.scheduleList,
       'attach_media': CanonicalTool.attachMedia,
       'wiki_write': CanonicalTool.wikiWrite,
+      'context_research': CanonicalTool.contextResearch,
       for (final tool in _semanticMcpTools)
         tool.name: switch (tool.name) {
           'web_fetch' => CanonicalTool.webFetch,

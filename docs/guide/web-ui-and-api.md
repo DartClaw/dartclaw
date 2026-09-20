@@ -9,37 +9,48 @@ DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HT
 The interface has three main areas:
 
 ```
-┌──────────┬──────────────────────────────────┐
-│          │  Topbar (title, delete, theme)    │
-│ Sidebar  ├──────────────────────────────────┤
-│          │                                   │
-│ Sessions │  Chat Area                        │
-│ list     │  (messages + streaming)            │
-│          │                                   │
-│ + New    │                                   │
-│          ├──────────────────────────────────┤
-│          │  Rich composer + context tray      │
-└──────────┴──────────────────────────────────┘
+┌──────────────┬──────────────────────────────┐
+│ ❯ DartClaw   │ Title · project · provider   │
+│ Search  ⌘K ✎ │        state  🔍 🔔 ⋯        │
+│ All projects⚙├──────────────────────────────┤
+│ n waiting    │                              │
+│ ┌──────────┐ │  Chat Area                   │
+│ │ project  ⏱│ │  (messages + streaming)      │
+│ │ Title    ●│ │                              │
+│ └──────────┘ ├──────────────────────────────┤
+│ Settled (n)  │  Rich composer + context tray │
+│ System     ▲ │                              │
+└──────────────┴──────────────────────────────┘
 ```
+
+The rail is 280px by default and resizes between 240 and 420 by dragging its
+right edge, by arrow keys once the edge has focus (Shift for a larger step), and
+back to 280 with Home or a double-click. The width persists per device. The
+panel icon beside the wordmark collapses the rail; the hamburger in the topbar
+brings it back.
 
 ### Features
 
 **Session Management**
-- **Create**: Click **New Chat** in the sidebar. If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**, keeping **New Chat** exclusive to the command. Activating New Chat from that draft simply returns focus to its composer.
-- **Switch**: Click any session in the sidebar to load its messages
+- **Create**: Click the **New chat** icon beside the rail's search row (at narrow widths it moves into the topbar, so creation stays reachable without opening the drawer). If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**. Activating New chat from that draft simply returns focus to its composer.
+- **Switch**: Click any conversation in the rail to load its messages. A row carries its project and relative time on the first line, its title and a state dot on the second, and — only when there is one — an attention reason, a failure reason or its fork lineage on a third. Hovering or focusing the row swaps the time for **Settle** and **Archive**.
 - **Triage**: The inbox keeps creation order stable while showing unread, running, waiting, done, failed and local-draft state. Settle completed and fully read conversations to move them into the paged Settled tail; Restore returns them to their original place. New work restores a settled conversation automatically.
+- **Filter, scope and group**: The sliders icon beside the project scope opens **View options** — *Show* (All · Unread · Waiting on you · Running · Failed · Drafts on this device) and *Group by* (None · Project · Status). A non-default filter shows as a removable chip with a **Clear** action. The scope selector narrows the rail to one project. All three are per-device view state: they never change stored order and are not sent to the server.
+- **Bulk settle**: **Select conversations** in the same menu reveals a checkbox on every row and a bulk bar with the selection count, a clear action and **Settle**. Each member settles against the revision the row was rendered with, so the result reports per-conversation acceptance. Escape leaves select mode.
+- **Waiting count**: A **n waiting on you** row appears above the list only while something is blocked on you, and jumps to the next such conversation.
 - **Settle and archive**: Settling is reversible inbox organization; the conversation stays writable and searchable. Archiving is a read-only historical lifecycle used by reset and maintenance, remains searchable under the archived filter, and appears in the separate Archived subsection.
-- **Attention**: The topbar bell pages durable completion, failure and input-request events. It links back to the exact transcript record and offers approval actions only while the underlying request remains pending.
-- **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
-- **Delete**: Click the × button on a sidebar item
+- **Attention**: The topbar bell pages durable completion, failure and input-request events, grouped into **Blocked on you** and **Finished**. A row links back to the exact transcript record; hovering or focusing it reveals approve, reject and dismiss, and the approval actions appear only while the underlying request remains pending. Opening the panel marks the newest unread item per conversation as read.
+- **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity. Beside the title, a context crumb names the conversation's project, provider and model, and a badge reports its state.
+- **Delete**: Click the × button on an archived conversation. Active conversations carry settle and archive instead.
 - **Auto-title**: A new non-workspace conversation gets an immediate title from the first message. After the first assistant response, one schema-bound title request may replace that fallback. A manual or newer title always wins, and the workspace **Agent** is never auto-titled.
-- **Temporary conversations**: Creation requires the retention disclosure and is available only when the effective
+- **Temporary conversations**: Start one from the topbar's overflow menu or the command palette. Creation requires the retention disclosure and is available only when the effective
   provider is a built-in Codex adapter whose exact workspace-container policy passes the launch inventory and whose
   Docker workspace profile is available. Release support also requires the shipped candidate to pass the documented
   real-provider EOF/SIGKILL qualification matrix. The opaque link works only in the current server process. Drafts survive
-  in-page navigation but disappear on reload or close. **End temporary chat** waits for active work and its container to
-  stop before revoking the link. Provider processing and deliberate workspace or external tool effects can persist.
-- **Export**: An authenticated owner can confirm a Markdown download for an ordinary or temporary conversation. It
+  in-page navigation but disappear on reload or close. A temporary conversation carries a one-line banner above the
+  transcript with its own **Export** and **End** actions. **End temporary chat** waits for active work and its container
+  to stop before revoking the link. Provider processing and deliberate workspace or external tool effects can persist.
+- **Export**: Reachable from the topbar's overflow menu, the command palette, or a temporary conversation's banner. An authenticated owner can confirm a Markdown download for an ordinary or temporary conversation. It
   contains visible redacted messages, UTC timestamps, branch lineage, and an attachment availability manifest. It never
   embeds attachment bytes. The downloaded file is a deliberate durable copy.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
@@ -48,15 +59,27 @@ The interface has three main areas:
 - **Session cost**: Available only when every recorded turn has provider-reported cost. Missing, partial, and older records without this evidence show cost as unavailable; an explicitly reported zero remains zero. Token counts remain available independently.
 
 **Chat**
-- **Search and commands**: Choose **Find in conversation** for indexed matches in the current transcript, including
-  history outside the loaded 200-message window. Press **Cmd-K** or **Ctrl-K** for global conversation search and the
-  shared command catalog. Global search can narrow by lifecycle and project and opens the exact matching message.
-  Typing `/` in the composer filters the same nine built-ins (`/new`, `/reset`, `/stop`, `/status`, `/fork`, `/settle`,
+- **Search and commands**: **Find in conversation** — from the topbar's overflow menu or the command palette — opens a
+  slim bar above the transcript with a match count and previous/next controls. It searches indexed matches in the whole
+  conversation, including history outside the loaded 200-message window, and the count reports only matches the bar can
+  step to; a page it could not reach is marked with a trailing `+`. Press **Cmd-K** or **Ctrl-K** for global
+  conversation search and the shared command catalog. Global search can narrow by lifecycle and project and opens the
+  exact matching message. The composer's `>_` button, or typing `/`, filters the same nine built-ins (`/new`, `/reset`, `/stop`, `/status`, `/fork`, `/settle`,
   `/model`, `/effort`, `/help`) plus authorized provider-native skills. An unknown slash-prefixed message is labelled
   **Send to provider** and follows the ordinary message path without byte changes or a capability claim. A built-in
   keeps its canonical action when a native skill has the same name; the skill remains available with a skill label.
-- **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. Drafts and selected file bytes are saved in this browser and restored after reload. A persistent warning with retry, copy, and download actions replaces the saved status if browser storage fails.
-- **Active turns**: Drafting remains available while a turn runs. **Queue** accepts the draft in order, **Steer** stops the displayed turn and sends the follow-up after cancellation is confirmed, and **Stop** cancels only the displayed turn. Failed, cancelled, stopped, and restart-recovered work holds queued items for an explicit **Send next queued message** action.
+- **Rich composer**: The composer floats over the transcript, aligned to the message column. Type, then press
+  **Ctrl+Enter** (or **Cmd+Enter** on macOS) or the square arrow send button. Its toolbar carries attach, commands, and
+  a context chip naming the project the next turn runs in — with the context window percentage when the provider
+  reports a live measurement — and, on the right, the draft-save status, a pill stating the provider, model and effort
+  for the next turn, and the send control. Drafts and selected file bytes are saved in this browser and restored after
+  reload. A persistent warning with retry, copy, and download actions replaces the saved status if browser storage
+  fails.
+- **Active turns**: Drafting remains available while a turn runs. The send control becomes **Stop** and cancels only the
+  displayed turn; **Queue** beside it accepts the draft in order, and **Steer** in its menu stops the displayed turn and
+  sends the follow-up after cancellation is confirmed. Queued and held turns render as one-line rows above the composer
+  with edit and remove controls. Failed, cancelled, stopped, and restart-recovered work holds queued items until
+  **Release** on the oldest held row sends the next queued message.
 - **Streaming**: Responses appear in real-time as the agent generates them
 - **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
 - **Retained history**: The page loads at most 200 visible messages at a time. Earlier pages and `?message=<id>` deep links
@@ -65,10 +88,20 @@ The interface has three main areas:
 - **Recovery**: Copy preserves the whole displayed message. Retry starts one linked attempt from an unchanged failed or
   cancelled input; edit-and-continue and fork create a linked conversation. These actions do not undo external tool effects.
 - **Runtime approval**: An approval card is actionable only while the exact provider request and owning web turn are live.
-  Expired, restarted, unsupported, mismatched, and hard-guarded requests remain visible as unavailable or blocked.
+  Expired, restarted, unsupported, mismatched, and hard-guarded requests remain visible as unavailable or blocked. While
+  one is pending, a strip above the composer names the request and offers **Review**, which moves focus to the card; the
+  verdict is only ever given on the card that states the action.
+- **Tool calls**: A turn's tool calls collapse into one disclosure naming their count, tools and elapsed time. It stays
+  open while any call is running, failed or blocked, and closes once every call in the run has succeeded. Opening it
+  shows each call's retained arguments and result.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
 - **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
-- **Effective context**: The composer and session-information page keep the immutable workspace owner separate from the current turn and the project, directory, provider, model, and effort staged for the next turn. Context changes carry the displayed conversation revision. Unsupported adapter fields are unavailable, and a rejected change leaves the draft and prior context intact.
+- **Effective context**: The context chip and the model pill open one popover anchored to the composer. It keeps the
+  immutable workspace owner separate from the current turn and from the project, directory, provider, model, and effort
+  staged for the next turn, and edits each in place before **Apply to next turn**. A provider change warns about
+  provider-native continuity only while the selection actually differs from the running provider. Context changes carry
+  the displayed conversation revision. Unsupported adapter fields are unavailable, and a rejected change leaves the
+  draft and prior context intact.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
 - **Syntax highlighting**: Code blocks are highlighted via highlight.js
 - **Tool indicators**: When the agent uses tools, you see status lines:
@@ -77,11 +110,13 @@ The interface has three main areas:
   - `> Bash: npm test ✗` (failed)
 
 **Theme**
-- Toggle between light and dark mode using the button in the topbar
+- On a conversation, **Toggle theme** is the last entry in the topbar's `⋯` overflow menu; on system pages it stays a topbar button
 - Preference is saved in localStorage and persists across sessions
 
 **Responsive**
-- On mobile/narrow screens, the sidebar collapses behind a hamburger menu
+- On mobile/narrow screens, the rail collapses behind a hamburger menu; New chat surfaces as its own topbar icon so creation stays reachable without opening the drawer
+- Below 768px the topbar's state badge becomes a dot and the context crumb and `⌘K` hint drop, leaving the title its width
+- The rail's per-row settle and archive are hover-only, so select mode and its bulk bar are the touch path for both
 - Single-column layout below 768px
 
 **Workflow Operations**

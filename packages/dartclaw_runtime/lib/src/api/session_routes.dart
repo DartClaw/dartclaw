@@ -72,6 +72,7 @@ Router sessionRoutes(
         messages: messages,
         mutations: sessionMutations,
         updates: sseBroadcast,
+        projects: projectService,
         isSessionRunning: turns.isActive,
       );
   final processAttachments = processAttachmentOwner ?? ProcessAttachmentOwner();

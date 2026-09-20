@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/conversation/inbox_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 import 'inbox_test_fixture.dart';
@@ -85,6 +86,91 @@ void main() {
     expect((await settledFixture.inbox.restore(settledBoundary.session.id, settledBoundary.revision)).accepted, isTrue);
     final settledSecond = await settledFixture.inbox.inbox(settled: true, limit: 2, cursor: settledFirst.nextCursor);
     expect(settledSecond.entries.map((entry) => entry.session.id), settledFixture.sessionIds.skip(2).take(2));
+  });
+
+  test('a row projects the effective context the rail labels, groups and scopes by', () async {
+    final fixture = await InboxTestFixture.create(count: 3);
+    addTearDown(fixture.dispose);
+    final projects = FakeProjectService(
+      projects: [
+        Project(
+          id: 'p-known',
+          name: 'dartclaw-core',
+          remoteUrl: '',
+          localPath: '/workspace/core',
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.utc(2026),
+        ),
+      ],
+    );
+    final inbox = ConversationInboxService(
+      sessions: fixture.sessions,
+      messages: fixture.messages,
+      mutations: fixture.mutations,
+      projects: projects,
+      clock: () => InboxTestFixture.now,
+    );
+
+    // Admitted context — what the conversation last ran on.
+    await fixture.sessions.updateConversationState(
+      fixture.sessionIds[0],
+      (await fixture.sessions.getConversationState(fixture.sessionIds[0])).admitContext(
+        const EffectiveConversationContext(
+          projectId: 'p-known',
+          directory: '/workspace/core',
+          referenceRoot: '/workspace/core',
+          provider: 'claude',
+          model: 'sonnet-4.6',
+        ),
+      ),
+    );
+    // A project the service does not know: the rail still needs a label, and the
+    // id is the only honest one available.
+    await fixture.sessions.updateConversationState(
+      fixture.sessionIds[1],
+      (await fixture.sessions.getConversationState(fixture.sessionIds[1])).stageContext(
+        const EffectiveConversationContext(
+          projectId: 'p-missing',
+          directory: '/workspace/other',
+          referenceRoot: '/workspace/other',
+          provider: 'codex',
+        ),
+      ),
+    );
+
+    final page = await inbox.inbox(limit: 10);
+    final byId = {for (final entry in page.entries) entry.session.id: entry};
+
+    final known = byId[fixture.sessionIds[0]]!;
+    expect(known.projectId, 'p-known');
+    expect(known.projectName, 'dartclaw-core');
+    expect(known.provider, 'claude');
+    expect(known.model, 'sonnet-4.6');
+
+    final unknown = byId[fixture.sessionIds[1]]!;
+    expect(unknown.projectId, 'p-missing');
+    expect(unknown.projectName, 'p-missing', reason: 'an unresolvable project falls back to its id, never to null');
+    expect(unknown.provider, 'codex');
+    expect(unknown.model, isNull);
+
+    // No context staged yet: the rail renders no project line rather than a
+    // guessed default that would group the row under the wrong project.
+    final pending = byId[fixture.sessionIds[2]]!;
+    expect(pending.projectId, isNull);
+    expect(pending.projectName, isNull);
+
+    // Composed without a project authority (sparse server compositions), the id
+    // still projects and only the display name is unavailable.
+    final unresolved = await ConversationInboxService(
+      sessions: fixture.sessions,
+      messages: fixture.messages,
+      mutations: fixture.mutations,
+      clock: () => InboxTestFixture.now,
+    ).inbox(limit: 10);
+    final row = unresolved.entries.firstWhere((entry) => entry.session.id == fixture.sessionIds[0]);
+    expect(row.projectId, 'p-known');
+    expect(row.projectName, 'p-known');
   });
 }
 

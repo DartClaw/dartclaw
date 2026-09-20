@@ -103,7 +103,8 @@ final class ToolUseBlock extends ClaudeMessage {
   String toString() => 'ToolUseBlock(name: $name, id: $id)';
 }
 
-/// Tool result block from an `assistant` message.
+/// Tool result block. The CLI reports these on a `user` message, not on the
+/// `assistant` message that requested the tool.
 final class ToolResultBlock extends ClaudeMessage {
   final String toolId;
   final String output;
@@ -228,7 +229,7 @@ ClaudeMessage? parseJsonlLine(String line) {
   return switch (type) {
     'system' => _parseSystem(json),
     'stream_event' => _parseStreamEvent(json),
-    'assistant' => _parseAssistant(json),
+    'assistant' || 'user' => _parseToolBlocks(json),
     'control_request' => _parseControlRequest(json),
     'result' => _parseResult(json),
     _ => null,
@@ -289,19 +290,23 @@ ClaudeMessage? _parseStreamEvent(Map<String, dynamic> json) {
   return StreamTextDelta(text);
 }
 
-/// Parse `assistant` messages for tool_use and tool_result blocks only.
+/// Parse `assistant` and `user` messages for tool_use and tool_result blocks.
+///
+/// Both types are scanned by one reader because the CLI splits the pair across
+/// them: the request rides the `assistant` message, the result comes back on a
+/// synthetic `user` message. Reading only `assistant` leaves every tool stuck
+/// in its running state for the whole conversation.
+///
 /// Text is intentionally ignored here — it comes from stream_event to avoid
-/// double-counting.
-ClaudeMessage? _parseAssistant(Map<String, dynamic> json) {
+/// double-counting. Returns the first tool block found; multiple blocks per
+/// message are possible but rare.
+ClaudeMessage? _parseToolBlocks(Map<String, dynamic> json) {
   final message = json['message'] as Map<String, dynamic>?;
   if (message == null) return null;
 
   final content = message['content'];
   if (content is! List) return null;
 
-  // Return the first tool_use or tool_result block found.
-  // Multiple blocks per message are possible but rare; callers that need all
-  // blocks can use parseAssistantBlocks (future extension).
   for (final block in content) {
     if (block is! Map<String, dynamic>) continue;
     final blockType = block['type'] as String?;
@@ -317,7 +322,7 @@ ClaudeMessage? _parseAssistant(Map<String, dynamic> json) {
     if (blockType == 'tool_result') {
       return ToolResultBlock(
         toolId: block['tool_use_id'] as String? ?? '',
-        output: block['content'] as String? ?? '',
+        output: _toolResultText(block['content']),
         isError: block['is_error'] as bool? ?? false,
       );
     }
@@ -325,6 +330,19 @@ ClaudeMessage? _parseAssistant(Map<String, dynamic> json) {
 
   return null;
 }
+
+/// A tool result's `content` is a bare string for some tools and a content-block
+/// list for others; both shapes reduce to the text the transcript shows.
+String _toolResultText(Object? content) => switch (content) {
+  String text => text,
+  List<dynamic> blocks =>
+    blocks
+        .whereType<Map<String, dynamic>>()
+        .map((block) => block['text'] as String? ?? '')
+        .where((text) => text.isNotEmpty)
+        .join('\n'),
+  _ => '',
+};
 
 ClaudeMessage _parseControlRequest(Map<String, dynamic> json) {
   final requestId = json['request_id'] as String? ?? '';

@@ -27,12 +27,18 @@ void main() {
     expect(template, contains('id="temporary-end-dialog"'));
     expect(template, contains('data-action="dc-chat#endTemporary"'));
     expect(template, contains('data-action="dc-chat#openTemporaryExport"'));
-    expect(
-      template,
-      contains(
-        r'''<button tl:unless="${isTemporary}" type="button" class="btn btn-ghost" data-action="dc-chat#openTemporaryExport">Export</button>''',
-      ),
-    );
+    // Create, export and end are invoked from the topbar overflow and the
+    // palette; the chat area keeps the actions reachable but renders no
+    // standing buttons for them.
+    expect(template, isNot(contains('New temporary chat')));
+    expect(template, contains('conversation-temporary-banner'));
+    final controllerSource = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
+    expect(controllerSource, contains("'dartclaw:chat-action'"));
+    // The four actions the shell dispatches. `find` and `export` are bare keys
+    // in the handler's map, so they are pinned by the harness below instead.
+    for (final action in const ['temporary-create', 'temporary-end']) {
+      expect(controllerSource, contains("'$action'"), reason: action);
+    }
     expect(template, contains(r'hx-history=${historyDisabled}'));
     final web = File(await resolveServerPackagePath('lib', 'src', 'web', 'web_routes.dart')).readAsStringSync();
     expect(web, contains("'cache-control': 'no-store'"));

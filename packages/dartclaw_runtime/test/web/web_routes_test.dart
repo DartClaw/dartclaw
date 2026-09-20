@@ -652,7 +652,11 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html')));
       final body = await res.readAsString();
       expect(body, contains('prompt-hero'));
-      expect(body, contains('Welcome back'));
+      expect(body, contains('Ready when you are'));
+      // The suggestion chips belong to the empty state, so they arrive and
+      // leave with it rather than standing in the composer toolbar.
+      expect(body, contains('id="chat-empty-state"'));
+      expect(body, contains('class="suggest-row"'));
     });
 
     test('returns message list when messages exist', () async {

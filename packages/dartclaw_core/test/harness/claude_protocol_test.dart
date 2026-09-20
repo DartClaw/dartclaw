@@ -203,7 +203,10 @@ void main() {
       }
     });
 
-    group('assistant blocks', () {
+    // Both message types carry tool blocks: the CLI puts the request on the
+    // `assistant` message and the result on a synthetic `user` one, so a reader
+    // that skips `user` never sees a tool finish.
+    group('tool blocks', () {
       final cases = <({String name, List<Map<String, dynamic>> content, _MessageExpectation expectMessage})>[
         (
           name: 'tool_use',
@@ -264,6 +267,20 @@ void main() {
           expectMessage: (message) => _expectToolResult(message, toolId: '', output: ''),
         ),
         (
+          name: 'block-list tool_result content',
+          content: [
+            {
+              'type': 'tool_result',
+              'tool_use_id': 'tu_blocks',
+              'content': [
+                {'type': 'text', 'text': 'line one'},
+                {'type': 'text', 'text': 'line two'},
+              ],
+            },
+          ],
+          expectMessage: (message) => _expectToolResult(message, toolId: 'tu_blocks', output: 'line one\nline two'),
+        ),
+        (
           name: 'text-only content',
           content: [
             {'type': 'text', 'text': 'Hello world'},
@@ -273,22 +290,24 @@ void main() {
         (name: 'empty content', content: [], expectMessage: (message) => expect(message, isNull)),
       ];
 
-      for (final testCase in cases) {
-        test(testCase.name, () {
-          testCase.expectMessage(
-            parseJsonlLine(
-              _j({
-                'type': 'assistant',
-                'message': {'content': testCase.content},
-              }),
-            ),
-          );
+      for (final messageType in const ['assistant', 'user']) {
+        for (final testCase in cases) {
+          test('$messageType ${testCase.name}', () {
+            testCase.expectMessage(
+              parseJsonlLine(
+                _j({
+                  'type': messageType,
+                  'message': {'content': testCase.content},
+                }),
+              ),
+            );
+          });
+        }
+
+        test('$messageType missing message returns null', () {
+          expect(parseJsonlLine(_j({'type': messageType})), isNull);
         });
       }
-
-      test('missing message returns null', () {
-        expect(parseJsonlLine(_j({'type': 'assistant'})), isNull);
-      });
     });
 
     group('control requests', () {

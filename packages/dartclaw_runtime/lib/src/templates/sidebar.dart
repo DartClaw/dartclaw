@@ -111,7 +111,7 @@ String sidebarTemplate({
       'id': entry.id,
       'href': '/sessions/${entry.id}',
       'active': isActive,
-      'extraClass': isActive ? 'active' : '',
+      'extraClass': isActive ? 'row--selected' : '',
       'title': displayChatTitle(entry.title),
       'provider': entry.provider,
       'providerLabel': ProviderIdentity.displayName(entry.provider),
@@ -185,7 +185,16 @@ String sidebarTemplate({
       'showDmLabel': resolvedGroupChannels.isNotEmpty && resolvedDmChannels.isNotEmpty,
       'dmChannels': dmList,
       'groupChannels': groupList,
-      'noActiveEntries': resolvedActiveEntries.isEmpty,
+      // `hidden` is a boolean attribute, so it has to be absent (null) to show
+      // the empty state and present (any value) to hide it.
+      'anyActiveEntriesAttr': activeList.isEmpty ? null : 'hidden',
+      // The scope selector heads the conversation list on its own; a "Chats"
+      // label earns its place only once another section sits above it.
+      'hasRailSections':
+          resolvedMainSession != null ||
+          resolvedShowChannels ||
+          activeTaskList.isNotEmpty ||
+          activeWorkflowList.isNotEmpty,
       'activeEntries': activeList,
       'hasArchivedEntries': resolvedArchivedEntries.isNotEmpty,
       'archivedEntries': archiveList,
@@ -224,10 +233,21 @@ String sidebarTemplate({
       }).toList(),
     },
   );
-  // The scrim must be a sibling of <aside class="sidebar"> so the CSS combinator
-  // `.sidebar.open ~ .sidebar-scrim` can show it. Appending here covers all
-  // render paths (direct string injection in web_routes.dart and tl:utext in HTML templates).
-  return '$aside<button class="sidebar-scrim" type="button" aria-label="Close sidebar" '
+  // Both must be siblings of <aside class="sidebar">: the rail clips, so a
+  // handle straddling its border would be cut in half, and the scrim is shown by
+  // `.sidebar.open ~ .sidebar-scrim`. Appending here covers all render paths
+  // (direct string injection in web_routes.dart and tl:utext in HTML templates).
+  // An <hr>, not a <div>: `.shell > div { display: contents }` (app.css) strips
+  // the box off every div the shell holds, and a handle with no box has its
+  // absolutely-positioned ::before resolve against .shell instead — a
+  // full-height invisible overlay over the rail that swallows clicks and starts
+  // a drag. <hr> is the separator element, so it keeps the semantics and is not
+  // matched by that rule.
+  return '$aside'
+      '<hr class="sidebar-resize-handle" role="separator" aria-orientation="vertical" '
+      'aria-label="Rail width" aria-valuemin="240" aria-valuemax="420" aria-valuenow="280" tabindex="0" '
+      'title="Drag to resize &middot; double-click to reset &middot; arrow keys to nudge">'
+      '<button class="sidebar-scrim" type="button" aria-label="Close sidebar" '
       'aria-hidden="true" tabindex="-1"></button>';
 }
 

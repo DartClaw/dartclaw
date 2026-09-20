@@ -47,6 +47,12 @@ const _orchestrationMcpTools = {
   'wiki_write',
 };
 
+/// The explicitly granted owner-knowledge read. It carries a canonical entry
+/// for the same reason the orchestration tools do: an agent's configured
+/// `context_research` grant would otherwise be unreachable in the default
+/// container posture.
+const _knowledgeMcpTools = {'context_research'};
+
 /// Own-MCP tools that are deliberately unreachable over the container bridge.
 const _unbridgedOwnMcpTools = {
   'kg_add',
@@ -54,7 +60,6 @@ const _unbridgedOwnMcpTools = {
   'kg_timeline',
   'kg_invalidate',
   'kg_contradictions',
-  'context_research',
   'onboarding_complete',
   'mcp__acme__lookup',
 };
@@ -343,6 +348,7 @@ void main() {
       ..._memoryMcpTools,
       ..._taskMcpTools,
       ..._orchestrationMcpTools,
+      ..._knowledgeMcpTools,
     });
     expect(
       grant.allowedMcpTools,
@@ -376,6 +382,7 @@ void main() {
       ..._memoryMcpTools,
       ..._taskMcpTools,
       ..._orchestrationMcpTools,
+      ..._knowledgeMcpTools,
     }, reason: 'a native-spelled global deny of WebSearch must remove the canonical web_search grant');
   });
 
@@ -411,7 +418,13 @@ void main() {
     await wireAll();
 
     final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
-    expect(grant.allowedMcpTools, {'web_fetch', ..._memoryMcpTools, ..._taskMcpTools, ..._orchestrationMcpTools});
+    expect(grant.allowedMcpTools, {
+      'web_fetch',
+      ..._memoryMcpTools,
+      ..._taskMcpTools,
+      ..._orchestrationMcpTools,
+      ..._knowledgeMcpTools,
+    });
     expect(
       recordedConfigs.first.harnessConfig.disallowedTools,
       containsAll(['WebFetch', 'WebSearch']),
@@ -550,6 +563,7 @@ void main() {
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
         ..._memoryMcpTools,
+        ..._knowledgeMcpTools,
         ..._unbridgedOwnMcpTools,
         'web_fetch',
       }) {
@@ -566,7 +580,12 @@ void main() {
         allowedCanonicalTools: grant,
         toolCanonicals: canonicals,
       );
-      for (final name in {..._taskMcpTools, ..._orchestrationMcpTools, ..._unbridgedOwnMcpTools}) {
+      for (final name in {
+        ..._taskMcpTools,
+        ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
+        ..._unbridgedOwnMcpTools,
+      }) {
         await surface.handle(
           GatewayRequest(
             principal: GatewayPrincipal(
@@ -608,6 +627,7 @@ void main() {
         ..._memoryMcpTools,
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       });
       expect(
         grant.allowedMcpTools,
@@ -619,6 +639,7 @@ void main() {
       expect(served, {
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       }, reason: 'the dispatch-time re-check must serve exactly what it granted');
     });
 
@@ -638,6 +659,7 @@ void main() {
         ..._memoryMcpTools,
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       });
       expect(grant.allowedMcpTools, isNot(anyOf(contains('sessions_spawn'), contains('sessions_send'))));
       expect(grant.allowedMcpTools.intersection(_unbridgedOwnMcpTools), isEmpty);
@@ -678,7 +700,7 @@ void main() {
 
       for (final MapEntry(key: lane, value: granted) in lanes.entries) {
         expect(
-          granted.intersection({..._taskMcpTools, ..._orchestrationMcpTools}),
+          granted.intersection({..._taskMcpTools, ..._orchestrationMcpTools, ..._knowledgeMcpTools}),
           isEmpty,
           reason: '$lane is capability-free today and must stay so — mcp_call grants no mapped tool',
         );
@@ -698,7 +720,7 @@ void main() {
       expect(
         served.intersection(_unbridgedOwnMcpTools),
         isEmpty,
-        reason: 'kg_*, context_research, onboarding_complete and outbound adapters have no canonical entry',
+        reason: 'kg_*, onboarding_complete and outbound adapters have no canonical entry',
       );
       expect(harnessWiring!.ownMcpToolCanonicals.keys.toSet(), {
         'sessions_spawn',
@@ -708,7 +730,46 @@ void main() {
         ..._memoryMcpTools,
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       }, reason: 'the servable map holds exactly the mapped tools, and nothing else becomes bridgeable');
+    });
+
+    test('an agent granted context_research reaches it over the bridge', () async {
+      config = config.copyWith(
+        agent: const AgentConfig(
+          provider: 'claude',
+          definitions: [
+            AgentDefinition(
+              id: 'researcher',
+              description: 'Researcher',
+              prompt: 'Research',
+              allowedTools: {'context_research', 'memory_search'},
+            ),
+          ],
+        ),
+      );
+
+      await wireAll();
+
+      final lease = await harnessWiring!.executions.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.logicalAgent,
+          providerId: 'claude',
+          policy: const ExecutionPolicy.container('workspace'),
+          sessionId: 'researcher-session',
+          admission: ExecutionAdmission.failFast,
+          logicalAgentId: 'researcher',
+        ),
+      );
+      addTearDown(() async => lease?.release());
+
+      final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'researcher-session');
+      expect(grant.allowedMcpTools, {'context_research', 'memory_search'});
+      expect(
+        await servedOverBridge(grant.allowedMcpTools, canonicals: harnessWiring!.ownMcpToolCanonicals),
+        contains('context_research'),
+        reason: 'the owner-knowledge read is unreachable in the default posture unless both halves admit it',
+      );
     });
   });
 

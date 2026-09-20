@@ -152,7 +152,6 @@ final class ContextResearchTool implements McpTool {
     'type': 'object',
     'properties': {
       'query': {'type': 'string', 'description': 'Question to research across internal knowledge'},
-      'scope': {'type': 'string', 'description': 'Optional caller scope hint'},
       'token_budget': {
         'type': 'integer',
         'description': 'Approximate output token budget',

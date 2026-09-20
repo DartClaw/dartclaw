@@ -6,9 +6,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 BASE_URL="${1:?base URL required}"
 TEMPORARY_ID="${2:?live temporary session ID required}"
 EVIDENCE_ROOT="${3:?evidence directory required}"
-COMPARE_WIREFRAMES="${4:-0}"
 mkdir -p "$EVIDENCE_ROOT"
-source "${SCRIPT_DIR}/visual_comparison.sh"
+source "${SCRIPT_DIR}/visual_checks.sh"
 SESSION="temporary-browser-${TEMPORARY_ID}"
 WARNING_SESSION="temporary-warning-${TEMPORARY_ID}"
 PROFILE="${EVIDENCE_ROOT}/browser-profile"
@@ -192,16 +191,9 @@ for width in 375 390 768 1440; do
     check "(()=>{const root=document.querySelector('#main-content');if(document.documentElement.scrollWidth>innerWidth+1)throw Error('horizontal overflow');for(const e of root.querySelectorAll('.conversation-retention-controls button')){const r=e.getBoundingClientRect();if(r.width<44||r.height<44)throw Error('retention touch target below 44px');if(!e.textContent.trim()&&!e.getAttribute('aria-label'))throw Error('unlabelled control')}if(!matchMedia('(prefers-reduced-motion: reduce)').matches)throw Error('reduced motion inactive');return {width:innerWidth,theme:'${theme}'}})()"
     browser screenshot "${EVIDENCE_ROOT}/${artifact}.png"
     capture_accessibility "$SESSION" '#main-content' "${artifact}-a11y"
-    if [ "$COMPARE_WIREFRAMES" -eq 1 ]; then
-      capture_wireframe chat-conversation-cards "$artifact" "$width" "$theme"
-      compare_session_to_wireframe "$SESSION" "$artifact" 20
-    fi
+    assert_layout_canon "$SESSION" "$artifact"
     browser click '[data-action="dc-chat#openTemporaryExport"]'
     browser screenshot "${EVIDENCE_ROOT}/${artifact}-export-dialog.png"
-    if [ "$COMPARE_WIREFRAMES" -eq 1 ]; then
-      capture_wireframe chat-conversation-cards "${artifact}-export-dialog" "$width" "$theme" '#temporary-export-dialog'
-      compare_session_to_wireframe "$SESSION" "${artifact}-export-dialog" 20
-    fi
     browser press Escape
   done
 done

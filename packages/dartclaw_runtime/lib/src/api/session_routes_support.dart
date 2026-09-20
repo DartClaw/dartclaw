@@ -140,6 +140,24 @@ Future<Map<String, dynamic>> effectiveContextView(
     return '${value.projectId} · ${value.provider}$model$effort';
   }
 
+  // The composer pill states what the next turn will actually run. A segment
+  // nobody has chosen is omitted rather than filled with a stand-in — a pill
+  // reading "provider model" claims a selection that does not exist.
+  final composerLabel = [provider, next?.model, next?.effort].nonNulls.join(' · ');
+  // Only a live measurement earns a percentage; a stale, unsupported or
+  // window-less observation shows no number at all.
+  final usedTokens = telemetry?.usedTokens;
+  final windowTokens = telemetry?.contextWindowTokens;
+  final usagePercent =
+      telemetry != null &&
+          telemetry.sessionId == session.id &&
+          telemetry.availability == ContextMeasurementAvailability.measured &&
+          usedTokens != null &&
+          windowTokens != null &&
+          windowTokens > 0
+      ? ((usedTokens / windowTokens) * 100).clamp(0, 100).round()
+      : null;
+
   return {
     'workspace': session.workspace == null ? 'web' : 'agent:${session.workspace!.agentId}',
     'project': projectName,
@@ -174,11 +192,15 @@ Future<Map<String, dynamic>> effectiveContextView(
     'effortValue': next?.effort ?? '',
     'model': providerCapabilities?.model == false ? 'unavailable' : next?.model ?? 'provider default',
     'effort': providerCapabilities?.effort == false ? 'unavailable' : next?.effort ?? 'provider default',
-    'composer':
-        '$provider · ${providerCapabilities?.model == false ? 'model unavailable' : next?.model ?? 'provider model'}'
-        ' · ${providerCapabilities?.effort == false ? 'effort unavailable' : next?.effort ?? 'provider effort'}',
+    'composer': composerLabel,
+    'usage': usagePercent == null ? '' : '$usagePercent%',
+    'usageHidden': usagePercent == null ? true : null,
     'current': contextLabel(current),
     'next': contextLabel(next),
+    // The popover's editable rows already state the next turn, so the current
+    // one is worth a line only while it disagrees with them. Before the first
+    // turn there is no current context to disagree.
+    'currentHidden': current == null || contextLabel(current) == contextLabel(next) ? true : null,
     'telemetry': telemetryLabel,
     'behavior': behaviorLabel,
     'memory': telemetry?.memoryContributed == true ? 'Memory contributed' : null,

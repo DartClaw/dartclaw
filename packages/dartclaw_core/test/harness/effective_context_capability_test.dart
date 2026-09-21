@@ -8,8 +8,20 @@ void main() {
     final factory = HarnessFactory();
     final capabilities = factory.probeEffectiveContextCapabilities();
 
-    expect(capabilities['claude']?.toJson(), {'model': true, 'effort': true});
-    expect(capabilities['codex']?.toJson(), {'model': true, 'effort': true});
+    expect(capabilities['claude']?.toJson(), {
+      'model': true,
+      'effort': true,
+      'models': ['sonnet', 'opus', 'haiku'],
+      'efforts': ['low', 'medium', 'high', 'max'],
+    });
+    // Codex transports a model but documents no catalogue of its own, so the
+    // picker offers the provider default and whatever value is already staged.
+    expect(capabilities['codex']?.toJson(), {
+      'model': true,
+      'effort': true,
+      'models': <String>[],
+      'efforts': ['low', 'medium', 'high', 'xhigh'],
+    });
 
     final request = CodexProtocolAdapter().buildTurnRequest(
       message: 'hello',
@@ -51,7 +63,12 @@ void main() {
   });
 
   test('unknown harnesses fail closed', () {
-    expect(EffectiveContextCapabilities.of(_UnprovenHarness()).toJson(), {'model': false, 'effort': false});
+    expect(EffectiveContextCapabilities.of(_UnprovenHarness()).toJson(), {
+      'model': false,
+      'effort': false,
+      'models': <String>[],
+      'efforts': <String>[],
+    });
   });
 }
 

@@ -168,8 +168,14 @@ class CodexHarness extends BaseHarness
   PromptStrategy get promptStrategy => PromptStrategy.append;
 
   @override
-  EffectiveContextCapabilities get effectiveContextCapabilities =>
-      const EffectiveContextCapabilities(model: true, effort: true);
+  EffectiveContextCapabilities get effectiveContextCapabilities => const EffectiveContextCapabilities(
+    model: true,
+    effort: true,
+    // Model ids stay unlisted deliberately: `_recognizedCodexModels` matches
+    // them by shape because an enumerated OpenAI catalogue goes stale between
+    // releases. A configured or API-set id still reaches the picker as itself.
+    efforts: ['low', 'medium', 'high', 'xhigh'],
+  );
 
   @override
   bool get supportsCostReporting => false;

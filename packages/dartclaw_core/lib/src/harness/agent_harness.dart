@@ -10,16 +10,24 @@ enum PromptStrategy {
   append,
 }
 
-/// Per-turn context fields an adapter serializes to its provider transport.
+/// Per-turn context fields an adapter serializes to its provider transport,
+/// with the values that adapter accepts for each.
+///
+/// The adapter is the only authority on its own vocabulary: [models] and
+/// [efforts] are what a picker offers, and an empty list means the adapter
+/// documents none rather than that it rejects everything — a value outside the
+/// list still travels verbatim and the turn fails if the CLI refuses it.
 final class EffectiveContextCapabilities {
   final bool model;
   final bool effort;
+  final List<String> models;
+  final List<String> efforts;
 
-  const new({required this.model, required this.effort});
+  const new({required this.model, required this.effort, this.models = const [], this.efforts = const []});
 
   static const unavailable = EffectiveContextCapabilities(model: false, effort: false);
 
-  Map<String, bool> toJson() => {'model': model, 'effort': effort};
+  Map<String, Object> toJson() => {'model': model, 'effort': effort, 'models': models, 'efforts': efforts};
 
   static EffectiveContextCapabilities of(AgentHarness harness) => harness is EffectiveContextCapabilityProvider
       ? (harness as EffectiveContextCapabilityProvider).effectiveContextCapabilities

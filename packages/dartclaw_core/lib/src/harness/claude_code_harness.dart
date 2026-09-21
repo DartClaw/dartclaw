@@ -241,8 +241,14 @@ class ClaudeCodeHarness extends BaseHarness
   PromptStrategy get promptStrategy => PromptStrategy.append;
 
   @override
-  EffectiveContextCapabilities get effectiveContextCapabilities =>
-      const EffectiveContextCapabilities(model: true, effort: true);
+  EffectiveContextCapabilities get effectiveContextCapabilities => const EffectiveContextCapabilities(
+    model: true,
+    effort: true,
+    // The CLI's own aliases, minus `default` and `opusplan`, which name a
+    // routing policy rather than a model a reader would pick.
+    models: ['sonnet', 'opus', 'haiku'],
+    efforts: ['low', 'medium', 'high', 'max'],
+  );
 
   @override
   bool get supportsCachedTokens => true;

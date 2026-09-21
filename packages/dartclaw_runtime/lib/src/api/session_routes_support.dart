@@ -106,6 +106,18 @@ Future<String> sessionReferenceRoot(ProjectService? projects) async {
   return (await projects.defaultProject).localPath;
 }
 
+/// Option set for one picker over an adapter's declared vocabulary.
+///
+/// The empty value is the provider's own default, so it is always offerable. A
+/// [staged] value the adapter does not list is offered as itself: it reached
+/// the conversation from YAML or the JSON API, and a picker that cannot
+/// represent it would silently drop it on the next apply.
+List<Map<String, Object>> _contextOptions(List<String> catalogue, String staged) => [
+  {'value': '', 'label': 'Provider default', 'selected': staged.isEmpty},
+  for (final entry in catalogue) {'value': entry, 'label': entry, 'selected': entry == staged},
+  if (staged.isNotEmpty && !catalogue.contains(staged)) {'value': staged, 'label': staged, 'selected': true},
+];
+
 /// Canonical render projection for one session's effective conversation context.
 Future<Map<String, dynamic>> effectiveContextView(
   Session session,
@@ -183,6 +195,8 @@ Future<Map<String, dynamic>> effectiveContextView(
             'selected': candidate == provider,
             'model': capabilities[candidate]?.model == true ? 'true' : 'false',
             'effort': capabilities[candidate]?.effort == true ? 'true' : 'false',
+            'models': (capabilities[candidate]?.models ?? const <String>[]).join(','),
+            'efforts': (capabilities[candidate]?.efforts ?? const <String>[]).join(','),
           },
         )
         .toList(growable: false),
@@ -190,6 +204,8 @@ Future<Map<String, dynamic>> effectiveContextView(
     'effortEditable': providerCapabilities?.effort == true,
     'modelValue': next?.model ?? '',
     'effortValue': next?.effort ?? '',
+    'modelOptions': _contextOptions(providerCapabilities?.models ?? const [], next?.model ?? ''),
+    'effortOptions': _contextOptions(providerCapabilities?.efforts ?? const [], next?.effort ?? ''),
     'model': providerCapabilities?.model == false ? 'unavailable' : next?.model ?? 'provider default',
     'effort': providerCapabilities?.effort == false ? 'unavailable' : next?.effort ?? 'provider default',
     'composer': composerLabel,

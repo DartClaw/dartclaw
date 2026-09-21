@@ -96,15 +96,9 @@
       padding: 0 var(--sp-3) var(--sp-3);
     }
 
-    /* The select menu composes .pop and .menu-tick, which the app stylesheet
-       owns; the showcase loads canon alone, so these two stand in for them.
-       The demo menu is also left open in flow rather than floating, which is
-       what an anatomy diagram wants. */
-    .showcase .custom-select-menu { position: static; padding: var(--sp-1); }
-    .showcase .menu-tick {
-      display: inline-grid; place-items: center;
-      width: 16px; height: 16px; color: var(--accent);
-    }
+    /* The one demo that is deliberately not as shipped: the select's menu is
+       pinned open and in flow, which is what an anatomy diagram wants. */
+    .showcase .custom-select[data-open="true"] > .custom-select-menu { position: static; }
   </style>
 </head>
 <body>

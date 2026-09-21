@@ -36,23 +36,14 @@
 }
 
 /* === POPOVERS ===
-   One placement vocabulary for the topbar overflow, the attention panel and the
-   rail's scope / view menus. The surfaces themselves are canon cards. */
-.pop { position: absolute; z-index: var(--z-dropdown); padding: var(--sp-1); }
+   Placements only — the shell, the separator, the head and the menu-row
+   modifiers are canon (§ Command palette). */
 .pop-menu { top: calc(100% - 2px); right: var(--sp-3); width: 232px; }
 .pop-attention {
   top: calc(100% - 2px); right: var(--sp-3);
   width: min(340px, calc(100vw - var(--sp-4)));
   max-height: 60vh; overflow-y: auto;
 }
-.pop-sep { height: 1px; margin: var(--sp-1) 0; background: color-mix(in srgb, var(--bg-surface1) 55%, transparent); }
-.pop-head {
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-2) var(--sp-2);
-  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps);
-  color: var(--fg-overlay);
-}
-.pop-head .btn-icon-sm { margin-left: auto; }
 /* Canon sizes .theme-toggle as a 32px square; as a menu row it takes the row's
    shape and keeps only its sun/moon glyph. */
 .pop-menu .palette-item.theme-toggle { width: 100%; height: auto; justify-content: start; font-size: inherit; }
@@ -3672,9 +3663,6 @@ input.form-input--search::-webkit-search-cancel-button {
    active there is no row to clear, so the menu sits directly under its trigger. */
 .pop-view, .pop-scope { top: calc(100% + 4px); right: 0; width: 236px; max-height: 60vh; overflow-y: auto; }
 .sidebar-body:has(.rail-active-filter:not([hidden])) :is(.pop-view, .pop-scope) { top: calc(100% + 36px); }
-.menu-item { grid-template-columns: 16px minmax(0, 1fr) auto; }
-.menu-tick { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--accent); }
-.menu-item--on .palette-item-label { color: var(--fg); }
 /* Section headers line up with the item LABELS, not with the tick column. */
 .pop-view .pop-head { padding: var(--sp-2) var(--sp-2) var(--sp-1) 32px; }
 

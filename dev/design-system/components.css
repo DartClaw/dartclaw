@@ -2841,6 +2841,27 @@ button.chip[aria-pressed="true"] {
 .palette-item--active > .icon { color: var(--fg); }
 .palette-item--active .palette-item-label { color: var(--fg); font-weight: var(--weight-bold); }
 
+/* --- Popover shell ---
+   One placement vocabulary for every floating menu: the topbar overflow, the
+   attention panel, the rail's scope and view menus, and the enhanced select's
+   listbox. The surface itself is always a .card (.card-elevated for a menu
+   that floats free); this adds only the float and the inner structure, so a
+   consumer composes `.pop.card.card-elevated` and supplies its own placement.
+   .menu-* are .palette-item modifiers and must stay after it — the tick column
+   re-templates the row's grid at equal specificity. */
+.pop { position: absolute; z-index: var(--z-dropdown); padding: var(--sp-1); }
+.pop-sep { height: 1px; margin: var(--sp-1) 0; background: color-mix(in srgb, var(--bg-surface1) 55%, transparent); }
+.pop-head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2) var(--sp-2);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+}
+.pop-head .btn-icon-sm { margin-left: auto; }
+.menu-item { grid-template-columns: 16px minmax(0, 1fr) auto; }
+.menu-tick { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--accent); }
+.menu-item--on .palette-item-label { color: var(--fg); }
+
 
 /* ================================================================
    22. ORCHESTRATION

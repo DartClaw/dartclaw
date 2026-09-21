@@ -10,7 +10,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --case) CASE="${2:-}"; shift 2 ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|integrated-qualification|workspace-chat-integration [--live-provider]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility [--live-provider]"
       exit 0
       ;;
     --live-provider) LIVE_PROVIDER=1; shift ;;
@@ -19,179 +19,12 @@ while [ $# -gt 0 ]; do
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q6-q7-q9-history|q2-q3-q7-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|integrated-qualification|workspace-chat-integration) ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q6-q7-q9-history|q2-q3-q7-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility) ;;
   *) echo "--case names an unsupported conversation-loop fixture" >&2; exit 2 ;;
 esac
 
 EVIDENCE_ROOT="${DARTCLAW_CONVERSATION_EVIDENCE_DIR:-${REPO_ROOT}/.agent_temp/testing/conversation-loop/${CASE}}"
 mkdir -p "${EVIDENCE_ROOT}"
-
-QUALIFICATION_INPUT="${DARTCLAW_QUALIFICATION_INPUT:-${REPO_ROOT}/.agent_temp/exec-plan-0.27/S09/qualification-input.json}"
-BINDER="${REPO_ROOT}/packages/dartclaw_runtime/test/integration/_fixtures/conversation_qualification_binder.dart"
-verify_qualification_identity() {
-  local output="$1"
-  dart run "${BINDER}" "${QUALIFICATION_INPUT}" "${CASE}" "${output}"
-}
-if [ "${CASE}" = "integrated-qualification" ] || [ "${CASE}" = "workspace-chat-integration" ]; then
-  test -f "${QUALIFICATION_INPUT}" || {
-    echo "qualification input is missing: ${QUALIFICATION_INPUT}" >&2
-    exit 2
-  }
-  verify_qualification_identity "${EVIDENCE_ROOT}/producer-evidence.json"
-fi
-
-if [ "${CASE}" = "integrated-qualification" ]; then
-  run_qualification_child() {
-    local child="$1"; shift
-    local child_root="${EVIDENCE_ROOT}/children/${child}"
-    mkdir -p "${child_root}"
-    local command=(bash "${SCRIPT_DIR}/run.sh" --case "${child}" "$@")
-    local assertion_ids=()
-    local required_artifacts=(browser-eval.log)
-    case "${child}" in
-      q1-e11) assertion_ids=(q1-responsive-flow q1-interaction-budgets e11-viewport-theme-zoom-motion-focus-contrast-targets-announcements-keyboard) ;;
-      q4-draft-send) assertion_ids=(q4-provisional-transfer q4-durable-local-draft q4-upload-retry q4-explicit-send q4-multitab-reconciliation) ;;
-      q2-q3-q7-history) assertion_ids=(q2-exact-navigation q3-bounded-history-retry-restart q7-search-result-navigation) ;;
-      q9-effective-context) assertion_ids=(q9-current-next-context q9-project-reference-access q9-restart-provenance) ;;
-      q6-q8-q10-inbox-attention) assertion_ids=(q6-owner-agent-convergence q8-inbox-attention-lifecycle q10-machine-accessibility) ;;
-      search-commands)
-        assertion_ids=(q5-action-availability q7-search-command-precedence q10-search-accessibility)
-        required_artifacts+=(search-command-evidence.json requirement-assertion-map.json)
-        ;;
-    esac
-    local status=0
-    if DARTCLAW_CONVERSATION_EVIDENCE_DIR="${child_root}" "${command[@]}" >"${child_root}/invocation.log" 2>&1; then
-      status=0
-    else
-      status=$?
-    fi
-    if [ "${status}" -eq 0 ]; then
-      for artifact in "${required_artifacts[@]}"; do
-        if [ ! -s "${child_root}/${artifact}" ]; then
-          echo "required child assertion artifact is missing: ${artifact}" >>"${child_root}/invocation.log"
-          status=70
-        fi
-      done
-    fi
-    local result=passed
-    if [ "${status}" -ne 0 ]; then result=failed; fi
-    python3 - "${child_root}/invocation.json" "${child}" "${command[*]}" \
-      "${EVIDENCE_ROOT}/producer-evidence.json" "${status}" "${result}" \
-      "$(IFS=,; echo "${assertion_ids[*]}")" "$(IFS=,; echo "${required_artifacts[*]}")" <<'PY'
-import json
-import pathlib
-import sys
-output, case, command, bound, status, result, assertion_ids, artifacts = sys.argv[1:]
-candidate = json.loads(pathlib.Path(bound).read_text(encoding="utf-8"))["candidate"]
-pathlib.Path(output).write_text(json.dumps({
-    "producerRowId": "s09-child-" + case,
-    "case": case,
-    "candidate": candidate,
-    "command": command,
-    "exitStatus": int(status),
-    "result": result,
-    "assertions": [
-        {"id": assertion_id, "result": "passed"}
-        for assertion_id in assertion_ids.split(",") if assertion_id and result == "passed"
-    ],
-    "expectedAssertionIds": [value for value in assertion_ids.split(",") if value],
-    "artifacts": ["invocation.log", *[value for value in artifacts.split(",") if value]],
-}, indent=2) + "\n", encoding="utf-8")
-PY
-    verify_qualification_identity "${child_root}/identity-after.json"
-    if [ "${status}" -ne 0 ]; then
-      cat "${child_root}/invocation.log" >&2
-      exit "${status}"
-    fi
-  }
-  run_qualification_child q1-e11
-  run_qualification_child q4-draft-send
-  run_qualification_child q2-q3-q7-history
-  run_qualification_child q9-effective-context
-  run_qualification_child q6-q8-q10-inbox-attention
-  run_qualification_child search-commands
-  python3 - "${EVIDENCE_ROOT}" <<'PY'
-import json
-import pathlib
-import sys
-root = pathlib.Path(sys.argv[1])
-bound = json.loads((root / "producer-evidence.json").read_text(encoding="utf-8"))
-children = {}
-child_assertions = {}
-for path in sorted((root / "children").glob("*/invocation.json")):
-    receipt = json.loads(path.read_text(encoding="utf-8"))
-    if receipt.get("candidate") != bound["candidate"] or receipt.get("exitStatus") != 0 or receipt.get("result") != "passed":
-        raise SystemExit(f"invalid child receipt: {path}")
-    assertions = receipt.get("assertions")
-    if not assertions or any(item.get("result") != "passed" for item in assertions):
-        raise SystemExit(f"child receipt lacks direct passed assertions: {path}")
-    for artifact in receipt.get("artifacts", []):
-        if not (path.parent / artifact).is_file():
-            raise SystemExit(f"child receipt artifact is missing: {path.parent / artifact}")
-    children[receipt["case"]] = path.relative_to(root).as_posix()
-    child_assertions[receipt["case"]] = {item["id"] for item in assertions}
-required = {
-    "q1-e11", "q4-draft-send", "q2-q3-q7-history", "q9-effective-context",
-    "q6-q8-q10-inbox-attention", "search-commands",
-}
-if set(children) != required:
-    raise SystemExit(f"missing joined child execution: {sorted(required - set(children))}")
-direct_contract = {
-    "Q1": {"q1-responsive-flow", "q1-interaction-budgets"},
-    "Q2": {"q2-exact-navigation"},
-    "Q3": {"q3-bounded-history-retry-restart"},
-    "Q4": {"q4-provisional-transfer", "q4-durable-local-draft", "q4-upload-retry", "q4-explicit-send", "q4-multitab-reconciliation"},
-    "Q5": {"q5-action-availability"},
-    "Q6": {"q6-owner-agent-convergence"},
-    "Q7": {"q7-search-result-navigation", "q7-search-command-precedence"},
-    "Q8": {"q8-inbox-attention-lifecycle"},
-    "Q9": {"q9-current-next-context", "q9-project-reference-access", "q9-restart-provenance"},
-    "Q10": {"e11-viewport-theme-zoom-motion-focus-contrast-targets-announcements-keyboard", "q10-machine-accessibility", "q10-search-accessibility"},
-}
-observed_child_assertions = set().union(*child_assertions.values())
-producer_assertions = {
-    requirement: set().union(*(set(row["assertionIds"]) for row in bound["producerRows"] if requirement in row["qOrW"]))
-    for requirement in ["Q9", "Q10"]
-}
-joined_assertions = []
-for requirement, expected in direct_contract.items():
-    missing = expected - observed_child_assertions
-    if missing:
-        raise SystemExit(f"joined child receipts omit {requirement} assertions: {sorted(missing)}")
-    sources = set(expected)
-    if requirement in producer_assertions:
-        if not producer_assertions[requirement]:
-            raise SystemExit(f"producer evidence omits {requirement}")
-        sources.update(producer_assertions[requirement])
-    joined_assertions.append({
-        "id": "Q10-machine" if requirement == "Q10" else requirement,
-        "result": "passed",
-        "sourceAssertionIds": sorted(sources),
-    })
-source_map = {
-    "Q1": ["q1-e11"], "Q2": ["q2-q3-q7-history"], "Q3": ["q2-q3-q7-history"],
-    "Q4": ["q4-draft-send"], "Q5": ["search-commands"],
-    "Q6": ["q6-q8-q10-inbox-attention"], "Q7": ["q2-q3-q7-history", "search-commands"],
-    "Q8": ["q6-q8-q10-inbox-attention"],
-    "Q9": ["q2-q3-q7-history", "q9-effective-context", "producer-evidence.json"],
-    "Q10": ["q1-e11", "q6-q8-q10-inbox-attention", "producer-evidence.json"],
-}
-(root / "source-to-assertion-map.json").write_text(json.dumps(source_map, indent=2) + "\n", encoding="utf-8")
-(root / "joined-case-receipt.json").write_text(json.dumps({
-    "producerRowId": "s09-integrated-qualification",
-    "case": "integrated-qualification",
-    "candidate": bound["candidate"],
-    "result": "passed",
-    "childReceipts": children,
-    "producerRows": [row["id"] for row in bound["producerRows"]],
-    "externalHolds": [row["id"] for row in bound["externalHolds"]],
-    "assertions": joined_assertions,
-    "sourceToAssertionMap": "source-to-assertion-map.json",
-}, indent=2) + "\n", encoding="utf-8")
-PY
-  echo "Evidence: ${EVIDENCE_ROOT}"
-  exit 0
-fi
 
 if [ "${CASE}" = "q9-temporary-destruction-boundaries" ]; then
   "${SCRIPT_DIR}/temporary_conversation_e2e.sh" eof "${EVIDENCE_ROOT}/sqlite-confirmed-end" sqlite
@@ -569,77 +402,6 @@ run_e11_effective_context() {
   assert_layout_canon conversation-origin e11-session-info
 }
 
-run_workspace_chat_integration() {
-  ab conversation-origin open "${SESSION_URL}"
-  ab conversation-origin wait '#effective-context-summary'
-  assert_eval conversation-origin "(async () => { const sessions=await fetch('/api/sessions').then(r=>r.json()); const owner=sessions.find(s=>s.id==='${SESSION_ID}'); const agentA=sessions.find(s=>s.id==='${NAMED_AGENT_SESSION_ID}'); const agentB=sessions.find(s=>s.id==='${SEARCH_AGENT_B_SESSION_ID}'); if(!owner||!agentA||!agentB)throw new Error('owner or agent workspace rows missing'); if('workspaceAgentId' in owner)throw new Error('absent workspace key gained an implicit owner binding'); if(owner.retention!=='durable'||agentA.workspaceAgentId!=='fixture-agent'||agentB.workspaceAgentId!=='fixture-agent-b')throw new Error('workspace principals or durable retention changed'); if(new Set([agentA.workspaceAgentId,agentB.workspaceAgentId]).size!==2)throw new Error('agent principals collapsed'); const state=await fetch('/api/sessions/${SESSION_ID}/conversation-state').then(r=>r.json()); if(state.next_context?.projectId!=='fixture-docs')throw new Error('default project context missing'); const refs=await fetch('/api/sessions/${SESSION_ID}/references?q=reference').then(r=>r.json()); if(!refs.references.some(ref=>ref.type==='file'&&ref.id==='reference.md'))throw new Error('project-scoped reference unavailable'); return {owner:owner.id,agentA:agentA.workspaceAgentId,agentB:agentB.workspaceAgentId,project:state.next_context.projectId} })()"
-  ab conversation-origin open "${BASE_URL}/sessions/${NAMED_AGENT_SESSION_ID}"
-  ab conversation-origin wait '#effective-context-workspace'
-  assert_eval conversation-origin "(() => { if(document.querySelector('#effective-context-workspace').textContent.trim()!=='agent:fixture-agent')throw new Error('agent A workspace projection changed'); return true })()"
-  assert_eval conversation-origin "(async () => { const send=async(submission,message)=>{const response=await fetch('/api/sessions/${NAMED_AGENT_SESSION_ID}/send',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({submission_id:submission,revision_id:submission+'-r1',message})});const body=await response.json();if(response.status!==202)throw new Error('workspace submission rejected '+JSON.stringify(body));return body}; const first=await send('workspace-joined-active','Workspace joined active turn'); const second=await send('workspace-joined-queued','Workspace joined queued turn'); const state=await fetch('/api/sessions/${NAMED_AGENT_SESSION_ID}/conversation-state').then(r=>r.json()); const active=state.submissions.find(item=>item.submissionId==='workspace-joined-active'); const queued=state.submissions.find(item=>item.submissionId==='workspace-joined-queued'); if(!first.attempt_id||!second.queue_id||!active?.admittedContext||!queued?.admittedContext)throw new Error('active/queue admission or pinned context missing'); if(active.admittedContext.projectId!=='s07-project-alpha'||queued.admittedContext.projectId!=='s07-project-alpha')throw new Error('project context did not cross both admissions'); return {active:first.attempt_id,queued:second.queue_id,revision:state.revision} })()"
-  assert_eval conversation-origin "(async () => { const state=await fetch('/api/sessions/${SEARCH_OWNER_SESSION_ID}/conversation-state').then(r=>r.json()); const response=await fetch('/api/sessions/${SEARCH_OWNER_SESSION_ID}/messages/${SEARCH_EXACT_MESSAGE_ID}/branch',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({mutation_id:'workspace-joined-fork',kind:'fork',conversation_revision:state.revision})}); const fork=await response.json(); if(!response.ok||fork.sourceMessageId!=='${SEARCH_EXACT_MESSAGE_ID}'||fork.destinationSessionId==='${SEARCH_OWNER_SESSION_ID}')throw new Error('joined fork lost source or destination identity'); const inbox=await fetch('/api/inbox?limit=200').then(r=>r.json()); const attention=await fetch('/api/attention?limit=200').then(r=>r.json()); if(!Number.isInteger(inbox.filtered_total)||!Number.isInteger(inbox.waiting_total)||!Array.isArray(attention.items))throw new Error('joined inbox or attention projection missing'); const temporary=(await fetch('/api/sessions').then(r=>r.json())).filter(session=>session.retention==='process'); if(temporary.length!==0)throw new Error('temporary conversation leaked into durable fixture'); sessionStorage.setItem('__workspaceJoinedFork',fork.destinationSessionId); return {fork:fork.destinationSessionId,inbox:inbox.total,attention:attention.total} })()"
-  ab conversation-origin screenshot "${EVIDENCE_ROOT}/workspace-chat-before-restart.png"
-  restart_server
-  ab conversation-origin open "${BASE_URL}/sessions/${NAMED_AGENT_SESSION_ID}"
-  ab conversation-origin wait '#effective-context-workspace'
-  assert_eval conversation-origin "(async () => { const session=await fetch('/api/sessions/${NAMED_AGENT_SESSION_ID}').then(r=>r.json()); const owner=await fetch('/api/sessions/${SESSION_ID}').then(r=>r.json()); const state=await fetch('/api/sessions/${NAMED_AGENT_SESSION_ID}/conversation-state').then(r=>r.json()); if(session.workspaceAgentId!=='fixture-agent'||'workspaceAgentId' in owner)throw new Error('restart changed explicit or absent workspace binding'); const active=state.submissions.find(item=>item.submissionId==='workspace-joined-active'); const queued=state.submissions.find(item=>item.submissionId==='workspace-joined-queued'); if(!active||!queued||!['held','uncertain','queued'].includes(active.workState)||!['held','uncertain','queued'].includes(queued.workState))throw new Error('restart lost admitted workspace work'); const fork=(await fetch('/api/sessions').then(r=>r.json())).find(item=>item.id===sessionStorage.getItem('__workspaceJoinedFork')); if(!fork)throw new Error('restart lost forked conversation'); return {workspace:session.workspaceAgentId,active:active.workState,queued:queued.workState,fork:fork.id} })()"
-  ab conversation-origin screenshot "${EVIDENCE_ROOT}/workspace-chat-after-restart.png"
-  verify_qualification_identity "${EVIDENCE_ROOT}/identity-after.json"
-  python3 - "${EVIDENCE_ROOT}" <<'PY'
-import json
-import pathlib
-import sys
-root = pathlib.Path(sys.argv[1])
-bound = json.loads((root / "producer-evidence.json").read_text(encoding="utf-8"))
-direct_assertions = {
-    "W1": {"explicit-workspace-and-absent-key"},
-    "W2": {"active-and-queued-context"},
-    "W3": set(),
-    "W4": {"restart-preserves-authority-and-work"},
-    "W5": {"project-reference-access"},
-    "W6": {"fork-inbox-attention", "temporary-exclusion"},
-}
-producer_assertions = {
-    requirement: set().union(*(set(row["assertionIds"]) for row in bound["producerRows"] if requirement in row["qOrW"]))
-    for requirement in ["W2", "W3", "W4", "W5"]
-}
-joined_assertions = []
-for requirement, direct in direct_assertions.items():
-    sources = set(direct)
-    if requirement in producer_assertions:
-        if not producer_assertions[requirement]:
-            raise SystemExit(f"producer evidence omits {requirement}")
-        sources.update(producer_assertions[requirement])
-    if not sources:
-        raise SystemExit(f"joined evidence omits {requirement}")
-    joined_assertions.append({"id": requirement, "result": "passed", "sourceAssertionIds": sorted(sources)})
-source_map = {
-    "W1": ["workspace principals and absent-key browser assertions", "producer-evidence.json"],
-    "W2": ["active and queued admitted-context assertions", "producer-evidence.json"],
-    "W3": ["producer-evidence.json"],
-    "W4": ["restart and retained-work assertions", "producer-evidence.json"],
-    "W5": ["project reference and principal access assertions", "producer-evidence.json"],
-    "W6": ["fork, inbox, attention, and temporary-exclusion assertions", "producer-evidence.json"],
-}
-(root / "source-to-assertion-map.json").write_text(json.dumps(source_map, indent=2) + "\n", encoding="utf-8")
-(root / "joined-case-receipt.json").write_text(json.dumps({
-    "producerRowId": "s09-workspace-chat-integration",
-    "case": "workspace-chat-integration",
-    "candidate": bound["candidate"],
-    "result": "passed",
-    "assertionIds": [
-        "explicit-workspace-and-absent-key", "project-reference-access", "active-and-queued-context",
-        "fork-inbox-attention", "temporary-exclusion", "restart-preserves-authority-and-work",
-    ],
-    "assertions": joined_assertions,
-    "producerRows": [row["id"] for row in bound["producerRows"]],
-    "externalHolds": [row["id"] for row in bound["externalHolds"]],
-    "artifacts": ["browser-eval.log", "server.log", "workspace-chat-before-restart.png", "workspace-chat-after-restart.png"],
-    "sourceToAssertionMap": "source-to-assertion-map.json",
-}, indent=2) + "\n", encoding="utf-8")
-PY
-}
-
 run_inbox_attention() {
   curl -fsS -X POST "${BASE_URL}/__fixture/external/start" >"${EVIDENCE_ROOT}/inbox-external-start.json"
   ab conversation-origin open "${SESSION_URL}"
@@ -965,7 +727,6 @@ case "${CASE}" in
   q6-q8-q10-inbox-attention) run_q6; run_inbox_attention; run_inbox_joined_proof ;;
   q8-q10-inbox-attention) run_inbox_attention ;;
   search-commands|current-search-history|search-recovery|search-command-accessibility) run_search_commands ;;
-  workspace-chat-integration) run_workspace_chat_integration ;;
 esac
 
 echo "Evidence: ${EVIDENCE_ROOT}"

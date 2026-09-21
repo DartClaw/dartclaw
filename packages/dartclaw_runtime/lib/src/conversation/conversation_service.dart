@@ -1207,7 +1207,8 @@ final class ConversationService {
           state = state.put(updated);
         }
       }
-      if (updated.workState case ConversationWorkState.dispatching || ConversationWorkState.running) {
+      if (updated.workState
+          case ConversationWorkState.dispatching || ConversationWorkState.running || ConversationWorkState.stopping) {
         updated = updated.copyWith(workState: ConversationWorkState.uncertain, updatedAt: clock().toUtc());
         state = state.put(updated);
       } else if (updated.workState == ConversationWorkState.queued) {

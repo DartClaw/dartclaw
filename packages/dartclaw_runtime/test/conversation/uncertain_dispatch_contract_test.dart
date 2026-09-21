@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
@@ -31,7 +32,7 @@ void main() {
   );
 
   /// Dispatches a turn that never settles, then abandons its service and turn
-  /// manager — a process that died mid-turn.
+  /// manager, as a process that died mid-turn would.
   Future<void> strandADispatch({bool withQueuedItem = false}) async {
     final live = buildService(_turnManager(messages));
     await _submit(live, sessionId, 'stranded', 'The turn that did not survive');
@@ -105,6 +106,40 @@ void main() {
     expect(turns.executeCallCount, 1);
   });
 
+  test('a claim persisted mid-stop does not park the session after a restart', () async {
+    final live = buildService(_turnManager(messages));
+    await _submit(live, sessionId, 'stranded', 'The turn that did not survive');
+    var state = await sessions.getConversationState(sessionId);
+    final stopping = state.findSubmission('stranded')!.copyWith(workState: ConversationWorkState.stopping);
+    await sessions.updateConversationState(sessionId, state.put(stopping));
+    final turns = _turnManager(messages);
+    final restarted = buildService(turns);
+
+    state = await restarted.snapshot(sessionId);
+    expect(state.findSubmission('stranded')?.workState, ConversationWorkState.uncertain);
+    final next = await _submit(restarted, sessionId, 'after-restart', 'Send again after the restart');
+    expect(next.submission.workState, ConversationWorkState.running);
+    expect(turns.executeCallCount, 1);
+  });
+
+  test('a relabelled live claim still settles from its own outcome', () async {
+    final turns = _CompletingTurnManager(messages);
+    final live = buildService(turns);
+    final first = await _submit(live, sessionId, 'running-now', 'A turn that is genuinely live');
+    final replayed = await _submit(live, sessionId, 'running-now', 'A turn that is genuinely live');
+    expect(replayed.submission.workState, ConversationWorkState.uncertain);
+
+    turns.complete(sessionId, first.submission.turnId!);
+    await live.drain();
+
+    final settled = await live.snapshot(sessionId);
+    expect(
+      settled.findSubmission('running-now')?.workState,
+      ConversationWorkState.completed,
+      reason: 'the marker is informational; an observed outcome wins over it',
+    );
+  });
+
   test('a stop the runner refuses leaves the claim at its prior state', () async {
     await strandADispatch();
     final restarted = buildService(_turnManager(messages));
@@ -125,6 +160,29 @@ void main() {
     final next = await _submit(restarted, sessionId, 'after-refusal', 'The session still accepts work');
     expect(next.submission.workState, ConversationWorkState.running);
   });
+}
+
+/// Holds each dispatched turn's outcome until the test settles it.
+final class _CompletingTurnManager extends FakeTurnManager {
+  new(MessageService messages) : super(messages, FakeAgentHarness(), turnIdFactory: () => 'fake-turn-0');
+
+  final Map<String, Completer<TurnOutcome>> _outcomes = {};
+
+  @override
+  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) =>
+      _outcomes.putIfAbsent(turnId, Completer<TurnOutcome>.new).future;
+
+  void complete(String sessionId, String turnId) {
+    final outcome = TurnOutcome(
+      turnId: turnId,
+      sessionId: sessionId,
+      status: TurnStatus.completed,
+      completedAt: DateTime.utc(2026, 9, 21, 12),
+    );
+    setRecentOutcome(turnId, outcome);
+    releaseTurn(sessionId, turnId);
+    _outcomes.putIfAbsent(turnId, Completer<TurnOutcome>.new).complete(outcome);
+  }
 }
 
 FakeTurnManager _turnManager(MessageService messages) {

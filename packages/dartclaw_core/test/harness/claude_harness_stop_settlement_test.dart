@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 import 'harness_test_support.dart';
 
 /// `stop()` is the only thing that ends a turn the provider will not end
-/// itself — an operator cancel restarts the worker through it. A turn left
+/// itself, and an operator cancel restarts the worker through it. A turn left
 /// awaiting a completer nothing settles holds the caller's session lock and
 /// worker lease for the life of the process, so the session accepts no further
 /// work; that is the wedge these cases pin.

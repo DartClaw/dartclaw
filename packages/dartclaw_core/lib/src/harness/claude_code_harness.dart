@@ -367,7 +367,7 @@ class ClaudeCodeHarness extends BaseHarness
     currentState = WorkerState.stopped;
     // `handleUnexpectedProcessExit` is the only other completion path and it
     // declines an intentional teardown, so without this the killed process's
-    // exit settles nothing and `turn()` awaits a completer forever — holding
+    // exit settles nothing and `turn()` awaits a completer forever. That holds
     // the caller's session lock and worker lease for the life of the process.
     final turnCompleter = _turnCompleter;
     if (turnCompleter != null && !turnCompleter.isCompleted) {

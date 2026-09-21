@@ -518,9 +518,8 @@ extension _ConversationServicePersistence on ConversationService {
     );
   }
 
-  // `uncertain` is deliberately absent: it is never retried and nothing
-  // resolves it, so counting it parked the session for good after one crash.
-  // Genuinely live work is in one of these states or in `turns.isActive`.
+  // `uncertain` is informational and deliberately absent. Live work is in one of
+  // these states or in `turns.isActive`.
   bool _hasBlockingDispatch(ConversationState state) => state.submissions.any(
     (item) =>
         item.workState == ConversationWorkState.dispatching ||

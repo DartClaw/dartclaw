@@ -696,8 +696,10 @@ export default class DcChatController extends Stimulus.Controller {
     }
     if (event.key !== 'Tab') return;
     const popover = event.currentTarget;
+    // A closed custom-select menu keeps its option buttons under display:none;
+    // counting them would make an unreachable row the last stop.
     const focusable = [...popover.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-      .filter((element) => !element.disabled && !element.hidden);
+      .filter((element) => !element.disabled && !element.hidden && element.offsetParent !== null);
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];

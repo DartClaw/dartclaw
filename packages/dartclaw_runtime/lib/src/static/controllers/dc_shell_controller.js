@@ -290,8 +290,10 @@ export default class DcShellController extends Stimulus.Controller {
     }
 
     // Any click that reached here and landed outside an open popover dismisses
-    // it; a click inside one is the menu doing its job.
-    if (!event.target.closest('.pop')) this.closeShellPopovers();
+    // it; a click inside one is the menu doing its job. An enhanced select's
+    // menu is a `.pop` of its own, so it is excluded here for the same reason
+    // Escape excludes it: a row click there is outside every shell popover.
+    if (!event.target.closest('.pop:not(.custom-select-menu)')) this.closeShellPopovers();
 
     const archiveButton = event.target.closest('[data-session-archive]');
     if (archiveButton) {

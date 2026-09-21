@@ -83,8 +83,11 @@ for key in ('violations', 'incomplete'):
             or type(counts.get(key)) is not int or counts[key] != len(entries)):
         raise SystemExit(f'{path}: malformed accessibility {key}')
 
-with open(idrefs_path, encoding='utf-8') as handle:
-    idrefs = json.load(handle)
+try:
+    with open(idrefs_path, encoding='utf-8') as handle:
+        idrefs = json.load(handle)
+except (OSError, ValueError) as error:
+    raise SystemExit(f'{path}: unreadable aria-controls idref capture: {error}')
 if not isinstance(idrefs, dict) or not all(isinstance(value, bool) for value in idrefs.values()):
     raise SystemExit(f'{path}: malformed aria-controls idref capture')
 data['ariaControls'] = idrefs

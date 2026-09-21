@@ -145,15 +145,30 @@ assert(controller.loadInboxView().selectMode === false, 'the view-options comman
 // that stays in the DOM. Escape has to reach select mode past it. One node
 // stands for that DOM; the matcher reads the selector's own :not() clauses.
 const closedMenu = { classes: ['pop', 'card', 'card-elevated', 'custom-select-menu'], hidden: false };
-globalThis.document.querySelector = (selector) => {
+const matchPop = (selector) => {
   if (!selector.startsWith('.pop')) return null;
-  if (selector.includes(':not([hidden])') && closedMenu.hidden) return null;
   const excluded = [...selector.matchAll(/:not\(\.([a-z-]+)\)/g)].map((match) => match[1]);
   return excluded.some((name) => closedMenu.classes.includes(name)) ? null : closedMenu;
+};
+const topbarMenu = { hidden: false };
+globalThis.document.querySelector = (selector) => {
+  if (selector === '[data-topbar-menu]') return topbarMenu;
+  if (selector.includes(':not([hidden])') && closedMenu.hidden) return null;
+  return matchPop(selector);
 };
 controller.inboxView.selectMode = true;
 controller.handleDocumentKeydown({ key: 'Escape' });
 assert(controller.loadInboxView().selectMode === false, 'a closed select menu swallowed Escape');
+
+// The click path needs the same discriminator: an open select menu overlays the
+// shell popover it was opened from, so a row click there is outside every shell
+// popover and has to dismiss them.
+controller.handleDocumentClick({
+  target: { matches: () => false, closest: matchPop },
+  preventDefault() {},
+  detail: 1,
+});
+assert(topbarMenu.hidden === true, 'a click on a custom-select row left the shell popover open');
 ''';
 
 const _resizeHarness =

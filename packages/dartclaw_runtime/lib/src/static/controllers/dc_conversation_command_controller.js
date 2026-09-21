@@ -14,12 +14,16 @@ export default class DcConversationCommandController extends Stimulus.Controller
     this.searchTimer = null;
     this.handleClick = this.handleClick.bind(this);
     this.handleKeydown = this.handleKeydown.bind(this);
+    this.handlePointerMove = this.handlePointerMove.bind(this);
+    this.handleMouseDown = this.handleMouseDown.bind(this);
     this.handleInput = this.handleInput.bind(this);
     this.handlePopstate = this.handlePopstate.bind(this);
     this.handleConversationChanged = this.handleConversationChanged.bind(this);
     this.handleSlashPaletteRequest = this.handleSlashPaletteRequest.bind(this);
     document.addEventListener('click', this.handleClick);
     document.addEventListener('keydown', this.handleKeydown);
+    document.addEventListener('pointermove', this.handlePointerMove);
+    document.addEventListener('mousedown', this.handleMouseDown);
     document.addEventListener('input', this.handleInput);
     document.addEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
     window.addEventListener('popstate', this.handlePopstate);
@@ -30,6 +34,8 @@ export default class DcConversationCommandController extends Stimulus.Controller
   disconnect() {
     document.removeEventListener('click', this.handleClick);
     document.removeEventListener('keydown', this.handleKeydown);
+    document.removeEventListener('pointermove', this.handlePointerMove);
+    document.removeEventListener('mousedown', this.handleMouseDown);
     document.removeEventListener('input', this.handleInput);
     document.removeEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
     window.removeEventListener('popstate', this.handlePopstate);
@@ -113,6 +119,31 @@ export default class DcConversationCommandController extends Stimulus.Controller
       return;
     }
     if (event.key === 'Tab' && dialog) this.trapFocus(event, dialog);
+  }
+
+  /// The pointer moves the same cursor the arrow keys do. A move, not an
+  /// enter: a list scrolled under a resting pointer must not take the cursor
+  /// back from the key that scrolled it.
+  handlePointerMove(event) {
+    const option = event.target.closest?.('[data-command-option]');
+    if (!option || option.disabled || option.classList.contains('palette-item--active')) return;
+    const host = option.closest('dialog.command-dialog[open], [data-slash-palette]');
+    if (!host) return;
+    const options = [...host.querySelectorAll('[data-command-option]:not([disabled])')];
+    const index = options.indexOf(option);
+    if (index < 0) return;
+    this.activeOption = index;
+    this.markActive(options, { scroll: false });
+  }
+
+  /// A press inside a palette must leave focus in its input: the rows and the
+  /// header are not focusable, so the browser would hand focus to the nearest
+  /// focusable ancestor (`#main-content`) and the arrow keys with it. `click`
+  /// still fires, so a row is still chosen.
+  handleMouseDown(event) {
+    if (event.target.closest?.('[data-slash-palette], dialog.command-dialog [data-command-results]')) {
+      event.preventDefault();
+    }
   }
 
   handleInput(event) {
@@ -324,12 +355,12 @@ export default class DcConversationCommandController extends Stimulus.Controller
     return button;
   }
 
-  markActive(options) {
+  markActive(options, { scroll = true } = {}) {
     options.forEach((option, index) => {
       const active = index === this.activeOption;
       option.classList.toggle('palette-item--active', active);
       option.setAttribute('aria-selected', String(active));
-      if (active) option.scrollIntoView({ block: 'nearest' });
+      if (active && scroll) option.scrollIntoView({ block: 'nearest' });
     });
   }
 

@@ -55,6 +55,7 @@ void main() {
         'usage': '',
         'usageHidden': true,
         'currentHidden': null,
+        'continuityHidden': null,
         'revision': 4,
       },
     );
@@ -65,8 +66,11 @@ void main() {
     expect(html, contains('id="effective-context-model-form"'));
     expect(html, contains('aria-labelledby="effective-context-project-title"'));
     expect(html, contains('aria-labelledby="effective-context-model-title"'));
-    // Two Applies, one per surface.
-    expect('Apply to next turn'.allMatches(html), hasLength(2));
+    // A change applies when it is committed; there is no separate step that
+    // could leave a control showing a value the next turn would not run.
+    expect(html, isNot(contains('Apply to next turn')));
+    expect(html, isNot(contains('effective-context-apply')));
+    expect(html, isNot(contains('effective-context-project-apply')));
     // The read-only facts left the composer; Session info already lists them,
     // and the footer link is how the popover gets the reader there.
     for (final absent in const [
@@ -93,9 +97,9 @@ void main() {
     expect(html, contains('id="effective-context-model-input" name="model" class="form-select" disabled'));
     expect(html, contains('id="effective-context-effort-input" name="effort" class="form-select" disabled'));
     expect(html, contains('Provider-native session and tool state do not'));
-    // The continuity notice is a consequence of changing provider, so it ships
-    // hidden and is revealed by the controller.
-    expect(html, contains('id="effective-context-continuity" class="banner banner-warning" hidden'));
+    // The last turn ran on claude and the next runs on acp, so the notice is
+    // part of the first paint rather than something only a client apply shows.
+    expect(html, contains('id="effective-context-continuity" class="banner banner-warning">'));
     // Long values stay readable: the full string is on the title.
     expect(html, contains('title="/project/subdir"'));
     // No measurement, so the chip carries no percentage — never a stand-in.
@@ -146,9 +150,12 @@ void main() {
         'usage': '',
         'usageHidden': true,
         'currentHidden': true,
+        'continuityHidden': true,
         'revision': 1,
       },
     );
+    // Same provider as the last turn: nothing to warn about.
+    expect(html, contains('id="effective-context-continuity" class="banner banner-warning" hidden'));
     expect(html, contains('class="composer-model"'));
     expect(html, contains('>claude · sonnet</button>'));
     expect(html, contains('<option value="sonnet" selected="">sonnet</option>'));

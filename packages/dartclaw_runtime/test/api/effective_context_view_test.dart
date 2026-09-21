@@ -151,6 +151,33 @@ void main() {
     expect(measured['usageHidden'], isNull);
   });
 
+  // The notice warns that provider-native state does not follow a provider
+  // change, so it is about the provider the conversation last ran on, not the
+  // session's creation provider or the previous selection.
+  group('continuity notice', () {
+    EffectiveConversationContext context(String provider) => EffectiveConversationContext(
+      projectId: 'project-1',
+      directory: '/tmp',
+      referenceRoot: '/tmp',
+      provider: provider,
+    );
+
+    test('shows when the next turn runs on another provider than the last one did', () async {
+      final projection = await view(ConversationState().admitContext(context('claude')).stageContext(context('codex')));
+      expect(projection['continuityHidden'], isNull);
+    });
+
+    test('hides when the next turn stays on the last-run provider', () async {
+      final projection = await view(ConversationState().admitContext(context('codex')).stageContext(context('codex')));
+      expect(projection['continuityHidden'], isTrue);
+    });
+
+    test('hides before the first turn, whatever is staged', () async {
+      final projection = await view(ConversationState().stageContext(context('codex')));
+      expect(projection['continuityHidden'], isTrue);
+    });
+  });
+
   test('a stale measurement reports no percentage', () async {
     final stale = await view(
       ConversationState().recordTelemetry(

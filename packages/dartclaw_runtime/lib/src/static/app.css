@@ -324,8 +324,9 @@
   overflow-wrap: anywhere;
 }
 
-.composer-palette-option[aria-selected="true"],
-.composer-palette-option:hover {
+/* The one cursor. Pointer movement moves it (dc-chat), so hover paints nothing
+   of its own: a second fill under a resting pointer is a second highlight. */
+.composer-palette-option[aria-selected="true"] {
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface0));
 }
 

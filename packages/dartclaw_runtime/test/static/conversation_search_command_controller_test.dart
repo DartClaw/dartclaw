@@ -42,6 +42,27 @@ void main() {
     await expectNodeHarness(_conversationChangeSearchHarness, [controller.absolute.uri.toString()]);
   });
 
+  // Two highlighted rows leave the reader unsure which one Enter runs, so the
+  // pointer drives the keyboard's cursor instead of painting its own.
+  test('pointer movement moves the palette cursor in the slash palette and the Cmd+K results', () async {
+    final controller = await controllerAsset('dc_conversation_command_controller.js');
+    await expectNodeHarness(_pointerCursorHarness, [controller.absolute.uri.toString()]);
+    // A scroll moves rows under a resting pointer and fires boundary events, not
+    // moves; a boundary listener would hand the cursor back to the pointer.
+    for (final boundary in ['pointerover', 'pointerenter', 'mouseover', 'mouseenter']) {
+      expect(source, isNot(contains("'$boundary'")), reason: boundary);
+    }
+  });
+
+  // A press on a palette's header or row would otherwise hand focus to
+  // `#main-content`, outline it, and take the arrow keys away from the palette.
+  test('palette press keeps input focus while a row click still chooses it', () async {
+    final controller = await controllerAsset('dc_conversation_command_controller.js');
+    await expectNodeHarness(_palettePressHarness, [controller.absolute.uri.toString()]);
+    expect(source, contains("document.addEventListener('mousedown', this.handleMouseDown)"));
+    expect(source, contains("document.removeEventListener('mousedown', this.handleMouseDown)"));
+  });
+
   test('search highlights are built from text nodes rather than result HTML', () {
     expect(source, contains("document.createElement('mark')"));
     expect(source, contains('highlight.textContent = snippet.slice(start, end)'));
@@ -308,4 +329,127 @@ pending.get('closing').resolve({
 });
 await closingSearch;
 assert(!rendered.includes('closing'), 'closed dialog accepted an obsolete response');
+''';
+
+/// Loads the controller with the shared module stubbed out.
+const _commandControllerModule = r'''
+import { readFile } from 'node:fs/promises';
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+globalThis.Stimulus = { Controller: class {} };
+let source = await readFile(new URL(process.argv[1]), 'utf8');
+source = source.replace("import { apiQs, showToast } from './shared.js';", "const apiQs = () => ''; const showToast = () => {};");
+const module = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+''';
+
+const _pointerCursorHarness =
+    _commandControllerModule +
+    r'''
+function row(label, { disabled = false } = {}) {
+  const classes = new Set();
+  return {
+    label,
+    disabled,
+    attributes: {},
+    scrolls: 0,
+    classList: {
+      toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+      contains(name) { return classes.has(name); },
+    },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    scrollIntoView() { this.scrolls += 1; },
+    closest(selector) {
+      if (selector === '[data-command-option]') return this;
+      return selector === 'dialog.command-dialog[open], [data-slash-palette]' ? host : null;
+    },
+  };
+}
+
+let host;
+for (const surface of ['slash', 'global']) {
+  const status = row('/status');
+  const fork = row('/fork');
+  const help = row('/help');
+  const offline = row('/offline', { disabled: true });
+  const rows = [status, fork, offline, help];
+  host = {
+    querySelectorAll(selector) {
+      assert(selector === '[data-command-option]:not([disabled])', 'unexpected row query: ' + selector);
+      return rows.filter((candidate) => !candidate.disabled);
+    },
+    querySelector(selector) {
+      assert(selector === '[data-command-option].palette-item--active', 'unexpected active query: ' + selector);
+      return rows.find((candidate) => candidate.classList.contains('palette-item--active')) ?? null;
+    },
+  };
+  globalThis.document = {
+    querySelector(selector) {
+      if (surface === 'global' && selector === 'dialog.command-dialog[open]') return host;
+      if (surface === 'slash' && selector === '[data-slash-palette]:not([hidden])') return host;
+      return null;
+    },
+  };
+  const controller = new module.default();
+  const chosen = [];
+  controller.chooseOption = (option) => chosen.push(option.label);
+  controller.activeOption = 0;
+  controller.markActive(host.querySelectorAll('[data-command-option]:not([disabled])'));
+  const highlighted = () => rows.filter((candidate) => candidate.classList.contains('palette-item--active'));
+  const selected = () => rows.filter((candidate) => candidate.attributes['aria-selected'] === 'true');
+
+  controller.handlePointerMove({ target: fork });
+  assert(highlighted().length === 1 && highlighted()[0] === fork, surface + ': pointer did not move the cursor');
+  assert(selected().length === 1 && selected()[0] === fork, surface + ': aria-selected did not follow the cursor');
+  assert(status.attributes['aria-selected'] === 'false', surface + ': the keyboard row kept aria-selected');
+  assert(fork.scrolls === 0, surface + ': pointer movement scrolled the list under the pointer');
+
+  controller.handlePointerMove({ target: offline });
+  assert(highlighted()[0] === fork, surface + ': a disabled row took the cursor');
+
+  controller.handleKeydown({ key: 'Enter', preventDefault() {} });
+  assert(chosen.join() === '/fork', surface + ': Enter did not choose the pointer row: ' + chosen.join());
+
+  // The keyboard continues from where the pointer left the cursor.
+  controller.handleKeydown({ key: 'ArrowDown', preventDefault() {} });
+  assert(highlighted().length === 1 && highlighted()[0] === help, surface + ': ArrowDown did not continue from the pointer row');
+}
+''';
+
+const _palettePressHarness =
+    _commandControllerModule +
+    r'''
+// `closest` matches when any selector in the list names one of the element's
+// ancestors, so each target states where it sits.
+function target(...ancestors) {
+  return {
+    closest(selector) {
+      return selector.split(',').some((part) => ancestors.includes(part.trim())) ? this : null;
+    },
+  };
+}
+
+globalThis.document = { querySelector: () => null };
+const controller = new module.default();
+const pressed = (element) => {
+  let prevented = false;
+  controller.handleMouseDown({ target: element, preventDefault() { prevented = true; } });
+  return prevented;
+};
+
+assert(pressed(target('[data-slash-palette]')), 'a press in the slash palette moved focus out of the composer');
+assert(pressed(target('dialog.command-dialog [data-command-results]')), 'a press on the Cmd+K results left the query input');
+assert(!pressed(target('dialog.command-dialog')), 'a press on the Cmd+K query input itself was blocked');
+assert(!pressed(target('#main-content')), 'a press outside every palette was blocked');
+
+// The press is held, the click is not: a row is still chosen.
+const chosen = [];
+controller.chooseOption = (option) => chosen.push(option);
+const option = {
+  closest(selector) { return selector === '[data-command-option]' ? this : null; },
+};
+controller.handleClick({ target: option, preventDefault() {} });
+assert(chosen.length === 1 && chosen[0] === option, 'a row click no longer chooses the row');
 ''';

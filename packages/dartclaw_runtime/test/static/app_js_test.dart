@@ -222,6 +222,19 @@ void main() {
       await expectNodeHarness(_customSelectHarness, [sharedFile.uri.toString()]);
     });
 
+    // Pointer and keyboard are two ways of moving one cursor; two cursors in one
+    // menu leave the reader unsure which row Enter commits.
+    test('enhanced select option cursor follows pointer movement and the keyboard alike', () async {
+      final sharedFile = File('$baseDir/controllers/shared.js').absolute;
+      await expectNodeHarness(_customSelectCursorHarness, [sharedFile.uri.toString()]);
+    });
+
+    // A menu cut off by the viewport hides rows the keyboard can still land on.
+    test('enhanced select menu placement keeps the whole menu visible', () async {
+      final sharedFile = File('$baseDir/controllers/shared.js').absolute;
+      await expectNodeHarness(_customSelectPlacementHarness, [sharedFile.uri.toString()]);
+    });
+
     test('navigation notification badges use hidden state', () {
       final tasksSource = File('$baseDir/controllers/dc_tasks_controller.js').readAsStringSync();
       final workflowsSource = File('$baseDir/controllers/dc_workflows_controller.js').readAsStringSync();
@@ -947,13 +960,17 @@ if (unicode.textContent !== 'Ån') throw new Error('Unicode initials were not pr
 if (punctuationOnly.textContent !== '?') throw new Error('punctuation-only initials did not fall back');
 ''';
 
-const _customSelectHarness = r'''
+/// A fake DOM just deep enough for `enhanceCustomSelect`: the harnesses below
+/// append their own select and assertions to it.
+const _customSelectDom = r'''
 import { readFile } from 'node:fs/promises';
 
 class ClassList {
   constructor() { this.names = new Set(); }
   add(...names) { names.forEach((name) => this.names.add(name)); }
+  remove(...names) { names.forEach((name) => this.names.delete(name)); }
   toggle(name, on) { if (on) this.names.add(name); else this.names.delete(name); }
+  contains(name) { return this.names.has(name); }
 }
 
 class Element {
@@ -964,6 +981,7 @@ class Element {
     this.listeners = {};
     this.attributes = {};
     this.classList = new ClassList();
+    this.style = {};
     this.disabled = false;
   }
   get firstChild() { return this.children[0]; }
@@ -988,9 +1006,146 @@ class Element {
     if (node === this) return true;
     return this.children.some((child) => child.contains?.(node) === true);
   }
-  focus() {}
+  focus() { document.activeElement = this; }
+  getBoundingClientRect() { return this.rect; }
 }
 
+const created = [];
+globalThis.window = { innerHeight: 600 };
+globalThis.getComputedStyle = (node) => ({ overflowY: node.overflowY ?? 'visible' });
+globalThis.document = {
+  activeElement: null,
+  createElement(tagName) {
+    const element = new Element(tagName);
+    created.push(element);
+    return element;
+  },
+  addEventListener() {},
+  querySelectorAll() { return []; },
+  querySelector() { return null; },
+};
+
+const source = await readFile(new URL(process.argv[1]), 'utf8');
+const shared = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+// Enhances a fresh select over [options] and hands back the parts it built.
+function enhancedSelect(options, { parentElement = null } = {}) {
+  const select = {
+    dataset: {},
+    parentNode: { insertBefore() {} },
+    isConnected: true,
+    classList: new ClassList(),
+    attributes: {},
+    tabIndex: 0,
+    value: options[0].value,
+    disabled: false,
+    options: options.map(([value, disabled = false]) =>
+      ({ value, textContent: value, label: value, selected: false, disabled })),
+    get selectedIndex() { return this.options.findIndex((option) => option.value === this.value); },
+    getAttribute(name) { return this.attributes[name] ?? null; },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener() {},
+    dispatchEvent() {},
+  };
+  const start = created.length;
+  shared.initCustomSelects({ querySelectorAll: () => [select] });
+  const built = created.slice(start);
+  const wrapper = built.find((element) => element.className === 'custom-select');
+  wrapper.parentElement = parentElement;
+  return {
+    select,
+    wrapper,
+    trigger: built.find((element) => element.className === 'custom-select-trigger'),
+    menu: built.find((element) => element.className?.includes('custom-select-menu')),
+  };
+}
+''';
+
+const _customSelectCursorHarness =
+    _customSelectDom +
+    r'''
+const { trigger, menu } = enhancedSelect([['low'], ['medium'], ['high'], ['max'], ['xhigh', true]]);
+trigger.rect = { top: 100, bottom: 128, height: 28 };
+menu.rect = { top: 132, bottom: 300, height: 168 };
+const row = (value) => menu.children.find((candidate) => candidate.dataset.value === value);
+const focused = () => document.activeElement?.dataset.value;
+const key = (name) => menu.listeners.keydown({ key: name, preventDefault() {} });
+
+// Opened from the keyboard, the cursor starts on the selected row.
+trigger.listeners.keydown({ key: 'ArrowDown', preventDefault() {} });
+if (focused() !== 'low') throw new Error('keyboard open did not land on the selected row: ' + focused());
+
+// The pointer moves the one cursor, without scrolling the list under it.
+let scrolled = false;
+const focusHigh = row('high').focus;
+row('high').focus = function (options) {
+  scrolled = options?.preventScroll !== true;
+  focusHigh.call(this, options);
+};
+row('high').listeners.pointermove();
+if (focused() !== 'high') throw new Error('pointer movement did not move the cursor: ' + focused());
+if (scrolled) throw new Error('pointer movement scrolled the list');
+
+// The keyboard continues from where the pointer left the cursor.
+key('ArrowDown');
+if (focused() !== 'max') throw new Error('ArrowDown did not continue from the pointer row: ' + focused());
+
+// A disabled row cannot take the cursor.
+row('xhigh').listeners.pointermove();
+if (focused() !== 'max') throw new Error('a disabled row took the cursor: ' + focused());
+''';
+
+const _customSelectPlacementHarness =
+    _customSelectDom +
+    r'''
+// The viewport is 600px tall. The menu hangs 4px under its trigger and is 168px
+// tall at rest, so it needs 172px of room below the trigger.
+function open(triggerTop, { menuHeight = 168, parentElement = null } = {}) {
+  const parts = enhancedSelect([['low'], ['high']], { parentElement });
+  parts.trigger.rect = { top: triggerTop, bottom: triggerTop + 28, height: 28 };
+  // Measured where the menu opens by default, as the browser would before the
+  // script moves it.
+  parts.menu.rect = { top: triggerTop + 32, bottom: triggerTop + 32 + menuHeight, height: menuHeight };
+  parts.trigger.listeners.click();
+  return parts.menu;
+}
+const up = (menu) => menu.classList.contains('custom-select-menu--up');
+
+const fits = open(100);
+if (up(fits)) throw new Error('a menu with room below opened upward');
+if (fits.style.maxHeight) throw new Error('a menu with room below was capped: ' + fits.style.maxHeight);
+
+// 600 - 528 - 4 = 68px below, 500 - 4 = 496px above.
+const flipped = open(500);
+if (!up(flipped)) throw new Error('a menu without room below did not open upward');
+if (flipped.style.maxHeight) throw new Error('a menu with room above was capped: ' + flipped.style.maxHeight);
+
+// Reopened where it fits again, it goes back below: placement is per open.
+flipped.rect = { top: 132, bottom: 300, height: 168 };
+const triggerOf = (menu) => created.find((element) =>
+  element.className === 'custom-select-trigger' && element.attributes['aria-controls'] === menu.id);
+triggerOf(flipped).rect = { top: 100, bottom: 128, height: 28 };
+triggerOf(flipped).listeners.click();
+triggerOf(flipped).listeners.click();
+if (up(flipped)) throw new Error('a reopened menu kept the previous upward placement');
+
+// A 400px menu fits neither side of a trigger at 250: 600 - 278 - 4 = 318 below,
+// 250 - 4 = 246 above. It takes the larger side and scrolls inside that room.
+const clamped = open(250, { menuHeight: 400 });
+if (up(clamped)) throw new Error('the clamped menu took the smaller side');
+if (clamped.style.maxHeight !== '318px') throw new Error('the clamped menu was not capped to its room: '
+  + clamped.style.maxHeight);
+
+// A clipping ancestor is a boundary like the viewport: inside a dialog body
+// that ends at 400, only 400 - 278 - 4 = 118px are below and the menu flips.
+const dialogBody = { overflowY: 'auto', parentElement: null, getBoundingClientRect: () => ({ top: 0, bottom: 400 }) };
+const clipped = open(250, { parentElement: dialogBody });
+if (!up(clipped)) throw new Error('a clipping ancestor was not treated as a boundary');
+''';
+
+const _customSelectHarness =
+    _customSelectDom +
+    r'''
 let bubbledChanges = 0;
 const parent = { insertBefore() {} };
 const selectListeners = {};
@@ -1023,21 +1178,6 @@ const select = {
   },
 };
 
-const created = [];
-globalThis.window = {};
-globalThis.document = {
-  createElement(tagName) {
-    const element = new Element(tagName);
-    created.push(element);
-    return element;
-  },
-  addEventListener() {},
-  querySelectorAll() { return []; },
-  querySelector() { return null; },
-};
-
-const source = await readFile(new URL(process.argv[1]), 'utf8');
-const shared = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 // The enhancer is opt-out now. The selector asks only "not enhanced yet"; the
 // markup's opt-out is aria-hidden, decided inside the enhancer, so the enhancer
 // setting aria-hidden itself can never read back as an opt-out.

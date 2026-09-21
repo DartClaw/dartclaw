@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
 import 'controller_test_support.dart';
 
 void main() {
@@ -14,6 +17,26 @@ void main() {
   test('the commands button seeds a slash only into an empty composer', () async {
     final controller = await controllerAsset('dc_chat_controller.js');
     await expectNodeHarness(_commandsButtonHarness, [controller.absolute.uri.toString()]);
+  });
+
+  // Two highlighted rows leave the reader unsure which one Enter or Tab picks.
+  test('pointer movement moves the palette cursor in the @ reference palette', () async {
+    final controller = await controllerAsset('dc_chat_controller.js');
+    await expectNodeHarness(_referencePointerHarness, [controller.absolute.uri.toString()]);
+    // The option styles only the cursor; a :hover fill of its own would paint a
+    // second row under a resting pointer.
+    final css = File(await resolveServerPackagePath('lib', 'src', 'static', 'app.css')).readAsStringSync();
+    expect(css, isNot(contains('.composer-palette-option:hover')));
+  });
+
+  // A press on the header or a row would otherwise move focus to
+  // `#main-content` and take the arrow keys away from the composer.
+  test('palette press keeps input focus in the composer for the @ reference palette', () async {
+    final template = File(await resolveServerPackagePath('lib', 'src', 'templates', 'chat.html')).readAsStringSync();
+    final palette = RegExp(r'<div class="composer-reference-palette[\s\S]*? hidden>').firstMatch(template)!.group(0)!;
+    expect(palette, contains('data-action="mousedown->dc-chat#keepComposerFocus"'));
+    final controller = await controllerAsset('dc_chat_controller.js');
+    await expectNodeHarness(_referencePressHarness, [controller.absolute.uri.toString()]);
   });
 
   test('the palette answers a direct open request with the unfiltered catalogue', () async {
@@ -185,4 +208,99 @@ textarea.value = '/mod';
 controller.openCommands();
 assert(textarea.value === '/mod', 'slash text already typed was re-prefixed: ' + textarea.value);
 assert(dispatched.length === 1, 'slash text took the direct-open path instead of filtering');
+''';
+
+/// Loads dc-chat with the shared module stubbed out.
+const _chatControllerModule = r'''
+import { readFile } from 'node:fs/promises';
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+globalThis.Stimulus = { Controller: class {} };
+globalThis.document = { body: { classList: { add() {}, remove() {} } }, getElementById: () => null };
+
+let source = await readFile(new URL(process.argv[1]), 'utf8');
+source = source.replace(/import \{[\s\S]*?\} from '\.\/shared\.js';/, `
+const escapeHtml = (value) => String(value);
+const showToast = () => {};
+`);
+const module = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+// A reference list whose rows are real enough to hold listeners and
+// attributes: rendering parses them back out of the markup it was given.
+function referenceList() {
+  let rows = [];
+  return {
+    get rows() { return rows; },
+    set innerHTML(html) {
+      rows = [...html.matchAll(/<button([^>]*)>/g)]
+        .map(([, attributes]) => ({
+          dataset: { referenceIndex: attributes.match(/data-reference-index="(\d+)"/)[1] },
+          attributes: attributes.includes('aria-selected="true"') ? { 'aria-selected': 'true' } : {},
+          listeners: {},
+          addEventListener(name, listener) { this.listeners[name] = listener; },
+          setAttribute(name, value) { this.attributes[name] = value; },
+        }));
+    },
+    querySelectorAll() { return rows; },
+  };
+}
+
+function referenceController(references) {
+  const list = referenceList();
+  const palette = { hidden: true, querySelector: (selector) => (selector === '.composer-palette-list' ? list : null) };
+  const controller = new module.default();
+  controller.element = {
+    querySelector: (selector) => (selector === '[data-dc-chat-target="referencePalette"]' ? palette : null),
+  };
+  controller.filteredReferences = references;
+  controller.activeReferenceIndex = 0;
+  controller.renderReferencePalette();
+  return { controller, list, palette };
+}
+
+const references = [
+  { type: 'project', id: 'p1', label: 'Alpha' },
+  { type: 'project', id: 'p2', label: 'Beta' },
+  { type: 'project', id: 'p3', label: 'Gamma' },
+];
+''';
+
+const _referencePointerHarness =
+    _chatControllerModule +
+    r'''
+const { controller, list } = referenceController(references);
+const selected = () => list.rows.filter((row) => row.attributes['aria-selected'] === 'true')
+  .map((row) => row.dataset.referenceIndex);
+assert(selected().join() === '0', 'the first row did not start as the cursor: ' + selected().join());
+
+list.rows[1].listeners.pointermove();
+assert(controller.activeReferenceIndex === 1, 'pointer movement did not move the cursor');
+assert(selected().join() === '1', 'more or other than the pointer row is highlighted: ' + selected().join());
+
+// The keyboard continues from where the pointer left the cursor, and Enter
+// picks the row the cursor is on.
+let picked = null;
+controller.selectReference = (index) => { picked = index; };
+controller.handlePaletteKey({ key: 'ArrowDown', preventDefault() {} });
+assert(controller.activeReferenceIndex === 2, 'ArrowDown did not continue from the pointer row');
+controller.handlePaletteKey({ key: 'Enter', preventDefault() {} });
+assert(picked === 2, 'Enter did not pick the cursor row: ' + picked);
+''';
+
+const _referencePressHarness =
+    _chatControllerModule +
+    r'''
+const { controller, list } = referenceController(references);
+let prevented = false;
+controller.keepComposerFocus({ preventDefault() { prevented = true; } });
+assert(prevented, 'a press in the reference palette left the composer');
+
+// The press is held, the click is not: a row is still chosen.
+let picked = null;
+controller.selectReference = (index) => { picked = index; };
+list.rows[2].listeners.click();
+assert(picked === 2, 'a row click no longer picks the reference: ' + picked);
 ''';

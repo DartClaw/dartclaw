@@ -46,7 +46,10 @@ export default class DcChatController extends Stimulus.Controller {
     this.findIndex = 0;
     this.findGeneration = 0;
     this.findTruncated = false;
-    this.appliedProvider = null;
+    this.appliedContextSnapshot = null;
+    this.directoryRejected = false;
+    this.contextApplying = false;
+    this.contextApplyQueued = false;
     this.paginationAnchor = null;
     this.paginationAnchorTop = null;
     this.historyViewState = null;
@@ -99,6 +102,7 @@ export default class DcChatController extends Stimulus.Controller {
     scrollToBottom(this.element, { force: true });
     this.restoreStoredHistoryViewState();
     this.revealHistoryTarget();
+    this.seedAppliedContext();
     this.initializeConversationState();
     this.initializeDraftStorage();
     this.contextPopovers.forEach((popover) => popover.addEventListener('keydown', this.handleContextDialogKeydown));
@@ -431,9 +435,17 @@ export default class DcChatController extends Stimulus.Controller {
   contextProviderChanged(event) {
     const option = event.currentTarget.selectedOptions?.[0];
     if (!option) return;
-    this.renderContextOptions('effective-context-model-input', option.dataset.models, option.dataset.modelEditable);
-    this.renderContextOptions('effective-context-effort-input', option.dataset.efforts, option.dataset.effortEditable);
-    this.updateContinuityWarning();
+    // A value the new provider does not list was chosen for the old one, and
+    // sending it would fail the next turn: it falls back to Provider default.
+    // Only a server-staged value survives off-catalogue (`reconcileContext`).
+    const carried = (id, catalogue) => {
+      const value = this.contextFieldValue(id);
+      return String(catalogue || '').split(',').includes(value) ? value : '';
+    };
+    const model = carried('effective-context-model-input', option.dataset.models);
+    const effort = carried('effective-context-effort-input', option.dataset.efforts);
+    this.renderContextOptions('effective-context-model-input', option.dataset.models, option.dataset.modelEditable, model);
+    this.renderContextOptions('effective-context-effort-input', option.dataset.efforts, option.dataset.effortEditable, effort);
   }
 
   /// Rehydrates what the server rendered: this option set must stay identical
@@ -449,7 +461,7 @@ export default class DcChatController extends Stimulus.Controller {
     const select = this.element.querySelector('#' + id);
     if (!select) return;
     const enabled = String(editable) === 'true';
-    const value = enabled ? (staged ?? select.value) : '';
+    const value = enabled ? staged : '';
     const values = String(catalogue || '').split(',').filter(Boolean);
     select.replaceChildren(new Option('Provider default', ''));
     for (const entry of values) select.append(new Option(entry, entry));
@@ -471,13 +483,35 @@ export default class DcChatController extends Stimulus.Controller {
     return typeof field?.value === 'string' ? field.value : '';
   }
 
-  /// One apply path for both popovers: whichever Apply was pressed, the payload
-  /// is the current state of every context control on the page.
+  /// Every context control commits on its own `change` (a select on pick,
+  /// Directory on Enter or blur) and takes effect for the next turn; a running
+  /// turn is never touched. One request is in flight at a time: a commit made
+  /// meanwhile is sent once that one returns, on the revision it returned.
   async applyContext(event) {
+    if (event?.target?.id === 'effective-context-directory') this.directoryRejected = false;
+    this.contextApplyQueued = true;
+    if (this.contextApplying) return;
+    this.contextApplying = true;
+    try {
+      while (this.contextApplyQueued) {
+        this.contextApplyQueued = false;
+        if (!(await this.sendContext())) break;
+      }
+    } finally {
+      this.contextApplying = false;
+      this.contextApplyQueued = false;
+    }
+  }
+
+  /// Enter in Directory is its commit, and that commit is the `change` it
+  /// fires; the form's own submission would reload the page.
+  holdContextSubmit(event) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const validation = form.querySelector('.pop-validation');
-    const apply = form.querySelector('[type="submit"]');
+  }
+
+  /// One commit states the whole next-turn context from every control on the
+  /// page. Resolves false when it was refused.
+  async sendContext() {
     const optionalValue = (id) => {
       const value = this.contextFieldValue(id).trim();
       return value ? value : null;
@@ -485,15 +519,18 @@ export default class DcChatController extends Stimulus.Controller {
     const payload = {
       conversation_revision: this.conversationRevision,
       project_id: this.contextFieldValue('effective-context-project'),
-      directory: this.contextFieldValue('effective-context-directory'),
+      // A refused directory stays in the field for correction, but it is not a
+      // value anyone applied, so other commits carry the applied one.
+      directory: this.directoryRejected
+        ? this.appliedContextSnapshot.effective_context.directory
+        : this.contextFieldValue('effective-context-directory'),
       provider: this.contextFieldValue('effective-context-provider'),
       model: optionalValue('effective-context-model-input'),
       effort: optionalValue('effective-context-effort-input'),
       attachments: this.attachments.filter((item) => item.state === 'ready'),
       references: this.references.filter((item) => item.state === 'resolved'),
     };
-    apply.disabled = true;
-    if (validation) validation.hidden = true;
+    let message;
     try {
       const response = await fetch('/api/sessions/' + encodeURIComponent(this.sessionId) + '/context', {
         method: 'PATCH',
@@ -501,22 +538,86 @@ export default class DcChatController extends Stimulus.Controller {
         body: JSON.stringify(payload),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (validation) {
-          validation.textContent = result.error?.message || 'Context change was rejected';
-          validation.hidden = false;
+      if (response.ok) {
+        this.showContextRejection(null);
+        this.directoryRejected = false;
+        this.element.querySelector('#effective-context-directory')?.removeAttribute('aria-invalid');
+        // A conversation-state refresh that landed meanwhile may be newer.
+        const latest = Number(result.revision) >= this.conversationRevision ? result : this.appliedContextSnapshot;
+        if (this.contextApplyQueued) {
+          // The controls already show the waiting commit; reconciling them to
+          // this response would undo it before it is sent.
+          this.appliedContextSnapshot = latest;
+          this.conversationRevision = Number(latest.revision);
+        } else {
+          this.reconcileContext(latest);
+          if (this.liveStatus) this.liveStatus.textContent = 'Context updated for the next turn';
         }
-        return;
+        return true;
       }
-      this.reconcileContext(result);
-      if (this.liveStatus) this.liveStatus.textContent = 'Context updated for the next turn';
+      message = result.error?.message || 'Context change was rejected';
     } catch (_) {
-      if (validation) {
-        validation.textContent = 'Context change could not be applied';
-        validation.hidden = false;
-      }
-    } finally {
-      apply.disabled = false;
+      message = 'Context change could not be applied';
+    }
+    this.rejectContext(message);
+    return false;
+  }
+
+  /// A refused commit leaves no control showing a value that was not applied:
+  /// the selects go back to the applied context, and Directory keeps its typed
+  /// text, marked invalid, so it can be corrected rather than retyped.
+  rejectContext(message) {
+    this.showContextRejection(message);
+    // Leaving Directory by clicking outside closes the popover before its
+    // `change` fires, so the refusal would land in a hidden popover.
+    if (!this.activeContextPopover) showToast('error', message);
+    const directory = this.element.querySelector('#effective-context-directory');
+    const applied = this.appliedContextSnapshot;
+    if (!applied) return;
+    if (directory && directory.value !== applied.effective_context?.directory) {
+      this.directoryRejected = true;
+      directory.setAttribute('aria-invalid', 'true');
+    }
+    // The restored snapshot can be older than the revision other responses
+    // have since advanced to; going back would fail the next commit.
+    const revision = this.conversationRevision;
+    this.reconcileContext(applied);
+    this.conversationRevision = Math.max(revision, this.conversationRevision);
+  }
+
+  /// The server-rendered selection is the applied context until the first
+  /// conversation-state snapshot arrives, so a refusal before then (or after a
+  /// failed fetch) still has an applied context to restore.
+  seedAppliedContext() {
+    const field = (id) => this.element.querySelector('#' + id);
+    const provider = field('effective-context-provider');
+    if (!provider) return;
+    const model = field('effective-context-model-input');
+    const effort = field('effective-context-effort-input');
+    const usage = field('effective-context-usage');
+    this.appliedContextSnapshot = {
+      revision: this.conversationRevision,
+      next_context: {},
+      effective_context: {
+        projectId: field('effective-context-project')?.value,
+        project: field('effective-context-project-name')?.textContent,
+        directory: field('effective-context-directory')?.value,
+        provider: provider.value,
+        modelEditable: model?.disabled === false,
+        effortEditable: effort?.disabled === false,
+        modelValue: model?.value || '',
+        effortValue: effort?.value || '',
+        composer: field('effective-context-composer-provider')?.textContent,
+        usage: usage?.hidden ? '' : usage?.textContent,
+        continuityHidden: field('effective-context-continuity')?.hidden === true,
+      },
+    };
+  }
+
+  showContextRejection(message) {
+    for (const validation of this.element.querySelectorAll('.pop-validation')) {
+      validation.textContent = message || '';
+      validation.hidden = !message;
     }
   }
 
@@ -535,8 +636,9 @@ export default class DcChatController extends Stimulus.Controller {
     if (![...project.options].some((option) => option.value === view.projectId)) return;
     if (![...provider.options].some((option) => option.value === view.provider)) return;
 
+    this.appliedContextSnapshot = snapshot;
     this.setSelectValue(project, view.projectId);
-    directory.value = view.directory;
+    if (!this.directoryRejected) directory.value = view.directory;
     this.setSelectValue(provider, view.provider);
     const providerOption = provider.selectedOptions?.[0];
     this.renderContextOptions(
@@ -568,20 +670,19 @@ export default class DcChatController extends Stimulus.Controller {
     const identicon = this.element.querySelector('.composer-context-chip [data-identicon-id]');
     if (identicon) identicon.dataset.identiconId = view.projectId;
     directory.title = directory.value;
-    this.appliedProvider = view.provider;
-    this.updateContinuityWarning();
+    this.updateContinuityWarning(view);
 
     this.conversationRevision = nextRevision;
   }
 
   /// The continuity notice is a consequence of switching providers, not a
-  /// standing caption: it appears only while the form's selection differs from
-  /// the provider the conversation is actually on.
-  updateContinuityWarning() {
+  /// standing caption. Whether the applied next-turn provider differs from the
+  /// one the conversation last ran on is decided once, by
+  /// `session_routes_support.dart#effectiveContextView`, for the first paint
+  /// and for every applied snapshot alike.
+  updateContinuityWarning(view) {
     const warning = this.element.querySelector('#effective-context-continuity');
-    const selected = this.element.querySelector('#effective-context-provider')?.value;
-    if (!warning) return;
-    warning.hidden = !selected || !this.appliedProvider || selected === this.appliedProvider;
+    if (warning) warning.hidden = view.continuityHidden === true;
   }
 
   handleContextDialogKeydown(event) {
@@ -1370,9 +1471,27 @@ export default class DcChatController extends Stimulus.Controller {
         '</button>';
     }).join('');
     list.querySelectorAll('[data-reference-index]').forEach((button) => {
-      button.addEventListener('click', () => this.selectReference(Number(button.dataset.referenceIndex)));
+      const index = Number(button.dataset.referenceIndex);
+      button.addEventListener('click', () => this.selectReference(index));
+      // The pointer moves the keyboard's cursor rather than painting a second
+      // one. A move, not an enter: a list scrolled under a resting pointer must
+      // not take the cursor back.
+      button.addEventListener('pointermove', () => {
+        if (index === this.activeReferenceIndex) return;
+        this.activeReferenceIndex = index;
+        list.querySelectorAll('[data-reference-index]').forEach((row) => {
+          row.setAttribute('aria-selected', String(Number(row.dataset.referenceIndex) === index));
+        });
+      });
     });
     palette.hidden = false;
+  }
+
+  /// Rows and header are not focusable, so a press there would move focus to
+  /// `#main-content` and take the arrow keys away from the composer. `click`
+  /// still fires, so a row is still chosen.
+  keepComposerFocus(event) {
+    event.preventDefault();
   }
 
   hideReferencePalette() {
@@ -1548,7 +1667,11 @@ export default class DcChatController extends Stimulus.Controller {
       .then((snapshot) => {
         if (Number(snapshot.revision || 0) < this.conversationRevision) return;
         this.conversationRevision = Number(snapshot.revision || 0);
-        this.reconcileContext(snapshot);
+        // While a context commit is in flight or waiting, the controls hold
+        // what it will send; this snapshot may predate it, so it only becomes
+        // the applied context the commit reconciles against.
+        if (this.contextApplying) this.appliedContextSnapshot = snapshot;
+        else this.reconcileContext(snapshot);
         this.conversationReady = true;
         this.renderQueue(Array.isArray(snapshot.queue) ? snapshot.queue : []);
         this.renderRequestStrip(Array.isArray(snapshot.records) ? snapshot.records : []);

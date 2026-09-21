@@ -101,11 +101,16 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - The composer's project chip and model pill open separate popovers: **Project** (project, directory, a link to Session
   info) and **Provider and model** (provider, model and effort as dropdowns fed by each adapter's declared catalogue;
-  Claude declares `sonnet`, `opus`, `haiku` and `low`, `medium`, `high`, `xhigh`, `max`). The context diagnostics stay on
-  Session info. Queue, its steer caret and send share one 28px control tier, and queued-turn actions rest borderless.
+  Claude declares `sonnet`, `opus`, `haiku` and `low`, `medium`, `high`, `xhigh`, `max`). A change applies to the next
+  turn when it is picked (Directory on Enter or leaving the field), with no Apply button; a refused change shows why
+  and the controls return to the applied context. The context diagnostics stay on Session info. Queue, its steer caret
+  and send share one 28px control tier, and queued-turn actions rest borderless.
 
 ### Fixed
 
+- Dropdown menus and command palettes highlight exactly one row, moved by the pointer and the arrow keys alike, and
+  popovers no longer tint or lift under the pointer. A dropdown without room below its trigger opens upward or shrinks
+  and scrolls. Clicking inside the slash, `@` or Cmd+K palette keeps keyboard focus in its input.
 - The 404 page's Back to Home button lost its arrow glyph and label centring to the empty-state hero rule.
 - Cancelling a turn while the Claude harness was inside a tool call never settled that turn: the stop path tore the
   process down without completing the in-flight turn, so the session lock stayed held for the life of the server and

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "2",
+  "prd": null,
+  "overview": {
+    "summary": "Fix web UI dropdown menus, composer context popovers and command palettes: one highlight, fully visible menus, apply on change, focus kept in palette inputs."
+  },
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Menu, popover and palette interaction",
+      "dependsOn": [],
+      "status": "done",
+      "fis": "s01-menu-popover-and-palette-interaction.md",
+      "completedTaskIds": ["TI01", "TI02", "TI03", "TI04", "TI05", "TI06", "TI07", "TI08", "TI09"],
+      "verified": {
+        "at": "2026-09-21T18:56Z",
+        "summary": "TI01-TI09 Verify green; runtime analyze clean; runtime suite 5139 pass, 2 load-sensitive worker-timeout tests pass in isolation; browser pass 800x600 dark+light; independent review APPROVE after 6 fixes."
+      },
+      "owner": null,
+      "scope": "Hover and cursor highlight in .pop menus and palettes, enhanced-select menu placement, composer context popovers apply on change without an Apply button, palette pointer presses keep input focus.",
+      "provenance": "dev/bundle/docs/specs/0.27-menu-palette-fixes/plan.json",
+      "sequencing": null
+    }
+  ]
+}

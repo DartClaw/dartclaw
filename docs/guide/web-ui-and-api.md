@@ -100,10 +100,13 @@ brings it back.
   opens them. **Project** stages the project and working directory and links to Session info, which lists the workspace
   owner, the current turn, and the measurement, behavior and memory records. **Model** stages the provider, model and
   effort: model and effort are pickers over what that provider's adapter accepts, plus its own default, plus any value
-  already staged from YAML or the JSON API. Either **Apply to next turn** commits both popovers' current selection. A
-  provider change warns about provider-native continuity only while the selection actually differs from the running
-  provider. Context changes carry the displayed conversation revision. Fields an adapter does not transport are
-  disabled, and a rejected change leaves the draft and prior context intact.
+  already staged from YAML or the JSON API. There is no Apply button: a pick applies as soon as it is made, and
+  Directory applies on Enter or when you leave the field. Each change takes effect for the next turn and never
+  interrupts a running one, and a change made while another is still being applied is sent right after it. A
+  provider change warns about provider-native continuity while the next turn's provider differs from the one the
+  conversation last ran on. Context changes carry the displayed conversation revision. Fields an adapter does not
+  transport are disabled. A rejected change shows the reason in the popover and the pickers return to the applied
+  context; a rejected directory stays in its field, marked invalid, until a change is accepted.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
 - **Syntax highlighting**: Code blocks are highlighted via highlight.js
 - **Tool indicators**: When the agent uses tools, you see status lines:

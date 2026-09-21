@@ -20,34 +20,38 @@ void main() {
     expect(open, isNot(contains('showModal')));
   });
 
-  // Two triggers, two popovers, but one payload: an Apply in either one has to
-  // state the whole next-turn context, so the handler reads every control on
-  // the page rather than only its own form's.
-  test('one apply path reads both popovers and posts the current revision', () async {
-    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
-    expect(source, contains('async applyContext(event)'));
-    expect(source, contains('conversation_revision: this.conversationRevision'));
-    expect(source, contains("attachments: this.attachments.filter((item) => item.state === 'ready')"));
-    expect(source, contains("references: this.references.filter((item) => item.state === 'resolved')"));
-    expect(source, contains("'/context'"));
-    expect(source, contains("result.error?.message || 'Context change was rejected'"));
-    final method = source.substring(
-      source.indexOf('async applyContext(event)'),
-      source.indexOf('reconcileContext(snapshot)'),
+  // A separate Apply step left the popover showing a selection the next turn
+  // would not run. Each commit applies at once, states the whole next-turn
+  // context from both popovers, and never races another commit.
+  test('context applies on change, one request per commit, serialised', () async {
+    final template = File(await resolveServerPackagePath('lib', 'src', 'templates', 'chat.html')).readAsStringSync();
+    final popovers = template.substring(
+      template.indexOf('id="effective-context-project-pop"'),
+      template.indexOf('<dialog id="temporary-create-dialog"'),
     );
-    for (final field in const [
-      'effective-context-project',
-      'effective-context-directory',
-      'effective-context-provider',
-      'effective-context-model-input',
-      'effective-context-effort-input',
-    ]) {
-      expect(method, contains(field), reason: field);
-    }
-    // The message the popover shows is its own, so a rejection reaches the
-    // reader in the surface they pressed Apply in.
-    expect(method, contains("form.querySelector('.pop-validation')"));
-    expect(method, isNot(contains('this.textarea.value')));
+    expect(popovers, isNot(contains('type="submit"')));
+    expect(popovers, isNot(contains('Apply')));
+    // Selects commit on pick and Directory on Enter or leaving the field: both
+    // are its `change`, so nothing listens per keystroke.
+    expect(popovers, contains('data-action="change->dc-chat#applyContext submit->dc-chat#holdContextSubmit"'));
+    expect(popovers, contains('<form id="effective-context-model-form" data-action="change->dc-chat#applyContext">'));
+    expect(popovers, contains('data-action="change->dc-chat#contextProviderChanged"'));
+    expect(popovers, isNot(contains('input->')));
+    final controller = await controllerAsset('dc_chat_controller.js');
+    await expectNodeHarness(_applyOnChangeHarness, [controller.absolute.uri.toString()]);
+  });
+
+  test('a rejected apply restores the applied context and keeps the typed directory', () async {
+    final controller = await controllerAsset('dc_chat_controller.js');
+    await expectNodeHarness(_rejectedApplyHarness, [controller.absolute.uri.toString()]);
+  });
+
+  // The notice is about the provider the conversation last ran on; showing it
+  // for a pick that has not been applied, or keeping it after the pick is
+  // undone, misreports what the next turn will lose.
+  test('the continuity notice follows the applied context after a client apply', () async {
+    final controller = await controllerAsset('dc_chat_controller.js');
+    await expectNodeHarness(_continuityHarness, [controller.absolute.uri.toString()]);
   });
 
   // Opening the sibling hides it directly rather than going through the close
@@ -84,7 +88,7 @@ void main() {
     final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     final method = source.substring(
       source.indexOf('reconcileContext(snapshot)'),
-      source.indexOf('updateContinuityWarning() {'),
+      source.indexOf('updateContinuityWarning(view) {'),
     );
     expect(method, contains('snapshot.effective_context'));
     for (final field in const [
@@ -142,7 +146,9 @@ void main() {
   });
 }
 
-const _contextSyncHarness = r'''
+/// Loads dc-chat with the shared module stubbed and the select double the
+/// harnesses below build their context controls from.
+const _contextControllerModule = r'''
 import { readFile } from 'node:fs/promises';
 
 function assert(condition, message) {
@@ -161,6 +167,7 @@ globalThis.Option = class {
   }
 };
 globalThis.syncCalls = [];
+globalThis.toasts = [];
 
 let source = await readFile(new URL(process.argv[1]), 'utf8');
 source = source.replace(/import \{[\s\S]*?\} from '\.\/shared\.js';/, `
@@ -176,7 +183,7 @@ const readHtmxErrorMessage = () => '';
 const renderMarkdown = () => {};
 const scrollToBottom = () => {};
 const showBanner = () => {};
-const showToast = () => {};
+const showToast = (type, message) => globalThis.toasts.push(message);
 const syncSidebarSessionTitle = () => {};
 // Stands in for the enhancer's re-read, capturing what it would have seen.
 const syncCustomSelect = (select) => {
@@ -210,6 +217,111 @@ const providerOption = (value, models, efforts) => {
   return option;
 };
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+// A server snapshot of the effective context: claude, project p1, nothing
+// chosen, no continuity notice, unless [view] says otherwise.
+function snapshot(revision, view = {}) {
+  return {
+    revision,
+    next_context: {},
+    effective_context: {
+      projectId: 'p1',
+      directory: '/tmp/alpha',
+      provider: 'claude',
+      modelEditable: true,
+      effortEditable: true,
+      modelValue: '',
+      effortValue: '',
+      composer: 'claude',
+      continuityHidden: true,
+      ...view,
+    },
+  };
+}
+const accepted = (body) => ({ ok: true, json: async () => body });
+const refused = (message) => ({ ok: false, json: async () => ({ error: { message } }) });
+
+// Both popovers' controls behind a controller that has reconciled revision 3.
+// Every PATCH is held until the harness answers it, and records what the
+// model picker offered when it was sent.
+function contextFixture() {
+  const project = new FakeSelect('effective-context-project', [new Option('Alpha', 'p1'), new Option('Beta', 'p2')]);
+  const provider = new FakeSelect('effective-context-provider', [
+    providerOption('claude', 'sonnet,opus', 'low,high'),
+    providerOption('codex', 'gpt-5,gpt-5-mini', 'medium,xhigh'),
+  ]);
+  const model = new FakeSelect('effective-context-model-input', [new Option('Provider default', '')]);
+  const effort = new FakeSelect('effective-context-effort-input', [new Option('Provider default', '')]);
+  const directory = {
+    id: 'effective-context-directory',
+    value: '',
+    title: '',
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    removeAttribute(name) { delete this.attributes[name]; },
+  };
+  const continuity = { hidden: true };
+  const pill = { textContent: '' };
+  const validations = [{ hidden: true, textContent: '' }, { hidden: true, textContent: '' }];
+  // The popover the commits are made in; open unless a case closes it.
+  const popover = { hidden: false };
+  const nodes = {
+    '#effective-context-project': project,
+    '#effective-context-directory': directory,
+    '#effective-context-provider': provider,
+    '#effective-context-model-input': model,
+    '#effective-context-effort-input': effort,
+    '#effective-context-continuity': continuity,
+    '#effective-context-composer-provider': pill,
+  };
+  const controller = new module.default();
+  controller.element = {
+    dataset: { sessionId: 'session-1' },
+    querySelector: (selector) => nodes[selector] ?? null,
+    querySelectorAll: (selector) => {
+      if (selector === '.pop-validation') return validations;
+      if (selector === '.pop-project, .pop-model') return [popover];
+      return [];
+    },
+  };
+  controller.attachments = [];
+  controller.references = [];
+  controller.reconcileContext(snapshot(3));
+  const requests = [];
+  globalThis.fetch = (url, init) => {
+    const response = deferred();
+    requests.push({
+      url,
+      method: init?.method ?? 'GET',
+      body: init?.body ? JSON.parse(init.body) : null,
+      modelOptions: model.options.map((option) => option.textContent),
+      respond: response.resolve,
+    });
+    return response.promise;
+  };
+  // The DOM's order for one commit: the control's own action at its target,
+  // then the form's as the `change` bubbles.
+  const commit = (control, value) => {
+    control.value = value;
+    if (control === provider) controller.contextProviderChanged({ currentTarget: provider });
+    return controller.applyContext({ target: control });
+  };
+  return {
+    controller, project, provider, model, effort, directory, continuity, pill, validations, popover, requests, commit,
+  };
+}
+''';
+
+const _contextSyncHarness =
+    _contextControllerModule +
+    r'''
 const project = new FakeSelect('effective-context-project',
   [new Option('Alpha', 'p1'), new Option('Beta', 'p2')]);
 const provider = new FakeSelect('effective-context-provider', [
@@ -231,7 +343,6 @@ const nodes = {
 
 const controller = new module.default();
 controller.element = { querySelector: (selector) => nodes[selector] ?? null };
-controller.appliedProvider = 'claude';
 controller.conversationRevision = 3;
 
 const recorded = (id) => globalThis.syncCalls.filter((call) => call.id === id);
@@ -279,4 +390,203 @@ assert(same(recorded('effective-context-effort-input')[0].labels, ['Provider def
   'the reconciled effort sync read the previous provider catalogue: '
     + JSON.stringify(recorded('effective-context-effort-input')[0].labels));
 assert(controller.conversationRevision === 7, 'the revision was not absorbed');
+''';
+
+const _applyOnChangeHarness =
+    _contextControllerModule +
+    r'''
+const f = contextFixture();
+const shown = () => f.validations.filter((validation) => !validation.hidden);
+
+// Picking a model sends one request, on the displayed revision, and the pill
+// reconciles from the answer.
+const picked = f.commit(f.model, 'opus');
+assert(f.requests.length === 1, 'picking a model sent ' + f.requests.length + ' requests');
+assert(f.requests[0].method === 'PATCH' && f.requests[0].url === '/api/sessions/session-1/context',
+  'the pick did not go to the context route: ' + f.requests[0].method + ' ' + f.requests[0].url);
+assert(f.requests[0].body.model === 'opus', 'the pick did not carry the model');
+assert(f.requests[0].body.conversation_revision === 3, 'the pick did not carry the displayed revision');
+f.requests[0].respond(accepted(snapshot(4, { modelValue: 'opus', composer: 'claude · opus' })));
+await picked;
+assert(f.pill.textContent === 'claude · opus', 'the pill did not reconcile: ' + f.pill.textContent);
+assert(f.model.value === 'opus', 'the model picker did not reconcile');
+assert(f.controller.conversationRevision === 4, 'the returned revision was not absorbed');
+
+// Provider default is no model at all, not an empty one.
+const cleared = f.commit(f.model, '');
+assert(f.requests[1].body.model === null, 'Provider default sent ' + JSON.stringify(f.requests[1].body.model));
+f.requests[1].respond(accepted(snapshot(5)));
+await cleared;
+
+// A provider change rebuilds the pickers over the new catalogue first, then
+// applies once.
+const switched = f.commit(f.provider, 'codex');
+assert(f.requests.length === 3, 'a provider change sent ' + (f.requests.length - 2) + ' requests');
+assert(f.requests[2].body.provider === 'codex', 'the provider change did not carry the provider');
+assert(f.requests[2].modelOptions.join() === 'Provider default,gpt-5,gpt-5-mini',
+  'the request went out before the model picker was rebuilt: ' + f.requests[2].modelOptions.join());
+f.requests[2].respond(accepted(snapshot(6, { provider: 'codex' })));
+await switched;
+assert(f.requests.length === 3, 'the provider change was applied more than once');
+
+// A change made while another is in flight waits for it, then goes out on the
+// revision it returned, carrying both changes. The first answer must not undo
+// the waiting change.
+const first = f.commit(f.model, 'gpt-5');
+const second = f.commit(f.effort, 'xhigh');
+assert(f.requests.length === 4, 'a second request was sent while the first was in flight');
+f.requests[3].respond(accepted(snapshot(7, { provider: 'codex', modelValue: 'gpt-5' })));
+await settle();
+assert(f.requests.length === 5, 'the waiting change was never sent');
+assert(f.requests[4].body.conversation_revision === 7, 'the waiting change did not carry the returned revision');
+assert(f.requests[4].body.model === 'gpt-5' && f.requests[4].body.effort === 'xhigh',
+  'the waiting change lost a field: ' + JSON.stringify(f.requests[4].body));
+f.requests[4].respond(accepted(snapshot(8, { provider: 'codex', modelValue: 'gpt-5', effortValue: 'xhigh' })));
+await Promise.all([first, second]);
+assert(f.effort.value === 'xhigh' && f.model.value === 'gpt-5', 'the final context is not the second change');
+assert(f.controller.conversationRevision === 8, 'the final revision was not absorbed');
+assert(shown().length === 0, 'a serialised change reported a rejection');
+assert(f.requests.length === 5, 'more requests than commits were sent');
+
+// Enter in Directory commits through its `change`; the form submission it
+// also triggers is held and sends nothing.
+let held = false;
+f.controller.holdContextSubmit({ preventDefault() { held = true; } });
+assert(held && f.requests.length === 5, 'a directory submit was not held or sent a request');
+
+// Picks made for one provider do not travel to another: the new provider
+// would be asked for a model and effort it does not offer, and its next turn
+// would fail.
+const across = contextFixture();
+across.controller.reconcileContext(snapshot(4, { modelValue: 'opus', effortValue: 'high' }));
+const switching = across.commit(across.provider, 'codex');
+assert(across.requests[0].body.model === null && across.requests[0].body.effort === null,
+  'a provider change carried the old provider picks: ' + JSON.stringify(across.requests[0].body));
+across.requests[0].respond(accepted(snapshot(5, { provider: 'codex' })));
+await switching;
+
+// A conversation-state refresh landing between a waiting commit and its send
+// (a running turn emits them) must not revert the controls the commit sends.
+const racing = contextFixture();
+for (const name of ['renderQueue', 'renderRequestStrip', 'showRecovery', 'updateSendState',
+  'handleVisibleReadBoundary', 'setSaveStatus']) {
+  racing.controller[name] = () => {};
+}
+const pickA = racing.commit(racing.model, 'opus');
+const pickB = racing.commit(racing.effort, 'high');
+const refresh = racing.controller.refreshConversationState();
+assert(racing.requests[1].method === 'GET', 'the refresh did not read the conversation state');
+racing.requests[1].respond(accepted({ ...snapshot(5), queue: [], records: [], activity: {} }));
+await refresh;
+assert(racing.model.value === 'opus' && racing.effort.value === 'high',
+  'a refresh reverted controls a commit is about to send');
+// The first commit's answer predates the refresh; the waiting commit goes out
+// on the newer revision.
+racing.requests[0].respond(accepted(snapshot(4, { modelValue: 'opus' })));
+await settle();
+const waiting = racing.requests[2];
+assert(waiting && waiting.body.model === 'opus' && waiting.body.effort === 'high',
+  'the waiting commit lost a change: ' + JSON.stringify(waiting?.body));
+assert(waiting.body.conversation_revision === 5, 'the waiting commit used a stale revision');
+waiting.respond(accepted(snapshot(6, { modelValue: 'opus', effortValue: 'high' })));
+await Promise.all([pickA, pickB]);
+assert(racing.model.value === 'opus' && racing.effort.value === 'high', 'the final context is not both changes');
+''';
+
+const _rejectedApplyHarness =
+    _contextControllerModule +
+    r'''
+const f = contextFixture();
+const recorded = (id) => globalThis.syncCalls.filter((call) => call.id === id);
+const messages = () => f.validations.map((validation) => (validation.hidden ? '' : validation.textContent));
+
+// A refused directory says why and stays in the field, marked invalid.
+f.directory.value = '/nope';
+const directory = f.controller.applyContext({ target: f.directory });
+assert(f.requests[0].body.directory === '/nope', 'the typed directory was not sent');
+f.requests[0].respond(refused('Directory does not exist'));
+await directory;
+assert(messages().every((message) => message === 'Directory does not exist'), 'the refusal was not shown: '
+  + JSON.stringify(messages()));
+assert(f.directory.value === '/nope', 'the typed directory was discarded: ' + f.directory.value);
+assert(f.directory.attributes['aria-invalid'] === 'true', 'the refused directory was not marked invalid');
+
+// A refused pick goes back to the applied value, through the enhancer's sync.
+// The refused directory is not an applied value, so it does not ride along.
+const model = f.commit(f.model, 'opus');
+assert(f.requests[1].body.directory === '/tmp/alpha',
+  'an unrelated change carried the refused directory: ' + f.requests[1].body.directory);
+f.requests[1].respond(refused('Model not accepted'));
+await model;
+assert(f.model.value === '', 'the model picker kept a refused value: ' + f.model.value);
+assert(recorded('effective-context-model-input').at(-1).value === '', 'the restored model was not synced');
+assert(messages().every((message) => message === 'Model not accepted'), 'the second refusal was not shown');
+assert(f.directory.value === '/nope' && f.directory.attributes['aria-invalid'] === 'true',
+  'an unrelated refusal cleared the typed directory');
+
+// The next accepted change clears the refusal and the invalid mark.
+const effort = f.commit(f.effort, 'high');
+f.requests[2].respond(accepted(snapshot(4, { effortValue: 'high' })));
+await effort;
+assert(!('aria-invalid' in f.directory.attributes), 'the invalid mark outlived an accepted change');
+assert(f.directory.value === '/tmp/alpha', 'the directory does not show the applied value: ' + f.directory.value);
+assert(messages().every((message) => message === ''), 'the refusal outlived an accepted change');
+assert(globalThis.toasts.length === 0, 'a refusal shown in the open popover was also toasted');
+
+// Before the first conversation-state snapshot, the server-rendered selection
+// is the applied context a refusal restores.
+const early = contextFixture();
+early.controller.appliedContextSnapshot = null;
+early.controller.seedAppliedContext();
+const earlyPick = early.commit(early.model, 'opus');
+early.requests[0].respond(refused('Model not accepted'));
+await earlyPick;
+assert(early.model.value === '', 'a refusal before the first snapshot left the refused value shown');
+
+// Another response (a mark-read, a queue edit) can advance the revision past
+// the applied snapshot's; restoring after a refusal must not roll it back.
+early.controller.conversationRevision = 9;
+const advanced = early.commit(early.model, 'sonnet');
+early.requests[1].respond(refused('Model not accepted'));
+await advanced;
+assert(early.controller.conversationRevision === 9,
+  'a refusal rolled the revision back to ' + early.controller.conversationRevision);
+const after = early.commit(early.effort, 'high');
+assert(early.requests[2].body.conversation_revision === 9, 'the next commit carried a rolled-back revision');
+early.requests[2].respond(accepted(snapshot(10, { effortValue: 'high' })));
+await after;
+
+// Leaving Directory by clicking outside closes the popover before its change
+// fires; the refusal must still reach the reader.
+early.popover.hidden = true;
+early.directory.value = '/gone';
+const closed = early.controller.applyContext({ target: early.directory });
+early.requests[3].respond(refused('Directory does not exist'));
+await closed;
+assert(globalThis.toasts.join() === 'Directory does not exist',
+  'a refusal for a closed popover was not shown: ' + JSON.stringify(globalThis.toasts));
+''';
+
+const _continuityHarness =
+    _contextControllerModule +
+    r'''
+const f = contextFixture();
+assert(f.continuity.hidden, 'the notice showed with nothing changed');
+
+const toCodex = f.commit(f.provider, 'codex');
+assert(f.continuity.hidden, 'the notice showed for a provider change not yet applied');
+f.requests[0].respond(accepted(snapshot(4, { provider: 'codex', continuityHidden: null })));
+await toCodex;
+assert(!f.continuity.hidden, 'the notice stayed hidden after a provider change was applied');
+
+const back = f.commit(f.provider, 'claude');
+f.requests[1].respond(accepted(snapshot(5, { provider: 'claude', continuityHidden: true })));
+await back;
+assert(f.continuity.hidden, 'the notice stayed after the last-run provider was applied again');
+
+// A refused change restores the applied context, and the notice with it.
+const refusedSwitch = f.commit(f.provider, 'codex');
+f.requests[2].respond(refused('Provider unavailable'));
+await refusedSwitch;
+assert(f.continuity.hidden, 'the notice showed for a refused provider change');
 ''';

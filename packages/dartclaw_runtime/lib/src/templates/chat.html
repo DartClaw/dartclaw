@@ -135,7 +135,8 @@
       <form id="chat-form" class="composer" tl:attr="hx-post=${sendUrl}" hx-target="#messages" hx-swap="beforeend"
             data-action="drop->dc-chat#handleDrop dragover->dc-chat#handleDragOver paste->dc-chat#handlePaste">
         <div class="composer-context chip-row" data-dc-chat-target="contextTray" hidden></div>
-        <div class="composer-reference-palette card card-glass" data-dc-chat-target="referencePalette" hidden>
+        <div class="composer-reference-palette card card-glass" data-dc-chat-target="referencePalette"
+             data-action="mousedown->dc-chat#keepComposerFocus" hidden>
           <div class="composer-palette-header">References</div>
           <div class="composer-palette-list" role="listbox" aria-label="References"></div>
         </div>
@@ -198,9 +199,10 @@
       </form>
       <div id="composer-live-status" class="sr-only" data-dc-chat-target="liveStatus" role="status" aria-live="polite"></div>
       <!-- Two controls, two popovers, one apply path: each trigger opens the
-           fields it names, and dc-chat builds one payload from both forms.
-           Workspace, measurement, behavior, memory and the current turn are
-           read-only facts, and Session info already lists them. -->
+           fields it names, and every committed change applies to the next turn
+           with one payload built from both forms. Workspace, measurement,
+           behavior, memory and the current turn are read-only facts, and
+           Session info already lists them. -->
       <div tl:if="${hasEffectiveContext}" id="effective-context-project-pop" class="pop pop-project card card-elevated"
            role="dialog" aria-labelledby="effective-context-project-title" hidden>
         <div class="pop-head">
@@ -208,7 +210,8 @@
           <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Close"
                   data-action="dc-chat#closeContextPopover"></button>
         </div>
-        <form id="effective-context-project-form" data-action="submit->dc-chat#applyContext">
+        <form id="effective-context-project-form"
+              data-action="change->dc-chat#applyContext submit->dc-chat#holdContextSubmit">
           <div class="form-field">
             <label class="form-label t-caption tracking-caps" for="effective-context-project">Project</label>
             <select id="effective-context-project" name="project_id" class="form-select">
@@ -226,7 +229,6 @@
             <a class="pop-foot-link" tl:attr="href=${infoHref},hx-get=${infoHref}"
                hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
                hx-select-oob="#topbar,#restart-banner-slot,#sidebar">Session info</a>
-            <button id="effective-context-project-apply" type="submit" class="btn btn-sm btn-primary">Apply to next turn</button>
           </div>
         </form>
       </div>
@@ -237,7 +239,7 @@
           <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Close"
                   data-action="dc-chat#closeContextPopover"></button>
         </div>
-        <form id="effective-context-model-form" data-action="submit->dc-chat#applyContext">
+        <form id="effective-context-model-form" data-action="change->dc-chat#applyContext">
           <div class="form-field">
             <label class="form-label t-caption tracking-caps" for="effective-context-provider">Provider</label>
             <select id="effective-context-provider" name="provider" class="form-select"
@@ -262,11 +264,9 @@
                       tl:attr="value=${option.value},selected=${option.selected}">provider default</option>
             </select>
           </div>
-          <p id="effective-context-continuity" class="banner banner-warning" hidden>Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
+          <p id="effective-context-continuity" class="banner banner-warning"
+             tl:attr="hidden=${effectiveContext.continuityHidden}">Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
           <p id="effective-context-model-validation" class="pop-validation" role="alert" hidden></p>
-          <div class="pop-foot">
-            <button id="effective-context-apply" type="submit" class="btn btn-sm btn-primary">Apply to next turn</button>
-          </div>
         </form>
       </div>
     </div>

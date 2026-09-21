@@ -217,6 +217,10 @@ Future<Map<String, dynamic>> effectiveContextView(
     // one is worth a line only while it disagrees with them. Before the first
     // turn there is no current context to disagree.
     'currentHidden': current == null || contextLabel(current) == contextLabel(next) ? true : null,
+    // The continuity notice warns only while the next turn would run on another
+    // provider than the one the conversation last ran on. This is the one
+    // decision: the page's first paint and dc-chat after every apply both read it.
+    'continuityHidden': current == null || current.provider == provider ? true : null,
     'telemetry': telemetryLabel,
     'behavior': behaviorLabel,
     'memory': telemetry?.memoryContributed == true ? 'Memory contributed' : null,

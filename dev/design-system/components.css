@@ -2787,7 +2787,9 @@ button.chip[aria-pressed="true"] {
    21. COMMAND PALETTE
 
    Rows inside the glass palette (.card-glass container + canonical input
-   at top are existing canon). --active is the keyboard cursor.
+   at top are existing canon). --active is the one cursor, and pointer
+   movement moves it, so a palette row has no :hover fill of its own: a
+   fill under a resting pointer would be a second highlight.
    ================================================================ */
 
 /* Section header — intentionally the same recipe as .notif-group; kept a
@@ -2817,7 +2819,6 @@ button.chip[aria-pressed="true"] {
   cursor: pointer;
   transition: background var(--transition);
 }
-.palette-item:hover { background: var(--bg-surface0); }
 .palette-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .palette-item > .icon { color: var(--fg-sub0); }
 .palette-item-label { font-size: var(--text-sm); color: var(--fg); }
@@ -2850,6 +2851,24 @@ button.chip[aria-pressed="true"] {
    .menu-* are .palette-item modifiers and must stay after it — the tick column
    re-templates the row's grid at equal specificity. */
 .pop { position: absolute; z-index: var(--z-dropdown); padding: var(--sp-1); }
+/* A floating menu is an overlay, like .card-glass: pointing at it must not
+   tint, glow or lift it. .card-elevated:hover and .card:hover would otherwise
+   apply, so the resting values are restated here (glass has its own). */
+.pop.card-elevated:hover, .pop.card-elevated.card-hover {
+  background: var(--bg-surface0);
+  border: var(--border);
+  border-top-color: color-mix(in srgb, var(--fg) 10%, transparent);
+  box-shadow: var(--shadow-md);
+  translate: none;
+}
+/* Rows on a .pop sit on --bg-surface0, so the row fill steps up a tier to
+   read at all. In the enhanced select the cursor is DOM focus and pointer
+   movement moves it, so there the fill follows :focus and a resting pointer
+   paints nothing. */
+.pop .palette-item:hover,
+.pop .palette-item--active,
+.custom-select-menu .palette-item:focus { background: var(--bg-surface1); }
+.custom-select-menu .palette-item:hover:not(:focus) { background: transparent; }
 .pop-sep { height: 1px; margin: var(--sp-1) 0; background: color-mix(in srgb, var(--bg-surface1) 55%, transparent); }
 .pop-head {
   display: flex; align-items: center; gap: var(--sp-2);
@@ -3381,6 +3400,9 @@ button.custom-select-trigger {
   max-height: 18rem;
   overflow-y: auto;
 }
+/* Set on open when the menu does not fit below its trigger and there is more
+   room above; the script also caps max-height to the room it chose. */
+.custom-select-menu--up { top: auto; bottom: calc(100% + var(--sp-1)); }
 .custom-select[data-open="true"] > .custom-select-menu { display: block; }
 .custom-select-option:disabled { opacity: 0.45; cursor: not-allowed; }
 

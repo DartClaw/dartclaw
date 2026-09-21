@@ -397,6 +397,13 @@ function enhanceCustomSelect(select) {
       text.className = 'palette-item-label';
       text.textContent = option.textContent || option.label || '';
       row.append(tick, text);
+      // Focus is the menu's one cursor, so the pointer moves it too. A move, not
+      // an enter: the list scrolling under a resting pointer must not take the
+      // cursor back from the keyboard.
+      row.addEventListener('pointermove', () => {
+        if (row.disabled || document.activeElement === row) return;
+        row.focus({ preventScroll: true });
+      });
       row.addEventListener('click', () => {
         if (option.disabled) return;
         select.value = option.value;
@@ -409,11 +416,33 @@ function enhanceCustomSelect(select) {
     });
   }
 
+  // Below the trigger whenever the whole menu fits there. Otherwise the side
+  // with more room, with the height capped to that room so every row is still
+  // reachable by scrolling. Measured on each open: the trigger moves with the
+  // page, and a menu clipped by the viewport or a scrolling dialog body hides
+  // rows the keyboard can still land on.
+  function placeMenu() {
+    menu.classList.remove('custom-select-menu--up');
+    menu.style.maxHeight = '';
+    const anchor = trigger.getBoundingClientRect();
+    const box = menu.getBoundingClientRect();
+    const gap = box.top - anchor.bottom;
+    const bounds = visibleBounds(wrapper);
+    const below = bounds.bottom - anchor.bottom - gap;
+    if (box.height <= below) return;
+    const above = anchor.top - bounds.top - gap;
+    const up = above > below;
+    menu.classList.toggle('custom-select-menu--up', up);
+    const room = Math.max(0, up ? above : below);
+    if (box.height > room) menu.style.maxHeight = room + 'px';
+  }
+
   function setOpen(open, { focusOption = false } = {}) {
     if (open && select.disabled) return;
     closeAllCustomSelects(open ? wrapper : null);
     wrapper.dataset.open = open ? 'true' : 'false';
     trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) placeMenu();
     if (!open || !focusOption) return;
     const current = Array.from(menu.children).find((row) => row.dataset.value === select.value && !row.disabled);
     (current || enabledOptions()[0])?.focus();
@@ -479,6 +508,20 @@ function enhanceCustomSelect(select) {
   select._customSelectSync = refresh;
   buildOptions();
   syncFromSelect();
+}
+
+// The part of the viewport an element's overflow can show: every ancestor that
+// clips (any overflow but `visible`) narrows it.
+function visibleBounds(element) {
+  let top = 0;
+  let bottom = window.innerHeight;
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflowY === 'visible') continue;
+    const rect = node.getBoundingClientRect();
+    top = Math.max(top, rect.top);
+    bottom = Math.min(bottom, rect.bottom);
+  }
+  return { top, bottom };
 }
 
 // A form reset restores the native select silently — no `change` fires — so the

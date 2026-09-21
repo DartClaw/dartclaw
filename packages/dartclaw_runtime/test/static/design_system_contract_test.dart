@@ -48,6 +48,33 @@ void main() {
     expect(canon.indexOf('.menu-item {'), greaterThan(canon.indexOf('.palette-item {')));
   });
 
+  // A menu that tints, glows or lifts under the pointer reads as a target of
+  // its own, and a row fill equal to the menu surface is no highlight at all.
+  test('floating surfaces rest under hover and their rows fill off the surface', () async {
+    final css = File(await resolveDesignSystemCss('components.css')).readAsStringSync();
+    final elevated = _declarations(css, '.card-elevated');
+    final popHover = _declarations(css, '.pop.card-elevated:hover, .pop.card-elevated.card-hover');
+    expect(popHover['translate'], 'none');
+    for (final property in ['background', 'box-shadow', 'border-top-color']) {
+      expect(popHover[property], elevated[property], reason: '$property must restate the resting value');
+    }
+    // .card:hover resets all four edges through the border-color shorthand.
+    expect(popHover['border'], _declarations(css, '.card')['border']);
+
+    final rowFill = _declarations(
+      css,
+      '.pop .palette-item:hover,\n.pop .palette-item--active,\n.custom-select-menu .palette-item:focus',
+    )['background'];
+    expect(rowFill, isNotNull);
+    expect(rowFill, isNot(elevated['background']));
+    // In the select the cursor is focus, so a resting pointer must not paint a
+    // second row.
+    expect(_declarations(css, '.custom-select-menu .palette-item:hover:not(:focus)')['background'], 'transparent');
+    // A palette row's cursor is moved by the pointer; a hover fill of its own
+    // would leave two rows highlighted under a resting pointer.
+    expect(css, isNot(contains('.palette-item:hover {')));
+  });
+
   test('the field tier marker is quiet text, never a pill', () async {
     final css = File(await resolveDesignSystemCss('components.css')).readAsStringSync();
     final tier = css.substring(css.indexOf('.field-tier {'), css.indexOf('.field-tier--warn'));
@@ -62,4 +89,20 @@ void main() {
     expect(css, contains('.field-tier--warn { color: var(--warning); }'));
     expect(css, contains('.field-tier--ok { color: var(--success); }'));
   });
+}
+
+/// Declarations of the first rule whose selector list is exactly [selector],
+/// with each value's whitespace collapsed.
+Map<String, String> _declarations(String css, String selector) {
+  final rule = RegExp('^${RegExp.escape(selector)}\\s*\\{([^}]*)\\}', multiLine: true).firstMatch(css);
+  expect(rule, isNotNull, reason: 'canon must define $selector');
+  final body = rule!.group(1)!.replaceAll(RegExp(r'/\*[\s\S]*?\*/'), '');
+  return {
+    for (final declaration in body.split(';'))
+      if (declaration.contains(':'))
+        declaration.substring(0, declaration.indexOf(':')).trim(): declaration
+            .substring(declaration.indexOf(':') + 1)
+            .trim()
+            .replaceAll(RegExp(r'\s+'), ' '),
+  };
 }

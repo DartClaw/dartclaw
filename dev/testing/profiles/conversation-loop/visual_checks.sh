@@ -39,25 +39,36 @@ assert_layout_tiers() {
   ab "${session}" set viewport 1440 900
 }
 
-# Every violation fails, and so does every incomplete the gate can act on. The
-# one exemption is an incomplete whose every reason is that axe could not
-# resolve the element's background: the chat dock floats over the design
-# system's ambient gradient, and axe reports that as "overlapped by another
-# element" for elements that hit-test as topmost and in view, #message-input on
-# .composer's opaque ground among them. Failing on an audit finding that no
-# measurement reproduces is the kind of conformance work PRODUCT.md's standing
-# non-goals rule out at this stage. The count is still printed, so an exempt
-# reason cannot grow silently.
+# Every violation fails, and so does every incomplete the gate can act on. Two
+# exemptions, each for a reason the gate itself can settle:
+#
+# 1. Every reason is that axe could not resolve the element's background: the
+#    chat dock floats over the design system's ambient gradient, and axe reports
+#    that as "overlapped by another element" for elements that hit-test as
+#    topmost and in view, #message-input on .composer's opaque ground among
+#    them. Failing on an audit finding that no measurement reproduces is the
+#    kind of conformance work PRODUCT.md's standing non-goals rule out at this
+#    stage.
+# 2. Every reason is that axe could not tell whether an aria-controls id exists
+#    while the element also carries aria-haspopup, AND the same page answered
+#    that every referenced id resolves. The composer's two context popovers are
+#    in the DOM behind the `hidden` attribute, so axe leaves its tree and
+#    answers "unable to determine" whatever the audit is scoped to; the page's
+#    own getElementById is the measurement axe could not make.
+#
+# Both counts are printed, so an exempt reason cannot grow silently.
 check_accessibility_report() {
-  python3 - "$1" <<'PYTHON'
+  python3 - "$1" "$2" <<'PYTHON'
 import json
+import re
 import sys
 
 UNRESOLVABLE_BACKGROUND = (
     'background color could not be determined',
 )
+ARIA_CONTROLS_NEEDS_REVIEW = 'Unable to determine if aria-controls referenced ID exists on the page'
 
-path = sys.argv[1]
+path, idrefs_path = sys.argv[1], sys.argv[2]
 with open(path, encoding='utf-8') as handle:
     report = json.load(handle)
 if not isinstance(report, dict) or report.get('success') is not True:
@@ -72,34 +83,76 @@ for key in ('violations', 'incomplete'):
             or type(counts.get(key)) is not int or counts[key] != len(entries)):
         raise SystemExit(f'{path}: malformed accessibility {key}')
 
+with open(idrefs_path, encoding='utf-8') as handle:
+    idrefs = json.load(handle)
+if not isinstance(idrefs, dict) or not all(isinstance(value, bool) for value in idrefs.values()):
+    raise SystemExit(f'{path}: malformed aria-controls idref capture')
+data['ariaControls'] = idrefs
+with open(path, 'w', encoding='utf-8') as handle:
+    json.dump(report, handle, indent=2)
 
-def exempt(node):
+
+def reasons(node):
     summary = node.get('failureSummary')
     if not isinstance(summary, str) or not summary:
+        return []
+    lines = [line.strip() for line in summary.splitlines() if line.strip()]
+    return [line for line in lines if not line.startswith('Fix ')]
+
+
+def exempt_background(node):
+    given = reasons(node)
+    return bool(given) and all(
+        any(marker in reason for marker in UNRESOLVABLE_BACKGROUND) for reason in given)
+
+
+def exempt_aria_controls(node):
+    given = reasons(node)
+    if not given:
         return False
-    return any(marker in summary for marker in UNRESOLVABLE_BACKGROUND)
+    for reason in given:
+        if ARIA_CONTROLS_NEEDS_REVIEW not in reason:
+            return False
+        referenced = re.search(r'aria-controls="([^"]+)"', reason)
+        if not referenced or idrefs.get(referenced.group(1)) is not True:
+            return False
+    return True
 
 
 if data['violations']:
     raise SystemExit(
         f"{path}: {len(data['violations'])} accessibility violations; inspect retained report")
 
-exempted = 0
+exempted_background = 0
+exempted_aria = 0
 for entry in data['incomplete']:
     nodes = entry.get('nodes')
-    if not isinstance(nodes, list) or not nodes or not all(exempt(node) for node in nodes):
+    if not isinstance(nodes, list) or not nodes:
         raise SystemExit(
-            f"{path}: accessibility incomplete '{entry.get('id')}' is not an unresolvable "
-            'background; inspect retained report')
-    exempted += len(nodes)
-if exempted:
-    print(f'{path}: {exempted} contrast node(s) exempt (background unresolvable)')
+            f"{path}: accessibility incomplete '{entry.get('id')}' reported no nodes; "
+            'inspect retained report')
+    if all(exempt_background(node) for node in nodes):
+        exempted_background += len(nodes)
+    elif all(exempt_aria_controls(node) for node in nodes):
+        exempted_aria += len(nodes)
+    else:
+        raise SystemExit(
+            f"{path}: accessibility incomplete '{entry.get('id')}' is neither an unresolvable "
+            'background nor an aria-controls reference this page resolves; inspect retained report')
+if exempted_background:
+    print(f'{path}: {exempted_background} contrast node(s) exempt (background unresolvable)')
+if exempted_aria:
+    print(f'{path}: {exempted_aria} aria-controls node(s) exempt (referenced id resolves)')
 PYTHON
 }
 
 capture_accessibility() {
   local session="$1" selector="$2" artifact="$3"
   local report="${EVIDENCE_ROOT}/${artifact}.json"
+  local idrefs="${EVIDENCE_ROOT}/${artifact}-idrefs.json"
   ab "$session" a11y --selector "$selector" --json >"$report"
-  check_accessibility_report "$report"
+  # The same page, at the same moment: what axe could not determine about an
+  # aria-controls target, the document itself answers.
+  ab "$session" eval "(() => Object.fromEntries([...document.querySelectorAll('[aria-controls]')].map((trigger) => { const id=trigger.getAttribute('aria-controls'); return [id, !!document.getElementById(id)] })))()" >"$idrefs"
+  check_accessibility_report "$report" "$idrefs"
 }

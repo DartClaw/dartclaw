@@ -114,6 +114,25 @@ void main() {
     expect(method, contains('select.disabled = !enabled;'));
   });
 
+  // The enhancer's trigger is the control the reader sees, so a rebuilt option
+  // list that is not re-read leaves the previous provider's rows on screen.
+  test('a provider change resyncs the enhanced select for both pickers', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
+    expect(source, contains('  syncCustomSelect,\n} from \'./shared.js\';'));
+    final changed = source.substring(
+      source.indexOf('contextProviderChanged(event) {'),
+      source.indexOf('renderContextOptions(id, catalogue, editable, staged) {'),
+    );
+    for (final id in const ['effective-context-model-input', 'effective-context-effort-input']) {
+      expect(changed, contains("this.renderContextOptions('$id'"), reason: id);
+    }
+    final render = source.substring(
+      source.indexOf('renderContextOptions(id, catalogue, editable, staged) {'),
+      source.indexOf('contextFieldValue(id) {'),
+    );
+    expect(render, contains('syncCustomSelect(select);'));
+  });
+
   test('the Q9 and E11 browser cases run the layout gate on the chat and session-info surfaces', () async {
     final script = File(await resolveWorkspacePath('dev', 'testing', 'profiles/conversation-loop/run.sh'))
         .readAsStringSync();

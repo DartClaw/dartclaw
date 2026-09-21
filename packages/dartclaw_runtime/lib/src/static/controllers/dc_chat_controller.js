@@ -12,6 +12,7 @@ import {
   scrollToBottom,
   showBanner,
   showToast,
+  syncCustomSelect,
 } from './shared.js';
 
 const temporaryDrafts = new Map();
@@ -455,6 +456,9 @@ export default class DcChatController extends Stimulus.Controller {
     if (value && !values.includes(value)) select.append(new Option(value, value));
     select.value = value;
     select.disabled = !enabled;
+    // The select is behind the canonical enhancer's trigger; without this the
+    // rows and the label keep the previous provider's catalogue.
+    syncCustomSelect(select);
   }
 
   contextFieldValue(id) {

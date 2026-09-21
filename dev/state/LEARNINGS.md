@@ -74,6 +74,7 @@
 
 ## HTMX / SSE
 
+- **A programmatic write to a `select.form-select` leaves its enhanced trigger stale.** Every one is wrapped by `shared.js`; assignment, `form.reset()` and option rebuilds fire no `change`, so call `syncCustomSelect(select)` after each.
 - **`hx-swap="outerHTML"` required with `hx-select`.** Default `innerHTML` nests the extracted element → duplicate IDs.
 - **Every page needs `id="main-content"` + `hx-history-elt`.** Missing target → silent fallback to full-page nav.
 - **SSE `error` event triggers `onerror`, never named-event handlers.** Rename to e.g. `turn_error` for HTMX `sse-swap`.

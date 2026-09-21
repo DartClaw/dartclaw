@@ -951,11 +951,8 @@ Native elements under canonical classes. Any DartClaw form — settings, task, s
 |---|---|---|
 | Card (`--bg-card`) | **5.59:1** | **4.65:1** |
 | Page ground (`--bg-base`) | **4.37:1** | **3.76:1** |
-| The control's own fill (`--bg-crust`) | 5.00:1 | 3.55:1 |
 
-Hover takes the boundary up to full `--fg-overlay` (8.41:1 / 7.36:1 on card) rather than down to `--bg-surface2`, which is the *dimmer* of the two in dark and would have faded a field on hover. Focus is unchanged: accent border plus the phosphor ring.
-
-Single-line controls are **28px** with `sp-3` of horizontal padding; a select reserves `sp-8` on the right for the chevron well. Re-measure the table above if a theme's `--fg-overlay`, `--bg-crust`, `--bg-card` or `--bg-base` moves.
+Hover takes the boundary up to full `--fg-overlay` rather than down to `--bg-surface2`, which is the *dimmer* of the two in dark and would have faded a field on hover. Focus is unchanged. Single-line controls are **28px** with `sp-3` of horizontal padding; a select reserves `sp-8` on the right for the chevron well. Re-measure the table if a theme's `--fg-overlay`, `--bg-crust`, `--bg-card` or `--bg-base` moves.
 
 Controls do not inherit the document font, so each control rule sets `font: inherit`. That is a reset, not a type tier — no control rule declares a `font-size`. Compose `.t-caption.tracking-caps` on labels (the eyebrow voice), `.t-label` on tabs, `.t-caption` on hints and errors.
 
@@ -981,8 +978,6 @@ At `≤768px` the canonical `input.form-input`, `select.form-select`, `button.cu
 **Every `select.form-select` is enhanced, and there is no opt-in.** `initCustomSelects` (`shared.js`) runs on load and after every HTMX swap: it wraps the `<select>`, hides it, and stands a `<button>` trigger and a menu in its place. The one exception is declared in the markup, not in the script — a select carrying `aria-hidden="true"` is a *value holder* behind a purpose-built control (the channel mode radiogroup is the case), and the enhancer skips it. A select rendered `hidden` keeps its wrapper hidden with it.
 
 **The `<select>` stays in the DOM and stays the value authority.** The trigger writes to it and dispatches a bubbling `change`; nothing reads state off the menu. Forms serialize, HTMX swaps, and dirty-tracking keep working because none of them ever sees the enhancement.
-
-Anatomy:
 
 | Part | Markup |
 |---|---|

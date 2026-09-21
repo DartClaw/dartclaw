@@ -4017,12 +4017,17 @@ input.form-input--search::-webkit-search-cancel-button {
 .rail-settled-next { margin: var(--sp-1) 10px 0; }
 
 /* Select mode — a 24px leading column on every row, so the content columns move
-   together and stay aligned with each other. */
+   together and stay aligned with each other. The cell is as tall as line 1 and
+   is the click target (it is a <label>), so the box itself matches the 14px
+   identicon beside it instead of out-weighing it. */
 [data-inbox-select-mode="true"] .row-check {
   display: grid; place-items: center;
   flex: 0 0 24px; width: 24px; height: 16px;
 }
-[data-inbox-select-mode="true"] .row-check input { width: 16px; height: 16px; }
+/* Only a labelled cell carries a control; the settled tail's rows keep the
+   column as a bare spacer. */
+[data-inbox-select-mode="true"] label.row-check { cursor: pointer; }
+[data-inbox-select-mode="true"] .row-check input { width: 14px; height: 14px; }
 [data-inbox-select-mode="true"] .row-actions { display: none; }
 [data-inbox-select-mode="true"] .row:hover .row-time,
 [data-inbox-select-mode="true"] .row:focus-within .row-time { display: block; }
@@ -4125,7 +4130,9 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
   .rail-search, .rail-scope, .rail-attention { min-height: 44px; }
   .rail-group { min-height: 44px; }
   .rail-settled > summary { height: 44px; }
-  [data-inbox-select-mode="true"] .row-check { flex-basis: 32px; width: 32px; height: 22px; }
+  /* Select mode is this tier's path to settle and archive, so its cell is a
+     full 44px target around the same box. */
+  [data-inbox-select-mode="true"] .row-check { flex-basis: 44px; width: 44px; height: 44px; }
   [data-inbox-select-mode="true"] .row-check input { width: 22px; height: 22px; }
 }
 

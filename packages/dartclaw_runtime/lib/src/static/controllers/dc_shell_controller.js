@@ -248,7 +248,7 @@ export default class DcShellController extends Stimulus.Controller {
       return;
     }
 
-    if (event.target.closest('[data-inbox-select-mode]')) {
+    if (event.target.closest('[data-inbox-select-toggle]')) {
       event.preventDefault();
       this.setSelectMode(!this.loadInboxView().selectMode);
       this.closeShellPopovers();

@@ -31,8 +31,10 @@ void main() {
     expect(html, contains('data-inbox-settle'));
     expect(html, contains('data-session-archive="true"'));
     // The checkbox ships with every row and select mode reveals it; a row that
-    // only grows one on demand cannot keep its columns aligned.
+    // only grows one on demand cannot keep its columns aligned. Its cell is a
+    // label, which is what makes the whole 24px column a click target.
     expect(html, contains('data-inbox-select'));
+    expect(html, contains('<label class="row-check">'));
     expect(html, contains('&lt;unsafe&gt;'));
   });
 
@@ -46,7 +48,11 @@ void main() {
     for (final group in ['none', 'project', 'status']) {
       expect(html, contains('data-inbox-group="$group"'));
     }
-    expect(html, contains('data-inbox-select-mode'));
+    expect(html, contains('data-inbox-select-toggle'));
+    // `data-inbox-select-mode` is the list's state attribute, written by the
+    // controller. Markup carrying it too made every click inside the list match
+    // the command hook, so the rail toggled the mode instead of selecting a row.
+    expect(html, isNot(contains('data-inbox-select-mode')));
     // The <select> and the always-visible "Next attention" / "Settle selected"
     // stack this menu replaced.
     expect(html, isNot(contains('data-inbox-filters')));

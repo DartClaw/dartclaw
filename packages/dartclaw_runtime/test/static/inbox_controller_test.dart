@@ -126,6 +126,20 @@ controller.persistInboxView();
 const persisted = JSON.parse(globalThis.storage.get('dartclaw-inbox-view'));
 assert(persisted.filter === 'waiting', 'the chosen filter was not persisted');
 assert(!('selectMode' in persisted), 'select mode was persisted as a preference');
+
+// Only the view-options command toggles select mode. The list carries
+// `data-inbox-select-mode` as its own state, so a click on a row — or on the
+// checkbox — reaches the document handler with that attribute above it.
+const clickOn = (selectors) => ({
+  target: { matches: () => false, closest: (selector) => (selectors.includes(selector) ? {} : null) },
+  preventDefault() {},
+  detail: 1,
+});
+controller.inboxView.selectMode = true;
+controller.handleDocumentClick(clickOn(['[data-inbox-select-mode]']));
+assert(controller.loadInboxView().selectMode === true, 'a click inside the list left select mode');
+controller.handleDocumentClick(clickOn(['[data-inbox-select-toggle]']));
+assert(controller.loadInboxView().selectMode === false, 'the view-options command did not leave select mode');
 ''';
 
 const _resizeHarness =

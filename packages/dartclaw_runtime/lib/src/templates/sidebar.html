@@ -71,8 +71,11 @@
       </button>
       <div class="pop-sep"></div>
       <!-- Select mode has no other entry point: the row checkbox it reveals is
-           hidden until the mode is on. -->
-      <button type="button" class="palette-item menu-item" role="menuitem" data-inbox-select-mode>
+           hidden until the mode is on. Its hook is a command, deliberately
+           spelled differently from the state attribute the controller writes
+           on the list: one name for both made every click inside the list a
+           toggle. -->
+      <button type="button" class="palette-item menu-item" role="menuitem" data-inbox-select-toggle>
         <span class="menu-tick"></span><span class="palette-item-label">Select conversations</span>
       </button>
     </div>
@@ -185,9 +188,10 @@
          place with `order`; the DOM order stays the server's recency order. -->
     <div tl:each="entry : ${activeEntries}" class="row" tl:classappend="${entry.extraClass}"
       tl:attr="data-inbox-session-id=${entry.id}">
-      <span class="row-check">
+      <!-- A label, so the whole 24px cell toggles the 14px box inside it. -->
+      <label class="row-check">
         <input type="checkbox" class="form-checkbox" data-inbox-select
-          tl:attr="aria-label=${'Select ' + entry.title}"></span>
+          tl:attr="aria-label=${'Select ' + entry.title}"></label>
       <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="row-main"
         hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
         hx-select-oob="#topbar,#restart-banner-slot,#sidebar">

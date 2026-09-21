@@ -454,10 +454,15 @@ export default class DcChatController extends Stimulus.Controller {
     select.replaceChildren(new Option('Provider default', ''));
     for (const entry of values) select.append(new Option(entry, entry));
     if (value && !values.includes(value)) select.append(new Option(value, value));
-    select.value = value;
     select.disabled = !enabled;
-    // The select is behind the canonical enhancer's trigger; without this the
-    // rows and the label keep the previous provider's catalogue.
+    this.setSelectValue(select, value);
+  }
+
+  /// Every context select is behind the canonical enhancer's trigger, and a
+  /// programmatic assignment fires no `change`, so without this the trigger
+  /// keeps the previous label and the previous provider's rows.
+  setSelectValue(select, value) {
+    select.value = value;
     syncCustomSelect(select);
   }
 
@@ -530,9 +535,9 @@ export default class DcChatController extends Stimulus.Controller {
     if (![...project.options].some((option) => option.value === view.projectId)) return;
     if (![...provider.options].some((option) => option.value === view.provider)) return;
 
-    project.value = view.projectId;
+    this.setSelectValue(project, view.projectId);
     directory.value = view.directory;
-    provider.value = view.provider;
+    this.setSelectValue(provider, view.provider);
     const providerOption = provider.selectedOptions?.[0];
     this.renderContextOptions(
       'effective-context-model-input',

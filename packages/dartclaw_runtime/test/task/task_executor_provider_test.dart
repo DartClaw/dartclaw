@@ -56,6 +56,7 @@ void main() {
       eventRecorder: eventRecorder,
     ),
     runners: TaskExecutorRunners(turns: turnManager),
+    currentDirectory: workspaceDir,
     pollInterval: const Duration(milliseconds: 10),
   );
 

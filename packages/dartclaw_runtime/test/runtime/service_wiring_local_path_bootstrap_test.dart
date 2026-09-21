@@ -148,6 +148,7 @@ void main() {
     resolvedAssets: _resolvedAssetsForConfig(config),
     runWorkflowSkillsBootstrap: false,
     serverFactory: serverFactory,
+    runtimeCwd: tempDir.path,
   );
 
   setUpAll(() async {

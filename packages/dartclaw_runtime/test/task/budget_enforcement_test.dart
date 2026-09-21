@@ -50,6 +50,7 @@ void main() {
       ),
       runners: TaskExecutorRunners(turns: h.turns),
       limits: TaskExecutorLimits(budgetConfig: budgetConfig),
+      currentDirectory: h.workspaceDir,
       dataDir: h.tempDir.path,
       pollInterval: const Duration(milliseconds: 10),
     );

@@ -147,6 +147,7 @@ void main() {
   TaskExecutor buildExecutor({TurnManager? turnManager}) => TaskExecutor(
     services: TaskExecutorServices(tasks: tasks, sessions: sessions, messages: messages, artifactCollector: collector),
     runners: TaskExecutorRunners(turns: turnManager ?? turns),
+    currentDirectory: workspaceDir,
     pollInterval: const Duration(milliseconds: 10),
   );
 

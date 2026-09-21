@@ -95,6 +95,16 @@
       border: var(--border); border-radius: var(--radius);
       padding: 0 var(--sp-3) var(--sp-3);
     }
+
+    /* The select menu composes .pop and .menu-tick, which the app stylesheet
+       owns; the showcase loads canon alone, so these two stand in for them.
+       The demo menu is also left open in flow rather than floating, which is
+       what an anatomy diagram wants. */
+    .showcase .custom-select-menu { position: static; padding: var(--sp-1); }
+    .showcase .menu-tick {
+      display: inline-grid; place-items: center;
+      width: 16px; height: 16px; color: var(--accent);
+    }
   </style>
 </head>
 <body>
@@ -988,7 +998,7 @@ done.<span class="streaming"></span></code></pre>
             <option selected>medium</option>
             <option>high</option>
           </select>
-          <span class="form-hint t-caption">Native <code>&lt;select&gt;</code> with the DartClaw chevron &mdash; no browser-default arrow.</span>
+          <span class="form-hint t-caption">The closed control. In the app <code>initCustomSelects</code> stands a trigger in its place &mdash; same box &mdash; and the native element stays as the value authority.</span>
         </div>
       </div>
 
@@ -1061,6 +1071,54 @@ done.<span class="streaming"></span></code></pre>
           <div class="form-field form-field--inline" style="margin-bottom:var(--sp-2)"><label class="form-label t-caption tracking-caps" for="tg-off">Disabled state</label><span class="form-toggle"><input type="checkbox" id="tg-off"><span class="form-toggle-slider"></span></span></div>
           <div class="form-field form-field--inline"><label class="form-label t-caption tracking-caps" for="tg-dis">Not editable</label><span class="form-toggle"><input type="checkbox" id="tg-dis" checked disabled><span class="form-toggle-slider"></span></span></div>
         </div>
+      </div>
+    </div>
+
+    <h3>Enhanced select &mdash; anatomy</h3>
+    <p class="use-case">Every <code>select.form-select</code> is enhanced on load and after every HTMX swap; there is no opt-in attribute. The markup below is what the enhancer builds (shown open, and in flow rather than floating). The trigger is named in the same rules as the closed control, so it is the same box; the menu is the shared <code>.pop</code> + <code>.palette-item</code> popover vocabulary, never a select-only one.</p>
+    <div class="well-content">
+      <div class="form-field" style="max-width:320px">
+        <label class="form-label t-caption tracking-caps" id="demo-enhanced-label">Effort</label>
+        <div class="custom-select" data-open="true">
+          <select class="form-select native-select-hidden" aria-hidden="true" tabindex="-1">
+            <option>low</option>
+            <option selected>medium</option>
+            <option>high</option>
+          </select>
+          <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="true"
+                  aria-labelledby="demo-enhanced-label" aria-controls="demo-enhanced-menu">
+            <span class="custom-select-label">medium</span>
+          </button>
+          <div class="pop card card-elevated custom-select-menu" id="demo-enhanced-menu" role="listbox">
+            <button type="button" class="palette-item menu-item custom-select-option" role="option" aria-selected="false" tabindex="-1">
+              <span class="menu-tick" aria-hidden="true"></span><span class="palette-item-label">low</span>
+            </button>
+            <button type="button" class="palette-item menu-item custom-select-option menu-item--on" role="option" aria-selected="true" tabindex="-1">
+              <span class="menu-tick icon-control" data-icon="check" aria-hidden="true"></span><span class="palette-item-label">medium</span>
+            </button>
+            <button type="button" class="palette-item menu-item custom-select-option" role="option" aria-selected="false" tabindex="-1">
+              <span class="menu-tick" aria-hidden="true"></span><span class="palette-item-label">high</span>
+            </button>
+          </div>
+        </div>
+        <span class="form-hint t-caption">The <code>&lt;select&gt;</code> stays in the DOM as the value authority &mdash; forms serialize and HTMX swaps never see the enhancement.</span>
+      </div>
+    </div>
+
+    <h3>Field tier marker</h3>
+    <p class="use-case"><code>.field-tier</code> is how a settings field states when a change takes effect: quiet text at the right end of the label row, never a pill. A pill per field reads as a warning per field, and the tier is a property of the field rather than a state of it. The <code>live</code> tier renders nothing; the post-save states keep the same form and only re-hue.</p>
+    <div class="well-content">
+      <div class="form-field">
+        <label class="form-label t-caption tracking-caps" for="demo-tier-restart">Model<span class="field-tier" title="Applies after a server restart">restart</span></label>
+        <input type="text" class="form-input" id="demo-tier-restart" value="claude/opus">
+      </div>
+      <div class="form-field" style="margin-top:var(--sp-4)">
+        <label class="form-label t-caption tracking-caps" for="demo-tier-saved">Heartbeat interval<span class="field-tier field-tier--ok">applied</span></label>
+        <input type="text" class="form-input" id="demo-tier-saved" value="30">
+      </div>
+      <div class="form-field" style="margin-top:var(--sp-4)">
+        <label class="form-label t-caption tracking-caps" for="demo-tier-pending">Max turns<span class="field-tier field-tier--warn">restart required</span></label>
+        <input type="text" class="form-input" id="demo-tier-pending" value="40">
       </div>
     </div>
 
@@ -1362,7 +1420,7 @@ done.<span class="streaming"></span></code></pre>
     </div>
 
     <h3>Glyph variant &mdash; prompt mark instead of the mascot</h3>
-    <p class="use-case">The lighter shape for panel-level empties. <code>.empty-state .icon</code> is a <em>text</em> treatment here, so the glyph must not inherit the icon system's mask fill.</p>
+    <p class="use-case">The lighter shape for panel-level empties. <code>.empty-state &gt; .icon</code> is a <em>text</em> treatment here, so the glyph must not inherit the icon system's mask fill.</p>
     <div class="well-content">
       <div class="empty-state">
         <div class="icon" aria-hidden="true">&#10095;_</div>
@@ -1378,6 +1436,17 @@ done.<span class="streaming"></span></code></pre>
         <span class="icon icon-file-text" aria-hidden="true"></span>
         <p class="empty-state-title t-label">No knowledge entries</p>
         <p>Ingest a document to populate the hub.</p>
+      </div>
+    </div>
+
+    <h3>Nested icon &mdash; the hero rule stops at the direct child</h3>
+    <p class="use-case">An <code>.icon</code> deeper inside an empty state belongs to something else. As a descendant rule the hero treatment painted the action button's leading glyph accent-on-accent, where it was invisible, and its 1em box shoved the label off centre.</p>
+    <div class="well-content">
+      <div class="empty-state">
+        <div class="icon" aria-hidden="true">&#10095;_</div>
+        <p class="empty-state-title t-label">Page not found</p>
+        <p>The requested page does not exist.</p>
+        <a href="#" class="btn btn-primary"><span class="icon icon-arrow-left" aria-hidden="true"></span> Back to Home</a>
       </div>
     </div>
 

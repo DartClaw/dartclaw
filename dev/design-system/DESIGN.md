@@ -237,7 +237,7 @@ components:
     rounded: "{rounded.sm}"
     padding: 8px 12px
   form-select:
-    backgroundColor: "{colors.bg-base}"  # chevron painted via background-image, see § Native selects
+    backgroundColor: "{colors.bg-base}"  # chevron painted via background-image, see § Selects
     textColor: "{colors.fg}"
     typography: "{typography.body-md}"
     rounded: "{rounded.sm}"
@@ -877,7 +877,7 @@ Card sub-elements:
 
 **Text ghost buttons keep a resting boundary.** A ghost button whose affordance is a *label* reads as prose until it is hovered — unusable without a pointer, and invisible in a screenshot review. The rest-state border holds **≥3:1** (WCAG 1.4.11 non-text minimum) against both planes a ghost button actually sits on, the card and the page ground, in both themes. The mix fraction is pinned by the worst of those four combinations; lowering it drops the light-theme-on-ground case below the minimum.
 
-**Icon-only buttons rest borderless.** `.btn-icon` has no fill and no border at rest: its glyph is already the ≥3:1 non-text affordance, so a box around it is redundant chrome, and a toolbar or a message-action row of bordered boxes becomes the loudest thing on screen. Hover and active fill it, and the 2px accent focus ring is unchanged — nothing is revealed by hover alone. `.btn-primary`, `.btn-danger` and `.btn-danger-fill` keep their own treatment when composed with `.btn-icon`. The glyph is centred on both axes from the padding box at an explicit px size (16px, 14px at `-sm`), so a 13px-chrome control and a 14px-body one draw the same glyph in the same box.
+**Icon-only buttons rest borderless — both size tiers.** `.btn-icon` and `.btn-icon-sm` have no fill and no border at rest: the glyph is already the ≥3:1 non-text affordance, so a box around it is redundant chrome, and a toolbar or a message-action row of bordered boxes becomes the loudest thing on screen. Hover and active fill it, and the 2px accent focus ring is unchanged — nothing is revealed by hover alone. `.btn-primary`, `.btn-danger` and `.btn-danger-fill` keep their own treatment when composed with either. The glyph is centred on both axes from the padding box at an explicit px size (16px, 14px at `-sm`), so a 13px-chrome control and a 14px-body one draw the same glyph in the same box. The two tiers take one rule: when only `.btn-icon` had the treatment, every `.btn-icon-sm` — queue rows, popover close buttons, the rail's settle and archive actions — shipped as a bordered square with the glyph pushed off centre.
 
 **New Chat is a sidebar command, not a selected destination.** `.btn-new-session` is one full-width, transparent command row directly below the Chats label. Its bordered 22px square-pen well keeps the resting affordance visible without filling the row like an active session; hover adds `bg-surface0`, active adds `bg-surface1`, and keyboard focus uses the standard 2px accent outline. A subtle divider separates the command from the chat collection. Untitled draft rows render as **Untitled draft**, so the noun phrase **New Chat** belongs only to creation commands. The row is 30px on desktop and 44px at the touch tier; the adjacent Archived disclosure shares that floor. Keep the explicit label visible: DartClaw has no collapsed-sidebar mode. Do not display `Ctrl/⌘+N` – browsers own that shortcut. The command owns one reusable untouched draft: activating it from that draft focuses the composer, and activating it elsewhere reopens the same draft. A draft stops being reusable as soon as it is named, provider-specific, keyed, or contains a message; only then may the next activation create another chat. Never remove older blank sessions automatically – cleanup is an explicit user action.
 
@@ -935,14 +935,27 @@ Native elements under canonical classes. Any DartClaw form — settings, task, s
 | `.form-row` | Multi-field horizontal group; fields share the row and stack when they run out of width. |
 | `.form-label` | Field label in the **eyebrow voice**: the rule uppercases; markup composes `.t-caption.tracking-caps` for size and tracking. The eyebrow rhythm is what keeps a resting form from reading as a gray stack. Flex row so an icon or badge can sit beside the text. |
 | `.form-input` | Text input. Recessed well (a step below `bg-base` toward the crust) + `inset-sm` depth + accent caret. Focus adds the phosphor ring — a soft accent glow on top of the recess; the `:focus-visible` outline stays the guaranteed a11y cue. |
-| `.form-select` | Native `<select>` — see § Native selects. |
+| `.form-select` | `<select>`, always enhanced into a listbox — see § Selects. |
 | `.form-textarea` | Multi-line input; vertical resize only. |
 | `.form-error` | Validation message. Floors a filled message at one line; an empty one takes no height. It does not pre-reserve the line, so a layout that must not reflow when an error appears has to reserve the slot itself. |
 | `.form-hint` | Helper text below a control. |
+| `.field-tier` | When a change takes effect, at the right end of the label row: quiet text (`--text-xs`, `--fg-overlay`), no fill, no border, no tracking. `--warn` and `--ok` re-hue it for the transient post-save states. A tier the reader already expects renders no marker — a marker on every field is a marker on none. |
 | `.form-checkbox` / `.form-radio` | Native inputs, `appearance: none`. Checked = top-lit accent gradient + micro-glow. |
 | `.form-toggle` + `.form-toggle-slider` | Switch presentation of a checkbox. CSS-only, state from `:checked`; the on state runs the accent gradient with a micro-glow, the off track is recessed. |
 
 **Control rules are element-qualified** — `input.form-input`, not `.form-input`. The app stylesheet loads after the design system, so a bare class rule loses every shared property to the app's own copy and lands half-applied. Qualification also keeps the family class-bound: an unqualified `input {` here would re-skin every unadopted template at once.
+
+**Resting boundary: `--border-control`.** Depth alone cannot carry a control's edge. The family's border used to be a 15% accent whisper into `bg-surface0`, which measured under 1.5:1 against the dark card — a resting field read as a shade of the page rather than as a control. `--border-control` is `--fg-overlay` at 78% into `--bg-crust`: the same fraction `.btn-ghost` uses for the same ≥3:1 requirement (WCAG 1.4.11), and opaque rather than alpha, because a border paints over the element's own background and an alpha boundary on a crust-backed control would resolve against the crust anyway. Measured in the running app, both themes:
+
+| Plane | Dark | Light |
+|---|---|---|
+| Card (`--bg-card`) | **5.59:1** | **4.65:1** |
+| Page ground (`--bg-base`) | **4.37:1** | **3.76:1** |
+| The control's own fill (`--bg-crust`) | 5.00:1 | 3.55:1 |
+
+Hover takes the boundary up to full `--fg-overlay` (8.41:1 / 7.36:1 on card) rather than down to `--bg-surface2`, which is the *dimmer* of the two in dark and would have faded a field on hover. Focus is unchanged: accent border plus the phosphor ring.
+
+Single-line controls are **28px** with `sp-3` of horizontal padding; a select reserves `sp-8` on the right for the chevron well. Re-measure the table above if a theme's `--fg-overlay`, `--bg-crust`, `--bg-card` or `--bg-base` moves.
 
 Controls do not inherit the document font, so each control rule sets `font: inherit`. That is a reset, not a type tier — no control rule declares a `font-size`. Compose `.t-caption.tracking-caps` on labels (the eyebrow voice), `.t-label` on tabs, `.t-caption` on hints and errors.
 
@@ -959,16 +972,33 @@ Status is never carried by colour alone, so **an invalid control always renders 
 
 Anything longer (paths, prompts, URLs) takes the unmodified full-width control. `ch` keeps these caps relative to the active UI face rather than hard-coding pixels.
 
-At `≤768px` the canonical `input.form-input`, `select.form-select` and `textarea.form-textarea` all hold a `16px` floor — below it iOS zooms the viewport on focus.
+At `≤768px` the canonical `input.form-input`, `select.form-select`, `button.custom-select-trigger` and `textarea.form-textarea` all hold a `16px` floor — below it iOS zooms the viewport on focus.
 
 **Touch targets.** Under a coarse pointer or at `≤768px` `.form-toggle` takes a `44px` box, matching the floor `.btn` and `.sidebar-nav-item` already hold. The slider stays `36×20` and centres inside it — the switch does not get bigger, its target does. A `36×20` target is 20px tall, under WCAG 2.5.8's 24px minimum, and the box has to *reserve* the space rather than just claim it: enlarging only the (out-of-flow) input would buy the target for free but let stacked toggle rows overlap, so a tap near a row boundary would flip the wrong setting. Expect toggle rows to be taller under touch; that is the trade.
 
-### Native selects
+### Selects
 
-- Closed select controls visually match the input family: same surface, inset depth, accent focus ring, and a custom DartClaw chevron rather than the browser-default arrow chrome. **Backed by `select.form-select`** — this section describes shipped CSS, not an aspiration.
-- Extra right padding and a subtle divider before the chevron so the control reads as an intentional picker.
-- The chevron is painted with the `background-image` / `-position` / `-repeat` **longhands**, because `::before`/`::after` do not render on a `<select>` and a `mask-image` on the control would clip the whole element. Painting it as an image means the stroke colour is baked into the URI rather than resolved through `currentColor`, so `--icon-chevron-down-control` is a theme-aware pair in `icons.css` — the one pre-coloured icon token in the system.
-- Safari limitation: closed control can be themed, but the opened option popover stays system-native. If branded option menus, search, or grouped content are required, use an accessible custom listbox/combobox instead of over-styling `<select>`.
+**Every `select.form-select` is enhanced, and there is no opt-in.** `initCustomSelects` (`shared.js`) runs on load and after every HTMX swap: it wraps the `<select>`, hides it, and stands a `<button>` trigger and a menu in its place. The one exception is declared in the markup, not in the script — a select carrying `aria-hidden="true"` is a *value holder* behind a purpose-built control (the channel mode radiogroup is the case), and the enhancer skips it. A select rendered `hidden` keeps its wrapper hidden with it.
+
+**The `<select>` stays in the DOM and stays the value authority.** The trigger writes to it and dispatches a bubbling `change`; nothing reads state off the menu. Forms serialize, HTMX swaps, and dirty-tracking keep working because none of them ever sees the enhancement.
+
+Anatomy:
+
+| Part | Markup |
+|---|---|
+| Wrapper | `.custom-select`, `data-open="true|false"` |
+| Value authority | the original `<select class="form-select native-select-hidden" aria-hidden="true" tabindex="-1">` |
+| Trigger | `button.custom-select-trigger` + `.custom-select-label` |
+| Menu | `.pop.card.card-elevated.custom-select-menu`, `role="listbox"` |
+| Option | `button.palette-item.menu-item.custom-select-option`, `role="option"`, with `.menu-tick` + `.palette-item-label` |
+
+**The trigger *is* the closed control.** It is named in the same rules as `input.form-input` / `select.form-select` rather than carrying a second copy of them — same box, `--border-control` boundary, inset depth, chevron token and divider, 28px tier, 44px touch floor. Re-tone a field and the trigger re-tones with it; a page that runs no JS keeps a themed native select instead of a half-styled one. It inherits the select's accessible name from its `aria-label`, or from the `<label for>` that pointed at the select.
+
+**The menu is the popover vocabulary, not a select-only one.** `.pop` + `.card.card-elevated` + `.palette-item` rows are what the rail's own menus use, and the selected row carries the same `.menu-tick` + `.menu-item--on` pair. Only the geometry is this component's: it hangs under the trigger at the trigger's width and caps at `18rem` before it scrolls. Do not introduce a second dropdown — this is the one.
+
+Keyboard: Enter / Space / ArrowUp / ArrowDown open it onto the selected row; ArrowUp/Down, Home and End move; Enter or Space commits; Escape closes back to the trigger; a printable key jumps to the first row starting with what has been typed (the buffer clears after 700ms). It closes on a pointerdown outside it — **pointerdown, not click**, because a click elsewhere lands after that control has already reacted — and whenever focus leaves the wrapper.
+
+The chevron is painted with the `background-image` / `-position` / `-repeat` **longhands**, because `::before`/`::after` do not render on a `<select>` and a `mask-image` on the control would clip the whole element. Painting it as an image means the stroke colour is baked into the URI rather than resolved through `currentColor`, so `--icon-chevron-down-control` is a theme-aware pair in `icons.css` — the one pre-coloured icon token in the system.
 
 ### Tabs
 
@@ -1023,7 +1053,7 @@ own, because a list has no selection at rest and the app owns when it appears.
 | Row-scoped destructive | `.delete-confirm-bar` | Deleting one scheduled job from its own row |
 | Needs structured input | `.dialog` + width modifier + `.card.card-glass`, hosting real form controls | New task, rename with validation |
 
-**Native `alert()`, `confirm()` and `prompt()` are banned.** They cannot be themed or brand-styled, they block the event loop, and they are threadbare on their own terms — one line of text, OS-chrome buttons, and for `prompt()` a single unvalidated field. Every row above names a class backed by CSS in `components.css`; reach for one of those instead. Same rule, same reason as the § Native selects limitation: where the platform control cannot be made to belong, replace it rather than over-style it.
+**Native `alert()`, `confirm()` and `prompt()` are banned.** They cannot be themed or brand-styled, they block the event loop, and they are threadbare on their own terms — one line of text, OS-chrome buttons, and for `prompt()` a single unvalidated field. Every row above names a class backed by CSS in `components.css`; reach for one of those instead. Same rule, same reason the select's option list is a `.pop` menu rather than a themed native popover (§ Selects): where the platform control cannot be made to belong, replace it rather than over-style it.
 
 **Danger is a markup choice, not a second frame.** `.dialog--confirm` serves both destructive and non-destructive confirmations — there is no dialog-danger variant. The severity lives entirely in what the markup puts inside the frame:
 
@@ -1071,7 +1101,9 @@ The frame carries **no `z-index`**. `showModal()` promotes the element into the 
 
 **Empty state vs absent value.** `.empty-state` answers "this whole list is empty" and gets a title, an explanation and a way forward. `.value-absent` answers "this one field has no value" and gets a dash. Reaching for the block treatment on a single missing cell is how a table turns into a wall of apologies.
 
-**The leading mark comes in two forms, and they are not interchangeable.** The mascot image is the branded shape; a typed glyph (the `❯_` prompt mark) is the lighter one. `.empty-state .icon` styles the typed glyph as *text* — accent colour and a phosphor glow — so a bare `.icon` there opts out of the icon system's mask fill and its 1em box. Add an `.icon-<name>` modifier and it is a real masked icon again, keeping both. This is why a bare `.icon` in an empty state renders a glyph rather than a filled square: the two paths are told apart by the presence of the modifier, not by what the element contains.
+**The leading mark comes in two forms, and they are not interchangeable.** The mascot image is the branded shape; a typed glyph (the `❯_` prompt mark) is the lighter one. `.empty-state > .icon` styles the typed glyph as *text* — accent colour and a phosphor glow — so a bare `.icon` there opts out of the icon system's mask fill and its 1em box. Add an `.icon-<name>` modifier and it is a real masked icon again, keeping both. This is why a bare `.icon` in an empty state renders a glyph rather than a filled square: the two paths are told apart by the presence of the modifier, not by what the element contains.
+
+**The hero rule is direct-child only.** An `.icon` deeper inside an empty state belongs to something else — the action button's leading icon above all. As a descendant rule it painted that glyph accent-on-accent inside a `.btn-primary`, where it was invisible, and its 1em box shoved the label off centre. Keep the hero mark a direct child of `.empty-state`; anything nested keeps the icon system's own treatment.
 
 `.value-absent` renders the dash as **generated content on an empty element**, so an empty cell still occupies its row and reads as "no value" rather than as a rendering failure. An element that does carry content keeps its own text, muted.
 

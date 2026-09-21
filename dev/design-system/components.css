@@ -3115,6 +3115,23 @@ button.custom-select-trigger:focus-visible {
 
 .form-hint { color: var(--fg-overlay); }
 
+/* When a change takes effect, at the right end of the label row. Quiet text,
+   never a pill: a pill per field reads as a warning per field, and nine of them
+   in one card is what this replaces. The tier is a property of the field, so it
+   is stated once and never competes with real state. The label row is uppercase
+   with caps tracking and both inherit, hence the two resets. The transient
+   post-save states keep the form and only re-hue. */
+.field-tier {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg-overlay);
+}
+.field-tier--warn { color: var(--warning); }
+.field-tier--ok { color: var(--success); }
+
 /* --- Validity ---
    Keyed on :user-invalid, which matches only after the user has interacted with
    a field and left it. The plain validity pseudo-class is banned here: it also

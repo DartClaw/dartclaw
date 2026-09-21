@@ -727,21 +727,25 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    message-action row of bordered boxes becomes the loudest thing on screen.
    Hover/active fill and the accent focus ring (line 591) are kept, so nothing
    is revealed by hover alone. The filled and outlined semantic variants keep
-   their own treatment. */
-.btn-icon:not(.btn-primary):not(.btn-danger-fill):not(.btn-danger) {
+   their own treatment.
+
+   Both size tiers, or the rule only half-exists: .btn-icon-sm is the same
+   control one tier down and carried the border while .btn-icon shed it, which
+   is what left the queue rows and popover close buttons as bordered squares. */
+:is(.btn-icon, .btn-icon-sm):not(.btn-primary):not(.btn-danger-fill):not(.btn-danger) {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
   color: var(--fg-sub0);
 }
-.btn-icon:not(.btn-primary):not(.btn-danger-fill):not(.btn-danger):hover {
+:is(.btn-icon, .btn-icon-sm):not(.btn-primary):not(.btn-danger-fill):not(.btn-danger):hover {
   background: var(--bg-surface0);
   border-color: transparent;
   color: var(--fg);
   translate: none;  /* the 1px lift is for card-like buttons */
   box-shadow: none;
 }
-.btn-icon:not(.btn-primary):not(.btn-danger-fill):not(.btn-danger):active {
+:is(.btn-icon, .btn-icon-sm):not(.btn-primary):not(.btn-danger-fill):not(.btn-danger):active {
   background: var(--bg-surface1);
 }
 
@@ -2103,14 +2107,19 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    `.icon-<name>` modifier is a genuine masked icon and still needs the fill and
    the square to paint through its mask, so it keeps them. The real cure is for
    a text glyph not to wear a mask-system class at all, but that name lives in
-   shared markup, not in canon. */
-.empty-state .icon:not([class*="icon-"]) {
+   shared markup, not in canon.
+
+   Direct child only. The hero mark is a child of `.empty-state`; a descendant
+   `.icon` is a glyph inside something else — the leading icon of the action
+   button, most of all, where accent-on-accent made it invisible and its 1em box
+   shoved the label off centre. */
+.empty-state > .icon:not([class*="icon-"]) {
   background-color: transparent;
   width: auto;
   height: auto;
 }
 
-.empty-state .icon {
+.empty-state > .icon {
   font-size: var(--text-2xl);
   color: var(--accent);
   text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent),
@@ -3018,19 +3027,25 @@ button.chip[aria-pressed="true"] {
 
 /* --- Text controls --- */
 
+/* The enhanced select's trigger stands in for a closed `select.form-select`, so
+   it joins the family by selector rather than by a second copy of these
+   declarations — re-tone a field here and the trigger re-tones with it. */
 input.form-input,
 select.form-select,
-textarea.form-textarea {
+textarea.form-textarea,
+button.custom-select-trigger {
   width: 100%;
   padding: var(--sp-2) var(--sp-3);
   /* Text fields join the deep-well family (code wells, terminal bodies): a
-     crust-level channel, not a tinted rectangle. Depth does the resting work;
-     the border carries a 15% accent whisper — the phosphor reads faintly at
-     rest and wakes fully on focus. */
+     crust-level channel, not a tinted rectangle. Depth carries the family
+     reading, but it cannot carry the boundary: the 15% accent whisper this
+     border used to be was invisible against the dark card, so a resting field
+     read as a shade of the page. --border-control is the same >=3:1 resting
+     boundary .btn-ghost holds, and the accent still wakes fully on focus. */
   background: var(--bg-crust);
   color: var(--fg);
   caret-color: var(--accent);  /* terminal-native: the caret is part of the focus signal */
-  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--bg-surface0));
+  border: 1px solid var(--border-control);
   border-radius: var(--radius);
   box-shadow: var(--inset-sm);
   font: inherit;
@@ -3041,14 +3056,19 @@ textarea.form-textarea {
 /* Single-line controls take the 28px chrome box; the padding stops being a
    height derivation. A textarea is multi-line and keeps its own floor below. */
 input.form-input,
-select.form-select {
+select.form-select,
+button.custom-select-trigger {
   min-height: 28px;
-  padding: 0 var(--sp-2);
+  padding: 0 var(--sp-3);
 }
 
+/* Hover strengthens the boundary it already has. --bg-surface2 used to do that
+   against the old accent whisper; against --border-control it is the dimmer of
+   the two in dark, so hovering would have faded the field. */
 input.form-input:hover:not(:disabled):not(:focus),
 select.form-select:hover:not(:disabled):not(:focus),
-textarea.form-textarea:hover:not(:disabled):not(:focus) { border-color: var(--bg-surface2); }
+textarea.form-textarea:hover:not(:disabled):not(:focus),
+button.custom-select-trigger:hover:not(:disabled) { border-color: var(--fg-overlay); }
 
 textarea.form-textarea { resize: vertical; min-height: 6rem; }
 
@@ -3057,14 +3077,17 @@ textarea.form-textarea::placeholder { color: var(--fg-overlay); }
 
 input.form-input:disabled,
 select.form-select:disabled,
-textarea.form-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+textarea.form-textarea:disabled,
+button.custom-select-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Focus is the field's phosphor moment: accent border + a soft glow ring on
    top of the recessed inset. The ring is atmosphere, not the a11y signal —
    the :focus-visible outline below stays the guaranteed cue. */
 input.form-input:focus,
 select.form-select:focus,
-textarea.form-textarea:focus {
+textarea.form-textarea:focus,
+button.custom-select-trigger:focus,
+.custom-select[data-open="true"] > button.custom-select-trigger {
   outline: none;
   border-color: var(--accent);
   box-shadow: var(--inset-sm),
@@ -3074,7 +3097,8 @@ textarea.form-textarea:focus {
 
 input.form-input:focus-visible,
 select.form-select:focus-visible,
-textarea.form-textarea:focus-visible {
+textarea.form-textarea:focus-visible,
+button.custom-select-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-color: var(--accent);
@@ -3246,17 +3270,21 @@ input.form-radio:disabled { opacity: 0.5; cursor: not-allowed; }
 .form-toggle input:disabled { cursor: not-allowed; }
 .form-toggle input:disabled + .form-toggle-slider { opacity: 0.5; }
 
-/* --- Native select ---
+/* --- Select: the closed control ---
    ::after does not render on a <select> and a mask on the control clips the
    whole element, so the chevron is painted with the background-image longhands
    — which also survive app.css's `background` shorthand, since this rule is
    element-qualified and out-specifies it. The shared --icon-* URIs are
    black-stroked and resolve colour only through mask + currentColor, hence the
    dedicated theme-aware pair in icons.css. The second layer is the divider.
-   Closed control only: Safari keeps the opened option popover system-native.
    The well and the divider band are sized to the 28px box: sp-10 of reserved
-   right padding and a 55% band left the glyph floating in it. */
-select.form-select {
+   right padding and a 55% band left the glyph floating in it.
+
+   The enhanced trigger takes the same rule, so the control does not change
+   shape when the enhancer replaces it — and a browser that runs no JS keeps a
+   themed native select rather than a half-styled one. */
+select.form-select,
+button.custom-select-trigger {
   appearance: none;
   -webkit-appearance: none;
   padding-right: var(--sp-8);
@@ -3267,6 +3295,56 @@ select.form-select {
                        right calc(var(--sp-2) + 14px + var(--sp-2)) center;
   background-size: 12px 12px, 1px 60%;
 }
+
+/* --- Select: the open menu ---
+   `initCustomSelects` wraps every select that is a control, hides the native
+   one and stands the trigger above in its place; the <select> stays in the DOM
+   as the value authority. The menu is a `.pop` card of `.palette-item` rows —
+   the popover vocabulary the rail menus already use — so the geometry below is
+   all this component owns. There is no second dropdown in the system. */
+.custom-select { position: relative; width: 100%; }
+.custom-select[data-open="true"] { z-index: var(--z-dropdown); }
+
+/* A hidden control has no visible stand-in. The wrapper took the select's place
+   in the layout, so a `hidden` select (the guard editor toggles it) has to take
+   the wrapper with it. */
+.custom-select:has(> select[hidden]) { display: none; }
+
+/* Kept in flow and transparent rather than display:none, so the native control
+   still reports a box to anything that measures it and still submits. */
+.custom-select > select.native-select-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+button.custom-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.custom-select-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 18rem caps a long catalogue at roughly nine rows before it scrolls. */
+.custom-select-menu {
+  top: calc(100% + var(--sp-1));
+  left: 0;
+  right: 0;
+  display: none;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+.custom-select[data-open="true"] > .custom-select-menu { display: block; }
+.custom-select-option:disabled { opacity: 0.45; cursor: not-allowed; }
 
 @media (max-width: 768px), (pointer: coarse) {
   /* Touch-target floor. The 36x20 slider is a fine pointer target and a 20px-tall
@@ -3798,7 +3876,8 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
      14px the moment they moved onto the canonical one — 14px beside a 16px
      input in the same form. */
   input.form-input,
-  select.form-select     { min-height: 44px; font-size: 16px; }
+  select.form-select,
+  button.custom-select-trigger { min-height: 44px; font-size: 16px; }
   textarea.form-textarea { font-size: 16px; }
   label.form-field--checkbox { min-height: 44px; }
 

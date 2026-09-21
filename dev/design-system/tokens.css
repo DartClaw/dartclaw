@@ -173,6 +173,15 @@
   --border-active:    1px solid var(--accent);
   --border-highlight: rgba(255, 255, 255, 0.08);  /* Luminous top-edge on cards */
 
+  /* Resting boundary of a form control. Opaque, and mixed into --bg-crust
+     rather than into `transparent`, because a border is painted over the
+     element's own background: an alpha boundary on a crust-backed control
+     would resolve against the crust anyway and read differently per plane.
+     78% is .btn-ghost's fraction — the same >=3:1 requirement against card and
+     page ground in both themes, so the two resting boundaries stay one answer.
+     Measured ratios in DESIGN.md § Forms. */
+  --border-control: color-mix(in srgb, var(--fg-overlay) 78%, var(--bg-crust));
+
   /* Meter channel — per-theme because the fills invert their value relation:
      dark fills are light pastels (dark channel gives contrast), light fills
      are dark Latte hues (a dark channel would swallow the fill's end). */

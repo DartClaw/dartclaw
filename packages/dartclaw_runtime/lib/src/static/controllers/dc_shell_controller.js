@@ -341,7 +341,10 @@ export default class DcShellController extends Stimulus.Controller {
     if (event.key !== 'Escape') return;
     // Innermost dismissible layer wins: an open popover, then the drawer, then
     // select mode, and Escape otherwise keeps its meaning for a custom select.
-    if (document.querySelector('.pop:not([hidden])')) {
+    // An enhanced select's menu is a `.pop` that stays in the DOM open or
+    // closed, so it must not answer "is a popover open" — every page carries
+    // one now, and it would swallow Escape for every layer below.
+    if (document.querySelector('.pop:not([hidden]):not(.custom-select-menu)')) {
       this.closeShellPopovers();
       return;
     }

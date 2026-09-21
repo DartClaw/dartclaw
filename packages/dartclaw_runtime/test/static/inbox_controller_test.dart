@@ -140,6 +140,20 @@ controller.handleDocumentClick(clickOn(['[data-inbox-select-mode]']));
 assert(controller.loadInboxView().selectMode === true, 'a click inside the list left select mode');
 controller.handleDocumentClick(clickOn(['[data-inbox-select-toggle]']));
 assert(controller.loadInboxView().selectMode === false, 'the view-options command did not leave select mode');
+
+// Every page now carries enhanced selects, and a closed one's menu is a `.pop`
+// that stays in the DOM. Escape has to reach select mode past it. One node
+// stands for that DOM; the matcher reads the selector's own :not() clauses.
+const closedMenu = { classes: ['pop', 'card', 'card-elevated', 'custom-select-menu'], hidden: false };
+globalThis.document.querySelector = (selector) => {
+  if (!selector.startsWith('.pop')) return null;
+  if (selector.includes(':not([hidden])') && closedMenu.hidden) return null;
+  const excluded = [...selector.matchAll(/:not\(\.([a-z-]+)\)/g)].map((match) => match[1]);
+  return excluded.some((name) => closedMenu.classes.includes(name)) ? null : closedMenu;
+};
+controller.inboxView.selectMode = true;
+controller.handleDocumentKeydown({ key: 'Escape' });
+assert(controller.loadInboxView().selectMode === false, 'a closed select menu swallowed Escape');
 ''';
 
 const _resizeHarness =

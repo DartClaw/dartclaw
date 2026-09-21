@@ -365,6 +365,14 @@ class ClaudeCodeHarness extends BaseHarness
       await delayFactory(const Duration(milliseconds: 500));
     }
     currentState = WorkerState.stopped;
+    // `handleUnexpectedProcessExit` is the only other completion path and it
+    // declines an intentional teardown, so without this the killed process's
+    // exit settles nothing and `turn()` awaits a completer forever — holding
+    // the caller's session lock and worker lease for the life of the process.
+    final turnCompleter = _turnCompleter;
+    if (turnCompleter != null && !turnCompleter.isCompleted) {
+      turnCompleter.completeError(StateError('ClaudeCodeHarness stopped'));
+    }
     await shutdownCurrentProcess(
       label: 'Claude',
       gracePeriod: _killGracePeriod,

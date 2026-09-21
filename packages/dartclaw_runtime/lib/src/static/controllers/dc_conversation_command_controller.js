@@ -17,9 +17,11 @@ export default class DcConversationCommandController extends Stimulus.Controller
     this.handleInput = this.handleInput.bind(this);
     this.handlePopstate = this.handlePopstate.bind(this);
     this.handleConversationChanged = this.handleConversationChanged.bind(this);
+    this.handleSlashPaletteRequest = this.handleSlashPaletteRequest.bind(this);
     document.addEventListener('click', this.handleClick);
     document.addEventListener('keydown', this.handleKeydown);
     document.addEventListener('input', this.handleInput);
+    document.addEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
     window.addEventListener('popstate', this.handlePopstate);
     document.body.addEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     this.restoreSearchReturn();
@@ -29,6 +31,7 @@ export default class DcConversationCommandController extends Stimulus.Controller
     document.removeEventListener('click', this.handleClick);
     document.removeEventListener('keydown', this.handleKeydown);
     document.removeEventListener('input', this.handleInput);
+    document.removeEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
     window.removeEventListener('popstate', this.handlePopstate);
     document.body.removeEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     clearTimeout(this.searchTimer);
@@ -234,14 +237,24 @@ export default class DcConversationCommandController extends Stimulus.Controller
     return data;
   }
 
-  /// The leading `/` is the palette's trigger, not part of what is being
-  /// searched for: filtering on it matches no command label and leaves the bare
-  /// `/` palette holding only the passthrough row.
+  /// The composer button asks for the whole catalogue: it is opening the
+  /// palette, not typing a query, and the composer may hold a draft that is no
+  /// query at all.
+  handleSlashPaletteRequest() {
+    const palette = document.querySelector('[data-slash-palette]');
+    if (!palette) return;
+    this.catalogs.delete('slash|' + this.sessionId);
+    palette.hidden = false;
+    this.renderSlash('').catch(() => {
+      palette.hidden = true;
+    });
+  }
+
   async renderSlash(query) {
     const palette = document.querySelector('[data-slash-palette]');
     const target = palette.querySelector('[data-slash-results]');
     const catalog = await this.catalog('slash');
-    this.renderCatalog(target, catalog, query.replace(/^\//, ''));
+    this.renderCatalog(target, catalog, query);
     if (!target.children.length) {
       const button = this.optionButton({ label: 'Send to provider', description: 'Send this text unchanged' });
       button.dataset.passthrough = 'true';
@@ -384,9 +397,13 @@ export default class DcConversationCommandController extends Stimulus.Controller
     }
     if (data.action === 'navigate') location.assign(this.withToken(data.href));
     if (data.action === 'refresh') location.reload();
-    // Both routed fields live in the model popover, so the pill is the trigger.
+    // Both routed fields live in the model popover. Asking dc-chat to open it
+    // rather than clicking the pill keeps the route idempotent — a click would
+    // toggle a popover the reader already has open.
     if (data.action === 'open_context') {
-      document.getElementById('effective-context-composer-provider')?.click();
+      document.getElementById('main-content')?.dispatchEvent(
+        new CustomEvent('dartclaw:chat-action', { bubbles: true, detail: { action: 'model-context' } }),
+      );
       document.querySelector('[name="' + data.field + '"]')?.focus();
     }
     if (data.action === 'show_help') showToast('info', 'Use ↑/↓ to choose and Enter to run. Unknown slash text is sent to the provider.');

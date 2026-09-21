@@ -312,15 +312,18 @@ export default class DcChatController extends Stimulus.Controller {
 
   /// The topbar overflow menu and the command palette live outside this
   /// controller's element, so they reach these surfaces by dispatching
-  /// `dartclaw:chat-action` on `#main-content` with one of these four actions.
-  /// The model/effort commands keep their own route: they click
-  /// `#effective-context-open` and focus the field they name.
+  /// `dartclaw:chat-action` on `#main-content` with one of these actions. The
+  /// `/model` and `/effort` commands take `model-context` and then focus the
+  /// field they name; it opens rather than toggles, because a command run while
+  /// the popover is already open would otherwise close it and leave the focus
+  /// on a hidden select.
   handleChatAction(event) {
     const actions = {
       find: () => this.openFind(),
       export: () => this.openTemporaryExport(),
       'temporary-create': () => this.openTemporaryCreate(),
       'temporary-end': () => this.openTemporaryEnd(),
+      'model-context': () => this.openContextPopoverFrom('effective-context-composer-provider'),
     };
     const run = actions[event.detail?.action];
     if (!run) return;
@@ -328,9 +331,18 @@ export default class DcChatController extends Stimulus.Controller {
     run();
   }
 
+  /// From an empty composer the button seeds a `/` so typing keeps narrowing
+  /// the palette. Over a draft it must not: prefixing turns the draft into a
+  /// query that matches no command, which is the palette collapsing to its
+  /// passthrough row — the "the button does nothing" report. The draft is left
+  /// alone and the palette is asked to open on its own.
   openCommands() {
     const textarea = this.textarea;
     if (!textarea) return;
+    if (textarea.value && !textarea.value.startsWith('/')) {
+      document.dispatchEvent(new CustomEvent('dartclaw:slash-palette'));
+      return;
+    }
     if (!textarea.value.startsWith('/')) textarea.value = '/' + textarea.value;
     textarea.focus();
     textarea.setSelectionRange(1, 1);
@@ -354,10 +366,23 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   openContextPopover(event) {
-    const trigger = event?.currentTarget || document.activeElement;
+    this.openContextPopoverFrom(event?.currentTarget?.id || document.activeElement?.id);
+  }
+
+  /// Idempotent, unlike the toggle: a command that opens this popover may run
+  /// while it is already open, and a toggle there would close it and leave the
+  /// focus the command moves next on a hidden control.
+  openContextPopoverFrom(triggerId) {
+    const trigger = triggerId ? this.element.querySelector('#' + triggerId) : null;
     const popover = this.contextPopoverFor(trigger);
     if (!popover) return;
-    this.closeContextPopover();
+    // Hide the sibling without its focus return: focus is about to move into
+    // this popover, and bouncing it off the other trigger first flickers.
+    const open = this.activeContextPopover;
+    if (open && open !== popover) {
+      open.hidden = true;
+      this.setContextExpanded(open, false);
+    }
     this.contextPopoverReturnFocus = trigger;
     popover.hidden = false;
     this.setContextExpanded(popover, true);
@@ -410,6 +435,11 @@ export default class DcChatController extends Stimulus.Controller {
     this.updateContinuityWarning();
   }
 
+  /// Rehydrates what the server rendered: this option set must stay identical
+  /// to `_contextOptions` in `api/session_routes_support.dart`, which builds the
+  /// same "provider default, then catalogue, then a staged value the catalogue
+  /// does not carry" list for the first paint. Change one, change the other.
+  ///
   /// The adapter is the one authority on what it accepts, so a provider change
   /// rebuilds the picker from that provider's own list rather than filtering
   /// the previous one. A staged value the list does not carry is kept as its

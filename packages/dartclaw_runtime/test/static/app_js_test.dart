@@ -967,6 +967,14 @@ class Element {
     this.disabled = false;
   }
   get firstChild() { return this.children[0]; }
+  get lastChild() { return this.children[this.children.length - 1]; }
+  // A node that was given text is a leaf; otherwise it reads as its children,
+  // which is what lets a row report the label its last child carries.
+  get textContent() {
+    if (this._text !== undefined) return this._text;
+    return this.children.map((child) => child.textContent ?? '').join('');
+  }
+  set textContent(value) { this._text = value; }
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.children.push(child); }
   replaceChildren(...children) { this.children = [...children]; }
@@ -974,16 +982,28 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = value; }
   querySelectorAll() { return []; }
   querySelector() { return null; }
-  contains() { return false; }
+  // Real containment, so the focusout close path is actually exercised rather
+  // than short-circuited by a fake that never contains anything.
+  contains(node) {
+    if (node === this) return true;
+    return this.children.some((child) => child.contains?.(node) === true);
+  }
   focus() {}
 }
 
 let bubbledChanges = 0;
 const parent = { insertBefore() {} };
 const selectListeners = {};
+const formListeners = {};
+const form = {
+  addEventListener(name, listener) { formListeners[name] = listener; },
+  removeEventListener(name) { delete formListeners[name]; },
+};
 const select = {
   dataset: {},
   parentNode: parent,
+  form,
+  isConnected: true,
   classList: new ClassList(),
   attributes: {},
   tabIndex: 0,
@@ -1018,16 +1038,24 @@ globalThis.document = {
 
 const source = await readFile(new URL(process.argv[1]), 'utf8');
 const shared = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-// The enhancer is opt-out now: every select that is a control is enhanced, and
-// aria-hidden is what marks a value holder behind a purpose-built control.
+// The enhancer is opt-out now. The selector asks only "not enhanced yet"; the
+// markup's opt-out is aria-hidden, decided inside the enhancer, so the enhancer
+// setting aria-hidden itself can never read back as an opt-out.
 let selectorAsked = null;
-shared.initCustomSelects({
+const enhance = (node) => shared.initCustomSelects({
   querySelectorAll(selector) {
     selectorAsked = selector;
-    return [select];
+    return [node];
   },
 });
-if (selectorAsked !== 'select.form-select:not([aria-hidden="true"])') {
+
+const optedOut = { dataset: {}, attributes: { 'aria-hidden': 'true' },
+  getAttribute(name) { return this.attributes[name] ?? null; } };
+enhance(optedOut);
+if (optedOut.dataset.customSelectInit) throw new Error('an aria-hidden value holder was enhanced');
+
+enhance(select);
+if (selectorAsked !== 'select.form-select:not([data-custom-select-init])') {
   throw new Error('unexpected enhancement selector: ' + selectorAsked);
 }
 
@@ -1049,5 +1077,45 @@ if (optionRows[1].firstChild.className !== 'menu-tick icon-control') {
 }
 if (optionRows[0].firstChild.className !== 'menu-tick') {
   throw new Error('unselected row kept a tick: ' + optionRows[0].firstChild.className);
+}
+
+const wrapper = created.find((element) => element.className === 'custom-select');
+const trigger = created.find((element) => element.className === 'custom-select-trigger');
+const menu = created.find((element) => element.className?.includes('custom-select-menu'));
+const label = () => trigger.children[0].textContent;
+
+// Focus leaving the wrapper closes the menu; focus moving inside it does not.
+wrapper.dataset.open = 'true';
+wrapper.listeners.focusout({ relatedTarget: optionRows[0] });
+if (wrapper.dataset.open !== 'true') throw new Error('focus moving inside the menu closed it');
+wrapper.listeners.focusout({ relatedTarget: null });
+if (wrapper.dataset.open !== 'false') throw new Error('focus leaving the wrapper left the menu open');
+
+// A form reset restores the select silently — no change event — so the enhancer
+// has to resync itself or the trigger keeps the discarded label.
+select.value = '';
+formListeners.reset();
+await new Promise((resolve) => setTimeout(resolve, 0));
+if (label() !== 'All statuses') throw new Error('trigger kept the discarded label: ' + label());
+
+// Rewriting the option list has to reach the rows, not just the label: a menu
+// still listing the previous provider's models is worse than a stale label.
+select.options = [
+  { value: 'sonnet', textContent: 'Sonnet', label: 'Sonnet', selected: true, disabled: false },
+  { value: 'opus', textContent: 'Opus', label: 'Opus', selected: false, disabled: false },
+  { value: 'haiku', textContent: 'Haiku', label: 'Haiku', selected: false, disabled: true },
+];
+select.value = 'opus';
+shared.syncCustomSelect(select);
+const rowLabels = menu.children.map((row) => row.lastChild.textContent);
+if (rowLabels.join(',') !== 'Sonnet,Opus,Haiku') throw new Error('menu rows were not rebuilt: ' + rowLabels);
+if (menu.children[2].disabled !== true) throw new Error('rebuilt row dropped its disabled state');
+if (label() !== 'Opus') throw new Error('trigger did not follow the rebuilt options: ' + label());
+
+// An unchanged option list must not rebuild — a rebuild drops keyboard focus.
+const rowsBefore = menu.children.slice();
+shared.syncCustomSelect(select);
+if (menu.children.some((row, index) => row !== rowsBefore[index])) {
+  throw new Error('an unchanged option list rebuilt the menu');
 }
 ''';

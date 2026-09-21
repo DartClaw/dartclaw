@@ -279,6 +279,8 @@ export function closeAllCustomSelects(except) {
   });
 }
 
+// Re-reads a wrapped select: rebuilds the menu when its option set has changed,
+// then re-labels and re-ticks. Call it after rewriting `select.options`.
 export function syncCustomSelect(select) {
   if (!select || typeof select._customSelectSync !== 'function') return;
   select._customSelectSync();
@@ -300,6 +302,11 @@ function bindCustomSelectOutsideClose() {
 
 function enhanceCustomSelect(select) {
   if (!select || select.dataset.customSelectInit) return;
+  // The markup's opt-out, read before the enhancer sets aria-hidden itself:
+  // a select already outside the a11y tree is a value holder behind a
+  // purpose-built control, not a control. `data-custom-select-init` alone
+  // answers "already enhanced", so the two questions never share an answer.
+  if (select.getAttribute('aria-hidden') === 'true') return;
   select.dataset.customSelectInit = '1';
   bindCustomSelectOutsideClose();
 
@@ -349,6 +356,26 @@ function enhanceCustomSelect(select) {
       if (on) tick.dataset.icon = 'check';
       else delete tick.dataset.icon;
     }
+  }
+
+  // The rows mirror the option list, so anything that rewrites `select.options`
+  // has to be able to reach them. Comparing is cheaper than rebuilding, and a
+  // rebuild would drop keyboard focus mid-menu for an unchanged list.
+  function menuMatchesOptions() {
+    if (select.options.length !== menu.children.length) return false;
+    for (let index = 0; index < select.options.length; index += 1) {
+      const option = select.options[index];
+      const row = menu.children[index];
+      if (row.dataset.value !== option.value) return false;
+      if (row.disabled !== option.disabled) return false;
+      if (row.lastChild.textContent !== (option.textContent || option.label || '')) return false;
+    }
+    return true;
+  }
+
+  function refresh() {
+    if (!menuMatchesOptions()) buildOptions();
+    syncFromSelect();
   }
 
   function buildOptions() {
@@ -447,10 +474,33 @@ function enhanceCustomSelect(select) {
     if (!wrapper.contains(event.relatedTarget)) setOpen(false);
   });
 
-  select.addEventListener('change', syncFromSelect);
-  select._customSelectSync = syncFromSelect;
+  select.addEventListener('change', refresh);
+  bindFormReset(select, refresh);
+  select._customSelectSync = refresh;
   buildOptions();
   syncFromSelect();
+}
+
+// A form reset restores the native select silently — no `change` fires — so the
+// trigger would keep the label of the value the user just discarded. The reset
+// event itself arrives *before* the browser has restored the control values, so
+// the resync has to wait a task for the values it is about to read.
+//
+// The listener sits on the form, which outlives the select under an inner
+// swap, so it retires itself once the select it speaks for is detached.
+function bindFormReset(select, refresh) {
+  const form = select.form;
+  if (!form) return;
+  const onReset = () => {
+    setTimeout(() => {
+      if (!select.isConnected) {
+        form.removeEventListener('reset', onReset);
+        return;
+      }
+      refresh();
+    }, 0);
+  };
+  form.addEventListener('reset', onReset);
 }
 
 // The trigger replaces the select as the control, so it has to inherit the
@@ -469,10 +519,10 @@ function nameTriggerAfterSelect(select, trigger) {
   trigger.setAttribute('aria-labelledby', labelElement.id);
 }
 
-// Every select that is a control, with no opt-in attribute: aria-hidden marks
-// the ones that are value holders behind a purpose-built control.
+// Every select that is a control, with no opt-in attribute. The selector asks
+// only "not enhanced yet"; the markup's opt-out is `enhanceCustomSelect`'s.
 export function initCustomSelects(root = document) {
-  root.querySelectorAll('select.form-select:not([aria-hidden="true"])').forEach(enhanceCustomSelect);
+  root.querySelectorAll('select.form-select:not([data-custom-select-init])').forEach(enhanceCustomSelect);
 }
 
 export function renderMarkdown(root = document) {

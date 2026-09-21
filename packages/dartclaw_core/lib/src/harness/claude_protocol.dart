@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 
+import 'agent_harness.dart' show ModelCatalogue, ModelCatalogueEntry;
+
 final _log = Logger('ClaudeProtocol');
 
 /// Env vars to clear to prevent claude nesting detection.
@@ -372,4 +374,62 @@ ClaudeMessage _parseResult(Map<String, dynamic> json) {
     cacheReadInputTokens: usage?['cache_read_input_tokens'] as int?,
     cacheCreationInputTokens: usage?['cache_creation_input_tokens'] as int?,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Model catalogue
+// ---------------------------------------------------------------------------
+
+/// Builds the account's model catalogue from the `initialize` and
+/// `get_settings` control responses, each passed as the whole stdout line.
+///
+/// Both surfaces are undocumented CLI output, so a missing or mistyped field
+/// this reads throws [FormatException] instead of yielding a partial list. The
+/// `default` row is the account default rather than a model, and a `disabled`
+/// row is not selectable; neither becomes an entry. The default resolves to the
+/// first entry whose `resolvedModel` or `value` equals `applied.model`.
+ModelCatalogue claudeModelCatalogue({
+  required Map<String, dynamic> initialize,
+  required Map<String, dynamic> settings,
+}) {
+  final rows = _controlPayload(initialize, 'initialize')['models'];
+  if (rows is! List) throw const FormatException('Claude initialize response carries no models list');
+  final applied = _controlPayload(settings, 'get_settings')['applied'];
+  final appliedModel = applied is Map<String, dynamic> ? applied['model'] : null;
+  if (appliedModel is! String) throw const FormatException('Claude get_settings response carries no applied.model');
+
+  final entries = <ModelCatalogueEntry>[];
+  String? defaultId;
+  for (final row in rows) {
+    if (row is! Map<String, dynamic>) throw const FormatException('Claude models row is not an object');
+    final value = row['value'];
+    final label = row['displayName'];
+    final resolved = row['resolvedModel'];
+    final efforts = row['supportedEffortLevels'];
+    final disabled = row['disabled'];
+    if (value is! String || label is! String || resolved is! String) {
+      throw FormatException('Claude models row lacks value, displayName or resolvedModel: $row');
+    }
+    if ((efforts != null && (efforts is! List || efforts.any((effort) => effort is! String))) ||
+        (disabled != null && disabled is! bool)) {
+      throw FormatException('Claude models row "$value" carries malformed supportedEffortLevels or disabled');
+    }
+    if (value == 'default' || disabled == true) continue;
+    entries.add(
+      ModelCatalogueEntry(
+        id: value,
+        label: label,
+        efforts: List<String>.unmodifiable(efforts == null ? const <String>[] : (efforts as List).cast<String>()),
+      ),
+    );
+    if (defaultId == null && (resolved == appliedModel || value == appliedModel)) defaultId = value;
+  }
+  return ModelCatalogue(entries: List.unmodifiable(entries), defaultId: defaultId);
+}
+
+Map<String, dynamic> _controlPayload(Map<String, dynamic> line, String request) {
+  final response = line['response'];
+  final payload = response is Map<String, dynamic> && response['subtype'] == 'success' ? response['response'] : null;
+  if (payload is! Map<String, dynamic>) throw FormatException('Claude $request control response is not a success');
+  return payload;
 }

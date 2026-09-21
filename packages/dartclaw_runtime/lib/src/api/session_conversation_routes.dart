@@ -7,7 +7,7 @@ import '../auth/request_auth_context.dart';
 import '../conversation/conversation_service.dart';
 import '../turn_manager.dart' show TurnManager;
 import 'api_helpers.dart';
-import 'session_routes_support.dart' show effectiveContextView;
+import 'session_routes_support.dart' show ModelCatalogueLookup, effectiveContextView, noModelCatalogues;
 
 void registerSessionConversationRoutes(
   Router router, {
@@ -16,6 +16,7 @@ void registerSessionConversationRoutes(
   required TurnManager turns,
   ProjectService? projects,
   Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
+  ModelCatalogueLookup modelCatalogues = noModelCatalogues,
   String defaultProvider = 'claude',
 }) {
   router.get('/api/sessions/<id>/conversation-state', (Request request, String id) async {
@@ -34,7 +35,14 @@ void registerSessionConversationRoutes(
       ..._snapshotJson(
         id,
         state,
-        effectiveContext: await effectiveContextView(session, state, projects, defaultProvider, contextCapabilities),
+        effectiveContext: await effectiveContextView(
+          session,
+          state,
+          projects,
+          defaultProvider,
+          contextCapabilities,
+          catalogues: modelCatalogues,
+        ),
       ),
       'activity': {
         'origin': session.channelKey ?? session.type.name,
@@ -82,7 +90,14 @@ void registerSessionConversationRoutes(
         _snapshotJson(
           id,
           state,
-          effectiveContext: await effectiveContextView(session, state, projects, defaultProvider, contextCapabilities),
+          effectiveContext: await effectiveContextView(
+            session,
+            state,
+            projects,
+            defaultProvider,
+            contextCapabilities,
+            catalogues: modelCatalogues,
+          ),
         ),
       );
     } on ConversationMutationException catch (error) {

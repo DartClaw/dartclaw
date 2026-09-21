@@ -707,7 +707,8 @@ export default class DcShellController extends Stimulus.Controller {
     // Grouped by project, line 1 would repeat the group header; it carries the
     // conversation's provider and model instead.
     const model = row.querySelector('[data-inbox-model]');
-    if (model) model.textContent = [entry.provider, entry.model].filter(Boolean).join(' · ');
+    // The model is named by the server-built label the composer uses.
+    if (model) model.textContent = [entry.provider, entry.model_label].filter(Boolean).join(' · ');
     const identicon = row.querySelector('.row-ident');
     if (identicon) {
       identicon.dataset.identiconId = entry.project_id || '';
@@ -1031,9 +1032,10 @@ export default class DcShellController extends Stimulus.Controller {
     }
     // The crumb's provider/model segments are the last two spans; the server
     // omits the model one entirely until a model is known, so it is rebuilt
-    // rather than patched in place.
+    // rather than patched in place. The model is named by the server-built
+    // label the composer uses, never the raw id.
     crumb.querySelectorAll('[data-crumb-tail]').forEach((node) => node.remove());
-    for (const value of [entry.provider, entry.model].filter(Boolean)) {
+    for (const value of [entry.provider, entry.model_label].filter(Boolean)) {
       const sep = document.createElement('span');
       sep.className = 'crumb-sep';
       sep.dataset.crumbTail = '';

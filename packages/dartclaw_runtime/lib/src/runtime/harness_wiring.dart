@@ -9,12 +9,14 @@ import 'package:path/path.dart' as p;
 
 import '../concurrency/session_lock_manager.dart' show SessionLockNow, SessionLockTimerFactory;
 import '../mcp/mcp_server.dart' show McpCallerContext;
+import 'model_catalogue_discovery.dart';
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
 import 'provider_resolution.dart' show sanitizeProviderRequestEnvironment;
 
 part 'harness_wiring_guards.dart';
 part 'harness_wiring_memory.dart';
+part 'harness_wiring_model_catalogue.dart';
 part 'harness_wiring_provider_support.dart';
 
 /// Constructs and exposes harness-layer services.
@@ -374,7 +376,15 @@ class HarnessWiring {
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
 
+  /// The model catalogue [providerId] reported, or `null` before or without one.
+  ModelCatalogue? modelCatalogueFor(String providerId) => _modelCatalogues?.catalogueFor(providerId);
+  ModelCatalogueDiscovery? _modelCatalogues;
+
   Future<void> startPrimary() async => _harness?.start();
+
+  /// Discovers model catalogues in the background; the composition root calls
+  /// it once the chat-serving runtime has started.
+  void startModelCatalogueDiscovery() => (_modelCatalogues ??= _buildModelCatalogueDiscovery()).start();
 
   /// Wires harness services. [turnManagerGetter] is resolved lazily for
   /// the logical-agent session dispatch closure, and answers `null` in a

@@ -100,11 +100,15 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   marker instead of a pill.
 
 - The composer's project chip and model pill open separate popovers: **Project** (project, directory, a link to Session
-  info) and **Provider and model** (provider, model and effort as dropdowns fed by each adapter's declared catalogue;
-  Claude declares `sonnet`, `opus`, `haiku` and `low`, `medium`, `high`, `xhigh`, `max`). A change applies to the next
-  turn when it is picked (Directory on Enter or leaving the field), with no Apply button; a refused change shows why
-  and the controls return to the applied context. The context diagnostics stay on Session info. Queue, its steer caret
-  and send share one 28px control tier, and queued-turn actions rest borderless.
+  info) and **Provider and model** (provider, model and effort as dropdowns). The model list is what the provider
+  reports for the account, discovered at startup without a turn – Claude from its `initialize` models and
+  `get_settings`, Codex from `model/list` and an ephemeral `thread/start` – with each model under the provider's own
+  name, Default labelled by what it resolves to, and Effort offering exactly the selected model's efforts (locked for
+  a model reporting none). The pill and the topbar crumb name the model the same way. Until discovery succeeds the
+  pickers offer Default plus any staged value, and a failed provider is retried at most every 5 minutes. A change
+  applies to the next turn when it is picked (Directory on Enter or leaving the field), with no Apply button; a refused
+  change shows why and the controls return to the applied context. The context diagnostics stay on Session info.
+  Queue, its steer caret and send share one 28px control tier, and queued-turn actions rest borderless.
 
 ### Fixed
 

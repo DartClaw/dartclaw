@@ -150,6 +150,7 @@ DartclawServer _composeRuntimeServer(
       webhookSecret: channel.webhookSecret,
       resultTrimmer: harness.resultTrimmer,
       effectiveContextCapabilities: harness.effectiveContextCapabilities,
+      modelCatalogues: harness.modelCatalogueFor,
       logicalAgentSessions: harness.logicalAgentSessions,
       temporaryConversationCapability: harness.temporaryConversationCapability,
     ),

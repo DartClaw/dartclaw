@@ -86,7 +86,11 @@ const _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
 class ClaudeCodeHarness extends BaseHarness
-    implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider, NativeSkillCapabilityProvider {
+    implements
+        HarnessToolApprovalResponder,
+        EffectiveContextCapabilityProvider,
+        ModelCatalogueProvider,
+        NativeSkillCapabilityProvider {
   final String claudeExecutable;
   final Map<String, String> _environment;
   final Map<String, String> _containerEnvironment;
@@ -175,6 +179,10 @@ class ClaudeCodeHarness extends BaseHarness
 
   Completer<Map<String, dynamic>>? _initCompleter;
 
+  /// The running process's `initialize` control response, for the catalogue.
+  Map<String, dynamic>? _initResponse;
+  ({String id, Completer<Map<String, dynamic>> completer})? _settingsRequest;
+
   new({
     this.claudeExecutable = 'claude',
     required super.cwd,
@@ -241,14 +249,12 @@ class ClaudeCodeHarness extends BaseHarness
   PromptStrategy get promptStrategy => PromptStrategy.append;
 
   @override
-  EffectiveContextCapabilities get effectiveContextCapabilities => const EffectiveContextCapabilities(
-    model: true,
-    effort: true,
-    // The CLI's own aliases, minus `default` and `opusplan`, which name a
-    // routing policy rather than a model a reader would pick.
-    models: ['sonnet', 'opus', 'haiku'],
-    efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
-  );
+  EffectiveContextCapabilities get effectiveContextCapabilities =>
+      const EffectiveContextCapabilities(model: true, effort: true);
+
+  /// Sends only `initialize` (on start) and `get_settings`; no user turn.
+  @override
+  Future<ModelCatalogue> discoverModelCatalogue() => _discoverModelCatalogue();
 
   @override
   bool get supportsCachedTokens => true;
@@ -991,7 +997,7 @@ class ClaudeCodeHarness extends BaseHarness
     );
 
     try {
-      await _initCompleter!.future.timeout(_initializeTimeout);
+      _initResponse = await _initCompleter!.future.timeout(_initializeTimeout);
       _log.info('Initialize handshake complete');
     } on TimeoutException {
       _log.severe('Initialize handshake timed out');
@@ -1125,6 +1131,7 @@ class ClaudeCodeHarness extends BaseHarness
         _log.fine('Non-JSON or non-control_response line during init');
       }
     }
+    if (_completeSettingsRequest(line)) return;
 
     final msg = _adapter.parseLine(line);
     if (msg == null) return;

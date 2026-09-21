@@ -1,6 +1,32 @@
 part of 'claude_code_harness.dart';
 
 extension _ClaudeCodeHarnessControl on ClaudeCodeHarness {
+  Future<ModelCatalogue> _discoverModelCatalogue() async {
+    await start();
+    try {
+      final requestId = 'req_settings_${DateTime.now().millisecondsSinceEpoch}';
+      final completer = Completer<Map<String, dynamic>>();
+      _settingsRequest = (id: requestId, completer: completer);
+      _writeControlLine(_adapter.buildGetSettingsRequest(requestId: requestId));
+      final settings = await completer.future.timeout(_initializeTimeout);
+      return claudeModelCatalogue(initialize: _initResponse ?? const {}, settings: settings);
+    } finally {
+      _settingsRequest = null;
+      await stop();
+    }
+  }
+
+  /// Consumes [line] when it answers the pending `get_settings` request.
+  bool _completeSettingsRequest(String line) {
+    final pending = _settingsRequest;
+    if (pending == null || pending.completer.isCompleted) return false;
+    final json = decodeJsonObject(line);
+    if (json == null || stringValue(json['type']) != 'control_response') return false;
+    if (stringValue(mapValue(json['response'])?['request_id']) != pending.id) return false;
+    pending.completer.complete(json);
+    return true;
+  }
+
   Future<void> _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) async {
     switch (subtype) {
       case 'can_use_tool':

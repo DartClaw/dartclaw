@@ -782,6 +782,7 @@ class _RuntimeAssembly {
     _ownedStorage = null;
     try {
       await harness.startPrimary();
+      if (server != null) harness.startModelCatalogueDiscovery();
       if (channel != null) await postMcpStartupHook(channel);
       runtime.taskExecutor?.start();
       runtime.scheduleService?.start();

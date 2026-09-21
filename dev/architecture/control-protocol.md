@@ -249,12 +249,41 @@ Key fields in the `request` object:
   "response": {
     "subtype": "success",
     "request_id": "req_init_1710234567890",
-    "response": { ... }
+    "response": { "models": [ ... ], ... }
   }
 }
 ```
 
 The harness waits up to 10 seconds for this response. Timeout kills the process.
+
+#### Model catalogue discovery (`models` + `get_settings`)
+
+The `initialize` response carries `response.response.models[]`, one row per model the account may select (claude
+2.1.278):
+
+```json
+{"value":"opus[1m]","resolvedModel":"claude-opus-5[1m]","displayName":"Opus (1M context)","description":"…",
+ "supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]}
+{"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku","description":"…"}
+```
+
+The `default` row is the account default rather than a model; a row with `disabled: true` is visible but not
+selectable. To learn which model the process actually runs, DartClaw sends a `get_settings` control request and reads
+`applied.model` from its response:
+
+```json
+{"type":"control_request","request_id":"req_settings_1710234567890","request":{"subtype":"get_settings"}}
+{"type":"control_response","response":{"subtype":"success","request_id":"req_settings_1710234567890",
+ "response":{"applied":{"model":"claude-opus-5[1m]","effort":"xhigh"},"effective":{…},"sources":{…}}}}
+```
+
+`ClaudeCodeHarness.discoverModelCatalogue()` starts the process, sends only `initialize` and `get_settings`, and stops
+it – no user turn. Entries are the rows minus `default` and `disabled`, labelled by `displayName` verbatim, with
+efforts from `supportedEffortLevels` (none when absent). Default resolves to the entry whose `resolvedModel` or `value`
+equals `applied.model`; none matching leaves it unresolved. Both surfaces are undocumented CLI output: a row missing `value`,
+`displayName` or `resolvedModel`, or a response without `applied.model`, fails discovery as a whole rather than
+yielding a partial list. The runtime runs this once per provider at startup on the host (see Codex below for the
+shared owner).
 
 ### 4.2 System Init Event
 
@@ -1085,6 +1114,26 @@ project becomes the turn cwd. Restricted and unconfigured agents send no additio
 
 Only after that does DartClaw create a thread with `thread/start`, or load an explicitly requested durable thread with
 `thread/resume {"threadId": "…"}`. The first ordinary turn for a session creates a thread; later turns reuse its cached ID.
+
+### Model catalogue discovery (`model/list` + ephemeral `thread/start`)
+
+`CodexHarness.discoverModelCatalogue()` runs the handshake, then pages `model/list` (params `{cursor}`; result
+`{data: Model[], nextCursor}`) until `nextCursor` is null, bounded at 50 pages. Each `Model` carries `id, model,
+displayName, description, hidden, isDefault, defaultReasoningEffort, supportedReasoningEfforts` (codex-cli 0.155.1);
+hidden entries are not offered, labels are `displayName` verbatim, and efforts are
+`supportedReasoningEfforts[].reasoningEffort`. `isDefault` marks the catalogue default, not the model this deployment
+runs, so the resolved default comes from one `thread/start` with `ephemeral: true` (plus the configured model, as a
+turn would send it), whose result names `model` without starting a turn; the default is the non-hidden entry whose
+`model` matches. No `turn/start` is sent and the process is stopped afterwards. A missing or mistyped field fails
+discovery as a whole.
+
+Both harnesses' discovery is owned by one runtime object, `ModelCatalogueDiscovery` (started through `HarnessWiring`
+once a server-composing runtime has started its primary lane): it spawns each executable provider on the host – never in a container – from the worker's
+executable, provider options, configured model and effort, credential environment and subscription home, with no guard
+chain, MCP wiring or workspace roots, and never blocks a render. A dedicated subscription home is prepared the probe-lane
+way and the probe writes neither its `config.toml` nor `AGENTS.md`: the home is shared with running workers, and Codex
+re-reads `config.toml` on every thread start. A success is kept for the process; a failure is
+logged with the provider id and retried by the first read at least 5 minutes later, one attempt at a time.
 
 ### Turn lifecycle
 

@@ -48,6 +48,7 @@ Router sessionRoutes(
   MessageRedactor? redactor,
   ProjectService? projectService,
   Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
+  ModelCatalogueLookup modelCatalogues = noModelCatalogues,
   String defaultProvider = 'claude',
   TemporaryConversationCapability? temporaryConversationCapability,
   LogicalAgentSessionService? logicalAgentSessions,
@@ -331,9 +332,10 @@ Router sessionRoutes(
     turns: turns,
     projects: projectService,
     contextCapabilities: contextCapabilities,
+    modelCatalogues: modelCatalogues,
     defaultProvider: defaultProvider,
   );
-  registerSessionInboxRoutes(router, inbox: inbox);
+  registerSessionInboxRoutes(router, inbox: inbox, modelCatalogues: modelCatalogues);
   if (conversationSearch != null && commandCatalog != null) {
     registerConversationSearchCommandRoutes(
       router,

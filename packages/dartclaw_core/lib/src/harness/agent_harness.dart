@@ -10,24 +10,19 @@ enum PromptStrategy {
   append,
 }
 
-/// Per-turn context fields an adapter serializes to its provider transport,
-/// with the values that adapter accepts for each.
+/// Per-turn context fields an adapter serializes to its provider transport.
 ///
-/// The adapter is the only authority on its own vocabulary: [models] and
-/// [efforts] are what a picker offers, and an empty list means the adapter
-/// documents none rather than that it rejects everything — a value outside the
-/// list still travels verbatim and the turn fails if the CLI refuses it.
+/// Which values each field accepts is not declared here: the provider process
+/// reports them as a [ModelCatalogue].
 final class EffectiveContextCapabilities {
   final bool model;
   final bool effort;
-  final List<String> models;
-  final List<String> efforts;
 
-  const new({required this.model, required this.effort, this.models = const [], this.efforts = const []});
+  const new({required this.model, required this.effort});
 
   static const unavailable = EffectiveContextCapabilities(model: false, effort: false);
 
-  Map<String, Object> toJson() => {'model': model, 'effort': effort, 'models': models, 'efforts': efforts};
+  Map<String, Object> toJson() => {'model': model, 'effort': effort};
 
   static EffectiveContextCapabilities of(AgentHarness harness) => harness is EffectiveContextCapabilityProvider
       ? (harness as EffectiveContextCapabilityProvider).effectiveContextCapabilities
@@ -36,6 +31,53 @@ final class EffectiveContextCapabilities {
 
 abstract interface class EffectiveContextCapabilityProvider {
   EffectiveContextCapabilities get effectiveContextCapabilities;
+}
+
+/// One model a provider offers the account.
+final class ModelCatalogueEntry {
+  /// The value the provider accepts as its model selection.
+  final String id;
+
+  /// The provider's own human-readable name, verbatim.
+  final String label;
+
+  /// Efforts the provider reports for this model; empty when it supports none.
+  final List<String> efforts;
+
+  const new({required this.id, required this.label, this.efforts = const []});
+}
+
+/// The models a provider process reports for the account it runs as.
+final class ModelCatalogue {
+  /// Selectable models in the provider's order.
+  final List<ModelCatalogueEntry> entries;
+
+  /// The entry the provider's default resolves to, or `null` when the resolved
+  /// model is not among [entries].
+  final String? defaultId;
+
+  const new({required this.entries, this.defaultId});
+
+  /// The entry whose id is [id], or `null` when [id] is null or not listed.
+  ModelCatalogueEntry? entryFor(String? id) {
+    for (final entry in entries) {
+      if (entry.id == id) return entry;
+    }
+    return null;
+  }
+
+  /// The entry Default resolves to, or `null` when [defaultId] is unresolved.
+  ModelCatalogueEntry? get defaultEntry => entryFor(defaultId);
+}
+
+/// A harness that can read its provider's [ModelCatalogue] without a turn.
+abstract interface class ModelCatalogueProvider {
+  /// Starts the provider process, reads the catalogue and the resolved
+  /// default, and stops the process.
+  ///
+  /// Throws when the provider cannot start or its answer lacks a field the
+  /// catalogue is built from; no partial catalogue is returned.
+  Future<ModelCatalogue> discoverModelCatalogue();
 }
 
 /// Adapter evidence that provider-native skill invocation is supported.

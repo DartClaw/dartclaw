@@ -1,5 +1,6 @@
 import 'package:logging/logging.dart';
 
+import 'agent_harness.dart' show ModelCatalogue, ModelCatalogueEntry;
 import 'canonical_tool.dart';
 import 'base_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
@@ -259,6 +260,13 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     return {'id': id, 'method': 'thread/start', 'params': params ?? <String, dynamic>{}};
   }
 
+  /// Builds a `model/list` request for the page after [cursor].
+  Map<String, dynamic> buildModelListRequest({required Object id, String? cursor}) => {
+    'id': id,
+    'method': 'model/list',
+    'params': {'cursor': ?cursor},
+  };
+
   /// Builds a `thread/resume` request.
   Map<String, dynamic> buildThreadResumeRequest({required Object id, required String threadId}) {
     return {
@@ -278,4 +286,53 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
       _ => codexMapToolName(providerToolName, kind: kind),
     };
   }
+}
+
+/// The cursor of the `model/list` page after [result], or `null` on the last.
+String? codexModelListNextCursor(Map<String, dynamic> result) => switch (result['nextCursor']) {
+  null => null,
+  final String cursor => cursor,
+  _ => throw const FormatException('Codex model/list nextCursor is not a string'),
+};
+
+/// Builds the account's model catalogue from every `model/list` result page
+/// and the `thread/start` result that names the model a thread resolves to.
+///
+/// A missing or mistyped field this reads throws [FormatException] rather
+/// than yielding a partial list. Hidden models are not offered; the default
+/// resolves by matching the thread's `model` against an offered entry's.
+ModelCatalogue codexModelCatalogue({
+  required List<Map<String, dynamic>> pages,
+  required Map<String, dynamic> threadStart,
+}) {
+  final resolved = threadStart['model'];
+  if (resolved is! String) throw const FormatException('Codex thread/start result carries no model');
+  final entries = <ModelCatalogueEntry>[];
+  String? defaultId;
+  for (final page in pages) {
+    final data = page['data'];
+    if (data is! List) throw const FormatException('Codex model/list result carries no data list');
+    for (final model in data) {
+      if (model is! Map<String, dynamic>) throw const FormatException('Codex model/list entry is not an object');
+      final id = model['id'];
+      final slug = model['model'];
+      final label = model['displayName'];
+      final hidden = model['hidden'];
+      final efforts = model['supportedReasoningEfforts'];
+      if (id is! String || slug is! String || label is! String || hidden is! bool || efforts is! List) {
+        throw FormatException('Codex model/list entry lacks id, model, displayName, hidden or efforts: $model');
+      }
+      final effortNames = [
+        for (final effort in efforts)
+          switch (effort) {
+            {'reasoningEffort': final String name} => name,
+            _ => throw FormatException('Codex model "$id" carries a malformed supportedReasoningEfforts entry'),
+          },
+      ];
+      if (hidden) continue;
+      entries.add(ModelCatalogueEntry(id: id, label: label, efforts: List.unmodifiable(effortNames)));
+      if (defaultId == null && slug == resolved) defaultId = id;
+    }
+  }
+  return ModelCatalogue(entries: List.unmodifiable(entries), defaultId: defaultId);
 }

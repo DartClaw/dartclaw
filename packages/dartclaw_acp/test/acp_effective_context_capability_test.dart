@@ -5,11 +5,6 @@ import 'package:test/test.dart';
 void main() {
   test('ACP reports model and effort unavailable because session/prompt ignores them', () {
     final harness = AcpHarness(cwd: '/tmp');
-    expect(EffectiveContextCapabilities.of(harness).toJson(), {
-      'model': false,
-      'effort': false,
-      'models': <String>[],
-      'efforts': <String>[],
-    });
+    expect(EffectiveContextCapabilities.of(harness).toJson(), {'model': false, 'effort': false});
   });
 }

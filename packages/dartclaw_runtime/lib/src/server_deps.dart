@@ -40,6 +40,9 @@ class ServerCoreDeps {
 
   final ResultTrimmer? resultTrimmer;
   final Map<String, EffectiveContextCapabilities> effectiveContextCapabilities;
+
+  /// Live model catalogues; read per render, never a startup snapshot.
+  final ModelCatalogueLookup modelCatalogues;
   final LogicalAgentSessionService? logicalAgentSessions;
   final TemporaryConversationCapability? temporaryConversationCapability;
 
@@ -68,6 +71,7 @@ class ServerCoreDeps {
     this.webhookSecret,
     this.resultTrimmer,
     this.effectiveContextCapabilities = const {},
+    this.modelCatalogues = noModelCatalogues,
     this.logicalAgentSessions,
     this.temporaryConversationCapability,
   });

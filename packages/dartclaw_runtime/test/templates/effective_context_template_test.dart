@@ -1,10 +1,23 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/src/api/session_routes_support.dart';
 import 'package:dartclaw_runtime/src/templates/chat.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
+import 'package:dartclaw_runtime/src/templates/topbar.dart';
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
+
+const _claudeCatalogue = ModelCatalogue(
+  entries: [
+    ModelCatalogueEntry(id: 'opus[1m]', label: 'Opus (1M context)', efforts: ['low', 'medium', 'high', 'xhigh', 'max']),
+    ModelCatalogueEntry(id: 'sonnet', label: 'Sonnet', efforts: ['low', 'medium', 'high', 'xhigh', 'max']),
+    ModelCatalogueEntry(id: 'haiku', label: 'Haiku'),
+  ],
+  defaultId: 'opus[1m]',
+);
 
 void main() {
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
@@ -31,25 +44,17 @@ void main() {
           {'value': 'project-id', 'label': 'Human Project', 'selected': true},
         ],
         'providers': [
-          {
-            'value': 'acp',
-            'label': 'acp',
-            'selected': true,
-            'model': 'false',
-            'effort': 'false',
-            'models': '',
-            'efforts': '',
-          },
+          {'value': 'acp', 'label': 'acp', 'selected': true, 'model': 'false', 'models': '[]'},
         ],
         'modelEditable': false,
         'effortEditable': false,
         'modelValue': '',
         'effortValue': '',
         'modelOptions': [
-          {'value': '', 'label': 'Provider default', 'selected': true},
+          {'value': '', 'label': 'Default', 'selected': true, 'efforts': '[]', 'effortEditable': 'false'},
         ],
         'effortOptions': [
-          {'value': '', 'label': 'Provider default', 'selected': true},
+          {'value': '', 'label': 'Default', 'selected': true},
         ],
         'composer': 'acp',
         'usage': '',
@@ -94,7 +99,7 @@ void main() {
     expect(html, isNot(contains('meta-val ')));
     // An adapter that transports neither leaves both pickers disabled rather
     // than offering a value the turn would drop.
-    expect(html, contains('id="effective-context-model-input" name="model" class="form-select" disabled'));
+    expect(html, contains('class="form-select" data-action="change->dc-chat#contextModelChanged" disabled'));
     expect(html, contains('id="effective-context-effort-input" name="effort" class="form-select" disabled'));
     expect(html, contains('Provider-native session and tool state do not'));
     // The last turn ran on claude and the next runs on acp, so the notice is
@@ -106,65 +111,84 @@ void main() {
     expect(html, contains('id="effective-context-usage" hidden'));
   });
 
-  test('the pickers render the catalogue the view projected, and the pill states only what is selected', () {
-    final html = chatAreaTemplate(
-      sessionId: 'session-id',
-      messagesHtml: '',
-      effectiveContext: const {
-        'workspace': 'web',
-        'project': 'Human Project',
-        'projectId': 'project-id',
-        'directory': '/project',
-        'provider': 'claude',
-        'current': 'project-id · claude',
-        'next': 'project-id · claude',
-        'telemetry': 'unavailable',
-        'behavior': 'none recorded',
-        'projects': [],
-        'providers': [
-          {
-            'value': 'claude',
-            'label': 'claude',
-            'selected': true,
-            'model': 'true',
-            'effort': 'true',
-            'models': 'sonnet,opus',
-            'efforts': 'low,high',
-          },
-        ],
-        'modelEditable': true,
-        'effortEditable': true,
-        'modelValue': 'sonnet',
-        'effortValue': '',
-        'modelOptions': [
-          {'value': '', 'label': 'Provider default', 'selected': false},
-          {'value': 'sonnet', 'label': 'sonnet', 'selected': true},
-          {'value': 'opus', 'label': 'opus', 'selected': false},
-        ],
-        'effortOptions': [
-          {'value': '', 'label': 'Provider default', 'selected': true},
-          {'value': 'low', 'label': 'low', 'selected': false},
-          {'value': 'high', 'label': 'high', 'selected': false},
-        ],
-        'composer': 'claude · sonnet',
-        'usage': '',
-        'usageHidden': true,
-        'currentHidden': true,
-        'continuityHidden': true,
-        'revision': 1,
-      },
+  test('the pickers render the options the view built, and the pill names the selected model', () async {
+    final now = DateTime.utc(2026, 9, 21);
+    const context = EffectiveConversationContext(
+      projectId: 'project-id',
+      directory: '/project',
+      referenceRoot: '/project',
+      provider: 'claude',
+      model: 'sonnet',
     );
+    final view = await effectiveContextView(
+      Session(
+        id: 'session-id',
+        type: SessionType.user,
+        retention: ConversationRetention.durable,
+        provider: 'claude',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      ConversationState().admitContext(context).stageContext(context),
+      null,
+      'claude',
+      const {'claude': EffectiveContextCapabilities(model: true, effort: true)},
+      catalogues: (_) => _claudeCatalogue,
+    );
+    final html = chatAreaTemplate(sessionId: 'session-id', messagesHtml: '', effectiveContext: view);
+
     // Same provider as the last turn: nothing to warn about.
     expect(html, contains('id="effective-context-continuity" class="banner banner-warning" hidden'));
     expect(html, contains('class="composer-model"'));
-    expect(html, contains('>claude · sonnet</button>'));
-    expect(html, contains('<option value="sonnet" selected="">sonnet</option>'));
-    expect(html, contains('<option value="opus">opus</option>'));
-    // The provider option carries its own catalogue, so a provider change
-    // re-renders the pickers without a second round trip.
-    expect(html, contains('data-models="sonnet,opus"'));
-    expect(html, contains('data-efforts="low,high"'));
-    expect(html, isNot(contains('placeholder="provider default"')));
+    expect(html, contains('>claude · Sonnet</button>'));
+    expect(html, matches(RegExp(r'<option value=""[^>]*>Default · Opus \(1M context\)</option>')));
+    expect(html, matches(RegExp(r'<option value="sonnet" selected=""[^>]*>Sonnet</option>')));
+    // Each model option carries the Effort picker it selects, and a model that
+    // reports none locks it; the controller renders these, never a list of its own.
+    expect(html, matches(RegExp(r'<option value="haiku"[^>]*data-effort-editable="false"[^>]*>Haiku</option>')));
+    expect(html, contains('<option value="max">max</option>'));
+    // The provider option carries its whole picker, so a provider change
+    // re-renders it without a second round trip.
+    expect(
+      html,
+      contains(
+        'data-models="[{&quot;value&quot;:&quot;&quot;,&quot;label&quot;:&quot;Default · Opus (1M context)&quot;',
+      ),
+    );
+    expect(html, contains('data-action="change->dc-chat#contextModelChanged"'));
+  });
+
+  group('crumb model label', () {
+    String crumb(String? model) => topbarTemplate(
+      title: 'Chat',
+      sessionId: 'session-id',
+      sessionType: SessionType.user,
+      projectId: 'project-id',
+      projectName: 'Human Project',
+      providerLabel: 'claude',
+      model: contextModelLabel(_claudeCatalogue, model),
+    );
+
+    test('names a catalogued model by the provider\'s label', () {
+      expect(crumb('sonnet'), contains('>Sonnet<'));
+      expect(crumb('sonnet'), isNot(contains('>sonnet<')));
+    });
+
+    test('names an uncatalogued model by its id', () {
+      expect(crumb('claude-sonnet-4-5'), contains('>claude-sonnet-4-5<'));
+    });
+
+    test('names Default by what it resolves to, and nothing when that is unresolved', () {
+      expect(crumb(null), contains('>Opus (1M context)<'));
+      final unresolved = topbarTemplate(
+        title: 'Chat',
+        sessionId: 'session-id',
+        sessionType: SessionType.user,
+        providerLabel: 'claude',
+        model: contextModelLabel(const ModelCatalogue(entries: []), null),
+      );
+      expect(unresolved, isNot(contains('crumb-model')));
+    });
   });
 
   test('session projection uses the shared relative timestamp formatter', () async {

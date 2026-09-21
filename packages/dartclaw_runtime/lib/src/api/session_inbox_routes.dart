@@ -5,8 +5,13 @@ import '../auth/request_auth_context.dart';
 import '../conversation/inbox_service.dart';
 import '../conversation/conversation_service.dart';
 import 'api_helpers.dart';
+import 'session_routes_support.dart' show ModelCatalogueLookup, contextModelLabel, noModelCatalogues;
 
-void registerSessionInboxRoutes(Router router, {required ConversationInboxService inbox}) {
+void registerSessionInboxRoutes(
+  Router router, {
+  required ConversationInboxService inbox,
+  ModelCatalogueLookup modelCatalogues = noModelCatalogues,
+}) {
   router.get('/api/inbox', (Request request) async {
     if (!requestHasAdminAccess(request)) return errorResponse(403, 'FORBIDDEN', 'Admin access required');
     try {
@@ -25,7 +30,7 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
         localDraftSessionIds: _csv(query['local_draft_session_ids']),
       );
       return jsonResponse(200, {
-        'entries': page.entries.map(_entryJson).toList(growable: false),
+        'entries': [for (final entry in page.entries) _entryJson(entry, modelCatalogues)],
         'total': page.total,
         'filtered_total': page.filteredTotal,
         'waiting_total': page.waitingTotal,
@@ -171,7 +176,7 @@ void registerSessionInboxRoutes(Router router, {required ConversationInboxServic
 
 Set<String> _csv(String? value) => value == null || value.isEmpty ? const {} : value.split(',').toSet();
 
-Map<String, Object?> _entryJson(InboxEntry entry) => {
+Map<String, Object?> _entryJson(InboxEntry entry, ModelCatalogueLookup modelCatalogues) => {
   'session': entry.session.toJson(),
   'conversation_revision': entry.revision,
   'latest_message_cursor': entry.latestMessageCursor,
@@ -187,6 +192,8 @@ Map<String, Object?> _entryJson(InboxEntry entry) => {
   'project_name': entry.projectName,
   'provider': entry.provider,
   'model': entry.model,
+  // The rail row and the topbar crumb name the model as the composer does.
+  'model_label': entry.provider == null ? null : contextModelLabel(modelCatalogues(entry.provider!), entry.model),
 };
 
 Map<String, Object?> _attentionJson(AttentionItem item) => {

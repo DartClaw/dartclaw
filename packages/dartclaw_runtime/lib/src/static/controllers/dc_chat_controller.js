@@ -432,42 +432,52 @@ export default class DcChatController extends Stimulus.Controller {
     this.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   }
 
+  /// A provider change renders that provider's Model picker as the server
+  /// built it (`data-models`). A pick made for the old provider that the new
+  /// one does not offer would fail the next turn, so it falls back to Default.
   contextProviderChanged(event) {
     const option = event.currentTarget.selectedOptions?.[0];
     if (!option) return;
-    // A value the new provider does not list was chosen for the old one, and
-    // sending it would fail the next turn: it falls back to Provider default.
-    // Only a server-staged value survives off-catalogue (`reconcileContext`).
-    const carried = (id, catalogue) => {
-      const value = this.contextFieldValue(id);
-      return String(catalogue || '').split(',').includes(value) ? value : '';
-    };
-    const model = carried('effective-context-model-input', option.dataset.models);
-    const effort = carried('effective-context-effort-input', option.dataset.efforts);
-    this.renderContextOptions('effective-context-model-input', option.dataset.models, option.dataset.modelEditable, model);
-    this.renderContextOptions('effective-context-effort-input', option.dataset.efforts, option.dataset.effortEditable, effort);
+    const models = JSON.parse(option.dataset.models || '[]');
+    const model = this.element.querySelector('#effective-context-model-input');
+    this.renderOptions(model, models, option.dataset.modelEditable === 'true', model?.value ?? '');
+    this.contextModelChanged();
   }
 
-  /// Rehydrates what the server rendered: this option set must stay identical
-  /// to `_contextOptions` in `api/session_routes_support.dart`, which builds the
-  /// same "provider default, then catalogue, then a staged value the catalogue
-  /// does not carry" list for the first paint. Change one, change the other.
-  ///
-  /// The adapter is the one authority on what it accepts, so a provider change
-  /// rebuilds the picker from that provider's own list rather than filtering
-  /// the previous one. A staged value the list does not carry is kept as its
-  /// own option — dropping it would silently unset a YAML- or API-set value.
-  renderContextOptions(id, catalogue, editable, staged) {
-    const select = this.element.querySelector('#' + id);
+  /// Effort offers what the selected model option carries (`data-efforts`,
+  /// server-built); an effort that model does not offer becomes Default.
+  contextModelChanged() {
+    const selected = this.element.querySelector('#effective-context-model-input')?.selectedOptions?.[0];
+    const effort = this.element.querySelector('#effective-context-effort-input');
+    const efforts = JSON.parse(selected?.dataset.efforts || '[]');
+    this.renderOptions(effort, efforts, selected?.dataset.effortEditable === 'true', effort?.value ?? '');
+  }
+
+  /// Renders server-built option data verbatim — value, label, and for a model
+  /// option the Effort picker it selects — and selects [value] when offered.
+  renderOptions(select, entries, enabled, value) {
     if (!select) return;
-    const enabled = String(editable) === 'true';
-    const value = enabled ? staged : '';
-    const values = String(catalogue || '').split(',').filter(Boolean);
-    select.replaceChildren(new Option('Provider default', ''));
-    for (const entry of values) select.append(new Option(entry, entry));
-    if (value && !values.includes(value)) select.append(new Option(value, value));
+    select.replaceChildren(...entries.map((entry) => {
+      const option = new Option(entry.label, entry.value);
+      if (entry.efforts !== undefined) {
+        option.dataset.efforts = entry.efforts;
+        option.dataset.effortEditable = entry.effortEditable;
+      }
+      return option;
+    }));
     select.disabled = !enabled;
-    this.setSelectValue(select, value);
+    this.setSelectValue(select, entries.some((entry) => entry.value === value) ? value : '');
+  }
+
+  /// The select's current options in the shape [renderOptions] takes.
+  optionEntries(select) {
+    return [...(select?.options ?? [])].map((option) => ({
+      value: option.value,
+      label: option.textContent,
+      ...(option.dataset?.efforts === undefined
+        ? {}
+        : { efforts: option.dataset.efforts, effortEditable: option.dataset.effortEditable }),
+    }));
   }
 
   /// Every context select is behind the canonical enhancer's trigger, and a
@@ -607,6 +617,8 @@ export default class DcChatController extends Stimulus.Controller {
         effortEditable: effort?.disabled === false,
         modelValue: model?.value || '',
         effortValue: effort?.value || '',
+        modelOptions: this.optionEntries(model),
+        effortOptions: this.optionEntries(effort),
         composer: field('effective-context-composer-provider')?.textContent,
         usage: usage?.hidden ? '' : usage?.textContent,
         continuityHidden: field('effective-context-continuity')?.hidden === true,
@@ -640,19 +652,10 @@ export default class DcChatController extends Stimulus.Controller {
     this.setSelectValue(project, view.projectId);
     if (!this.directoryRejected) directory.value = view.directory;
     this.setSelectValue(provider, view.provider);
-    const providerOption = provider.selectedOptions?.[0];
-    this.renderContextOptions(
-      'effective-context-model-input',
-      providerOption?.dataset.models,
-      view.modelEditable === true,
-      view.modelValue || '',
-    );
-    this.renderContextOptions(
-      'effective-context-effort-input',
-      providerOption?.dataset.efforts,
-      view.effortEditable === true,
-      view.effortValue || '',
-    );
+    // The applied provider's pickers exactly as the server built them — its
+    // labels, a staged value it does not list, and each model's efforts.
+    this.renderOptions(model, view.modelOptions ?? [], view.modelEditable === true, view.modelValue || '');
+    this.renderOptions(effort, view.effortOptions ?? [], view.effortEditable === true, view.effortValue || '');
 
     const text = {
       '#effective-context-project-name': view.project,

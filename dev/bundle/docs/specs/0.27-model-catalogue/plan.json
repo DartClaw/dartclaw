@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "2",
+  "prd": null,
+  "overview": {
+    "summary": "Model and effort pickers list what Claude and Codex report for the account, by the provider's own names, and the composer names the model a turn runs."
+  },
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Provider-reported model catalogue",
+      "dependsOn": [],
+      "status": "done",
+      "fis": "s01-provider-reported-model-catalogue.md",
+      "completedTaskIds": ["TI01", "TI02", "TI03", "TI04", "TI05", "TI06", "TI07", "TI08"],
+      "verified": {
+        "at": "2026-09-21T19:44Z",
+        "summary": "TI01-TI08 Verify green; workspace analyze clean; core 1875 and acp 132 pass; runtime 5153 pass, 2 load-sensitive worker-timeout tests pass in isolation; live claude and codex browser pass; independent review APPROVE after 5 fixes."
+      },
+      "owner": null,
+      "scope": "Claude initialize models + get_settings and Codex model/list + ephemeral thread/start feed one runtime catalogue owner, discovered on the host at startup; pickers, pill and crumb use provider display names; static model/effort lists removed.",
+      "provenance": "dev/bundle/docs/specs/0.27-model-catalogue/plan.json",
+      "sequencing": "Starts after dev/bundle/docs/specs/0.27-menu-palette-fixes S01 (landed in 0623e58f): same composer controller code."
+    }
+  ]
+}

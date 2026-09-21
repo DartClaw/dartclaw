@@ -59,7 +59,11 @@ String? _sandboxPermissions(String sandboxValue) => switch (sandboxValue.trim())
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
 class CodexHarness extends BaseHarness
-    implements HarnessToolApprovalResponder, EffectiveContextCapabilityProvider, NativeSkillCapabilityProvider {
+    implements
+        HarnessToolApprovalResponder,
+        EffectiveContextCapabilityProvider,
+        ModelCatalogueProvider,
+        NativeSkillCapabilityProvider {
   /// Codex executable path or name.
   final String executable;
 
@@ -168,14 +172,49 @@ class CodexHarness extends BaseHarness
   PromptStrategy get promptStrategy => PromptStrategy.append;
 
   @override
-  EffectiveContextCapabilities get effectiveContextCapabilities => const EffectiveContextCapabilities(
-    model: true,
-    effort: true,
-    // Model ids stay unlisted deliberately: `_recognizedCodexModels` matches
-    // them by shape because an enumerated OpenAI catalogue goes stale between
-    // releases. A configured or API-set id still reaches the picker as itself.
-    efforts: ['low', 'medium', 'high', 'xhigh'],
-  );
+  EffectiveContextCapabilities get effectiveContextCapabilities =>
+      const EffectiveContextCapabilities(model: true, effort: true);
+
+  /// Bounds `model/list` paging against a provider that never ends the list.
+  static const _modelListPageLimit = 50;
+
+  /// Set while [discoverModelCatalogue] runs: the probe uses a dedicated home as
+  /// prepared and writes none of its configuration.
+  bool _discovering = false;
+
+  /// Sends `initialize`/`initialized`, every `model/list` page and one
+  /// ephemeral `thread/start` for the resolved default; never a turn.
+  @override
+  Future<ModelCatalogue> discoverModelCatalogue() async {
+    _discovering = true;
+    try {
+      await start();
+      final pages = <Map<String, dynamic>>[];
+      String? cursor;
+      do {
+        if (pages.length == _modelListPageLimit) {
+          throw StateError('Codex model/list did not end within $_modelListPageLimit pages');
+        }
+        final pageCursor = cursor;
+        final page = await _setupCall((id) => adapter.buildModelListRequest(id: id, cursor: pageCursor));
+        pages.add(page);
+        cursor = codexModelListNextCursor(page);
+      } while (cursor != null);
+      // The configured model rides along exactly as a turn sends it, so the
+      // resolved default is the model this deployment's turns run.
+      final configured = harnessConfig.model?.trim();
+      final threadStart = await _setupCall(
+        (id) => adapter.buildThreadStartRequest(
+          id: id,
+          params: {'ephemeral': true, if (configured != null && configured.isNotEmpty) 'model': configured},
+        ),
+      );
+      return codexModelCatalogue(pages: pages, threadStart: threadStart);
+    } finally {
+      _discovering = false;
+      await stop();
+    }
+  }
 
   @override
   bool get supportsCostReporting => false;
@@ -250,6 +289,7 @@ class CodexHarness extends BaseHarness
           ? CodexEnvironment.dedicated(
               developerInstructions: harnessConfig.appendSystemPrompt ?? '',
               homePath: dedicatedHome,
+              writesConfig: !_discovering,
               mcpServerUrl: harnessConfig.mcpServerUrl,
               mcpGatewayToken: harnessConfig.mcpGatewayToken,
               platformCapabilities: platformCapabilities,
@@ -677,20 +717,30 @@ class CodexHarness extends BaseHarness
         ? hostRoot
         : container.containerPathForHostPath(hostRoot) ??
               (throw StateError('Configured agent skill root is not mounted in the container: $hostRoot'));
-    final id = ++_nextRequestId;
-    final completer = Completer<Map<String, dynamic>>();
-    _setupRequest = (id: id, method: 'skills/extraRoots/set', completer: completer);
-    _writeLine({
-      'id': id,
-      'method': 'skills/extraRoots/set',
-      'params': {
-        'extraRoots': [root],
+    await _setupCall(
+      (id) => {
+        'id': id,
+        'method': 'skills/extraRoots/set',
+        'params': {
+          'extraRoots': [root],
+        },
       },
-    });
+    );
+  }
+
+  /// Sends one request outside any turn and awaits its result, bounded by the
+  /// initialize timeout.
+  Future<Map<String, dynamic>> _setupCall(Map<String, dynamic> Function(int id) build) async {
+    final id = ++_nextRequestId;
+    final request = build(id);
+    final method = request['method'] as String;
+    final completer = Completer<Map<String, dynamic>>();
+    _setupRequest = (id: id, method: method, completer: completer);
+    _writeLine(request);
     try {
-      await completer.future.timeout(_initializeTimeout);
+      return await completer.future.timeout(_initializeTimeout);
     } on TimeoutException {
-      throw StateError('Codex skills/extraRoots/set timed out after ${_initializeTimeout.inSeconds}s');
+      throw StateError('Codex $method timed out after ${_initializeTimeout.inSeconds}s');
     }
   }
 

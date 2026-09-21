@@ -245,15 +245,16 @@
             <select id="effective-context-provider" name="provider" class="form-select"
                     data-action="change->dc-chat#contextProviderChanged">
               <option tl:each="provider : ${effectiveContext.providers}" tl:text="${provider.label}"
-                      tl:attr="value=${provider.value},selected=${provider.selected},data-model-editable=${provider.model},data-effort-editable=${provider.effort},data-models=${provider.models},data-efforts=${provider.efforts}">provider</option>
+                      tl:attr="value=${provider.value},selected=${provider.selected},data-model-editable=${provider.model},data-models=${provider.models}">provider</option>
             </select>
           </div>
           <div class="form-field">
             <label class="form-label t-caption tracking-caps" for="effective-context-model-input">Model</label>
             <select id="effective-context-model-input" name="model" class="form-select"
+                    data-action="change->dc-chat#contextModelChanged"
                     tl:attr="disabled=${effectiveContext.modelEditable ? null : 'disabled'}">
               <option tl:each="option : ${effectiveContext.modelOptions}" tl:text="${option.label}"
-                      tl:attr="value=${option.value},selected=${option.selected}">provider default</option>
+                      tl:attr="value=${option.value},selected=${option.selected},data-efforts=${option.efforts},data-effort-editable=${option.effortEditable}">Default</option>
             </select>
           </div>
           <div class="form-field">
@@ -261,7 +262,7 @@
             <select id="effective-context-effort-input" name="effort" class="form-select"
                     tl:attr="disabled=${effectiveContext.effortEditable ? null : 'disabled'}">
               <option tl:each="option : ${effectiveContext.effortOptions}" tl:text="${option.label}"
-                      tl:attr="value=${option.value},selected=${option.selected}">provider default</option>
+                      tl:attr="value=${option.value},selected=${option.selected}">Default</option>
             </select>
           </div>
           <p id="effective-context-continuity" class="banner banner-warning"

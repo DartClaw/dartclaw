@@ -67,6 +67,40 @@ void main() {
     );
   });
 
+  // The shell rebuilds the topbar crumb from this row, so it must carry the
+  // model's name as the composer shows it, not the raw id.
+  test('an inbox row names its model by the catalogue label', () async {
+    final fixture = await InboxTestFixture.create(count: 1);
+    addTearDown(fixture.dispose);
+    final id = fixture.sessionIds.single;
+    final state = (await fixture.sessions.getConversationState(id)).stageContext(
+      const EffectiveConversationContext(
+        projectId: '_local',
+        directory: '/tmp',
+        referenceRoot: '/tmp',
+        provider: 'claude',
+        model: 'sonnet',
+      ),
+    );
+    await fixture.sessions.updateConversationState(id, state);
+    final router = Router();
+    registerSessionInboxRoutes(
+      router,
+      inbox: fixture.inbox,
+      modelCatalogues: (provider) => provider == 'claude'
+          ? const ModelCatalogue(
+              entries: [ModelCatalogueEntry(id: 'sonnet', label: 'Sonnet')],
+            )
+          : null,
+    );
+    final api = ApiRouteTestClient((request) => router.call(withAdminAuthContext(request)));
+
+    final page = await api.expectJsonObject('GET', '/api/inbox');
+    final entry = (page['entries'] as List).single as Map<String, dynamic>;
+    expect(entry['model'], 'sonnet');
+    expect(entry['model_label'], 'Sonnet');
+  });
+
   group('inbox and attention refuse a non-admin request', () {
     // Every route settles, reads or projects the owner's conversations and
     // hardcodes `principal: 'owner'`, so the global auth middleware must not be

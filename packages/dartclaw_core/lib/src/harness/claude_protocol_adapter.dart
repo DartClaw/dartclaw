@@ -132,6 +132,14 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
     return {'type': 'control_request', 'request_id': requestId, 'request': request};
   }
 
+  /// Builds a Claude `get_settings` `control_request`, whose `applied.model`
+  /// names the model this process runs.
+  Map<String, dynamic> buildGetSettingsRequest({required String requestId}) => {
+    'type': 'control_request',
+    'request_id': requestId,
+    'request': {'subtype': 'get_settings'},
+  };
+
   /// Builds a Claude credential-strip hook response with an updated input.
   Map<String, dynamic> buildCredentialStripResponse(String requestId, Map<String, dynamic> updatedInput) {
     return {

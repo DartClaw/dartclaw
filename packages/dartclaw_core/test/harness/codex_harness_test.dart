@@ -17,6 +17,7 @@ import 'harness_test_support.dart';
 part 'codex_provider_session_resume_cases.dart';
 part 'codex_notification_correlation_cases.dart';
 part 'codex_skill_root_cases.dart';
+part 'codex_model_catalogue_cases.dart';
 
 class _PassGuard extends Guard {
   GuardContext? lastContext;
@@ -243,6 +244,7 @@ void main() {
       });
 
       registerCodexSkillRootTests();
+      registerCodexModelCatalogueTests();
 
       test('initialize timeout reaps the child and releases the startup lock', () async {
         final fake = FakeCodexProcess();

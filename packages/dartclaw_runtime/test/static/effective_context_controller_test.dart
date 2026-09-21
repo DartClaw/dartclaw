@@ -98,10 +98,10 @@ void main() {
     ]) {
       expect(method, contains(field), reason: field);
     }
-    // Model and effort are rebuilt from the applied provider's own catalogue,
-    // not assigned into whatever options the previous provider left behind.
-    expect(method, contains("this.renderContextOptions(\n      'effective-context-model-input',"));
-    expect(method, contains("this.renderContextOptions(\n      'effective-context-effort-input',"));
+    // Model and effort are rendered from the server's option data for the
+    // applied provider, not assigned into whatever the previous one left.
+    expect(method, contains('this.renderOptions(model, view.modelOptions'));
+    expect(method, contains('this.renderOptions(effort, view.effortOptions'));
     expect(
       method.indexOf('this.setSelectValue(project, view.projectId)'),
       lessThan(method.indexOf('this.conversationRevision = nextRevision')),
@@ -109,17 +109,12 @@ void main() {
     expect(method, isNot(contains('this.textarea')));
   });
 
-  // A picker that cannot name a YAML- or API-set value silently unsets it the
-  // next time anything else is applied.
-  test('the model picker keeps a staged value the adapter does not list', () async {
-    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
-    final method = source.substring(
-      source.indexOf('renderContextOptions(id, catalogue, editable, staged) {'),
-      source.indexOf('contextFieldValue(id) {'),
-    );
-    expect(method, contains("new Option('Provider default', '')"));
-    expect(method, contains('if (value && !values.includes(value)) select.append(new Option(value, value));'));
-    expect(method, contains('select.disabled = !enabled;'));
+  // The server builds every option – labels, Default, per-model efforts – so
+  // the page cannot drift from it: a provider switch, a model pick and a
+  // reconcile all render that data rather than rebuilding a list of their own.
+  test('model catalogue options are rendered verbatim and Effort follows the picked model', () async {
+    final controller = await controllerAsset('dc_chat_controller.js');
+    await expectNodeHarness(_modelCatalogueHarness, [controller.absolute.uri.toString()]);
   });
 
   // The enhancer's trigger is the control the reader sees, and a programmatic
@@ -211,11 +206,38 @@ class FakeSelect {
   }
 }
 
-const providerOption = (value, models, efforts) => {
+// Server option data in the shape `effectiveContextView` builds: each model
+// carries the Effort picker it selects, as JSON, and whether it is editable.
+const modelEntry = (value, label, efforts) => ({
+  value,
+  label,
+  efforts: JSON.stringify([{ value: '', label: 'Default' }, ...efforts.map((effort) => ({ value: effort, label: effort }))]),
+  effortEditable: String(efforts.length > 0),
+});
+const FIVE = ['low', 'medium', 'high', 'xhigh', 'max'];
+const catalogues = {
+  claude: [
+    modelEntry('', 'Default · Opus', FIVE),
+    modelEntry('opus', 'Opus', FIVE),
+    modelEntry('sonnet', 'Sonnet', FIVE),
+    modelEntry('haiku', 'Haiku', []),
+  ],
+  codex: [
+    modelEntry('', 'Default · GPT-5', ['medium', 'xhigh']),
+    modelEntry('gpt-5', 'GPT-5', ['medium', 'xhigh']),
+    modelEntry('gpt-5-mini', 'GPT-5 mini', ['medium', 'xhigh']),
+  ],
+};
+
+const providerOption = (value) => {
   const option = new Option(value, value);
-  option.dataset = { models, efforts, modelEditable: 'true', effortEditable: 'true' };
+  option.dataset = { models: JSON.stringify(catalogues[value]), modelEditable: 'true' };
   return option;
 };
+
+// The Effort options the server renders for [modelValue] on [provider].
+const effortsFor = (provider, modelValue) =>
+  JSON.parse((catalogues[provider].find((entry) => entry.value === modelValue) ?? catalogues[provider][0]).efforts);
 
 function deferred() {
   let resolve;
@@ -226,21 +248,25 @@ function deferred() {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // A server snapshot of the effective context: claude, project p1, nothing
-// chosen, no continuity notice, unless [view] says otherwise.
+// chosen, no continuity notice, unless [view] says otherwise. The pickers are
+// that provider's server-built option data.
 function snapshot(revision, view = {}) {
+  const provider = view.provider ?? 'claude';
   return {
     revision,
     next_context: {},
     effective_context: {
       projectId: 'p1',
       directory: '/tmp/alpha',
-      provider: 'claude',
+      provider,
       modelEditable: true,
       effortEditable: true,
       modelValue: '',
       effortValue: '',
       composer: 'claude',
       continuityHidden: true,
+      modelOptions: catalogues[provider],
+      effortOptions: effortsFor(provider, view.modelValue ?? ''),
       ...view,
     },
   };
@@ -253,12 +279,9 @@ const refused = (message) => ({ ok: false, json: async () => ({ error: { message
 // model picker offered when it was sent.
 function contextFixture() {
   const project = new FakeSelect('effective-context-project', [new Option('Alpha', 'p1'), new Option('Beta', 'p2')]);
-  const provider = new FakeSelect('effective-context-provider', [
-    providerOption('claude', 'sonnet,opus', 'low,high'),
-    providerOption('codex', 'gpt-5,gpt-5-mini', 'medium,xhigh'),
-  ]);
-  const model = new FakeSelect('effective-context-model-input', [new Option('Provider default', '')]);
-  const effort = new FakeSelect('effective-context-effort-input', [new Option('Provider default', '')]);
+  const provider = new FakeSelect('effective-context-provider', [providerOption('claude'), providerOption('codex')]);
+  const model = new FakeSelect('effective-context-model-input', [new Option('Default', '')]);
+  const effort = new FakeSelect('effective-context-effort-input', [new Option('Default', '')]);
   const directory = {
     id: 'effective-context-directory',
     value: '',
@@ -311,6 +334,7 @@ function contextFixture() {
   const commit = (control, value) => {
     control.value = value;
     if (control === provider) controller.contextProviderChanged({ currentTarget: provider });
+    if (control === model) controller.contextModelChanged();
     return controller.applyContext({ target: control });
   };
   return {
@@ -324,14 +348,11 @@ const _contextSyncHarness =
     r'''
 const project = new FakeSelect('effective-context-project',
   [new Option('Alpha', 'p1'), new Option('Beta', 'p2')]);
-const provider = new FakeSelect('effective-context-provider', [
-  providerOption('claude', 'sonnet,opus', 'low,high'),
-  providerOption('codex', 'gpt-5,gpt-5-mini', 'medium,xhigh'),
-]);
+const provider = new FakeSelect('effective-context-provider', [providerOption('claude'), providerOption('codex')]);
 const model = new FakeSelect('effective-context-model-input',
-  [new Option('Provider default', ''), new Option('sonnet', 'sonnet'), new Option('opus', 'opus')]);
+  [new Option('Default · Opus', ''), new Option('Opus', 'opus'), new Option('Sonnet', 'sonnet')]);
 const effort = new FakeSelect('effective-context-effort-input',
-  [new Option('Provider default', ''), new Option('low', 'low'), new Option('high', 'high')]);
+  [new Option('Default', ''), new Option('low', 'low'), new Option('high', 'high')]);
 const directory = { value: '/tmp/alpha', title: '' };
 const nodes = {
   '#effective-context-project': project,
@@ -352,10 +373,10 @@ const same = (left, right) => left.length === right.length && left.every((entry,
 provider.value = 'codex';
 controller.contextProviderChanged({ currentTarget: provider });
 assert(recorded('effective-context-model-input').length === 1, 'the model picker was not synced');
-assert(same(recorded('effective-context-model-input')[0].labels, ['Provider default', 'gpt-5', 'gpt-5-mini']),
+assert(same(recorded('effective-context-model-input')[0].labels, ['Default · GPT-5', 'GPT-5', 'GPT-5 mini']),
   'the model sync read the previous provider catalogue: '
     + JSON.stringify(recorded('effective-context-model-input')[0].labels));
-assert(same(recorded('effective-context-effort-input')[0].labels, ['Provider default', 'medium', 'xhigh']),
+assert(same(recorded('effective-context-effort-input')[0].labels, ['Default', 'medium', 'xhigh']),
   'the effort sync read the previous provider catalogue: '
     + JSON.stringify(recorded('effective-context-effort-input')[0].labels));
 
@@ -372,6 +393,8 @@ controller.reconcileContext({
     modelValue: 'opus',
     effortEditable: true,
     effortValue: 'high',
+    modelOptions: catalogues.claude,
+    effortOptions: effortsFor('claude', 'opus'),
   },
 });
 assert(same(globalThis.syncCalls.map((call) => call.id), [
@@ -382,11 +405,11 @@ assert(same(globalThis.syncCalls.map((call) => call.id), [
 ]), 'a reconciled select was left unsynced: ' + JSON.stringify(globalThis.syncCalls.map((call) => call.id)));
 assert(recorded('effective-context-project')[0].value === 'p2', 'the project sync ran before the assignment');
 assert(recorded('effective-context-provider')[0].value === 'claude', 'the provider sync ran before the assignment');
-assert(same(recorded('effective-context-model-input')[0].labels, ['Provider default', 'sonnet', 'opus']),
+assert(same(recorded('effective-context-model-input')[0].labels, ['Default · Opus', 'Opus', 'Sonnet', 'Haiku']),
   'the reconciled model sync read the previous provider catalogue: '
     + JSON.stringify(recorded('effective-context-model-input')[0].labels));
 assert(recorded('effective-context-model-input')[0].value === 'opus', 'the staged model was not selected');
-assert(same(recorded('effective-context-effort-input')[0].labels, ['Provider default', 'low', 'high']),
+assert(same(recorded('effective-context-effort-input')[0].labels, ['Default', ...FIVE]),
   'the reconciled effort sync read the previous provider catalogue: '
     + JSON.stringify(recorded('effective-context-effort-input')[0].labels));
 assert(controller.conversationRevision === 7, 'the revision was not absorbed');
@@ -406,15 +429,15 @@ assert(f.requests[0].method === 'PATCH' && f.requests[0].url === '/api/sessions/
   'the pick did not go to the context route: ' + f.requests[0].method + ' ' + f.requests[0].url);
 assert(f.requests[0].body.model === 'opus', 'the pick did not carry the model');
 assert(f.requests[0].body.conversation_revision === 3, 'the pick did not carry the displayed revision');
-f.requests[0].respond(accepted(snapshot(4, { modelValue: 'opus', composer: 'claude · opus' })));
+f.requests[0].respond(accepted(snapshot(4, { modelValue: 'opus', composer: 'claude · Opus' })));
 await picked;
-assert(f.pill.textContent === 'claude · opus', 'the pill did not reconcile: ' + f.pill.textContent);
+assert(f.pill.textContent === 'claude · Opus', 'the pill did not reconcile: ' + f.pill.textContent);
 assert(f.model.value === 'opus', 'the model picker did not reconcile');
 assert(f.controller.conversationRevision === 4, 'the returned revision was not absorbed');
 
-// Provider default is no model at all, not an empty one.
+// Default is no model at all, not an empty one.
 const cleared = f.commit(f.model, '');
-assert(f.requests[1].body.model === null, 'Provider default sent ' + JSON.stringify(f.requests[1].body.model));
+assert(f.requests[1].body.model === null, 'Default sent ' + JSON.stringify(f.requests[1].body.model));
 f.requests[1].respond(accepted(snapshot(5)));
 await cleared;
 
@@ -423,7 +446,7 @@ await cleared;
 const switched = f.commit(f.provider, 'codex');
 assert(f.requests.length === 3, 'a provider change sent ' + (f.requests.length - 2) + ' requests');
 assert(f.requests[2].body.provider === 'codex', 'the provider change did not carry the provider');
-assert(f.requests[2].modelOptions.join() === 'Provider default,gpt-5,gpt-5-mini',
+assert(f.requests[2].modelOptions.join() === 'Default · GPT-5,GPT-5,GPT-5 mini',
   'the request went out before the model picker was rebuilt: ' + f.requests[2].modelOptions.join());
 f.requests[2].respond(accepted(snapshot(6, { provider: 'codex' })));
 await switched;
@@ -589,4 +612,59 @@ const refusedSwitch = f.commit(f.provider, 'codex');
 f.requests[2].respond(refused('Provider unavailable'));
 await refusedSwitch;
 assert(f.continuity.hidden, 'the notice showed for a refused provider change');
+''';
+
+const _modelCatalogueHarness =
+    _contextControllerModule +
+    r'''
+const f = contextFixture();
+const labels = (select) => select.options.map((option) => option.textContent);
+const same = (left, right) => left.length === right.length && left.every((entry, i) => entry === right[i]);
+
+// A provider switch renders that provider's picker exactly as the server built
+// it – its names and its Default label – with no second list on the page.
+f.provider.value = 'codex';
+f.controller.contextProviderChanged({ currentTarget: f.provider });
+assert(same(labels(f.model), ['Default · GPT-5', 'GPT-5', 'GPT-5 mini']), 'codex models: ' + labels(f.model));
+assert(same(labels(f.effort), ['Default', 'medium', 'xhigh']), 'codex efforts: ' + labels(f.effort));
+f.provider.value = 'claude';
+f.controller.contextProviderChanged({ currentTarget: f.provider });
+assert(same(labels(f.model), ['Default · Opus', 'Opus', 'Sonnet', 'Haiku']), 'claude models: ' + labels(f.model));
+
+const withEffort = f.commit(f.effort, 'high');
+f.requests[0].respond(accepted(snapshot(4, { effortValue: 'high' })));
+await withEffort;
+assert(f.effort.value === 'high', 'the effort was not applied');
+
+// Haiku reports no efforts: Effort offers only Default, locks, and the apply
+// carries no effort rather than one the model cannot take.
+const haiku = f.commit(f.model, 'haiku');
+assert(same(labels(f.effort), ['Default']), 'Haiku offered efforts: ' + labels(f.effort));
+assert(f.effort.disabled === true, 'Effort stayed editable for a model without efforts');
+assert(f.requests[1].body.model === 'haiku' && f.requests[1].body.effort === null,
+  'picking Haiku applied ' + JSON.stringify(f.requests[1].body));
+f.requests[1].respond(accepted(snapshot(5, { modelValue: 'haiku', effortEditable: false })));
+await haiku;
+assert(f.effort.disabled === true, 'the reconcile re-enabled Effort for Haiku');
+
+// Sonnet offers its own five efforts again.
+const sonnet = f.commit(f.model, 'sonnet');
+assert(same(labels(f.effort), ['Default', 'low', 'medium', 'high', 'xhigh', 'max']), 'Sonnet efforts: ' + labels(f.effort));
+assert(f.effort.disabled === false, 'Effort stayed locked for Sonnet');
+f.requests[2].respond(accepted(snapshot(6, { modelValue: 'sonnet' })));
+await sonnet;
+
+// A staged model the catalogue does not list arrives as the server's own
+// option and stays selected, with the effort staged beside it.
+const offCatalogue = { value: 'claude-sonnet-4-5', label: 'claude-sonnet-4-5', efforts: JSON.stringify(
+  [{ value: '', label: 'Default' }, { value: 'high', label: 'high' }]), effortEditable: 'true' };
+f.controller.reconcileContext(snapshot(7, {
+  modelValue: 'claude-sonnet-4-5',
+  effortValue: 'high',
+  modelOptions: [...catalogues.claude, offCatalogue],
+  effortOptions: [{ value: '', label: 'Default' }, { value: 'high', label: 'high' }],
+}));
+assert(f.model.value === 'claude-sonnet-4-5', 'the staged model was dropped: ' + f.model.value);
+assert(labels(f.model).at(-1) === 'claude-sonnet-4-5', 'the staged model is not its own option');
+assert(f.effort.value === 'high', 'the staged effort was dropped');
 ''';

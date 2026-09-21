@@ -11,7 +11,8 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../api/api_helpers.dart';
-import '../api/session_routes_support.dart' show effectiveContextView;
+import '../api/session_routes_support.dart'
+    show ModelCatalogueLookup, contextModelLabel, effectiveContextView, noModelCatalogues;
 import '../auth/auth_utils.dart';
 import '../auth/session_token.dart';
 import '../auth/token_service.dart';
@@ -105,6 +106,7 @@ Router webRoutes(
   WorkflowService? workflowService,
   WorkflowDefinitionSource? workflowDefinitionSource,
   Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
+  ModelCatalogueLookup modelCatalogues = noModelCatalogues,
 }) {
   final router = Router();
   final auditReader = dataDir != null ? AuditLogReader(dataDir: dataDir) : null;
@@ -271,6 +273,7 @@ Router webRoutes(
         projectService,
         defaultProvider,
         contextCapabilities,
+        catalogues: modelCatalogues,
       );
       final targetMessageId = request.url.queryParameters['message'];
       late final List<Message> msgs;
@@ -338,7 +341,7 @@ Router webRoutes(
         projectId: crumb?.projectId,
         projectName: crumbProject?.name ?? crumb?.projectId,
         providerLabel: crumb?.provider,
-        model: crumb?.model,
+        model: crumb == null ? null : contextModelLabel(modelCatalogues(crumb.provider), crumb.model),
       );
       final msgsHtml = messagesHtmlFragment(
         messageList,
@@ -535,6 +538,7 @@ Router webRoutes(
           projectService,
           defaultProvider,
           contextCapabilities,
+          catalogues: modelCatalogues,
         ),
       );
 

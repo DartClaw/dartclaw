@@ -30,6 +30,7 @@ import 'api/search_inspection_routes.dart';
 import 'api/project_routes.dart';
 import 'api/provider_routes.dart';
 import 'api/session_routes.dart';
+import 'api/session_routes_support.dart' show ModelCatalogueLookup, noModelCatalogues;
 import 'api/sse_broadcast.dart';
 import 'api/task_routes.dart';
 import 'api/task_sse_routes.dart';
@@ -752,6 +753,7 @@ class DartclawServer {
       redactor: _core.redactor,
       projectService: _tasks.projectService,
       contextCapabilities: _core.effectiveContextCapabilities,
+      modelCatalogues: _core.modelCatalogues,
       defaultProvider: defaultProvider,
       temporaryConversationCapability: _core.temporaryConversationCapability,
       logicalAgentSessions: _core.logicalAgentSessions,
@@ -809,6 +811,7 @@ class DartclawServer {
       workflowService: _web.workflowService,
       workflowDefinitionSource: _web.workflowDefinitionSource,
       contextCapabilities: _core.effectiveContextCapabilities,
+      modelCatalogues: _core.modelCatalogues,
     );
     router.mount('/', webRouter.call);
   }

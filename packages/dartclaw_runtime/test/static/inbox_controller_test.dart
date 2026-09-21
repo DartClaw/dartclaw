@@ -12,6 +12,15 @@ void main() {
   test('rail width defaults to 280, clamps 240-420 and persists every change', () async {
     await expectNodeHarness(_resizeHarness, [(await controller).absolute.uri.toString()]);
   });
+
+  // The rail row and the topbar crumb name the model by the inbox row's
+  // server-built `model_label`, the label the composer uses – never the raw id.
+  test('rail rows and the topbar crumb name the model by its catalogue label', () async {
+    final source = (await controller).readAsStringSync();
+    expect(source, contains("[entry.provider, entry.model_label].filter(Boolean).join(' · ')"));
+    expect(source, contains('for (const value of [entry.provider, entry.model_label].filter(Boolean))'));
+    expect(source, isNot(contains('entry.model]')));
+  });
 }
 
 /// Shared prelude: the controller is a Stimulus class with one shared-module

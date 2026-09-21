@@ -792,7 +792,7 @@ void main() {
         'class="composer-toolbar"',
         'class="composer-meta"',
         'data-icon="attach"',
-        'title="Commands  /"',
+        'data-icon="square-slash" title="Slash commands (/)"',
         'composer-send',
         'data-icon="arrow-up"',
         'aria-label="Send" title="Send"',

@@ -10,7 +10,7 @@ void main() {
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
   tearDownAll(resetTemplates);
 
-  test('chat projection keeps immutable workspace separate from current and next context', () {
+  test('the chip and the pill open separate popovers over the fields each names', () {
     final html = chatAreaTemplate(
       sessionId: 'session-id',
       messagesHtml: '',
@@ -31,12 +31,26 @@ void main() {
           {'value': 'project-id', 'label': 'Human Project', 'selected': true},
         ],
         'providers': [
-          {'value': 'acp', 'label': 'acp', 'selected': true, 'model': 'false', 'effort': 'false'},
+          {
+            'value': 'acp',
+            'label': 'acp',
+            'selected': true,
+            'model': 'false',
+            'effort': 'false',
+            'models': '',
+            'efforts': '',
+          },
         ],
         'modelEditable': false,
         'effortEditable': false,
         'modelValue': '',
         'effortValue': '',
+        'modelOptions': [
+          {'value': '', 'label': 'Provider default', 'selected': true},
+        ],
+        'effortOptions': [
+          {'value': '', 'label': 'Provider default', 'selected': true},
+        ],
         'composer': 'acp',
         'usage': '',
         'usageHidden': true,
@@ -44,41 +58,51 @@ void main() {
         'revision': 4,
       },
     );
-    expect(html, contains('agent:writer'));
-    // Only the CURRENT turn is stated as prose; the editable rows above are the
-    // statement of the next one, so a "Next turn" row would say it twice.
-    expect(html, contains('project-id · claude'));
+    // Each trigger names the popover it owns, so the same action serves both.
+    expect(html, contains('aria-controls="effective-context-project-pop"'));
+    expect(html, contains('aria-controls="effective-context-model-pop"'));
+    expect(html, contains('id="effective-context-project-form"'));
+    expect(html, contains('id="effective-context-model-form"'));
+    expect(html, contains('aria-labelledby="effective-context-project-title"'));
+    expect(html, contains('aria-labelledby="effective-context-model-title"'));
+    // Two Applies, one per surface.
+    expect('Apply to next turn'.allMatches(html), hasLength(2));
+    // The read-only facts left the composer; Session info already lists them,
+    // and the footer link is how the popover gets the reader there.
+    for (final absent in const [
+      'id="effective-context-workspace"',
+      'id="effective-context-current-row"',
+      'id="effective-context-telemetry"',
+      'id="effective-context-behavior"',
+      'id="effective-context-memory-row"',
+      'id="effective-context-summary"',
+      'class="pop pop-context',
+      'meta-row',
+    ]) {
+      expect(html, isNot(contains(absent)), reason: absent);
+    }
+    expect(html, contains('href="/sessions/session-id/info"'));
+    // Canon form vocabulary, and no inline-edit transparency.
+    expect(html, contains('class="form-label t-caption tracking-caps"'));
+    expect(html, contains('class="form-select"'));
+    // `.meta-val` was the hook the transparent-until-hover rule keyed on.
+    expect(html, isNot(contains('meta-val"')));
+    expect(html, isNot(contains('meta-val ')));
+    // An adapter that transports neither leaves both pickers disabled rather
+    // than offering a value the turn would drop.
+    expect(html, contains('id="effective-context-model-input" name="model" class="form-select" disabled'));
+    expect(html, contains('id="effective-context-effort-input" name="effort" class="form-select" disabled'));
     expect(html, contains('Provider-native session and tool state do not'));
-    expect(html, contains('aria-labelledby="effective-context-title"'));
-    expect(html, contains('id="effective-context-form"'));
-    expect(html, contains('Apply to next turn'));
-    expect(html, contains('CLAUDE.md (workspace)'));
-    expect(html, contains('Memory contributed'));
-    // One representation of the payload: the editable rows. The card that used
-    // to sit beside the composer and the second <dl> of the same eight fields
-    // are gone, so a value cannot be read two ways.
-    expect(html, isNot(contains('id="effective-context-summary"')));
-    expect(html, isNot(contains('<dl>')));
-    expect(html, isNot(contains('id="effective-context-detail-workspace"')));
-    expect(html, isNot(contains('<div class="tabs"')));
-    expect(html, isNot(contains('id="effective-context-next"')));
-    expect(html, isNot(contains('Next turn')));
-    // Current differs from next here (claude vs acp), so its row is shown.
-    expect(html, contains('id="effective-context-current-row"'));
-    expect(html, isNot(contains('id="effective-context-current-row" hidden')));
-    // An unset editable field states its fallback rather than reading blank.
-    expect(html, contains('placeholder="unavailable for this adapter"'));
-    // Long values stay readable: the full string is on the title.
-    expect(html, contains('title="/project/subdir"'));
-    expect(html, contains('title="CLAUDE.md (workspace)"'));
     // The continuity notice is a consequence of changing provider, so it ships
     // hidden and is revealed by the controller.
     expect(html, contains('id="effective-context-continuity" class="banner banner-warning" hidden'));
+    // Long values stay readable: the full string is on the title.
+    expect(html, contains('title="/project/subdir"'));
     // No measurement, so the chip carries no percentage — never a stand-in.
     expect(html, contains('id="effective-context-usage" hidden'));
   });
 
-  test('the composer pill states only segments the next turn actually has', () {
+  test('the pickers render the catalogue the view projected, and the pill states only what is selected', () {
     final html = chatAreaTemplate(
       sessionId: 'session-id',
       messagesHtml: '',
@@ -93,12 +117,32 @@ void main() {
         'telemetry': 'unavailable',
         'behavior': 'none recorded',
         'projects': [],
-        'providers': [],
+        'providers': [
+          {
+            'value': 'claude',
+            'label': 'claude',
+            'selected': true,
+            'model': 'true',
+            'effort': 'true',
+            'models': 'sonnet,opus',
+            'efforts': 'low,high',
+          },
+        ],
         'modelEditable': true,
         'effortEditable': true,
-        'modelValue': '',
+        'modelValue': 'sonnet',
         'effortValue': '',
-        'composer': 'claude',
+        'modelOptions': [
+          {'value': '', 'label': 'Provider default', 'selected': false},
+          {'value': 'sonnet', 'label': 'sonnet', 'selected': true},
+          {'value': 'opus', 'label': 'opus', 'selected': false},
+        ],
+        'effortOptions': [
+          {'value': '', 'label': 'Provider default', 'selected': true},
+          {'value': 'low', 'label': 'low', 'selected': false},
+          {'value': 'high', 'label': 'high', 'selected': false},
+        ],
+        'composer': 'claude · sonnet',
         'usage': '',
         'usageHidden': true,
         'currentHidden': true,
@@ -106,13 +150,14 @@ void main() {
       },
     );
     expect(html, contains('class="composer-model"'));
-    expect(html, contains('>claude</button>'));
-    // Current matches next here, so the row is not drawn at all.
-    expect(html, contains('id="effective-context-current-row" hidden'));
-    // Both fields are editable and unset, so both offer the provider default.
-    expect(html, contains('placeholder="provider default"'));
-    expect(html, isNot(contains('provider model')));
-    expect(html, isNot(contains('provider effort')));
+    expect(html, contains('>claude · sonnet</button>'));
+    expect(html, contains('<option value="sonnet" selected="">sonnet</option>'));
+    expect(html, contains('<option value="opus">opus</option>'));
+    // The provider option carries its own catalogue, so a provider change
+    // re-renders the pickers without a second round trip.
+    expect(html, contains('data-models="sonnet,opus"'));
+    expect(html, contains('data-efforts="low,high"'));
+    expect(html, isNot(contains('placeholder="provider default"')));
   });
 
   test('session projection uses the shared relative timestamp formatter', () async {

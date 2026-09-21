@@ -234,11 +234,14 @@ export default class DcConversationCommandController extends Stimulus.Controller
     return data;
   }
 
+  /// The leading `/` is the palette's trigger, not part of what is being
+  /// searched for: filtering on it matches no command label and leaves the bare
+  /// `/` palette holding only the passthrough row.
   async renderSlash(query) {
     const palette = document.querySelector('[data-slash-palette]');
     const target = palette.querySelector('[data-slash-results]');
     const catalog = await this.catalog('slash');
-    this.renderCatalog(target, catalog, query);
+    this.renderCatalog(target, catalog, query.replace(/^\//, ''));
     if (!target.children.length) {
       const button = this.optionButton({ label: 'Send to provider', description: 'Send this text unchanged' });
       button.dataset.passthrough = 'true';
@@ -381,8 +384,9 @@ export default class DcConversationCommandController extends Stimulus.Controller
     }
     if (data.action === 'navigate') location.assign(this.withToken(data.href));
     if (data.action === 'refresh') location.reload();
+    // Both routed fields live in the model popover, so the pill is the trigger.
     if (data.action === 'open_context') {
-      document.getElementById('effective-context-open')?.click();
+      document.getElementById('effective-context-composer-provider')?.click();
       document.querySelector('[name="' + data.field + '"]')?.focus();
     }
     if (data.action === 'show_help') showToast('info', 'Use ↑/↓ to choose and Enter to run. Unknown slash text is sent to the provider.');

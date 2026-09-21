@@ -20,7 +20,10 @@ void main() {
     expect(open, isNot(contains('showModal')));
   });
 
-  test('context mutation posts the current revision and leaves the draft outside reconciliation', () async {
+  // Two triggers, two popovers, but one payload: an Apply in either one has to
+  // state the whole next-turn context, so the handler reads every control on
+  // the page rather than only its own form's.
+  test('one apply path reads both popovers and posts the current revision', () async {
     final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     expect(source, contains('async applyContext(event)'));
     expect(source, contains('conversation_revision: this.conversationRevision'));
@@ -32,39 +35,64 @@ void main() {
       source.indexOf('async applyContext(event)'),
       source.indexOf('reconcileContext(snapshot)'),
     );
+    for (final field in const [
+      'effective-context-project',
+      'effective-context-directory',
+      'effective-context-provider',
+      'effective-context-model-input',
+      'effective-context-effort-input',
+    ]) {
+      expect(method, contains(field), reason: field);
+    }
+    // The message the popover shows is its own, so a rejection reaches the
+    // reader in the surface they pressed Apply in.
+    expect(method, contains("form.querySelector('.pop-validation')"));
     expect(method, isNot(contains('this.textarea.value')));
+  });
+
+  test('a trigger opens only the popover it names, and opening one closes the other', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
+    expect(source, contains("trigger?.getAttribute?.('aria-controls')"));
+    final open = source.substring(
+      source.indexOf('openContextPopover(event) {'),
+      source.indexOf('closeContextPopover() {'),
+    );
+    expect(open, contains('this.closeContextPopover()'));
+    expect(source, contains("this.element.querySelector('[aria-controls=\"' + popover.id + '\"]')"));
   });
 
   test('authoritative reconciliation updates controls and projections before absorbing revision', () async {
     final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     final method = source.substring(
       source.indexOf('reconcileContext(snapshot)'),
-      source.indexOf('handleContextDialogKeydown', source.indexOf('reconcileContext(snapshot)')),
+      source.indexOf('updateContinuityWarning() {'),
     );
     expect(method, contains('snapshot.effective_context'));
-    for (final field in const [
-      'project.value',
-      'directory.value',
-      'provider.value',
-      'model.disabled',
-      'effort.disabled',
-    ]) {
+    for (final field in const ['project.value', 'directory.value', 'provider.value']) {
       expect(method, contains(field), reason: field);
     }
-    for (final selector in const [
-      '#effective-context-current',
-      '#effective-context-current-row',
-      '#effective-context-telemetry',
-      '#effective-context-behavior',
-      '#effective-context-memory',
-    ]) {
-      expect(method, contains(selector), reason: selector);
-    }
+    // Model and effort are rebuilt from the applied provider's own catalogue,
+    // not assigned into whatever options the previous provider left behind.
+    expect(method, contains("this.renderContextOptions(\n      'effective-context-model-input',"));
+    expect(method, contains("this.renderContextOptions(\n      'effective-context-effort-input',"));
     expect(
       method.indexOf('project.value = view.projectId'),
       lessThan(method.indexOf('this.conversationRevision = nextRevision')),
     );
     expect(method, isNot(contains('this.textarea')));
+  });
+
+  // A picker that cannot name a YAML- or API-set value silently unsets it the
+  // next time anything else is applied.
+  test('the model picker keeps a staged value the adapter does not list', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
+    final method = source.substring(
+      source.indexOf('renderContextOptions(id, catalogue, editable, staged) {'),
+      source.indexOf('contextFieldValue(id) {'),
+    );
+    expect(method, contains("new Option('Provider default', '')"));
+    expect(method, contains('if (value && !values.includes(value)) select.append(new Option(value, value));'));
+    expect(method, contains('select.disabled = !enabled;'));
   });
 
   test('the Q9 and E11 browser cases run the layout gate on the chat and session-info surfaces', () async {

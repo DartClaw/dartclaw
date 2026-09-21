@@ -100,7 +100,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.revealHistoryTarget();
     this.initializeConversationState();
     this.initializeDraftStorage();
-    this.contextPopover?.addEventListener('keydown', this.handleContextDialogKeydown);
+    this.contextPopovers.forEach((popover) => popover.addEventListener('keydown', this.handleContextDialogKeydown));
     this.temporaryDialogs.forEach((dialog) => {
       dialog.addEventListener('keydown', this.handleTemporaryDialogKeydown);
       dialog.addEventListener('close', this.handleTemporaryDialogClose);
@@ -140,7 +140,7 @@ export default class DcChatController extends Stimulus.Controller {
     clearTimeout(this.saveStatusTimer);
     clearTimeout(this.findTimer);
     this.draftChannel?.close();
-    this.contextPopover?.removeEventListener('keydown', this.handleContextDialogKeydown);
+    this.contextPopovers.forEach((popover) => popover.removeEventListener('keydown', this.handleContextDialogKeydown));
     this.temporaryDialogs.forEach((dialog) => {
       dialog.removeEventListener('keydown', this.handleTemporaryDialogKeydown);
       dialog.removeEventListener('close', this.handleTemporaryDialogClose);
@@ -219,8 +219,12 @@ export default class DcChatController extends Stimulus.Controller {
     return this.element.querySelector('[data-dc-chat-target="steerMenu"]');
   }
 
-  get contextPopover() {
-    return this.element.querySelector('[data-dc-chat-target="contextPopover"]');
+  get contextPopovers() {
+    return [...this.element.querySelectorAll('.pop-project, .pop-model')];
+  }
+
+  get activeContextPopover() {
+    return this.contextPopovers.find((popover) => !popover.hidden) || null;
   }
 
   get liveStatus() {
@@ -333,40 +337,48 @@ export default class DcChatController extends Stimulus.Controller {
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
+  /// Each trigger names its own popover through `aria-controls`, so the same
+  /// action serves both and opening one closes the other.
   toggleContextPopover(event) {
-    if (this.contextPopover && !this.contextPopover.hidden) {
+    const popover = this.contextPopoverFor(event?.currentTarget);
+    if (popover && !popover.hidden) {
       this.closeContextPopover();
       return;
     }
     this.openContextPopover(event);
   }
 
+  contextPopoverFor(trigger) {
+    const id = trigger?.getAttribute?.('aria-controls');
+    return id ? this.element.querySelector('#' + id) : null;
+  }
+
   openContextPopover(event) {
-    const popover = this.contextPopover;
+    const trigger = event?.currentTarget || document.activeElement;
+    const popover = this.contextPopoverFor(trigger);
     if (!popover) return;
-    this.contextPopoverReturnFocus = event?.currentTarget || document.activeElement;
+    this.closeContextPopover();
+    this.contextPopoverReturnFocus = trigger;
     popover.hidden = false;
-    this.setContextExpanded(true);
+    this.setContextExpanded(popover, true);
     // The first editable row, not the close button that precedes it in the head.
     popover.querySelector('form select, form input:not([type="hidden"])')?.focus();
   }
 
   closeContextPopover() {
-    const popover = this.contextPopover;
-    if (!popover || popover.hidden) return;
+    const popover = this.activeContextPopover;
+    if (!popover) return;
     popover.hidden = true;
-    this.setContextExpanded(false);
+    this.setContextExpanded(popover, false);
     this.contextPopoverReturnFocus?.focus();
   }
 
-  setContextExpanded(open) {
-    this.element.querySelectorAll('[data-action~="dc-chat#toggleContextPopover"]')
-      .forEach((trigger) => trigger.setAttribute('aria-expanded', String(open)));
+  setContextExpanded(popover, open) {
+    this.element.querySelector('[aria-controls="' + popover.id + '"]')?.setAttribute('aria-expanded', String(open));
   }
 
   handleDocumentPointerDown(event) {
-    const popover = this.contextPopover;
-    if (popover && !popover.hidden && !event.target.closest('.pop-context') &&
+    if (this.activeContextPopover && !event.target.closest('.pop-project, .pop-model') &&
         !event.target.closest('[data-action~="dc-chat#toggleContextPopover"]')) {
       this.closeContextPopover();
     }
@@ -392,38 +404,52 @@ export default class DcChatController extends Stimulus.Controller {
 
   contextProviderChanged(event) {
     const option = event.currentTarget.selectedOptions?.[0];
-    const form = event.currentTarget.form;
-    if (!option || !form) return;
-    const model = form.elements.namedItem('model');
-    const effort = form.elements.namedItem('effort');
-    if (model) {
-      model.disabled = option.dataset.modelEditable !== 'true';
-      if (model.disabled) model.value = '';
-    }
-    if (effort) {
-      effort.disabled = option.dataset.effortEditable !== 'true';
-      if (effort.disabled) effort.value = '';
-    }
+    if (!option) return;
+    this.renderContextOptions('effective-context-model-input', option.dataset.models, option.dataset.modelEditable);
+    this.renderContextOptions('effective-context-effort-input', option.dataset.efforts, option.dataset.effortEditable);
     this.updateContinuityWarning();
   }
 
+  /// The adapter is the one authority on what it accepts, so a provider change
+  /// rebuilds the picker from that provider's own list rather than filtering
+  /// the previous one. A staged value the list does not carry is kept as its
+  /// own option — dropping it would silently unset a YAML- or API-set value.
+  renderContextOptions(id, catalogue, editable, staged) {
+    const select = this.element.querySelector('#' + id);
+    if (!select) return;
+    const enabled = String(editable) === 'true';
+    const value = enabled ? (staged ?? select.value) : '';
+    const values = String(catalogue || '').split(',').filter(Boolean);
+    select.replaceChildren(new Option('Provider default', ''));
+    for (const entry of values) select.append(new Option(entry, entry));
+    if (value && !values.includes(value)) select.append(new Option(value, value));
+    select.value = value;
+    select.disabled = !enabled;
+  }
+
+  contextFieldValue(id) {
+    const field = this.element.querySelector('#' + id);
+    return typeof field?.value === 'string' ? field.value : '';
+  }
+
+  /// One apply path for both popovers: whichever Apply was pressed, the payload
+  /// is the current state of every context control on the page.
   async applyContext(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    const validation = this.element.querySelector('#effective-context-validation');
+    const validation = form.querySelector('.pop-validation');
     const apply = form.querySelector('[type="submit"]');
-    const fields = new FormData(form);
-    const optionalValue = (name) => {
-      const value = fields.get(name);
-      return typeof value === 'string' && value.trim() ? value.trim() : null;
+    const optionalValue = (id) => {
+      const value = this.contextFieldValue(id).trim();
+      return value ? value : null;
     };
     const payload = {
       conversation_revision: this.conversationRevision,
-      project_id: fields.get('project_id'),
-      directory: fields.get('directory'),
-      provider: fields.get('provider'),
-      model: optionalValue('model'),
-      effort: optionalValue('effort'),
+      project_id: this.contextFieldValue('effective-context-project'),
+      directory: this.contextFieldValue('effective-context-directory'),
+      provider: this.contextFieldValue('effective-context-provider'),
+      model: optionalValue('effective-context-model-input'),
+      effort: optionalValue('effective-context-effort-input'),
       attachments: this.attachments.filter((item) => item.state === 'ready'),
       references: this.references.filter((item) => item.state === 'resolved'),
     };
@@ -461,12 +487,11 @@ export default class DcChatController extends Stimulus.Controller {
     const nextRevision = Number(snapshot.revision);
     if (!view || !next || !Number.isInteger(nextRevision)) return;
 
-    const form = this.element.querySelector('#effective-context-form');
-    const project = form?.elements.namedItem('project_id');
-    const directory = form?.elements.namedItem('directory');
-    const provider = form?.elements.namedItem('provider');
-    const model = form?.elements.namedItem('model');
-    const effort = form?.elements.namedItem('effort');
+    const project = this.element.querySelector('#effective-context-project');
+    const directory = this.element.querySelector('#effective-context-directory');
+    const provider = this.element.querySelector('#effective-context-provider');
+    const model = this.element.querySelector('#effective-context-model-input');
+    const effort = this.element.querySelector('#effective-context-effort-input');
     if (!project || !directory || !provider || !model || !effort) return;
     if (![...project.options].some((option) => option.value === view.projectId)) return;
     if (![...provider.options].some((option) => option.value === view.provider)) return;
@@ -474,19 +499,23 @@ export default class DcChatController extends Stimulus.Controller {
     project.value = view.projectId;
     directory.value = view.directory;
     provider.value = view.provider;
-    model.disabled = view.modelEditable !== true;
-    model.value = view.modelValue || '';
-    effort.disabled = view.effortEditable !== true;
-    effort.value = view.effortValue || '';
+    const providerOption = provider.selectedOptions?.[0];
+    this.renderContextOptions(
+      'effective-context-model-input',
+      providerOption?.dataset.models,
+      view.modelEditable === true,
+      view.modelValue || '',
+    );
+    this.renderContextOptions(
+      'effective-context-effort-input',
+      providerOption?.dataset.efforts,
+      view.effortEditable === true,
+      view.effortValue || '',
+    );
 
     const text = {
-      '#effective-context-workspace': view.workspace,
       '#effective-context-project-name': view.project,
-      '#effective-context-current': view.current,
       '#effective-context-composer-provider': view.composer,
-      '#effective-context-telemetry': view.telemetry,
-      '#effective-context-behavior': view.behavior,
-      '#effective-context-memory': view.memory,
     };
     for (const [selector, value] of Object.entries(text)) {
       const mount = this.element.querySelector(selector);
@@ -499,22 +528,11 @@ export default class DcChatController extends Stimulus.Controller {
     }
     const identicon = this.element.querySelector('.composer-context-chip [data-identicon-id]');
     if (identicon) identicon.dataset.identiconId = view.projectId;
-    const memoryRow = this.element.querySelector('#effective-context-memory-row');
-    if (memoryRow) memoryRow.hidden = !view.memory;
-    // The editable rows are the statement of next-turn context; the current one
-    // appears only while it differs from them.
-    const currentRow = this.element.querySelector('#effective-context-current-row');
-    if (currentRow) currentRow.hidden = view.currentHidden === true;
-    for (const id of ['#effective-context-directory', '#effective-context-behavior']) {
-      const mount = this.element.querySelector(id);
-      if (mount) mount.title = mount.value ?? mount.textContent ?? '';
-    }
+    directory.title = directory.value;
     this.appliedProvider = view.provider;
     this.updateContinuityWarning();
 
     this.conversationRevision = nextRevision;
-    const revision = this.contextPopover?.querySelector('[name="conversation_revision"]');
-    if (revision) revision.value = String(nextRevision);
   }
 
   /// The continuity notice is a consequence of switching providers, not a
@@ -534,7 +552,8 @@ export default class DcChatController extends Stimulus.Controller {
       return;
     }
     if (event.key !== 'Tab') return;
-    const focusable = [...this.contextPopover.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    const popover = event.currentTarget;
+    const focusable = [...popover.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
       .filter((element) => !element.disabled && !element.hidden);
     if (!focusable.length) return;
     const first = focusable[0];

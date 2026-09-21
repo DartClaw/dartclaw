@@ -155,11 +155,11 @@
         <div class="composer-toolbar">
           <button id="composer-attach" type="button" class="btn btn-icon" data-icon="attach"
                   aria-label="Attach files" title="Attach files" data-action="dc-chat#openAttach"></button>
-          <button type="button" class="btn btn-icon" data-icon="terminal" title="Commands  /" aria-label="Commands"
-                  data-action="dc-chat#openCommands"></button>
+          <button type="button" class="btn btn-icon" data-icon="square-slash" title="Slash commands (/)"
+                  aria-label="Slash commands (/)" data-action="dc-chat#openCommands"></button>
           <button tl:if="${hasEffectiveContext}" id="effective-context-open" type="button"
                   class="chip chip--ref composer-context-chip" aria-haspopup="dialog" aria-expanded="false"
-                  data-action="dc-chat#toggleContextPopover">
+                  aria-controls="effective-context-project-pop" data-action="dc-chat#toggleContextPopover">
             <span class="identicon" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span>
             <span class="chip-name" id="effective-context-project-name" tl:text="${effectiveContext.project}">project</span>
             <span class="chip-meta" id="effective-context-usage"
@@ -173,12 +173,12 @@
                   aria-hidden="true" hidden></span>
             <button tl:if="${hasEffectiveContext}" type="button" class="composer-model"
                     id="effective-context-composer-provider" aria-haspopup="dialog" aria-expanded="false"
-                    data-action="dc-chat#toggleContextPopover"
+                    aria-controls="effective-context-model-pop" data-action="dc-chat#toggleContextPopover"
                     tl:text="${effectiveContext.composer}">provider</button>
             <span class="composer-send-group">
-              <button type="button" class="btn btn-sm btn-queue" data-dc-chat-target="queueButton"
+              <button type="button" class="btn btn-queue" data-dc-chat-target="queueButton"
                       data-action="dc-chat#submitForm" hidden>Queue</button>
-              <button type="button" class="btn btn-sm split-caret" data-icon="chevron-down"
+              <button type="button" class="btn split-caret" data-icon="chevron-down"
                       data-dc-chat-target="steerToggle" data-action="dc-chat#toggleSteerMenu"
                       aria-haspopup="menu" aria-expanded="false" aria-label="Queue options" hidden></button>
               <button id="send-btn" class="btn btn-primary btn-icon composer-send" type="submit"
@@ -197,69 +197,73 @@
         </div>
       </form>
       <div id="composer-live-status" class="sr-only" data-dc-chat-target="liveStatus" role="status" aria-live="polite"></div>
-      <div tl:if="${hasEffectiveContext}" class="pop pop-context card card-elevated"
-           data-dc-chat-target="contextPopover" role="dialog" aria-labelledby="effective-context-title" hidden>
+      <!-- Two controls, two popovers, one apply path: each trigger opens the
+           fields it names, and dc-chat builds one payload from both forms.
+           Workspace, measurement, behavior, memory and the current turn are
+           read-only facts, and Session info already lists them. -->
+      <div tl:if="${hasEffectiveContext}" id="effective-context-project-pop" class="pop pop-project card card-elevated"
+           role="dialog" aria-labelledby="effective-context-project-title" hidden>
         <div class="pop-head">
-          <span id="effective-context-title">Effective context</span>
+          <span id="effective-context-project-title">Project</span>
           <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Close"
                   data-action="dc-chat#closeContextPopover"></button>
         </div>
-        <p id="effective-context-continuity" class="banner banner-warning" hidden>Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
-        <form id="effective-context-form" data-action="submit->dc-chat#applyContext">
-          <input type="hidden" name="conversation_revision" tl:attr="value=${effectiveContext.revision}">
-          <div class="meta-row">
-            <label class="meta-key" for="effective-context-project">Project</label>
-            <select id="effective-context-project" name="project_id" class="form-select meta-val">
+        <form id="effective-context-project-form" data-action="submit->dc-chat#applyContext">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="effective-context-project">Project</label>
+            <select id="effective-context-project" name="project_id" class="form-select">
               <option tl:each="project : ${effectiveContext.projects}" tl:text="${project.label}"
                       tl:attr="value=${project.value},selected=${project.selected}">project</option>
             </select>
           </div>
-          <div class="meta-row">
-            <label class="meta-key" for="effective-context-directory">Directory</label>
-            <input id="effective-context-directory" name="directory" class="form-input meta-val meta-value-mono"
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="effective-context-directory">Directory</label>
+            <input id="effective-context-directory" name="directory" class="form-input meta-value-mono"
                    required tl:attr="value=${effectiveContext.directory},title=${effectiveContext.directory}">
           </div>
-          <div class="meta-row">
-            <label class="meta-key" for="effective-context-provider">Provider</label>
-            <select id="effective-context-provider" name="provider" class="form-select meta-val"
+          <p id="effective-context-project-validation" class="pop-validation" role="alert" hidden></p>
+          <div class="pop-foot">
+            <a class="pop-foot-link" tl:attr="href=${infoHref},hx-get=${infoHref}"
+               hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+               hx-select-oob="#topbar,#restart-banner-slot,#sidebar">Session info</a>
+            <button id="effective-context-project-apply" type="submit" class="btn btn-sm btn-primary">Apply to next turn</button>
+          </div>
+        </form>
+      </div>
+      <div tl:if="${hasEffectiveContext}" id="effective-context-model-pop" class="pop pop-model card card-elevated"
+           role="dialog" aria-labelledby="effective-context-model-title" hidden>
+        <div class="pop-head">
+          <span id="effective-context-model-title">Model</span>
+          <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Close"
+                  data-action="dc-chat#closeContextPopover"></button>
+        </div>
+        <form id="effective-context-model-form" data-action="submit->dc-chat#applyContext">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="effective-context-provider">Provider</label>
+            <select id="effective-context-provider" name="provider" class="form-select"
                     data-action="change->dc-chat#contextProviderChanged">
               <option tl:each="provider : ${effectiveContext.providers}" tl:text="${provider.label}"
-                      tl:attr="value=${provider.value},selected=${provider.selected},data-model-editable=${provider.model},data-effort-editable=${provider.effort}">provider</option>
+                      tl:attr="value=${provider.value},selected=${provider.selected},data-model-editable=${provider.model},data-effort-editable=${provider.effort},data-models=${provider.models},data-efforts=${provider.efforts}">provider</option>
             </select>
           </div>
-          <div class="meta-row">
-            <label class="meta-key" for="effective-context-model-input">Model</label>
-            <input id="effective-context-model-input" name="model" class="form-input meta-val"
-                   tl:attr="value=${effectiveContext.modelValue},disabled=${effectiveContext.modelEditable ? null : 'disabled'},placeholder=${effectiveContext.modelEditable ? 'provider default' : 'unavailable for this adapter'}">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="effective-context-model-input">Model</label>
+            <select id="effective-context-model-input" name="model" class="form-select"
+                    tl:attr="disabled=${effectiveContext.modelEditable ? null : 'disabled'}">
+              <option tl:each="option : ${effectiveContext.modelOptions}" tl:text="${option.label}"
+                      tl:attr="value=${option.value},selected=${option.selected}">provider default</option>
+            </select>
           </div>
-          <div class="meta-row">
-            <label class="meta-key" for="effective-context-effort-input">Effort</label>
-            <input id="effective-context-effort-input" name="effort" class="form-input meta-val"
-                   tl:attr="value=${effectiveContext.effortValue},disabled=${effectiveContext.effortEditable ? null : 'disabled'},placeholder=${effectiveContext.effortEditable ? 'provider default' : 'unavailable for this adapter'}">
+          <div class="form-field">
+            <label class="form-label t-caption tracking-caps" for="effective-context-effort-input">Effort</label>
+            <select id="effective-context-effort-input" name="effort" class="form-select"
+                    tl:attr="disabled=${effectiveContext.effortEditable ? null : 'disabled'}">
+              <option tl:each="option : ${effectiveContext.effortOptions}" tl:text="${option.label}"
+                      tl:attr="value=${option.value},selected=${option.selected}">provider default</option>
+            </select>
           </div>
-          <div class="pop-sep"></div>
-          <div class="meta-row">
-            <span class="meta-key">Workspace</span>
-            <span id="effective-context-workspace" class="meta-val meta-value-mono" tl:text="${effectiveContext.workspace}">web</span>
-          </div>
-          <div class="meta-row" id="effective-context-current-row" tl:attr="hidden=${effectiveContext.currentHidden}">
-            <span class="meta-key">Current turn</span>
-            <span id="effective-context-current" class="meta-val" tl:text="${effectiveContext.current}">project</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Measurement</span>
-            <span id="effective-context-telemetry" class="meta-val" tl:text="${effectiveContext.telemetry}">unavailable</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-key">Behavior</span>
-            <span id="effective-context-behavior" class="meta-val meta-value-mono"
-                  tl:attr="title=${effectiveContext.behavior}" tl:text="${effectiveContext.behavior}">none recorded</span>
-          </div>
-          <div class="meta-row" id="effective-context-memory-row" tl:attr="hidden=${effectiveContext.memoryHidden}">
-            <span class="meta-key">Memory</span>
-            <span id="effective-context-memory" class="meta-val" tl:text="${effectiveContext.memory}">Memory contributed</span>
-          </div>
-          <p id="effective-context-validation" class="pop-validation" role="alert" hidden></p>
+          <p id="effective-context-continuity" class="banner banner-warning" hidden>Visible host history continues after a provider change. Provider-native session and tool state do not.</p>
+          <p id="effective-context-model-validation" class="pop-validation" role="alert" hidden></p>
           <div class="pop-foot">
             <button id="effective-context-apply" type="submit" class="btn btn-sm btn-primary">Apply to next turn</button>
           </div>

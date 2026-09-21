@@ -154,6 +154,9 @@
   /* square-pen — new session */
   --icon-square-pen: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'/%3E%3Cpath d='M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z'/%3E%3C/svg%3E");
 
+  /* square-slash — composer slash-command palette */
+  --icon-square-slash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Cpath d='M9 15 15 9'/%3E%3C/svg%3E");
+
   /* sun — theme toggle (dark mode) */
   --icon-sun: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2v2'/%3E%3Cpath d='M12 20v2'/%3E%3Cpath d='m4.93 4.93 1.41 1.41'/%3E%3Cpath d='m17.66 17.66 1.41 1.41'/%3E%3Cpath d='M2 12h2'/%3E%3Cpath d='M20 12h2'/%3E%3Cpath d='m6.34 17.66-1.41 1.41'/%3E%3Cpath d='m19.07 4.93-1.41 1.41'/%3E%3C/svg%3E");
 
@@ -312,6 +315,7 @@
 .icon-sliders           { -webkit-mask-image: var(--icon-sliders);         mask-image: var(--icon-sliders); }
 .icon-square            { -webkit-mask-image: var(--icon-square);          mask-image: var(--icon-square); }
 .icon-square-pen        { -webkit-mask-image: var(--icon-square-pen);      mask-image: var(--icon-square-pen); }
+.icon-square-slash      { -webkit-mask-image: var(--icon-square-slash);    mask-image: var(--icon-square-slash); }
 .icon-sun               { -webkit-mask-image: var(--icon-sun);             mask-image: var(--icon-sun); }
 .icon-terminal          { -webkit-mask-image: var(--icon-terminal);        mask-image: var(--icon-terminal); }
 .icon-triangle-alert    { -webkit-mask-image: var(--icon-triangle-alert);  mask-image: var(--icon-triangle-alert); }
@@ -375,6 +379,7 @@
 [data-icon="arrow-up"]::before      { -webkit-mask-image: var(--icon-arrow-up);       mask-image: var(--icon-arrow-up); }
 [data-icon="arrow-down"]::before    { -webkit-mask-image: var(--icon-arrow-down);     mask-image: var(--icon-arrow-down); }
 [data-icon="attach"]::before        { -webkit-mask-image: var(--icon-paperclip);      mask-image: var(--icon-paperclip); }
+[data-icon="square-slash"]::before  { -webkit-mask-image: var(--icon-square-slash);   mask-image: var(--icon-square-slash); }
 [data-icon="copy"]::before          { -webkit-mask-image: var(--icon-copy);           mask-image: var(--icon-copy); }
 [data-icon="fork"]::before          { -webkit-mask-image: var(--icon-git-branch);     mask-image: var(--icon-git-branch); }
 [data-icon="fork-from"]::before     { -webkit-mask-image: var(--icon-corner-down-right); mask-image: var(--icon-corner-down-right); }

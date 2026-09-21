@@ -528,6 +528,7 @@ String chatAreaTemplate({
       'hasTurnStatus': true,
       'readOnly': readOnly,
       'sendUrl': '/api/sessions/$sessionId/send',
+      'infoHref': '/sessions/$sessionId/info',
       'placeholder': placeholder,
       'inputDisabled': inputDisabled ? true : null,
       'autofocus': autofocus && !inputDisabled ? true : null,

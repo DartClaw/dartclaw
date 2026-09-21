@@ -120,10 +120,24 @@
 .composer-save-glyph { display: none; flex: 0 0 auto; color: var(--fg-overlay); }
 .composer-meta > .composer-model,
 .composer-meta > .composer-send-group { flex: 0 0 auto; }
-.composer-send-group { position: relative; display: flex; align-items: center; gap: 2px; }
-.btn-queue { padding: 0 var(--sp-2); }
-.split-caret { min-width: 18px; padding: 0; }
-.split-caret::before { margin-right: 0; font-size: .85em; }
+/* Queue and its caret are one split control, so they share an edge and carry no
+   gap; send/stop is a separate control and takes sp-1 off the pair. All three
+   sit on canon's 28px tier — three heights in one row read as three tiers. */
+.composer-send-group { position: relative; display: flex; align-items: center; gap: 0; }
+.composer-send-group > .composer-send { margin-left: var(--sp-1); }
+.btn-queue { padding: 0 var(--sp-2); border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-caret {
+  width: 24px;
+  min-width: 24px;
+  padding: 0;
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
+}
+.split-caret::before { display: block; width: 14px; height: 14px; margin: 0; vertical-align: baseline; }
 .composer-context-chip { flex: 0 1 auto; min-width: 0; }
 .composer-context-chip .identicon {
   width: 12px;
@@ -191,48 +205,42 @@
 .request-strip code { font-size: var(--text-xs); }
 .request-strip .strip-actions { margin-left: auto; display: flex; gap: var(--sp-1); }
 
-/* Composer-anchored placements on the shared `.pop` vocabulary above. */
-.pop-context { bottom: calc(100% + var(--sp-2)); left: 0; width: min(380px, 100%); }
-.pop-steer { bottom: calc(100% + var(--sp-1)); right: 0; width: 240px; }
-.pop-foot { display: flex; justify-content: flex-end; padding: var(--sp-2) var(--sp-2) var(--sp-1); }
-.pop-validation { padding: 0 var(--sp-2); color: var(--error); font-size: var(--text-xs); }
-.pop-context .banner { margin: 0 var(--sp-1) var(--sp-2); }
-
-/* Context: one representation of the data — a meta row per fact, inline-editable.
-   Scoped to the popover so the session-info page's own .meta-row stays as it is. */
-.pop-context .meta-row {
+/* Draft-recovery notice — the request-strip pattern in the warning key: the
+   save failed and the actions below it are the way out. */
+.composer-recovery {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 26px;
+  min-height: 30px;
   padding: 0 var(--sp-2);
-  border: none;
   border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-base));
   font-size: var(--text-sm);
+  color: var(--fg-sub1);
 }
-.pop-context .meta-row:hover { background: var(--bg-surface0); }
-.pop-context .meta-key {
-  flex: 0 0 82px;
-  color: var(--fg-overlay);
-  font-size: var(--text-xs);
+
+/* Composer-anchored placements on the shared `.pop` vocabulary above. Each is
+   anchored under the control that opens it: the chip on the left, the model
+   pill and the steer menu on the right. */
+.pop-project { bottom: calc(100% + var(--sp-2)); left: 0; width: min(320px, 100%); }
+.pop-model { bottom: calc(100% + var(--sp-2)); right: 0; width: min(280px, 100%); }
+.pop-steer { bottom: calc(100% + var(--sp-1)); right: 0; width: 240px; }
+.pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0 var(--sp-1);
 }
-.pop-context .meta-val {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-}
-/* Inline edit: a row reads as text until it is reached for, so the control's
-   box is cleared at rest and restored on hover and focus. */
-.pop-context input.meta-val,
-.pop-context select.meta-val { background: transparent; border-color: transparent; box-shadow: none; }
-.pop-context .meta-row:hover input.meta-val,
-.pop-context .meta-row:hover select.meta-val,
-.pop-context input.meta-val:focus,
-.pop-context select.meta-val:focus { background: var(--bg-base); border-color: var(--bg-surface1); }
+.pop-foot-link { margin-right: auto; font-size: var(--text-xs); color: var(--fg-sub0); }
+.pop-validation { color: var(--error); font-size: var(--text-xs); }
+
+/* Ordinary canon fields inside the card: the popover is an edit surface, so a
+   control looks like a control at rest. */
+.pop-project form,
+.pop-model form { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-2); }
+.pop-model .banner { margin: 0; }
 
 /* Find bar: slim, pinned above the transcript. */
 .find-bar {
@@ -371,7 +379,7 @@
   .composer-context-chip .chip-meta { display: none; }
   .queue-row { min-height: 44px; }
   .queue-row .btn-sm { min-height: 44px; }
-  .pop-context { width: 100%; }
+  .pop-project, .pop-model { width: 100%; }
   .composer-palette-option {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

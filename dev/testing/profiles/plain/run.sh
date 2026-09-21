@@ -27,8 +27,13 @@ if [ -n "${DARTCLAW_PLAIN_DATA_DIR:-}" ]; then
     cp -R "${SEED_DIR}/." "${DATA_DIR}/"
   fi
 else
-  DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-plain-XXXXXX")"
-  trap 'rm -rf "${DATA_DIR}"' EXIT
+  # The data dir is the server's cwd, and the runtime names its implicit local
+  # project after it — so the unique part goes on the parent and the dir itself
+  # keeps a readable fixed name.
+  DATA_PARENT="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-plain-XXXXXX")"
+  trap 'rm -rf "${DATA_PARENT}"' EXIT
+  DATA_DIR="${DATA_PARENT}/dartclaw-plain"
+  mkdir -p "${DATA_DIR}"
   cp -R "${SEED_DIR}/." "${DATA_DIR}/"
 fi
 

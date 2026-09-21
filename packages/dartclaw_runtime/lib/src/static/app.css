@@ -379,6 +379,9 @@
   .composer-context-chip .chip-meta { display: none; }
   .queue-row { min-height: 44px; }
   .queue-row .btn-sm { min-height: 44px; }
+  /* Canon's touch floor is height-only, so a narrow control that needs a square
+     target declares its own width — the caret is one, not an inline chip. */
+  .split-caret { width: 44px; min-width: 44px; }
   .pop-project, .pop-model { width: 100%; }
   .composer-palette-option {
     display: grid;

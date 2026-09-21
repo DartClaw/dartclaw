@@ -1082,8 +1082,8 @@ final class ConversationService {
           if (_hasBlockingDispatch(state) || turns.isActive(sessionId)) {
             throw ConversationMutationException(
               409,
-              'DISPATCH_UNCERTAIN',
-              'Active or uncertain work must settle first',
+              'DISPATCH_ACTIVE',
+              'Active work must settle first',
               current: state,
             );
           }
@@ -1146,14 +1146,12 @@ final class ConversationService {
     state = state.put(stopping);
     await _writeWorkRecords(sessionId, stopping, allowUpdate: true);
     await _persist(sessionId, state, stopping, 'stopping');
-    final result = await turns.cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel);
-    if (rejectCompleted && result.status == TurnWaitState.completed) {
-      throw ConversationMutationException(
-        409,
-        'STALE_CONVERSATION_TURN',
-        'The displayed turn completed before it could be steered',
-        current: state,
-      );
+    final TurnCancelResult result;
+    try {
+      result = await turns.cancelTurnById(sessionId, turnId, TurnCancelReason.operatorCancel);
+    } on TurnCancelException {
+      await _restoreRefusedStop(sessionId, state, current);
+      rethrow;
     }
     stopping = stopping.copyWith(
       workState: result.status == TurnWaitState.completed
@@ -1165,6 +1163,15 @@ final class ConversationService {
     await _writeWorkRecords(sessionId, stopping, allowUpdate: true);
     await _writeQueueRecords(sessionId, state);
     await _persist(sessionId, state, stopping, 'stop_confirmed');
+    // Settle before refusing, so a steer that lost the race leaves no claim mid-stop.
+    if (rejectCompleted && result.status == TurnWaitState.completed) {
+      throw ConversationMutationException(
+        409,
+        'STALE_CONVERSATION_TURN',
+        'The displayed turn completed before it could be steered',
+        current: state,
+      );
+    }
     return state;
   }
 
@@ -1248,7 +1255,7 @@ final class ConversationService {
       );
     }
     var dispatching = submission.copyWith(workState: ConversationWorkState.dispatching, updatedAt: clock().toUtc());
-    var next = state.put(dispatching).admitContext(context);
+    var next = (await _settleUncertainDispatches(sessionId, state)).put(dispatching).admitContext(context);
     await _writeWorkRecords(sessionId, dispatching, allowUpdate: true);
     await _persist(sessionId, next, dispatching, 'dispatch_marker');
     final String turnId;

@@ -518,12 +518,14 @@ extension _ConversationServicePersistence on ConversationService {
     );
   }
 
+  // `uncertain` is deliberately absent: it is never retried and nothing
+  // resolves it, so counting it parked the session for good after one crash.
+  // Genuinely live work is in one of these states or in `turns.isActive`.
   bool _hasBlockingDispatch(ConversationState state) => state.submissions.any(
     (item) =>
         item.workState == ConversationWorkState.dispatching ||
         item.workState == ConversationWorkState.running ||
-        item.workState == ConversationWorkState.stopping ||
-        item.workState == ConversationWorkState.uncertain,
+        item.workState == ConversationWorkState.stopping,
   );
 
   ConversationSubmissionClaim? _submissionForTurn(ConversationState state, String turnId) {
@@ -538,6 +540,30 @@ extension _ConversationServicePersistence on ConversationService {
       if (submission.queueId == queueId) return submission;
     }
     return null;
+  }
+
+  // Every `_dispatch` entry has already established that no turn is live for
+  // this session, so an `uncertain` claim here is settled work with no outcome.
+  Future<ConversationState> _settleUncertainDispatches(String sessionId, ConversationState state) async {
+    var next = state;
+    for (final item in state.submissions) {
+      if (item.workState != ConversationWorkState.uncertain) continue;
+      final settled = item.copyWith(
+        workState: ConversationWorkState.failed,
+        detail: 'Dispatch was never confirmed; its outcome is unknown',
+        updatedAt: clock().toUtc(),
+      );
+      next = next.put(settled);
+      await _writeWorkRecords(sessionId, settled, allowUpdate: true);
+    }
+    return next;
+  }
+
+  // Every refusal `cancelTurnById` raises is a pre-mutation guard, so no turn
+  // was touched; a `stopping` marker left behind parks the session for good.
+  Future<void> _restoreRefusedStop(String sessionId, ConversationState state, ConversationSubmissionClaim prior) async {
+    await _writeWorkRecords(sessionId, prior, allowUpdate: true);
+    await _persist(sessionId, state.put(prior), prior, 'stop_refused');
   }
 
   ConversationState _holdPending(ConversationState state) {

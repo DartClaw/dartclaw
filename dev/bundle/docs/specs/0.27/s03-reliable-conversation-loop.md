@@ -87,9 +87,12 @@ the same relative locations inside the public implementation bundle.
   - **When** two viewers race edit/remove/release against dispatch, repeat the same operation, or release while prior
     dispatch is uncertain
   - **Then** each operation acknowledges the authoritative item state; a losing edit/remove reports “Already sent”;
-    uncertain dispatch reconciles before any release; stop, failure, cancellation, and restart hold undelivered ordinary
-    items; and **Send next queued message** releases only the oldest held item through normal admission while the other
-    remains held
+    an uncertain dispatch has already reconciled to a non-executing state per SC07 and blocks neither release nor a new
+    send, settling terminally when the session next dispatches; stop, failure, cancellation, and restart hold
+    undelivered ordinary items; and **Send next queued message** releases only the oldest held item through normal
+    admission while the other remains held
+  - **Decision 2026-09-21**: the earlier “reconciles before any release” wording was read as a permanent block, which
+    made one crash mid-turn park a session forever with no control able to clear it. SC07's non-executing reading wins.
   - **And** ordinary drafting stays enabled; **Queue** is the default running-turn send action, Steer remains an explicit
     alternative, both the text and attachments of each queued/held item stay visible, and acceptance order is fixed
     without a queue-reordering control

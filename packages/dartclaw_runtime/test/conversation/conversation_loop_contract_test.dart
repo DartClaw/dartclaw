@@ -199,7 +199,7 @@ void main() {
 
     await expectLater(
       conversation.releaseNext(sessionId: sessionId, expectedRevision: removed.snapshot.revision),
-      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'DISPATCH_UNCERTAIN')),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'DISPATCH_ACTIVE')),
     );
 
     turns.complete(sessionId, active.submission.turnId!);

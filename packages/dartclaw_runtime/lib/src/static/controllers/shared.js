@@ -284,9 +284,26 @@ export function syncCustomSelect(select) {
   select._customSelectSync();
 }
 
+let customSelectSeq = 0;
+let customSelectOutsideBound = false;
+
+// pointerdown, not click: a click on another control lands after that control
+// has already reacted, so a menu left open until then overlaps the thing the
+// pointer went to.
+function bindCustomSelectOutsideClose() {
+  if (customSelectOutsideBound) return;
+  customSelectOutsideBound = true;
+  document.addEventListener('pointerdown', (event) => {
+    if (!event.target?.closest?.('.custom-select')) closeAllCustomSelects();
+  });
+}
+
 function enhanceCustomSelect(select) {
   if (!select || select.dataset.customSelectInit) return;
   select.dataset.customSelectInit = '1';
+  bindCustomSelectOutsideClose();
+
+  const menuId = `custom-select-menu-${(customSelectSeq += 1)}`;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'custom-select';
@@ -295,81 +312,114 @@ function enhanceCustomSelect(select) {
   wrapper.appendChild(select);
   select.classList.add('native-select-hidden');
   select.tabIndex = -1;
+  // The trigger is the control now; leaving the select in the a11y tree would
+  // announce the same field twice.
+  select.setAttribute('aria-hidden', 'true');
 
   const trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'custom-select-trigger';
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-controls', menuId);
   const label = document.createElement('span');
   label.className = 'custom-select-label';
-  const caret = document.createElement('span');
-  caret.className = 'custom-select-caret';
-  caret.setAttribute('aria-hidden', 'true');
-  trigger.append(label, caret);
+  trigger.append(label);
+  nameTriggerAfterSelect(select, trigger);
 
   const menu = document.createElement('div');
-  menu.className = 'custom-select-menu';
+  menu.id = menuId;
+  menu.className = 'pop card card-elevated custom-select-menu';
   menu.setAttribute('role', 'listbox');
   wrapper.append(trigger, menu);
+
+  const enabledOptions = () =>
+    Array.from(menu.children).filter((row) => !row.disabled);
 
   function syncFromSelect() {
     const selectedOption = select.options[select.selectedIndex] || select.options[0];
     label.textContent = selectedOption ? (selectedOption.textContent || selectedOption.label || '') : '';
-    menu.querySelectorAll('.custom-select-option').forEach((optionButton) => {
-      optionButton.setAttribute('aria-selected', optionButton.dataset.value === select.value ? 'true' : 'false');
-    });
+    trigger.disabled = select.disabled;
+    for (const row of menu.children) {
+      const on = row.dataset.value === select.value;
+      row.classList.toggle('menu-item--on', on);
+      row.setAttribute('aria-selected', on ? 'true' : 'false');
+      const tick = row.firstChild;
+      tick.className = on ? 'menu-tick icon-control' : 'menu-tick';
+      if (on) tick.dataset.icon = 'check';
+      else delete tick.dataset.icon;
+    }
   }
 
   function buildOptions() {
-    menu.innerHTML = '';
+    menu.replaceChildren();
     Array.from(select.options).forEach((option, index) => {
-      const optionButton = document.createElement('button');
-      optionButton.type = 'button';
-      optionButton.className = 'custom-select-option';
-      optionButton.setAttribute('role', 'option');
-      optionButton.dataset.value = option.value;
-      optionButton.dataset.index = String(index);
-      optionButton.disabled = option.disabled;
-      optionButton.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.id = `${menuId}-option-${index}`;
+      row.className = 'palette-item menu-item custom-select-option';
+      row.setAttribute('role', 'option');
+      row.tabIndex = -1;
+      row.dataset.value = option.value;
+      row.disabled = option.disabled;
 
-      const check = document.createElement('span');
-      check.className = 'custom-select-check';
-      check.setAttribute('aria-hidden', 'true');
-      check.textContent = '✓';
+      const tick = document.createElement('span');
+      tick.className = 'menu-tick';
+      tick.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
+      text.className = 'palette-item-label';
       text.textContent = option.textContent || option.label || '';
-      optionButton.append(check, text);
-      optionButton.addEventListener('click', () => {
+      row.append(tick, text);
+      row.addEventListener('click', () => {
         if (option.disabled) return;
         select.value = option.value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
         syncFromSelect();
-        closeAllCustomSelects();
+        setOpen(false);
         trigger.focus();
       });
-      menu.appendChild(optionButton);
+      menu.appendChild(row);
     });
   }
 
-  trigger.addEventListener('click', () => {
-    const isOpen = wrapper.dataset.open === 'true';
-    closeAllCustomSelects(isOpen ? null : wrapper);
-    wrapper.dataset.open = isOpen ? 'false' : 'true';
-    trigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
-  });
+  function setOpen(open, { focusOption = false } = {}) {
+    if (open && select.disabled) return;
+    closeAllCustomSelects(open ? wrapper : null);
+    wrapper.dataset.open = open ? 'true' : 'false';
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open || !focusOption) return;
+    const current = Array.from(menu.children).find((row) => row.dataset.value === select.value && !row.disabled);
+    (current || enabledOptions()[0])?.focus();
+  }
+
+  let typeBuffer = '';
+  let typeTimer = null;
+  function typeAhead(key) {
+    typeBuffer += key.toLowerCase();
+    clearTimeout(typeTimer);
+    typeTimer = setTimeout(() => { typeBuffer = ''; }, 700);
+    const match = enabledOptions().find((row) => row.textContent.trim().toLowerCase().startsWith(typeBuffer));
+    if (!match) return;
+    setOpen(true);
+    match.focus();
+  }
+
+  const isTypeAheadKey = (event) =>
+    event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && event.key !== ' ';
+
+  trigger.addEventListener('click', () => setOpen(wrapper.dataset.open !== 'true', { focusOption: true }));
   trigger.addEventListener('keydown', (event) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    closeAllCustomSelects(wrapper);
-    wrapper.dataset.open = 'true';
-    trigger.setAttribute('aria-expanded', 'true');
-    const selected = menu.querySelector('.custom-select-option[aria-selected="true"]') ||
-      menu.querySelector('.custom-select-option:not([disabled])');
-    selected?.focus();
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setOpen(true, { focusOption: true });
+    } else if (isTypeAheadKey(event)) {
+      event.preventDefault();
+      typeAhead(event.key);
+    }
   });
+
   menu.addEventListener('keydown', (event) => {
-    const options = Array.from(menu.querySelectorAll('.custom-select-option:not([disabled])'));
+    const options = enabledOptions();
     const currentIndex = options.indexOf(document.activeElement);
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -377,11 +427,24 @@ function enhanceCustomSelect(select) {
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       (options[Math.max(currentIndex - 1, 0)] || options[options.length - 1])?.focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      options[0]?.focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      options[options.length - 1]?.focus();
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      closeAllCustomSelects();
+      setOpen(false);
       trigger.focus();
+    } else if (isTypeAheadKey(event)) {
+      event.preventDefault();
+      typeAhead(event.key);
     }
+  });
+
+  wrapper.addEventListener('focusout', (event) => {
+    if (!wrapper.contains(event.relatedTarget)) setOpen(false);
   });
 
   select.addEventListener('change', syncFromSelect);
@@ -390,8 +453,26 @@ function enhanceCustomSelect(select) {
   syncFromSelect();
 }
 
+// The trigger replaces the select as the control, so it has to inherit the
+// select's accessible name — a `<label for>` points at an element no one can
+// reach any more.
+function nameTriggerAfterSelect(select, trigger) {
+  const ariaLabel = select.getAttribute('aria-label');
+  if (ariaLabel) {
+    trigger.setAttribute('aria-label', ariaLabel);
+    return;
+  }
+  if (!select.id) return;
+  const labelElement = document.querySelector(`label[for="${CSS.escape(select.id)}"]`);
+  if (!labelElement) return;
+  if (!labelElement.id) labelElement.id = `${select.id}-label`;
+  trigger.setAttribute('aria-labelledby', labelElement.id);
+}
+
+// Every select that is a control, with no opt-in attribute: aria-hidden marks
+// the ones that are value holders behind a purpose-built control.
 export function initCustomSelects(root = document) {
-  root.querySelectorAll('select[data-enhance="custom-select"]').forEach(enhanceCustomSelect);
+  root.querySelectorAll('select.form-select:not([aria-hidden="true"])').forEach(enhanceCustomSelect);
 }
 
 export function renderMarkdown(root = document) {

@@ -158,9 +158,6 @@ export default class DcShellController extends Stimulus.Controller {
   }
 
   handleDocumentClick(event) {
-    if (!event.target.closest('.custom-select')) {
-      closeAllCustomSelects();
-    }
     // One-shot page notices are removed outright; the shell's restart banner is
     // a persistent slot node that client state hides and reveals, so removing it
     // would leave a later pending restart with nothing to surface into.

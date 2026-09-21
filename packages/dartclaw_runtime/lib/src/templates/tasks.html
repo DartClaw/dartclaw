@@ -10,7 +10,7 @@
       <div class="task-filter-bar">
         <form method="get" action="/tasks">
           <input tl:if="${includeFilter}" type="hidden" name="include" tl:attr="value=${includeFilter}">
-          <select id="task-status-filter" name="status" class="form-select" data-enhance="custom-select"
+          <select id="task-status-filter" name="status" class="form-select"
                   hx-get="/tasks" hx-trigger="change" hx-include="closest form" hx-target="#tasks-content"
                   hx-select="#tasks-content" hx-swap="outerHTML" hx-push-url="true">
             <option tl:each="opt : ${statusOptions}" tl:text="${opt.label}"
@@ -159,7 +159,7 @@
   </div>
   <div tl:if="${hasProjects}" class="form-field">
     <label class="form-label t-caption tracking-caps" for="task-project-select">Project</label>
-    <select id="task-project-select" name="projectId" class="form-select" data-enhance="custom-select"
+    <select id="task-project-select" name="projectId" class="form-select"
             tl:attr="aria-invalid=${projectInvalid}">
       <option tl:each="project : ${projectOptions}" tl:text="${project.label}"
               tl:attr="value=${project.value},selected=${project.selected},disabled=${project.disabled}">Project</option>
@@ -175,7 +175,7 @@
   </div>
   <div class="form-field">
     <label class="form-label t-caption tracking-caps" for="task-goal-select">Goal</label>
-    <select id="task-goal-select" name="goalId" class="form-select" data-enhance="custom-select">
+    <select id="task-goal-select" name="goalId" class="form-select">
       <option tl:each="goal : ${goalOptions}" tl:text="${goal.label}"
               tl:attr="value=${goal.value},selected=${goal.selected}">Goal</option>
     </select>
@@ -209,7 +209,7 @@
       </fieldset>
       <div class="form-field">
         <label class="form-label t-caption tracking-caps" for="task-review-mode">Review Mode</label>
-        <select id="task-review-mode" name="reviewMode" class="form-select" data-enhance="custom-select">
+        <select id="task-review-mode" name="reviewMode" class="form-select">
           <option tl:each="option : ${reviewOptions}" tl:text="${option.label}"
                   tl:attr="value=${option.value},selected=${option.selected}">Default</option>
         </select>

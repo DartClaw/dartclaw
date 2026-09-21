@@ -953,6 +953,7 @@ import { readFile } from 'node:fs/promises';
 class ClassList {
   constructor() { this.names = new Set(); }
   add(...names) { names.forEach((name) => this.names.add(name)); }
+  toggle(name, on) { if (on) this.names.add(name); else this.names.delete(name); }
 }
 
 class Element {
@@ -965,19 +966,16 @@ class Element {
     this.classList = new ClassList();
     this.disabled = false;
   }
+  get firstChild() { return this.children[0]; }
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.children.push(child); }
+  replaceChildren(...children) { this.children = [...children]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   setAttribute(name, value) { this.attributes[name] = value; }
-  querySelectorAll(selector) {
-    if (selector === '.custom-select-option') {
-      return this.children.filter((child) => child.className === 'custom-select-option');
-    }
-    return [];
-  }
+  querySelectorAll() { return []; }
   querySelector() { return null; }
+  contains() { return false; }
   focus() {}
-  set innerHTML(_) { this.children = []; }
 }
 
 let bubbledChanges = 0;
@@ -987,13 +985,17 @@ const select = {
   dataset: {},
   parentNode: parent,
   classList: new ClassList(),
+  attributes: {},
   tabIndex: 0,
   value: '',
+  disabled: false,
   options: [
     { value: '', textContent: 'All statuses', label: 'All statuses', selected: true, disabled: false },
     { value: 'review', textContent: 'Review', label: 'Review', selected: false, disabled: false },
   ],
   get selectedIndex() { return this.options.findIndex((option) => option.value === this.value); },
+  getAttribute(name) { return this.attributes[name] ?? null; },
+  setAttribute(name, value) { this.attributes[name] = value; },
   addEventListener(name, listener) { selectListeners[name] = listener; },
   dispatchEvent(event) {
     selectListeners[event.type]?.(event);
@@ -1009,20 +1011,43 @@ globalThis.document = {
     created.push(element);
     return element;
   },
+  addEventListener() {},
   querySelectorAll() { return []; },
+  querySelector() { return null; },
 };
 
 const source = await readFile(new URL(process.argv[1]), 'utf8');
 const shared = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+// The enhancer is opt-out now: every select that is a control is enhanced, and
+// aria-hidden is what marks a value holder behind a purpose-built control.
+let selectorAsked = null;
 shared.initCustomSelects({
   querySelectorAll(selector) {
-    return selector === 'select[data-enhance="custom-select"]' ? [select] : [];
+    selectorAsked = selector;
+    return [select];
   },
 });
+if (selectorAsked !== 'select.form-select:not([aria-hidden="true"])') {
+  throw new Error('unexpected enhancement selector: ' + selectorAsked);
+}
 
-const optionButtons = created.filter((element) => element.className === 'custom-select-option');
-if (optionButtons.length !== 2) throw new Error('enhanced options were not built');
-optionButtons[1].listeners.click();
+const optionRows = created.filter((element) => element.className?.includes('custom-select-option'));
+if (optionRows.length !== 2) throw new Error('enhanced options were not built');
+// The menu is built from the shared popover vocabulary, not a select-only one.
+if (!optionRows[0].className.includes('palette-item menu-item')) {
+  throw new Error('option row does not carry the canonical menu classes: ' + optionRows[0].className);
+}
+if (optionRows[0].attributes.role !== 'option') throw new Error('option row is not a listbox option');
+if (select.attributes['aria-hidden'] !== 'true') throw new Error('native select stayed in the a11y tree');
+
+optionRows[1].listeners.click();
 if (select.value !== 'review') throw new Error('native select value did not change');
 if (bubbledChanges !== 1) throw new Error('expected one bubbling change, got ' + bubbledChanges);
+// The tick follows the value, so the selected row is readable without colour.
+if (optionRows[1].firstChild.className !== 'menu-tick icon-control') {
+  throw new Error('selected row carries no tick: ' + optionRows[1].firstChild.className);
+}
+if (optionRows[0].firstChild.className !== 'menu-tick') {
+  throw new Error('unselected row kept a tick: ' + optionRows[0].firstChild.className);
+}
 ''';

@@ -247,7 +247,7 @@ class ClaudeCodeHarness extends BaseHarness
     // The CLI's own aliases, minus `default` and `opusplan`, which name a
     // routing policy rather than a model a reader would pick.
     models: ['sonnet', 'opus', 'haiku'],
-    efforts: ['low', 'medium', 'high', 'max'],
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   );
 
   @override

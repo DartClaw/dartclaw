@@ -12,7 +12,7 @@ void main() {
       'model': true,
       'effort': true,
       'models': ['sonnet', 'opus', 'haiku'],
-      'efforts': ['low', 'medium', 'high', 'max'],
+      'efforts': ['low', 'medium', 'high', 'xhigh', 'max'],
     });
     // Codex transports a model but documents no catalogue of its own, so the
     // picker offers the provider default and whatever value is already staged.

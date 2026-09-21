@@ -125,7 +125,7 @@ claude --print \
 | `--max-turns <n>` | `agent.max_turns` or a per-turn override (a changed override restarts the process). Exceeding it ends the turn with `subtype: error_max_turns`, mapped to an error result |
 | `--disallowedTools <name>...` | `agent.disallowed_tools` plus the native `WebSearch`/`WebFetch` suppression when DartClaw serves the guarded MCP versions or the spawn is containerized. Entries are normalized through `ToolPolicyCascade.normalizeEntry` and mapped to Claude's spelling (`shell` → `Bash`, `file_edit` → `Edit` + `NotebookEdit`); unknown names pass through. The flag is variadic, so it is always the last argument |
 | `--model` | Model selection – bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessLaunchOptions` |
-| `--effort` | Reasoning effort level: `low`, `medium`, `high`, `max` (optional; configurable via `HarnessLaunchOptions`) |
+| `--effort` | Reasoning effort level: `low`, `medium`, `high`, `xhigh`, `max` (optional; configurable via `HarnessLaunchOptions`) |
 | `--append-system-prompt` | Behavior content injected at spawn (append-mode strategy) |
 | `--mcp-config` | Path to ephemeral MCP config file pointing at DartClaw's internal MCP server |
 | `--json-schema` | Inline JSON Schema the CLI enforces on the turn's final output, emitted only when `turn(outputSchema: ...)` supplies one. Process-level, so a changed schema joins the desired-state comparison and restarts the process – **dropping** the schema restarts too, and every restart re-injects the bounded `<conversation_history>` replay, so alternating schema-bearing and schema-free turns pays two restarts and two replays per pair |

@@ -175,8 +175,8 @@ String? _statusLabel(String path, Set<String> applied, Set<String> pendingRestar
 }
 
 String? _statusClass(String path, Set<String> applied, Set<String> pendingRestart) {
-  if (pendingRestart.contains(path)) return 'restart-badge';
-  if (applied.contains(path)) return 'live-badge';
+  if (pendingRestart.contains(path)) return 'field-tier field-tier--warn';
+  if (applied.contains(path)) return 'field-tier field-tier--ok';
   return null;
 }
 

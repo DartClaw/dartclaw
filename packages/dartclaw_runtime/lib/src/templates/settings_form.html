@@ -8,7 +8,8 @@
     <div tl:each="field : ${group.fields}" tl:attr="class=${field.fieldClass},data-field=${field.path}">
       <label class="form-label t-caption tracking-caps" tl:attr="for=${field.labelFor}">
         <span tl:text="${field.label}">Label</span>
-        <span tl:if="${field.badgeLabel}" tl:class="${field.badgeClass}" tl:text="${field.badgeLabel}">restart</span>
+        <span tl:if="${field.tierLabel}" tl:class="${field.tierClass}" tl:attr="title=${field.tierTitle}"
+              tl:text="${field.tierLabel}">restart</span>
       </label>
 
       <input tl:if="${field.isText}" type="text"

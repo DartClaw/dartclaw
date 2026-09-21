@@ -124,15 +124,17 @@ class SettingsFieldView {
   bool get isEditable => hasControl && meta.mutability != ConfigMutability.readonly;
   String get stringValue => _stringValue(_resolved.value, meta.type);
   Map<String, Object?> toTemplateMap() {
-    final badge = _tierBadge();
+    final tier = _tierMarker();
+    final hasStatus = statusLabel != null;
     return <String, Object?>{
       'path': meta.yamlPath,
       'controlId': controlIdFor(meta.yamlPath),
       'labelFor': hasControl ? controlIdFor(meta.yamlPath) : null,
       'label': labelFor(meta.yamlPath),
       'hint': meta.description,
-      'badgeLabel': statusLabel ?? badge.label,
-      'badgeClass': statusClass ?? badge.styleClass,
+      'tierLabel': statusLabel ?? tier.label,
+      'tierClass': statusClass ?? tier.styleClass,
+      'tierTitle': hasStatus ? null : tier.title,
       'isText': kind == SettingsControlKind.text,
       'isNumber': kind == SettingsControlKind.number,
       'isTextarea': kind == SettingsControlKind.textarea,
@@ -158,11 +160,19 @@ class SettingsFieldView {
     };
   }
 
-  ({String label, String styleClass}) _tierBadge() => switch (meta.mutability) {
-    ConfigMutability.live => (label: 'live', styleClass: 'live-badge'),
-    ConfigMutability.reloadable => (label: 'reload', styleClass: 'mode-badge'),
-    ConfigMutability.restart => (label: 'restart', styleClass: 'mode-badge'),
-    ConfigMutability.readonly => (label: 'read-only', styleClass: 'mode-badge'),
+  /// The mutability tier as a quiet label-row marker, or no marker at all.
+  ///
+  /// `live` is the tier a field is expected to be in, so it renders nothing —
+  /// a marker on every field is a marker on none.
+  ({String? label, String styleClass, String? title}) _tierMarker() => switch (meta.mutability) {
+    ConfigMutability.live => (label: null, styleClass: 'field-tier', title: null),
+    ConfigMutability.reloadable => (label: 'reload', styleClass: 'field-tier', title: 'Applies on config reload'),
+    ConfigMutability.restart => (label: 'restart', styleClass: 'field-tier', title: 'Applies after a server restart'),
+    ConfigMutability.readonly => (
+      label: 'read-only',
+      styleClass: 'field-tier',
+      title: 'Read-only here; edit dartclaw.yaml',
+    ),
   };
 
   String _inputClass() {

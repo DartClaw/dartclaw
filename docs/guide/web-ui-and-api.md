@@ -96,12 +96,14 @@ brings it back.
   shows each call's retained arguments and result.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
 - **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
-- **Effective context**: The context chip and the model pill open one popover anchored to the composer. It keeps the
-  immutable workspace owner separate from the current turn and from the project, directory, provider, model, and effort
-  staged for the next turn, and edits each in place before **Apply to next turn**. A provider change warns about
-  provider-native continuity only while the selection actually differs from the running provider. Context changes carry
-  the displayed conversation revision. Unsupported adapter fields are unavailable, and a rejected change leaves the
-  draft and prior context intact.
+- **Effective context**: The context chip and the model pill open one popover each, anchored under the control that
+  opens them. **Project** stages the project and working directory and links to Session info, which lists the workspace
+  owner, the current turn, and the measurement, behavior and memory records. **Model** stages the provider, model and
+  effort: model and effort are pickers over what that provider's adapter accepts, plus its own default, plus any value
+  already staged from YAML or the JSON API. Either **Apply to next turn** commits both popovers' current selection. A
+  provider change warns about provider-native continuity only while the selection actually differs from the running
+  provider. Context changes carry the displayed conversation revision. Fields an adapter does not transport are
+  disabled, and a rejected change leaves the draft and prior context intact.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
 - **Syntax highlighting**: Code blocks are highlighted via highlight.js
 - **Tool indicators**: When the agent uses tools, you see status lines:

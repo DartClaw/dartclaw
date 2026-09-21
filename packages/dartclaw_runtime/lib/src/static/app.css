@@ -4130,8 +4130,8 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
   .rail-search, .rail-scope, .rail-attention { min-height: 44px; }
   .rail-group { min-height: 44px; }
   .rail-settled > summary { height: 44px; }
-  /* Select mode is this tier's path to settle and archive, so its cell is a
-     full 44px target around the same box. */
+  /* Select mode is this tier's path to settle and archive, so the cell is a
+     full 44px target and the box grows with it. */
   [data-inbox-select-mode="true"] .row-check { flex-basis: 44px; width: 44px; height: 44px; }
   [data-inbox-select-mode="true"] .row-check input { width: 22px; height: 22px; }
 }

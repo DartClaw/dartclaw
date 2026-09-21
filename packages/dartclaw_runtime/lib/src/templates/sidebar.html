@@ -71,10 +71,9 @@
       </button>
       <div class="pop-sep"></div>
       <!-- Select mode has no other entry point: the row checkbox it reveals is
-           hidden until the mode is on. Its hook is a command, deliberately
-           spelled differently from the state attribute the controller writes
-           on the list: one name for both made every click inside the list a
-           toggle. -->
+           hidden until the mode is on. This command hook must stay spelled
+           differently from the state attribute the controller writes on the
+           list, or every click inside the list matches it too. -->
       <button type="button" class="palette-item menu-item" role="menuitem" data-inbox-select-toggle>
         <span class="menu-tick"></span><span class="palette-item-label">Select conversations</span>
       </button>

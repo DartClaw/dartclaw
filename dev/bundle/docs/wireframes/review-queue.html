@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Review Queue</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    .page-content { overflow-y: auto; padding: var(--sp-6); }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-5); }
+
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+    .page-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); }
+    .page-subtitle { font-size: var(--text-sm); color: var(--fg-overlay); margin-top: var(--sp-1); max-width: 60ch; }
+
+    .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+    @media (max-width: 900px) { .metrics-row { grid-template-columns: repeat(2, 1fr); } }
+    .metric-card { background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-4); }
+    .metric-value { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); }
+    .metric-label { font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: 0.05em; margin-top: var(--sp-1); }
+
+    .filter-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+    .filter-chip { font-size: var(--text-xs); padding: var(--sp-1) var(--sp-3); background: var(--bg-surface0); border: var(--border); border-radius: 999px; color: var(--fg-sub0); cursor: pointer; white-space: nowrap; }
+    .filter-chip.active { background: color-mix(in srgb, var(--accent) 14%, var(--bg-base)); color: var(--accent); border-color: var(--accent); }
+
+    .split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 960px) { .split { grid-template-columns: 1fr; } }
+    .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-3); gap: var(--sp-2); }
+    .card-title { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-sub1); }
+
+    .review-item { background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+    .review-item-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
+    .review-item-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); margin-bottom: var(--sp-1); }
+    .review-item-meta { font-size: var(--text-xs); color: var(--fg-overlay); }
+    .review-item-criteria { font-size: var(--text-xs); color: var(--fg-sub0); padding: var(--sp-2) var(--sp-3); background: var(--bg-base); border-radius: var(--radius); border-left: 2px solid var(--bg-surface1); }
+    .review-item-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+    .pushback-badge { font-size: var(--text-xs); color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, var(--bg-base)); border-radius: var(--radius); padding: 1px var(--sp-2); white-space: nowrap; }
+
+    .checklist { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .check-item { display: flex; align-items: flex-start; gap: var(--sp-2); font-size: var(--text-sm); color: var(--fg-sub0); }
+    .check-box { width: 16px; height: 16px; border: var(--border); border-radius: 3px; background: var(--bg-surface0); flex-shrink: 0; margin-top: 2px; }
+
+    .step-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .step { display: grid; grid-template-columns: 24px 1fr; gap: var(--sp-3); align-items: start; }
+    .step-num { width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface0)); color: var(--accent); font-size: var(--text-xs); font-weight: var(--weight-bold); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .step-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); margin-bottom: 2px; }
+    .step-desc { font-size: var(--text-xs); color: var(--fg-overlay); }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+      <div class="session-item" data-icon="hash">Signal Bob</div>
+      <div class="session-item" data-icon="hash">Google Chat Ops</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session">New Session</button>
+      <div class="session-item" data-icon="message-circle">Refactor auth module<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="tasks-dashboard.html" class="sidebar-nav-item active" data-icon="tasks">Tasks <span style="margin-left:auto;font-size:var(--text-xs);background:color-mix(in srgb,var(--warning) 15%,var(--bg-surface0));color:var(--warning);border-radius:999px;padding:1px 6px;">3</span></a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">Review Queue</span>
+    <div class="topbar-actions">
+      <a href="tasks-dashboard.html" class="btn btn-ghost btn-sm"><span class="icon icon-arrow-left" aria-hidden="true"></span> All Tasks</a>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <main class="page-content">
+    <div class="page-inner">
+
+      <div class="page-header">
+        <div>
+          <div class="page-title">Review Queue</div>
+          <div class="page-subtitle">Triage inbox for tasks awaiting acceptance, rejection, or push-back. Review controls live on the detail page to prevent accidental approvals.</div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-value" style="color: var(--warning);">3</div>
+          <div class="metric-label">Awaiting review</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">1</div>
+          <div class="metric-label">Coding diffs</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">2</div>
+          <div class="metric-label">Documents</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" style="color: var(--warning);">1</div>
+          <div class="metric-label">Pushed back twice</div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="card">
+        <div class="filter-row">
+          <span class="filter-chip active">All review items</span>
+          <span class="filter-chip">Coding</span>
+          <span class="filter-chip">Writing</span>
+          <span class="filter-chip">Research</span>
+          <span class="filter-chip">Push-back &gt; 1</span>
+          <span class="filter-chip">Newest first</span>
+        </div>
+      </div>
+
+      <!-- Items + sidebar -->
+      <div class="split">
+        <div class="stack">
+
+          <div class="review-item">
+            <div class="review-item-header">
+              <div>
+                <div class="review-item-title">T-104 Add Google Chat allowlist CRUD</div>
+                <div class="review-item-meta">coding &middot; Agent 02 &middot; ready 6 min ago &middot; 4 changed files</div>
+              </div>
+              <span class="status-badge status-badge-warning">Review</span>
+            </div>
+            <div class="review-item-criteria">Acceptance: config API reads and writes Google Chat settings; allowlist CRUD for DMs and groups persists to YAML.</div>
+            <div class="review-item-actions">
+              <a href="task-detail-coding.html" class="btn btn-primary btn-sm">Open detail</a>
+              <a href="task-detail-coding.html" class="btn btn-ghost btn-sm">Preview diff</a>
+            </div>
+          </div>
+
+          <div class="review-item">
+            <div class="review-item-header">
+              <div>
+                <div class="review-item-title">T-093 Weekly roadmap summary</div>
+                <div class="review-item-meta">writing &middot; Agent 01 &middot; ready 18 min ago &middot; markdown artifact <span class="pushback-badge">1 push-back</span></div>
+              </div>
+              <span class="status-badge status-badge-warning">Review</span>
+            </div>
+            <div class="review-item-criteria">Acceptance: concise summary with 3 key decisions and concrete risks highlighted.</div>
+            <div class="review-item-actions">
+              <a href="task-detail-writing.html" class="btn btn-primary btn-sm">Open detail</a>
+              <a href="task-detail-writing.html" class="btn btn-ghost btn-sm">Preview draft</a>
+            </div>
+          </div>
+
+          <div class="review-item">
+            <div class="review-item-header">
+              <div>
+                <div class="review-item-title">T-089 Research container crash recovery</div>
+                <div class="review-item-meta">research &middot; Agent 03 &middot; ready 29 min ago &middot; notes + recommendation <span class="pushback-badge">2 push-backs</span></div>
+              </div>
+              <span class="status-badge status-badge-warning">Review</span>
+            </div>
+            <div class="review-item-criteria">Acceptance: compare docker wait vs health-check polling with concrete trade-offs.</div>
+            <div class="review-item-actions">
+              <a href="task-detail-writing.html" class="btn btn-primary btn-sm">Open detail</a>
+              <a href="task-detail-writing.html" class="btn btn-ghost btn-sm">Read summary</a>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="stack">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Review Rules</span>
+            </div>
+            <div class="checklist">
+              <div class="check-item"><div class="check-box"></div><div>Accept only after checking each acceptance criterion against the artifact.</div></div>
+              <div class="check-item"><div class="check-box"></div><div>Push Back when the session should iterate in the same conversation history.</div></div>
+              <div class="check-item"><div class="check-box"></div><div>Reject only for terminal failures or clearly wrong direction.</div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Recent Activity</span>
+            </div>
+            <div class="step-list">
+              <div class="step">
+                <div class="step-num">1</div>
+                <div>
+                  <div class="step-label">T-104 entered review</div>
+                  <div class="step-desc">Artifact collector stored diff and notes artifact.</div>
+                </div>
+              </div>
+              <div class="step">
+                <div class="step-num">2</div>
+                <div>
+                  <div class="step-label">Badge count updated to 3</div>
+                  <div class="step-desc">Sidebar count reflects review-only items via SSE.</div>
+                </div>
+              </div>
+              <div class="step">
+                <div class="step-num">3</div>
+                <div>
+                  <div class="step-label">T-089 pushed back a second time</div>
+                  <div class="step-desc">Agent re-ran with updated brief; second draft in review.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+</body>
+</html>

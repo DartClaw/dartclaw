@@ -33,7 +33,7 @@
 
 ## Boundaries
 - Allowed workspace dependency: `dartclaw_kernel`; external dependencies include `sqlite3`, `uuid`, `collection`, `logging`, `meta`, and `path`. Do **not** import `dartclaw_workflow` or `dartclaw_runtime`.
-- LOC ceiling: 27 705 (arch_check core-LOC check; measured at 26 205 with a 1500-line downward-ratchet band). There is no longer an export-count ceiling on the barrel. Prefer adding to existing files / sub-barrels over new top-level exports; `barrel_show_clauses_test.dart` still requires a `show` clause on every export line.
+- LOC ceiling: 34 710 (arch_check core-LOC check; measured at 33 210 with a 1500-line downward-ratchet band). There is no longer an export-count ceiling on the barrel. Prefer adding to existing files / sub-barrels over new top-level exports; `barrel_show_clauses_test.dart` still requires a `show` clause on every export line.
 - Never import another workspace package's `lib/src/` (arch_check #2). The exception clause in the barrel for `parseMemoryEntries`/`memoryTimestampRe` is documented and finite — do not extend it.
 - **No event firing in absorbed persistence services.** Event production belongs to callers. `SqliteAgentExecutionRepository` retains the one existing narrow exception: it may relay a status-change event through the caller-supplied `EventBus`. Do not add event firing to other persistence services.
 - Repository public methods return domain values. Wiring opens stores through `DatabaseBackendFactory` and prepares them before constructing repositories with the shared `DatabaseBackend`; repositories own statement lifecycles, while wiring owns backend closure.

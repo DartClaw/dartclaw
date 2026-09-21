@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Scheduling: Task Jobs</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    .page-content { overflow-y: auto; padding: var(--sp-6); }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-5); }
+
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+    .page-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); }
+    .page-subtitle { font-size: var(--text-sm); color: var(--fg-overlay); margin-top: var(--sp-1); max-width: 60ch; }
+
+    .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+    @media (max-width: 900px) { .metrics-row { grid-template-columns: repeat(2, 1fr); } }
+    .metric-card { background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-4); }
+    .metric-value { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg); }
+    .metric-label { font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: 0.05em; margin-top: var(--sp-1); }
+
+    .split { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 960px) { .split { grid-template-columns: 1fr; } }
+    .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-3); gap: var(--sp-2); }
+    .card-title { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-sub1); }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; border: var(--border); border-radius: var(--radius-lg); }
+    .data-table { min-width: 580px; }
+    .data-table th, .data-table td { white-space: nowrap; }
+    .data-table th { color: var(--fg-sub0); }
+    .data-table tbody tr:last-child td { border-bottom: none; }
+    .data-table tbody tr:hover { background: var(--bg-mantle); }
+
+    /* Job type badges */
+    .job-type-badge { font-size: var(--text-xs); padding: 1px var(--sp-2); border-radius: var(--radius); font-weight: var(--weight-medium); }
+    .job-type-task { background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface0)); color: var(--accent); }
+    .job-type-prompt { background: var(--bg-surface0); color: var(--fg-sub0); }
+
+    /* Destination badge */
+    .dest-badge { font-size: var(--text-xs); padding: 1px var(--sp-2); border-radius: var(--radius); background: color-mix(in srgb, var(--warning) 14%, var(--bg-surface0)); color: var(--warning); }
+    .dest-badge-channel { background: var(--bg-surface0); color: var(--fg-sub0); }
+
+    .cron-expr { font-size: var(--text-xs); color: var(--fg-overlay); font-family: var(--font-mono); }
+
+    /* Template fields */
+    .field-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .field-item { background: var(--bg-base); border: var(--border); border-radius: var(--radius); padding: var(--sp-3); }
+    .field-name { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-sub1); margin-bottom: var(--sp-1); }
+    .field-desc { font-size: var(--text-xs); color: var(--fg-overlay); line-height: 1.5; }
+
+    /* Step list */
+    .step-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .step { display: grid; grid-template-columns: 24px 1fr; gap: var(--sp-3); align-items: start; }
+    .step-num { width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface0)); color: var(--accent); font-size: var(--text-xs); font-weight: var(--weight-bold); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .step-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); margin-bottom: 2px; }
+    .step-desc { font-size: var(--text-xs); color: var(--fg-overlay); }
+
+    /* Notice */
+    .notice { background: color-mix(in srgb, var(--info) 8%, var(--bg-mantle)); border: 1px solid color-mix(in srgb, var(--info) 25%, var(--bg-surface0)); border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); font-size: var(--text-sm); color: var(--fg-sub0); }
+    .notice strong { color: var(--fg); display: block; margin-bottom: var(--sp-1); }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+      <div class="session-item" data-icon="hash">Signal Bob</div>
+      <div class="session-item" data-icon="hash">Google Chat Ops</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session">New Session</button>
+      <div class="session-item" data-icon="message-circle">Refactor auth module<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="tasks-dashboard.html" class="sidebar-nav-item" data-icon="tasks">Tasks <span style="margin-left:auto;font-size:var(--text-xs);background:color-mix(in srgb,var(--warning) 15%,var(--bg-surface0));color:var(--warning);border-radius:999px;padding:1px 6px;">3</span></a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item active" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">Scheduling &mdash; Task Jobs</span>
+    <div class="topbar-actions">
+      <a href="scheduling-status.html" class="btn btn-ghost btn-sm">All Jobs</a>
+      <a href="new-task.html" class="btn btn-ghost btn-sm">New Task Template</a>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <main class="page-content">
+    <div class="page-inner">
+
+      <div class="page-header">
+        <div>
+          <div class="page-title">Scheduled Task Jobs</div>
+          <div class="page-subtitle">Cron-triggered tasks feed the review queue instead of delivering directly. Every generated task requires operator acceptance before output takes effect.</div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-value" style="color: var(--success);">Healthy</div>
+          <div class="metric-label">Scheduler heartbeat</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">2</div>
+          <div class="metric-label">Task jobs</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">2</div>
+          <div class="metric-label">Prompt jobs</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value" style="color: var(--warning);">3</div>
+          <div class="metric-label">Sent to review today</div>
+        </div>
+      </div>
+
+      <!-- Notice -->
+      <div class="notice">
+        <strong>Task jobs never auto-accept</strong>
+        When a cron fires a task job, DartClaw creates a task, runs it in the assigned container, and routes the artifact to the review queue. No merge or delivery happens without operator approval.
+      </div>
+
+      <!-- Table + sidebar -->
+      <div class="split">
+        <div class="stack">
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Scheduled Jobs</span>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Job name</th>
+                    <th>Type</th>
+                    <th>Template</th>
+                    <th>Next run</th>
+                    <th>Destination</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>daily-release-notes</td>
+                    <td><span class="job-type-badge job-type-task">task</span></td>
+                    <td>writing &middot; criteria attached</td>
+                    <td><span class="cron-expr">0 8 * * *</span> Tomorrow 08:00</td>
+                    <td><span class="dest-badge">Review queue</span></td>
+                  </tr>
+                  <tr>
+                    <td>weekly-dep-audit</td>
+                    <td><span class="job-type-badge job-type-task">task</span></td>
+                    <td>analysis &middot; budget 15k tokens</td>
+                    <td><span class="cron-expr">0 9 * * 5</span> Friday 09:00</td>
+                    <td><span class="dest-badge">Review queue</span></td>
+                  </tr>
+                  <tr>
+                    <td>morning-reminder</td>
+                    <td><span class="job-type-badge job-type-prompt">prompt</span></td>
+                    <td>single prompt text</td>
+                    <td><span class="cron-expr">30 7 * * 1-5</span> Weekdays 07:30</td>
+                    <td><span class="dest-badge dest-badge-channel">Channel message</span></td>
+                  </tr>
+                  <tr>
+                    <td>daily-summary</td>
+                    <td><span class="job-type-badge job-type-prompt">prompt</span></td>
+                    <td>single prompt text</td>
+                    <td><span class="cron-expr">0 18 * * *</span> Today 18:00</td>
+                    <td><span class="dest-badge dest-badge-channel">Channel message</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Sidebar -->
+        <div class="stack">
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Task Template Fields</span>
+            </div>
+            <div class="field-list">
+              <div class="field-item">
+                <div class="field-name">Task Type</div>
+                <div class="field-desc">coding, research, writing, analysis, or automation. Determines container and artifact format.</div>
+              </div>
+              <div class="field-item">
+                <div class="field-name">Description</div>
+                <div class="field-desc">Primary prompt body sent to the agent when the cron fires.</div>
+              </div>
+              <div class="field-item">
+                <div class="field-name">Acceptance Criteria</div>
+                <div class="field-desc">Persisted with the job. Every generated task lands in review with the same criteria rubric.</div>
+              </div>
+              <div class="field-item">
+                <div class="field-name">Token Budget</div>
+                <div class="field-desc">Optional hard stop. Task fails on exhaustion — no partial results accepted.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Run History</span>
+            </div>
+            <div class="step-list">
+              <div class="step">
+                <div class="step-num">1</div>
+                <div>
+                  <div class="step-label">07:30 Cron fired</div>
+                  <div class="step-desc">Created task T-118 from <em>daily-release-notes</em>.</div>
+                </div>
+              </div>
+              <div class="step">
+                <div class="step-num">2</div>
+                <div>
+                  <div class="step-label">07:31 Task queued</div>
+                  <div class="step-desc">Auto-start enabled, waiting for harness availability.</div>
+                </div>
+              </div>
+              <div class="step">
+                <div class="step-num">3</div>
+                <div>
+                  <div class="step-label">07:49 Review ready</div>
+                  <div class="step-desc">Artifact stored, review queue badge incremented to 3.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+</body>
+</html>

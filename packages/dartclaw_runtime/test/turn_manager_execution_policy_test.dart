@@ -275,14 +275,14 @@ void main() {
         coordinator: coordinator,
         sessions: sessions,
         policyResolver: resolverFor(containersEnabled: false),
-        agentDefinitions: const {
+        agentDefinitions: (agentId) => const {
           'main': AgentDefinition(
             id: 'main',
             description: 'Owner',
             prompt: '',
             workspaceConfigurationError: 'agent.agents.main.workspace cannot bind the reserved owner identity',
           ),
-        },
+        }[agentId],
       );
       addTearDown(turns.executions.dispose);
 
@@ -301,7 +301,8 @@ void main() {
         coordinator: coordinator,
         sessions: sessions,
         policyResolver: resolverFor(containersEnabled: false),
-        agentDefinitions: const {'main': AgentDefinition(id: 'main', description: 'Owner', prompt: '')},
+        agentDefinitions: (agentId) =>
+            const {'main': AgentDefinition(id: 'main', description: 'Owner', prompt: '')}[agentId],
       );
       addTearDown(turns.executions.dispose);
 

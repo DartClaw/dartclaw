@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - New Task (with Project Selector)</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    .page-content { overflow-y: auto; padding: var(--sp-6); }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-5); }
+
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+    .page-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); }
+    .page-subtitle { font-size: var(--text-sm); color: var(--fg-overlay); margin-top: var(--sp-1); }
+
+    .split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 960px) { .split { grid-template-columns: 1fr; } }
+    .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-4); gap: var(--sp-2); }
+    .card-title { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-sub1); }
+
+    .form-fields { display: flex; flex-direction: column; gap: var(--sp-4); }
+    .form-row-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-3); }
+    @media (max-width: 700px) { .form-row-2 { grid-template-columns: 1fr; } }
+    .form-group { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .form-label { font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--fg-sub0); }
+    .form-input, .form-select, .form-textarea { background: var(--bg-base); border: var(--border); border-radius: var(--radius); padding: var(--sp-2) var(--sp-3); font: inherit; font-size: var(--text-sm); color: var(--fg); outline: none; width: 100%; transition: border-color var(--transition); }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--accent); }
+    .form-textarea { resize: vertical; min-height: 90px; }
+    .form-hint { font-size: var(--text-xs); color: var(--fg-overlay); margin-top: 2px; }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3); background: var(--bg-base); border: var(--border); border-radius: var(--radius); }
+    .toggle-label-group { display: flex; flex-direction: column; gap: 2px; }
+    .toggle-label { font-size: var(--text-sm); color: var(--fg); font-weight: var(--weight-medium); }
+    .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; cursor: pointer; inset: 0; background: var(--bg-surface1); border-radius: 10px; }
+    .toggle-slider::before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: var(--fg); border-radius: 50%; }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); background: var(--bg-crust); }
+
+    .form-actions { display: flex; gap: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent); flex-wrap: wrap; }
+
+    .type-hint { background: var(--bg-base); border: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--bg-surface1)); border-radius: var(--radius); padding: var(--sp-3); }
+    .type-hint-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); margin-bottom: var(--sp-2); }
+    .type-hint-body { font-size: var(--text-xs); color: var(--fg-overlay); line-height: 1.6; }
+
+    .step-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .step { display: grid; grid-template-columns: 24px 1fr; gap: var(--sp-3); align-items: start; }
+    .step-num { width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 14%, var(--bg-surface0)); color: var(--accent); font-size: var(--text-xs); font-weight: var(--weight-bold); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .step-label { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); margin-bottom: 2px; }
+    .step-desc { font-size: var(--text-xs); color: var(--fg-overlay); }
+
+    /* 0.14: Project selector with inline status */
+    .project-option { display: flex; align-items: center; gap: var(--sp-2); }
+    .project-option-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .project-option-dot-ready { background: var(--success); }
+    .project-option-dot-cloning { background: var(--info); }
+    .project-option-dot-error { background: var(--error); }
+    .project-select-hint { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--text-xs); color: var(--fg-overlay); margin-top: var(--sp-1); }
+    .project-status-inline { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 999px; font-size: 10px; }
+    .project-status-ready { background: color-mix(in srgb, var(--success) 12%, var(--bg-base)); color: var(--success); }
+    .project-status-cloning { background: color-mix(in srgb, var(--info) 12%, var(--bg-base)); color: var(--info); }
+
+    /* Mobile: hide topbar action buttons — form body has its own actions */
+    @media (max-width: 768px) {
+      .topbar-actions .btn:not(.theme-toggle):not(.btn-icon) { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+      <div class="session-item" data-icon="hash">Signal Bob</div>
+      <div class="session-item" data-icon="hash">Google Chat Ops</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session">New Session</button>
+      <div class="session-item" data-icon="message-circle">Refactor auth module<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="tasks-dashboard.html" class="sidebar-nav-item active" data-icon="tasks">Tasks</a>
+      <a href="project-management.html" class="sidebar-nav-item" data-icon="projects">Projects</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">New Task</span>
+    <div class="topbar-actions">
+      <a href="tasks-dashboard.html" class="btn btn-ghost btn-sm">Cancel</a>
+      <a href="tasks-dashboard.html" class="btn btn-ghost btn-sm">Save as draft</a>
+      <a href="tasks-dashboard.html" class="btn btn-primary btn-sm">Start immediately</a>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <main class="page-content">
+    <div class="page-inner">
+
+      <div class="page-header">
+        <div>
+          <div class="page-title">Create Task</div>
+          <div class="page-subtitle">Select a project to target. The agent will clone, branch, and push results to the project remote.</div>
+        </div>
+      </div>
+
+      <div class="split">
+
+        <!-- Form -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Task Definition</span>
+          </div>
+          <div class="form-fields">
+            <div class="form-group">
+              <label class="form-label">Title <span style="color:var(--error);">*</span></label>
+              <input class="form-input" type="text" value="Implement user avatar upload endpoint">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Description <span style="color:var(--error);">*</span></label>
+              <textarea class="form-textarea">Add a POST /api/users/:id/avatar endpoint that accepts image uploads, validates format and size, stores to S3, and updates the user record.</textarea>
+            </div>
+
+            <!-- 0.14: Project selector (NEW) -->
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">Project <span style="color:var(--error);">*</span></label>
+                <select class="form-select">
+                  <option>my-saas-app  &#x2713; ready</option>
+                  <option>frontend-v2  &#x2713; ready</option>
+                  <option disabled>data-pipeline  &#x21BB; cloning...</option>
+                  <option disabled>legacy-api  &#x2717; error</option>
+                </select>
+                <div class="project-select-hint">
+                  <span class="project-status-inline project-status-ready"><span class="icon icon-check" aria-hidden="true"></span> ready</span>
+                  <span>Last fetch: 3 min ago</span>
+                  <span>&middot;</span>
+                  <span>Branch: main</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Task Type</label>
+                <select class="form-select">
+                  <option selected>Coding</option>
+                  <option>Research</option>
+                  <option>Writing</option>
+                  <option>Analysis</option>
+                  <option>Automation</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">Model Override <span class="text-overlay">(optional)</span></label>
+                <select class="form-select">
+                  <option>Default pool model</option>
+                  <option>High reasoning</option>
+                  <option>Fast iteration</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Provider <span class="text-overlay">(optional)</span></label>
+                <select class="form-select">
+                  <option>Default (claude)</option>
+                  <option>codex</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Acceptance Criteria</label>
+              <textarea class="form-textarea" style="min-height:110px;">1. POST /api/users/:id/avatar accepts multipart image uploads.
+2. Validates format (JPEG, PNG, WebP) and size (<5MB).
+3. Stores to S3 with unique key, updates user.avatarUrl.
+4. Returns 400 on invalid input with descriptive error.</textarea>
+              <div class="form-hint">Used as the review checklist when the task reaches the review queue.</div>
+            </div>
+
+            <div class="form-row-2">
+              <div class="form-group">
+                <label class="form-label">Token Budget <span class="text-overlay">(optional)</span></label>
+                <input class="form-input" type="text" value="25 000">
+                <div class="form-hint">Hard stop on exhaustion. Used for progress estimation.</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Base Ref <span class="text-overlay">(coding only)</span></label>
+                <input class="form-input" type="text" value="main" disabled>
+                <div class="form-hint">From project config. Override if needed.</div>
+              </div>
+            </div>
+
+            <!-- Type hint updated for 0.14 project-backed tasks -->
+            <div class="type-hint">
+              <div class="type-hint-label">Project-backed coding task</div>
+              <div class="type-hint-body">Fetches latest from <code>my-saas-app</code> remote, creates worktree branch <code>dartclaw/task-&lt;id&gt;</code> from <code>origin/main</code>. On accept: branch pushed to remote, draft PR created via <code>gh</code> CLI. Agent reads the project's <code>CLAUDE.md</code> for context.</div>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label-group">
+                <div class="toggle-label">Start immediately</div>
+                <div class="form-hint">Off: save as <code>draft</code>. On: create as <code>queued</code> and dispatch when a harness is available.</div>
+              </div>
+              <label class="toggle-switch"><input type="checkbox" checked><span class="toggle-slider"></span></label>
+            </div>
+
+            <div class="form-actions">
+              <button class="btn btn-primary">Start immediately</button>
+              <button class="btn">Save as draft</button>
+              <a href="tasks-dashboard.html" class="btn btn-ghost">Cancel</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="stack">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Task Lifecycle</span>
+            </div>
+            <div class="step-list">
+              <div class="step">
+                <div class="step-num">1</div>
+                <div><div class="step-label">Create</div><div class="step-desc">Task saved as draft or queued.</div></div>
+              </div>
+              <div class="step">
+                <div class="step-num">2</div>
+                <div><div class="step-label">Fetch &amp; Branch</div><div class="step-desc">Auto-fetch project remote. Create worktree from latest.</div></div>
+              </div>
+              <div class="step">
+                <div class="step-num">3</div>
+                <div><div class="step-label">Execute</div><div class="step-desc">Agent works in isolated worktree. Progress tracked via token budget.</div></div>
+              </div>
+              <div class="step">
+                <div class="step-num">4</div>
+                <div><div class="step-label">Review</div><div class="step-desc">Review diff against acceptance criteria. Push back or accept.</div></div>
+              </div>
+              <div class="step">
+                <div class="step-num">5</div>
+                <div><div class="step-label">Push &amp; PR</div><div class="step-desc">Branch pushed to remote. Draft PR created on GitHub.</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Selected Project</span>
+            </div>
+            <div style="font-size:var(--text-sm); color:var(--fg); margin-bottom:var(--sp-2); font-weight:var(--weight-medium);">my-saas-app</div>
+            <div style="font-size:var(--text-xs); color:var(--fg-overlay); font-family:var(--font-mono); margin-bottom:var(--sp-2);">git@github.com:acme/my-saas-app.git</div>
+            <div style="font-size:var(--text-xs); color:var(--fg-overlay); display:flex; flex-direction:column; gap:var(--sp-1);">
+              <span>Branch: main</span>
+              <span>PR: github-pr (draft)</span>
+              <span>Labels: agent, automated</span>
+              <span>Last fetch: 3 min ago</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+</div>
+<script>
+function toggleTheme() {
+  document.documentElement.dataset.theme =
+    document.documentElement.dataset.theme === 'light' ? '' : 'light';
+}
+</script>
+</body>
+</html>

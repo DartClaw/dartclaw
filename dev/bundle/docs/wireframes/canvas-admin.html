@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Canvas Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* === PAGE LAYOUT === */
+    .page-content { overflow-y: auto; padding: var(--sp-6); position: relative; }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4) var(--sp-3); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-6); }
+
+    /* === PAGE HEADER === */
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); }
+    .page-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); }
+    .page-subtitle { font-size: var(--text-sm); color: var(--fg-overlay); margin-top: var(--sp-1); max-width: 60ch; }
+
+    /* === TWO-CARD GRID === */
+    .card-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--sp-4);
+    }
+
+    @media (max-width: 960px) {
+      .card-grid-2 { grid-template-columns: 1fr; }
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--sp-3);
+      gap: var(--sp-2);
+    }
+
+    .card-title {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--fg-sub1);
+    }
+
+    .card-description {
+      font-size: var(--text-sm);
+      color: var(--fg-overlay);
+      margin-bottom: var(--sp-4);
+    }
+
+    /* === LIVE CANVAS PREVIEW === */
+    .canvas-preview-area {
+      background: #0f172a;
+      border-radius: var(--radius-lg);
+      min-height: 28rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--fg-overlay);
+      font-size: var(--text-sm);
+      font-style: italic;
+      border: 1px solid color-mix(in srgb, var(--fg-overlay) 15%, transparent);
+    }
+
+    /* === SHARE LINK CONTROLS === */
+    .share-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--sp-2);
+      align-items: center;
+      margin-bottom: var(--sp-4);
+    }
+
+    .share-controls select {
+      background: var(--bg-base);
+      border: var(--border);
+      border-radius: var(--radius);
+      padding: var(--sp-1) var(--sp-2);
+      font: inherit;
+      font-size: var(--text-sm);
+      color: var(--fg);
+      outline: none;
+      cursor: pointer;
+    }
+
+    .share-controls select:focus {
+      border-color: var(--accent);
+    }
+
+    .share-controls input[type="text"] {
+      flex: 1;
+      min-width: 160px;
+      background: var(--bg-base);
+      border: var(--border);
+      border-radius: var(--radius);
+      padding: var(--sp-1) var(--sp-2);
+      font: inherit;
+      font-size: var(--text-sm);
+      color: var(--fg);
+      outline: none;
+    }
+
+    .share-controls input[type="text"]:focus {
+      border-color: var(--accent);
+    }
+
+    .share-controls input[type="text"]::placeholder {
+      color: var(--fg-overlay);
+    }
+
+    /* === SHARE LIST === */
+    .share-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .share-entry {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+      padding: var(--sp-3) 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 60%, transparent);
+    }
+
+    .share-entry:first-child {
+      padding-top: 0;
+    }
+
+    .share-entry:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .share-entry-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-2);
+    }
+
+    .share-label {
+      font-size: var(--text-sm);
+      font-weight: var(--weight-medium);
+      color: var(--fg);
+    }
+
+    .share-meta {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+    }
+
+    .share-url {
+      font-size: var(--text-xs);
+      font-family: var(--font-mono);
+      color: var(--fg-sub0);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .share-actions {
+      display: flex;
+      gap: var(--sp-1);
+      flex-shrink: 0;
+    }
+
+    .share-actions .btn {
+      font-size: var(--text-xs);
+      padding: var(--sp-1) var(--sp-2);
+    }
+
+    .btn-revoke {
+      color: var(--error);
+      border-color: color-mix(in srgb, var(--error) 30%, transparent);
+    }
+
+    .btn-revoke:hover {
+      background: color-mix(in srgb, var(--error) 10%, var(--bg-base));
+      color: var(--error);
+    }
+
+    /* === BUTTON OVERRIDES === */
+    .btn-sm {
+      font-size: var(--text-xs);
+      padding: var(--sp-1) var(--sp-2);
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+      <div class="session-item" data-icon="hash">Google Chat Ops</div>
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session">New Session</button>
+      <div class="session-item" data-icon="message-circle">Refactor auth module<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="tasks-dashboard.html" class="sidebar-nav-item" data-icon="tasks">Tasks</a>
+      <a href="canvas-admin.html" class="sidebar-nav-item active" data-icon="presentation">Canvas</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">Canvas Admin</span>
+    <div class="topbar-actions">
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Page content -->
+  <main class="page-content">
+    <div class="page-inner">
+
+      <!-- Page header -->
+      <div class="page-header">
+        <div>
+          <div class="page-title">Canvas Admin</div>
+          <div class="page-subtitle">Preview the live canvas and manage share links for external viewers.</div>
+        </div>
+      </div>
+
+      <!-- Two-card grid -->
+      <div class="card-grid-2">
+
+        <!-- Card 1: Live Canvas -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Live Canvas</span>
+          </div>
+          <p class="card-description">Real-time preview of the current canvas state.</p>
+          <div class="canvas-preview-area">
+            [Live canvas preview &mdash; sandboxed iframe]
+          </div>
+        </div>
+
+        <!-- Card 2: Share Links -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Share Links</span>
+          </div>
+          <p class="card-description">Create and revoke public canvas links.</p>
+
+          <!-- Controls row -->
+          <div class="share-controls">
+            <select>
+              <option value="interact">Interact</option>
+              <option value="view">View only</option>
+            </select>
+            <input type="text" maxlength="60" placeholder="Link label (optional)">
+            <button class="btn btn-primary btn-sm">Generate Link</button>
+          </div>
+
+          <!-- Share list -->
+          <div class="share-list">
+
+            <!-- Entry 1 -->
+            <div class="share-entry">
+              <div class="share-entry-header">
+                <div>
+                  <span class="share-label">Workshop participants</span>
+                  <div class="share-meta">interact &middot; Expires 2026-04-12</div>
+                </div>
+                <div class="share-actions">
+                  <button class="btn btn-ghost btn-sm">Copy</button>
+                  <button class="btn btn-ghost btn-sm">QR</button>
+                  <button class="btn btn-ghost btn-sm btn-revoke">Revoke</button>
+                </div>
+              </div>
+              <div class="share-url">https://dartclaw.local:3333/canvas/abc123def456</div>
+            </div>
+
+            <!-- Entry 2 -->
+            <div class="share-entry">
+              <div class="share-entry-header">
+                <div>
+                  <span class="share-label">Read-only observers</span>
+                  <div class="share-meta">view &middot; Expires 2026-04-15</div>
+                </div>
+                <div class="share-actions">
+                  <button class="btn btn-ghost btn-sm">Copy</button>
+                  <button class="btn btn-ghost btn-sm">QR</button>
+                  <button class="btn btn-ghost btn-sm btn-revoke">Revoke</button>
+                </div>
+              </div>
+              <div class="share-url">https://dartclaw.local:3333/canvas/gh789ijk012</div>
+            </div>
+
+            <!-- Entry 3 -->
+            <div class="share-entry">
+              <div class="share-entry-header">
+                <div>
+                  <span class="share-label">Untitled link</span>
+                  <div class="share-meta">interact &middot; No expiry</div>
+                </div>
+                <div class="share-actions">
+                  <button class="btn btn-ghost btn-sm">Copy</button>
+                  <button class="btn btn-ghost btn-sm">QR</button>
+                  <button class="btn btn-ghost btn-sm btn-revoke">Revoke</button>
+                </div>
+              </div>
+              <div class="share-url">https://dartclaw.local:3333/canvas/lmn345opq678</div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+</body>
+</html>

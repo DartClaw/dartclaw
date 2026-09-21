@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Workflow Run Detail</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    .page-content { overflow-y: auto; padding: var(--sp-6); }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-5); }
+
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+    .page-title { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--fg); }
+    .page-subtitle { font-size: var(--text-sm); color: var(--fg-overlay); margin-top: var(--sp-1); max-width: 70ch; }
+    .page-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+    /* Metadata row */
+    .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+    @media (max-width: 900px) { .metrics-row { grid-template-columns: repeat(2, 1fr); } }
+    .metric-card { background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-4); }
+    .metric-value { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg); }
+    .metric-label { font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: 0.05em; margin-top: var(--sp-1); }
+
+    /* Progress bar */
+    .progress-bar-container { margin-bottom: var(--sp-1); }
+    .progress-bar { height: 6px; background: var(--bg-surface0); border-radius: 3px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); border-radius: 3px; transition: width 0.4s ease; }
+    .progress-text { display: flex; justify-content: space-between; align-items: center; margin-top: var(--sp-1); font-size: var(--text-sm); color: var(--fg-overlay); }
+    .progress-pct { color: var(--accent); font-weight: var(--weight-bold); }
+
+    /* Action buttons row */
+    .action-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-2); }
+
+    /* Card basics */
+    .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-3); gap: var(--sp-2); }
+    .card-title { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-sub1); }
+
+    /* Live dot animation */
+    @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--info); display: inline-block; animation: live-pulse 1.5s ease-in-out infinite; vertical-align: middle; margin-right: var(--sp-1); }
+
+    /* ================================================================
+       Vertical Pipeline
+       ================================================================ */
+    .pipeline { display: flex; flex-direction: column; align-items: stretch; }
+
+    /* Connector line between steps */
+    .pipeline-connector { width: 2px; height: 20px; background: var(--bg-surface0); margin-left: 24px; /* center under 28px icon + card padding */ flex-shrink: 0; }
+
+    /* Step card */
+    .pipeline-step { background: var(--bg-base); border: var(--border); border-radius: var(--radius-lg); padding: var(--sp-3) var(--sp-4); transition: border-color 0.2s ease; }
+    .pipeline-step--active { border-left: 3px solid var(--accent); }
+
+    .step-header { display: flex; align-items: center; gap: var(--sp-3); cursor: pointer; }
+    .step-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+    .step-icon--completed { background: color-mix(in srgb, var(--success) 14%, var(--bg-surface0)); color: var(--success); }
+    .step-icon--running   { background: color-mix(in srgb, var(--info) 14%, var(--bg-surface0)); color: var(--info); }
+    .step-icon--pending    { background: var(--bg-surface0); color: var(--fg-overlay); }
+
+    .step-name { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); }
+    .step-name--pending { color: var(--fg-sub1); }
+
+    .step-type { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--fg-overlay); }
+
+    .step-badges { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-wrap: wrap; }
+
+    .step-badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 10%, var(--bg-surface0)); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent); white-space: nowrap; }
+
+    .step-link { font-size: var(--text-xs); color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .step-link:hover { text-decoration: underline; }
+
+    .step-chevron { font-size: var(--text-sm); color: var(--fg-overlay); flex-shrink: 0; transition: transform 0.2s ease; }
+
+    /* Step expanded detail area */
+    .step-detail { margin-top: var(--sp-3); padding: var(--sp-3); background: var(--bg-mantle); border-radius: var(--radius); font-size: var(--text-sm); color: var(--fg-overlay); font-style: italic; }
+
+    /* ================================================================
+       Shared Context (collapsible)
+       ================================================================ */
+    .context-card { background: var(--bg-base); border: var(--border); border-radius: var(--radius-lg); }
+    .context-header { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4); cursor: pointer; }
+    .context-body { padding: 0 var(--sp-4) var(--sp-4); }
+
+    .context-entry { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) 0; border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 60%, transparent); }
+    .context-entry:last-child { border-bottom: none; }
+    .context-key { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--accent); font-weight: var(--weight-medium); }
+    .context-value { font-size: var(--text-sm); color: var(--fg-sub0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60ch; }
+    .context-value--empty { color: var(--fg-overlay); font-style: italic; }
+
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ============================================================
+       Sidebar
+       ============================================================ -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+      <div class="session-item" data-icon="hash">Signal Bob</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session">New Session</button>
+      <div class="session-item" data-icon="message-circle">Refactor auth module<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="tasks-dashboard.html" class="sidebar-nav-item" data-icon="tasks">Tasks</a>
+      <a href="project-management.html" class="sidebar-nav-item" data-icon="projects">Projects</a>
+      <!-- Workflows uses scheduling icon as placeholder until a dedicated icon is added -->
+      <a href="workflow-list.html" class="sidebar-nav-item active" data-icon="scheduling">Workflows</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <!-- ============================================================
+       Topbar
+       ============================================================ -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <a href="workflow-list.html" class="btn btn-icon btn-ghost" style="margin-right:var(--sp-1);" aria-label="Back to workflows"><span class="icon icon-arrow-left"></span></a>
+    <span class="session-title-static">plan-and-execute &mdash; Run abc12</span>
+    <div class="topbar-actions">
+      <span class="status-badge status-badge-running"><span class="status-dot status-dot--live"></span>Running</span>
+      <button class="btn btn-ghost btn-sm">Pause</button>
+      <button class="btn btn-danger btn-sm">Cancel</button>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       Main Content
+       ============================================================ -->
+  <main class="page-content">
+    <div class="page-inner">
+
+      <!-- 1. Page Header -->
+      <div class="page-header">
+        <div>
+          <div class="page-title">plan-and-execute</div>
+          <div class="page-subtitle">Multi-step pipeline: research &rarr; spec &rarr; implement &rarr; review &rarr; gap-analyze &rarr; remediate. Run abc12.</div>
+        </div>
+        <div class="page-actions">
+          <a href="workflow-list.html" class="btn btn-ghost btn-sm"><span class="icon icon-arrow-left" aria-hidden="true"></span> Workflows</a>
+        </div>
+      </div>
+
+      <!-- 2. Metadata Card (4-column grid) -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-value"><span class="live-dot"></span> Running</div>
+          <div class="metric-label">Status</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">2026-04-10 14:22 UTC</div>
+          <div class="metric-label">Started</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">12,438</div>
+          <div class="metric-label">Tokens</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">1h 42m</div>
+          <div class="metric-label">Duration</div>
+        </div>
+      </div>
+
+      <!-- 3. Progress Section -->
+      <div class="progress-bar-container">
+        <div class="progress-bar">
+          <div class="progress-bar-fill" style="width: 50%;"></div>
+        </div>
+        <div class="progress-text">
+          <span>3 / 6 steps complete</span>
+          <span class="progress-pct">50%</span>
+        </div>
+      </div>
+
+      <!-- 4. Action Buttons -->
+      <!-- Pause shown if running, Resume if paused, Cancel if running/paused -->
+      <div class="action-row">
+        <button class="btn btn-ghost btn-sm">Pause</button>
+        <button class="btn btn-danger btn-sm">Cancel</button>
+      </div>
+
+      <!-- 5. Vertical Pipeline -->
+      <div class="pipeline">
+
+        <!-- Step 0: Research — completed -->
+        <div class="pipeline-step">
+          <div class="step-header">
+            <div class="step-icon step-icon--completed">&#x2713;</div>
+            <span class="step-name">Research</span>
+            <span class="step-type">agent</span>
+            <div class="step-badges">
+              <a href="#" class="step-link">View task &rarr;</a>
+            </div>
+            <span class="step-chevron icon icon-chevron-down"></span>
+          </div>
+        </div>
+
+        <div class="pipeline-connector"></div>
+
+        <!-- Step 1: Write Spec — completed -->
+        <div class="pipeline-step">
+          <div class="step-header">
+            <div class="step-icon step-icon--completed">&#x2713;</div>
+            <span class="step-name">Write Spec</span>
+            <span class="step-type">agent</span>
+            <div class="step-badges">
+              <a href="#" class="step-link">View task &rarr;</a>
+            </div>
+            <span class="step-chevron icon icon-chevron-down"></span>
+          </div>
+        </div>
+
+        <div class="pipeline-connector"></div>
+
+        <!-- Step 2: Implement — completed, with "View task" link -->
+        <div class="pipeline-step">
+          <div class="step-header">
+            <div class="step-icon step-icon--completed">&#x2713;</div>
+            <span class="step-name">Implement</span>
+            <span class="step-type">agent</span>
+            <div class="step-badges">
+              <a href="task-detail-coding-timeline.html" class="step-link">View task &rarr;</a>
+            </div>
+            <span class="step-chevron icon icon-chevron-down"></span>
+          </div>
+        </div>
+
+        <div class="pipeline-connector"></div>
+
+        <!-- Step 3: Review — running (active) with expanded detail -->
+        <div class="pipeline-step pipeline-step--active">
+          <div class="step-header">
+            <div class="step-icon step-icon--running"><span class="live-dot" style="width:10px;height:10px;margin:0;"></span></div>
+            <span class="step-name">Review</span>
+            <span class="step-type">agent</span>
+            <div class="step-badges">
+              <a href="#" class="step-link">View task &rarr;</a>
+            </div>
+            <span class="step-chevron icon icon-chevron-down" style="transform:rotate(180deg);"></span>
+          </div>
+          <div class="step-detail">[Loading step details...]</div>
+        </div>
+
+        <div class="pipeline-connector"></div>
+
+        <!-- Step 4: Gap Analysis — pending -->
+        <div class="pipeline-step">
+          <div class="step-header">
+            <div class="step-icon step-icon--pending">&#x25CB;</div>
+            <span class="step-name step-name--pending">Gap Analysis</span>
+            <span class="step-type">agent</span>
+            <div class="step-badges"></div>
+            <span class="step-chevron icon icon-chevron-down"></span>
+          </div>
+        </div>
+
+        <div class="pipeline-connector"></div>
+
+        <!-- Step 5: Remediate — pending, with loop badge -->
+        <div class="pipeline-step">
+          <div class="step-header">
+            <div class="step-icon step-icon--pending">&#x25CB;</div>
+            <span class="step-name step-name--pending">Remediate</span>
+            <span class="step-type">agent</span>
+            <div class="step-badges">
+              <span class="step-badge">Iteration 1/3</span>
+            </div>
+            <span class="step-chevron icon icon-chevron-down"></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 6. Shared Context (collapsible) -->
+      <div class="context-card">
+        <div class="context-header" onclick="this.parentElement.classList.toggle('expanded')">
+          <span class="card-title">Shared Context</span>
+          <span class="step-chevron icon icon-chevron-down"></span>
+        </div>
+        <div class="context-body">
+          <div class="context-entry">
+            <span class="context-key">research_output</span>
+            <span class="context-value">Initial investigation of the feature requirements and existing patterns in the codebase. Identified 3 relevant modules...</span>
+          </div>
+          <div class="context-entry">
+            <span class="context-key">spec_document</span>
+            <span class="context-value">## Feature Specification\n### Requirements: 1. The endpoint must accept multipart uploads. 2. Validation...</span>
+          </div>
+          <div class="context-entry">
+            <span class="context-key">implementation_notes</span>
+            <span class="context-value context-value--empty">(not yet set)</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+</div>
+<script>
+function toggleTheme() {
+  document.documentElement.dataset.theme =
+    document.documentElement.dataset.theme === 'light' ? '' : 'light';
+}
+</script>
+</body>
+</html>

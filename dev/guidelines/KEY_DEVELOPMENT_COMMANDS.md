@@ -159,6 +159,12 @@ git status --short
 `dart run dev/tools/embed_assets.dart` also copies `dev/design-system/{tokens,components,icons}.css`
 into the server's static assets, so canonical CSS edits need no separate sync step.
 
+For a **clean committed release candidate**, `bash dev/tools/release_check.sh --version <version> --local` runs these
+local gates plus release cleanup/version checks and the host build, retaining per-gate receipts. Add `--resume` to
+reuse eligible results, `--status` to inspect them, or `--gate <id>` to rerun one gate. The dirty development checkout
+still uses the individual commands above. See [Release Preparation](RELEASE_PREPARATION.md) for scope and exit codes.
+PowerShell validation uses `dev/tools/check_powershell.ps1` both locally in Windows and in CI; PSScriptAnalyzer is required.
+
 ## Generated Artifacts
 
 ```bash

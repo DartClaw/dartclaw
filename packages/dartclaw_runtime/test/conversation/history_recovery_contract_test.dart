@@ -450,7 +450,7 @@ void main() {
       behavior: BehaviorFileService(workspaceDir: root.path),
       sessions: sessions,
       turnLimits: const TurnLimitsConfig.defaults(),
-      agentDefinitions: const {
+      agentDefinitions: (agentId) => const {
         'research': AgentDefinition(
           id: 'research',
           description: 'Research',
@@ -458,7 +458,7 @@ void main() {
           provider: 'codex',
           workspace: AgentWorkspace(agentId: 'research', directory: '/workspace/current'),
         ),
-      },
+      }[agentId],
     );
     final configuredConversation = ConversationService(
       sessions: sessions,
@@ -483,7 +483,7 @@ void main() {
       behavior: BehaviorFileService(workspaceDir: root.path),
       sessions: sessions,
       turnLimits: const TurnLimitsConfig.defaults(),
-      agentDefinitions: const {},
+      agentDefinitions: (agentId) => const <String, AgentDefinition>{}[agentId],
     );
     await expectLater(
       ConversationService(
@@ -507,7 +507,7 @@ void main() {
       behavior: BehaviorFileService(workspaceDir: root.path),
       sessions: sessions,
       turnLimits: const TurnLimitsConfig.defaults(),
-      agentDefinitions: const {
+      agentDefinitions: (agentId) => const {
         'research': AgentDefinition(
           id: 'research',
           description: 'Research',
@@ -515,7 +515,7 @@ void main() {
           provider: 'codex',
           workspace: AgentWorkspace(agentId: 'research', directory: '/workspace/changed'),
         ),
-      },
+      }[agentId],
     );
     await expectLater(
       ConversationService(

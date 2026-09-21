@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Auth / Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* Auth page — full-screen centered, no shell/sidebar/topbar */
+    .auth-page {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: var(--sp-4);
+    }
+
+    .auth-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--bg-mantle);
+      border: var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--sp-8) var(--sp-6);
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-6);
+    }
+
+    .auth-header {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-2);
+    }
+
+    .auth-header .logo {
+      font-size: var(--text-xl);
+      font-weight: var(--weight-bold);
+      color: var(--accent);
+    }
+
+    .auth-header p {
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+    }
+
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-4);
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+
+    .form-group label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--fg-sub0);
+    }
+
+    .form-group input[type="password"] {
+      background: var(--bg-base);
+      color: var(--fg);
+      border: var(--border);
+      border-radius: var(--radius);
+      padding: var(--sp-2) var(--sp-3);
+      font: inherit;
+      font-size: var(--text-base);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+
+    .form-group input[type="password"]:focus {
+      border-color: var(--accent);
+    }
+
+    .form-group input[type="password"]::placeholder {
+      color: var(--fg-overlay);
+    }
+
+    .form-group input[type="password"].input-error {
+      border-color: var(--error);
+    }
+
+    .form-error {
+      font-size: var(--text-sm);
+      color: var(--error);
+      display: none;
+    }
+
+    .form-error.visible {
+      display: block;
+    }
+
+    .form-checkbox {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+      cursor: pointer;
+    }
+
+    .form-checkbox input[type="checkbox"] {
+      accent-color: var(--accent);
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+    }
+
+    .auth-footer {
+      text-align: center;
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      line-height: var(--leading);
+    }
+
+    .auth-footer code {
+      background: var(--bg-surface0);
+      padding: 0.1em 0.3em;
+      border-radius: var(--radius);
+      font-size: inherit;
+    }
+
+    /* Theme toggle — top-right corner */
+    .auth-theme-toggle {
+      position: fixed;
+      top: var(--sp-3);
+      right: var(--sp-3);
+    }
+  </style>
+</head>
+<body>
+
+<button class="theme-toggle auth-theme-toggle" aria-label="Toggle theme"></button>
+
+<main class="auth-page">
+  <div class="auth-card">
+
+    <div class="auth-header">
+      <div class="logo">&#10095; DartClaw</div>
+      <p>Enter your gateway token to access DartClaw</p>
+    </div>
+
+    <form class="auth-form" id="auth-form" action="/auth/login" method="POST">
+      <div class="form-group">
+        <label for="gateway-token">Gateway Token</label>
+        <input
+          type="password"
+          id="gateway-token"
+          name="gateway-token"
+          placeholder="Paste 64-character hex token"
+          maxlength="64"
+          autocomplete="off"
+          spellcheck="false"
+          required
+        >
+        <span class="form-error" id="token-error">
+          Invalid token. Check your config.yaml for the correct gateway token.
+        </span>
+      </div>
+
+      <label class="form-checkbox">
+        <input type="checkbox" name="remember" value="1">
+        Remember this device
+      </label>
+
+      <button type="submit" class="btn btn-primary btn-full">
+        Authenticate
+      </button>
+    </form>
+
+    <div class="auth-footer">
+      Token found in <code>~/.dartclaw/config.yaml</code><br>
+      under <code>gateway.auth.token</code>
+    </div>
+
+  </div>
+</main>
+
+<script>
+  // Theme toggle
+  document.querySelector('.theme-toggle').addEventListener('click', () => {
+    const html = document.documentElement;
+    const next = html.getAttribute('data-theme') === 'light' ? null : 'light';
+    if (next) {
+      html.setAttribute('data-theme', next);
+    } else {
+      html.removeAttribute('data-theme');
+    }
+  });
+
+  // Demo: toggle error state on submit
+  document.getElementById('auth-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = document.getElementById('gateway-token');
+    const error = document.getElementById('token-error');
+    // Show error for demo purposes
+    input.classList.toggle('input-error');
+    error.classList.toggle('visible');
+  });
+</script>
+
+</body>
+</html>

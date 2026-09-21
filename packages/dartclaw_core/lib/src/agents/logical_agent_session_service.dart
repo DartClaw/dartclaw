@@ -15,6 +15,15 @@ typedef LogicalAgentTurnDispatch = Future<String> Function({
 /// Callback that makes a failed newly-created logical-agent session inactive.
 typedef LogicalAgentSessionDiscard = Future<void> Function(String sessionId);
 
+/// Resolves an agent id to its definition for the duration of a turn.
+///
+/// Every surface that must decide whether an agent-pinned session names a live
+/// agent resolves through one of these, bound to
+/// [LogicalAgentSessionService.agentDefinition]. A configured-only snapshot is
+/// not a substitute: it cannot see a one-shot agent, so a turn reserved for one
+/// would be rejected as belonging to an unknown agent.
+typedef AgentDefinitionResolver = AgentDefinition? Function(String agentId);
+
 /// Creates and continues logical-agent sessions.
 class LogicalAgentSessionService {
   static final _log = Logger('LogicalAgentSessionService');

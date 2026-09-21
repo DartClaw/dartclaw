@@ -18,6 +18,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Release checks retain commit-bound gate receipts, support local runs, status inspection and resuming unchanged
+  candidates, and include PostgreSQL and host builds. Quick checks report incomplete coverage. PowerShell validation
+  shares one script between Windows development VMs and CI.
+
 - PostgreSQL verification provisions a disposable pgvector database when no test URL is supplied and includes vector,
   conversation, workspace and interlock suites. Native release builds default to `.agent_temp/native-cache` and verify
   their archive before replacing build outputs.
@@ -148,6 +152,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   Chat controls that hit-test as topmost and in view, on an opaque ground, were reported that way.
 - `dev/tools/test_workspace.sh` runs the renamed conversation-loop visual checks test; it called the pre-rename name,
   which aborted the whole workspace test tier at that line.
+- Search displays server errors without a success token instead of remaining on “Searching…”, and uses a consistent
+  unavailable state for network failures.
 
 ### Release holds
 

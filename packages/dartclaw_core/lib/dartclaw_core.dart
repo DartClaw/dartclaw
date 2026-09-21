@@ -307,7 +307,7 @@ export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
 
 // Agents
-export 'src/agents/logical_agent_session_service.dart' show LogicalAgentSessionService;
+export 'src/agents/logical_agent_session_service.dart' show AgentDefinitionResolver, LogicalAgentSessionService;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
 
 // Tasks

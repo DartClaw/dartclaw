@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Search Agent Delegation Flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* === GUARD VERDICT (reused from guard-block-chat.html) === */
+    .guard-verdict {
+      margin: var(--sp-2) 0;
+      padding: var(--sp-2) var(--sp-3);
+      border-left: 3px solid var(--fg-overlay);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      font-size: var(--text-sm);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+
+    .guard-verdict-block {
+      background: color-mix(in srgb, var(--error) 8%, var(--bg-base));
+      border-left-color: var(--error);
+    }
+
+    .guard-verdict-header {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      flex-wrap: wrap;
+    }
+
+    .guard-verdict-icon {
+      font-size: var(--text-base);
+      line-height: 1;
+    }
+
+    .guard-verdict-block .guard-verdict-icon { color: var(--error); }
+
+    .guard-verdict-label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .guard-verdict-block .guard-verdict-label { color: var(--error); }
+
+    .guard-verdict-badge {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      padding: 0.1em 0.4em;
+      border-radius: var(--radius);
+    }
+
+    .guard-verdict-block .guard-verdict-badge {
+      background: color-mix(in srgb, var(--error) 20%, var(--bg-base));
+      color: var(--error);
+    }
+
+    .guard-verdict-reason {
+      color: var(--fg-sub1);
+      line-height: var(--leading);
+    }
+
+    .guard-verdict-reason code {
+      background: var(--bg-surface0);
+      padding: 0.1em 0.3em;
+      border-radius: var(--radius);
+      font-size: 0.9em;
+    }
+
+    .guard-verdict-time {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+    }
+
+    /* === DELEGATION INDICATOR (agent-to-agent, distinct from tool-indicator) === */
+    .delegation-indicator {
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+      padding: var(--sp-1) var(--sp-2);
+      font-family: var(--font-mono);
+      background: color-mix(in srgb, var(--info) 6%, var(--bg-base));
+      border-radius: var(--radius);
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-2);
+      margin: var(--sp-1) 0;
+    }
+
+    .delegation-indicator .delegation-icon {
+      font-size: var(--text-base);
+      line-height: 1;
+      color: var(--info);
+    }
+
+    .delegation-indicator.complete {
+      color: var(--fg-overlay);
+      background: color-mix(in srgb, var(--info) 3%, var(--bg-base));
+    }
+
+    .delegation-indicator.complete .delegation-icon { color: var(--fg-overlay); }
+
+    .delegation-indicator.complete::after {
+      content: ' \2713';
+      color: var(--success);
+    }
+
+    .delegation-indicator.error {
+      color: var(--fg-overlay);
+      background: color-mix(in srgb, var(--error) 4%, var(--bg-base));
+    }
+
+    .delegation-indicator.error .delegation-icon { color: var(--error); }
+
+    .delegation-indicator.error::after {
+      content: ' \2717';
+      color: var(--error);
+    }
+
+    /* === CONTENT-GUARD PASS (minimal, muted inline note) === */
+    .guard-pass-note {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      padding: var(--sp-1) 0;
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+
+    .guard-pass-note .pass-icon {
+      color: var(--success);
+      font-size: var(--text-xs);
+    }
+
+    /* === SCENARIO DIVIDER === */
+    .scenario-divider {
+      max-width: var(--container-max);
+      margin: var(--sp-6) auto var(--sp-4);
+      padding: var(--sp-2) var(--sp-4);
+      border-top: 1px dashed var(--bg-surface2);
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session" style="width:calc(100% - var(--sp-6));margin:0 var(--sp-3) var(--sp-2);">New Session</button>
+      <div class="session-item active" data-icon="message-circle" role="button" tabindex="0">
+        Research session
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle" role="button" tabindex="0">
+        Refactor auth module
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle" role="button" tabindex="0">
+        Debug API endpoints
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <input class="session-title" type="text" value="Research session" aria-label="Session title">
+    <div class="topbar-actions">
+      <button class="btn btn-icon btn-ghost" data-icon="info" aria-label="Session info" title="Session info"></button>
+      <button class="btn btn-ghost" style="font-size:var(--text-sm);">Reset</button>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Chat area -->
+  <div class="chat-area" role="main">
+    <div class="messages">
+
+      <!-- ═══════ SCENARIO A: Successful web search ═══════ -->
+      <div class="scenario-divider">Scenario A &mdash; Successful web search</div>
+
+      <!-- User message: question requiring web info -->
+      <div class="msg msg-user">
+        <div class="msg-role">You</div>
+        <div class="msg-content">
+          <p>What's the latest Dart SDK version and what are the highlights?</p>
+        </div>
+      </div>
+
+      <!-- Assistant message: delegation + pass + synthesized answer -->
+      <div class="msg msg-assistant">
+        <div class="msg-role">Assistant</div>
+        <div class="msg-content">
+          <p>Let me look that up for you.</p>
+
+          <!-- Delegation indicator: agent-to-agent handoff -->
+          <div class="delegation-indicator complete">
+            <span class="delegation-icon">&#128269;</span>
+            Searching the web&hellip; &ldquo;latest Dart SDK version release notes&rdquo;
+          </div>
+
+          <!-- Content-guard pass: minimal, muted -->
+          <div class="guard-pass-note">
+            <span class="pass-icon"><span class="icon icon-check" aria-hidden="true"></span></span>
+            Content-Guard: passed
+          </div>
+
+          <p>The latest stable Dart SDK is <strong>3.7.0</strong>, released Feb 2026. Key highlights:</p>
+          <ul>
+            <li><strong>Wildcard variables</strong> &mdash; use <code>_</code> in patterns without binding</li>
+            <li><strong>Digit separators</strong> &mdash; <code>1_000_000</code> for numeric literals</li>
+            <li><strong>dart:core improvements</strong> &mdash; new <code>DateTime.fromMicroseconds</code></li>
+          </ul>
+          <p>See the <a href="#">official release notes</a> for the full changelog.</p>
+        </div>
+      </div>
+
+
+      <!-- ═══════ SCENARIO B: Content-guard blocks search results ═══════ -->
+      <div class="scenario-divider">Scenario B &mdash; Content-guard blocks web results</div>
+
+      <!-- User message: request leading to blocked content -->
+      <div class="msg msg-user">
+        <div class="msg-role">You</div>
+        <div class="msg-content">
+          <p>Summarize the article at example.com/page</p>
+        </div>
+      </div>
+
+      <!-- Assistant message: delegation + block + graceful fallback -->
+      <div class="msg msg-assistant">
+        <div class="msg-role">Assistant</div>
+        <div class="msg-content">
+          <p>Let me fetch that article.</p>
+
+          <!-- Delegation indicator: shows error state -->
+          <div class="delegation-indicator error">
+            <span class="delegation-icon">&#128269;</span>
+            Searching the web&hellip; &ldquo;example.com/page&rdquo;
+          </div>
+
+          <!-- Content-guard block: reuses guard-verdict-block pattern -->
+          <div class="guard-verdict guard-verdict-block">
+            <div class="guard-verdict-header">
+              <span class="guard-verdict-icon"><span class="icon icon-shield-alert" aria-hidden="true"></span></span>
+              <span class="guard-verdict-label">Content-Guard</span>
+              <span class="guard-verdict-badge">Blocked</span>
+            </div>
+            <div class="guard-verdict-reason">Potential prompt injection detected in web content from <code>example.com</code></div>
+            <div class="guard-verdict-time">15:04:22</div>
+          </div>
+
+          <p>I found results but the content was blocked by the content guard. The page at <code>example.com/page</code> contained patterns flagged as potential prompt injection.</p>
+          <p>I can try a different source, or answer from what I already know. Would you like me to search for the topic elsewhere?</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Input area -->
+    <div class="input-area">
+      <label class="sr-only" for="chat-input">Message</label>
+      <textarea id="chat-input" name="chat-input" rows="1" placeholder="Type a message..." aria-label="Type a message"></textarea>
+      <button class="btn btn-primary btn-send">Send</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+
+</body>
+</html>

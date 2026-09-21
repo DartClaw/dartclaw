@@ -1,5 +1,7 @@
 # ADR-048: Release Builds Use `dart build cli` with Bundled SQLite
 
+**0.27 amendment (2026-09-20):** [ADR-060](060-postgresql-only-storage.md) supersedes the SQLite bundling requirement for 0.27. Removal is pending; `dart build cli` and other native-asset obligations remain.
+
 **Status:** Accepted — 2026-07-10. Shipped in 0.20.1: `dev/tools/build.sh` at release commit `d64f66db` already invokes `dart build cli`. The earlier "ships in the next release (post-0.20.1)" wording described the branch state at authoring time and was never corrected; it is corrected here (2026-09-04). Prepares the 0.21 Windows release target (bundled SQLite is mandatory there — `winsqlite3.dll` lacks FTS5).
 **Deciders:** DartClaw team
 

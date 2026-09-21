@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Memory Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* === PAGE LAYOUT === */
+    .page-content { overflow-y: auto; padding: var(--sp-6); position: relative; }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4) var(--sp-3); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-6); }
+
+    /* === POLLING INDICATOR === */
+    .polling-indicator {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+
+    .polling-spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 1.5px solid var(--fg-overlay);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* === METRICS GRID === */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: var(--sp-4);
+    }
+
+    @media (max-width: 900px) {
+      .metrics-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 768px) {
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .metric-card {
+      background: var(--bg-mantle);
+      border: var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--sp-3) var(--sp-4);
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: var(--text-xl);
+      font-weight: var(--weight-bold);
+      color: var(--fg);
+      line-height: var(--leading-tight);
+    }
+
+    .metric-label {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: var(--sp-1);
+    }
+
+    .metric-sub {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      margin-top: var(--sp-1);
+    }
+
+    /* === BUDGET BAR (reuse from health-dashboard) === */
+    .budget-bar-wrapper {
+      margin-top: var(--sp-2);
+    }
+
+    .budget-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      margin-bottom: var(--sp-1);
+    }
+
+    .budget-bar {
+      height: 8px;
+      background: var(--bg-surface0);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .budget-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: var(--accent);
+      transition: width 300ms ease;
+    }
+
+    .budget-bar-fill.warn {
+      background: var(--warning);
+    }
+
+    /* === FILL INDICATOR (smaller inline bar for metric cards) === */
+    .fill-indicator {
+      margin-top: var(--sp-2);
+    }
+
+    .fill-bar {
+      height: 4px;
+      background: var(--bg-surface0);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .fill-bar-inner {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--accent);
+      transition: width 300ms ease;
+    }
+
+    /* === CARD HEADER === */
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--sp-3);
+    }
+
+    .card-title {
+      font-size: var(--text-sm);
+      font-weight: var(--weight-bold);
+      color: var(--fg-sub1);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* === CARD ROWS === */
+    .card-rows {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-2);
+    }
+
+    .card-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: var(--text-sm);
+    }
+
+    .card-row-label {
+      color: var(--fg-overlay);
+    }
+
+    .card-row-value {
+      color: var(--fg);
+      font-weight: var(--weight-medium);
+      text-align: right;
+    }
+
+    /* === BADGE (reuse from health-dashboard) === */
+    .card-badge {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-medium);
+      padding: var(--sp-1) var(--sp-2);
+      border-radius: var(--radius);
+    }
+
+    .badge-success {
+      background: color-mix(in srgb, var(--success) 15%, var(--bg-base));
+      color: var(--success);
+    }
+
+    .badge-warning {
+      background: color-mix(in srgb, var(--warning) 15%, var(--bg-base));
+      color: var(--warning);
+    }
+
+    .badge-muted {
+      background: var(--bg-surface0);
+      color: var(--fg-sub0);
+    }
+
+    /* === DATA TABLE === */
+    .table-wrap {
+      overflow-x: auto;
+      border: var(--border);
+      border-radius: var(--radius-lg);
+    }
+
+    .data-table {
+      min-width: 500px;
+    }
+
+    .data-table th,
+    .data-table td {
+      white-space: nowrap;
+    }
+
+    .data-table th {
+      color: var(--fg-sub0);
+    }
+
+    .data-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .data-table tbody tr:hover {
+      background: var(--bg-mantle);
+    }
+
+    /* === CARD ACTIONS === */
+    .card-actions {
+      margin-top: var(--sp-3);
+      padding-top: var(--sp-3);
+      border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+
+    /* === TABS === */
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      border-bottom: var(--border);
+      margin-bottom: var(--sp-4);
+    }
+
+    .tab-btn {
+      font: inherit;
+      font-size: var(--text-sm);
+      font-weight: var(--weight-medium);
+      color: var(--fg-sub0);
+      background: none;
+      border: none;
+      padding: var(--sp-2) var(--sp-3);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color var(--transition), border-color var(--transition);
+    }
+
+    .tab-btn:hover {
+      color: var(--fg);
+    }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+      padding-bottom: var(--sp-1);
+    }
+
+    .toggle-btn-group {
+      display: inline-flex;
+      border: var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .toggle-btn {
+      font: inherit;
+      font-size: var(--text-xs);
+      font-weight: var(--weight-medium);
+      padding: var(--sp-1) var(--sp-2);
+      background: var(--bg-surface0);
+      color: var(--fg-sub0);
+      border: none;
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+    }
+
+    .toggle-btn:not(:last-child) {
+      border-right: var(--border);
+    }
+
+    .toggle-btn.active {
+      background: color-mix(in srgb, var(--accent) 15%, var(--bg-base));
+      color: var(--accent);
+    }
+
+    .toggle-btn:hover:not(.active) {
+      background: var(--bg-surface1);
+      color: var(--fg);
+    }
+
+    /* === TAB PANEL === */
+    .tab-panel {
+      display: none;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    .tab-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: var(--sp-3);
+      margin-bottom: var(--sp-4);
+    }
+
+    .tab-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+
+    .tab-meta-label {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tab-meta-value {
+      font-size: var(--text-sm);
+      color: var(--fg);
+      font-weight: var(--weight-medium);
+    }
+
+    /* === MEMORY CONTENT PREVIEW === */
+    .memory-preview {
+      max-height: 300px;
+      overflow-y: auto;
+      background: var(--bg-crust);
+      border: var(--border);
+      border-radius: var(--radius);
+      padding: var(--sp-3);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-sub0);
+      line-height: var(--leading);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    /* === WARNING TEXT === */
+    .warning-text {
+      font-size: var(--text-xs);
+      color: var(--warning);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+
+    /* === INFO FOOTER === */
+    .info-footer {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      padding: var(--sp-2) 0;
+      border-top: var(--border);
+    }
+
+    .info-footer code {
+      background: var(--bg-surface0);
+      padding: 0.1em 0.3em;
+      border-radius: var(--radius);
+    }
+
+    /* === RESPONSIVE === */
+    @media (max-width: 768px) {
+      .tab-bar {
+        flex-wrap: wrap;
+      }
+
+      .tab-header-actions {
+        width: 100%;
+        margin-left: 0;
+        padding-top: var(--sp-1);
+        justify-content: flex-end;
+      }
+
+      .tab-meta {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Sidebar (unified) -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">
+        WhatsApp Alice
+      </div>
+      <div class="session-item" data-icon="hash">
+        Signal Bob
+      </div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session" style="width:calc(100% - var(--sp-6));margin:0 var(--sp-3) var(--sp-2);">New Session</button>
+      <div class="session-item" data-icon="message-circle">
+        Refactor auth module
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle">
+        Debug API endpoints
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="settings-page.html" class="sidebar-nav-item" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item active" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">Memory Dashboard</span>
+    <div class="topbar-actions">
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Page content -->
+  <main class="page-content">
+    <div class="page-inner">
+
+      <!-- Polling indicator -->
+      <div class="polling-indicator">
+        <span>Last updated: 28s ago</span>
+        <span class="polling-spinner"></span>
+        <span>refreshing...</span>
+      </div>
+
+      <!-- Section 1: Overview metrics -->
+      <div>
+        <h2 class="section-label">Overview</h2>
+        <div class="metrics-grid">
+
+          <!-- Memory Size -->
+          <div class="metric-card">
+            <div class="metric-value">24.1 KB</div>
+            <div class="metric-label">Memory Size</div>
+            <div class="budget-bar-wrapper">
+              <div class="budget-bar-label">
+                <span>of 32 KB</span>
+                <span>75%</span>
+              </div>
+              <div class="budget-bar">
+                <div class="budget-bar-fill" style="width: 75%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Entries -->
+          <div class="metric-card">
+            <div class="metric-value">47</div>
+            <div class="metric-label">Active Entries</div>
+          </div>
+
+          <!-- Archived Entries -->
+          <div class="metric-card">
+            <div class="metric-value">312</div>
+            <div class="metric-label">Archived Entries</div>
+          </div>
+
+          <!-- Errors -->
+          <div class="metric-card">
+            <div class="metric-value">12 <span style="font-size: var(--text-sm); color: var(--fg-overlay); font-weight: var(--weight-normal);">/ 50</span></div>
+            <div class="metric-label">Errors</div>
+            <div class="fill-indicator">
+              <div class="fill-bar">
+                <div class="fill-bar-inner" style="width: 24%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Learnings -->
+          <div class="metric-card">
+            <div class="metric-value">8 <span style="font-size: var(--text-sm); color: var(--fg-overlay); font-weight: var(--weight-normal);">/ 50</span></div>
+            <div class="metric-label">Learnings</div>
+            <div class="fill-indicator">
+              <div class="fill-bar">
+                <div class="fill-bar-inner" style="width: 16%;"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Section 2: Memory Pruning -->
+      <div>
+        <h2 class="section-label">Memory Pruning</h2>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Pruner</span>
+            <span class="status-badge status-badge-success">Active</span>
+          </div>
+          <div class="card-rows">
+            <div class="card-row">
+              <span class="card-row-label">Config</span>
+              <span class="card-row-value">Archive after 90d &middot; Schedule: <code style="font-size: var(--text-xs); background: var(--bg-surface0); padding: 0.1em 0.3em; border-radius: var(--radius);">0 3 * * *</code></span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Next run</span>
+              <span class="card-row-value">2026-03-05 03:00</span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Undated entries</span>
+              <span class="card-row-value">
+                12
+                <span class="warning-text" style="display: inline-flex; margin-left: var(--sp-2);"><span class="icon icon-triangle-alert" aria-hidden="true"></span> never archived</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Recent runs table -->
+          <div style="margin-top: var(--sp-4);">
+            <div style="font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--sp-2); font-weight: var(--weight-bold);">Recent Runs</div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <caption class="sr-only">Memory pruner recent runs</caption>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Archived</th>
+                    <th>Deduped</th>
+                    <th>Remaining</th>
+                    <th>Final Size</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>2026-03-04</td>
+                    <td>3</td>
+                    <td>1</td>
+                    <td>47</td>
+                    <td>24.1 KB</td>
+                  </tr>
+                  <tr>
+                    <td>2026-03-03</td>
+                    <td>5</td>
+                    <td>2</td>
+                    <td>51</td>
+                    <td>26.8 KB</td>
+                  </tr>
+                  <tr>
+                    <td>2026-03-02</td>
+                    <td>2</td>
+                    <td>0</td>
+                    <td>56</td>
+                    <td>28.4 KB</td>
+                  </tr>
+                  <tr>
+                    <td>2026-03-01</td>
+                    <td>8</td>
+                    <td>3</td>
+                    <td>58</td>
+                    <td>29.1 KB</td>
+                  </tr>
+                  <tr>
+                    <td>2026-02-28</td>
+                    <td>4</td>
+                    <td>1</td>
+                    <td>66</td>
+                    <td>31.0 KB</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <button class="btn btn-ghost" onclick="confirmPrune(this)">Prune Now</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 3: Search & Index -->
+      <div>
+        <h2 class="section-label">Search &amp; Index</h2>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Search Backend</span>
+            <span class="status-badge status-badge-success">Active</span>
+          </div>
+          <div class="card-rows">
+            <div class="card-row">
+              <span class="card-row-label">Backend</span>
+              <span class="card-row-value">FTS5 (built-in)</span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Search depth</span>
+              <span class="card-row-value">10 results</span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">Index entries</span>
+              <span class="card-row-value">359 <span style="font-size: var(--text-xs); color: var(--fg-overlay);">(47 live, 312 archived)</span></span>
+            </div>
+            <div class="card-row">
+              <span class="card-row-label">DB size</span>
+              <span class="card-row-value">4.2 MB</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 4: Memory Files (tabbed) -->
+      <div>
+        <h2 class="section-label">Memory Files</h2>
+        <div class="card">
+
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchTab(this, 'tab-memory')" data-tab="tab-memory">MEMORY.md</button>
+            <button class="tab-btn" onclick="switchTab(this, 'tab-errors')" data-tab="tab-errors">errors.md</button>
+            <button class="tab-btn" onclick="switchTab(this, 'tab-learnings')" data-tab="tab-learnings">learnings.md</button>
+            <button class="tab-btn" onclick="switchTab(this, 'tab-archive')" data-tab="tab-archive">Archive</button>
+            <div class="tab-header-actions">
+              <div class="toggle-btn-group">
+                <button class="toggle-btn active" onclick="toggleView(this, 'raw')">Raw</button>
+                <button class="toggle-btn" onclick="toggleView(this, 'rendered')">Rendered</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: MEMORY.md -->
+          <div class="tab-panel active" id="tab-memory">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value">47</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value">24.1 KB</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Oldest</span>
+                <span class="tab-meta-value">2026-01-15</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Newest</span>
+                <span class="tab-meta-value">2026-03-04</span>
+              </div>
+            </div>
+
+            <!-- Category breakdown -->
+            <div style="margin-bottom: var(--sp-4);">
+              <div style="font-size: var(--text-xs); color: var(--fg-overlay); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--sp-2); font-weight: var(--weight-bold);">Category Breakdown</div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <caption class="sr-only">Memory entry categories</caption>
+                  <thead>
+                    <tr>
+                      <th>Section</th>
+                      <th style="text-align: right;">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Debugging Notes</td>
+                      <td style="text-align: right;">15</td>
+                    </tr>
+                    <tr>
+                      <td>Project Context</td>
+                      <td style="text-align: right;">12</td>
+                    </tr>
+                    <tr>
+                      <td>User Preferences</td>
+                      <td style="text-align: right;">8</td>
+                    </tr>
+                    <tr>
+                      <td>Workflow Patterns</td>
+                      <td style="text-align: right;">7</td>
+                    </tr>
+                    <tr>
+                      <td>Tool Config</td>
+                      <td style="text-align: right;">5</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Content preview -->
+            <div class="memory-preview"># MEMORY.md
+
+## User Preferences
+- Prefers concise responses over verbose explanations
+- Always use Dart 3.x pattern matching where applicable
+- Format: dart format with default rules
+- Testing: prefers unit tests with group() organization
+- [2026-03-01] Likes status badges for service health indicators
+- [2026-02-28] Prefers card-based layouts over plain tables
+- [2026-02-20] Uses JetBrains Mono font exclusively
+- [2026-01-15] Dark mode preferred, Catppuccin Mocha palette
+
+## Project Context
+- DartClaw: security-conscious AI agent runtime
+- Architecture: Dart host + native claude binary via JSONL
+- Pub workspace with 4 packages
+- [2026-03-04] v0.5 Phase A (Security Hardening) in progress
+- [2026-03-02] InputSanitizer guard implemented
+- [2026-02-27] v0.3 complete, 998 tests passing
+- [2026-02-26] Web UI: all wireframe pages implemented
+- [2026-02-22] CSS design system: Catppuccin tokens
+- [2026-02-15] sqlite3 storage with FTS5 search
+- [2026-02-10] WhatsApp channel via GOWA bridge
+- [2026-02-01] Signal channel support added
+- [2026-01-20] Session management with KV store
+
+## Debugging Notes
+- [2026-03-04] ContentClassifier: false positives on code blocks
+- [2026-03-03] UsageTracker: token counting off by ~2% on streaming
+- [2026-03-02] Guard audit log: timestamp format inconsistency
+...</div>
+          </div>
+
+          <!-- Tab: errors.md -->
+          <div class="tab-panel" id="tab-errors">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value">12</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value">3.8 KB</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Oldest</span>
+                <span class="tab-meta-value">2026-02-01</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Newest</span>
+                <span class="tab-meta-value">2026-03-04</span>
+              </div>
+            </div>
+            <div class="memory-preview"># errors.md
+
+## 2026-03-04
+- ContentClassifier threw FormatException on multiline code fence
+  Context: Input contained triple backticks with lang specifier
+  Fix: Added multiline-aware tokenizer pass
+
+## 2026-03-03
+- UsageTracker: StreamSubscription not cancelled on session close
+  Context: Token counter accumulated across sessions
+  Fix: Added dispose() call in SessionManager.close()
+
+## 2026-03-01
+- WebSocket reconnect loop on stale auth token
+  Context: Token expired mid-session, reconnect used cached token
+  Fix: Token refresh before reconnect attempt
+...</div>
+          </div>
+
+          <!-- Tab: learnings.md -->
+          <div class="tab-panel" id="tab-learnings">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value">8</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value">2.1 KB</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Oldest</span>
+                <span class="tab-meta-value">2026-02-10</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Newest</span>
+                <span class="tab-meta-value">2026-03-03</span>
+              </div>
+            </div>
+            <div class="memory-preview"># learnings.md
+
+## 2026-03-03
+- Guard ordering matters: InputSanitizer must run before ContentClassifier
+  to avoid false positives on sanitized content
+
+## 2026-03-01
+- sqlite3 FTS5 tokenizer: use unicode61 for international content
+  Default ASCII tokenizer drops diacritics silently
+
+## 2026-02-25
+- Dart AOT compilation: const maps are faster than runtime-built maps
+  Use const constructors for guard rule definitions
+
+## 2026-02-20
+- JSONL protocol: always flush stdout after each line
+  Buffered output causes claude binary to hang on large responses
+...</div>
+          </div>
+
+          <!-- Tab: Archive -->
+          <div class="tab-panel" id="tab-archive">
+            <div class="tab-meta">
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Entries</span>
+                <span class="tab-meta-value">312</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Size</span>
+                <span class="tab-meta-value">89.4 KB</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Oldest</span>
+                <span class="tab-meta-value">2025-11-02</span>
+              </div>
+              <div class="tab-meta-item">
+                <span class="tab-meta-label">Newest</span>
+                <span class="tab-meta-value">2026-02-28</span>
+              </div>
+            </div>
+            <div class="memory-preview"># Archive
+
+Archived entries are stored in the database and searchable via FTS5.
+They have been pruned from active memory files but remain accessible
+for context retrieval.
+
+312 entries across 4 months of operation.
+
+Top categories:
+  Debugging Notes ......... 142
+  Project Context ........  89
+  User Preferences .......  41
+  Workflow Patterns .......  28
+  Tool Config ............  12</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Section 5: Daily Logs -->
+      <div>
+        <h2 class="section-label">Daily Logs</h2>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Log Files</span>
+            <span class="card-badge badge-muted">45 files &middot; 142 KB</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <caption class="sr-only">Daily log files, recent 7 days</caption>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th style="text-align: right;">Entries</th>
+                  <th style="text-align: right;">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>2026-03-04</td>
+                  <td style="text-align: right;">23</td>
+                  <td style="text-align: right;">4.8 KB</td>
+                </tr>
+                <tr>
+                  <td>2026-03-03</td>
+                  <td style="text-align: right;">41</td>
+                  <td style="text-align: right;">8.2 KB</td>
+                </tr>
+                <tr>
+                  <td>2026-03-02</td>
+                  <td style="text-align: right;">18</td>
+                  <td style="text-align: right;">3.6 KB</td>
+                </tr>
+                <tr>
+                  <td>2026-03-01</td>
+                  <td style="text-align: right;">35</td>
+                  <td style="text-align: right;">7.1 KB</td>
+                </tr>
+                <tr>
+                  <td>2026-02-28</td>
+                  <td style="text-align: right;">29</td>
+                  <td style="text-align: right;">5.9 KB</td>
+                </tr>
+                <tr>
+                  <td>2026-02-27</td>
+                  <td style="text-align: right;">14</td>
+                  <td style="text-align: right;">2.8 KB</td>
+                </tr>
+                <tr>
+                  <td>2026-02-26</td>
+                  <td style="text-align: right;">22</td>
+                  <td style="text-align: right;">4.4 KB</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info footer -->
+      <div class="info-footer">
+        Memory files stored in <code>~/.dartclaw/workspace/</code> &middot; Configured in <code>dartclaw.yaml</code>
+      </div>
+
+    </div>
+  </main>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+
+// Tab switching
+function switchTab(btn, tabId) {
+  // Deactivate all tabs
+  btn.closest('.tab-bar').querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+
+  // Hide all panels, show target
+  const card = btn.closest('.card');
+  card.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+}
+
+// Raw/Rendered toggle
+function toggleView(btn, mode) {
+  btn.closest('.toggle-btn-group').querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Wireframe: visual toggle only — no actual rendering transform
+}
+
+// Prune Now confirmation
+function confirmPrune(btn) {
+  if (btn.dataset.confirming) {
+    btn.textContent = 'Pruning...';
+    btn.disabled = true;
+    delete btn.dataset.confirming;
+    setTimeout(() => {
+      btn.textContent = 'Done!';
+      btn.style.color = 'var(--success)';
+      setTimeout(() => {
+        btn.textContent = 'Prune Now';
+        btn.style.color = '';
+        btn.disabled = false;
+      }, 2000);
+    }, 1500);
+    return;
+  }
+  btn.dataset.confirming = '1';
+  btn.textContent = 'Confirm Prune?';
+  btn.style.color = 'var(--warning)';
+  setTimeout(() => {
+    if (btn.dataset.confirming) {
+      btn.textContent = 'Prune Now';
+      btn.style.color = '';
+      delete btn.dataset.confirming;
+    }
+  }, 4000);
+}
+</script>
+
+</body>
+</html>

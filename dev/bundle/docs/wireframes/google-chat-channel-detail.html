@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Google Chat Channel</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    .page-content { overflow-y: auto; padding: var(--sp-6) var(--sp-4); }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4) var(--sp-3); } }
+    .page-inner { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-5); }
+
+    /* Hero */
+    .hero-card { background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg); padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+    .hero-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+    .hero-title { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .hero-title h1 { font-size: var(--text-xl); color: var(--fg); margin: 0; font-weight: var(--weight-bold); }
+    .hero-sub { font-size: var(--text-sm); color: var(--fg-sub0); }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+    .meta-pill { display: inline-flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--bg-base); color: var(--fg-sub0); font-size: var(--text-sm); border: 1px solid var(--bg-surface0); }
+    .hero-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+    /* Grid */
+    .grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr); gap: var(--sp-4); align-items: start; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    /* Config cards */
+    .config-card { background: var(--bg-mantle); border: var(--border); border-radius: var(--radius-lg); padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+    .section-kicker { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-overlay); }
+    .section-title { font-size: var(--text-base); color: var(--fg); font-weight: var(--weight-bold); margin-top: var(--sp-1); }
+    .section-copy { font-size: var(--text-sm); color: var(--fg-sub0); margin-top: 2px; }
+
+    /* Info grid (connection details) */
+    .info-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); }
+    @media (max-width: 600px) { .info-grid-2 { grid-template-columns: 1fr; } }
+    .info-item { background: var(--bg-base); border: var(--border); border-radius: var(--radius); padding: var(--sp-3); }
+    .info-item-label { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-overlay); margin-bottom: var(--sp-1); }
+    .info-item-value { font-size: var(--text-xs); color: var(--fg); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Mode selector chips */
+    .chip-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+    .chip { font-size: var(--text-xs); padding: var(--sp-1) var(--sp-3); background: var(--bg-surface0); border: var(--border); border-radius: 999px; color: var(--fg-sub0); cursor: pointer; white-space: nowrap; }
+    .chip.active { background: color-mix(in srgb, var(--accent) 14%, var(--bg-base)); color: var(--accent); border-color: var(--accent); }
+
+    /* Sub-cards (allowlist tables) */
+    .sub-card { background: var(--bg-base); border: var(--border); border-radius: var(--radius); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+    .sub-card-title { font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-sub1); }
+
+    /* Allowlist rows */
+    .allowlist-table { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .allowlist-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); background: var(--bg-mantle); border: 1px solid var(--bg-surface0); }
+    @media (max-width: 600px) { .allowlist-row { grid-template-columns: 1fr; } }
+    .entry-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .entry-main { font-size: var(--text-sm); color: var(--fg); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .entry-label { font-size: var(--text-xs); color: var(--fg-overlay); }
+    .inline-form { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+    .inline-form .form-input { flex: 1; min-width: 200px; }
+    .hint { font-size: var(--text-xs); color: var(--fg-overlay); }
+
+    /* Sidebar card */
+    .sidebar-card { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+    /* Checkbox rows */
+    .checkbox-row { display: flex; align-items: flex-start; gap: var(--sp-3); }
+    .form-checkbox { accent-color: var(--accent); margin-top: 3px; flex-shrink: 0; }
+    .checkbox-label-group { display: flex; flex-direction: column; gap: 2px; }
+    .checkbox-label-main { font-size: var(--text-sm); color: var(--fg); font-weight: var(--weight-medium); }
+    .checkbox-label-hint { font-size: var(--text-xs); color: var(--fg-overlay); line-height: 1.45; }
+
+    /* Scope selects */
+    .scope-grid { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .form-group { display: flex; flex-direction: column; gap: var(--sp-1); }
+
+    /* Banner */
+    .info-banner { background: color-mix(in srgb, var(--info) 8%, var(--bg-mantle)); border: 1px solid color-mix(in srgb, var(--info) 25%, var(--bg-surface0)); border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); font-size: var(--text-xs); color: var(--fg-sub0); line-height: 1.5; }
+    .info-banner strong { color: var(--fg); display: block; margin-bottom: var(--sp-1); font-size: var(--text-sm); }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">WhatsApp Alice</div>
+      <div class="session-item" data-icon="hash">Signal Bob</div>
+      <div class="session-item" data-icon="hash">Google Chat Ops</div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session">New Session</button>
+      <div class="session-item" data-icon="message-circle">Refactor auth module<button class="delete-btn" data-icon="x" aria-label="Delete"></button></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="tasks-dashboard.html" class="sidebar-nav-item" data-icon="tasks">Tasks <span style="margin-left:auto;font-size:var(--text-xs);background:color-mix(in srgb,var(--warning) 15%,var(--bg-surface0));color:var(--warning);border-radius:999px;padding:1px 6px;">3</span></a>
+      <a href="settings-page.html" class="sidebar-nav-item active" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">Google Chat Channel</span>
+    <div class="topbar-actions">
+      <a href="settings-page.html" class="btn btn-ghost btn-sm">&larr; Settings</a>
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <main class="page-content">
+    <div class="page-inner">
+
+      <!-- Hero -->
+      <section class="hero-card">
+        <div class="hero-row">
+          <div class="hero-title">
+            <h1>Google Chat</h1>
+            <div class="hero-sub">Auth, access policy, mention gating, and session routing for the Google Chat channel.</div>
+          </div>
+          <span class="status-badge status-badge-success">Connected</span>
+        </div>
+        <div class="hero-meta">
+          <div class="meta-pill">Webhook: <strong style="color:var(--fg);">/integrations/googlechat</strong></div>
+          <div class="meta-pill">DM mode: <strong style="color:var(--fg);">allowlist</strong></div>
+          <div class="meta-pill">Group mode: <strong style="color:var(--fg);">allowlist</strong></div>
+          <div class="meta-pill">Audience: <strong style="color:var(--fg);">app-url</strong></div>
+        </div>
+        <div class="hero-actions">
+          <button class="btn btn-sm btn-danger">Disconnect</button>
+        </div>
+      </section>
+
+      <div class="grid">
+
+        <!-- Left column -->
+        <div style="display:flex;flex-direction:column;gap:var(--sp-4);">
+
+          <!-- Connection & Auth -->
+          <section class="config-card">
+            <div>
+              <div class="section-kicker">Connection</div>
+              <div class="section-title">Auth and webhook state</div>
+              <div class="section-copy">Verify the channel is healthy before editing access policy.</div>
+            </div>
+            <div class="info-grid-2">
+              <div class="info-item">
+                <div class="info-item-label">Webhook path</div>
+                <div class="info-item-value">/integrations/googlechat</div>
+              </div>
+              <div class="info-item">
+                <div class="info-item-label">Bot user</div>
+                <div class="info-item-value">users/123456789</div>
+              </div>
+              <div class="info-item">
+                <div class="info-item-label">Credential source</div>
+                <div class="info-item-value">GOOGLE_APPLICATION_CREDENTIALS</div>
+              </div>
+              <div class="info-item">
+                <div class="info-item-label">Token refresh</div>
+                <div class="info-item-value">Automatic before expiry</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Access Control -->
+          <section class="config-card">
+            <div>
+              <div class="section-kicker">Access Control</div>
+              <div class="section-title">Who can reach the agent?</div>
+              <div class="section-copy">Separate policies for DM and group access. Changes take effect immediately.</div>
+            </div>
+
+            <!-- DM access -->
+            <div style="display:flex;flex-direction:column;gap:var(--sp-3);">
+              <div style="font-size:var(--text-xs);font-weight:var(--weight-bold);text-transform:uppercase;letter-spacing:0.05em;color:var(--fg-sub1);">DM Access Mode</div>
+              <div class="chip-row">
+                <div class="chip">Disabled</div>
+                <div class="chip active">Allowlist</div>
+                <div class="chip">Pairing</div>
+                <div class="chip">Open</div>
+              </div>
+
+              <div class="sub-card">
+                <div class="sub-card-title">DM Allowlist</div>
+                <div class="allowlist-table">
+                  <div class="allowlist-row">
+                    <div class="entry-stack">
+                      <div class="entry-main">users/100200300</div>
+                      <div class="entry-label">Primary operator</div>
+                    </div>
+                    <button class="btn btn-sm btn-danger">Remove</button>
+                  </div>
+                  <div class="allowlist-row">
+                    <div class="entry-stack">
+                      <div class="entry-main">users/400500600</div>
+                      <div class="entry-label">Backup reviewer</div>
+                    </div>
+                    <button class="btn btn-sm btn-danger">Remove</button>
+                  </div>
+                </div>
+                <div class="inline-form">
+                  <input type="text" class="form-input" placeholder="users/USER_ID">
+                  <button type="button" class="btn btn-sm btn-primary">Add entry</button>
+                </div>
+                <div class="hint">DM allowlist changes take effect immediately.</div>
+              </div>
+            </div>
+
+            <!-- Group access -->
+            <div style="display:flex;flex-direction:column;gap:var(--sp-3);">
+              <div style="font-size:var(--text-xs);font-weight:var(--weight-bold);text-transform:uppercase;letter-spacing:0.05em;color:var(--fg-sub1);">Group Access Mode</div>
+              <div class="chip-row">
+                <div class="chip">Disabled</div>
+                <div class="chip active">Allowlist</div>
+                <div class="chip">Open</div>
+              </div>
+
+              <div class="sub-card">
+                <div class="sub-card-title">Group Allowlist</div>
+                <div class="allowlist-table">
+                  <div class="allowlist-row">
+                    <div class="entry-stack">
+                      <div class="entry-main">spaces/AAAA123</div>
+                      <div class="entry-label">Ops room</div>
+                    </div>
+                    <button class="btn btn-sm btn-danger">Remove</button>
+                  </div>
+                </div>
+                <div class="inline-form">
+                  <input type="text" class="form-input" placeholder="spaces/SPACE_ID">
+                  <button type="button" class="btn btn-sm btn-primary">Add space</button>
+                </div>
+                <div class="hint">Group allowlist changes require restart.</div>
+              </div>
+            </div>
+
+          </section>
+        </div>
+
+        <!-- Right sidebar column -->
+        <div class="sidebar-card">
+
+          <!-- Message Behavior -->
+          <section class="config-card">
+            <div>
+              <div class="section-kicker">Message Behavior</div>
+              <div class="section-title">Google Chat toggles</div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:var(--sp-3);">
+              <div class="checkbox-row">
+                <input type="checkbox" class="form-checkbox" id="mention-gate" checked>
+                <div class="checkbox-label-group">
+                  <label class="checkbox-label-main" for="mention-gate">Require @mention in groups</label>
+                  <div class="checkbox-label-hint">Message annotations gate group responses. Useful in busy spaces.</div>
+                </div>
+              </div>
+              <div class="checkbox-row">
+                <input type="checkbox" class="form-checkbox" id="typing-indicator">
+                <div class="checkbox-label-group">
+                  <label class="checkbox-label-main" for="typing-indicator">Enable typing indicator for long turns</label>
+                  <div class="checkbox-label-hint">Async turns return <code>200 {}</code> then patch the placeholder message.</div>
+                </div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:var(--sp-2);">
+                <div style="font-size:var(--text-xs);font-weight:var(--weight-medium);color:var(--fg-sub0);">Audience Verification Mode</div>
+                <div class="chip-row">
+                  <div class="chip active">app-url</div>
+                  <div class="chip">project-number</div>
+                </div>
+                <div class="hint">Controls JWT audience claim validation for incoming webhook requests.</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Session Scope -->
+          <section class="config-card">
+            <div>
+              <div class="section-kicker">Session Scope</div>
+              <div class="section-title">How conversations are bucketed</div>
+            </div>
+            <div class="scope-grid">
+              <div class="form-group">
+                <label class="form-label" for="gc-dm-scope">DM Scope Override</label>
+                <select id="gc-dm-scope" class="form-select">
+                  <option>Use Global Default</option>
+                  <option selected>sender</option>
+                  <option>sender_per_day</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="gc-group-scope">Group Scope Override</label>
+                <select id="gc-group-scope" class="form-select">
+                  <option>Use Global Default</option>
+                  <option selected>group</option>
+                  <option>group_per_day</option>
+                </select>
+              </div>
+            </div>
+            <div class="hint">DM scope is keyed to <code>space.name</code> (the Google Chat user ID). Group scope changes require restart.</div>
+          </section>
+
+          <!-- Config API note -->
+          <div class="info-banner">
+            <strong>Config API</strong>
+            This page reads and writes via <code>GET/PATCH /api/config/channels/google_chat</code>. Allowlist CRUD matches the pattern on WhatsApp and Signal channel pages.
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+</body>
+</html>

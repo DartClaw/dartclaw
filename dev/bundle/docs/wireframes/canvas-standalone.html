@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Canvas (Shared View)</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* Canvas Standalone — full-viewport, no shell/sidebar/topbar.
+       Public-facing zero-auth page served at /canvas/<shareToken>. */
+
+    body {
+      background:
+        radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 12%, transparent), transparent 36%),
+        radial-gradient(circle at bottom right, color-mix(in srgb, var(--info) 10%, transparent), transparent 30%),
+        linear-gradient(160deg, var(--bg-crust), color-mix(in srgb, var(--bg-base) 78%, black));
+      background-attachment: fixed;
+      min-height: 100dvh;
+    }
+
+
+    /* ----------------------------------------------------------------
+       Canvas Shell — full viewport centered layout
+       ---------------------------------------------------------------- */
+
+    .canvas-shell {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: clamp(1rem, 2vw, 2rem);
+    }
+
+
+    /* ----------------------------------------------------------------
+       Canvas Stage — modal-like centered panel
+       ---------------------------------------------------------------- */
+
+    .canvas-stage {
+      width: min(1200px, 100%);
+      min-width: 0;
+      min-height: min(82vh, 960px);
+      background: color-mix(in srgb, var(--bg-mantle) 88%, transparent);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-highlight);
+      border-radius: 28px;
+      box-shadow: var(--shadow-lg);
+      padding: clamp(1.25rem, 3vw, 2.5rem);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-4);
+    }
+
+    .canvas-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-4);
+      color: var(--fg-sub0);
+      font-size: clamp(0.85rem, 1.5vw, 1rem);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: var(--weight-medium);
+    }
+
+    .canvas-heading-title {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+
+    .canvas-heading-title .logo-mark {
+      color: var(--accent);
+      font-weight: var(--weight-bold);
+    }
+
+    /* Permission chip */
+    .canvas-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: var(--sp-1) var(--sp-3);
+      border-radius: 999px;
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .canvas-chip-interact {
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+      color: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    }
+
+    .canvas-chip-view {
+      background: color-mix(in srgb, var(--fg-overlay) 12%, transparent);
+      color: var(--fg-overlay);
+      border: 1px solid color-mix(in srgb, var(--fg-overlay) 20%, transparent);
+    }
+
+
+    /* ----------------------------------------------------------------
+       Canvas Content Area
+       ---------------------------------------------------------------- */
+
+    #canvas-content {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 500px;
+      border-radius: 22px;
+      background: color-mix(in srgb, var(--bg-base) 82%, transparent);
+      padding: clamp(1rem, 3vw, 2rem);
+      font-size: clamp(1rem, 2.5vw, 2rem);
+      line-height: 1.5;
+      transition: opacity var(--transition);
+      overflow: auto;
+    }
+
+    /* SSE-driven: in implementation, canvas_state / canvas_update /
+       canvas_clear / canvas_visible events replace this placeholder
+       content via innerHTML updates from the EventSource stream. */
+
+    .canvas-waiting {
+      text-align: center;
+      max-width: 32rem;
+      color: var(--fg-overlay);
+    }
+
+    .canvas-waiting strong {
+      display: block;
+      margin-bottom: var(--sp-3);
+      color: var(--fg-sub0);
+      font-size: clamp(1.25rem, 3vw, 2rem);
+      font-weight: var(--weight-bold);
+    }
+
+    .canvas-waiting p {
+      font-size: var(--text-base);
+      line-height: var(--leading);
+      color: var(--fg-overlay);
+    }
+
+
+    /* ----------------------------------------------------------------
+       Nickname Dialog (interact permission only)
+       ---------------------------------------------------------------- */
+
+    .nickname-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17, 17, 27, 0.72);
+      display: grid;
+      place-items: center;
+      z-index: 100;
+      padding: var(--sp-4);
+    }
+
+    .nickname-dialog {
+      width: min(28rem, 100%);
+      background: var(--bg-mantle);
+      border: 1px solid var(--border-highlight);
+      border-radius: 20px;
+      padding: var(--sp-6);
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-4);
+    }
+
+    .nickname-dialog h2 {
+      font-size: var(--text-lg);
+      font-weight: var(--weight-bold);
+      color: var(--fg);
+      margin: 0;
+    }
+
+    .nickname-dialog p {
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+      line-height: var(--leading);
+      margin: 0;
+    }
+
+    .nickname-dialog label {
+      display: block;
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--fg-sub0);
+      margin-bottom: var(--sp-1);
+    }
+
+    .nickname-dialog input[type="text"] {
+      width: 100%;
+      background: var(--bg-base);
+      color: var(--fg);
+      border: var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--sp-3) var(--sp-4);
+      font: inherit;
+      font-size: var(--text-base);
+      outline: none;
+      transition: border-color var(--transition);
+    }
+
+    .nickname-dialog input[type="text"]:focus {
+      border-color: var(--accent);
+    }
+
+    .nickname-dialog input[type="text"]::placeholder {
+      color: var(--fg-overlay);
+    }
+
+
+    /* ----------------------------------------------------------------
+       Connection Status Indicator — fixed bottom-right
+       ---------------------------------------------------------------- */
+
+    .connection-status {
+      position: fixed;
+      right: var(--sp-4);
+      bottom: var(--sp-4);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      z-index: 50;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background var(--transition);
+    }
+
+    .status-dot-connected {
+      background: var(--success);
+      box-shadow: 0 0 6px color-mix(in srgb, var(--success) 40%, transparent);
+    }
+
+    .status-dot-reconnecting {
+      background: var(--warning);
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+
+    .status-dot-disconnected {
+      background: var(--error);
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.3); }
+    }
+
+
+    /* ----------------------------------------------------------------
+       View-Only Annotation
+       ---------------------------------------------------------------- */
+
+    .view-only-note {
+      text-align: center;
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      opacity: 0.7;
+      margin-top: var(--sp-2);
+      letter-spacing: 0.04em;
+    }
+
+
+    /* ----------------------------------------------------------------
+       Theme Toggle — top-right corner
+       ---------------------------------------------------------------- */
+
+    .canvas-theme-toggle {
+      position: fixed;
+      top: var(--sp-3);
+      right: var(--sp-3);
+      z-index: 50;
+    }
+
+
+    /* ----------------------------------------------------------------
+       Responsive Breakpoints
+       ---------------------------------------------------------------- */
+
+    @media (max-width: 768px) {
+      .canvas-stage {
+        min-height: auto;
+        border-radius: 22px;
+        padding: var(--sp-4);
+      }
+
+      .canvas-heading {
+        font-size: var(--text-xs);
+        gap: var(--sp-2);
+      }
+
+      #canvas-content {
+        min-height: 360px;
+        border-radius: 16px;
+        padding: var(--sp-4);
+      }
+
+      .nickname-dialog {
+        padding: var(--sp-4);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .canvas-shell {
+        padding: var(--sp-3);
+      }
+
+      .canvas-stage {
+        border-radius: 16px;
+        padding: var(--sp-3);
+        gap: var(--sp-3);
+      }
+
+      .canvas-heading {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--sp-2);
+      }
+
+      #canvas-content {
+        min-height: 280px;
+        border-radius: 12px;
+        padding: var(--sp-3);
+        font-size: var(--text-base);
+      }
+
+      .nickname-dialog {
+        border-radius: 16px;
+        padding: var(--sp-3);
+      }
+
+      .connection-status {
+        right: var(--sp-3);
+        bottom: var(--sp-3);
+      }
+    }
+  </style>
+</head>
+<body>
+
+<button class="theme-toggle canvas-theme-toggle" aria-label="Toggle theme"></button>
+
+<!-- ================================================================
+     Canvas Shell — full viewport, centered layout, dark background
+     ================================================================ -->
+<div class="canvas-shell">
+
+  <!-- ================================================================
+       Canvas Stage — modal-like centered panel
+       ================================================================ -->
+  <section class="canvas-stage">
+
+    <header class="canvas-heading">
+      <span class="canvas-heading-title">
+        <span class="logo-mark">&#10095;</span>
+        DartClaw Canvas
+      </span>
+      <!-- Permission chip: "interact" (accent) or "view" (muted).
+           Trellis template uses: tl:text="${permission}" with
+           conditional class based on isInteract / isViewOnly. -->
+      <span class="canvas-chip canvas-chip-interact">interact</span>
+    </header>
+
+    <!-- Main canvas content area. In implementation, SSE events
+         (canvas_state, canvas_update, canvas_clear, canvas_visible)
+         replace innerHTML via EventSource stream connection. -->
+    <main id="canvas-content">
+      <div class="canvas-waiting">
+        <strong>Waiting for canvas content</strong>
+        <p>The agent can publish live boards, votes, and review surfaces here.</p>
+      </div>
+    </main>
+
+  </section>
+
+  <!-- View-only annotation — shown when permission is "view" -->
+  <div class="view-only-note" style="opacity: 0.5;">
+    View-only &mdash; interactions disabled
+  </div>
+
+</div>
+
+
+<!-- ================================================================
+     Nickname Dialog — shown for "interact" permission only.
+     In implementation, uses <dialog> with showModal().
+     Shown once per device; nickname persisted in cookie.
+     ================================================================ -->
+<div class="nickname-backdrop">
+  <div class="nickname-dialog">
+    <h2>Join the session</h2>
+    <p>Pick a display name for any canvas interactions you trigger from this device.</p>
+
+    <div>
+      <label for="nickname-input">Display name</label>
+      <input
+        id="nickname-input"
+        type="text"
+        maxlength="40"
+        placeholder="Your name"
+        spellcheck="false"
+        autocomplete="off"
+      >
+    </div>
+
+    <button class="btn btn-primary btn-full" type="button" id="nickname-submit">
+      Continue
+    </button>
+  </div>
+</div>
+
+
+<!-- ================================================================
+     Connection Status Indicator — fixed bottom-right
+     States: connected (green), reconnecting (warning+pulse),
+             disconnected (error). Showing "Connected" in wireframe.
+     ================================================================ -->
+<div class="connection-status">
+  <span class="status-dot status-dot-connected"></span>
+  <span>Connected</span>
+</div>
+
+
+<!-- ================================================================
+     Scripts
+     ================================================================ -->
+<script>
+  // Theme toggle
+  document.querySelector('.theme-toggle').addEventListener('click', () => {
+    const html = document.documentElement;
+    const next = html.getAttribute('data-theme') === 'light' ? null : 'light';
+    if (next) {
+      html.setAttribute('data-theme', next);
+    } else {
+      html.removeAttribute('data-theme');
+    }
+  });
+
+  // Demo: dismiss nickname dialog on submit
+  document.getElementById('nickname-submit').addEventListener('click', () => {
+    const input = document.getElementById('nickname-input');
+    if (input.value.trim()) {
+      document.querySelector('.nickname-backdrop').style.display = 'none';
+    } else {
+      input.focus();
+    }
+  });
+
+  // Demo: cycle connection status on click
+  const statusEl = document.querySelector('.connection-status');
+  const states = [
+    { dot: 'status-dot-connected', label: 'Connected' },
+    { dot: 'status-dot-reconnecting', label: 'Reconnecting...' },
+    { dot: 'status-dot-disconnected', label: 'Disconnected' },
+  ];
+  let stateIdx = 0;
+  statusEl.addEventListener('click', () => {
+    stateIdx = (stateIdx + 1) % states.length;
+    const dot = statusEl.querySelector('.status-dot');
+    const label = statusEl.querySelector('span:last-child');
+    dot.className = 'status-dot ' + states[stateIdx].dot;
+    label.textContent = states[stateIdx].label;
+  });
+
+  // Demo: toggle permission chip between interact and view
+  const chip = document.querySelector('.canvas-chip');
+  chip.addEventListener('click', () => {
+    const isInteract = chip.classList.contains('canvas-chip-interact');
+    chip.classList.toggle('canvas-chip-interact', !isInteract);
+    chip.classList.toggle('canvas-chip-view', isInteract);
+    chip.textContent = isInteract ? 'view' : 'interact';
+  });
+</script>
+
+</body>
+</html>

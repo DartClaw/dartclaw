@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - Settings</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    /* --- Settings content area (uses shared page-content/page-inner) --- */
+    .page-content { overflow-y: auto; padding: var(--sp-6); }
+    @media (max-width: 768px) { .page-content { padding: var(--sp-4) var(--sp-3); } }
+    .page-inner { max-width: var(--container-max); margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-6); }
+
+    .settings-header {
+      margin-bottom: var(--sp-6);
+    }
+
+    .settings-header h1 {
+      font-size: var(--text-xl);
+      font-weight: var(--weight-bold);
+      color: var(--fg);
+      margin-bottom: var(--sp-1);
+    }
+
+    .settings-header p {
+      font-size: var(--text-sm);
+      color: var(--fg-overlay);
+    }
+
+    /* --- Card grid --- */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--sp-4);
+      max-width: 960px;
+    }
+
+    @media (max-width: 768px) {
+      .settings-grid { grid-template-columns: 1fr; }
+    }
+
+    /* --- Full-width card spanning 2 columns --- */
+    .span-2 { grid-column: span 2; }
+    @media (max-width: 768px) { .span-2 { grid-column: span 1; } }
+
+    /* --- Card (extends .card from components.css) --- */
+    .settings-card {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-3);
+    }
+
+    .settings-card .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-2);
+    }
+
+    .card-title {
+      font-size: var(--text-base);
+      font-weight: var(--weight-bold);
+      color: var(--fg);
+    }
+
+    /* --- Card detail rows --- */
+    .card-detail {
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+
+    .card-detail-value {
+      color: var(--fg);
+    }
+
+    /* --- Guard list --- */
+    .guard-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+
+    .guard-item {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+    }
+
+    .guard-check {
+      color: var(--success);
+      font-weight: var(--weight-bold);
+      flex-shrink: 0;
+    }
+
+    /* --- File tag list --- */
+    .file-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--sp-1);
+    }
+
+    .file-tag {
+      font-size: var(--text-xs);
+      color: var(--fg-sub0);
+      background: var(--bg-surface0);
+      padding: 2px var(--sp-2);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+    }
+
+    /* --- Masked token row --- */
+    .token-row {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+
+    .token-masked {
+      font-family: var(--font-mono);
+      font-size: var(--text-sm);
+      color: var(--fg);
+      letter-spacing: 0.1em;
+    }
+
+    .token-action-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      background: transparent;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      color: var(--fg-overlay);
+      font-size: var(--text-sm);
+      flex-shrink: 0;
+      transition: color var(--transition), background var(--transition);
+    }
+
+    .token-action-btn:hover {
+      background: var(--bg-surface0);
+      color: var(--fg);
+    }
+
+    /* --- Card actions (bottom of card) --- */
+    .card-actions {
+      margin-top: auto;
+      padding-top: var(--sp-2);
+      border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+    }
+
+    .card-actions .btn { font-size: var(--text-xs); }
+
+    .card-link {
+      font-size: var(--text-xs);
+      color: var(--accent);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+
+    .card-link:hover { text-decoration: underline; }
+
+    /* --- Mode badge --- */
+    .mode-badge {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-medium);
+      padding: 2px var(--sp-2);
+      border-radius: var(--radius);
+      background: var(--bg-surface0);
+      color: var(--fg-sub0);
+    }
+
+    /* --- Save confirmation banner --- */
+    .save-banner {
+      background: color-mix(in srgb, var(--success) 10%, var(--bg-mantle));
+      border: 1px solid color-mix(in srgb, var(--success) 30%, var(--bg-surface0));
+      border-radius: var(--radius);
+      padding: var(--sp-2) var(--sp-4);
+      font-size: var(--text-sm);
+      color: var(--success);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-4);
+    }
+
+    /* --- Restart-required banner --- */
+    .restart-banner {
+      background: color-mix(in srgb, var(--warning) 10%, var(--bg-mantle));
+      border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--bg-surface0));
+      border-radius: var(--radius);
+      padding: var(--sp-3) var(--sp-4);
+      font-size: var(--text-sm);
+      color: var(--warning);
+      display: flex;
+      align-items: flex-start;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-4);
+    }
+
+    .restart-banner strong {
+      color: var(--fg);
+    }
+
+    .restart-banner .btn-sm {
+      padding: var(--sp-1) var(--sp-2);
+      font-size: var(--text-xs);
+    }
+
+    /* --- Restart badge (inline on form fields) --- */
+    .restart-badge {
+      font-size: 0.625rem;
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px var(--sp-1);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--warning) 15%, var(--bg-surface0));
+      color: var(--warning);
+      flex-shrink: 0;
+    }
+
+    /* --- Form fields --- */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-1);
+    }
+
+    .form-label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-medium);
+      color: var(--fg-sub0);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+
+    .form-input,
+    .form-select {
+      background: var(--bg-base);
+      border: var(--border);
+      border-radius: var(--radius);
+      padding: var(--sp-1) var(--sp-2);
+      font: inherit;
+      font-size: var(--text-sm);
+      color: var(--fg);
+      outline: none;
+      transition: border-color var(--transition);
+      width: 100%;
+    }
+
+    .form-input:focus,
+    .form-select:focus {
+      border-color: var(--accent);
+    }
+
+    .form-select {
+      cursor: pointer;
+      appearance: auto;
+    }
+
+    .form-input[type="number"] {
+      width: 100px;
+    }
+
+    .form-hint {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+    }
+
+    .form-row {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-3);
+    }
+
+    .form-fields {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-3);
+    }
+
+    .form-actions {
+      display: flex;
+      gap: var(--sp-2);
+      padding-top: var(--sp-3);
+      border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
+    }
+
+    .form-actions .btn { font-size: var(--text-xs); }
+
+    /* --- Toggle switch --- */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: var(--bg-surface1);
+      border-radius: 10px;
+      transition: background var(--transition);
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: var(--fg);
+      border-radius: 50%;
+      transition: transform var(--transition);
+    }
+
+    .toggle-switch input:checked + .toggle-slider {
+      background: var(--accent);
+    }
+
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(16px);
+      background: var(--bg-crust);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-2);
+    }
+
+    .toggle-label {
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+
+    .live-badge {
+      font-size: 0.625rem;
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px var(--sp-1);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--success) 15%, var(--bg-surface0));
+      color: var(--success);
+      flex-shrink: 0;
+    }
+
+    /* --- Guard detail section --- */
+    .guard-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--sp-3);
+    }
+
+    .guard-section-header .card-title {
+      font-size: var(--text-lg);
+    }
+
+    .view-only-badge {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-medium);
+      padding: 2px var(--sp-2);
+      border-radius: var(--radius);
+      background: var(--bg-surface0);
+      color: var(--fg-overlay);
+    }
+
+    .guard-details-grid {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sp-3);
+    }
+
+    .guard-detail-card {
+      background: var(--bg-base);
+      border: var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .guard-detail-header {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      padding: var(--sp-3) var(--sp-4);
+      cursor: pointer;
+      background: none;
+      border: none;
+      font: inherit;
+      color: var(--fg);
+      width: 100%;
+      transition: background var(--transition);
+    }
+
+    .guard-detail-header:hover {
+      background: var(--bg-surface0);
+    }
+
+    .guard-detail-header .chevron {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      transition: transform var(--transition);
+      flex-shrink: 0;
+    }
+
+    .guard-detail-header[aria-expanded="true"] .chevron {
+      transform: rotate(90deg);
+    }
+
+    .guard-detail-header .guard-name {
+      font-weight: var(--weight-bold);
+      font-size: var(--text-sm);
+      flex: 1;
+      text-align: left;
+    }
+
+    .guard-detail-body {
+      display: none;
+      padding: 0 var(--sp-4) var(--sp-3);
+      border-top: var(--border);
+    }
+
+    .guard-detail-body.open {
+      display: block;
+    }
+
+    .guard-detail-body .detail-section {
+      padding: var(--sp-2) 0;
+    }
+
+    .guard-detail-body .detail-section + .detail-section {
+      border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
+    }
+
+    .detail-label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--fg-overlay);
+      margin-bottom: var(--sp-1);
+    }
+
+    .detail-value {
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+      font-family: var(--font-mono);
+    }
+
+    .detail-tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--sp-1);
+    }
+
+    .detail-tag {
+      font-size: var(--text-xs);
+      color: var(--fg-sub0);
+      background: var(--bg-surface0);
+      padding: 2px var(--sp-2);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+    }
+
+    .detail-tag-blocked {
+      color: var(--error);
+      background: color-mix(in srgb, var(--error) 10%, var(--bg-surface0));
+    }
+
+    /* Mini access table inside guard detail */
+    .access-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--text-xs);
+      margin-top: var(--sp-1);
+    }
+
+    .access-table th,
+    .access-table td {
+      padding: var(--sp-1) var(--sp-2);
+      text-align: left;
+      border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
+    }
+
+    .access-table th {
+      font-weight: var(--weight-bold);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--fg-overlay);
+    }
+
+    .access-table td {
+      color: var(--fg-sub0);
+      font-family: var(--font-mono);
+    }
+
+    .guard-detail-footer {
+      padding: var(--sp-2) var(--sp-4);
+      border-top: var(--border);
+      background: color-mix(in srgb, var(--bg-surface0) 30%, transparent);
+    }
+
+    /* --- Settings in-page tab navigation --- */
+    .settings-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--bg-surface1);
+      margin-bottom: var(--sp-4);
+      position: sticky;
+      top: 0;
+      background: var(--bg-base);
+      z-index: 10;
+      overflow-x: auto;
+    }
+
+    .settings-tab {
+      font-size: var(--text-sm);
+      padding: var(--sp-2) var(--sp-4);
+      text-decoration: none;
+      color: var(--fg-sub0);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color var(--transition), border-color var(--transition);
+      white-space: nowrap;
+    }
+
+    .settings-tab:hover {
+      color: var(--fg);
+    }
+
+    .settings-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* --- Section footer note --- */
+    .section-note {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      padding-top: var(--sp-2);
+      border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
+      display: flex;
+      align-items: center;
+      gap: var(--sp-1);
+    }
+
+    .section-note.note-restart {
+      color: color-mix(in srgb, var(--warning) 70%, var(--fg-overlay));
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Sidebar (unified) -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">&#10095; DartClaw</span>
+    </div>
+    <div class="session-list">
+      <div class="sidebar-section-label">Workspace</div>
+      <div class="session-item" data-icon="terminal">Agent</div>
+
+      <div class="sidebar-section-label">Channels</div>
+      <div class="session-item" data-icon="hash">
+        WhatsApp Alice
+      </div>
+      <div class="session-item" data-icon="hash">
+        Signal Bob
+      </div>
+
+      <div class="sidebar-section-label">Sessions</div>
+      <button class="btn btn-ghost btn-new-session" data-icon="new-session" style="width:calc(100% - var(--sp-6));margin:0 var(--sp-3) var(--sp-2);">New Session</button>
+      <div class="session-item" data-icon="message-circle">
+        Refactor auth module
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+      <div class="session-item" data-icon="message-circle">
+        Debug API endpoints
+        <button class="delete-btn" data-icon="x" aria-label="Delete session"></button>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <a href="health-dashboard.html" class="sidebar-nav-item" data-icon="health">Health</a>
+      <a href="settings-page.html" class="sidebar-nav-item active" data-icon="settings">Settings</a>
+      <a href="memory-dashboard.html" class="sidebar-nav-item" data-icon="memory">Memory</a>
+      <a href="scheduling-status.html" class="sidebar-nav-item" data-icon="scheduling">Scheduling</a>
+    </div>
+  </aside>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="btn btn-icon btn-ghost menu-toggle" data-icon="menu" onclick="document.querySelector('.sidebar').classList.toggle('open')"></button>
+    <span class="session-title-static">Settings</span>
+    <div class="topbar-actions">
+      <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+    </div>
+  </header>
+
+  <!-- Settings content -->
+  <main class="page-content">
+    <div class="page-inner">
+    <!-- Post-save state: success banner (shown after saving settings) -->
+    <div class="save-banner">
+      <span class="icon icon-check" aria-hidden="true"></span>
+      Settings saved successfully
+    </div>
+
+    <!-- Restart-required banner (shown when config changes need restart) -->
+    <div class="restart-banner">
+      <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+      <div>
+        <strong>Restart required</strong> &mdash; Agent Model changed
+        <div style="margin-top:var(--sp-1);">
+          <button class="btn btn-sm btn-primary">Restart Now</button>
+          <button class="btn btn-sm btn-ghost">Dismiss</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-header">
+      <h1>Settings</h1>
+      <p>Configuration and system status</p>
+    </div>
+
+    <!-- In-page tab navigation (show/hide panels, not scroll) -->
+    <nav class="settings-tabs" aria-label="Settings sections">
+      <a href="#agent" class="settings-tab active">Agent</a>
+      <a href="#server" class="settings-tab">Server</a>
+      <a href="#sessions" class="settings-tab">Sessions</a>
+      <a href="#memory" class="settings-tab">Memory</a>
+      <a href="#scheduling" class="settings-tab">Scheduling</a>
+      <a href="#channels" class="settings-tab">Channels</a>
+      <a href="#security" class="settings-tab">Security</a>
+    </nav>
+
+    <div class="settings-grid">
+
+      <!-- 1. Agent Configuration (form mode) -->
+      <div class="card settings-card" id="agent" data-tab="agent">
+        <div class="card-header">
+          <span class="card-title">Agent Configuration</span>
+        </div>
+        <div class="form-fields">
+          <div class="form-group">
+            <label class="form-label">Agent Model</label>
+            <select class="form-select">
+              <option selected>sonnet</option>
+              <option>haiku</option>
+              <option>opus</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Turns</label>
+            <input type="number" class="form-input" value="25" min="1" max="100">
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Context 1M <span class="live-badge">live</span></span>
+            <label class="toggle-switch">
+              <input type="checkbox" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Disallowed Tools</label>
+            <input type="text" class="form-input" style="width:100%;" value="mcp__shell, mcp__exec" placeholder="Comma-separated tool names">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary">Save</button>
+          <button class="btn btn-ghost">Cancel</button>
+        </div>
+        <p class="section-note note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+      </div>
+
+      <!-- 2. Server Configuration (form mode) -->
+      <div class="card settings-card" id="server" data-tab="server">
+        <div class="card-header">
+          <span class="card-title">Server Configuration</span>
+        </div>
+        <div class="form-fields">
+          <div class="form-group">
+            <label class="form-label">Port</label>
+            <input type="number" class="form-input" value="3000" min="1" max="65535">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Host</label>
+            <input type="text" class="form-input" style="width:100%;" value="0.0.0.0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Worker Timeout</label>
+            <div class="form-row">
+              <input type="number" class="form-input" value="120" min="10"> <span class="form-hint">seconds</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Logging Level <span class="live-badge">live</span></label>
+            <select class="form-select">
+              <option>FINE</option>
+              <option selected>INFO</option>
+              <option>WARNING</option>
+              <option>SEVERE</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Logging Format</label>
+            <select class="form-select">
+              <option selected>human</option>
+              <option>json</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary">Save</button>
+          <button class="btn btn-ghost">Cancel</button>
+        </div>
+        <p class="section-note note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+      </div>
+
+      <!-- 3. Sessions (form mode) -->
+      <div class="card settings-card" id="sessions" data-tab="sessions">
+        <div class="card-header">
+          <span class="card-title">Sessions</span>
+        </div>
+        <div class="form-fields">
+          <div class="form-group">
+            <label class="form-label">Reset Hour</label>
+            <div class="form-row">
+              <input type="number" class="form-input" value="4" min="0" max="23"> <span class="form-hint">UTC (0&ndash;23)</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Idle Timeout</label>
+            <div class="form-row">
+              <input type="number" class="form-input" value="30" min="1"> <span class="form-hint">minutes</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary">Save</button>
+          <button class="btn btn-ghost">Cancel</button>
+        </div>
+        <p class="section-note note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+      </div>
+
+      <!-- 4. Memory Configuration (form mode) -->
+      <div class="card settings-card" id="memory" data-tab="memory">
+        <div class="card-header">
+          <span class="card-title">Memory Configuration</span>
+        </div>
+        <div class="form-fields">
+          <div class="form-group">
+            <label class="form-label">Memory Max Bytes</label>
+            <div class="form-row">
+              <input type="number" class="form-input" style="width:120px;" value="32768" min="1024"> <span class="form-hint">bytes</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Search Backend</label>
+            <select class="form-select">
+              <option selected>builtin</option>
+              <option>qmd</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Search Depth</label>
+            <input type="number" class="form-input" value="10" min="1" max="100">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary">Save</button>
+          <button class="btn btn-ghost">Cancel</button>
+        </div>
+        <p class="section-note note-restart"><span class="icon icon-triangle-alert" aria-hidden="true"></span> Changes to this section require a server restart</p>
+      </div>
+
+      <!-- 5. Scheduling (form mode) -->
+      <div class="card settings-card" data-tab="scheduling">
+        <div class="card-header">
+          <span class="card-title">Scheduling</span>
+        </div>
+        <div class="form-fields">
+          <div class="toggle-row">
+            <span class="toggle-label">Heartbeat <span class="live-badge">live</span></span>
+            <label class="toggle-switch">
+              <input type="checkbox" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Heartbeat Interval</label>
+            <div class="form-row">
+              <input type="number" class="form-input" value="30" min="1"> <span class="form-hint">minutes</span>
+            </div>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Nightly Reflection <span class="live-badge">live</span></span>
+            <label class="toggle-switch">
+              <input type="checkbox" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Memory Pruner <span class="live-badge">live</span></span>
+            <label class="toggle-switch">
+              <input type="checkbox">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="card-actions">
+          <a href="scheduling-status.html" class="card-link">View schedule details <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+        </div>
+      </div>
+
+      <!-- 6. WhatsApp Channel (read-only) -->
+      <div class="card settings-card" id="channels" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title">WhatsApp Channel</span>
+          <span class="status-badge status-badge-success">Connected</span>
+        </div>
+        <div class="card-detail">
+          Number: <span class="card-detail-value">+49 *** *** 42</span>
+        </div>
+        <div class="card-actions">
+          <a href="whatsapp-channel-detail.html" class="card-link">Configure <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+        </div>
+      </div>
+
+      <!-- 7. Signal Channel (read-only) -->
+      <div class="card settings-card" data-tab="channels">
+        <div class="card-header">
+          <span class="card-title">Signal Channel</span>
+          <span class="status-badge status-badge-success">Connected</span>
+        </div>
+        <div class="card-detail">
+          Phone: <span class="card-detail-value">+1 *** *** 5678</span>
+        </div>
+        <div class="card-actions">
+          <a href="signal-channel-detail.html" class="card-link">Configure <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+        </div>
+      </div>
+
+      <!-- 8. Authentication (read-only) -->
+      <div class="card settings-card" data-tab="server">
+        <div class="card-header">
+          <span class="card-title">Authentication</span>
+          <span class="mode-badge">Token-based</span>
+        </div>
+        <div class="card-detail">Token:</div>
+        <div class="token-row">
+          <span class="token-masked">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span>
+        </div>
+        <div class="card-detail card-detail-hint" style="font-size: var(--text-xs); color: var(--fg-overlay);">
+          Use <code>dartclaw token show</code> to reveal
+        </div>
+        <div class="card-actions">
+          <!-- NOT YET IMPLEMENTED: Regenerate token from web UI -->
+          <button class="btn btn-danger" style="font-size: var(--text-xs);" onclick="confirmRegen(this)">Regenerate Token</button>
+        </div>
+      </div>
+
+      <!-- 9. Workspace (read-only) -->
+      <div class="card settings-card" data-tab="server">
+        <div class="card-header">
+          <span class="card-title">Workspace</span>
+          <span class="status-badge status-badge-success">Synced</span>
+        </div>
+        <div class="card-detail" style="font-family: var(--font-mono); font-size: var(--text-xs);">
+          ~/.dartclaw/workspace/
+        </div>
+        <div class="card-detail">
+          Git sync: <span class="card-detail-value">Enabled</span>
+        </div>
+        <div class="file-tags">
+          <span class="file-tag">SOUL.md</span>
+          <span class="file-tag">AGENTS.md</span>
+          <span class="file-tag">MEMORY.md</span>
+          <span class="file-tag">USER.md</span>
+          <span class="file-tag">TOOLS.md</span>
+          <span class="file-tag">HEARTBEAT.md</span>
+        </div>
+        <div class="card-detail text-xs" style="font-size: var(--text-xs); color: var(--fg-overlay);">
+          Last sync: Feb 25, 2026 10:38
+        </div>
+      </div>
+
+      <!-- 10. Guard Configuration Detail Viewer (full-width, collapsible) -->
+      <div class="card settings-card span-2" id="security" data-tab="security">
+        <div class="guard-section-header">
+          <span class="card-title" style="font-size: var(--text-lg);">Security &amp; Guards</span>
+          <div style="display:flex; align-items:center; gap:var(--sp-2);">
+            <span class="status-badge status-badge-success">5 active</span>
+            <span class="view-only-badge">View only</span>
+          </div>
+        </div>
+
+        <div class="guard-details-grid">
+
+          <!-- CommandGuard -->
+          <div class="guard-detail-card">
+            <button class="guard-detail-header" aria-expanded="true" onclick="toggleGuard(this)">
+              <span class="chevron"><span class="icon icon-chevron-right" aria-hidden="true"></span></span>
+              <span class="guard-name">CommandGuard</span>
+              <span class="status-badge status-badge-success">Enabled</span>
+            </button>
+            <div class="guard-detail-body open" id="guard-command">
+              <div class="detail-section">
+                <div class="detail-label">Allowed Commands</div>
+                <div class="detail-tag-list">
+                  <span class="detail-tag">dart</span>
+                  <span class="detail-tag">git</span>
+                  <span class="detail-tag">rg</span>
+                  <span class="detail-tag">cat</span>
+                  <span class="detail-tag">ls</span>
+                  <span class="detail-tag">head</span>
+                  <span class="detail-tag">tail</span>
+                  <span class="detail-tag">find</span>
+                  <span class="detail-tag">grep</span>
+                  <span class="detail-tag">echo</span>
+                </div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">Blocked Patterns</div>
+                <div class="detail-tag-list">
+                  <span class="detail-tag detail-tag-blocked">rm -rf</span>
+                  <span class="detail-tag detail-tag-blocked">sudo</span>
+                  <span class="detail-tag detail-tag-blocked">chmod 777</span>
+                  <span class="detail-tag detail-tag-blocked">curl | sh</span>
+                </div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">Fail-Open</div>
+                <div class="detail-value">No</div>
+              </div>
+            </div>
+            <div class="guard-detail-footer">
+              <a href="health-dashboard.html" class="card-link">View recent events <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+            </div>
+          </div>
+
+          <!-- FileGuard -->
+          <div class="guard-detail-card">
+            <button class="guard-detail-header" aria-expanded="false" onclick="toggleGuard(this)">
+              <span class="chevron"><span class="icon icon-chevron-right" aria-hidden="true"></span></span>
+              <span class="guard-name">FileGuard</span>
+              <span class="status-badge status-badge-success">Enabled</span>
+            </button>
+            <div class="guard-detail-body" id="guard-file">
+              <div class="detail-section">
+                <div class="detail-label">Per-Path Access</div>
+                <table class="access-table">
+                  <thead>
+                    <tr><th>Path</th><th>Access</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>~/.dartclaw/workspace/</td><td>read-write</td></tr>
+                    <tr><td>~/.dartclaw/data/</td><td>read-write</td></tr>
+                    <tr><td>/tmp/dartclaw-*</td><td>read-write</td></tr>
+                    <tr><td>~/projects/</td><td>read-only</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">Blocked Patterns</div>
+                <div class="detail-tag-list">
+                  <span class="detail-tag detail-tag-blocked">/etc/*</span>
+                  <span class="detail-tag detail-tag-blocked">~/.ssh/*</span>
+                  <span class="detail-tag detail-tag-blocked">~/.gnupg/*</span>
+                  <span class="detail-tag detail-tag-blocked">~/.aws/*</span>
+                </div>
+              </div>
+            </div>
+            <div class="guard-detail-footer">
+              <a href="health-dashboard.html" class="card-link">View recent events <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+            </div>
+          </div>
+
+          <!-- NetworkGuard -->
+          <div class="guard-detail-card">
+            <button class="guard-detail-header" aria-expanded="false" onclick="toggleGuard(this)">
+              <span class="chevron"><span class="icon icon-chevron-right" aria-hidden="true"></span></span>
+              <span class="guard-name">NetworkGuard</span>
+              <span class="status-badge status-badge-success">Enabled</span>
+            </button>
+            <div class="guard-detail-body" id="guard-network">
+              <div class="detail-section">
+                <div class="detail-label">Allowed Hosts</div>
+                <div class="detail-tag-list">
+                  <span class="detail-tag">api.anthropic.com</span>
+                  <span class="detail-tag">pub.dev</span>
+                  <span class="detail-tag">api.github.com</span>
+                  <span class="detail-tag">raw.githubusercontent.com</span>
+                </div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">Default Policy</div>
+                <div class="detail-value" style="color:var(--error);">deny</div>
+              </div>
+            </div>
+            <div class="guard-detail-footer">
+              <a href="health-dashboard.html" class="card-link">View recent events <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+            </div>
+          </div>
+
+          <!-- InputSanitizer -->
+          <div class="guard-detail-card">
+            <button class="guard-detail-header" aria-expanded="false" onclick="toggleGuard(this)">
+              <span class="chevron"><span class="icon icon-chevron-right" aria-hidden="true"></span></span>
+              <span class="guard-name">InputSanitizer</span>
+              <span class="status-badge status-badge-success">Enabled</span>
+            </button>
+            <div class="guard-detail-body" id="guard-input">
+              <div class="detail-section">
+                <div class="detail-label">Pattern Categories</div>
+                <div class="detail-tag-list">
+                  <span class="detail-tag">instruction override</span>
+                  <span class="detail-tag">role-play</span>
+                  <span class="detail-tag">prompt leak</span>
+                  <span class="detail-tag">meta-injection</span>
+                </div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">Custom Patterns</div>
+                <div class="detail-value">2</div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">Channels Only</div>
+                <div class="detail-value">Yes</div>
+              </div>
+            </div>
+            <div class="guard-detail-footer">
+              <a href="health-dashboard.html" class="card-link">View recent events <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+            </div>
+          </div>
+
+          <!-- ContentGuard -->
+          <div class="guard-detail-card">
+            <button class="guard-detail-header" aria-expanded="false" onclick="toggleGuard(this)">
+              <span class="chevron"><span class="icon icon-chevron-right" aria-hidden="true"></span></span>
+              <span class="guard-name">ContentGuard</span>
+              <span class="status-badge status-badge-success">Enabled</span>
+            </button>
+            <div class="guard-detail-body" id="guard-content">
+              <div class="detail-section">
+                <div class="detail-label">Model</div>
+                <div class="detail-value">haiku</div>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">API Key</div>
+                <div class="detail-value" style="color:var(--success);"><span class="icon icon-check" aria-hidden="true"></span> Configured</div>
+              </div>
+            </div>
+            <div class="guard-detail-footer">
+              <a href="health-dashboard.html" class="card-link">View recent events <span class="icon icon-arrow-right" aria-hidden="true"></span></a>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+
+function confirmRegen(btn) {
+  if (btn.dataset.confirming) {
+    btn.textContent = 'Regenerated!';
+    btn.style.borderColor = 'var(--success)';
+    btn.style.color = 'var(--success)';
+    btn.disabled = true;
+    delete btn.dataset.confirming;
+    setTimeout(() => {
+      btn.textContent = 'Regenerate Token';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+      btn.disabled = false;
+    }, 2000);
+    return;
+  }
+  btn.dataset.confirming = '1';
+  btn.textContent = 'Confirm Regenerate?';
+  btn.style.background = 'color-mix(in srgb, var(--error) 15%, var(--bg-mantle))';
+  setTimeout(() => {
+    if (btn.dataset.confirming) {
+      btn.textContent = 'Regenerate Token';
+      btn.style.background = '';
+      delete btn.dataset.confirming;
+    }
+  }, 4000);
+}
+
+function toggleGuard(btn) {
+  const expanded = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', !expanded);
+  const body = btn.nextElementSibling;
+  body.classList.toggle('open');
+}
+
+// Settings tab navigation (show/hide panels, not scroll)
+document.addEventListener('click', function(event) {
+  var tab = event.target.closest('.settings-tab');
+  if (!tab) return;
+  event.preventDefault();
+  var targetId = (tab.getAttribute('href') || '').replace('#', '');
+  if (!targetId) return;
+  activateSettingsTab(targetId);
+  history.replaceState(null, '', '#' + targetId);
+});
+
+function activateSettingsTab(tabId) {
+  document.querySelectorAll('.settings-tab').forEach(function(t) {
+    t.classList.toggle('active', t.getAttribute('href') === '#' + tabId);
+  });
+  var grid = document.querySelector('.settings-grid');
+  if (!grid) return;
+  grid.querySelectorAll('[data-tab]').forEach(function(card) {
+    card.style.display = card.dataset.tab === tabId ? '' : 'none';
+  });
+  var main = document.querySelector('.page-content');
+  if (main) main.scrollTop = 0;
+}
+
+// Activate initial tab from URL hash (default: agent)
+(function() {
+  var initialTab = (location.hash || '#agent').replace('#', '');
+  if (!document.querySelector('.settings-tab[href="#' + initialTab + '"]')) initialTab = 'agent';
+  activateSettingsTab(initialTab);
+})();
+</script>
+
+</body>
+</html>

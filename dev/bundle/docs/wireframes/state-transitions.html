@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DartClaw - State Transitions</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/tokens.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/components.css">
+  <link rel="stylesheet" href="../../../dartclaw-public/dev/design-system/icons.css">
+  <style>
+    body {
+      padding: var(--sp-6);
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .page-title {
+      font-size: var(--text-xl);
+      font-weight: var(--weight-bold);
+      color: var(--fg);
+      margin-bottom: var(--sp-1);
+    }
+
+    .page-desc {
+      font-size: var(--text-sm);
+      color: var(--fg-sub0);
+      margin-bottom: var(--sp-8);
+    }
+
+    /* --- Flow section --- */
+    .flow-section {
+      margin-bottom: var(--sp-8);
+    }
+
+    .flow-title {
+      font-size: var(--text-base);
+      font-weight: var(--weight-bold);
+      color: var(--fg);
+      margin-bottom: var(--sp-1);
+    }
+
+    .flow-desc {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      margin-bottom: var(--sp-4);
+    }
+
+    /* --- Transition row --- */
+    .transition-row {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      flex-wrap: wrap;
+      margin-bottom: var(--sp-3);
+    }
+
+    .state-box {
+      background: var(--bg-mantle);
+      border: var(--border);
+      border-radius: var(--radius);
+      padding: var(--sp-2) var(--sp-3);
+      font-size: var(--text-sm);
+      font-weight: var(--weight-medium);
+      color: var(--fg);
+      white-space: nowrap;
+    }
+
+    .state-box.initial {
+      border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 8%, var(--bg-mantle));
+    }
+
+    .state-box.success {
+      border-color: var(--success);
+      background: color-mix(in srgb, var(--success) 8%, var(--bg-mantle));
+    }
+
+    .state-box.error {
+      border-color: var(--error);
+      background: color-mix(in srgb, var(--error) 8%, var(--bg-mantle));
+    }
+
+    .state-box.warning {
+      border-color: var(--warning);
+      background: color-mix(in srgb, var(--warning) 8%, var(--bg-mantle));
+    }
+
+    .state-box.muted {
+      border-color: var(--bg-surface2);
+      color: var(--fg-sub0);
+    }
+
+    .arrow {
+      color: var(--fg-overlay);
+      font-size: var(--text-sm);
+      flex-shrink: 0;
+    }
+
+    .trigger-label {
+      font-size: var(--text-xs);
+      color: var(--fg-overlay);
+      background: var(--bg-base);
+      border: 1px dashed var(--bg-surface1);
+      border-radius: var(--radius);
+      padding: var(--sp-1) var(--sp-2);
+      white-space: nowrap;
+    }
+
+    /* --- Divider --- */
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--bg-surface0);
+      margin: var(--sp-6) 0;
+    }
+
+    /* --- Legend --- */
+    .legend {
+      display: flex;
+      gap: var(--sp-4);
+      flex-wrap: wrap;
+      margin-bottom: var(--sp-6);
+      padding: var(--sp-3);
+      background: var(--bg-mantle);
+      border: var(--border);
+      border-radius: var(--radius);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: var(--sp-2);
+      font-size: var(--text-xs);
+      color: var(--fg-sub0);
+    }
+
+    .legend-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      border: 1px solid;
+    }
+  </style>
+</head>
+<body>
+
+<h1 class="page-title">State Transitions</h1>
+<p class="page-desc">Visual reference for key state flows across the application. Dashed labels indicate the trigger for each transition.</p>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:var(--accent);background:color-mix(in srgb, var(--accent) 15%, var(--bg-mantle));"></div>
+    Initial / entry state
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:var(--success);background:color-mix(in srgb, var(--success) 15%, var(--bg-mantle));"></div>
+    Success / target state
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:var(--warning);background:color-mix(in srgb, var(--warning) 15%, var(--bg-mantle));"></div>
+    Warning / transient state
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:var(--error);background:color-mix(in srgb, var(--error) 15%, var(--bg-mantle));"></div>
+    Error / failure state
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="border-color:var(--bg-surface2);background:var(--bg-mantle);"></div>
+    Terminal / inactive state
+  </div>
+</div>
+
+<!-- Auth Flow -->
+<div class="flow-section">
+  <div class="flow-title">Auth Flow</div>
+  <div class="flow-desc">User authentication from login page through to active chat session.</div>
+
+  <div class="transition-row">
+    <div class="state-box initial">Login Page</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">submit token</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box">Token Validation</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">valid token</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box success">Redirect to Chat</div>
+  </div>
+
+  <div class="transition-row">
+    <div class="state-box">Token Validation</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">invalid token</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box error">Login Error Banner</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">retry</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box initial">Login Page</div>
+  </div>
+</div>
+
+<hr class="section-divider">
+
+<!-- Session Lifecycle -->
+<div class="flow-section">
+  <div class="flow-title">Session Lifecycle</div>
+  <div class="flow-desc">A session's progression from creation through to archival.</div>
+
+  <div class="transition-row">
+    <div class="state-box initial">New</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">first message</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box success">Active</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">agent responds</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box">Streaming</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">stream complete</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box success">Active</div>
+  </div>
+
+  <div class="transition-row">
+    <div class="state-box success">Active</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">idle timeout</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box warning">Idle</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">auto-archive / manual</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box muted">Archived</div>
+  </div>
+</div>
+
+<hr class="section-divider">
+
+<!-- Worker Crash Recovery -->
+<div class="flow-section">
+  <div class="flow-title">Worker Crash Recovery</div>
+  <div class="flow-desc">How the UI responds to an agent worker process crash and auto-restart.</div>
+
+  <div class="transition-row">
+    <div class="state-box success">Running</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">process exit</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box error">Crashed</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">error detected</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box warning">Error Banner</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">auto-restart</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box success">Running</div>
+  </div>
+</div>
+
+<hr class="section-divider">
+
+<!-- SSE Reconnection -->
+<div class="flow-section">
+  <div class="flow-title">SSE Reconnection</div>
+  <div class="flow-desc">Server-Sent Events connection lifecycle for streaming responses.</div>
+
+  <div class="transition-row">
+    <div class="state-box success">Connected</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">network drop / server restart</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box error">Lost</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">EventSource retry</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box warning">Reconnecting</div>
+  </div>
+
+  <div class="transition-row">
+    <div class="state-box warning">Reconnecting</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">connection restored</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box success">Reconnected</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">cursor resume</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box success">Connected</div>
+  </div>
+
+  <div class="transition-row">
+    <div class="state-box warning">Reconnecting</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">max retries exceeded</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box error">Failed</div>
+    <span class="arrow">&rarr;</span>
+    <span class="trigger-label">manual reload</span>
+    <span class="arrow">&rarr;</span>
+    <div class="state-box initial">Page Reload</div>
+  </div>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  html.dataset.theme = html.dataset.theme === 'light' ? '' : 'light';
+  localStorage.setItem('dartclaw-theme', html.dataset.theme || 'dark');
+}
+const saved = localStorage.getItem('dartclaw-theme');
+if (saved === 'light') document.documentElement.dataset.theme = 'light';
+</script>
+
+<div style="position:fixed;top:var(--sp-3);right:var(--sp-3);">
+  <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme"></button>
+</div>
+
+</body>
+</html>

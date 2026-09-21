@@ -70,7 +70,10 @@ final class _WiringContext {
 /// Composes the turn manager the rest of the assembly threads through.
 ///
 /// Built before the server because scheduling, the task layer and the restart
-/// service all take it, and the server itself is one more consumer.
+/// service all take it, and the server itself is one more consumer. Its agent
+/// resolver therefore reads `harness.logicalAgentSessions` per lookup: that
+/// service is wired after this call, and only it knows the internal one-shot
+/// agents alongside the configured ones.
 TurnManager _composeTurns(
   DartclawConfig config,
   _WiringContext ctx,
@@ -95,6 +98,7 @@ TurnManager _composeTurns(
   usageTracker: harness.usageTracker,
   eventBus: ctx.eventBus,
   config: config,
+  agentDefinitions: (agentId) => harness.logicalAgentSessions.agentDefinition(agentId),
 );
 
 DartclawServer _composeRuntimeServer(

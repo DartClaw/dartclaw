@@ -139,7 +139,7 @@ class TurnManager implements core.TurnManager {
   final TurnLimitsConfig _turnLimits;
   final SessionService? _sessions;
   final ExecutionPolicyResolver? _policyResolver;
-  final Map<String, AgentDefinition>? _agentDefinitions;
+  final AgentDefinitionResolver? _agentDefinitions;
   late final TurnRunner _primary = _executions.primary!;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
@@ -176,7 +176,7 @@ class TurnManager implements core.TurnManager {
     required TurnLimitsConfig turnLimits,
     Duration outcomeTtl = const Duration(seconds: 30),
     ExecutionPolicy executionPolicy = const ExecutionPolicy.host(),
-    Map<String, AgentDefinition>? agentDefinitions,
+    AgentDefinitionResolver? agentDefinitions,
   }) : this.fromCoordinator(
          coordinator: _singleHarnessCoordinator(
            messages: messages,
@@ -203,17 +203,21 @@ class TurnManager implements core.TurnManager {
          agentDefinitions: agentDefinitions,
        );
 
+  /// [agentDefinitions] resolves a pinned agent id at turn time. It must be the
+  /// deployment's live resolver ([LogicalAgentSessionService.agentDefinition]),
+  /// not a configured-agent snapshot: a snapshot cannot see an internal one-shot
+  /// agent, and the turn it reserves would be refused as unknown.
   new fromCoordinator({
     required ExecutionCoordinator coordinator,
     required TurnLimitsConfig turnLimits,
     SessionService? sessions,
     ExecutionPolicyResolver? policyResolver,
-    Map<String, AgentDefinition>? agentDefinitions,
+    AgentDefinitionResolver? agentDefinitions,
   }) : _executions = coordinator,
        _turnLimits = turnLimits,
        _sessions = sessions,
        _policyResolver = policyResolver,
-       _agentDefinitions = agentDefinitions == null ? null : Map.unmodifiable(agentDefinitions);
+       _agentDefinitions = agentDefinitions;
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -287,7 +291,7 @@ class TurnManager implements core.TurnManager {
         workspace: null,
       );
     }
-    final definition = _agentDefinitions?[pinned.agentId];
+    final definition = _agentDefinitions?.call(pinned.agentId);
     if (definition == null) {
       throw StateError(
         'Session "${source.id}" belongs to unknown agent "${pinned.agentId}". Create a new conversation.',
@@ -716,7 +720,7 @@ class TurnManager implements core.TurnManager {
     final definitions = _agentDefinitions;
     final persistedAgent = definitions == null ? null : _persistedNamedAgent(session);
     final effectiveAgent = persistedAgent ?? agentName ?? 'main';
-    if (persistedAgent != null) definitions?[persistedAgent]?.requireWorkspaceAvailable();
+    if (persistedAgent != null) definitions?.call(persistedAgent)?.requireWorkspaceAvailable();
     // A channel session bound to a logical agent executes as that agent: the
     // channel surface would route it to the primary lane under the primary's
     // policy, discarding the pin, so it takes the logical-agent surface while
@@ -724,7 +728,7 @@ class TurnManager implements core.TurnManager {
     final boundChannel = session?.type == SessionType.channel && effectiveAgent != 'main';
     final workspaceAgent = isLogicalAgent || boundChannel ? effectiveAgent : null;
     if (workspaceAgent != null && definitions != null) {
-      final definition = definitions[workspaceAgent];
+      final definition = definitions(workspaceAgent);
       if (definition == null) {
         throw StateError('Session "$sessionId" belongs to unknown agent "$workspaceAgent". Create a new conversation.');
       }

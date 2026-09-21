@@ -46,7 +46,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - Conversation drafts now survive reload with file bytes intact, remain editable while a turn runs, and can be queued,
   stopped, or steered explicitly. Stable submission claims prevent duplicate dispatch across retries and restart, while
-  passive browser views reconcile ordered queue and recovery state from one durable session snapshot.
+  passive browser views reconcile ordered queue and recovery state from one durable session snapshot. A claim a restart
+  leaves unconfirmed is reported for review and settles as failed on the next dispatch; it never blocks later sends or
+  held queue items.
 
 - Conversation history now loads in bounded, deep-linkable windows and retains grouped tool and approval records across
   reload. Exact live Codex `on-request` and Claude native permission requests can be approved once from ordinary web
@@ -100,14 +102,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
-- The slash-commands button prefixed `/` onto an existing draft, which filtered the palette down to the passthrough row
-  and altered the draft; a draft now opens the full catalogue untouched, and the button's glyph is a square-slash
-  instead of the terminal glyph the sidebar already uses.
-- Any click inside the chat list toggled sidebar select mode, so its checkbox vanished under the pointer and a project
-  label entered the mode; the mode now has one entry point and the whole row cell is the checkbox's label.
 - The 404 page's Back to Home button lost its arrow glyph and label centring to the empty-state hero rule.
-- The plain testing profile names its data dir `dartclaw-plain`, so the implicit project no longer shows a random
-  temp-dir name, and it removes the dir on exit.
+- Cancelling a turn while the Claude harness was inside a tool call never settled that turn: the stop path tore the
+  process down without completing the in-flight turn, so the session lock stayed held for the life of the server and
+  every later send hung (the browser showed "Request failed"). Stopping now settles the stranded turn, as Codex already
+  did.
 
 - Retired model identifiers no longer ship as defaults: the workflow `reviewer` role defaults to `claude-opus-5`
   instead of the retired `claude-opus-4`, and `dartclaw init` offers `gpt-5.6-sol` instead of `gpt-5`, which a ChatGPT

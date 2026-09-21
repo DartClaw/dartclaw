@@ -260,6 +260,7 @@
 
 ## Testing
 
+- **Template comments ship in rendered pages.** `tasks_s11_test`/`task_detail_template_test` assert no `—` over the whole page and `inbox_template_test` bans a state-attribute name in prose, sidebar included – a template comment fails tests far from the edit.
 - **Bound-asserting tests must enumerate the set** – a test named 'only/every/no other' must assert with unorderedEquals/containsAll, never isNot(contains(...)).
 - **Fixtures built by the code under test never exercise its parser.** `writePage`-built fixtures meant `_readPage` never parsed foreign input – four data-loss bugs, suite green. Write raw literals.
 - **A fake returning a constant response makes retry tests vacuous.** Vary it per call, or no test can observe non-idempotent post-write effects.

@@ -88,7 +88,26 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   The streaming extension includes a local cleanup fix for an upstream unhandled error on close.
   All browser assets continue to load from the DartClaw instance.
 
+- Every form select in the web UI now opens a themed, keyboard-navigable option list built from the app's own menu
+  vocabulary; the native element stays the value authority and resyncs on form reset and option rewrites. Text controls
+  carry a visible resting boundary, and settings field labels show their restart, reload or read-only tier as a quiet
+  marker instead of a pill.
+
+- The composer's project chip and model pill open separate popovers: **Project** (project, directory, a link to Session
+  info) and **Provider and model** (provider, model and effort as dropdowns fed by each adapter's declared catalogue;
+  Claude declares `sonnet`, `opus`, `haiku` and `low`, `medium`, `high`, `xhigh`, `max`). The context diagnostics stay on
+  Session info. Queue, its steer caret and send share one 28px control tier, and queued-turn actions rest borderless.
+
 ### Fixed
+
+- The slash-commands button prefixed `/` onto an existing draft, which filtered the palette down to the passthrough row
+  and altered the draft; a draft now opens the full catalogue untouched, and the button's glyph is a square-slash
+  instead of the terminal glyph the sidebar already uses.
+- Any click inside the chat list toggled sidebar select mode, so its checkbox vanished under the pointer and a project
+  label entered the mode; the mode now has one entry point and the whole row cell is the checkbox's label.
+- The 404 page's Back to Home button lost its arrow glyph and label centring to the empty-state hero rule.
+- The plain testing profile names its data dir `dartclaw-plain`, so the implicit project no longer shows a random
+  temp-dir name, and it removes the dir on exit.
 
 - Retired model identifiers no longer ship as defaults: the workflow `reviewer` role defaults to `claude-opus-5`
   instead of the retired `claude-opus-4`, and `dartclaw init` offers `gpt-5.6-sol` instead of `gpt-5`, which a ChatGPT

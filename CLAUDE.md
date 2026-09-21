@@ -178,4 +178,5 @@ routine releases; audit it only after token rotation/widening or a relevant envi
 
 ## Spec-Driven Development (e.g. AndThen) process and SDLC guidelines
 
+- **Release gates are never story scope.** The candidate-wide gates – full workspace suites, PostgreSQL, architecture, fitness, build, CI – belong to release preparation, which runs them against one commit-bound candidate and keeps the receipts (`dev/guidelines/RELEASE_PREPARATION.md`). A story proves itself with its own tests plus the `fast`/`full` tiers in `KEY_DEVELOPMENT_COMMANDS.md`; a plan task that re-runs a release gate is duplicated scope, and its evidence expires the moment the tree moves.
 - **Keep stories package-scoped.** When breaking a plan into many stories, aim for each story to stay within one `packages/<name>/` (or `apps/<name>/`); reach across packages only for genuinely cross-cutting seams. A single-package scope keeps stories focused and keeps the implementing agent's context to one package's `CLAUDE.md` / `AGENTS.md`, source, and tests instead of several.

@@ -30,6 +30,10 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | `whitespace` | Whitespace errors in the candidate commit | Host |
 | `ci` | All four named jobs in the latest push-triggered Checks run | GitHub; always refreshed |
 
+These gates are release preparation's alone. A story or spec never carries a task that re-runs one: its receipts are
+bound to a single committed candidate and stop meaning anything once the tree moves. Story-level proof is the story's
+own tests plus the `fast` / `full` tiers in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing).
+
 For the first host build, populate the verified native archive cache using the command in
 [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#build). PostgreSQL requires a running Docker engine unless an
 explicit disposable test database is configured. The full workspace gate excludes integration-tagged live tests.

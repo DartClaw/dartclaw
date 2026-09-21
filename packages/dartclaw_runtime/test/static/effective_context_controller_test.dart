@@ -50,15 +50,34 @@ void main() {
     expect(method, isNot(contains('this.textarea.value')));
   });
 
-  test('a trigger opens only the popover it names, and opening one closes the other', () async {
+  // Opening the sibling hides it directly rather than going through the close
+  // path: that path returns focus to the trigger it is leaving, and focus is
+  // about to move into the popover being opened.
+  test('a trigger opens only the popover it names, and hides the sibling without returning focus', () async {
     final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
     expect(source, contains("trigger?.getAttribute?.('aria-controls')"));
     final open = source.substring(
-      source.indexOf('openContextPopover(event) {'),
+      source.indexOf('openContextPopoverFrom(triggerId) {'),
       source.indexOf('closeContextPopover() {'),
     );
-    expect(open, contains('this.closeContextPopover()'));
+    expect(open, contains('if (open && open !== popover) {'));
+    expect(open, isNot(contains('this.closeContextPopover()')));
+    expect(open, isNot(contains('contextPopoverReturnFocus?.focus()')));
     expect(source, contains("this.element.querySelector('[aria-controls=\"' + popover.id + '\"]')"));
+  });
+
+  // The `/model` and `/effort` commands may run while the popover is already
+  // open; a toggle there would close it and focus a hidden select.
+  test('the palette route opens the model popover idempotently', () async {
+    final chat = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
+    expect(chat, contains("'model-context': () => this.openContextPopoverFrom('effective-context-composer-provider')"));
+    final command = (await controllerAsset('dc_conversation_command_controller.js')).readAsStringSync();
+    final route = command.substring(
+      command.indexOf("if (data.action === 'open_context')"),
+      command.indexOf("if (data.action === 'show_help')"),
+    );
+    expect(route, contains("detail: { action: 'model-context' }"));
+    expect(route, isNot(contains('.click()')));
   });
 
   test('authoritative reconciliation updates controls and projections before absorbing revision', () async {

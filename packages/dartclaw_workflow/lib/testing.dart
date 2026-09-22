@@ -7,5 +7,6 @@ library;
 
 export 'src/testing/fake_git_gateway.dart' show FakeGitGateway;
 export 'src/testing/in_memory_definition_source.dart' show InMemoryDefinitionSource;
+export 'src/testing/in_memory_workflow_run_repository.dart' show InMemoryWorkflowRunRepository;
 export 'src/testing/fake_provider_auth_preflight.dart' show FakeProviderAuthPreflight;
 export 'src/testing/fake_skill_introspector.dart' show FakeSkillIntrospector;

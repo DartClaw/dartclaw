@@ -268,7 +268,6 @@ const _acronyms = {
   'mb': 'MB',
   'mcp': 'MCP',
   'ms': 'ms',
-  'qmd': 'QMD',
   'ttl': 'TTL',
   'url': 'URL',
   'yaml': 'YAML',

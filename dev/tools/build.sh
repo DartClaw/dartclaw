@@ -17,10 +17,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Run the version sync from a copy outside the workspace: `dart run` inside the
-# repo rebuilds the shared .dart_tool/native_assets.yaml (sqlite3 hooks), and a
-# concurrently loading test-runner VM that reads the file mid-write aborts with
-# "File not formatted as yaml". The tool imports only dart:io, so a detached
-# copy runs hook-free.
+# repo may rewrite shared native-asset metadata, and a concurrently loading
+# test-runner VM that reads the file mid-write aborts with "File not formatted
+# as yaml". The tool imports only dart:io, so a detached copy runs hook-free.
 cp "$ROOT_DIR/dev/tools/sync_version.dart" "$stage_root/"
 (cd "$stage_root" && dart sync_version.dart "$ROOT_DIR")
 
@@ -56,13 +55,10 @@ target_arch_name() {
   echo "${target##*-}"
 }
 
-# Build the release binary with `dart build cli`, which runs the sqlite3 native
-# build hooks and emits a bundle with the executable plus its bundled
-# libsqlite3 in a sibling lib/. `dart compile exe` cannot be used: its
-# build-hook detection classifies by the workspace-root pubspec (where sqlite3
-# is absent), so it silently produces a binary with no sqlite native-asset
-# mapping (dart-lang/sdk#62593). `dart build cli` cannot cross-compile, so each
-# target must be built on a native runner for that OS/arch.
+# Build the release binary with `dart build cli`, which runs the llamadart
+# native hook and emits the executable plus its verified native libraries.
+# `dart build cli` cannot cross-compile, so each target must be built on a
+# native runner for that OS/arch.
 compile_binary() {
   local target_os="$1"
   local target_arch="$2"

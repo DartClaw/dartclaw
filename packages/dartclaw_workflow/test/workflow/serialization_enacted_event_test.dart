@@ -1,5 +1,5 @@
 // Unit tests for WorkflowSerializationEnactedEvent (TI01).
-// Default tier — no SQLite, no service dependencies.
+// Default tier – no database or service dependencies.
 library;
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowSerializationEnactedEvent;

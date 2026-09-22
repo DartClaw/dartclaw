@@ -17,12 +17,10 @@ void main() {
   late TaskReviewService reviewService;
   late ChannelManager manager;
   late TaskNotificationSubscriber notificationSubscriber;
-  late SqliteBackend taskBackend;
 
   setUp(() async {
     eventBus = EventBus();
-    taskBackend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
+    tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
     queue = RecordingMessageQueue();
     channel = FakeChannel(ownedJids: {'sender@s.whatsapp.net'});
     mergeExecutor = RecordingMergeExecutor(
@@ -47,7 +45,6 @@ void main() {
     await manager.dispose();
     await eventBus.dispose();
     await tasks.dispose();
-    await taskBackend.close();
   });
 
   test('channel review handler preserves provenance, merges, and notifies origin', () async {

@@ -18,10 +18,6 @@
     "repository.turn_trace",
     "repository.kg_fact"
   ],
-  "sqlite": [
-    "backend.sqlite_completion_order",
-    "schema.sqlite_derived_rebuild"
-  ],
   "postgres": [
     "backend.ambiguous_dispatch_no_replay"
   ]

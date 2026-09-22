@@ -1,7 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:uuid/uuid.dart';
 
-/// Centralizes task event recording: SQLite persistence + EventBus notification.
+/// Centralizes task event recording and EventBus notification.
 ///
 /// Integration points call typed convenience methods instead of manually
 /// constructing [TaskEvent] instances. Each method:

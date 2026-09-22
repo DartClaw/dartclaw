@@ -14,19 +14,16 @@ import 'task_review_test_support.dart';
 
 void main() {
   late TaskService tasks;
-  late SqliteBackend taskBackend;
   late EventBus eventBus;
 
   setUp(() async {
-    taskBackend = await openPreparedTaskBackend();
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
+    tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
-    await taskBackend.close();
   });
 
   group('TaskReviewService', () {
@@ -427,18 +424,16 @@ void main() {
   });
 
   group('TaskEventRecorder — push-back events', () {
-    late SqliteBackend eventBackend;
-    late TaskEventService eventService;
+    late InMemoryTaskEventService eventService;
     late TaskEventRecorder recorder;
 
     setUp(() async {
-      eventBackend = await openPreparedTaskBackend();
-      eventService = TaskEventService(eventBackend);
+      eventService = InMemoryTaskEventService();
       recorder = TaskEventRecorder(eventService: eventService);
     });
 
     tearDown(() async {
-      await eventBackend.close();
+      await eventService.close();
     });
 
     test('push_back action records a pushBack event with the comment', () async {

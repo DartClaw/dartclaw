@@ -266,8 +266,7 @@ void main() {
     final messages = MessageService(baseDir: tempDir.path);
     final worker = FakeAgentHarness();
     final eventBus = EventBus();
-    final taskBackend = await openPreparedTaskBackend();
-    final taskService = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
+    final taskService = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
     final worktreeManager = WorktreeManager(
       dataDir: tempDir.path,
       projectDir: tempDir.path,
@@ -285,25 +284,24 @@ void main() {
       ],
     );
     final definitions = InMemoryDefinitionSource([definition]);
-    final workflows =
-        FakeWorkflowService(backend: taskBackend, taskService: taskService, eventBus: eventBus, dataDir: tempDir.path)
-          ..validateRequiredVars = true
-          ..startResult = WorkflowRun(
-            id: 'browser-run',
-            definitionName: definition.name,
-            status: WorkflowRunStatus.running,
-            startedAt: DateTime.utc(2026, 1, 1),
-            updatedAt: DateTime.utc(2026, 1, 1),
-            definitionJson: definition.toJson(),
-          )
-          ..getResult = WorkflowRun(
-            id: 'browser-run',
-            definitionName: definition.name,
-            status: WorkflowRunStatus.running,
-            startedAt: DateTime.utc(2026, 1, 1),
-            updatedAt: DateTime.utc(2026, 1, 1),
-            definitionJson: definition.toJson(),
-          );
+    final workflows = FakeWorkflowService(taskService: taskService, eventBus: eventBus, dataDir: tempDir.path)
+      ..validateRequiredVars = true
+      ..startResult = WorkflowRun(
+        id: 'browser-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+        definitionJson: definition.toJson(),
+      )
+      ..getResult = WorkflowRun(
+        id: 'browser-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+        definitionJson: definition.toJson(),
+      );
     final configDataDir = p.join(tempDir.path, 'config-data');
     Directory(configDataDir).createSync(recursive: true);
     final configPath = p.join(tempDir.path, 'dartclaw.yaml');
@@ -1249,7 +1247,6 @@ agent:
       await server.shutdown();
       await workflows.dispose();
       await taskService.dispose();
-      await taskBackend.close();
       await eventBus.dispose();
       resetService.dispose();
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);

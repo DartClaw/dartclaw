@@ -1,0 +1,2285 @@
+{
+  "schema_epoch": 1,
+  "source": {
+    "objects": [
+      {
+        "name": "idx_agent_executions_provider",
+        "sql": "CREATE INDEX idx_agent_executions_provider ON agent_executions(provider)",
+        "table": "agent_executions",
+        "type": "index"
+      },
+      {
+        "name": "idx_agent_executions_session_id",
+        "sql": "CREATE INDEX idx_agent_executions_session_id ON agent_executions(session_id)",
+        "table": "agent_executions",
+        "type": "index"
+      },
+      {
+        "name": "idx_goals_parent",
+        "sql": "CREATE INDEX idx_goals_parent ON goals(parent_goal_id)",
+        "table": "goals",
+        "type": "index"
+      },
+      {
+        "name": "idx_task_artifacts_task_id",
+        "sql": "CREATE INDEX idx_task_artifacts_task_id ON task_artifacts(task_id)",
+        "table": "task_artifacts",
+        "type": "index"
+      },
+      {
+        "name": "idx_task_events_task",
+        "sql": "CREATE INDEX idx_task_events_task ON task_events(task_id)",
+        "table": "task_events",
+        "type": "index"
+      },
+      {
+        "name": "idx_task_events_task_kind",
+        "sql": "CREATE INDEX idx_task_events_task_kind ON task_events(task_id, kind)",
+        "table": "task_events",
+        "type": "index"
+      },
+      {
+        "name": "idx_task_events_timestamp",
+        "sql": "CREATE INDEX idx_task_events_timestamp ON task_events(timestamp)",
+        "table": "task_events",
+        "type": "index"
+      },
+      {
+        "name": "idx_tasks_status",
+        "sql": "CREATE INDEX idx_tasks_status ON tasks(status)",
+        "table": "tasks",
+        "type": "index"
+      },
+      {
+        "name": "idx_tasks_status_type",
+        "sql": "CREATE INDEX idx_tasks_status_type ON tasks(status, type)",
+        "table": "tasks",
+        "type": "index"
+      },
+      {
+        "name": "idx_tasks_type",
+        "sql": "CREATE INDEX idx_tasks_type ON tasks(type)",
+        "table": "tasks",
+        "type": "index"
+      },
+      {
+        "name": "idx_tasks_workflow_run_id",
+        "sql": "CREATE INDEX idx_tasks_workflow_run_id ON tasks(workflow_run_id)",
+        "table": "tasks",
+        "type": "index"
+      },
+      {
+        "name": "idx_turns_model",
+        "sql": "CREATE INDEX idx_turns_model ON turns(model)",
+        "table": "turns",
+        "type": "index"
+      },
+      {
+        "name": "idx_turns_provider",
+        "sql": "CREATE INDEX idx_turns_provider ON turns(provider)",
+        "table": "turns",
+        "type": "index"
+      },
+      {
+        "name": "idx_turns_session",
+        "sql": "CREATE INDEX idx_turns_session ON turns(session_id)",
+        "table": "turns",
+        "type": "index"
+      },
+      {
+        "name": "idx_turns_started",
+        "sql": "CREATE INDEX idx_turns_started ON turns(started_at)",
+        "table": "turns",
+        "type": "index"
+      },
+      {
+        "name": "idx_turns_task",
+        "sql": "CREATE INDEX idx_turns_task ON turns(task_id)",
+        "table": "turns",
+        "type": "index"
+      },
+      {
+        "name": "idx_workflow_runs_definition",
+        "sql": "CREATE INDEX idx_workflow_runs_definition ON workflow_runs(definition_name)",
+        "table": "workflow_runs",
+        "type": "index"
+      },
+      {
+        "name": "idx_workflow_runs_status",
+        "sql": "CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)",
+        "table": "workflow_runs",
+        "type": "index"
+      },
+      {
+        "name": "idx_wse_agent_execution",
+        "sql": "CREATE INDEX idx_wse_agent_execution ON workflow_step_executions(agent_execution_id)",
+        "table": "workflow_step_executions",
+        "type": "index"
+      },
+      {
+        "name": "idx_wse_run_step",
+        "sql": "CREATE INDEX idx_wse_run_step ON workflow_step_executions(workflow_run_id, step_index)",
+        "table": "workflow_step_executions",
+        "type": "index"
+      },
+      {
+        "name": "kg_facts_lookup",
+        "sql": "CREATE INDEX kg_facts_lookup ON kg_facts(entity, predicate, valid_from, valid_to)",
+        "table": "kg_facts",
+        "type": "index"
+      },
+      {
+        "name": "agent_executions",
+        "sql": "CREATE TABLE agent_executions (id TEXT PRIMARY KEY NOT NULL, session_id TEXT, provider TEXT, model TEXT,\n      workspace_dir TEXT, container_json TEXT, budget_tokens INTEGER, harness_meta_json TEXT, started_at TEXT,\n      completed_at TEXT)",
+        "table": "agent_executions",
+        "type": "table"
+      },
+      {
+        "name": "dartclaw_schema",
+        "sql": "CREATE TABLE dartclaw_schema (\n      id INTEGER PRIMARY KEY CHECK (id = 1),\n      epoch INTEGER NOT NULL CHECK (typeof(epoch) = 'integer')\n    )",
+        "table": "dartclaw_schema",
+        "type": "table"
+      },
+      {
+        "name": "goals",
+        "sql": "CREATE TABLE goals (id TEXT PRIMARY KEY, title TEXT NOT NULL, parent_goal_id TEXT, mission TEXT NOT NULL,\n      created_at TEXT NOT NULL, max_tokens INTEGER)",
+        "table": "goals",
+        "type": "table"
+      },
+      {
+        "name": "kg_facts",
+        "sql": "CREATE TABLE kg_facts (id INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL, predicate TEXT NOT NULL,\n      value TEXT NOT NULL, valid_from TEXT NOT NULL, valid_to TEXT, source TEXT NOT NULL, owner TEXT,\n      invalidated_at TEXT, invalidation_reason TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+        "table": "kg_facts",
+        "type": "table"
+      },
+      {
+        "name": "task_artifacts",
+        "sql": "CREATE TABLE task_artifacts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL,\n      path TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE)",
+        "table": "task_artifacts",
+        "type": "table"
+      },
+      {
+        "name": "task_events",
+        "sql": "CREATE TABLE task_events (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, timestamp TEXT NOT NULL, kind TEXT NOT NULL,\n      details TEXT NOT NULL DEFAULT '{}')",
+        "table": "task_events",
+        "type": "table"
+      },
+      {
+        "name": "tasks",
+        "sql": "CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, type TEXT NOT NULL,\n      status TEXT NOT NULL DEFAULT 'draft', version INTEGER NOT NULL DEFAULT 1, goal_id TEXT, acceptance_criteria TEXT,\n      config_json TEXT NOT NULL DEFAULT '{}', worktree_json TEXT, created_at TEXT NOT NULL, started_at TEXT,\n      completed_at TEXT, created_by TEXT, agent_execution_id TEXT REFERENCES agent_executions(id) ON DELETE RESTRICT,\n      project_id TEXT, workflow_run_id TEXT, step_index INTEGER, max_retries INTEGER NOT NULL DEFAULT 0,\n      retry_count INTEGER NOT NULL DEFAULT 0)",
+        "table": "tasks",
+        "type": "table"
+      },
+      {
+        "name": "turns",
+        "sql": "CREATE TABLE turns (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, runner_id INTEGER, model TEXT,\n      provider TEXT, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0,\n      output_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0,\n      cache_write_tokens INTEGER NOT NULL DEFAULT 0, is_error INTEGER NOT NULL DEFAULT 0, error_type TEXT, tool_calls TEXT)",
+        "table": "turns",
+        "type": "table"
+      },
+      {
+        "name": "workflow_run_migrations",
+        "sql": "CREATE TABLE workflow_run_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)",
+        "table": "workflow_run_migrations",
+        "type": "table"
+      },
+      {
+        "name": "workflow_runs",
+        "sql": "CREATE TABLE workflow_runs (id TEXT PRIMARY KEY, definition_name TEXT NOT NULL,\n      status TEXT NOT NULL DEFAULT 'pending', context_json TEXT NOT NULL DEFAULT '{}',\n      variables_json TEXT NOT NULL DEFAULT '{}', started_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT,\n      error_message TEXT, total_tokens INTEGER NOT NULL DEFAULT 0, current_step_index INTEGER NOT NULL DEFAULT 0,\n      definition_json TEXT NOT NULL DEFAULT '{}', execution_cursor_json TEXT, workflow_worktree_json TEXT)",
+        "table": "workflow_runs",
+        "type": "table"
+      },
+      {
+        "name": "workflow_step_executions",
+        "sql": "CREATE TABLE workflow_step_executions (task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,\n      agent_execution_id TEXT NOT NULL REFERENCES agent_executions(id), workflow_run_id TEXT NOT NULL,\n      step_index INTEGER NOT NULL, step_id TEXT NOT NULL, step_type TEXT, git_json TEXT, provider_session_id TEXT,\n      structured_schema_json TEXT, structured_output_json TEXT, follow_up_prompts_json TEXT, map_iteration_index INTEGER,\n      map_iteration_total INTEGER, step_token_breakdown_json TEXT)",
+        "table": "workflow_step_executions",
+        "type": "table"
+      }
+    ],
+    "tables": [
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "session_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "provider",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "model",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "workspace_dir",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "container_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "budget_tokens",
+            "not_null": false,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "harness_meta_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "started_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "completed_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "agent_executions"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "title",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "parent_goal_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "mission",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "max_tokens",
+            "not_null": false,
+            "primary_key": false,
+            "type": "INTEGER"
+          }
+        ],
+        "name": "goals"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "definition_name",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "'pending'",
+            "name": "status",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "'{}'",
+            "name": "context_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "'{}'",
+            "name": "variables_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "started_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "updated_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "completed_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "error_message",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "0",
+            "name": "total_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "0",
+            "name": "current_step_index",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "'{}'",
+            "name": "definition_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "execution_cursor_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "workflow_worktree_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "workflow_runs"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "title",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "description",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "type",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "'draft'",
+            "name": "status",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "1",
+            "name": "version",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "goal_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "acceptance_criteria",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "'{}'",
+            "name": "config_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "worktree_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "started_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "completed_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "created_by",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "agent_execution_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "project_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "workflow_run_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "step_index",
+            "not_null": false,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "0",
+            "name": "max_retries",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "0",
+            "name": "retry_count",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          }
+        ],
+        "name": "tasks"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "task_id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "agent_execution_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "workflow_run_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "step_index",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "step_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "step_type",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "git_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "provider_session_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "structured_schema_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "structured_output_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "follow_up_prompts_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "map_iteration_index",
+            "not_null": false,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "map_iteration_total",
+            "not_null": false,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "step_token_breakdown_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "workflow_step_executions"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "task_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "name",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "kind",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "path",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "task_artifacts"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "task_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "timestamp",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "kind",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "'{}'",
+            "name": "details",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "task_events"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "session_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "task_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "runner_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "model",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "provider",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "started_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "ended_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "0",
+            "name": "input_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "0",
+            "name": "output_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "0",
+            "name": "cache_read_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "0",
+            "name": "cache_write_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": "0",
+            "name": "is_error",
+            "not_null": true,
+            "primary_key": false,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "error_type",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "tool_calls",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "turns"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "name",
+            "not_null": false,
+            "primary_key": true,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "applied_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "workflow_run_migrations"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "name": "id",
+            "not_null": false,
+            "primary_key": true,
+            "type": "INTEGER"
+          },
+          {
+            "default": null,
+            "name": "entity",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "predicate",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "value",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "valid_from",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "valid_to",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "source",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "owner",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "invalidated_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": null,
+            "name": "invalidation_reason",
+            "not_null": false,
+            "primary_key": false,
+            "type": "TEXT"
+          },
+          {
+            "default": "datetime('now')",
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "TEXT"
+          }
+        ],
+        "name": "kg_facts"
+      }
+    ]
+  },
+  "source_commit": "ef24b3302e936c4ff6183158da8462b866dbd7d2",
+  "table_order": [
+    "agent_executions",
+    "goals",
+    "workflow_runs",
+    "tasks",
+    "workflow_step_executions",
+    "task_artifacts",
+    "task_events",
+    "turns",
+    "workflow_run_migrations",
+    "kg_facts"
+  ],
+  "target": {
+    "indexes": [
+      {
+        "columns": [
+          "content_tsv"
+        ],
+        "method": "gin",
+        "name": "conversation_chunks_content_tsv_idx",
+        "table": "conversation_chunks",
+        "unique": false
+      },
+      {
+        "columns": [
+          "provider"
+        ],
+        "method": "btree",
+        "name": "idx_agent_executions_provider",
+        "table": "agent_executions",
+        "unique": false
+      },
+      {
+        "columns": [
+          "session_id"
+        ],
+        "method": "btree",
+        "name": "idx_agent_executions_session_id",
+        "table": "agent_executions",
+        "unique": false
+      },
+      {
+        "columns": [
+          "parent_goal_id"
+        ],
+        "method": "btree",
+        "name": "idx_goals_parent",
+        "table": "goals",
+        "unique": false
+      },
+      {
+        "columns": [
+          "task_id"
+        ],
+        "method": "btree",
+        "name": "idx_task_artifacts_task_id",
+        "table": "task_artifacts",
+        "unique": false
+      },
+      {
+        "columns": [
+          "task_id"
+        ],
+        "method": "btree",
+        "name": "idx_task_events_task",
+        "table": "task_events",
+        "unique": false
+      },
+      {
+        "columns": [
+          "task_id",
+          "kind"
+        ],
+        "method": "btree",
+        "name": "idx_task_events_task_kind",
+        "table": "task_events",
+        "unique": false
+      },
+      {
+        "columns": [
+          "timestamp"
+        ],
+        "method": "btree",
+        "name": "idx_task_events_timestamp",
+        "table": "task_events",
+        "unique": false
+      },
+      {
+        "columns": [
+          "status"
+        ],
+        "method": "btree",
+        "name": "idx_tasks_status",
+        "table": "tasks",
+        "unique": false
+      },
+      {
+        "columns": [
+          "status",
+          "type"
+        ],
+        "method": "btree",
+        "name": "idx_tasks_status_type",
+        "table": "tasks",
+        "unique": false
+      },
+      {
+        "columns": [
+          "type"
+        ],
+        "method": "btree",
+        "name": "idx_tasks_type",
+        "table": "tasks",
+        "unique": false
+      },
+      {
+        "columns": [
+          "workflow_run_id"
+        ],
+        "method": "btree",
+        "name": "idx_tasks_workflow_run_id",
+        "table": "tasks",
+        "unique": false
+      },
+      {
+        "columns": [
+          "model"
+        ],
+        "method": "btree",
+        "name": "idx_turns_model",
+        "table": "turns",
+        "unique": false
+      },
+      {
+        "columns": [
+          "provider"
+        ],
+        "method": "btree",
+        "name": "idx_turns_provider",
+        "table": "turns",
+        "unique": false
+      },
+      {
+        "columns": [
+          "session_id"
+        ],
+        "method": "btree",
+        "name": "idx_turns_session",
+        "table": "turns",
+        "unique": false
+      },
+      {
+        "columns": [
+          "started_at"
+        ],
+        "method": "btree",
+        "name": "idx_turns_started",
+        "table": "turns",
+        "unique": false
+      },
+      {
+        "columns": [
+          "task_id"
+        ],
+        "method": "btree",
+        "name": "idx_turns_task",
+        "table": "turns",
+        "unique": false
+      },
+      {
+        "columns": [
+          "definition_name"
+        ],
+        "method": "btree",
+        "name": "idx_workflow_runs_definition",
+        "table": "workflow_runs",
+        "unique": false
+      },
+      {
+        "columns": [
+          "status"
+        ],
+        "method": "btree",
+        "name": "idx_workflow_runs_status",
+        "table": "workflow_runs",
+        "unique": false
+      },
+      {
+        "columns": [
+          "agent_execution_id"
+        ],
+        "method": "btree",
+        "name": "idx_wse_agent_execution",
+        "table": "workflow_step_executions",
+        "unique": false
+      },
+      {
+        "columns": [
+          "workflow_run_id",
+          "step_index"
+        ],
+        "method": "btree",
+        "name": "idx_wse_run_step",
+        "table": "workflow_step_executions",
+        "unique": false
+      },
+      {
+        "columns": [
+          "entity",
+          "predicate",
+          "valid_from",
+          "valid_to"
+        ],
+        "method": "btree",
+        "name": "kg_facts_lookup",
+        "table": "kg_facts",
+        "unique": false
+      },
+      {
+        "columns": [
+          "content_tsv"
+        ],
+        "method": "gin",
+        "name": "memory_chunks_content_tsv_idx",
+        "table": "memory_chunks",
+        "unique": false
+      }
+    ],
+    "tables": [
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "session_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "provider",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "model",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "workspace_dir",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "container_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "budget_tokens",
+            "not_null": false,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "harness_meta_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "started_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "completed_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "agent_executions"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "title",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "parent_goal_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "mission",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "max_tokens",
+            "not_null": false,
+            "primary_key": false,
+            "type": "bigint"
+          }
+        ],
+        "name": "goals"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "definition_name",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'pending'",
+            "identity": false,
+            "name": "status",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'{}'",
+            "identity": false,
+            "name": "context_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'{}'",
+            "identity": false,
+            "name": "variables_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "started_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "updated_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "completed_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "error_message",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "total_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "current_step_index",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "'{}'",
+            "identity": false,
+            "name": "definition_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "execution_cursor_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "workflow_worktree_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "workflow_runs"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "title",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "description",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "type",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'draft'",
+            "identity": false,
+            "name": "status",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "1",
+            "identity": false,
+            "name": "version",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "goal_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "acceptance_criteria",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'{}'",
+            "identity": false,
+            "name": "config_json",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "worktree_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "started_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "completed_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "created_by",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "agent_execution_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "project_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "workflow_run_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "step_index",
+            "not_null": false,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "max_retries",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "retry_count",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          }
+        ],
+        "name": "tasks"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "task_id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "agent_execution_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "workflow_run_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "step_index",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "step_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "step_type",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "git_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "provider_session_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "structured_schema_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "structured_output_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "follow_up_prompts_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "map_iteration_index",
+            "not_null": false,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "map_iteration_total",
+            "not_null": false,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "step_token_breakdown_json",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "workflow_step_executions"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "task_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "name",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "kind",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "path",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "task_artifacts"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "task_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "timestamp",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "kind",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'{}'",
+            "identity": false,
+            "name": "details",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "task_events"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "session_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "task_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "runner_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "model",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "provider",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "started_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "ended_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "input_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "output_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "cache_read_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "cache_write_tokens",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": "0",
+            "identity": false,
+            "name": "is_error",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "error_type",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "tool_calls",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "turns"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "name",
+            "not_null": true,
+            "primary_key": true,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "applied_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "workflow_run_migrations"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": true,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "entity",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "predicate",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "value",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "valid_from",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "valid_to",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "source",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "owner",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "invalidated_at",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "invalidation_reason",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "current_timestamp",
+            "identity": false,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          }
+        ],
+        "name": "kg_facts"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": true,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "text",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "chunk_index",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "source",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "category",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "current_timestamp",
+            "identity": false,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'owner'",
+            "identity": false,
+            "name": "user_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'memory'",
+            "identity": false,
+            "name": "role",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": "'unknown'",
+            "identity": false,
+            "name": "provenance",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "locator",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "entry_id",
+            "not_null": false,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "entry_revision",
+            "not_null": false,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "content_tsv",
+            "not_null": true,
+            "primary_key": false,
+            "type": "tsvector"
+          }
+        ],
+        "name": "memory_chunks"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": true,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "message_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "user_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "text",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "chunk_index",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "session_id",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "role",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "created_at",
+            "not_null": true,
+            "primary_key": false,
+            "type": "text"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "content_tsv",
+            "not_null": true,
+            "primary_key": false,
+            "type": "tsvector"
+          }
+        ],
+        "name": "conversation_chunks"
+      },
+      {
+        "columns": [
+          {
+            "default": null,
+            "identity": false,
+            "name": "id",
+            "not_null": true,
+            "primary_key": true,
+            "type": "bigint"
+          },
+          {
+            "default": null,
+            "identity": false,
+            "name": "epoch",
+            "not_null": true,
+            "primary_key": false,
+            "type": "bigint"
+          }
+        ],
+        "name": "dartclaw_schema"
+      }
+    ]
+  }
+}

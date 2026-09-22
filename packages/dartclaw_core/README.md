@@ -3,7 +3,7 @@
 Shared library for DartClaw – bridge protocol, runtime models, config, channels, and persistence services.
 
 `dartclaw_core` provides provider harnesses, channel interfaces, config loading,
-events, session services, task lifecycle models, SQLite-backed repositories, and search.
+events, session services, task lifecycle models, PostgreSQL-backed repositories, and search.
 
 > **Status: Pre-1.0**. Runtime and persistence APIs may change before 1.0.
 
@@ -47,8 +47,8 @@ Future<void> main() async {
 - `Channel`, `ChannelManager`, `ChannelConfig`: channel integration and configuration plumbing.
 - `Guard`, `GuardChain`, `CommandGuard`, `FileGuard`: security APIs imported directly from `dartclaw_kernel`.
 - `SessionService`, `MessageService`, `KvService`, `MemoryFileService`: file-backed persistence.
-- `MemoryService`, `Fts5SearchBackend`, `QmdSearchBackend`: SQLite and hybrid search services.
-- `SqliteTaskRepository`, `SqliteGoalRepository`, `SqliteAgentExecutionRepository`: durable execution persistence.
+- `MemoryService`, `PostgresFtsIndex`, `PostgresVectorIndex`: PostgreSQL lexical and optional hybrid search services.
+- `PostgresBackend` and the relational repositories: durable execution persistence.
 - `DartclawConfig`, `AgentDefinition`, `ScheduledTaskDefinition`: runtime and agent configuration.
 - `Task`, `Goal`, `TaskOrigin`: task and goal models plus channel-origin metadata.
 - `BridgeEvent`, `EventBus`, `DartclawEvent`: protocol and application event streams.
@@ -63,7 +63,7 @@ Future<void> main() async {
 ## When to Use This Package
 
 Use `dartclaw_core` directly when you need to embed or extend the agent runtime,
-including its default SQLite persistence and search implementation.
+including its PostgreSQL persistence and search implementation.
 
 This is the **fork-the-runtime** tier: it is not published to pub.dev and carries
 no compatibility promise. Depend on it from a checkout and own the fork — see

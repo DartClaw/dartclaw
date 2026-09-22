@@ -41,8 +41,7 @@
 
 | Package | Purpose |
 |---------|---------|
-| `sqlite3` | Raw SQLite3 bindings – search index (FTS5), tasks. No ORM |
-| `postgres` | PostgreSQL driver and connection pool, owned by `dartclaw_core` |
+| `postgres` | Sole runtime database driver and connection pool, owned by `dartclaw_core`; PostgreSQL 14+ required |
 
 ### Search
 
@@ -109,9 +108,9 @@ DartClaw built-in workflows reference AndThen-owned skills by canonical names su
 | Service | Purpose | Notes |
 |---------|---------|-------|
 | Docker | Agent container isolation | `debian:bookworm-slim`, `network:none`, `cap-drop=ALL`, non-root user |
-| SQLite3 | Embedded database | `search.db` (replaceable lexical projection), `vectors.db` (retained derived vectors), `dartclaw.db` (authoritative) |
 | Instance-local files | Turn recovery and webhook dedup | `turn_state.json` (synchronous atomic JSON), `webhook_deliveries/` (exclusive delivery markers) |
-| PostgreSQL | Opt-in authoritative database | Version 14+, one pool; default maximum five connections |
+| PostgreSQL | Sole runtime database | Version 14+, one pool; built-in lexical search, optional administrator-provisioned pgvector for hybrid |
+| Canonical files | Sessions, messages, memory/wiki, config, credentials, projects, logs | Separate authority and backup target from PostgreSQL |
 
 ## Analyzer Configuration
 
@@ -127,5 +126,5 @@ Workspace-wide `analysis_options.yaml`:
 | `dart format` | Code formatting | 120-char page width |
 | `dart analyze` | Static analysis | Strict mode enabled |
 | `dart test` | Test runner | Four-layer pyramid (unit/integration/acceptance/E2E) |
-| `dart build cli` | AOT compilation + native build hooks | Produces both CLI bundles with SQLite and selected native embedding libraries under `lib/` |
+| `dart build cli` | AOT compilation + native build hooks | Produces both CLI bundles with selected native embedding libraries under `lib/` when applicable |
 | `dart pub` | Package management | Workspace-aware |

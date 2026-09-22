@@ -1,9 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryAgentExecutionRepository;
 import 'package:test/test.dart';
-
-import 'in_memory_agent_execution_repository.dart';
 
 void main() {
   group('InMemoryAgentExecutionRepository', () {
@@ -22,18 +19,17 @@ void main() {
       expect(repo.disposed, isTrue);
     });
 
-    test('matches sqlite repository behavior for core CRUD flows', () async {
-      final backend = await openPreparedTaskBackend();
-      final sqliteRepo = SqliteAgentExecutionRepository(backend);
+    test('supports core CRUD flows', () async {
       final memoryRepo = InMemoryAgentExecutionRepository();
 
       try {
-        final sqliteState = await _exerciseRepository(sqliteRepo);
         final memoryState = await _exerciseRepository(memoryRepo);
 
-        expect(memoryState, equals(sqliteState));
+        expect((memoryState['all'] as List), hasLength(3));
+        expect((memoryState['sessA'] as List), hasLength(2));
+        expect((memoryState['providerCodex'] as List), hasLength(1));
+        expect(memoryState['missing'], isNull);
       } finally {
-        await backend.close();
         await memoryRepo.dispose();
       }
     });

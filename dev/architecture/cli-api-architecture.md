@@ -2,7 +2,8 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.26 hybrid search inspection and connected search commands; 0.27 HTMX 4 preparation
+**Current through**: 0.27 PostgreSQL-only CLI readiness/maintenance, hybrid search inspection, connected search
+commands, and HTMX 4 preparation
 
 ---
 
@@ -55,7 +56,7 @@ At a high level, the CLI/API stack looks like this:
 │ core / workflow packages                    │
 │ - runtime orchestration                     │
 │ - typed config                              │
-│ - SQLite repositories                       │
+│ - PostgreSQL repositories                   │
 │ - workflow engine                           │
 └──────────────────────────────────────────────┘
 ```
@@ -149,7 +150,11 @@ Standalone mode is available for workflow commands with meaningful local semanti
 - `workflow status --standalone`
 - `workflow pause/resume/cancel/retry --standalone`
 
-The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives `dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`, `cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing accidental state-split or concurrent SQLite use; `status --standalone` is a read against the local tasks database with no probe.
+The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives
+`dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`,
+`cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing
+an accidental split writer beside the PostgreSQL serving interlock; `status --standalone` is a one-shot PostgreSQL
+read with no HTTP server.
 
 Headless composition retains task/session/turn persistence and guarded workflow execution. It omits personal-memory corpus preflight, search storage/backends, knowledge graph, self-improvement, memory MCP callbacks and memory prompt projection/retrieval hints. This boundary follows the existing headless mode; it is not a separate user configuration setting. Provider-native capabilities and project instructions are unaffected.
 

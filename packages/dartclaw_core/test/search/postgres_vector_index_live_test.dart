@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 import '../storage/postgres_live_support.dart';
 
 void main() {
-  test('real pgvector matches SQLite while isolating owner, corpus, fingerprint, and dimension', () async {
+  test('real pgvector isolates owner, corpus, fingerprint, and dimension', () async {
     await withPostgresBackend((backend, namespace) async {
       await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: backend.databaseIdentity);
       await PostgresSchemaGate.prepare(backend, databaseIdentity: backend.databaseIdentity);
@@ -24,61 +24,48 @@ void main() {
 
       final postgresMemory = PostgresVectorIndex(backend, table: VectorTable.memoryChunks);
       final postgresConversation = PostgresVectorIndex(backend, table: VectorTable.conversationChunks);
-      final sqlite = SqliteBackend.openInMemory();
-      try {
-        await SqliteSchemaGate.prepareVectors(sqlite, storeName: 'vectors.db');
-        final sqliteMemory = SqliteVectorIndex(sqlite, table: VectorTable.memoryChunks);
-        final records = [
-          _record('tie-a', 1, const [1, 0]),
-          _record('tie-b', 0, const [1, 0]),
-          _record('tie-a', 0, const [1, 0]),
-          _record('roundtrip', 0, const [0.1, -0.2]),
-          _record('orthogonal', 0, const [0, 1]),
-          _record('negative', 0, const [-1, 0]),
-          _record('zero', 0, const [0, 0]),
-          _record('wrong-fingerprint', 0, const [1, 0], fingerprint: 'other-model'),
-          _record('wrong-dimension', 0, const [1, 0, 0]),
-        ];
-        await postgresMemory.upsert(records, userId: 'owner');
-        await sqliteMemory.upsert(records, userId: 'owner');
-        await postgresMemory.upsert([
-          _record('other-owner', 0, const [1, 0]),
-        ], userId: 'other');
-        await postgresConversation.upsert([
-          _record('other-corpus', 0, const [1, 0]),
-        ], userId: 'owner');
+      final records = [
+        _record('tie-a', 1, const [1, 0]),
+        _record('tie-b', 0, const [1, 0]),
+        _record('tie-a', 0, const [1, 0]),
+        _record('roundtrip', 0, const [0.1, -0.2]),
+        _record('orthogonal', 0, const [0, 1]),
+        _record('negative', 0, const [-1, 0]),
+        _record('zero', 0, const [0, 0]),
+        _record('wrong-fingerprint', 0, const [1, 0], fingerprint: 'other-model'),
+        _record('wrong-dimension', 0, const [1, 0, 0]),
+      ];
+      await postgresMemory.upsert(records, userId: 'owner');
+      await postgresMemory.upsert([
+        _record('other-owner', 0, const [1, 0]),
+      ], userId: 'other');
+      await postgresConversation.upsert([
+        _record('other-corpus', 0, const [1, 0]),
+      ], userId: 'owner');
 
-        final listed = await postgresMemory.list(userId: 'owner');
-        expect(listed, hasLength(records.length));
-        final roundTrip = listed.singleWhere((record) => record.documentId == 'roundtrip');
-        _expectVectorClose(roundTrip.vector, Float32List.fromList(const [0.1, -0.2]));
-        expect((await postgresMemory.list(userId: 'other')).single.documentId, 'other-owner');
-        expect((await postgresConversation.list(userId: 'owner')).single.documentId, 'other-corpus');
+      final listed = await postgresMemory.list(userId: 'owner');
+      expect(listed, hasLength(records.length));
+      final roundTrip = listed.singleWhere((record) => record.documentId == 'roundtrip');
+      _expectVectorClose(roundTrip.vector, Float32List.fromList(const [0.1, -0.2]));
+      expect((await postgresMemory.list(userId: 'other')).single.documentId, 'other-owner');
+      expect((await postgresConversation.list(userId: 'owner')).single.documentId, 'other-corpus');
 
-        final postgresMatches = await postgresMemory.search(const [1, 0], userId: 'owner', modelFingerprint: 'model');
-        final sqliteMatches = await sqliteMemory.search(const [1, 0], userId: 'owner', modelFingerprint: 'model');
-        expect(_matchIdentities(postgresMatches), [
-          'tie-a:0',
-          'tie-a:1',
-          'tie-b:0',
-          'roundtrip:0',
-          'orthogonal:0',
-          'negative:0',
-        ]);
-        expect(_matchIdentities(postgresMatches), _matchIdentities(sqliteMatches));
-        for (var index = 0; index < postgresMatches.length; index++) {
-          expect(postgresMatches[index].score, closeTo(sqliteMatches[index].score, 1e-6));
-        }
-        expect(
-          _matchIdentities(
-            await postgresMemory.search(const [1, 0], userId: 'owner', modelFingerprint: 'model', limit: 2),
-          ),
-          ['tie-a:0', 'tie-a:1'],
-        );
-        expect(await postgresMemory.search(const [0, 0], userId: 'owner', modelFingerprint: 'model'), isEmpty);
-      } finally {
-        await sqlite.close();
-      }
+      final postgresMatches = await postgresMemory.search(const [1, 0], userId: 'owner', modelFingerprint: 'model');
+      expect(_matchIdentities(postgresMatches), [
+        'tie-a:0',
+        'tie-a:1',
+        'tie-b:0',
+        'roundtrip:0',
+        'orthogonal:0',
+        'negative:0',
+      ]);
+      expect(
+        _matchIdentities(
+          await postgresMemory.search(const [1, 0], userId: 'owner', modelFingerprint: 'model', limit: 2),
+        ),
+        ['tie-a:0', 'tie-a:1'],
+      );
+      expect(await postgresMemory.search(const [0, 0], userId: 'owner', modelFingerprint: 'model'), isEmpty);
     });
   });
 

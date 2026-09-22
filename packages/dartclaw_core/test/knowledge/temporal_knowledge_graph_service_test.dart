@@ -1,21 +1,11 @@
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late Database db;
-  late SqliteBackend backend;
-  late TemporalKnowledgeGraphService kg;
+  late InMemoryTemporalKnowledgeGraphService kg;
 
-  setUp(() async {
-    db = sqlite3.openInMemory();
-    backend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
-    kg = TemporalKnowledgeGraphService(backend);
-  });
-
-  tearDown(() async {
-    await backend.close();
+  setUp(() {
+    kg = InMemoryTemporalKnowledgeGraphService();
   });
 
   test('consecutive fact IDs match their stored rows', () async {
@@ -32,9 +22,8 @@ void main() {
       );
     }
     expect(ids[1], greaterThan(ids[0]));
-    final rows = db.select('SELECT id, value FROM kg_facts ORDER BY id');
-    expect(rows.map((row) => row['id']), ids);
-    expect(rows.map((row) => row['value']), ['first', 'second']);
+    expect((await kg.factById(ids[0]))?.value, 'first');
+    expect((await kg.factById(ids[1]))?.value, 'second');
   });
 
   test('KG add query invalidate lifecycle preserves source-linked history', () async {
@@ -197,14 +186,14 @@ void main() {
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'storage',
-      value: 'sqlite',
+      value: 'postgresql',
       validFrom: '2026-01-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'storage',
-      value: 'sqlite-wal',
+      value: 'postgresql-native',
       validFrom: '2026-03-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
@@ -218,7 +207,7 @@ void main() {
     ]);
   });
 
-  test('allFacts applies search and limit in the database read', () async {
+  test('allFacts applies search and limit before returning', () async {
     await kg.addFact(
       entity: 'Project Status',
       predicate: 'phase',
@@ -229,30 +218,30 @@ void main() {
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite',
+      value: 'postgresql',
       validFrom: '2026-01-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite-wal',
+      value: 'postgresql-native',
       validFrom: '2026-02-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
 
-    final facts = await kg.allFacts(search: 'architecture sqlite', limit: 1);
+    final facts = await kg.allFacts(search: 'architecture postgresql', limit: 1);
 
     expect(facts, hasLength(1));
     expect(facts.single.entity, 'architecture decisions');
-    expect(facts.single.value, 'sqlite');
+    expect(facts.single.value, 'postgresql');
   });
 
   test('default fact search preserves substring terms and quote handling', () async {
     final match = await kg.addFact(
       entity: 'Architecture',
       predicate: 'database',
-      value: 'sqlite-wal',
+      value: 'postgresql-native',
       validFrom: '2026-01-01',
       source: 'wiki/database.md',
     );
@@ -263,14 +252,12 @@ void main() {
       validFrom: '2026-01-01',
       source: 'wiki/project.md',
     );
-    final explicit = TemporalKnowledgeGraphService(backend, factSearch: const SubstringFactSearch());
     for (final entry in {
-      '"ARCH"  lite': [match],
+      '"ARCH"  native': [match],
       'architecture alpha': <int>[],
       '  ""  ': [match, other],
     }.entries) {
       expect((await kg.allFacts(search: entry.key)).map((fact) => fact.id), entry.value);
-      expect((await explicit.allFacts(search: entry.key)).map((fact) => fact.id), entry.value);
     }
   });
 
@@ -307,7 +294,7 @@ void main() {
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite',
+      value: 'postgresql',
       validFrom: '2026-01-15T00:00:00Z',
       source: 'wiki/architecture.md',
     );
@@ -315,7 +302,7 @@ void main() {
     final allAsOf = await kg.allFacts(asOf: '2026-01-20T00:00:00Z');
 
     expect(allAsOf.map((fact) => '${fact.entity}:${fact.value}'), [
-      'architecture decisions:sqlite',
+      'architecture decisions:postgresql',
       'project status:alpha',
     ]);
     expect(

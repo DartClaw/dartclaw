@@ -6,12 +6,11 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowTaskType;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'workflow_test_support.dart';
@@ -163,10 +162,7 @@ Future<List<Map<String, dynamic>>> collectSseFramesWithAction(
 // ──────────────────────────────────────────────────────────────────────────────
 
 void main() {
-  late SqliteBackend taskBackend;
-  late Database workflowDb;
-  late SqliteBackend workflowBackend;
-  late SqliteTaskRepository taskRepo;
+  late InMemoryTaskRepository taskRepo;
   late _SubscriptionTrackingEventBus eventBus;
   late _ControllableListTaskService tasks;
   late FakeWorkflowService workflows;
@@ -175,21 +171,12 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    taskBackend = await openPreparedTaskBackend();
-    workflowDb = sqlite3.openInMemory();
-    workflowBackend = SqliteBackend(workflowDb);
-    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     eventBus = _SubscriptionTrackingEventBus();
-    taskRepo = SqliteTaskRepository(taskBackend);
+    taskRepo = InMemoryTaskRepository();
     tasks = _ControllableListTaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_sse_test_');
 
-    workflows = FakeWorkflowService(
-      backend: workflowBackend,
-      taskService: tasks,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
-    );
+    workflows = FakeWorkflowService(taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     workflows.getResult = _makeRun();
 
     definitions = InMemoryDefinitionSource([_makeDefinition()]);
@@ -199,9 +186,7 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    await taskBackend.close();
     await eventBus.dispose();
-    workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 

@@ -6,7 +6,13 @@ import 'dart:io';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show FakeTurnManager, SessionService, TurnOutcome, TurnStatus, openPreparedTaskBackend;
+    show
+        FakeTurnManager,
+        InMemoryTemporalKnowledgeGraphService,
+        SessionService,
+        TurnOutcome,
+        TurnStatus,
+        openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -17,7 +23,7 @@ void main() {
   late KnowledgeInboxService service;
   late SessionService sessions;
   late FakeTurnManager turns;
-  late SqliteBackend kgBackend;
+  late DatabaseBackend kgBackend;
   late TemporalKnowledgeGraphService kg;
 
   setUp(() async {
@@ -26,7 +32,7 @@ void main() {
     captureContexts = <MemoryCaptureContext>[];
     sessions = SessionService(baseDir: p.join(workspace.path, 'sessions'));
     kgBackend = await openPreparedTaskBackend();
-    kg = TemporalKnowledgeGraphService(kgBackend);
+    kg = InMemoryTemporalKnowledgeGraphService();
     turns = _turnsReturning(_extractionPayload());
     File(p.join(workspace.path, 'USER.md')).writeAsStringSync('''
 # User Context

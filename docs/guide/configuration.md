@@ -6,6 +6,10 @@ DartClaw is configured via `dartclaw.yaml`, behavior files, environment variable
 
 Use `dartclaw init` to create an instance. It runs preflight checks, generates `dartclaw.yaml`, scaffolds the workspace, and seeds `ONBOARDING.md`.
 
+PostgreSQL 14+ is required for database-backed operation. `init` records one URL or named-credential reference and
+remains usable while the service is unavailable; after administrator provisioning, `dartclaw doctor --fix` may
+bootstrap only an empty application schema. See [PostgreSQL](postgresql.md).
+
 ### Quick track (default)
 
 Collects the core options: instance name, instance directory, provider selection, per-provider auth, per-provider model, primary provider, port, and gateway auth. Completes in seconds.
@@ -94,9 +98,11 @@ DartClaw uses a single **instance directory** as the canonical home for configur
   workspace/         ← behavior files
   sessions/
   logs/
-  search.db
-  dartclaw.db
 ```
+
+Authoritative relational records and derived search rows live in the configured PostgreSQL database. Sessions,
+canonical memory/wiki, configuration, credentials, project metadata, audit/usage logs, and instance-local recovery
+remain files under the instance directory and need a separate backup.
 
 Set `DARTCLAW_HOME` to use a different instance directory (points to the directory, not the config file).
 
@@ -165,7 +171,14 @@ until then the editor may report that it cannot load the schema.
 port: 3333
 host: localhost
 data_dir: ~/.dartclaw
+database:
+  url: ${DARTCLAW_DATABASE_URL}
 ```
+
+There is no `database.backend` selector. In 0.27 only, the exact old value `postgres` is accepted with a removal
+warning; `sqlite` and other values refuse. New search configuration uses `search.backend: lexical` by default or
+explicit `hybrid`. The exact old `fts5` value is accepted only for this transition and normalized to `lexical`.
+See [Deprecated Configuration Keys](deprecated-config-keys.md) for the complete bounded transition inventory.
 
 <!-- The block between the BEGIN/END GENERATED CONFIG REFERENCE markers is written by dev/tools/render_config_reference.dart from ConfigMeta. Edit the field's FieldMeta description and re-run the tool; hand edits inside the block are overwritten. -->
 <!-- BEGIN GENERATED CONFIG REFERENCE -->
@@ -217,8 +230,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `memory.journal.enabled` | boolean |  | Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required) |
 | `memory.max_bytes` | integer | minimum 1 | Byte budget applied to each prompt memory projection – the index and the errors section – independently. Must be positive; a larger budget spends more of every prompt. (restart required) |
 | `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
-| `search.backend` | string | one of "fts5", "hybrid", "qmd" | Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required) |
-| `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
+| `search.backend` | string | one of "hybrid", "lexical" | PostgreSQL lexical search, optionally extended with embeddings. (restart required) |
 | `database.url` | null or string |  | PostgreSQL connection URL supplied through environment substitution. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI) |
 | `database.credential` | null or string |  | Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI) |
 | `database.pool_size` | integer | minimum 1 | Maximum PostgreSQL connections. Defaults to 5. (restart required) |
@@ -361,7 +373,6 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **data_dir** |  |  |  |
 | `data_dir` | string |  | Instance directory holding sessions, the workspace, databases and credential stores. Default ~/.dartclaw. (restart required) |
 | **database** |  |  |  |
-| `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
 | `database.credential` | null or string |  | Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI) |
 | `database.fts_language` | string |  | PostgreSQL text-search configuration name. Defaults to english; changing it requires restart and rebuild-index. (restart required) |
 | `database.pool_size` | integer | minimum 1 | Maximum PostgreSQL connections. Defaults to 5. (restart required) |
@@ -505,7 +516,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `scheduling.jobs` | array |  | Unattended jobs, each firing a prompt turn, creating a task, or running a shell command. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required) |
 | `scheduling.mutation.approval` | string | one of "none", "operator" | Who commits a job the agent writes through schedule_upsert. none commits and loads it at once; operator parks it until it is approved or rejected on the Scheduling page. The jobs API and the page always commit. (restart required) |
 | **search** |  |  |  |
-| `search.backend` | string | one of "fts5", "hybrid", "qmd" | Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required) |
+| `search.backend` | string | one of "hybrid", "lexical" | PostgreSQL lexical search, optionally extended with embeddings. (restart required) |
 | `search.default_depth` | string |  | Effort a query spends when the caller names none: fast, standard or deep. (restart required) |
 | `search.embedding.credential` | null or string |  | Named generic API-key credential for the HTTP embedding provider. (file-only, not settable via API or CLI) |
 | `search.embedding.endpoint` | null or string |  | Absolute HTTP(S) endpoint used only by the HTTP embedding provider. (restart required) |
@@ -514,8 +525,6 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `search.providers.<name>.api_key` | string |  | Vendor API key, normally an environment reference such as ${BRAVE_API_KEY}. Exactly one of it and credential is required — an entry with neither, or both, is skipped. (file-only, not settable via API or CLI) |
 | `search.providers.<name>.credential` | null or string |  | Name of a credentials.<name> api-key entry to authenticate with, from the config file or the named credential store. Exactly one of it and api_key is required; an unknown name, a github-token entry or a blank value skips the provider. (file-only, not settable via API or CLI) |
 | `search.providers.<name>.enabled` | boolean |  | Whether this vendor may be queried. Required — an entry without it is skipped at load. (file-only, not settable via API or CLI) |
-| `search.qmd.host` | string |  | Loopback address of the qmd daemon. Only localhost, 127.x.x.x and ::1 are accepted. (restart required) |
-| `search.qmd.port` | integer | 1–65535 | TCP port the qmd daemon listens on. Default 8181. (restart required) |
 | **security** |  |  |  |
 | `security.bash_step.env_allowlist` | array |  | Environment variable names a workflow bash step may read, added to the built-in set. Everything else is stripped from its environment. (restart required) |
 | `security.bash_step.extra_strip_patterns` | array |  | Extra regexes whose matches are removed from bash-step output before the model sees it. (restart required) |
@@ -812,7 +821,7 @@ relative to cwd unless you override them explicitly. See [Deployment § Running 
 | `dartclaw status` | Show the data directory, local session count, and configured harness executable without starting the server |
 | `dartclaw token show` | Print the current gateway auth token from config or the generated token file |
 | `dartclaw token rotate` | Generate and persist a new file-backed gateway token; restart running servers to use it |
-| `dartclaw rebuild-index` | Rebuild the SQLite FTS5 projection from the validated canonical memory corpus |
+| `dartclaw rebuild-index` | Rebuild PostgreSQL lexical projections from canonical memory and session NDJSON, then reconcile vectors when hybrid is explicit |
 
 `dartclaw token show` prints a warning instead of a token until one is configured or generated by `dartclaw serve`.
 When `gateway.token` is set in YAML, rotate that config value instead of relying on the generated token file. A running
@@ -949,6 +958,8 @@ recorded here.
 | Deprecated Key | Use Instead | Notes |
 |---|---|---|
 | `memory_max_bytes` | `memory.max_bytes` | Top-level alias, still applied |
+| `database.backend` | – | `postgres` is accepted only to advise removal; `sqlite` and any other value block startup |
+| `search.qmd` (whole subtree) | – | Ignored with one removal advisory; search supports lexical and explicit hybrid modes |
 | `workflow.execution_mode` | – | Removed in 0.16.4; steps are always one-shot |
 | `channels.google_chat.space_events.auth_mode` | – | The Pub/Sub subscription decides authentication |
 | `context.exploration_summary_threshold` | – | Configured the removed exploration summarizer |

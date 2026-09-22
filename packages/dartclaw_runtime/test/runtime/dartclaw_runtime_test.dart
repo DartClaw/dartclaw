@@ -73,16 +73,12 @@ void main() {
     dataDir: tempDir.path,
     port: 3000,
     harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
-    searchBackendFactory: (_) async {
-      final backend = SqliteBackend.openInMemory();
-      openedBackends?.add(backend);
-      return backend;
-    },
     taskBackendFactory: (_) async {
-      final backend = SqliteBackend.openInMemory();
+      final backend = await openPreparedTaskBackend();
       openedBackends?.add(backend);
       return backend;
     },
+    taskBackendIsPrepared: true,
     stderrLine: (_) {},
     exitFn: _unexpectedExit,
     resolvedConfigPath: configFile.path,
@@ -97,8 +93,8 @@ void main() {
     _config(tempDir.path),
     dataDir: tempDir.path,
     harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
-    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
     stderrLine: (_) {},
     exitFn: _unexpectedExit,
     runtimeCwd: tempDir.path,
@@ -265,22 +261,17 @@ void main() {
   test('a completion that fails leaves the staging owning teardown', () async {
     // Between "a completion started" and "a runtime exists" nobody else can
     // close the databases: the caller's `finally` only has the staging.
-    final searchBackends = <DatabaseBackend>[];
     final taskBackends = <DatabaseBackend>[];
     final staging = await DartclawRuntime.stageHeadless(
       _config(tempDir.path),
       dataDir: tempDir.path,
       harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
-      searchBackendFactory: (_) async {
-        final backend = SqliteBackend.openInMemory();
-        searchBackends.add(backend);
-        return backend;
-      },
       taskBackendFactory: (_) async {
-        final backend = SqliteBackend.openInMemory();
+        final backend = await openPreparedTaskBackend();
         taskBackends.add(backend);
         return backend;
       },
+      taskBackendIsPrepared: true,
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
       runtimeCwd: tempDir.path,
@@ -296,7 +287,6 @@ void main() {
     expect(await taskBackends.single.query('SELECT 1'), isNotEmpty);
     await staging.dispose();
 
-    expect(searchBackends, isEmpty, reason: 'headless staging composed a personal-memory search database');
     await expectLater(
       () => taskBackends.single.query('SELECT 1'),
       throwsStateError,
@@ -304,13 +294,13 @@ void main() {
     );
   });
 
-  test('shutdown stops the scheduled lane and closes the search database last', () async {
+  test('shutdown stops the scheduled lane and closes the shared database', () async {
     final openedBackends = <DatabaseBackend>[];
     final runtime = await build(openedBackends: openedBackends);
 
     await runtime.shutdown();
 
-    expect(openedBackends, hasLength(3));
+    expect(openedBackends, hasLength(1));
     for (final backend in openedBackends) {
       await expectLater(() => backend.query('SELECT 1'), throwsStateError);
     }

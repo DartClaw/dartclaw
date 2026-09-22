@@ -479,7 +479,10 @@ class TaskExecutor {
           }
           if (worktreeBaseRef != null && worktreeBaseRef.isNotEmpty) {
             final nextConfig = Map<String, dynamic>.from(task.configJson)..['_baseRef'] = worktreeBaseRef;
-            task = await _tasks.updateFields(task.id, configJson: nextConfig);
+            task = (await _tasks.updateFields(
+              task.id,
+              configJson: nextConfig,
+            )).copyWith(workflowStepExecution: task.workflowStepExecution);
           }
         }
       }
@@ -492,7 +495,10 @@ class TaskExecutor {
           if (!prepared) {
             return;
           }
-          task = await _tasks.updateFields(task.id, worktreeJson: {'path': project.localPath, 'branch': inlineBaseRef});
+          task = (await _tasks.updateFields(
+            task.id,
+            worktreeJson: {'path': project.localPath, 'branch': inlineBaseRef},
+          )).copyWith(workflowStepExecution: task.workflowStepExecution);
         }
       }
 
@@ -520,7 +526,10 @@ class TaskExecutor {
           );
         }
         _taskFileGuard?.register(task.id, worktreeInfo.path);
-        task = await _tasks.updateFields(task.id, worktreeJson: worktreeInfo.toJson());
+        task = (await _tasks.updateFields(
+          task.id,
+          worktreeJson: worktreeInfo.toJson(),
+        )).copyWith(workflowStepExecution: task.workflowStepExecution);
       }
 
       final executionDirectory = taskExecutionDirectory(
@@ -683,7 +692,10 @@ class TaskExecutor {
 
       final clearedConfig = _clearPushBackComment(task.configJson);
       if (clearedConfig != null) {
-        task = await _tasks.updateFields(task.id, configJson: clearedConfig);
+        task = (await _tasks.updateFields(
+          task.id,
+          configJson: clearedConfig,
+        )).copyWith(workflowStepExecution: task.workflowStepExecution);
       }
 
       final sessionMessages = await _messages.getMessages(session.id);

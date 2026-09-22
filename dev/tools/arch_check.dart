@@ -116,17 +116,6 @@ int _maxCeilingFor(int loc) {
 //   session key, the hand-rolled config-change row extraction) already came out.
 //
 // Reviewed necessity, 2026-09-08 (ADR-045):
-//   dartclaw_core 27705 -> 27812 (measured 27812, no headroom). The SQLite
-//   compatibility gate adds required-object manifests, transactional bootstrap,
-//   marker-only adoption and derived-index rebuild/refusal while retiring the
-//   temporal-KG and memory-index additive repairs.
-//
-// Reviewed necessity, 2026-09-08 (ADR-045):
-//   dartclaw_core 27812 -> 27943 (measured 27943, no headroom). The generic
-//   full-text port moves SQLite search behind DatabaseBackend, retains exact
-//   canonical document validation in the reconciler and deletes MemoryService.
-//
-// Reviewed necessity, 2026-09-08 (ADR-045):
 //   dartclaw_core 27943 -> 29759 (measured 28475). The PostgreSQL implementation
 //   adds the bounded pool backend, dispatch classifier and exact schema gate.
 // Reviewed necessity, 2026-09-09 (ADR-045):

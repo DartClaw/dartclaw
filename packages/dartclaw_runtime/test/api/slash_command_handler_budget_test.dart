@@ -6,7 +6,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 void main() {
@@ -40,12 +40,10 @@ void main() {
 
   Future<SlashCommandHandler> buildHandler({BudgetEnforcer? budgetEnforcer}) async {
     final eventBus = EventBus();
-    final backend = await openPreparedTaskBackend();
-    final tasks = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
+    final tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
     addTearDown(() async {
       await tasks.dispose();
       await eventBus.dispose();
-      await backend.close();
     });
     return SlashCommandHandler(taskService: tasks, budgetEnforcer: budgetEnforcer);
   }

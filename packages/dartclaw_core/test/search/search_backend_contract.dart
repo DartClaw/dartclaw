@@ -32,17 +32,10 @@ void searchBackendContractTests({
       expect(results, isEmpty);
     });
 
-    test('empty query returns empty or throws gracefully', () async {
+    test('empty query returns empty', () async {
       await indexContent('Some content', 'doc1.md');
       await backend.indexAfterWrite();
-      // FTS5 MATCH throws on empty string; QMD mock returns [].
-      // Either behavior is acceptable — the backend must not crash unexpectedly.
-      try {
-        final results = await backend.search('');
-        expect(results, isEmpty);
-      } on Exception {
-        // Acceptable — FTS5 throws SqliteException for empty MATCH
-      }
+      expect(await backend.search(''), isEmpty);
     });
 
     test('multiple results returned with scores', () async {
@@ -67,17 +60,10 @@ void searchBackendContractTests({
       expect(results.length, lessThanOrEqualTo(2));
     });
 
-    test('special characters in query do not crash', () async {
+    test('special characters in query are handled', () async {
       await indexContent('Test content', 'doc.md');
       await backend.indexAfterWrite();
-      // FTS5 MATCH has special syntax — may throw on invalid queries.
-      // The contract requires no unhandled crash; throwing is acceptable.
-      try {
-        final results = await backend.search('test & "special" <chars>');
-        expect(results, isA<List<MemorySearchResult>>());
-      } on Exception {
-        // Acceptable — backend-specific syntax errors
-      }
+      expect(await backend.search('test & "special" <chars>'), isA<MemorySearchOutcome>());
     });
 
     test('indexAfterWrite completes without error', () async {

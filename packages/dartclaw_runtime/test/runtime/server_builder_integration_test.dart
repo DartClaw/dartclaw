@@ -195,7 +195,6 @@ Future<void> _disposeRuntime(DartclawRuntime result, LogService logService, {boo
   await result.requireSelfImprovement.dispose();
   await result.taskService.dispose();
   await result.eventBus.dispose();
-  await result.qmdManager?.stop();
   await result.closeStorage();
   await logService.dispose();
 }
@@ -290,8 +289,8 @@ void main() {
         port: 3000,
         harnessFactory: _harnessFactoryFor(worker),
         serverFactory: serverFactory,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
         stderrLine: (_) {},
         exitFn: _unexpectedExit,
         resolvedConfigPath: configFile.path,

@@ -9,8 +9,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
-
 String _repoRoot() {
   final start =
       Platform.environment['DARTCLAW_REPO_ROOT'] ??
@@ -40,8 +38,6 @@ String _hostArchName() => switch ((Process.runSync('uname', ['-m']).stdout as St
   'aarch64' || 'arm64' => 'arm64',
   final value => value.toLowerCase(),
 };
-
-String _hostLibraryName() => _hostOsName() == 'macos' ? 'libsqlite3.dylib' : 'libsqlite3.so';
 
 String _hashFile(String path) {
   for (final command in [
@@ -231,7 +227,17 @@ exec "\$DARTCLAW_TEST_REAL_DART" "\$@"
         expect(retiredCommand.stderr, contains('Could not find a command named "assets".'));
 
         final entries = _tarEntries(archive);
-        expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName', 'lib/', 'lib/${_hostLibraryName()}']));
+        expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName', 'lib/']));
+        expect(
+          entries.any((entry) => entry.startsWith('lib/') && entry != 'lib/'),
+          isTrue,
+          reason: 'The verified native embedding libraries must remain packaged.',
+        );
+        expect(
+          entries.where((entry) => p.basename(entry).toLowerCase().contains('sqlite')),
+          isEmpty,
+          reason: 'Release archives must not carry a SQLite native library.',
+        );
         expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
 
         final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
@@ -241,27 +247,6 @@ exec "\$DARTCLAW_TEST_REAL_DART" "\$@"
         final versionResult = Process.runSync(binaryPath, ['--version']);
         expect(versionResult.exitCode, 0);
         expect((versionResult.stdout as String).trim(), dartclawVersion);
-
-        // Regression guard for the bundled-SQLite migration: a binary built without
-        // the native sqlite asset resolves no `sqlite3_*` symbols and crashes at the
-        // first SQLite call. rebuild-index opens the FTS5 search DB, so a clean
-        // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
-        final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
-        addTearDown(() => smokeDir.deleteSync(recursive: true));
-        final smokeWorkspace = p.join(smokeDir.path, 'workspace');
-        Directory(smokeWorkspace).createSync(recursive: true);
-        await seedCanonicalMemory(
-          smokeWorkspace,
-          topics: const {
-            'general': ['Bundled sqlite smoke entry'],
-          },
-        );
-        final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
-        File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
-
-        final rebuild = Process.runSync(binaryPath, ['--config', configPath, 'rebuild-index']);
-        expect(rebuild.exitCode, 0, reason: '${rebuild.stdout}\n${rebuild.stderr}');
-        expect(rebuild.stdout, contains('Rebuilt index:'));
       }
     },
     skip: Platform.environment['DARTCLAW_NATIVE_ARCHIVE_CACHE'] == null

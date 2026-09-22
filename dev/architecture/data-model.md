@@ -2,38 +2,42 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.27 owner and configured workspace memory and conversation projections, embedding-fingerprint
-lifecycle, PostgreSQL serving interlock, language-aware search, bounded turn-source provenance, and filesystem-backed
-instance-local state.
-The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.27 PostgreSQL-only storage, owner and configured-workspace memory/conversation projections,
+embedding-fingerprint lifecycle, serving interlock, language-aware search, bounded turn-source provenance, and
+filesystem-backed instance-local state.
 
 ---
 
 ## Architecture Principle
 
-**Files hold canonical documents; the selected database holds authoritative relational data and derived indexes.**
+**Files hold canonical documents; PostgreSQL holds authoritative relational data and derived indexes.**
 
 - Sessions, messages, memory, config → file-based (human-inspectable, portable)
-- Search indexes → SQLite FTS5 in `search.db` plus float32 embeddings in `vectors.db`, or PostgreSQL `content_tsv`
-  plus optional pgvector tables (separate memory and conversation projections, rebuildable from canonical memory and
-  session NDJSON via `dartclaw rebuild-index`)
-- Tasks, goals, artifacts, turn traces, task events → SQLite by default or PostgreSQL (authoritative; relational queries on status/type/goal)
+- Search indexes → PostgreSQL `content_tsv` plus optional pgvector tables (separate memory and conversation
+  projections, rebuildable from canonical memory and session NDJSON via `dartclaw rebuild-index`)
+- Tasks, goals, artifacts, executions, workflow runs, turn traces, task events and knowledge facts → PostgreSQL
+  (authoritative relational records)
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
 
-Relational repositories target the dependency-free `DatabaseBackend` port in `dartclaw_kernel`. `SqliteBackend` in
-`dartclaw_core` preserves SQLite's scalar and row formats while serializing seam-issued operations across awaited
-transactions. Goal, task, execution, workflow-run, trace, event and KG persistence use this seam. The execution
-transactor delegates transaction ownership to the backend shared by its participating repositories.
+Relational repositories target the dependency-free `DatabaseBackend` port in `dartclaw_kernel`. Goal, task,
+execution, workflow-run, trace, event and KG persistence use the `PostgresBackend` implementation in
+`dartclaw_core`. The execution transactor delegates transaction ownership to the backend shared by its participating
+repositories.
 
-`database.backend: postgres` selects `PostgresBackend` in `dartclaw_core` on PostgreSQL 14 or newer. One pool serves authoritative repositories; `database.pool_size` defaults to five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
+PostgreSQL 14 or newer is required. One pool serves authoritative repositories; `database.pool_size` defaults to
+five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside
+the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but
+transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
 
-`PostgresSchemaGate` bootstraps the current task tables, base memory table and identity marker in one transaction when the namespace contains no tables. Reopening a compatible schema reads its catalog without mutation; partial or incompatible shapes refuse. Backend selection does not copy the SQLite store. PostgreSQL memory search stores a `content_tsv tsvector NOT NULL` projection with a GIN index; the configured deployment language is bound at query and projection time.
+`PostgresSchemaGate` bootstraps the current authoritative and search tables plus identity marker in one transaction
+when the namespace is empty. Reopening a compatible schema reads its catalog without mutation; partial or
+incompatible shapes refuse. PostgreSQL memory search stores a `content_tsv tsvector NOT NULL` projection with a GIN
+index; the configured deployment language is bound at query and projection time.
 
-Vector embeddings are derived data with an independent compatibility boundary. SQLite stores memory and conversation
-embeddings in a separate `vectors.db` as little-endian float32 blobs with explicit dimensions. PostgreSQL stores the
-same two principal-scoped corpora in `memory_vectors` and `conversation_vectors` through the existing application pool.
+Vector embeddings are derived data with an independent compatibility boundary. PostgreSQL stores the two
+principal-scoped corpora in `memory_vectors` and `conversation_vectors` through the application pool.
 Hybrid startup first verifies an administrator-installed pgvector extension in `public`; lexical-only preparation
 never queries the extension. An absent optional PostgreSQL vector projection is created only after the authoritative
 schema validates, while partial or incompatible vector objects refuse with derived-only recovery guidance.
@@ -44,10 +48,9 @@ quarantines every backend and prepared-statement operation before dispatch; acce
 reacquisition, PostgreSQL version validation, and a current-schema check. A competing owner or terminal recovery
 failure stops the process. Shutdown disables recovery, closes the pool, then releases the dedicated connection.
 
-Backend switches transfer no data. After the active gate succeeds, a read-only probe reports an abandoned inactive
-store with backup/import/decommission guidance, an in-use PostgreSQL store, or a safe could-not-verify reason.
-Only tasks, goals, workflow runs, and knowledge facts count as authoritative content. Probe failures never abort
-startup, and SQLite files are neither adopted nor changed by PostgreSQL selection.
+The separate 0.27 transition utility imports only the pinned v0.26.1 authoritative SQLite shape into an empty current
+schema while DartClaw is stopped. It never imports derived indexes or canonical files and does not provide ongoing
+compatibility, merge, overwrite, synchronization, or reverse migration.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
@@ -61,9 +64,6 @@ startup, and SQLite files are neither adopted nor changed by PostgreSQL selectio
 ~/.dartclaw/                          # dataDir (configurable)
 ├── dartclaw.yaml                     # [YAML]   Config (live + reloadable + restart-required fields)
 ├── kv.json                           # [JSON]   Global key-value store
-├── search.db                         # [SQLite] Memory and conversation FTS5 indexes (REBUILDABLE)
-├── vectors.db                        # [SQLite] Memory and conversation float32 vectors (REBUILDABLE)
-├── dartclaw.db                          # [SQLite] Tasks + agent_executions + workflow_step_executions + goals + artifacts + turns + task_events + kg_facts (AUTHORITATIVE)
 ├── turn_state.json                   # [JSON]   Active turn recovery state (TRANSIENT)
 ├── webhook_deliveries/               # [JSON]   Per-delivery reservation and dedup markers
 ├── projects.json                     # [JSON]   Project registry (atomic writes)
@@ -106,13 +106,13 @@ startup, and SQLite files are neither adopted nor changed by PostgreSQL selectio
 
 | Pattern | Storage | Write Method | Concurrency |
 |---------|-------|-------------|-------------|
-| **Relational queries** | SQLite `search.db`, `vectors.db`, and `dartclaw.db`, or the configured PostgreSQL database | Backend prepared statements; PostgreSQL search uses `content_tsv` and optional pgvector projections | SQLite WAL (`dartclaw.db`) or single-thread (derived stores); PostgreSQL pooled connections and transactions |
+| **Relational queries** | Configured PostgreSQL database | Prepared statements; search uses `content_tsv` and optional pgvector projections | Pooled connections and transactions |
 | **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
 | **Atomic documents** | `turn_state.json`, `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `pending-schedule-changes.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (turn state, meta, keys, bindings, pending changes, OAuth store, projects) |
 | **Delivery markers** | `webhook_deliveries/<sha256-id>` | Exclusive claim, synchronous atomic commit, TTL purge | Instance-local pending/processed reservation |
 | **Structured text** | Canonical memory documents (index, topics, archive, audit, `learnings.md`, `errors.md`, daily logs) | Temp file → rename or append | Shared corpus lock/write queue |
-| **Append-mostly SQLite** | `turns` (in `dartclaw.db`) | Async upsert, fire-and-forget | `TurnTraceService` (WAL) |
-| **Append-only SQLite** | `task_events` (in `dartclaw.db`) | Awaited insert | `TaskEventService` (WAL) |
+| **Append-mostly relational** | PostgreSQL `turns` | Async upsert, fire-and-forget | `TurnTraceService` through the shared backend |
+| **Append-only relational** | PostgreSQL `task_events` | Awaited insert | `TaskEventService` through the shared backend |
 
 Daily turn-log records are byte-bounded at 512 KiB. A date partition is accepted through 8 MiB; an append that would
 exceed it is rejected before mutation and never trims prior observations. Host-side reads of canonical workspace text
@@ -140,11 +140,10 @@ stopped-edit reconciliation or fails closed before index publication.
 ### Database Backend
 
 `DatabaseBackend`, `DatabaseStatement`, and `DatabaseBackendFactory` are port types in `dartclaw_kernel`.
-`dartclaw_core` provides `SqliteBackend` and `PostgresBackend` for authoritative relational repositories, plus
-SQLite/PostgreSQL implementations of `FullTextIndex` and `VectorIndex`. The vector implementations share fixed
-memory and conversation table descriptors, keep every mutation transactional and scope enumeration and ranking by
-owner. SQLite ranks finite equal-dimension candidates in Dart. PostgreSQL materializes fingerprint- and
-dimension-filtered candidates before applying the public-qualified cosine operator.
+`dartclaw_core` provides `PostgresBackend` for authoritative relational repositories plus PostgreSQL
+implementations of `FullTextIndex` and `VectorIndex`. The vector index keeps every mutation transactional, scopes
+enumeration and ranking by owner, and materializes fingerprint- and dimension-filtered candidates before applying
+the public-qualified cosine operator.
 
 A PostgreSQL deployment uses one database and one pool for its authoritative repositories and search projections.
 Tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts are authoritative. Memory and
@@ -245,7 +244,7 @@ Message
 
 ### Task
 
-Tasks are the structured work unit for the task orchestrator. SQLite-based.
+Tasks are the structured work unit for the task orchestrator. They are persisted in PostgreSQL.
 
 ```
 Task
@@ -264,7 +263,7 @@ Task
 └── completedAt: DateTime?
 ```
 
-**Storage**: `dartclaw.db` → `tasks` table (WAL mode, indexed on status; the legacy `type` column remains through 0.25 for refusal compatibility)
+**Storage**: PostgreSQL `tasks` table (indexed on status; the legacy `type` column remains for refusal compatibility)
 **Package**: `dartclaw_core` (model and repository), `dartclaw_runtime` (service)
 
 Task JSON and API surfaces now expose nested `agentExecution` and `workflowStepExecution` objects when hydrated. The task row itself keeps only task-owned lifecycle and artifact fields; runtime provider/session/model state lives on `AgentExecution`, and workflow-only metadata lives on `WorkflowStepExecution`.
@@ -287,7 +286,7 @@ AgentExecution
 └── completedAt: DateTime?
 ```
 
-**Storage**: `dartclaw.db` → `agent_executions` table (indexed on `session_id`)
+**Storage**: PostgreSQL `agent_executions` table (indexed on `session_id`)
 **Relationships**: `tasks.agent_execution_id` references `agent_executions.id`; `workflow_step_executions.agent_execution_id` also references `agent_executions.id`
 
 ### WorkflowStepExecution
@@ -312,7 +311,7 @@ WorkflowStepExecution
 └── stepTokenBreakdownJson: String?
 ```
 
-**Storage**: `dartclaw.db` → `workflow_step_executions` table (indexed on `(workflow_run_id, step_index)`)
+**Storage**: PostgreSQL `workflow_step_executions` table (indexed on `(workflow_run_id, step_index)`)
 **Relationships**: `task_id` is `ON DELETE CASCADE` to `tasks.id`; `agent_execution_id` references `agent_executions.id`
 
 #### TaskOrigin (channel-originated tasks)
@@ -388,7 +387,7 @@ TaskArtifact
 └── createdAt: DateTime
 ```
 
-**Storage**: `dartclaw.db` → `task_artifacts` table (FK cascade on task delete)
+**Storage**: PostgreSQL `task_artifacts` table (FK cascade on task delete)
 
 Merge conflicts are persisted as a data artifact named `conflict.json` with the shape:
 
@@ -412,7 +411,7 @@ Goal
 └── createdAt: DateTime
 ```
 
-**Storage**: `dartclaw.db` → `goals` table
+**Storage**: PostgreSQL `goals` table
 
 ### Derived Memory Index Document
 
@@ -426,14 +425,12 @@ SearchDocument
 └── timestamp: DateTime
 ```
 
-**Storage**: SQLite `search.db` → `memory_chunks` + `memory_chunks_fts` (FTS5 virtual table) and separate `vectors.db`
-→ `memory_vectors`; PostgreSQL database → `memory_chunks.content_tsv` plus optional `memory_vectors` using
-`public.vector`
+**Storage**: PostgreSQL `memory_chunks.content_tsv` plus optional `memory_vectors` using `public.vector`
 **Source of truth**: the validated canonical corpus: bounded index, topic documents, archive, observations, learnings,
 and deletion audit. Only searchable topic, archive, observation, and learning entries project into the selected memory
 index; `errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjection` creates the documents and
-`SqliteFtsIndex` stores their chunks in `memory_chunks`; `PostgresFtsIndex` stores the PostgreSQL projection rows and
-binds the configured language as data. One deployment language drives memory, conversation, and KG search. KG facts remain in
+`PostgresFtsIndex` stores the projection rows and binds the configured language as data. One deployment language
+drives memory, conversation, and KG search. KG facts remain in
 `kg_facts` and use a query-time vector; they have no stored vector or search index beyond `kg_facts_lookup`.
 Owner documents use `user_id = 'owner'`; each configured workspace uses `user_id = 'agent:<agent-id>'` in the same
 lexical and vector stores. Ordinary memory access resolves the pinned session workspace before touching canonical or
@@ -441,10 +438,10 @@ derived data. `context_research` remains an explicitly granted read of owner kno
 **Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` enumerates the owner and explicit current configured
 workspaces and atomically recreates their memory projection data while preserving
 stable entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild authenticates
-bounded corpus batches and validates the complete projection before publication. SQLite publishes a validated sibling file; PostgreSQL
-publishes through one transaction. A principal failure preserves its prior index on both backends. KG search uses the new language
+bounded corpus batches and validates the complete projection before publication. PostgreSQL publishes through one
+transaction. A principal failure preserves its prior index. KG search uses the new language
 after restart; stored memory vectors keep their previous language until rebuild. Mixed-language corpora can mis-stem,
-ablaut forms are not conflated, and PostgreSQL does not fold diacritics where SQLite FTS5 does.
+ablaut forms are not conflated, and PostgreSQL does not fold all diacritics.
 
 ### Derived Conversation Index Row
 
@@ -456,9 +453,8 @@ System messages, message metadata, attachments, and non-chat session types are e
 rebuild, so queued, held, or removed input does not enter search. Each eligible row uses the session's pinned workspace
 principal, or `owner` when the session has no configured workspace.
 
-**Storage**: SQLite `search.db` holds `conversation_chunks` and its external-content `conversation_chunks_fts` table;
-separate `vectors.db` holds `conversation_vectors`. PostgreSQL holds `conversation_chunks` with `content_tsv` and a
-GIN index plus optional `conversation_vectors` using `public.vector`. Named lexical projection columns are `message_id`,
+**Storage**: PostgreSQL holds `conversation_chunks` with `content_tsv` and a GIN index plus optional
+`conversation_vectors` using `public.vector`. Named lexical projection columns are `message_id`,
 `user_id`, `text`, `chunk_index`, `session_id`, `role`, and `created_at`; `chunk_index` is the stable zero-based
 position in the document, while integer `id` is only the database row identity.
 **Source of truth**: `sessions/<id>/messages.ndjson`. Post-append observers enqueue indexing without delaying or failing
@@ -468,11 +464,10 @@ rows for owner-authorized archived-lifecycle search. Index failures are logged a
 Its administrative surface aggregates the owner and configured principal scopes; agent memory tools do not receive
 that cross-workspace view.
 **Rebuild**: `dartclaw rebuild-index` reconstructs both corpora from their own files for the owner and explicit current
-configured workspaces. Conversation rebuilding clears stale rows even when there are no chat-facing sessions. A memory rebuild also re-projects conversations after SQLite publishes
-its replacement `search.db`; PostgreSQL uses the same refresh rule. SQLite's derived-store compatibility gate authenticates each corpus
-separately. Neither rebuild changes message NDJSON, wiki pages or KG facts. PostgreSQL uses `database.fts_language`;
-stored conversation text vectors change language only after rebuild. SQLite uses sanitized `unicode61` terms without
-stemming or prefix queries.
+configured workspaces. Conversation rebuilding clears stale rows even when there are no chat-facing sessions. A
+memory rebuild also re-projects conversations in the same PostgreSQL transaction. Neither rebuild changes message
+NDJSON, wiki pages or KG facts. PostgreSQL uses `database.fts_language`; stored conversation text vectors change
+language only after rebuild.
 
 ### Thread Binding
 
@@ -654,7 +649,7 @@ TurnTrace (turns table)
 └── tool_calls: String              (JSON records/count envelope; legacy arrays readable)
 ```
 
-**Storage**: `dartclaw.db` → `turns` table (WAL mode; indexed on `session_id`, `task_id`, `started_at`)
+**Storage**: PostgreSQL `turns` table (indexed on `session_id`, `task_id`, `started_at`)
 **Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
 **Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
 
@@ -662,7 +657,11 @@ Each tool record may retain immutable `sourceLocators` from a correlated success
 first-return deduplication and a 50-locator cap. Legacy records default to `[]`; this uses the existing JSON envelope
 and adds no column or source replay store.
 
-**Multi-service co-location note**: `dartclaw.db` co-locates task, execution, workflow, trace, event, goal and KG tables. Runtime wiring, standalone workflow status and cleanup call `SqliteSchemaGate.prepareTasks` before constructing repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services, share one `DatabaseBackend`; their constructors do not create or repair schema. SqliteSchemaGate.prepareTasks applies WAL and foreign-key connection settings before classification. Wiring opens through DatabaseBackendFactory and owns closure; repositories do not close shared backends.
+**Multi-service co-location note**: One PostgreSQL namespace co-locates task, execution, workflow, trace, event, goal
+and KG tables. Runtime wiring, standalone workflow status and cleanup validate `PostgresSchemaGate` before constructing
+repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services,
+share one `PostgresBackend`; their constructors do not create or repair schema. Wiring owns backend closure;
+repositories do not close the shared pool.
 
 ### Instance-local Recovery and Dedup
 
@@ -694,7 +693,7 @@ TaskEvent (task_events table)
 | `compaction` | `trigger`, `sessionId`, `preTokens?` | Provider compacted the task session context |
 | `error` | `message` | Task-level error |
 
-**Storage**: `dartclaw.db` → `task_events` table (WAL mode; indexed on `task_id`, `(task_id, kind)`, `timestamp`)
+**Storage**: PostgreSQL `task_events` table (indexed on `task_id`, `(task_id, kind)`, `timestamp`)
 **Write pattern**: Awaited persistence. `TaskEventRecorder` waits for the insert before emitting `TaskEventCreatedEvent`; a failed insert propagates to the caller and emits no event.
 **Retention**: No retention policy — unbounded growth; cleanup deferred to a later milestone.
 **Package**: `dartclaw_core` (`TaskEvent`, `TaskEventKind`, `TaskEventService`), `dartclaw_runtime` (`TaskEventRecorder`)
@@ -784,7 +783,7 @@ WorkflowSummary                              # discovery projection, not persist
 | `MapIterationCompletedEvent` | `runId`, `stepId`, `iterationIndex`, `totalIterations`, `itemId?`, `taskId`, `success`, `tokenCount` | A single map/fan-out iteration settles (success or failure) |
 | `MapStepCompletedEvent` | `runId`, `stepId`, `stepName`, `totalIterations`, `successCount`, `failureCount`, `cancelledCount`, `totalTokens` | All iterations of a map step have settled |
 
-**Storage**: Workflow definitions are YAML files parsed at runtime (not persisted to DB). Shipped definitions compile into the `dartclaw_workflow` embedded map and are materialized into `<dataDir>/workflows/built-in/` as `WorkflowSource.materialized`, because registries and spawned harnesses require real files. In source checkouts, canonical YAML under `packages/dartclaw_workflow/lib/src/workflow/definitions/` wins for editing and dev runs. Built-in `dartclaw-*` skills follow the same source precedence and materialize into provider-visible skill directories. Workflow execution state is persisted in two layers: lightweight context/status snapshots live on `WorkflowRun.contextJson` in SQLite, while the fuller `WorkflowContext` JSON is written under the workflow data directory and reloaded for resume/recovery paths.
+**Storage**: Workflow definitions are YAML files parsed at runtime (not persisted to DB). Shipped definitions compile into the `dartclaw_workflow` embedded map and are materialized into `<dataDir>/workflows/built-in/` as `WorkflowSource.materialized`, because registries and spawned harnesses require real files. In source checkouts, canonical YAML under `packages/dartclaw_workflow/lib/src/workflow/definitions/` wins for editing and dev runs. Built-in `dartclaw-*` skills follow the same source precedence and materialize into provider-visible skill directories. Workflow execution state is persisted in two layers: lightweight context/status snapshots live on `WorkflowRun.contextJson` in PostgreSQL, while the fuller `WorkflowContext` JSON is written under the workflow data directory and reloaded for resume/recovery paths.
 
 **Discovery contract**: listing surfaces do not materialize full prompt-bearing definitions. `WorkflowDefinitionSource.listSummaries()` projects `WorkflowSummary` records for browsers and pickers, while detail/execution paths fetch the full `WorkflowDefinition` by name. This keeps discovery payloads small while preserving a single definition source of truth.
 
@@ -809,23 +808,23 @@ durable seam that connects workflow execution to task/worktree persistence.
        │
                            ┌─────────────┐
                            │    Goal      │
-                           │ (dartclaw.db)│
+                           │ (PostgreSQL) │
                            └──────┬───────┘
                                   │ goal_id (optional)
                                   │
 ┌─────────────┐  session_id  ┌────┴────────┐  task_id   ┌──────────────┐
 │   Session   │◄─ ─ ─ ─ ─ ─ ┤    Task     ├───────────►│ TaskArtifact │
-│  (files)    │  (by ID,     │(dartclaw.db)│  (FK,      │ (dartclaw.db)│
+│  (files)    │  (by ID,     │(PostgreSQL) │  (FK,      │ (PostgreSQL) │
 └──────┬──────┘   not FK)    └──────┬──────┘  CASCADE)  └──────────────┘
        │                            │
        │ contains                   ├── task_id ──►┌──────────────┐
        │                            │              │  TurnTrace   │
-┌──────┴──────┐                     │              │ (dartclaw.db)│
+┌──────┴──────┐                     │              │ (PostgreSQL) │
 │   Message   │                     │              └──────────────┘
 │  (NDJSON)   │                     │
 └─────────────┘                     └── task_id ──►┌──────────────┐
                                                    │  TaskEvent   │
-                                                   │ (dartclaw.db)│
+                                                   │ (PostgreSQL) │
                                                    └──────────────┘
 
 ┌──────────────────────────────┐  derived from  ┌───────────────────┐
@@ -839,7 +838,7 @@ durable seam that connects workflow execution to task/worktree persistence.
 |------|----|-----------|-----------|
 | `Task.sessionId` | `Session.id` | String ID reference | **No** — convention-based protection (SessionType.task excluded from pruning) |
 | `Task.goalId` | `Goal.id` | String ID in same DB | **No** — no FK constraint (goal deletion doesn't cascade to tasks) |
-| `Task.projectId` | `projects.json` | String ID reference | **No** — cross-store (SQLite → file) |
+| `Task.projectId` | `projects.json` | String ID reference | **No** — cross-store (PostgreSQL → file) |
 | `TaskArtifact.taskId` | `Task.id` | Foreign key | **Yes** — `ON DELETE CASCADE` |
 | `TurnTrace.task_id` | `Task.id` | String ID reference | **No** — traces survive task deletion |
 | `TaskEvent.task_id` | `Task.id` | String ID reference | **No** — events survive task deletion |
@@ -875,16 +874,15 @@ dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, DatabaseBa
                                         execution repository ports, deterministic utilities
      ▲
      │
-dartclaw_core       (kernel + sqlite3 + postgres)
+dartclaw_core       (kernel + postgres)
                                         SessionService, MessageService, KvService,
      ▲                                  MemoryFileService, Task*, Goal*, EventBus,
      │                                  ThreadBindingStore, ProjectService (interface),
      │                                  HarnessFactory, harness interfaces,
-     │                                  SqliteBackend, PostgresBackend,
+     │                                  PostgresBackend,
      │                                  relational repositories via DatabaseBackend,
-     │                                  SqliteFtsIndex, PostgresFtsIndex,
-     │                                  SqliteVectorIndex, PostgresVectorIndex,
-     │                                  SqliteSchemaGate, PostgresSchemaGate,
+     │                                  PostgresFtsIndex, PostgresVectorIndex,
+     │                                  PostgresSchemaGate,
      │                                  TurnStateStore, WebhookDeliveryStore (files),
      │                                  TurnTraceService,
      │                                  TaskEventService
@@ -895,7 +893,7 @@ dartclaw_search     (kernel + llamadart) HybridSearch, VectorSynchronizer,
 dartclaw_workflow   (kernel + core)     WorkflowRegistry, WorkflowDefinition/Step/Loop,
      ▲                                  workflow parser/validator/engine, MapContext,
      │                                  WorkflowContext, schema presets, built-in skills,
-     │                                  WorkflowRunRepository + SqliteWorkflowRunRepository,
+     │                                  WorkflowRunRepository implementation,
      │                                  WorkflowMaterializer
      │
 dartclaw_runtime    (kernel + core + search + workflow, shelf)
@@ -965,7 +963,7 @@ Append-only logs that must not block the caller:
 | `learnings.md` | Keep newest N records (default: 50) | On write (canonical learning role, shared corpus lock) |
 | Canonical topic entries | Archive old entries and remove exact replays; regenerate the bounded index | Nightly cron (`MemoryPruner`) |
 | Sessions | Archive after N days idle, count/disk budget | Scheduled (`SessionMaintenanceService`) |
-| SQLite `search.db` or PostgreSQL memory/conversation search tables | Rebuild memory from searchable canonical roles and conversations from session NDJSON; SQLite memory publication also restores conversation rows | Manual (`dartclaw rebuild-index`) and startup reconciliation |
+| PostgreSQL memory/conversation search tables | Rebuild memory from searchable canonical roles and conversations from session NDJSON | Manual (`dartclaw rebuild-index`) and startup reconciliation |
 
 The memory journal and optional curation schedule each register one owner run plus one uniquely named run per configured
 workspace. No other scheduled job fans out by workspace.
@@ -976,33 +974,31 @@ workspace. No other scheduled job fans out by workspace.
 
 ### Backup
 
-With SQLite, all state lives under `dataDir` (default `~/.dartclaw/`). PostgreSQL deployments also require a backup of the configured database. A filesystem-level backup captures the local files:
+PostgreSQL and canonical files are separate backup authorities. Capture the database with provider tooling or
+`pg_dump`, and capture the file stores under `dataDir` (default `~/.dartclaw/`) separately:
 
 ```bash
-# Simple backup (sufficient for single-user)
-tar czf dartclaw-backup-$(date +%Y%m%d).tar.gz ~/.dartclaw/
+pg_dump --format=custom --file=dartclaw.dump "$DARTCLAW_DATABASE_URL"
+tar czf dartclaw-files.tar.gz ~/.dartclaw/
 ```
 
-For consistent SQLite snapshots, flush WAL first:
-```bash
-sqlite3 ~/.dartclaw/dartclaw.db "PRAGMA wal_checkpoint(TRUNCATE);"
-```
-
-`search.db` does not need WAL flush (no WAL mode). Both backends' memory and conversation search projections are rebuildable from canonical memory and session NDJSON; back up those source files.
+Memory and conversation search projections are rebuildable from canonical memory and session NDJSON; back up those
+source files even when the derived tables are excluded from a database backup.
 
 ### Recovery
-
-Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: WAL is checkpointed, the connection is closed, and the file is renamed. If both names exist, startup refuses; keep the store containing your data and remove or archive the other.
 
 | Scenario | Recovery |
 |----------|---------|
 | Derived memory or conversation index stale or missing | `dartclaw rebuild-index` reconstructs both projections from validated canonical memory and session NDJSON. An incompatible PostgreSQL schema is refused before rebuild; back up, then recreate the store or restore a compatible one. |
 | PostgreSQL database lost or damaged | Restore it with the provider backup workflow or `pg_restore` from a verified `pg_dump` archive. |
 | PostgreSQL compatibility refusal | Back up the named database, then recreate it for this release or restore a compatible backup. |
-| `dartclaw.db` corrupted/deleted | **Data loss** — tasks are authoritative. Restore from backup. |
 | PostgreSQL interlock lost | Storage calls refuse during recovery. Reacquire the lock and revalidate the server version and current schema before access resumes; terminal failure requires correcting the reported condition and restarting. |
 | `turn_state.json` corrupted/deleted | Invalid content is quarantined at open and recovery starts empty; a missing file starts empty. In-flight sessions may miss a recovery notice. Leftover `state.db` is ignored. |
 | Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |
 | `dartclaw.yaml` corrupted | Restore from `dartclaw.yaml.bak` (created on every config write) |
 | `kv.json` corrupted | Loss of daily usage aggregates. Recoverable from `usage.jsonl` re-aggregation. |
 | Canonical memory member deleted | Corpus validation/reconciliation reports the missing member; restore the validated canonical topic, archive, observation, learning, or audit member from workspace Git or another trusted backup before rebuilding the derived index. `MEMORY.md` alone is only the bounded index, not the complete knowledge body. |
+
+The v0.26.1 SQLite transition is a stopped-source, one-shot import into an empty current PostgreSQL schema. Preserve a
+consistent source snapshot including committed WAL data and a separate canonical-file backup. Rollback to the old
+binary/configuration/snapshot is supported only before accepting new PostgreSQL writes; there is no reverse migration.

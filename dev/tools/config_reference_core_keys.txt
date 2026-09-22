@@ -58,7 +58,6 @@ memory.pruning.enabled  # Memory maintenance
 search.backend  # Search implementation
 
 # Database
-database.backend  # Authoritative database engine
 database.url  # PostgreSQL connection reference
 database.credential  # Named PostgreSQL connection reference
 database.pool_size  # PostgreSQL connection bound

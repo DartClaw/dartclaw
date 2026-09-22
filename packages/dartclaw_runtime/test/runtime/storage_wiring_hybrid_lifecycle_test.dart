@@ -31,10 +31,16 @@ void main() {
       final release = Completer<void>();
       var queryCalls = 0;
       final diagnostics = <SearchDiagnostics>[];
+      final backend = PostgresVectorTestBackend();
+      final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
       final wiring = StorageWiring(
         config: config,
         eventBus: EventBus(),
         exitFn: (code) => throw StateError('Unexpected exit $code'),
+        taskBackendFactory: (_) async => backend,
+        taskBackendIsPrepared: true,
+        searchIndexFactory: (_, table, {required withinTransaction}) =>
+            indices.putIfAbsent(table, InMemoryFullTextIndex.new),
         embeddingProviderFactory: () => CallbackEmbeddingProvider(
           embedQuery: (_) async {
             queryCalls++;
@@ -86,10 +92,16 @@ void main() {
   }
 
   test('stale health before inspection prevents the query and all diagnostics', () async {
+    final backend = PostgresVectorTestBackend();
+    final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
       exitFn: (code) => throw StateError('Unexpected exit $code'),
+      taskBackendFactory: (_) async => backend,
+      taskBackendIsPrepared: true,
+      searchIndexFactory: (_, table, {required withinTransaction}) =>
+          indices.putIfAbsent(table, InMemoryFullTextIndex.new),
       embeddingProviderFactory: () =>
           CallbackEmbeddingProvider(embedQuery: (_) => throw StateError('A stale index must not be queried')),
     );
@@ -118,16 +130,18 @@ void main() {
       final release = Completer<void>();
       var holdEmbeddings = false;
       var providerDisposals = 0;
-      late DatabaseBackend vectorBackend;
-      late DatabaseBackend taskBackend;
-      late DatabaseBackend searchBackend;
+      final backend = _LifecyclePostgresBackend();
+      List<VectorRecord>? retainedConversations;
+      List<VectorRecord>? retainedMemory;
+      final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
       final wiring = StorageWiring(
         config: config,
         eventBus: EventBus(),
         exitFn: (code) => throw StateError('Unexpected exit $code'),
-        taskBackendFactory: (_) async => taskBackend = SqliteBackend.openInMemory(),
-        searchBackendFactory: (path) async => searchBackend = await SqliteBackend.open(path),
-        vectorBackendFactory: (path) async => vectorBackend = await SqliteBackend.open(path),
+        taskBackendFactory: (_) async => backend,
+        taskBackendIsPrepared: true,
+        searchIndexFactory: (_, table, {required withinTransaction}) =>
+            indices.putIfAbsent(table, InMemoryFullTextIndex.new),
         embeddingProviderFactory: () => CallbackEmbeddingProvider(
           embedDocuments: (documents) async {
             if (holdEmbeddings && documents.any((text) => text.contains('pendingmemory'))) {
@@ -145,15 +159,15 @@ void main() {
           dispose: () async {
             providerDisposals++;
             expect(release.isCompleted, isTrue, reason: 'The shared provider must outlive both pending mutations');
-            for (final backend in [vectorBackend, taskBackend, searchBackend]) {
-              expect(await backend.query('SELECT 1 AS alive'), [
-                {'alive': 1},
-              ]);
-            }
-            expect(
-              await SqliteVectorIndex(vectorBackend, table: VectorTable.conversationChunks).list(userId: 'owner'),
-              hasLength(1),
-            );
+            expect(await backend.query('SELECT 1 AS alive'), [
+              {'alive': 1},
+            ]);
+            retainedConversations = await PostgresVectorIndex(
+              backend,
+              table: VectorTable.conversationChunks,
+            ).list(userId: 'owner');
+            retainedMemory = await PostgresVectorIndex(backend, table: VectorTable.memoryChunks).list(userId: 'owner');
+            expect(retainedConversations, hasLength(1));
             if (disposeFails) throw StateError('Injected provider disposal failure');
           },
         ),
@@ -172,27 +186,60 @@ void main() {
       final closeExpectation = disposeFails ? expectLater(closing, throwsStateError) : expectLater(closing, completes);
       await pumpEventQueue();
       expect(providerDisposals, 0);
-      expect(await vectorBackend.query('SELECT 1 AS alive'), [
+      expect(await backend.query('SELECT 1 AS alive'), [
         {'alive': 1},
       ]);
       release.complete();
       await memoryWrite;
       await closeExpectation;
       expect(providerDisposals, 1);
-      for (final backend in [vectorBackend, taskBackend, searchBackend]) {
-        await expectLater(() => backend.query('SELECT 1'), throwsStateError);
-      }
-      final retained = await SqliteBackend.open(config.vectorsDbPath);
-      try {
-        final conversations = await SqliteVectorIndex(
-          retained,
-          table: VectorTable.conversationChunks,
-        ).list(userId: 'owner');
-        expect(conversations.single.documentId, message.id);
-        expect(await SqliteVectorIndex(retained, table: VectorTable.memoryChunks).list(userId: 'owner'), hasLength(2));
-      } finally {
-        await retained.close();
-      }
+      await expectLater(() => backend.query('SELECT 1'), throwsStateError);
+      expect(retainedConversations!.single.documentId, message.id);
+      expect(retainedMemory, hasLength(2));
     });
+  }
+}
+
+final class _LifecyclePostgresBackend implements DatabaseBackend {
+  final PostgresVectorTestBackend _vectors = PostgresVectorTestBackend();
+  var _closed = false;
+
+  @override
+  Future<void> close() async {
+    _closed = true;
+    await _vectors.close();
+  }
+
+  @override
+  Future<int> execute(String sql, [List<Object?> parameters = const []]) {
+    _ensureOpen();
+    return _vectors.execute(sql, parameters);
+  }
+
+  @override
+  Future<DatabaseStatement> prepare(String sql) {
+    _ensureOpen();
+    return _vectors.prepare(sql);
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> query(String sql, [List<Object?> parameters = const []]) {
+    _ensureOpen();
+    if (sql.trimLeft().startsWith('SELECT 1')) {
+      return Future.value(const [
+        <String, Object?>{'alive': 1},
+      ]);
+    }
+    return _vectors.query(sql, parameters);
+  }
+
+  @override
+  Future<T> transaction<T>(Future<T> Function(DatabaseBackend tx) body) {
+    _ensureOpen();
+    return _vectors.transaction((_) => body(this));
+  }
+
+  void _ensureOpen() {
+    if (_closed) throw StateError('Database backend is closed');
   }
 }

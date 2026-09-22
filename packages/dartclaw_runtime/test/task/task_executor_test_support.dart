@@ -20,9 +20,8 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SqliteWorkflowRunRepository, WorkflowRun, WorkflowRunRepository, WorkflowStepExecutionRepository;
+    show WorkflowRun, WorkflowRunRepository, WorkflowStepExecutionRepository, WorkflowWorktreeBinding;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 /// Blocks a step prompt carrying the `BLOCK_WORKFLOW_PROMPT` sentinel.
 ///
@@ -58,7 +57,7 @@ final class TaskExecutorTestHarness {
   late ArtifactCollector collector;
   late GuardChain workflowGuardChain;
   late TaskToolFilterGuard workflowToolFilterGuard;
-  late SqliteBackend taskBackend;
+  late DatabaseBackend taskBackend;
 
   final List<ExecutionCoordinator> _ownedWorkflowCoordinators = [];
 
@@ -72,7 +71,7 @@ final class TaskExecutorTestHarness {
   Future<void> setUp({
     String tempPrefix = 'dartclaw_executor_test_',
     MessageService Function(String baseDir)? messageServiceFactory,
-    TaskRepository Function(Database database)? taskRepositoryFactory,
+    TaskRepository Function(DatabaseBackend database)? taskRepositoryFactory,
   }) async {
     tempDir = Directory.systemTemp.createTempSync(tempPrefix);
     sessionsDir = p.join(tempDir.path, 'sessions');
@@ -83,10 +82,8 @@ final class TaskExecutorTestHarness {
 
     sessions = SessionService(baseDir: sessionsDir);
     messages = messageServiceFactory?.call(sessionsDir) ?? MessageService(baseDir: sessionsDir);
-    final taskDatabase = sqlite3.openInMemory();
-    taskBackend = SqliteBackend(taskDatabase);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    _defaultTasks = TaskService(taskRepositoryFactory?.call(taskDatabase) ?? SqliteTaskRepository(taskBackend));
+    taskBackend = await openPreparedTaskBackend();
+    _defaultTasks = TaskService(taskRepositoryFactory?.call(taskBackend) ?? InMemoryTaskRepository());
     tasks = _defaultTasks;
     turns = TurnManager(
       turnLimits: const TurnLimitsConfig.defaults(),
@@ -313,7 +310,7 @@ Future<Directory> initGitRepo({
 /// suites (core lifecycle, workflow one-shot, worktree/git).
 ///
 /// Wraps [TaskExecutorTestHarness] but replaces the simple in-memory
-/// [TaskService] with one backed by a shared SQLite DB so workflow repo joins
+/// [TaskService] with shared workflow persistence collaborators
 /// (agent executions, workflow runs, step executions) resolve. Owns the shared
 /// [KvService] and a workflow-aware [ArtifactCollector]. Call [setUp] in the
 /// suite `setUp` hook and [tearDown] in `tearDown`; use [seedWorkflowExecution]
@@ -326,12 +323,10 @@ final class WorkflowTaskExecutorTestContext {
 
   TaskExecutorTestHarness get harness => _harness;
 
-  late Database taskDb;
-  late SqliteBackend taskBackend;
-  late SqliteAgentExecutionRepository agentExecutions;
-  late SqliteWorkflowRunRepository workflowRuns;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
-  late SqliteExecutionRepositoryTransactor executionTransactor;
+  late InMemoryAgentExecutionRepository agentExecutions;
+  late WorkflowRunRepository workflowRuns;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
+  late InMemoryExecutionRepositoryTransactor executionTransactor;
   late KvService kvService;
   late TaskExecutor executor;
 
@@ -349,17 +344,12 @@ final class WorkflowTaskExecutorTestContext {
     MessageService Function(String baseDir)? messageServiceFactory,
   }) async {
     await _harness.setUp(tempPrefix: tempPrefix, messageServiceFactory: messageServiceFactory);
-    taskDb = sqlite3.openInMemory();
-    taskBackend = SqliteBackend(taskDb);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
-    workflowRuns = SqliteWorkflowRunRepository(taskBackend);
-    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskBackend);
-    executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
-    // Replace the harness's simple TaskService with one backed by the shared DB
-    // (needed for workflow repo joins). tasksDispose in tearDown handles lifecycle.
+    agentExecutions = InMemoryAgentExecutionRepository();
+    workflowRuns = _InMemoryWorkflowRunRepository();
+    workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
+    executionTransactor = const InMemoryExecutionRepositoryTransactor();
     _harness.tasks = TaskService(
-      SqliteTaskRepository(taskBackend),
+      InMemoryTaskRepository(),
       agentExecutionRepository: agentExecutions,
       executionTransactor: executionTransactor,
     );
@@ -375,7 +365,6 @@ final class WorkflowTaskExecutorTestContext {
   Future<void> tearDown({Future<void> Function()? workerDispose}) async {
     await kvService.dispose();
     await _harness.tearDown(executor: executor, workerDispose: workerDispose, tasksDispose: tasks.dispose);
-    await taskBackend.close();
   }
 
   /// Builds a [TaskExecutor] wired to this context's workflow-aware services.
@@ -893,4 +882,61 @@ class BusyOnceTurnManager extends TurnManager {
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
     return TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now());
   }
+}
+
+final class _InMemoryWorkflowRunRepository implements WorkflowRunRepository {
+  final Map<String, WorkflowRun> _runs = {};
+
+  @override
+  Future<void> insert(WorkflowRun run) async {
+    if (_runs.containsKey(run.id)) throw ArgumentError('WorkflowRun already exists: ${run.id}');
+    _runs[run.id] = run;
+  }
+
+  @override
+  Future<WorkflowRun?> getById(String id) async => _runs[id];
+
+  @override
+  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
+    final runs = _runs.values.where((run) {
+      if (status != null && run.status != status) return false;
+      return definitionName == null || run.definitionName == definitionName;
+    }).toList();
+    runs.sort((left, right) => right.startedAt.compareTo(left.startedAt));
+    return runs;
+  }
+
+  @override
+  Future<void> update(WorkflowRun run) async {
+    if (!_runs.containsKey(run.id)) throw ArgumentError('WorkflowRun not found: ${run.id}');
+    _runs[run.id] = run;
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _runs.remove(id);
+  }
+
+  @override
+  Future<void> setWorktreeBinding(String runId, WorkflowWorktreeBinding binding) async {
+    final run = _runs[runId];
+    if (run == null) throw ArgumentError('WorkflowRun not found: $runId');
+    _runs[runId] = run.copyWith(
+      workflowWorktrees: [
+        for (final current in run.workflowWorktrees)
+          if (current.key != binding.key) current,
+        binding,
+      ],
+    );
+  }
+
+  @override
+  Future<WorkflowWorktreeBinding?> getWorktreeBinding(String runId) async {
+    final bindings = _runs[runId]?.workflowWorktrees ?? const <WorkflowWorktreeBinding>[];
+    return bindings.isEmpty ? null : bindings.last;
+  }
+
+  @override
+  Future<List<WorkflowWorktreeBinding>> getWorktreeBindings(String runId) async =>
+      _runs[runId]?.workflowWorktrees ?? const <WorkflowWorktreeBinding>[];
 }

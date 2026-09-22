@@ -88,7 +88,6 @@ DartclawRuntime _runtime({
     kvService: _Kv(),
     resetService: null,
     selfImprovement: null,
-    qmdManager: null,
     channelManager: null,
     authEnabled: false,
     containerIsolationActive: false,

@@ -602,7 +602,7 @@ void main() {
           'version': '0.3.0',
           'workerState': 'idle',
           'workerValueClass': 'text-success',
-          'cardsHtml': '<div class="card"><span class="card-title">Storage</span><span>SQLite</span></div>',
+          'cardsHtml': '<div class="card"><span class="card-title">Storage</span><span>PostgreSQL</span></div>',
           // Uptime is a KPI tile now, not a hero row – the fixture mirrors that.
           'metricsHtml':
               '<div class="metric-value">3d 14h 22m</div><div class="metric-label">Uptime</div>'

@@ -34,7 +34,7 @@ Map<String, dynamic> sampleStatus({
     'archiveMd': {'entryCount': archivedCount, 'sizeBytes': 1024},
     'errorsMd': {'entryCount': errorsCount, 'cap': errorsCap, 'sizeBytes': 512},
     'learningsMd': {'entryCount': learningsCount, 'cap': learningsCap, 'sizeBytes': 256},
-    'search': {'backend': 'fts5', 'depth': 10, 'indexEntries': 20, 'indexArchived': 5, 'dbSizeBytes': 4096},
+    'search': {'backend': 'postgresql', 'depth': 10, 'indexEntries': 20, 'indexArchived': 5, 'dbSizeBytes': 4096},
     'pruner': {
       'status': prunerStatus,
       'schedule': '0 3 * * *',
@@ -251,7 +251,7 @@ void main() {
         workspacePath: '/tmp',
       );
 
-      expect(html, contains('fts5'));
+      expect(html, contains('postgresql'));
     });
 
     test('workspace path shown in info footer', () {
@@ -606,7 +606,13 @@ void main() {
 
     test('Search card never republishes stale derived rows as active', () {
       final status = sampleStatus()
-        ..['search'] = {'backend': 'fts5', 'depth': 10, 'indexEntries': 987, 'indexArchived': 654, 'dbSizeBytes': null}
+        ..['search'] = {
+          'backend': 'postgresql',
+          'depth': 10,
+          'indexEntries': 987,
+          'indexArchived': 654,
+          'dbSizeBytes': null,
+        }
         ..['index'] = {'state': 'rebuilding', 'derivedChunkCount': null};
 
       final html = memoryDashboardTemplate(

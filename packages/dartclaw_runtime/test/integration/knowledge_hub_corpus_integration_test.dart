@@ -9,8 +9,8 @@ import 'package:dartclaw_runtime/src/knowledge/wiki_lint.dart';
 import 'package:dartclaw_runtime/src/knowledge/wiki_page_store.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 import '../helpers/search_index_test_support.dart';
@@ -30,8 +30,7 @@ import '../helpers/search_index_test_support.dart';
 /// shapes the writer cannot emit.
 void main() {
   late Directory workspace;
-  late Database searchDb;
-  late SqliteBackend taskBackend;
+  late DatabaseBackend taskBackend;
   late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
   late WikiPageStore wiki;
@@ -50,10 +49,9 @@ void main() {
 
   setUp(() async {
     workspace = Directory.systemTemp.createTempSync('knowledge_hub_corpus_');
-    searchDb = sqlite3.openInMemory();
     taskBackend = await openPreparedTaskBackend();
-    memory = await prepareMemoryIndex(searchDb);
-    kg = TemporalKnowledgeGraphService(taskBackend);
+    memory = await prepareMemoryIndex();
+    kg = InMemoryTemporalKnowledgeGraphService();
     wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
 
     // A page the pipeline authored, linking onward to the runbook.
@@ -129,7 +127,6 @@ void main() {
   });
 
   tearDown(() async {
-    searchDb.close();
     await taskBackend.close();
     if (workspace.existsSync()) workspace.deleteSync(recursive: true);
   });
@@ -139,7 +136,7 @@ void main() {
     kg: kg,
     memoryIndex: memory,
     searchBackend: ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: memory),
+      personal: LexicalSearchBackend(index: memory),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     ),
     inbox: KnowledgeInboxReadService(workspaceDir: workspace.path),

@@ -21,20 +21,17 @@ Project _makeProject({required String id, String name = 'Test Project', ProjectS
     );
 
 void main() {
-  late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(backend));
+    tasks = TaskService(InMemoryTaskRepository());
     eventBus = EventBus();
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
-    await backend.close();
   });
 
   Map<String, dynamic> decodeFramePayload(String frame) {

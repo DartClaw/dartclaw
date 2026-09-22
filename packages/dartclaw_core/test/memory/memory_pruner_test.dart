@@ -2,29 +2,24 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
   late Directory tempDir;
-  late Database db;
-  late SqliteBackend databaseBackend;
   late FullTextIndex memoryIndex;
   late MemoryPruner pruner;
+  var seedId = 0;
 
-  setUp(() async {
+  setUp(() {
     tempDir = Directory.systemTemp.createTempSync('memory_pruner_test');
-    db = sqlite3.openInMemory();
-    databaseBackend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'search.db');
-    memoryIndex = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
+    memoryIndex = InMemoryFullTextIndex();
     pruner = MemoryPruner(workspaceDir: tempDir.path, memoryIndex: memoryIndex);
   });
 
-  tearDown(() async {
-    await databaseBackend.close();
+  tearDown(() {
     tempDir.deleteSync(recursive: true);
   });
 
@@ -40,12 +35,15 @@ void main() {
     return File('${tempDir.path}/MEMORY.archive.md').readAsStringSync();
   }
 
-  void seed({required String text, required String source, String? category, DateTime? createdAt}) {
-    db.execute(
-      'INSERT INTO memory_chunks (text, chunk_index, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?, ?)',
-      [text, 0, source, category, (createdAt ?? DateTime(2026)).toIso8601String(), source],
-    );
-  }
+  Future<void> seed({required String text, required String source, String? category, DateTime? createdAt}) =>
+      memoryIndex.upsert([
+        SearchDocument(
+          id: 'seed-${seedId++}',
+          chunks: [text],
+          metadata: {'source': source, 'category': ?category, 'role': 'memory', 'provenance': 'unknown'},
+          timestamp: createdAt ?? DateTime(2026),
+        ),
+      ], userId: 'owner');
 
   Future<List<MemorySearchResult>> search(String query) async =>
       (await memoryIndex.search(query, userId: 'owner')).map(MemoryIndexProjection.toSearchResult).toList();
@@ -134,14 +132,10 @@ void main() {
   group('prune() integration', () {
     test('shared authority bootstraps canonical pruning while owned pruner stays legacy', () async {
       final sharedDir = Directory('${tempDir.path}/shared')..createSync();
-      final sharedDb = sqlite3.openInMemory();
-      final sharedBackend = SqliteBackend(sharedDb);
-      addTearDown(sharedBackend.close);
-      await SqliteSchemaGate.prepareSearch(sharedBackend, storeName: 'search.db');
       final authority = MemoryCorpusService(workspaceDir: sharedDir.path);
       final shared = MemoryPruner(
         workspaceDir: sharedDir.path,
-        memoryIndex: SqliteFtsIndex(sharedBackend, table: SqliteFtsTable.memoryChunks),
+        memoryIndex: InMemoryFullTextIndex(),
         corpusService: authority,
       );
 
@@ -165,7 +159,7 @@ void main() {
       File('${tempDir.path}/MEMORY.archive.md')
           .writeAsStringSync('## project\n- [2025-01-10 09:00] Canonical archived fact\n');
       File('${tempDir.path}/learnings.md').writeAsStringSync('- [2026-08-10 10:00] Canonical learning fact\n');
-      seed(text: 'Stale active fact', source: 'legacy-memory');
+      await seed(text: 'Stale active fact', source: 'legacy-memory');
 
       await pruner.prune();
 
@@ -307,7 +301,7 @@ void main() {
       expect(entry.allMatches(readArchive()), hasLength(2));
     });
 
-    test('archived entries indexed in FTS5', () async {
+    test('archived entries remain indexed for lexical recall', () async {
       final oldDate = DateTime.now().subtract(const Duration(days: 120));
       final oldStr =
           '${oldDate.year}-${oldDate.month.toString().padLeft(2, '0')}-${oldDate.day.toString().padLeft(2, '0')} '
@@ -342,10 +336,10 @@ void main() {
 
       await pruner.prune();
 
-      final rows = db.select('SELECT text, source, category, created_at FROM memory_chunks ORDER BY id');
-      expect(rows.map((row) => row['text']), expected.chunks);
-      expect(rows.every((row) => row['source'] == 'legacy-archive' && row['category'] == 'project'), isTrue);
-      expect(rows.map((row) => row['created_at']).toSet(), {timestamp.toIso8601String()});
+      final rows = await _indexRows(memoryIndex);
+      expect(rows.map((row) => row.$1), expected.chunks);
+      expect(rows.every((row) => row.$2 == 'legacy-archive' && row.$3 == 'project'), isTrue);
+      expect(rows.map((row) => row.$4).toSet(), {timestamp.toIso8601String()});
     });
 
     test('reconciles live rows to the complete canonical post-prune index', () async {
@@ -370,7 +364,7 @@ void main() {
           createdAt: entry.timestamp,
         );
         for (final chunk in projected.chunks) {
-          seed(
+          await seed(
             text: chunk,
             source: projected.metadata['source']!,
             category: projected.metadata['category'],
@@ -386,7 +380,7 @@ void main() {
         createdAt: learning.timestamp,
       );
       for (final chunk in learningDocument.chunks) {
-        seed(
+        await seed(
           text: chunk,
           source: learningDocument.metadata['source']!,
           category: learningDocument.metadata['category'],
@@ -411,21 +405,17 @@ void main() {
       const archive = '## general\n- [2025-01-10 09:00] Crash-recovered archive fact\n';
       writeMemory(active);
       File('${tempDir.path}/MEMORY.archive.md').writeAsStringSync(archive);
-      seed(
+      await seed(
         text: 'Crash-recovered archive fact',
         source: 'legacy-archive',
         category: 'general',
         createdAt: DateTime(2025, 1, 10, 9),
       );
-      seed(text: 'Stale deleted fact', source: 'legacy-memory', category: 'general');
+      await seed(text: 'Stale deleted fact', source: 'legacy-memory', category: 'general');
 
       await pruner.prune();
 
-      final rebuiltDb = sqlite3.openInMemory();
-      final rebuiltBackend = SqliteBackend(rebuiltDb);
-      addTearDown(rebuiltBackend.close);
-      await SqliteSchemaGate.prepareSearch(rebuiltBackend, storeName: 'search.db');
-      final rebuilt = SqliteFtsIndex(rebuiltBackend, table: SqliteFtsTable.memoryChunks);
+      final rebuilt = InMemoryFullTextIndex();
       await rebuilt.replaceAll([
         for (final entry in parseMemoryEntries(active))
           document(text: entry.rawText, source: 'legacy-memory', category: entry.category, createdAt: entry.timestamp),
@@ -433,7 +423,7 @@ void main() {
           document(text: entry.rawText, source: 'legacy-archive', category: entry.category, createdAt: entry.timestamp),
       ], userId: 'owner');
 
-      expect(_indexRows(db), unorderedEquals(_indexRows(rebuiltDb)));
+      expect(await _indexRows(memoryIndex), unorderedEquals(await _indexRows(rebuilt)));
     });
 
     test('all recent legacy entries remain distinct', () async {
@@ -1140,10 +1130,7 @@ final class _FailingMemoryIndex implements FullTextIndex {
   Future<void> verifyIntegrity() => delegate.verifyIntegrity();
 }
 
-List<(String, String, String?, String)> _indexRows(Database db) => db
-    .select('SELECT text, source, category, created_at FROM memory_chunks')
-    .map(
-      (row) =>
-          (row['text'] as String, row['source'] as String, row['category'] as String?, row['created_at'] as String),
-    )
-    .toList(growable: false);
+Future<List<(String, String, String?, String)>> _indexRows(FullTextIndex index) async =>
+    (await index.listRecent(userId: 'owner', limit: 1 << 20))
+        .map((row) => (row.chunk, row.metadata['source']!, row.metadata['category'], row.timestamp.toIso8601String()))
+        .toList(growable: false);

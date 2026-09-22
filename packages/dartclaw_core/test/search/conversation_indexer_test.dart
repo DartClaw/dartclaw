@@ -3,16 +3,15 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
   late Directory root;
   late SessionService sessions;
   late MessageService messages;
-  late SqliteBackend backend;
-  late FullTextIndex index;
+  late _ControllableFullTextIndex index;
   late ConversationIndexer indexer;
   late List<_VectorSynchronization> vectorSynchronizations;
   late Future<void> Function(Iterable<String> documentIds, {required String userId}) vectorCallback;
@@ -21,9 +20,7 @@ void main() {
     root = Directory.systemTemp.createTempSync('conversation_indexer_');
     sessions = SessionService(baseDir: root.path);
     messages = MessageService(baseDir: root.path);
-    backend = SqliteBackend(sqlite3.openInMemory());
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+    index = _ControllableFullTextIndex();
     vectorSynchronizations = [];
     vectorCallback = (documentIds, {required userId}) async {
       final ids = documentIds.toList(growable: false);
@@ -46,7 +43,6 @@ void main() {
   tearDown(() async {
     await indexer.idle;
     await messages.dispose();
-    await backend.close();
     root.deleteSync(recursive: true);
   });
 
@@ -213,7 +209,7 @@ void main() {
         timestamp: DateTime.utc(2026),
       ),
     ], userId: 'other');
-    final memory = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
+    final memory = InMemoryFullTextIndex();
     await memory.upsert([
       SearchDocument(
         id: 'memory',
@@ -263,7 +259,7 @@ void main() {
 
   test('lexical failure skips vector synchronization and leaves persistence intact', () async {
     final session = await sessions.createSession();
-    await backend.close();
+    index.unavailable = true;
 
     final message = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'lexical unavailable');
     await indexer.idle;
@@ -284,7 +280,7 @@ void main() {
       expect(hit.role, 'assistant');
       expect(hit.createdAt, message.createdAt.toUtc());
       expect(hit.text, message.content);
-      await backend.close();
+      index.unavailable = true;
       expect(await ConversationSearchService(index: index).search('anything'), isEmpty);
     });
 
@@ -344,6 +340,90 @@ void main() {
       expect(hits.map((hit) => hit.score), [7, -3]);
     });
   });
+}
+
+final class _ControllableFullTextIndex implements ScopedFullTextIndex {
+  final InMemoryFullTextIndex _delegate = InMemoryFullTextIndex();
+  var unavailable = false;
+
+  void _check() {
+    if (unavailable) throw StateError('lexical index unavailable');
+  }
+
+  @override
+  Future<int> count({required String userId, Map<String, String> metadata = const {}}) {
+    _check();
+    return _delegate.count(userId: userId, metadata: metadata);
+  }
+
+  @override
+  Future<void> delete(Iterable<String> ids, {required String userId}) {
+    _check();
+    return _delegate.delete(ids, userId: userId);
+  }
+
+  @override
+  Future<List<SearchDocument>> fetch(Iterable<String> ids, {required String userId}) {
+    _check();
+    return _delegate.fetch(ids, userId: userId);
+  }
+
+  @override
+  Future<List<SearchResult>> listRecent({required String userId, int limit = 20}) {
+    _check();
+    return _delegate.listRecent(userId: userId, limit: limit);
+  }
+
+  @override
+  Future<void> replaceAll(Iterable<SearchDocument> documents, {required String userId}) {
+    _check();
+    return _delegate.replaceAll(documents, userId: userId);
+  }
+
+  @override
+  Future<List<SearchResult>> search(String naturalLanguageQuery, {required String userId, int limit = 20}) {
+    _check();
+    return _delegate.search(naturalLanguageQuery, userId: userId, limit: limit);
+  }
+
+  @override
+  Future<int> countMatches(String naturalLanguageQuery, {required String userId, FullTextSearchScope? scope}) {
+    _check();
+    return _delegate.countMatches(naturalLanguageQuery, userId: userId, scope: scope);
+  }
+
+  @override
+  Future<List<SearchDocument>> fetchScoped(
+    Iterable<String> ids, {
+    required String userId,
+    required FullTextSearchScope scope,
+  }) {
+    _check();
+    return _delegate.fetchScoped(ids, userId: userId, scope: scope);
+  }
+
+  @override
+  Future<List<SearchResult>> searchScoped(
+    String naturalLanguageQuery, {
+    required String userId,
+    required FullTextSearchScope scope,
+    int limit = 20,
+  }) {
+    _check();
+    return _delegate.searchScoped(naturalLanguageQuery, userId: userId, scope: scope, limit: limit);
+  }
+
+  @override
+  Future<void> upsert(Iterable<SearchDocument> documents, {required String userId, Set<String> retire = const {}}) {
+    _check();
+    return _delegate.upsert(documents, userId: userId, retire: retire);
+  }
+
+  @override
+  Future<void> verifyIntegrity() {
+    _check();
+    return _delegate.verifyIntegrity();
+  }
 }
 
 final class _VectorSynchronization {

@@ -7,7 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskEventService, InMemoryTaskRepository;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -22,7 +22,6 @@ void main() {
   late TaskService tasks;
   late ArtifactCollector collector;
   late TaskExecutor executor;
-  late SqliteBackend taskBackend;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_executor_provider_test_');
@@ -32,15 +31,13 @@ void main() {
 
     sessions = _SerialSessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    taskBackend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(taskBackend));
+    tasks = TaskService(InMemoryTaskRepository());
     collector = ArtifactCollector(tasks: tasks, sessionsDir: sessionsDir, dataDir: tempDir.path);
   });
 
   tearDown(() async {
     await executor.stop();
     await tasks.dispose();
-    await taskBackend.close();
     await messages.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     final wsDir = Directory(workspaceDir);
@@ -167,9 +164,8 @@ void main() {
     });
 
     final behavior = BehaviorFileService(workspaceDir: workspaceDir);
-    final eventBackend = await openPreparedTaskBackend();
-    addTearDown(eventBackend.close);
-    final eventService = TaskEventService(eventBackend);
+    final eventService = InMemoryTaskEventService();
+    addTearDown(eventService.close);
     final eventRecorder = TaskEventRecorder(eventService: eventService);
     final primaryRunner = TurnRunner(
       turnLimits: const TurnLimitsConfig.defaults(),

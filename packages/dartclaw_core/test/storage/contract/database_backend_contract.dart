@@ -54,7 +54,6 @@ final class ContractSchemaAdapter {
     required this.addOrphans,
     required this.bootstrapStatementCount,
     required this.prepareWithFailure,
-    this.proveDerivedRebuild,
   });
 
   final Future<void> Function() prepare;
@@ -74,10 +73,7 @@ final class ContractSchemaAdapter {
   final Future<void> Function() addOrphans;
   final int bootstrapStatementCount;
   final Future<void> Function(int statementNumber) prepareWithFailure;
-  final Future<void> Function()? proveDerivedRebuild;
 }
-
-enum ContractBackendKind { sqlite, postgres }
 
 const requiredTaskTables = <String>{
   'agent_executions',
@@ -128,11 +124,7 @@ File contractFixtureFile(String name) {
   return File.fromUri(root.resolve('test/storage/contract/$name'));
 }
 
-void databaseBackendContractTests({
-  required String name,
-  required ContractBackendOpener open,
-  required ContractBackendKind kind,
-}) {
+void databaseBackendContractTests({required String name, required ContractBackendOpener open}) {
   group('$name database contract', () {
     ContractBackend? current;
 
@@ -141,14 +133,14 @@ void databaseBackendContractTests({
     });
     tearDown(() => current?.close());
 
-    databaseBackendGroups(() => current!, kind);
-    schemaContractGroups(() => current!, kind);
+    databaseBackendGroups(() => current!);
+    schemaContractGroups(() => current!);
     ftsContractGroups(() => current!);
     repositoryContractGroups(() => current!);
   });
 }
 
-void databaseBackendGroups(ContractBackend Function() current, ContractBackendKind kind) {
+void databaseBackendGroups(ContractBackend Function() current) {
   group('[contract:backend.crud] portable values', () {
     test('round-trips canonical scalars and reports changed rows', () async {
       final backend = current().backend;
@@ -278,60 +270,32 @@ void databaseBackendGroups(ContractBackend Function() current, ContractBackendKi
     });
   });
 
-  if (kind == ContractBackendKind.sqlite) {
-    group('[contract:backend.sqlite_completion_order] serialization', () {
-      test('outside work completes after the transaction future', () async {
-        final backend = current().backend;
-        await backend.execute('CREATE TABLE contract_records (value TEXT NOT NULL)');
-        final started = Completer<void>();
-        final release = Completer<void>();
-        final order = <String>[];
-        final transaction = backend
-            .transaction<void>((tx) async {
-              await tx.execute('INSERT INTO contract_records VALUES (?)', ['inside']);
-              started.complete();
-              await release.future;
-            })
-            .then((_) => order.add('transaction'));
-        await started.future;
-        final outside = backend
-            .execute('INSERT INTO contract_records VALUES (?)', ['outside'])
-            .then((_) => order.add('outside'));
-        release.complete();
-        await Future.wait([transaction, outside]);
-        expect(order, ['transaction', 'outside']);
-      });
-    });
-  }
+  group('[contract:backend.ambiguous_dispatch_no_replay] dispatch boundary', () {
+    test('retries only before dispatch and never replays unknown outcomes', () async {
+      const policy = PostgresDispatchPolicy('contract.local:5432/test', attemptLimit: 3, retryDelay: Duration.zero);
+      var attempts = 0;
+      expect(
+        await policy.run<int>('connect', (_) async {
+          attempts++;
+          if (attempts < 3) throw StateError('before dispatch');
+          return 7;
+        }),
+        7,
+      );
+      expect(attempts, 3);
 
-  if (kind == ContractBackendKind.postgres) {
-    group('[contract:backend.ambiguous_dispatch_no_replay] dispatch boundary', () {
-      test('retries only before dispatch and never replays unknown outcomes', () async {
-        const policy = PostgresDispatchPolicy('contract.local:5432/test', attemptLimit: 3, retryDelay: Duration.zero);
-        var attempts = 0;
-        expect(
-          await policy.run<int>('connect', (_) async {
+      for (final operation in ['statement', 'COMMIT']) {
+        attempts = 0;
+        await expectLater(
+          policy.run<void>(operation, (markDispatched) async {
             attempts++;
-            if (attempts < 3) throw StateError('before dispatch');
-            return 7;
+            markDispatched();
+            throw StateError('transport lost');
           }),
-          7,
+          throwsA(isA<StorageUnknownOutcomeException>()),
         );
-        expect(attempts, 3);
-
-        for (final operation in ['statement', 'COMMIT']) {
-          attempts = 0;
-          await expectLater(
-            policy.run<void>(operation, (markDispatched) async {
-              attempts++;
-              markDispatched();
-              throw StateError('transport lost');
-            }),
-            throwsA(isA<StorageUnknownOutcomeException>()),
-          );
-          expect(attempts, 1);
-        }
-      });
+        expect(attempts, 1);
+      }
     });
-  }
+  });
 }

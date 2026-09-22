@@ -71,7 +71,7 @@ String healthDashboardTemplate({
       'variant': 'success',
       'badgeText': 'ok',
       'rows': <Map<String, dynamic>>[
-        {'label': 'Database', 'value': 'SQLite', 'valueClass': ''},
+        {'label': 'Database', 'value': 'PostgreSQL', 'valueClass': ''},
         {'label': 'Sessions', 'value': 'NDJSON files', 'valueClass': ''},
       ],
     },

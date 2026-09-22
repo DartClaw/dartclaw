@@ -27,9 +27,6 @@ EVIDENCE_ROOT="${DARTCLAW_CONVERSATION_EVIDENCE_DIR:-${REPO_ROOT}/.agent_temp/te
 mkdir -p "${EVIDENCE_ROOT}"
 
 if [ "${CASE}" = "q9-temporary-destruction-boundaries" ]; then
-  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" eof "${EVIDENCE_ROOT}/sqlite-confirmed-end" sqlite
-  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" graceful "${EVIDENCE_ROOT}/sqlite-graceful" sqlite
-  "${SCRIPT_DIR}/temporary_conversation_e2e.sh" sigkill "${EVIDENCE_ROOT}/sqlite-sigkill" sqlite
   "${SCRIPT_DIR}/temporary_conversation_e2e.sh" eof "${EVIDENCE_ROOT}/postgres-confirmed-end" postgres
   "${SCRIPT_DIR}/temporary_conversation_e2e.sh" graceful "${EVIDENCE_ROOT}/postgres-graceful" postgres
   "${SCRIPT_DIR}/temporary_conversation_e2e.sh" sigkill "${EVIDENCE_ROOT}/postgres-sigkill" postgres

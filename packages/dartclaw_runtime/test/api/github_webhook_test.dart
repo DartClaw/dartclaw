@@ -7,21 +7,17 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_runtime/src/api/github_webhook.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowStep, WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'workflow_test_support.dart';
 
 void main() {
-  late SqliteBackend taskBackend;
-  late Database workflowDb;
-  late SqliteBackend workflowBackend;
   late TaskService tasks;
   late FakeWorkflowService workflows;
   late Directory tempDir;
@@ -45,21 +41,12 @@ void main() {
   ]);
 
   setUp(() async {
-    taskBackend = await openPreparedTaskBackend();
-    workflowDb = sqlite3.openInMemory();
-    workflowBackend = SqliteBackend(workflowDb);
-    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     tempDir = Directory.systemTemp.createTempSync('github-webhook-test_');
 
-    final taskRepo = SqliteTaskRepository(taskBackend);
+    final taskRepo = InMemoryTaskRepository();
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
-    workflows = FakeWorkflowService(
-      backend: workflowBackend,
-      taskService: tasks,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
-    );
+    workflows = FakeWorkflowService(taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     workflows.startResult = WorkflowRun(
       id: 'run-1',
       definitionName: 'code-review',
@@ -74,8 +61,6 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    await taskBackend.close();
-    workflowDb.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

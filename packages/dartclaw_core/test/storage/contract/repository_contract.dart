@@ -1,7 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SqliteWorkflowRunRepository, WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
+    show DatabaseWorkflowRunRepository, WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
 import 'package:test/test.dart';
 
 import 'database_backend_contract.dart';
@@ -11,7 +11,7 @@ final _instant = DateTime.parse('2026-09-09T10:11:12.000Z');
 void repositoryContractGroups(ContractBackend Function() current) {
   group('[contract:repository.task] production repository', () {
     test('round-trips a task and artifact', () async {
-      final repository = SqliteTaskRepository(current().backend);
+      final repository = DatabaseTaskRepository(current().backend);
       final task = _task();
       await repository.insert(task);
       expect((await repository.getById(task.id))?.toJson(), task.toJson());
@@ -31,7 +31,7 @@ void repositoryContractGroups(ContractBackend Function() current) {
 
   group('[contract:repository.goal] production repository', () {
     test('round-trips the complete goal value', () async {
-      final repository = SqliteGoalRepository(current().backend);
+      final repository = DatabaseGoalRepository(current().backend);
       final goal = Goal(
         id: 'goal-1',
         title: 'Portable goal',
@@ -48,7 +48,7 @@ void repositoryContractGroups(ContractBackend Function() current) {
 
   group('[contract:repository.agent_execution] production repository', () {
     test('round-trips scalar and timestamp fields', () async {
-      final repository = SqliteAgentExecutionRepository(current().backend);
+      final repository = DatabaseAgentExecutionRepository(current().backend);
       const id = 'execution-1';
       final execution = AgentExecution(
         id: id,
@@ -72,11 +72,11 @@ void repositoryContractGroups(ContractBackend Function() current) {
   group('[contract:repository.workflow_step_execution] production repository', () {
     test('round-trips the workflow link', () async {
       final backend = current().backend;
-      final agentRepository = SqliteAgentExecutionRepository(backend);
+      final agentRepository = DatabaseAgentExecutionRepository(backend);
       await agentRepository.create(AgentExecution(id: 'step-agent', startedAt: _instant));
-      final taskRepository = SqliteTaskRepository(backend);
+      final taskRepository = DatabaseTaskRepository(backend);
       await taskRepository.insert(_task(id: 'step-task', agentExecutionId: 'step-agent'));
-      final repository = SqliteWorkflowStepExecutionRepository(backend);
+      final repository = DatabaseWorkflowStepExecutionRepository(backend);
       const execution = WorkflowStepExecution(
         taskId: 'step-task',
         agentExecutionId: 'step-agent',
@@ -94,7 +94,7 @@ void repositoryContractGroups(ContractBackend Function() current) {
 
   group('[contract:repository.workflow_run] production repository', () {
     test('round-trips workflow state from the workflow package', () async {
-      final repository = SqliteWorkflowRunRepository(current().backend);
+      final repository = DatabaseWorkflowRunRepository(current().backend);
       final run = WorkflowRun(
         id: 'run-1',
         definitionName: 'contract',

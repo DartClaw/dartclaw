@@ -5,7 +5,7 @@
 // from the test hooks, and invoke [BuiltInWorkflowDriver.executeBuiltInWorkflow]
 // to run a shipped definition against a stubbed turn loop.
 //
-// The driver wraps a [WorkflowExecutorHarness] (in-memory SQLite + services)
+// The driver wraps a [WorkflowExecutorHarness] (in-memory repositories + services)
 // so the per-file fixtures never re-declare the executor wiring.
 library;
 

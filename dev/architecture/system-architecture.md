@@ -2,9 +2,9 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.27 conversation snapshot and attempt authority, effective context, workspace principals,
-temporary retention, product search, inbox and attention projections, plus the Trellis and HTMX upgrade.
-The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.27 PostgreSQL-only storage, conversation snapshot and attempt authority, effective context,
+workspace principals, temporary retention, product search, inbox and attention projections, plus the Trellis and
+HTMX upgrade.
 
 ---
 
@@ -86,7 +86,7 @@ The Windows constraints are explicit:
 |---|---|
 | Process lifecycle | Directly managed root-handle hard termination with bounded exit observation; no SIGTERM-to-SIGKILL or descendant-containment claim |
 | Config reload | `gateway.reload.mode: auto` uses debounced file watching; SIGUSR1 is POSIX-only |
-| Storage/search | Release bundles carry FTS5-enabled `lib/sqlite3.dll`; DartClaw does not use system `winsqlite3.dll` |
+| Storage/search | Native or managed PostgreSQL 14+; lexical search needs no pgvector or embedding model |
 | Bash workflow steps | Git Bash is required and selected through executable lookup; absence is an explicit failed step |
 | Container isolation | Unavailable and fail-closed; remediation points to a POSIX host or WSL |
 
@@ -132,7 +132,7 @@ and context-specific remediation text.
 │  ┌────▼─────┐  ┌──────────────▼───────────────┐  ┌────────────────────┐ │
 │  │ Guard    │  │ Security & Isolation          │  │ Storage            │ │
 │  │ Chain    │  │ ContainerManager(s)           │  │ Files: NDJSON/JSON │ │
-│  │ Cmd/File │  │ CredentialRegistry            │  │ SQLite: search.db  │ │
+│  │ Cmd/File │  │ CredentialRegistry            │  │ PostgreSQL          │ │
 │  │ Net/Cont │  │ HostGateway (per authority)   │  │         dartclaw.db   │ │
 │  │          │  │ Docker (per authority)        │  │ turn_state.json    │ │
 │  └──────────┘  └──────────────────────────────┘  └────────────────────┘ │
@@ -140,7 +140,7 @@ and context-specific remediation text.
 │  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐  │
 │  │ Channels │  │ Scheduling & │  │ Memory &    │  │ Config & Reload  │  │
 │  │ WA/Sig/  │  │ Alerts       │  │ Search      │  │ ConfigNotifier   │  │
-│  │ GChat    │  │ AlertRouter  │  │ FTS5/QMD    │  │ Reconfigurable   │  │
+│  │ GChat    │  │ AlertRouter  │  │ Lexical     │  │ Reconfigurable   │  │
 │  │          │  │ Cron jobs    │  │             │  │ SIGUSR1/filewatch│  │
 │  └──────────┘  └──────────────┘  └─────────────┘  └──────────────────┘  │
 │                                                                          │
@@ -337,7 +337,7 @@ The task orchestrator transforms DartClaw from a single-session assistant into a
 
 | Component | File | Role |
 |-----------|------|------|
-| `TaskService` | `dartclaw_runtime/src/task/task_service.dart` | CRUD + state machine transitions. Wraps `SqliteTaskRepository` and backs the task HTTP, UI, and agent-tool surfaces |
+| `TaskService` | `dartclaw_runtime/src/task/task_service.dart` | CRUD + state machine transitions over the shared PostgreSQL repository; backs the task HTTP, UI, and agent-tool surfaces |
 | `TaskExecutor` | `task/task_executor.dart` | Acquires harness from pool, runs task turn, collects artifacts, transitions status |
 | `WorktreeManager` | `task/worktree_manager.dart` | Git worktree lifecycle: create branch, register with file guard, cleanup on accept/reject |
 | `DiffGenerator` | `task/diff_generator.dart` | Structured diff output: files changed, additions, deletions, hunks |
@@ -354,7 +354,7 @@ Task state machine: `draft` → `queued` → `running` → `review` → `accepte
 Task dispatch defaults to the `workspace` profile. An authenticated operator may explicitly declare `restricted`;
 legacy `research` input and stored rows are refused.
 
-**Package**: `dartclaw_runtime` (service, executor), `dartclaw_core` (models, status enum, SQLite repository)
+**Package**: `dartclaw_runtime` (service, executor), `dartclaw_core` (models, status enum, PostgreSQL repository)
 
 **Worktree lifecycle hardening (0.16.4)**:
 - `WorktreeManager.create()` now reconciles three sources of truth before `git worktree add`: the in-memory cache, the on-disk worktree directory, and `git worktree list --porcelain`. Matching state is adopted; orphaned or mismatched state is reaped and recreated.
@@ -408,34 +408,28 @@ Design rationale: [ADR-001](../adrs/001-sdk-integration-and-security-architectur
 
 #### Storage
 
-Storage mechanisms follow the selected backend and each access pattern:
+Storage mechanisms follow each authority and access pattern:
 
 | Mechanism | Used For | Access Pattern | Source of Truth? |
 |-----------|----------|----------------|-----------------|
 | **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
-| **SQLite** (`search.db`, `vectors.db`, `dartclaw.db`) | Lexical/vector search projections, tasks/goals/artifacts | Relational queries, full-text and direct cosine search | `search.db` and `vectors.db`: derived (rebuildable). `dartclaw.db`: **authoritative**. |
-| **PostgreSQL** (configured database) | Authoritative relational data and derived lexical/vector projections | Pooled transactions, language-aware full-text search and pgvector cosine search | Relational rows: **authoritative**. Search projections: derived. |
+| **PostgreSQL 14+** (configured database) | Authoritative relational data and derived lexical/vector projections | Pooled transactions, language-aware full-text search and optional pgvector cosine search | Relational rows: **authoritative**. Search projections: derived. |
 | **Local files** (`turn_state.json`, `webhook_deliveries/`) | Active-turn recovery and webhook reservations | Synchronous atomic documents, exclusive delivery markers | Transient recovery and dedup state |
 
-The dependency-free `DatabaseBackend` port defines portable CRUD, prepared statements, and asynchronous transaction
-semantics. `SqliteBackend` implements it over the existing SQLite connection and keeps seam-issued operations outside
-an open awaited transaction unless they originate from that transaction body. Goal, task-domain, execution and
-workflow-run persistence share this seam. `SqliteExecutionRepositoryTransactor` delegates to the backend rather than
-owning another queue or issuing transaction SQL. Runtime and CLI open stores through `DatabaseBackendFactory`,
-with `SqliteBackend.open` as the SQLite default; the opener owns closure. `SqliteSchemaGate.prepareTasks` applies
-WAL and foreign-key settings before its transaction. The backend itself applies no store-specific PRAGMAs.
+The dependency-free `DatabaseBackend` port defines prepared statements and asynchronous transaction semantics.
+Goal, task-domain, execution and workflow-run persistence share its `PostgresBackend` implementation. The execution
+repository transactor delegates to the backend rather than owning another queue or issuing transaction SQL. Runtime
+and CLI open the pool through the PostgreSQL backend factory; the opener owns closure.
 
-`database.backend` selects SQLite by default or PostgreSQL 14+ through `databaseBackendFactoryFor`. PostgreSQL uses
-one `PostgresBackend` pool, with a default maximum of five connections, and `PostgresSchemaGate` prepares its current
+PostgreSQL uses one `PostgresBackend` pool, with a default maximum of five connections, and
+`PostgresSchemaGate` prepares its current
 schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The
 optional PostgreSQL vector projection uses the same pool after read-only public-pgvector preflight and authoritative
-schema validation. SQLite keeps embeddings in a separate `vectors.db`, so lexical publication cannot discard reusable
-vectors. Canonical memory and index-health evidence stay in local files.
+schema validation. Canonical memory and index-health evidence stay in local files.
 
-Serving startup runs memory preflight, opens and scans local orphan-turn state, then opens the active backend.
+Serving startup runs memory preflight, opens and scans local orphan-turn state, then opens PostgreSQL.
 PostgreSQL acquires its dedicated session interlock before the schema gate. Language validation and derived-index
-reconciliation follow the gate. An inactive-store probe reports leftover data without transferring it or blocking
-startup. Only after storage wiring returns do the serving runners acknowledge orphan records. Headless and
+reconciliation follow the gate. Only after storage wiring returns do the serving runners acknowledge orphan records. Headless and
 one-shot clients omit the serving interlock and orphan scan. Shutdown closes the pool before releasing ownership.
 
 File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
@@ -444,7 +438,7 @@ Full persistence details: [Data Model & Persistence Overview](data-model.md)
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
 
-**Package**: `dartclaw_core` (file services, SQLite and PostgreSQL backends)
+**Package**: `dartclaw_core` (file services and PostgreSQL backend)
 
 #### Web UI
 
@@ -641,21 +635,19 @@ counts and a structured degradation.
 | `SelfImprovementService` | `packages/dartclaw_runtime/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures and bound canonical learning captures |
 | `MemoryPruner` | `packages/dartclaw_core/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
 | `FullTextIndex` / `VectorIndex` / `EmbeddingProvider` | `packages/dartclaw_kernel/lib/src/` | Owner-scoped lexical, vector and embedding contracts with stable chunk identity |
-| `SqliteFtsIndex` | `packages/dartclaw_core/lib/src/search/sqlite_fts_index.dart` | FTS5 implementation with atomic per-user mutations |
 | `PostgresFtsIndex` | `packages/dartclaw_core/lib/src/search/postgres_fts_index.dart` | Language-aware PostgreSQL lexical projection |
-| `SqliteVectorIndex` / `PostgresVectorIndex` | `packages/dartclaw_core/lib/src/search/vector_index.dart` | Corpus-fixed vector storage and owner-scoped cosine ranking |
+| `PostgresVectorIndex` | `packages/dartclaw_core/lib/src/search/vector_index.dart` | Corpus-fixed optional vector storage and owner-scoped cosine ranking |
 | `MemoryIndexProjection` | `packages/dartclaw_core/lib/src/memory/memory_index_projection.dart` | Canonical memory document mapping and result reconstruction |
-| `SqliteBackend` / `SqliteSchemaGate` | `packages/dartclaw_core/lib/src/storage/` | Connection lifecycle, schema compatibility and derived-index rebuild gate |
-| `Fts5SearchBackend` | `packages/dartclaw_core/lib/src/search/fts5_search_backend.dart` | Default search: FTS5 BM25 |
+| `PostgresBackend` / `PostgresSchemaGate` | `packages/dartclaw_core/lib/src/storage/` | Connection lifecycle, schema compatibility and empty-schema bootstrap gate |
+| `LexicalSearchBackend` | `packages/dartclaw_core/lib/src/search/` | Default PostgreSQL text search |
 | `HybridSearch` / `VectorSynchronizer` | `packages/dartclaw_search/lib/src/` | Fixed 0.25/0.75 weighted RRF and incremental vector lifecycle over injected indexes |
 | `NativeEmbeddingProvider` / `HttpEmbeddingProvider` | `packages/dartclaw_search/lib/src/` | Verified local EmbeddingGemma or explicit raw-input HTTP embedding boundary |
-| `QmdSearchBackend` | `packages/dartclaw_core/lib/src/search/qmd_search_backend.dart` | Deprecated opt-in QMD path retained through 0.26 |
 
-`fts5` remains the zero-model default. `hybrid` composes the two current corpus projections through `dartclaw_search`.
+`lexical` remains the zero-model, zero-extension default. `hybrid` composes the two current corpus projections through
+`dartclaw_search` and requires administrator-provisioned pgvector.
 The local provider applies the EmbeddingGemma query/document conventions and fingerprints the verified model and
 preprocessing contract. The HTTP provider sends raw query or document input to an explicitly configured endpoint,
-whose service owns preprocessing; its endpoint and model form a separate fingerprint and trust boundary. QMD still
-works in 0.26 with a deprecation warning and is removed in the following milestone.
+whose service owns preprocessing; its endpoint and model form a separate fingerprint and trust boundary.
 
 Memory MCP tools (`memory_apply`, `memory_observe`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
 
@@ -667,7 +659,7 @@ requiring separate `memory_search`, temporal-KG, and wiki reads. Design rational
 
 At call time the tool fans out retrieval across:
 
-- configured FTS5, built-in hybrid, or deprecated QMD memory search;
+- configured PostgreSQL lexical or built-in hybrid memory search;
 - temporal-KG facts and timelines for query-derived entity candidates;
 - wiki/source documents exposed through the knowledge layer.
 
@@ -680,7 +672,7 @@ synthesizer returns malformed output, assembly falls back to citation-preserving
 Synthesized answers are never cached. Every `context_research` call reruns retrieval and synthesis so temporal facts,
 wiki edits, and memory updates are reflected by the next request.
 
-**Package**: `dartclaw_core` (file services, SQLite services, and search backends)
+**Package**: `dartclaw_core` (file services, PostgreSQL services, and search backends)
 
 #### Project Management
 
@@ -714,7 +706,7 @@ Enriched turn recording and task event system added in 0.14.
 |-----------|------|------|
 | `ToolCallRecord` | `dartclaw_core/turn/tool_call_record.dart` | Per-tool-call record: name, success, durationMs, errorType |
 | `TaskEvent`, `TaskEventKind` | `dartclaw_core/task/task_event.dart` | Typed task-timeline event and its closed event-kind vocabulary |
-| `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to `turns` SQLite table in `dartclaw.db` (NF03 — zero latency impact) |
+| `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to the PostgreSQL `turns` table (NF03 — zero latency impact) |
 | `TaskEventService` | `dartclaw_core` | Awaited persistence through `DatabaseBackend` to the `task_events` table in `dartclaw.db` |
 | `TaskEventRecorder` | `dartclaw_runtime` | Centralized event recording helper with typed convenience methods |
 
@@ -795,7 +787,7 @@ The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client`
 | Package | Owns | Key Constraint |
 |---------|------|----------------|
 | `dartclaw_kernel` | Shared models, database and repository ports, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
-| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, SQLite/PostgreSQL backends and repositories, lexical/vector index implementations, QMD compatibility, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
+| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, PostgreSQL backend and repositories, lexical/vector index implementations, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
 | `dartclaw_search` | Hybrid retrieval composition and embedding providers over injected indexes | T1 package depending only on kernel contracts; owns no canonical corpus or database driver |
 | `dartclaw_acp` | ACP stdio JSON-RPC client/harness, reverse-call mediation, target validation, `harness.acp` DTOs/parser and `AcpHarnessRegistrar` | Depends on the public kernel and core barrels only, implementing core's `HarnessRegistrar` seam; the CLI composes it and runtime production code never imports or names it |
 | `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns workflow-run persistence through `DatabaseBackend` and the fakes of its ports |
@@ -814,7 +806,7 @@ The critical boundaries are **`dartclaw_kernel` has no workspace dependency**, *
 
 `dartclaw_kernel` remains zero-EventBus, so consumers can use guards and typed configuration without server wiring. Its external dependencies are small Dart libraries needed by those contracts; it has no upward workspace edge.
 
-`dartclaw_core` owns the sqlite3 native dependency and the repositories that share aggregate hydration and row mapping.
+`dartclaw_core` owns the PostgreSQL driver and the repositories that share aggregate hydration and row mapping.
 
 `dartclaw_bridge` stays a standing zero-dependency leaf because `dart compile exe` refuses build-hook graphs, while a
 different hook-free host would only preserve cross-compilation until its next dependency change (ADR-051).
@@ -879,13 +871,14 @@ Environment: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, and `CLAUDE_CODE_EXPERIMENT
 
 ### Single-User, Single-Binary
 
-DartClaw targets one user, one deployment. AOT-compiled via `dart build cli` to a native binary plus a bundled SQLite library in a sibling `lib/`. No Node.js, no npm, no Deno at runtime.
+DartClaw targets one user, one deployment. The host is AOT-compiled via `dart build cli`; PostgreSQL 14+ is a
+separately operated native or managed service. No Node.js, npm, or Deno is required at runtime.
 
 Runtime dependencies:
 - `claude` CLI binary (~185-234 MB, Bun standalone — installed via `curl -fsSL https://claude.ai/install.sh | bash`)
 - `codex` CLI binary (required for `codex` workers)
 - Docker (OrbStack on macOS, native Engine on Linux) — for container isolation
-- Bundled SQLite library (`lib/sqlite3.*`; `lib/sqlite3.dll` on Windows) — for search index and task persistence
+- PostgreSQL 14+ service — authoritative relational data and lexical search; pgvector is optional for hybrid mode
 - Channel sidecars (optional): GOWA binary (WhatsApp), signal-cli (Signal)
 
 ### Container Isolation Topology
@@ -1059,7 +1052,7 @@ search unavailable. Runtime disposal and shutdown close the owned task and searc
 2.  Config notifier (`ConfigNotifier`) for reloadable sections
 3.  File services (SessionService, MessageService, KvService)
 4.  Storage (search gate → reconciliation → prepared search/task backends → TurnStateStore/turn_state.json)
-5.  Search backends (FTS5; optional built-in hybrid or deprecated QMD)
+5.  Search backends (PostgreSQL lexical; optional built-in hybrid)
 6.  Memory services and corpus synchronization (MemoryFileService, lexical/vector indexes, embedding provider, SelfImprovementService)
 7.  Security (GuardChain, concrete guards, `MessageRedactor`, `GuardAuditLogger`, and `GuardConfig` from `dartclaw_kernel`; `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_runtime`)
 8.  Container managers (per-profile: workspace, restricted)

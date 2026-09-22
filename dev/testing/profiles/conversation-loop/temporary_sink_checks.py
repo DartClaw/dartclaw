@@ -2,7 +2,6 @@
 import json
 import os
 import pathlib
-import sqlite3
 import subprocess
 import sys
 
@@ -93,16 +92,7 @@ require('ORDINARY_ATTACHMENT_CONTROL' in attachments and 'ordinary-control.txt' 
 kv = text(data_dir / 'kv.json')
 require(f'session_cost:{ordinary_id}' in kv and f'session_cost:{temporary_id}' not in kv, 'usage-kv', 'ordinary usage key present; temporary key absent')
 
-if backend == 'sqlite':
-    search = sqlite3.connect(data_dir / 'search.db')
-    lexical = search.execute('SELECT session_id, text FROM conversation_chunks').fetchall()
-    search.close()
-    require(any(row[0] == ordinary_id and 'ORDINARY_TURN_CONTROL' in row[1] for row in lexical) and all(row[0] not in temporary_session_ids for row in lexical), 'lexical-index', 'ordinary lexical row present; temporary rows absent')
-    vectors = sqlite3.connect(data_dir / 'vectors.db')
-    vector_ids = {row[0] for row in vectors.execute('SELECT document_id FROM conversation_vectors')}
-    vectors.close()
-    require(any(message_id in vector_ids for message_id in ordinary_message_ids) and not any(message_id in vector_ids for message_id in temporary_message_ids), 'vector-index', 'ordinary conversation vector present; temporary vectors absent')
-elif backend == 'postgres':
+if backend == 'postgres':
     lexical = postgres_rows(
         "SELECT json_build_object('session_id', session_id, 'message_id', message_id, 'text', text)::text "
         'FROM conversation_chunks ORDER BY id'

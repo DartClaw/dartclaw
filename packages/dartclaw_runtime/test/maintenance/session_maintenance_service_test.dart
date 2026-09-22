@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/maintenance/session_maintenance_service.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -13,7 +13,6 @@ void main() {
   late Directory tempDir;
   late SessionService sessions;
   late String sessionsDir;
-  late SqliteBackend taskBackend;
   late TaskService taskService;
   late String dataDir;
 
@@ -22,13 +21,11 @@ void main() {
     dataDir = tempDir.path;
     sessionsDir = tempDir.path;
     sessions = SessionService(baseDir: sessionsDir);
-    taskBackend = await openPreparedTaskBackend();
-    taskService = TaskService(SqliteTaskRepository(taskBackend));
+    taskService = TaskService(InMemoryTaskRepository());
   });
 
   tearDown(() async {
     await taskService.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -690,15 +687,11 @@ void main() {
     });
 
     test('partial failure: one task fails, others continue', () async {
-      final failingBackend = await openPreparedTaskBackend();
       final failingTasks = _FailingArtifactDeleteTaskService(
-        SqliteTaskRepository(failingBackend),
+        InMemoryTaskRepository(),
         failingArtifactId: 'task-fail-artifact-0',
       );
-      addTearDown(() async {
-        await failingTasks.dispose();
-        await failingBackend.close();
-      });
+      addTearDown(failingTasks.dispose);
 
       final failedTask = await createTaskWithStatus(
         id: 'task-fail',

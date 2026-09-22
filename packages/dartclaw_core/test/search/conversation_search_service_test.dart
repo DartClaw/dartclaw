@@ -1,21 +1,16 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late SqliteBackend backend;
-  late SqliteFtsIndex index;
+  late InMemoryFullTextIndex index;
 
   setUp(() async {
-    backend = SqliteBackend(sqlite3.openInMemory());
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+    index = InMemoryFullTextIndex();
     await index.upsert([_message('owner-message', 'owner-session', 'shared exact marker')], userId: 'owner');
     await index.upsert([_message('agent-message', 'agent-session', 'shared exact marker')], userId: 'agent:a');
   });
-
-  tearDown(() => backend.close());
 
   test('agent entry point stays principal-local while admin aggregation is explicitly scoped', () async {
     final service = ConversationSearchService(index: index, userId: 'agent:a', userIds: const {'owner', 'agent:a'});

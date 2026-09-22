@@ -10,6 +10,12 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+Future<List<DiagnosticRow>> _databaseReady(
+  DartclawConfig _, {
+  required bool bootstrap,
+  required Map<String, String> environment,
+}) async => const [];
+
 class _SetupPromptLogger extends Logger {
   final prompts = <String?>[];
 
@@ -40,6 +46,7 @@ class _SetupPromptLogger extends Logger {
 }
 
 SetupChecks _passingChecks() => SetupChecks(
+  databaseReadiness: _databaseReady,
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
@@ -48,6 +55,7 @@ SetupChecks _passingChecks() => SetupChecks(
 );
 
 SetupChecks _preflightFailureChecks() => SetupChecks(
+  databaseReadiness: _databaseReady,
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.notFound, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
@@ -59,6 +67,7 @@ SetupChecks _preflightFailureChecks() => SetupChecks(
 /// touching preflight. An executable-keyed `probeBinary` would isolate the same
 /// way; `portFree` and `writeProbeFile` would fail preflight first.
 SetupChecks _postWriteFailureChecks() => SetupChecks(
+  databaseReadiness: _databaseReady,
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => false,
   writeProbeFile: (_) {},
@@ -67,6 +76,7 @@ SetupChecks _postWriteFailureChecks() => SetupChecks(
 );
 
 SetupChecks _unverifiedChecks() => SetupChecks(
+  databaseReadiness: _databaseReady,
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
@@ -107,6 +117,7 @@ class _RecordingChecks extends SetupChecks {
 
   new({Future<bool> Function(String, String, String)? providerVerified})
     : super(
+        databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
@@ -367,6 +378,7 @@ void main() {
         hasTerminal: () => true,
         logger: logger,
         setupChecks: SetupChecks(
+          databaseReadiness: _databaseReady,
           probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
           configParseable: (_) async => true,
           writeProbeFile: (_) {},

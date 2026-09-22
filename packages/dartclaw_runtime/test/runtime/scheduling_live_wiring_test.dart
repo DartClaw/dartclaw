@@ -111,8 +111,8 @@ scheduling:
           createdHarnesses.add(harness);
           return harness;
         }),
-      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
       resolvedConfigPath: configFile.path,
@@ -134,7 +134,6 @@ scheduling:
       await runtime.requireSelfImprovement.dispose();
       await runtime.taskService.dispose();
       await runtime.eventBus.dispose();
-      await runtime.qmdManager?.stop();
       await runtime.closeStorage();
       await logService.dispose();
     });

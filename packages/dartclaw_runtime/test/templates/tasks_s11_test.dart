@@ -1,10 +1,10 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, SqliteTaskRepository, TaskEvent, TaskEventKind;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, TaskEvent, TaskEventKind;
 import 'package:dartclaw_runtime/src/task/task_progress_tracker.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/templates/tasks.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -340,11 +340,9 @@ void main() {
 /// [tokenBudget]) for [taskId].
 Future<TaskProgressTracker> _stubTrackerWithTokens(String taskId, {required int tokensUsed, int? tokenBudget}) async {
   final eventBus = EventBus();
-  final backend = await openPreparedTaskBackend();
-  final tasks = TaskService(SqliteTaskRepository(backend));
+  final tasks = TaskService(InMemoryTaskRepository());
   addTearDown(() async {
     await tasks.dispose();
-    await backend.close();
     await eventBus.dispose();
   });
   final tracker = TaskProgressTracker(eventBus: eventBus, tasks: tasks);

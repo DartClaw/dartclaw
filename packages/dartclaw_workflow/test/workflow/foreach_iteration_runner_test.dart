@@ -2021,7 +2021,7 @@ steps:
           'map': {'item': 'B', 'index': 1, 'length': 2},
         };
       // Exercise the real production serialization leg: persisted contextJson is
-      // JSON-encoded to SQLite and rebuilt via WorkflowContext.fromJson, so the
+      // JSON-encoded for persistence and rebuilt via WorkflowContext.fromJson, so the
       // nested-loop checkpoint (including the iterData snapshot's bare review
       // keys) must survive an encode→decode→fromJson round-trip.
       final context = WorkflowContext.fromJson(

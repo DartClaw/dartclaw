@@ -67,6 +67,7 @@ void main() {
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('agent-wiki-boundary-marker');
     final configFile = File(p.join(root.path, 'dartclaw.yaml'))..writeAsStringSync('# test config\n');
+    final searchIndexes = <PostgresFtsTable, InMemoryFullTextIndex>{};
     runtime = await DartclawRuntime.build(
       config,
       dataDir: root.path,
@@ -76,8 +77,10 @@ void main() {
           'claude',
           (factoryConfig) => _ImmediateHarness(factoryConfig, onCurationResult: curationResults.add),
         ),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
+      searchIndexFactory: (_, table, {required withinTransaction}) =>
+          searchIndexes.putIfAbsent(table, InMemoryFullTextIndex.new),
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
       resolvedConfigPath: configFile.path,

@@ -5,8 +5,8 @@ typedef DatabaseBackendFactory = Future<DatabaseBackend> Function(String path);
 
 /// Portable database operations shared by storage repositories.
 ///
-/// SQL uses positional `?` placeholders. Values and result rows use SQLite's
-/// portable scalar set: [int], [double], [String], [Uint8List], and `null`.
+/// SQL uses positional `?` placeholders. Values and result rows use the
+/// scalar set [int], [double], [String], [Uint8List], and `null`.
 /// Booleans are represented as `0` or `1`, and timestamps as ISO 8601 strings.
 /// Insert-and-fetch operations use `RETURNING`; engine-specific row-id access
 /// is deliberately not part of this contract.
@@ -28,9 +28,8 @@ abstract interface class DatabaseBackend {
   /// Runs [body] atomically and returns its result.
   ///
   /// Operations issued through the transaction handle join the transaction.
-  /// SQLite backends also join calls made reentrantly through the owning backend
-  /// from [body], while unrelated SQLite operations wait until it completes.
-  /// Nested calls throw [NestedTransactionError]. Closing a transaction handle
+  /// Calls made reentrantly through the owning backend from [body] join the
+  /// transaction. Nested calls throw [NestedTransactionError]. Closing a transaction handle
   /// always throws [StateError]; other use after [body] completes does likewise.
   /// An error from [body] is rethrown with its original stack after rollback,
   /// including when rollback cleanup itself fails.

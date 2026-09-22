@@ -10,14 +10,19 @@ DatabaseConfig _parseDatabase(
 ) {
   final map = _sectionMap('database', yaml, warns);
   if (map == null) return defaults;
-  final backendValue = readString('backend', map, warns, defaultValue: defaults.backend.name);
-  final backend = DatabaseBackendKind.values.firstWhere(
-    (value) => value.name == backendValue,
-    orElse: () {
-      warns.add('Invalid database.backend: "$backendValue" — using default');
-      return defaults.backend;
-    },
-  );
+  final backendValue = readString('backend', map, warns);
+  if (backendValue == 'postgres') {
+    addConfigAdvisory(
+      warns,
+      'database.backend: postgres is no longer needed; remove database.backend because PostgreSQL is the only '
+      'supported database.',
+    );
+  } else if (backendValue != null) {
+    warns.add(
+      'Invalid database.backend: "$backendValue" — PostgreSQL is the only supported database; remove '
+      'database.backend.',
+    );
+  }
   final rawUrl = readString('url', map, warns);
   final urlEnvVars = rawUrl == null ? const <String>[] : envReferences(rawUrl);
   final url = rawUrl == null ? null : envSubstitute(rawUrl, env: env);
@@ -32,23 +37,18 @@ DatabaseConfig _parseDatabase(
   if (FieldConstraints.evaluate(ConfigMeta.fields['database.pool_size']!, poolSize) != null) {
     warns.add('Invalid database.pool_size: must be positive');
   }
-  if (backend == DatabaseBackendKind.postgres) {
-    final hasUrlReference = rawUrl != null && rawUrl.isNotEmpty;
-    final hasCredentialReference = credential != null && credential.isNotEmpty;
-    final persistedSecret = rawUrl == null ? null : _persistedDatabaseSecretShape(rawUrl);
-    if (persistedSecret != null) {
-      warns.add(
-        'Invalid database.url: persisted $persistedSecret is not allowed; use environment substitution or '
-        'database.credential',
-      );
-    } else if (!hasUrlReference && !hasCredentialReference) {
-      warns.add('Invalid database.url/database.credential: postgres requires exactly one connection reference');
-    } else if (hasUrlReference && hasCredentialReference) {
-      warns.add('Invalid database.url/database.credential: postgres accepts exactly one connection reference');
-    }
+  final hasUrlReference = rawUrl != null && rawUrl.isNotEmpty;
+  final hasCredentialReference = credential != null && credential.isNotEmpty;
+  final persistedSecret = rawUrl == null ? null : _persistedDatabaseSecretShape(rawUrl);
+  if (persistedSecret != null) {
+    warns.add(
+      'Invalid database.url: persisted $persistedSecret is not allowed; use environment substitution or '
+      'database.credential',
+    );
+  } else if (hasUrlReference && hasCredentialReference) {
+    warns.add('Invalid database.url/database.credential: PostgreSQL accepts exactly one connection reference');
   }
   return DatabaseConfig(
-    backend: backend,
     url: url,
     credential: credential,
     urlEnvVars: urlEnvVars,
@@ -105,8 +105,6 @@ SearchConfig _parseSearch(
 ) {
   final providers = <String, SearchProviderEntry>{};
   var backend = defaults.backend;
-  var qmdHost = defaults.qmdHost;
-  var qmdPort = defaults.qmdPort;
   var defaultDepth = defaults.defaultDepth;
   var embedding = defaults.embedding;
 
@@ -115,22 +113,14 @@ SearchConfig _parseSearch(
     final backendVal = readString('backend', searchMap, warns);
     if (backendVal != null) {
       final field = ConfigMeta.fields['search.backend']!;
-      if (FieldConstraints.evaluate(field, backendVal) == null) {
+      if (backendVal == 'fts5') {
+        backend = 'lexical';
+        addConfigAdvisory(warns, 'search.backend: fts5 is now named lexical; replace it with search.backend: lexical.');
+      } else if (FieldConstraints.evaluate(field, backendVal) == null) {
         backend = backendVal;
       } else {
-        warns.add('Invalid search.backend: "$backendVal" — using default');
+        warns.add('Invalid search.backend: "$backendVal" — expected lexical or hybrid.');
       }
-    }
-    final qmdMap = readMap('qmd', searchMap, warns);
-    if (qmdMap != null) {
-      final rawQmdHost = readString('host', qmdMap, warns, defaultValue: qmdHost) ?? qmdHost;
-      final normalizedQmdHost = _normalizeQmdLoopbackHost(rawQmdHost);
-      if (normalizedQmdHost == null) {
-        warns.add('Invalid search.qmd.host: "$rawQmdHost" — using default');
-      } else {
-        qmdHost = normalizedQmdHost;
-      }
-      qmdPort = readInt('port', qmdMap, warns, defaultValue: defaults.qmdPort) ?? defaults.qmdPort;
     }
     final depth = readString('default_depth', searchMap, warns);
     if (depth != null) defaultDepth = depth;
@@ -183,21 +173,7 @@ SearchConfig _parseSearch(
     }
   }
 
-  if (backend == 'qmd') {
-    addConfigAdvisory(
-      warns,
-      'search.backend qmd is deprecated and will be removed in the next milestone; use hybrid instead.',
-    );
-  }
-
-  return SearchConfig(
-    backend: backend,
-    qmdHost: qmdHost,
-    qmdPort: qmdPort,
-    defaultDepth: defaultDepth,
-    providers: providers,
-    embedding: embedding,
-  );
+  return SearchConfig(backend: backend, defaultDepth: defaultDepth, providers: providers, embedding: embedding);
 }
 
 EmbeddingConfig _parseEmbedding(
@@ -324,21 +300,6 @@ String? _resolveSearchCredential(String providerName, Object? raw, CredentialsCo
     return null;
   }
   return entry.apiKey;
-}
-
-String? _normalizeQmdLoopbackHost(String host) {
-  var normalized = host.trim().toLowerCase();
-  if (normalized == '[::1]') normalized = '::1';
-  if (normalized == 'localhost' || normalized == '::1') return normalized;
-  final octets = normalized.split('.');
-  final isLoopbackIpv4 =
-      octets.length == 4 &&
-      octets.first == '127' &&
-      octets.every((octet) {
-        final value = int.tryParse(octet);
-        return value != null && value >= 0 && value <= 255 && value.toString() == octet;
-      });
-  return isLoopbackIpv4 ? normalized : null;
 }
 
 ProvidersConfig _parseProviders(

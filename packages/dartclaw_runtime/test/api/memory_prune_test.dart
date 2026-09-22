@@ -6,7 +6,6 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
@@ -18,7 +17,6 @@ void main() {
   late KvService kvService;
   late MemoryStatusService statusService;
   late FullTextIndex memoryIndex;
-  late Database db;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('memory_prune_test');
@@ -26,8 +24,7 @@ void main() {
     Directory(workspaceDir).createSync(recursive: true);
 
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-    db = sqlite3.open(p.join(tempDir.path, 'memory.db'));
-    memoryIndex = await prepareMemoryIndex(db);
+    memoryIndex = await prepareMemoryIndex();
 
     statusService = MemoryStatusService(
       workspaceDir: workspaceDir,
@@ -37,7 +34,6 @@ void main() {
   });
 
   tearDown(() async {
-    db.close();
     await kvService.dispose();
     tempDir.deleteSync(recursive: true);
   });

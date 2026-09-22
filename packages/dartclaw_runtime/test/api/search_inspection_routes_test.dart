@@ -8,8 +8,9 @@ import 'package:dartclaw_runtime/src/api/search_inspection_routes.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import '../helpers/search_index_test_support.dart';
 
 Request request(Object? body) =>
     Request('POST', Uri.parse('http://localhost/api/search/inspect'), body: jsonEncode(body));
@@ -20,10 +21,7 @@ void main() {
       test(
         '$corpus preserves identity, bounded snippets and ${fallback ? 'lexical' : 'hybrid'} order/scores',
         () async {
-          final backend = SqliteBackend(sqlite3.openInMemory());
-          await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-          addTearDown(backend.close);
-          final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+          final index = await prepareMemoryIndex();
           final ids = [for (var i = 1; i <= 3; i++) '00000000-0000-4000-8000-00000000000$i'];
           final text = '${List.filled(241, '😀').join()}SECRET_TAIL';
           final hits = [
@@ -149,10 +147,7 @@ void main() {
   }
 
   test('conversation provenance mapping failure does not release earlier diagnostics', () async {
-    final backend = SqliteBackend(sqlite3.openInMemory());
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    addTearDown(backend.close);
-    final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+    final index = await prepareMemoryIndex();
     final service = ConversationSearchService(
       index: index,
       query: (_, {required userId, required limit, scope, diagnostics}) async {
@@ -261,13 +256,27 @@ void main() {
       );
       final entered = Completer<void>();
       final release = Completer<void>();
+      final backend = await openPreparedTaskBackend();
+      final indexes = <PostgresFtsTable, InMemoryFullTextIndex>{};
+      InMemoryFullTextIndex createIndex(PostgresFtsTable table) => InMemoryFullTextIndex(
+        beforeSearch: phase == 'changed during' && table == PostgresFtsTable.memoryChunks
+            ? () async {
+                if (!entered.isCompleted) entered.complete();
+                await release.future;
+              }
+            : null,
+      );
       final wiring = StorageWiring(
         config: config,
         eventBus: EventBus(),
+        taskBackendFactory: (_) async => backend,
+        taskBackendIsPrepared: true,
+        searchIndexFactory: (_, table, {required withinTransaction}) =>
+            indexes.putIfAbsent(table, () => createIndex(table)),
         exitFn: (code) => throw StateError('$code'),
         embeddingProviderFactory: () => CallbackEmbeddingProvider(
           embedQuery: (_) async {
-            entered.complete();
+            if (!entered.isCompleted) entered.complete();
             await release.future;
             return [1, 0];
           },
@@ -286,12 +295,36 @@ void main() {
         } else if (phase == 'health unavailable') {
           File(wiring.indexHealth.path).writeAsStringSync('invalid');
         }
+        final initialRevision = phase == 'changed during'
+            ? (await wiring.memoryCorpus.manifest()).collectionRevision
+            : null;
+        if (phase == 'changed during') {
+          final manifest = await wiring.memoryCorpus.manifest();
+          final health = await wiring.indexHealth.read(
+            canonicalRevision: manifest.collectionRevision,
+            canonicalFingerprint: manifest.fingerprint,
+          );
+          expect(health.state, IndexHealthState.healthy);
+        }
         final pending = searchInspectionRoutes(inspectMemory: wiring.inspectMemorySearch)
             .call(request({'corpus': 'memory', 'query': 'needle'}));
         if (phase == 'changed during') {
-          await entered.future;
-          await wiring.memoryFile.appendDailyLog('new revision');
+          final searchStarted = await Future.any([entered.future.then((_) => true), pending.then((_) => false)]);
+          expect(searchStarted, isTrue);
+          final mutation = wiring.memoryFile.appendDailyLog('new revision');
+          final stateFile = File('${config.workspaceDir}/.dartclaw-memory-corpus.json');
+          var revisionChanged = false;
+          for (var attempt = 0; attempt < 100; attempt++) {
+            final state = jsonDecode(stateFile.readAsStringSync()) as Map<String, dynamic>;
+            if (state['observedRevision'] != initialRevision) {
+              revisionChanged = true;
+              break;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
           release.complete();
+          await mutation;
+          expect(revisionChanged, isTrue);
         }
         final response = await pending;
         expect(response.statusCode, 503);

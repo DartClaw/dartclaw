@@ -39,10 +39,10 @@ void main() {
   });
 
   test('flow-style production dependencies remain visible to the exact-set check', () async {
-    final packageRoot = _writeFixture(tempDirs, 'dependencies: {sqlite3: ^3.3.1}');
+    final packageRoot = _writeFixture(tempDirs, 'dependencies: {http: ^1.6.0}');
     final shape = await _dependencyShape(packageRoot);
 
-    expect(shape.dependencies, contains('sqlite3'));
+    expect(shape.dependencies, contains('http'));
     expect(() => _assertExactShape(shape), throwsA(_unexpectedDependencyFailure));
   });
 
@@ -50,11 +50,11 @@ void main() {
     final packageRoot = _writeFixture(tempDirs, '''
 dependencies:
 # The comment is valid YAML and does not end the mapping.
-  sqlite3: ^3.3.1
+  http: ^1.6.0
 ''');
     final shape = await _dependencyShape(packageRoot);
 
-    expect(shape.dependencies, contains('sqlite3'));
+    expect(shape.dependencies, contains('http'));
     expect(() => _assertExactShape(shape), throwsA(_unexpectedDependencyFailure));
   });
 }
@@ -66,7 +66,7 @@ Future<({Set<String> dependencies, Set<String> devDependencies})> _dependencySha
 final _unexpectedDependencyFailure = isA<TestFailure>().having(
   (failure) => failure.message,
   'message',
-  allOf(contains('packages/dartclaw_bridge/pubspec.yaml'), contains('sqlite3'), contains('ADR-051')),
+  allOf(contains('packages/dartclaw_bridge/pubspec.yaml'), contains('http'), contains('ADR-051')),
 );
 
 void _assertExactShape(({Set<String> dependencies, Set<String> devDependencies}) shape) {

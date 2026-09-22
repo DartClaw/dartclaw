@@ -7,7 +7,8 @@ import 'package:dartclaw_runtime/src/mcp/context_engine_profile.dart';
 import 'package:dartclaw_runtime/src/mcp/kg_tools.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/memory_tools.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 class _NamedTool implements McpTool {
@@ -109,7 +110,7 @@ void main() {
 
   group('a handler scoped to one client', () {
     late McpProtocolHandler handler;
-    late SqliteBackend backend;
+    late DatabaseBackend backend;
     late TemporalKnowledgeGraphService kg;
 
     McpProtocolHandler scoped() => handler.scopedTo(
@@ -126,7 +127,7 @@ void main() {
 
     setUp(() async {
       backend = await openPreparedTaskBackend();
-      kg = TemporalKnowledgeGraphService(backend);
+      kg = InMemoryTemporalKnowledgeGraphService();
       handler = McpProtocolHandler(auditLogger: auditLogger);
       handler.registerTool(KgQueryTool(kg: kg));
       handler.registerTool(KgTimelineTool(kg: kg));

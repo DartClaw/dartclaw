@@ -1,0 +1,1 @@
+canonical memory/wiki files stay outside database migration

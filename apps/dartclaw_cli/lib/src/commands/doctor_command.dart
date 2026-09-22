@@ -41,24 +41,27 @@ class DoctorCommand extends Command<void> {
   @override
   Future<void> run() async {
     final configPath = resolveCliConfigPath(configPath: globalOptionString(globalResults, 'config'), env: _environment);
-    Future<DiagnosticReport> diagnose() => _checks.diagnose(
+    Future<DiagnosticReport> diagnose({bool repairDatabase = false}) => _checks.diagnose(
       configPath: configPath,
       serverOverride: serverOverride(globalResults),
       platformCapabilities: _capabilities,
       environment: _environment,
+      repairDatabase: repairDatabase,
     );
     var report = await diagnose();
     final repaired = <String>[];
-    if (argResults!.flag('fix') && report.missingDirectories.isNotEmpty) {
-      for (final path in report.missingDirectories) {
-        try {
-          Directory(path).createSync(recursive: true);
-          repaired.add(path);
-        } on FileSystemException {
-          // The fresh layout check retains failures, including non-directory collisions.
+    if (argResults!.flag('fix')) {
+      if (report.missingDirectories.isNotEmpty) {
+        for (final path in report.missingDirectories) {
+          try {
+            Directory(path).createSync(recursive: true);
+            repaired.add(path);
+          } on FileSystemException {
+            // The fresh layout check retains failures, including non-directory collisions.
+          }
         }
       }
-      report = await diagnose();
+      report = await diagnose(repairDatabase: true);
     }
     final fixed =
         repaired.isNotEmpty &&
@@ -93,7 +96,7 @@ class DoctorCommand extends Command<void> {
           if (row.remediation case final remediation?) _writeLine('    → ${_oneLine(remediation)}');
         }
       }
-      if (report.rows.any((row) => row.fixable)) _writeLine('For directory repairs, run dartclaw doctor --fix.');
+      if (report.rows.any((row) => row.fixable)) _writeLine('For supported repairs, run dartclaw doctor --fix.');
       _writeLine(report.summary.entries.map((entry) => '${entry.value} ${entry.key}').join(', '));
     }
     if (report.failed) _exitFn(1);

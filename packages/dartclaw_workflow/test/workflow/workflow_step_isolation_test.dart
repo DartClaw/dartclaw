@@ -18,17 +18,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        HarnessFactory,
-        HarnessFactoryConfig,
-        SqliteAgentExecutionRepository,
-        SqliteBackend,
-        SqliteSchemaGate,
-        SqliteTaskRepository,
-        SqliteWorkflowStepExecutionRepository,
-        TurnOutcome,
-        TurnStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, HarnessFactoryConfig, TurnOutcome, TurnStatus;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show BehaviorFileService, TaskService, TurnRunner;
 import 'package:dartclaw_runtime/src/task/task_budget_policy.dart' show TaskBudgetPolicy;
@@ -52,8 +42,8 @@ import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart' s
 import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart'
     show stepArtifactsDirEnvVar, workflowStepArtifactsDir;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
@@ -282,9 +272,8 @@ void main() {
   late String fixtureDir;
   late String runtimeArtifactsDir;
   late TaskService taskService;
-  late SqliteBackend taskBackend;
-  late SqliteAgentExecutionRepository agentExecutions;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
+  late InMemoryAgentExecutionRepository agentExecutions;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
   late SessionService sessionService;
   late MessageService messageService;
   late ContextExtractor extractor;
@@ -359,12 +348,14 @@ void main() {
       agentTomlNames: skillInventory.agentTomlNames,
     );
 
-    final database = sqlite3.openInMemory();
-    taskBackend = SqliteBackend(database);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    taskService = TaskService(SqliteTaskRepository(taskBackend));
-    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
-    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskBackend);
+    final taskRepository = InMemoryTaskRepository();
+    agentExecutions = InMemoryAgentExecutionRepository();
+    workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutions,
+      executionTransactor: const InMemoryExecutionRepositoryTransactor(),
+    );
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
     extractor = ContextExtractor(
@@ -392,7 +383,6 @@ void main() {
   tearDown(() async {
     await taskService.dispose();
     await messageService.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

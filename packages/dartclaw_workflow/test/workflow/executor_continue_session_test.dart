@@ -143,27 +143,18 @@ void main() {
       await h.executor.execute(run, definition, WorkflowContext());
       await sub.cancel();
 
-      final taskCount = (h.db.select('SELECT COUNT(*) AS c FROM tasks').first['c'] as int?) ?? 0;
-      final tasksWithoutAe =
-          (h.db.select('SELECT COUNT(*) AS c FROM tasks WHERE agent_execution_id IS NULL').first['c'] as int?) ?? 0;
-      final workflowStepCount =
-          (h.db.select('SELECT COUNT(*) AS c FROM workflow_step_executions').first['c'] as int?) ?? 0;
-      final joinedWorkflowStepCount =
-          (h.db
-                  .select(
-                    'SELECT COUNT(*) AS c FROM tasks t '
-                    'JOIN workflow_step_executions wse ON wse.task_id = t.id',
-                  )
-                  .first['c']
-              as int?) ??
-          0;
-      final agentExecutionCount = (h.db.select('SELECT COUNT(*) AS c FROM agent_executions').first['c'] as int?) ?? 0;
+      final tasks = await h.taskRepository.list();
+      final workflowSteps = await h.workflowStepExecutionRepository.listByRunId(run.id);
+      final taskIds = tasks.map((task) => task.id).toSet();
+      final agentExecutions = await h.agentExecutionRepository.list();
+      final tasksWithoutAe = tasks.where((task) => task.agentExecutionId == null).length;
+      final joinedWorkflowStepCount = workflowSteps.where((step) => taskIds.contains(step.taskId)).length;
 
-      expect(taskCount, 1);
+      expect(tasks, hasLength(1));
       expect(tasksWithoutAe, 0);
-      expect(workflowStepCount, taskCount);
-      expect(joinedWorkflowStepCount, taskCount);
-      expect(agentExecutionCount, greaterThanOrEqualTo(taskCount));
+      expect(workflowSteps, hasLength(tasks.length));
+      expect(joinedWorkflowStepCount, tasks.length);
+      expect(agentExecutions.length, greaterThanOrEqualTo(tasks.length));
     });
 
     test('model-derived inline output joins the finalizer envelope schema', () async {

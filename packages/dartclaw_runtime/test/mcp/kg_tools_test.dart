@@ -4,22 +4,13 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/mcp/kg_tools.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late Database db;
-  late SqliteBackend backend;
   late TemporalKnowledgeGraphService kg;
 
-  setUp(() async {
-    db = sqlite3.openInMemory();
-    backend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
-    kg = TemporalKnowledgeGraphService(backend);
-  });
-
-  tearDown(() => backend.close());
+  setUp(() => kg = InMemoryTemporalKnowledgeGraphService());
 
   test('S08 kg tools add query timeline invalidate lifecycle', () async {
     final add = KgAddTool(kg: kg);
@@ -296,14 +287,13 @@ void main() {
     });
 
     test('S06/S08 legacy null-owner facts require steward principal', () async {
-      db.execute(
-        '''
-        INSERT INTO kg_facts(entity, predicate, value, valid_from, source)
-        VALUES (?, ?, ?, ?, ?)
-        ''',
-        ['legacy', 'status', 'active', '2026-01-01T00:00:00.000Z', 'legacy'],
+      final id = await kg.addFact(
+        entity: 'legacy',
+        predicate: 'status',
+        value: 'active',
+        validFrom: '2026-01-01T00:00:00.000Z',
+        source: 'legacy',
       );
-      final id = db.lastInsertRowId;
 
       final denied = await KgInvalidateTool(
         kg: kg,

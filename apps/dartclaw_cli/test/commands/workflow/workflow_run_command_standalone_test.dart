@@ -93,20 +93,31 @@ WorkflowRunCommand _standaloneCommand({
   FakeProviderAuthPreflight? providerAuthPreflight,
   FakeSkillIntrospector? skillIntrospector,
   bool runWorkflowSkillsBootstrap = false,
-}) => WorkflowRunCommand(
-  config: config,
-  reachabilityProbe: reachabilityProbe ?? (_) async => false,
-  environment: environment,
-  harnessFactory: harnessFactory ?? _harnessFactoryFor(() => FakeAgentHarness()),
-  searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-  taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-  stdoutLine: stdoutOutput?.add ?? (_) {},
-  stderrLine: stderrOutput?.add ?? (_) {},
-  exitFn: fakeExit,
-  runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
-  providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
-  skillIntrospector: skillIntrospector ?? FakeSkillIntrospector({}),
-);
+}) {
+  final tasks = InMemoryTaskRepository();
+  final runs = InMemoryWorkflowRunRepository();
+  final agentExecutions = InMemoryAgentExecutionRepository();
+  final stepExecutions = InMemoryWorkflowStepExecutionRepository();
+  return WorkflowRunCommand(
+    config: config,
+    reachabilityProbe: reachabilityProbe ?? (_) async => false,
+    environment: environment,
+    harnessFactory: harnessFactory ?? _harnessFactoryFor(() => FakeAgentHarness()),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    taskRepositoryFactory: (_) => tasks,
+    workflowRunRepositoryFactory: (_) => runs,
+    agentExecutionRepositoryFactory: (_) => agentExecutions,
+    workflowStepExecutionRepositoryFactory: (_) => stepExecutions,
+    executionRepositoryTransactorFactory: (_) => const InMemoryExecutionRepositoryTransactor(),
+    stdoutLine: stdoutOutput?.add ?? (_) {},
+    stderrLine: stderrOutput?.add ?? (_) {},
+    exitFn: fakeExit,
+    runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
+    providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
+    skillIntrospector: skillIntrospector ?? FakeSkillIntrospector({}),
+  );
+}
 
 Never _unexpectedRuntimeExit(int code) {
   throw StateError('Unexpected exit($code) during standalone runtime composition');
@@ -698,8 +709,7 @@ steps:
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
         stderrLine: (_) {},
         exitFn: _unexpectedRuntimeExit,
       );
@@ -734,8 +744,7 @@ steps:
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
         stderrLine: (_) {},
         exitFn: _unexpectedRuntimeExit,
       );

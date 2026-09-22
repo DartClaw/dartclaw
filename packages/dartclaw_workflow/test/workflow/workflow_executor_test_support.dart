@@ -21,7 +21,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MessageService,
         OutputConfig,
         SessionService,
-        SqliteWorkflowRunRepository,
+        WorkflowRunRepository,
         ProviderAuthPreflight,
         SkillIntrospector,
         StepExecutionContext,
@@ -50,16 +50,15 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         executionEnvelopeVersion;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService, WorkflowGitPortProcess;
 import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService;
-import 'package:dartclaw_core/dartclaw_core.dart'
+import 'package:dartclaw_testing/dartclaw_testing.dart'
     show
-        SqliteAgentExecutionRepository,
-        SqliteBackend,
-        SqliteExecutionRepositoryTransactor,
-        SqliteSchemaGate,
-        SqliteTaskRepository,
-        SqliteWorkflowStepExecutionRepository;
+        InMemoryAgentExecutionRepository,
+        InMemoryExecutionRepositoryTransactor,
+        InMemoryTaskRepository,
+        InMemoryWorkflowStepExecutionRepository;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
+
+import 'package:dartclaw_workflow/testing.dart';
 
 /// A [ContextExtractor] whose [extract] always throws an unexpected (generic)
 /// exception — neither [MissingArtifactFailure] nor [StateError]. Used to
@@ -111,17 +110,15 @@ final class FailFirstContextExtractor extends ContextExtractor {
 final class WorkflowExecutorHarness {
   late Directory tempDir;
   late String sessionsDir;
-  late Database db;
-  late SqliteBackend taskBackend;
-  late SqliteTaskRepository taskRepository;
+  late InMemoryTaskRepository taskRepository;
   late TaskService taskService;
   late SessionService sessionService;
   late MessageService messageService;
   late KvService kvService;
-  late SqliteWorkflowRunRepository repository;
-  late SqliteAgentExecutionRepository agentExecutionRepository;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
-  late SqliteExecutionRepositoryTransactor executionRepositoryTransactor;
+  late WorkflowRunRepository repository;
+  late InMemoryAgentExecutionRepository agentExecutionRepository;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutionRepository;
+  late InMemoryExecutionRepositoryTransactor executionRepositoryTransactor;
   late EventBus eventBus;
   late WorkflowExecutor executor;
 
@@ -130,21 +127,18 @@ final class WorkflowExecutorHarness {
     sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
-    db = sqlite3.openInMemory();
-    taskBackend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
     eventBus = EventBus();
-    taskRepository = SqliteTaskRepository(taskBackend);
-    agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
-    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
-    executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
+    taskRepository = InMemoryTaskRepository();
+    agentExecutionRepository = InMemoryAgentExecutionRepository();
+    workflowStepExecutionRepository = InMemoryWorkflowStepExecutionRepository();
+    executionRepositoryTransactor = const InMemoryExecutionRepositoryTransactor();
     taskService = TaskService(
       taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       executionTransactor: executionRepositoryTransactor,
       eventBus: eventBus,
     );
-    repository = SqliteWorkflowRunRepository(taskBackend);
+    repository = InMemoryWorkflowRunRepository();
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
@@ -157,7 +151,6 @@ final class WorkflowExecutorHarness {
     await messageService.dispose();
     await kvService.dispose();
     await eventBus.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   }
 

@@ -98,11 +98,15 @@ DartclawConfig _config(Directory root) => DartclawConfig(
 );
 
 Future<StorageWiring> _wire(DartclawConfig config, EventBus eventBus, EmbeddingProvider provider) async {
+  final backend = PostgresVectorTestBackend();
+  final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
   final wiring = StorageWiring(
     config: config,
     eventBus: eventBus,
-    searchBackendFactory: SqliteBackend.open,
-    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => backend,
+    taskBackendIsPrepared: true,
+    searchIndexFactory: (_, table, {required withinTransaction}) =>
+        indices.putIfAbsent(table, InMemoryFullTextIndex.new),
     embeddingProviderFactory: () => provider,
     exitFn: (code) => throw StateError('unexpected exit $code'),
   );

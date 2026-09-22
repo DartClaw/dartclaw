@@ -67,7 +67,8 @@ See also: [Common Patterns](recipes/_common-patterns.md) | [Troubleshooting](rec
 |-------|---------------|
 | [Customization](customization.md) | L1-L5 customization ladder: behavior files to source code |
 | [Deployment](deployment.md) | LaunchDaemon, systemd, egress firewall |
-| [PostgreSQL](postgresql.md) | Opt-in database configuration, provisioning, backups, switching, and decommissioning |
+| [PostgreSQL](postgresql.md) | Required native setup, least-privilege provisioning, backups, restore, and v0.26.1 cutover |
+| [Deprecated Configuration Keys](deprecated-config-keys.md) | Exact 0.27-only parser tolerances and replacements |
 
 ## SDK Guide
 

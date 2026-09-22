@@ -6,11 +6,12 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/mcp/citation_packet.dart';
 import 'package:dartclaw_runtime/src/mcp/context_research_tool.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 void main() {
-  late SqliteBackend backend;
+  late DatabaseBackend backend;
   late TemporalKnowledgeGraphService kg;
   late Directory workspace;
   late _RecordingSearchBackend memory;
@@ -18,7 +19,7 @@ void main() {
 
   setUp(() async {
     backend = await openPreparedTaskBackend();
-    kg = TemporalKnowledgeGraphService(backend);
+    kg = InMemoryTemporalKnowledgeGraphService();
     workspace = Directory.systemTemp.createTempSync('context_research_test_');
     Directory('${workspace.path}/wiki').createSync(recursive: true);
     memory = _RecordingSearchBackend();
@@ -107,12 +108,12 @@ void main() {
   test('S03 one Context Research request traverses wiki once and keeps native provenance', () async {
     memory.results = const [
       MemorySearchResult(
-        text: 'duplicate QMD page',
-        source: 'qmd://memory/wiki/kg.md',
+        text: 'duplicate wiki page',
+        source: 'wiki/kg.md',
         score: -2,
         role: 'wiki',
-        provenance: 'qmd',
-        locator: 'qmd:/wiki/kg.md',
+        provenance: 'wiki',
+        locator: 'wiki/kg.md',
       ),
       MemorySearchResult(text: 'healthy personal result', source: 'entry-1', score: 0, locator: 'entry-1'),
     ];
@@ -228,11 +229,11 @@ void main() {
     memory.results = const [
       MemorySearchResult(
         text: 'Inbox finding.',
-        source: 'qmd:/inbox/finding.md',
+        source: 'inbox/finding.md',
         score: 0,
         role: 'knowledge-inbox',
-        provenance: 'qmd',
-        locator: 'qmd:/inbox/finding.md',
+        provenance: 'knowledge-inbox',
+        locator: 'inbox/finding.md',
       ),
     ];
 

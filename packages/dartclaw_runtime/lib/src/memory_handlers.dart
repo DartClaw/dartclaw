@@ -501,12 +501,7 @@ bool _isMemoryLocator(String locator) {
   if (RegExp(r'^[1-9][0-9]*$').hasMatch(locator) || KnowledgeInboxReadService.supportsLocator(locator)) {
     return true;
   }
-  final uri = Uri.tryParse(locator);
-  if (uri == null || uri.scheme != 'qmd' || uri.hasAuthority || uri.hasQuery || uri.hasFragment) return false;
-  final segments = uri.path.split('/').where((segment) => segment.isNotEmpty).toList(growable: false);
-  return uri.path.startsWith('/') &&
-      segments.isNotEmpty &&
-      !segments.any((segment) => segment == '.' || segment == '..');
+  return false;
 }
 
 bool _isCanonicalMemoryLocator(String locator) =>
@@ -520,9 +515,7 @@ bool _isSourceOwnedNativeLocator(String locator) {
 }
 
 bool _isAuditDocumentLocator(String locator) {
-  if (locator == 'MEMORY.audit.md') return true;
-  final uri = Uri.tryParse(locator);
-  return uri?.scheme == 'qmd' && uri?.path.replaceFirst(RegExp(r'^/'), '') == 'MEMORY.audit.md';
+  return locator == 'MEMORY.audit.md';
 }
 
 MemoryRole _observationRole(String value) => switch (value) {

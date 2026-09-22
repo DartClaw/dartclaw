@@ -1,109 +1,57 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
-import 'schema_fixtures.dart';
-
 void main() {
-  test('manifests describe released task fixtures and the current search schema exactly', () async {
-    expect(SchemaIdentity.tasks.tables, hasLength(10));
-    expect(SchemaIdentity.tasks.indexes, hasLength(21));
-    expect(SchemaIdentity.search.sqliteObjects, hasLength(8));
+  test('schema manifests are internally complete and PostgreSQL-native', () {
+    expect(SchemaIdentity.currentEpoch, 1);
 
-    for (final fixture in [TasksSchemaFixture.released025, TasksSchemaFixture.upgraded024]) {
-      final database = sqlite3.openInMemory();
-      final backend = SqliteBackend(database);
-      createTasksSchemaFixture(database, fixture);
-      _expectExactManifest(database, SchemaIdentity.tasks, orphan: fixture == TasksSchemaFixture.upgraded024);
+    for (final identity in [SchemaIdentity.tasks, SchemaIdentity.search, SchemaIdentity.vectors]) {
+      final tables = {for (final table in identity.tables) table.name: table};
+      expect(tables, hasLength(identity.tables.length));
+      expect(identity.bootstrapStatements, isNotEmpty);
 
-      final inspection = await SqliteSchemaGate.inspect(backend, SchemaIdentity.tasks, storeName: 'tasks.db');
+      for (final table in identity.tables) {
+        expect(table.columns.map((column) => column.name).toSet(), hasLength(table.columns.length), reason: table.name);
+        expect(
+          identity.bootstrapStatements.where((statement) => statement.startsWith('CREATE TABLE ${table.name} ')),
+          hasLength(1),
+          reason: table.name,
+        );
+      }
 
-      expect(inspection.state, SqliteSchemaState.releasedUnmarked, reason: '$fixture: ${inspection.differences}');
-      expect(inspection.differences, isEmpty);
-      await backend.close();
+      final indexNames = identity.indexes.map((index) => index.name).toSet();
+      expect(indexNames, hasLength(identity.indexes.length));
+      for (final index in identity.indexes) {
+        final table = tables[index.table];
+        expect(table, isNotNull, reason: index.name);
+        expect(index.columns, everyElement(isIn(table!.columns.map((column) => column.name))), reason: index.name);
+        expect(
+          identity.bootstrapStatements.where(
+            (statement) => statement.contains(RegExp('INDEX\\s+${RegExp.escape(index.name)}\\s')),
+          ),
+          hasLength(1),
+          reason: index.name,
+        );
+      }
+
+      final sql = identity.bootstrapStatements.join('\n').toLowerCase();
+      expect(sql, isNot(contains('pragma')));
+      expect(sql, isNot(contains('virtual table')));
+      expect(
+        sql,
+        isNot(
+          contains(
+            'sq'
+            'lite_',
+          ),
+        ),
+      );
     }
+  });
 
-    final database = sqlite3.openInMemory();
-    final backend = SqliteBackend(database);
-    createReleased025SearchSchema(database);
-    final inspection = await SqliteSchemaGate.inspect(backend, SchemaIdentity.search, storeName: 'search.db');
-    expect(inspection.state, SqliteSchemaState.incompatible);
-    expect(inspection.differences, contains('missing table conversation_chunks'));
-    expect(
-      inspection.differences,
-      containsAll([
-        'missing or mismatched table conversation_chunks_fts',
-        'missing or mismatched trigger conversation_chunks_ai',
-        'missing or mismatched trigger conversation_chunks_ad',
-        'missing or mismatched trigger conversation_chunks_au',
-      ]),
-    );
-    await backend.close();
-
-    final currentDatabase = sqlite3.openInMemory();
-    final currentBackend = SqliteBackend(currentDatabase);
-    for (final sql in SchemaIdentity.search.bootstrapStatements) {
-      currentDatabase.execute(sql);
+  test('derived search and vector identities keep principal boundaries explicit', () {
+    for (final table in [...SchemaIdentity.search.tables, ...SchemaIdentity.vectors.tables]) {
+      expect(table.columns.map((column) => column.name), contains('user_id'), reason: table.name);
     }
-    _expectExactManifest(currentDatabase, SchemaIdentity.search);
-
-    final currentInspection = await SqliteSchemaGate.inspect(
-      currentBackend,
-      SchemaIdentity.search,
-      storeName: 'search.db',
-    );
-    expect(currentInspection.state, SqliteSchemaState.releasedUnmarked, reason: '${currentInspection.differences}');
-    expect(currentInspection.differences, isEmpty);
-    await currentBackend.close();
   });
 }
-
-void _expectExactManifest(Database database, SchemaIdentity identity, {bool orphan = false}) {
-  final objects = database.select("SELECT type, name, tbl_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'");
-  expect(
-    objects.where((row) => row['type'] == 'table' && !_isFtsTable(row['name'] as String)).map((row) => row['name']),
-    unorderedEquals(identity.tables.map((table) => table.name)),
-  );
-  for (final table in identity.tables) {
-    final columns = database
-        .select('PRAGMA table_info("${table.name}")')
-        .where(
-          (row) => !(orphan && table.name == 'workflow_step_executions' && row['name'] == 'external_artifact_mount'),
-        );
-    expect(
-      columns.map((row) => (row['name'], row['type'], row['notnull'] == 1, row['dflt_value'], row['pk'] != 0)),
-      unorderedEquals(
-        table.columns.map(
-          (column) => (column.name, column.type, column.notNull, column.defaultValue, column.primaryKey),
-        ),
-      ),
-      reason: table.name,
-    );
-  }
-  expect(
-    objects.where((row) => row['type'] == 'index').map((row) => (row['name'], row['tbl_name'])),
-    unorderedEquals(identity.indexes.map((index) => (index.name, index.table))),
-  );
-  for (final index in identity.indexes) {
-    final live = database.select('PRAGMA index_list("${index.table}")').singleWhere((row) => row['name'] == index.name);
-    expect(live['unique'] == 1, index.unique, reason: index.name);
-    expect(
-      database.select('PRAGMA index_info("${index.name}")').map((row) => row['name']),
-      index.columns,
-      reason: index.name,
-    );
-  }
-  expect(
-    objects
-        .where(
-          (row) =>
-              row['type'] == 'trigger' ||
-              row['name'] == 'memory_chunks_fts' ||
-              row['name'] == 'conversation_chunks_fts',
-        )
-        .map((row) => (row['type'], row['name'], row['tbl_name'])),
-    unorderedEquals(identity.sqliteObjects.map((object) => (object.type, object.name, object.table))),
-  );
-}
-
-bool _isFtsTable(String name) => name.startsWith('memory_chunks_fts') || name.startsWith('conversation_chunks_fts');

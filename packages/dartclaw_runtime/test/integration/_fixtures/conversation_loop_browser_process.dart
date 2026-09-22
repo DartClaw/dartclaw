@@ -17,7 +17,8 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
-import 'package:sqlite3/sqlite3.dart' hide Session;
+
+import '../../helpers/search_index_test_support.dart';
 
 const _searchProjectAlpha = 's07-project-alpha';
 const _searchProjectBeta = 's07-project-beta';
@@ -136,9 +137,7 @@ Future<void> main(List<String> arguments) async {
   );
   final recoveredSessions = await turns.detectAndCleanOrphanedTurns();
   final broadcast = SseBroadcast();
-  final searchBackend = SqliteBackend(sqlite3.openInMemory());
-  await SqliteSchemaGate.prepareSearch(searchBackend, storeName: 'search.db');
-  final conversationIndex = SqliteFtsIndex(searchBackend, table: SqliteFtsTable.conversationChunks);
+  final conversationIndex = await prepareMemoryIndex();
   await ConversationIndexProjection(
     sessions: sessions,
     messages: messages,
@@ -229,7 +228,6 @@ Future<void> main(List<String> arguments) async {
   await turnState.dispose();
   await kv.dispose();
   await eventBus.dispose();
-  await searchBackend.close();
 }
 
 Future<

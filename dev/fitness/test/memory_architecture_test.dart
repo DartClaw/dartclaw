@@ -320,8 +320,8 @@ List<String> scanMemoryArchitecture(Iterable<SourceFile> files) {
     }
     if (source.contains('encodeNaturalLanguageQuery') &&
         !file.path.endsWith('storage/memory_service.dart') &&
-        !file.path.endsWith('search/fts5_search_backend.dart')) {
-      violations.add('${file.path}: Pass natural language to SearchBackend; Fts5SearchBackend owns MATCH encoding.');
+        !file.path.endsWith('search/lexical_search_backend.dart')) {
+      violations.add('${file.path}: Pass natural language to SearchBackend; LexicalSearchBackend owns MATCH encoding.');
     }
     // Not redundant with the analyzer: `dart analyze` fails on a *reference* to
     // a symbol that no longer exists. It has nothing to say about the symbol

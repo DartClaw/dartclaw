@@ -43,9 +43,10 @@ If/when announce routing is implemented:
 
 ### Memory search returns nothing
 
-1. **Has the search index been built?** Run `dartclaw rebuild-index` to rebuild the FTS5 index
+1. **Has the search index been built?** Stop DartClaw and run `dartclaw rebuild-index` to rebuild PostgreSQL lexical projections
 2. **Are entries being saved?** Use `memory_search` and `memory_read`, or inspect the Memory dashboard at `/memory`, to confirm the expected canonical entries exist
-3. **Search backend**: FTS5 uses keyword matching. If you're searching for concepts rather than exact words, consider enabling QMD hybrid search (`search.backend: qmd`)
+3. **Search backend**: lexical mode uses language-aware token/stem matching. For semantic retrieval, explicitly enable
+   `search.backend: hybrid`, pgvector, and an embedding provider
 
 ## Git Sync
 

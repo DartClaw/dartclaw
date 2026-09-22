@@ -148,7 +148,9 @@ class InMemoryTaskRepository implements TaskRepository {
       configJson: task.configJson,
       worktreeJson: task.worktreeJson,
       agentExecutionId: task.agentExecutionId,
+      agentExecution: task.agentExecution,
       projectId: task.projectId ?? current.projectId,
+      retryCount: task.retryCount,
     );
     return true;
   }

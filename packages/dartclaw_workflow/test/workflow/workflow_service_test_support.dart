@@ -5,13 +5,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         EventBus,
         KvService,
         MessageService,
-        SqliteWorkflowRunRepository,
+        WorkflowRunRepository,
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowDefinition,
@@ -31,17 +31,17 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         executionEnvelopeStepOutcomeKey,
         executionEnvelopeVersion;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
+
+import 'package:dartclaw_workflow/testing.dart';
 
 final class WorkflowServiceTestHarness {
   late Directory tempDir;
   late TaskService taskService;
   late MessageService messageService;
   late KvService kvService;
-  late SqliteWorkflowRunRepository repository;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
-  late SqliteBackend taskBackend;
+  late WorkflowRunRepository repository;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutionRepository;
   late EventBus eventBus;
   late WorkflowService workflowService;
 
@@ -50,21 +50,18 @@ final class WorkflowServiceTestHarness {
     final sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
-    final db = sqlite3.openInMemory();
-    taskBackend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
     eventBus = EventBus();
-    final taskRepository = SqliteTaskRepository(taskBackend);
-    final agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
-    workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
-    final executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
+    final taskRepository = InMemoryTaskRepository();
+    final agentExecutionRepository = InMemoryAgentExecutionRepository();
+    workflowStepExecutionRepository = InMemoryWorkflowStepExecutionRepository();
+    const executionTransactor = InMemoryExecutionRepositoryTransactor();
     taskService = TaskService(
       taskRepository,
       agentExecutionRepository: agentExecutionRepository,
       executionTransactor: executionTransactor,
       eventBus: eventBus,
     );
-    repository = SqliteWorkflowRunRepository(taskBackend);
+    repository = InMemoryWorkflowRunRepository();
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
@@ -93,7 +90,6 @@ final class WorkflowServiceTestHarness {
     await messageService.dispose();
     await kvService.dispose();
     await eventBus.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   }
 

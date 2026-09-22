@@ -8,7 +8,7 @@ void main() {
     test('defaults to supported local embeddings and derives the retained vector path', () {
       final config = loadNoFile();
 
-      expect(config.search.backend, 'fts5');
+      expect(config.search.backend, 'lexical');
       expect(config.search.embedding, const EmbeddingConfig());
       expect(config.search.embedding.provider, EmbeddingProviderKind.local);
       expect(config.search.embedding.model, 'embeddinggemma-300M-Q8_0.gguf');
@@ -197,35 +197,44 @@ void main() {
     });
   });
 
-  group('search.qmd config', () {
-    test('keeps QMD functional with exactly one non-blocking deprecation advisory', () {
-      final config = loadYaml('search:\n  backend: qmd\n');
+  group('search backend config', () {
+    test('legacy fts5 selector normalizes to lexical with replacement guidance', () {
+      final config = loadYaml('search:\n  backend: fts5\n');
 
-      expect(config.search.backend, 'qmd');
-      expect(config.warnings.where((warning) => warning.toLowerCase().contains('deprecated')), hasLength(1));
+      expect(config.search.backend, 'lexical');
       expect(config.reloadBlockingWarnings, isEmpty);
+      expect(config.warnings.join('\n'), contains('replace it with search.backend: lexical'));
     });
 
-    for (final host in ['localhost', '127.0.0.1', '127.42.0.9', '::1', '[::1]']) {
-      test('accepts loopback host $host', () {
-        final config = loadYaml('search:\n  qmd:\n    host: "$host"\n');
-        expect(config.search.qmdHost, host == '[::1]' ? '::1' : host);
-        expect(config.warnings, isEmpty);
+    test('hybrid remains an explicit opt-in', () {
+      final config = loadYaml('search:\n  backend: hybrid\n');
+
+      expect(config.search.backend, 'hybrid');
+      expect(config.warnings, isEmpty);
+    });
+
+    for (final backend in ['qmd', 'unknown']) {
+      test('$backend selector is refused', () {
+        final config = loadYaml('search:\n  backend: $backend\n');
+
+        expect(config.search.backend, 'lexical');
+        expect(config.reloadBlockingWarnings.join('\n'), contains('Invalid search.backend: "$backend"'));
+        expect(config.reloadBlockingWarnings.join('\n'), contains('expected lexical or hybrid'));
       });
     }
 
-    for (final host in ['0.0.0.0', '192.168.1.2', 'localhost.example', '127.0.0.256']) {
-      test('rejects non-loopback host $host', () {
-        final config = loadYaml('search:\n  qmd:\n    host: "$host"\n');
-        expect(config.search.qmdHost, '127.0.0.1');
-        expect(config.warnings, anyElement(contains('search.qmd.host')));
-      });
-    }
+    test('legacy qmd settings are ignored with removal guidance', () {
+      final config = loadYaml('search:\n  qmd:\n    host: localhost\n    port: 8181\n');
+
+      expect(config.search.backend, 'lexical');
+      expect(config.reloadBlockingWarnings, isEmpty);
+      expect(config.warnings.join('\n'), contains('Remove search.qmd'));
+    });
   });
 
   group('search.providers config', () {
     test('no providers section returns empty map', () {
-      final config = loadYaml('search:\n  backend: fts5\n');
+      final config = loadYaml('search:\n  backend: lexical\n');
       expect(config.search.providers, isEmpty);
       expect(config.warnings, isEmpty);
     });

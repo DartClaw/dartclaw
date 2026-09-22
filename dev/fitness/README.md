@@ -300,18 +300,6 @@ import is the current exception; all other imports remain subject to the gate.
 
 ---
 
-## `sqlite3_import_surface_test.dart`
-
-**What it enforces**: Production libraries import `package:sqlite3` only in `sqlite_backend.dart`. The path-keyed
-allowlist requires a rationale and fails on stale entries.
-
-### How to resolve a failure
-
-Use `DatabaseBackend` for relational persistence. Keep driver operations inside `SqliteBackend`. Remove an allowlist
-entry when its import or file disappears, rather than retaining an exception that no longer guards anything.
-
----
-
 ## `fitness_suite_deps_test.dart`
 
 **What it enforces**: The suite's own pubspec carries an exact set of top-level keys - which admits

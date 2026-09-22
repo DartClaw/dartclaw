@@ -1,31 +1,12 @@
 import 'package:collection/collection.dart';
 
-/// Supported authoritative database engines.
-enum DatabaseBackendKind {
-  /// Local SQLite files.
-  sqlite,
-
-  /// One PostgreSQL database.
-  postgres,
-}
-
 /// Boot-time configuration for authoritative storage.
 final class DatabaseConfig {
   /// Creates database configuration.
-  const new({
-    this.backend = DatabaseBackendKind.sqlite,
-    this.url,
-    this.credential,
-    this.urlEnvVars = const [],
-    this.poolSize = 5,
-    this.ftsLanguage = 'english',
-  });
+  const new({this.url, this.credential, this.urlEnvVars = const [], this.poolSize = 5, this.ftsLanguage = 'english'});
 
-  /// Default SQLite configuration.
+  /// Default PostgreSQL configuration.
   const new defaults() : this();
-
-  /// Selected database engine.
-  final DatabaseBackendKind backend;
 
   /// PostgreSQL connection URL, when configured directly.
   final String? url;
@@ -46,7 +27,6 @@ final class DatabaseConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is DatabaseConfig &&
-          backend == other.backend &&
           url == other.url &&
           credential == other.credential &&
           const ListEquality<String>().equals(urlEnvVars, other.urlEnvVars) &&
@@ -55,5 +35,5 @@ final class DatabaseConfig {
 
   @override
   int get hashCode =>
-      Object.hash(backend, url, credential, const ListEquality<String>().hash(urlEnvVars), poolSize, ftsLanguage);
+      Object.hash(url, credential, const ListEquality<String>().hash(urlEnvVars), poolSize, ftsLanguage);
 }

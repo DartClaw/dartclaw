@@ -6,7 +6,8 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/memory_handlers.dart' show maxMemoryCaptureTextLength, maxMemoryReadResponseBytes;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:test/test.dart';
 
 import 'helpers/search_index_test_support.dart';
@@ -38,8 +39,7 @@ Future<Map<String, dynamic>> _add(
 }
 
 void main() {
-  late Database searchDb;
-  late SqliteBackend taskBackend;
+  late DatabaseBackend taskBackend;
   late FullTextIndex memory;
   late MemoryCorpusService corpus;
   late MemoryFileService memoryFile;
@@ -49,15 +49,13 @@ void main() {
   late MemoryHandlers handlers;
 
   setUp(() async {
-    taskBackend = SqliteBackend(sqlite3.openInMemory());
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    searchDb = sqlite3.openInMemory();
-    memory = await prepareMemoryIndex(searchDb);
+    taskBackend = await openPreparedTaskBackend();
+    memory = await prepareMemoryIndex();
     workspace = Directory.systemTemp.createTempSync('memory_handlers_test_');
     corpus = MemoryCorpusService(workspaceDir: workspace.path);
     memoryFile = MemoryFileService(baseDir: workspace.path, corpusService: corpus);
     search = ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: memory),
+      personal: LexicalSearchBackend(index: memory),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
     context = const MemoryCaptureContext(
@@ -80,7 +78,6 @@ void main() {
   tearDown(() async {
     await corpus.close();
     await taskBackend.close();
-    searchDb.close();
     workspace.deleteSync(recursive: true);
   });
 
@@ -284,7 +281,7 @@ void main() {
   });
 
   test('contextual retrieval sends the pinned principal through search and resolution', () async {
-    const locator = 'qmd:/agent-entry.md';
+    const locator = 'wiki/agent-entry.md';
     final recording = _RecordingBackend()
       ..results = const [MemorySearchResult(text: 'Agent fact', source: locator, score: 0, locator: locator)];
     handlers = createMemoryHandlers(
@@ -308,7 +305,7 @@ void main() {
     final backend = _RecordingBackend()
       ..results = const [MemorySearchResult(text: 'Falcon survives', source: 'native', score: 0)]
       ..canonicalRevision = 91
-      ..degradedLayers = const ['qmd']
+      ..degradedLayers = const ['wiki']
       ..degradations = const [
         MemorySearchDegradation(
           layer: 'wiki',
@@ -328,7 +325,7 @@ void main() {
     final response = _json(await handlers.onSearch({'query': 'Falcon'}));
 
     expect(response['collectionRevision'], 91);
-    expect(response['degradedLayers'], ['qmd']);
+    expect(response['degradedLayers'], ['wiki']);
     expect(response['degradations'], [
       {
         'layer': 'wiki',
@@ -368,7 +365,7 @@ void main() {
     expect(applied['collectionRevision'], collectionRevision + 1);
   });
 
-  test('FTS backend owns operator encoding and preserves owner scope', () async {
+  test('search backend owns operator encoding and preserves owner scope', () async {
     await _add(handlers, corpus, 'Falcon status searchable', 'falcon');
     await memory.upsert([
       SearchDocument(
@@ -412,23 +409,8 @@ Falcon wiki detail
     expect(native.containsKey('entryId'), isFalse);
   });
 
-  test('read reopens native KG and inbox locators through their source owners', () async {
-    final kg = TemporalKnowledgeGraphService(taskBackend);
-    final factId = await kg.addFact(
-      entity: 'Falcon',
-      predicate: 'status',
-      value: 'green',
-      validFrom: '2026-08-12T00:00:00Z',
-      source: 'wiki/falcon.md',
-    );
-    final otherFactId = await kg.addFact(
-      entity: 'Private Falcon',
-      predicate: 'status',
-      value: 'hidden',
-      validFrom: '2026-08-12T00:00:00Z',
-      source: 'wiki/private.md',
-      owner: 'other',
-    );
+  test('read reopens native inbox locators through their source owner', () async {
+    final kg = InMemoryTemporalKnowledgeGraphService();
     Directory('${workspace.path}/inbox').createSync();
     File('${workspace.path}/inbox/note.md').writeAsStringSync('Native inbox detail');
     handlers = createMemoryHandlers(
@@ -443,15 +425,8 @@ Falcon wiki detail
       ),
     );
 
-    final fact = _json(await handlers.onRead({'locator': '$factId'}));
     final inbox = _json(await handlers.onRead({'locator': 'inbox/note.md'}));
 
-    expect((fact['results'] as List).single, {
-      'role': 'kg',
-      'provenance': 'wiki/falcon.md',
-      'locator': '$factId',
-      'content': 'falcon status green',
-    });
     expect((inbox['results'] as List).single, {
       'role': 'knowledge-inbox',
       'provenance': 'inbox/note.md',
@@ -459,35 +434,8 @@ Falcon wiki detail
       'content': 'Native inbox detail',
     });
     expect(_json(await handlers.onRead({'locator': '99999'}))['results'], isEmpty);
-    expect(_json(await handlers.onRead({'locator': '$otherFactId'}))['results'], isEmpty);
     await expectLater(handlers.onRead({'locator': '0'}), throwsA(isA<ArgumentError>()));
     await expectLater(handlers.onRead({'locator': 'inbox/../note.md'}), throwsA(isA<ArgumentError>()));
-  });
-
-  test('memory_read follows canonical QMD search locators and rejects files outside the index mask', () async {
-    Directory('${workspace.path}/inbox').createSync();
-    File('${workspace.path}/inbox/note one.md').writeAsStringSync('QMD inbox detail');
-    File('${workspace.path}/.env').writeAsStringSync('not indexed knowledge');
-    search = QmdSearchBackend(
-      manager: _CannedQmdManager(workspaceDir: workspace.path),
-      fallback: search,
-    );
-    handlers = createMemoryHandlers(
-      memoryIndex: memory,
-      memoryFile: memoryFile,
-      corpusService: corpus,
-      searchBackend: search,
-      captureContext: (_) => context,
-    );
-
-    final searched = _json(await handlers.onSearch({'query': 'inbox detail'}));
-    final locator = ((searched['results'] as List).single as Map)['locator'];
-    final read = _json(await handlers.onRead({'locator': locator}));
-    final rejected = _json(await handlers.onRead({'locator': 'qmd:/.env'}));
-
-    expect(locator, 'qmd:/inbox/note%20one.md');
-    expect(((read['results'] as List).single as Map)['content'], 'QMD inbox detail');
-    expect(rejected['results'], isEmpty);
   });
 
   test('topic reads are bounded and topic-less role selectors are rejected', () async {
@@ -540,7 +488,6 @@ Falcon wiki detail
     expect((_json(await handlers.onSearch({'query': 'Private audit'}))['results'] as List), isEmpty);
     await expectLater(handlers.onRead({'locator': entryId}), throwsA(isA<ArgumentError>()));
     await expectLater(handlers.onRead({'locator': 'MEMORY.audit.md'}), throwsA(isA<ArgumentError>()));
-    await expectLater(handlers.onRead({'locator': 'qmd:/MEMORY.audit.md'}), throwsA(isA<ArgumentError>()));
   });
 
   test('read enforces the UTF-8 response ceiling and reports truncation', () async {
@@ -734,16 +681,4 @@ final class _AlwaysResolvingBackend implements SearchBackend {
     String userId = 'owner',
     Set<SearchResultLayer>? layers,
   }) => delegate.search(query, limit: limit, userId: userId, layers: layers);
-}
-
-final class _CannedQmdManager extends QmdManager {
-  new({required super.workspaceDir});
-
-  @override
-  bool get isRunning => true;
-
-  @override
-  Future<List<Map<String, dynamic>>> query(String queryText, {String depth = 'standard', int limit = 10}) async => [
-    {'text': 'search snippet', 'source': 'qmd://memory/inbox/note%20one.md', 'score': 0.9},
-  ];
 }

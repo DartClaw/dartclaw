@@ -30,14 +30,16 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
     search/
       sessions/      # Search agent session store (isolated)
   kv.json            # Key-value store (cost tracking, etc.)
-  search.db          # SQLite memory and conversation FTS5 indexes (rebuildable)
 ```
 
-This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), the authoritative database (`dartclaw.db`), turn recovery (`turn_state.json`), webhook dedup markers (`webhook_deliveries/`), audit logs, task worktrees, and project clones -- see [Architecture](architecture.md) for the full layout.
+This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), turn
+recovery (`turn_state.json`), webhook dedup markers (`webhook_deliveries/`), audit logs, task worktrees, and project
+clones. Authoritative relational records and derived search rows live in PostgreSQL. See
+[Architecture](architecture.md) for the full layout.
 
 Conversation indexing reads eligible user and assistant messages from `sessions/<id>/messages.ndjson`.
-Memory and conversation rows share `search.db` on SQLite, or the configured PostgreSQL database, in separate tables.
-With DartClaw stopped, `dartclaw rebuild-index` reconstructs both projections without rewriting the message files.
+Memory and conversation rows use separate PostgreSQL tables. With DartClaw stopped, `dartclaw rebuild-index`
+reconstructs both projections without rewriting the message files.
 See [Conversation Search](search.md#conversation-search) for inclusion and lifecycle rules.
 
 ## Owner and Named-Agent Workspaces
@@ -225,7 +227,7 @@ curated stores are updated only by their listed agent or job path:
 | Canonical topic pruning into `MEMORY.archive.md` | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving old topic entries and removing exact replays in one corpus transaction, then regenerating the bounded index |
 | `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` – see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
 | Temporal knowledge graph | Knowledge-inbox job (extracted facts), or the agent via `kg_add` | Inbox processing, or a turn that calls `kg_add` – see [KG tools](web-ui-and-api.md#temporal-knowledge-graph-mcp-tools) |
-| `memory/YYYY-MM-DD.md` | DartClaw, through `memory_observe`, qualifying human-facing turn capture, and announced scheduled results (one record per fire) | Canonical observation partitions – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded from automatic turn capture, but a scheduled job delivering `announce` writes one record per fire because a human received that text. Each record retains bounded, redacted input/tool/result details. Records are capped at 512 KiB and each partition at 8 MiB; an overflowing append is rejected without deleting prior observations. Observations participate in the canonical fingerprint and default FTS5 projection; opt-in QMD also indexes workspace Markdown. |
+| `memory/YYYY-MM-DD.md` | DartClaw, through `memory_observe`, qualifying human-facing turn capture, and announced scheduled results (one record per fire) | Canonical observation partitions – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded from automatic turn capture, but a scheduled job delivering `announce` writes one record per fire because a human received that text. Each record retains bounded, redacted input/tool/result details. Records are capped at 512 KiB and each partition at 8 MiB; an overflowing append is rejected without deleting prior observations. Observations participate in the canonical fingerprint and PostgreSQL lexical projection; explicit hybrid mode adds the optional vector projection. |
 
 Host-side memory APIs and maintenance reject canonical workspace text files larger than 64 MiB. Daily logs use the
 tighter 8 MiB per-file limit before reading existing content.

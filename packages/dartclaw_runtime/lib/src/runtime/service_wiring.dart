@@ -34,6 +34,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
         WorkflowRun,
+        WorkflowRunRepository,
         workflowBlockedOutcomeSummary,
         WorkflowServiceOptions,
         WorkflowStartResolution,
@@ -108,7 +109,6 @@ class DartclawRuntime {
 
   /// Agent-authored learnings and error records, available only to the connected server runtime.
   final SelfImprovementService? selfImprovement;
-  final QmdManager? qmdManager;
   final ChannelManager? channelManager;
   final bool authEnabled;
 
@@ -170,7 +170,6 @@ class DartclawRuntime {
     required this.kvService,
     required this.resetService,
     required this.selfImprovement,
-    required this.qmdManager,
     required this.channelManager,
     required this.authEnabled,
     required this.containerIsolationActive,
@@ -207,10 +206,15 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    DatabaseBackendFactory? searchBackendFactory,
     DatabaseBackendFactory? taskBackendFactory,
+    bool taskBackendIsPrepared = false,
+    SearchIndexFactory? searchIndexFactory,
+    TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory,
+    AgentExecutionRepository Function(DatabaseBackend)? agentExecutionRepositoryFactory,
+    WorkflowStepExecutionRepository Function(DatabaseBackend)? workflowStepExecutionRepositoryFactory,
+    ExecutionRepositoryTransactor Function(DatabaseBackend)? executionRepositoryTransactorFactory,
     PostgresInterlock Function()? postgresInterlockFactory,
-    Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required int port,
@@ -238,10 +242,15 @@ class DartclawRuntime {
     dataDir: dataDir,
     port: port,
     harnessFactory: harnessFactory,
-    searchBackendFactory: searchBackendFactory,
     taskBackendFactory: taskBackendFactory,
+    taskBackendIsPrepared: taskBackendIsPrepared,
+    searchIndexFactory: searchIndexFactory,
+    taskRepositoryFactory: taskRepositoryFactory,
+    workflowRunRepositoryFactory: workflowRunRepositoryFactory,
+    agentExecutionRepositoryFactory: agentExecutionRepositoryFactory,
+    workflowStepExecutionRepositoryFactory: workflowStepExecutionRepositoryFactory,
+    executionRepositoryTransactorFactory: executionRepositoryTransactorFactory,
     postgresInterlockFactory: postgresInterlockFactory,
-    inactivePostgresProbe: inactivePostgresProbe,
     stderrLine: stderrLine,
     exitFn: exitFn,
     resolvedConfigPath: resolvedConfigPath,
@@ -280,8 +289,14 @@ class DartclawRuntime {
     DartclawConfig config, {
     required String dataDir,
     required HarnessFactory harnessFactory,
-    DatabaseBackendFactory? searchBackendFactory,
     DatabaseBackendFactory? taskBackendFactory,
+    bool taskBackendIsPrepared = false,
+    SearchIndexFactory? searchIndexFactory,
+    TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory,
+    AgentExecutionRepository Function(DatabaseBackend)? agentExecutionRepositoryFactory,
+    WorkflowStepExecutionRepository Function(DatabaseBackend)? workflowStepExecutionRepositoryFactory,
+    ExecutionRepositoryTransactor Function(DatabaseBackend)? executionRepositoryTransactorFactory,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     String? runtimeCwd,
@@ -309,8 +324,14 @@ class DartclawRuntime {
       dataDir: dataDir,
       port: 0,
       harnessFactory: harnessFactory,
-      searchBackendFactory: searchBackendFactory,
       taskBackendFactory: taskBackendFactory,
+      taskBackendIsPrepared: taskBackendIsPrepared,
+      searchIndexFactory: searchIndexFactory,
+      taskRepositoryFactory: taskRepositoryFactory,
+      workflowRunRepositoryFactory: workflowRunRepositoryFactory,
+      agentExecutionRepositoryFactory: agentExecutionRepositoryFactory,
+      workflowStepExecutionRepositoryFactory: workflowStepExecutionRepositoryFactory,
+      executionRepositoryTransactorFactory: executionRepositoryTransactorFactory,
       stderrLine: stderrLine,
       exitFn: exitFn,
       resolvedConfigPath: '',
@@ -340,10 +361,15 @@ class DartclawRuntime {
     required String dataDir,
     required int port,
     required HarnessFactory harnessFactory,
-    required DatabaseBackendFactory? searchBackendFactory,
     required DatabaseBackendFactory? taskBackendFactory,
+    required bool taskBackendIsPrepared,
+    required SearchIndexFactory? searchIndexFactory,
+    required TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    required WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory,
+    required AgentExecutionRepository Function(DatabaseBackend)? agentExecutionRepositoryFactory,
+    required WorkflowStepExecutionRepository Function(DatabaseBackend)? workflowStepExecutionRepositoryFactory,
+    required ExecutionRepositoryTransactor Function(DatabaseBackend)? executionRepositoryTransactorFactory,
     PostgresInterlock Function()? postgresInterlockFactory,
-    Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe,
     required WriteLine stderrLine,
     required ExitFn exitFn,
     required String resolvedConfigPath,
@@ -371,10 +397,15 @@ class DartclawRuntime {
     dataDir: dataDir,
     port: port,
     harnessFactory: harnessFactory,
-    searchBackendFactory: searchBackendFactory,
     taskBackendFactory: taskBackendFactory,
+    taskBackendIsPrepared: taskBackendIsPrepared,
+    searchIndexFactory: searchIndexFactory,
+    taskRepositoryFactory: taskRepositoryFactory,
+    workflowRunRepositoryFactory: workflowRunRepositoryFactory,
+    agentExecutionRepositoryFactory: agentExecutionRepositoryFactory,
+    workflowStepExecutionRepositoryFactory: workflowStepExecutionRepositoryFactory,
+    executionRepositoryTransactorFactory: executionRepositoryTransactorFactory,
     postgresInterlockFactory: postgresInterlockFactory,
-    inactivePostgresProbe: inactivePostgresProbe,
     stderrLine: stderrLine,
     exitFn: exitFn,
     resolvedConfigPath: resolvedConfigPath,
@@ -444,7 +475,6 @@ class DartclawRuntime {
     }
     await attempt('taskService.dispose', taskService.dispose);
     await attempt('eventBus.dispose', eventBus.dispose);
-    await attempt('qmdManager.stop', () async => await qmdManager?.stop());
   }
 
   /// Writes sample log rotation configs for newsyslog (macOS) and logrotate
@@ -494,10 +524,15 @@ class _RuntimeAssembly {
   final ServerFactory? serverFactory;
   final bool headless;
   final List<HarnessRegistrar> harnessRegistrars;
-  final DatabaseBackendFactory? searchBackendFactory;
   final DatabaseBackendFactory? taskBackendFactory;
+  final bool taskBackendIsPrepared;
+  final SearchIndexFactory? searchIndexFactory;
+  final TaskRepository Function(DatabaseBackend)? taskRepositoryFactory;
+  final WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory;
+  final AgentExecutionRepository Function(DatabaseBackend)? agentExecutionRepositoryFactory;
+  final WorkflowStepExecutionRepository Function(DatabaseBackend)? workflowStepExecutionRepositoryFactory;
+  final ExecutionRepositoryTransactor Function(DatabaseBackend)? executionRepositoryTransactorFactory;
   final PostgresInterlock Function()? postgresInterlockFactory;
-  final Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe;
   final WriteLine stderrLine;
   final ExitFn exitFn;
   final String resolvedConfigPath;
@@ -579,10 +614,15 @@ class _RuntimeAssembly {
     required this.dataDir,
     required this.port,
     required this.harnessFactory,
-    required this.searchBackendFactory,
     required this.taskBackendFactory,
+    required this.taskBackendIsPrepared,
+    required this.searchIndexFactory,
+    required this.taskRepositoryFactory,
+    required this.workflowRunRepositoryFactory,
+    required this.agentExecutionRepositoryFactory,
+    required this.workflowStepExecutionRepositoryFactory,
+    required this.executionRepositoryTransactorFactory,
     this.postgresInterlockFactory,
-    this.inactivePostgresProbe,
     required this.stderrLine,
     required this.exitFn,
     required this.resolvedConfigPath,
@@ -864,15 +904,20 @@ class _RuntimeAssembly {
     final storage = StorageWiring(
       config: config,
       eventBus: ctx.eventBus,
-      searchBackendFactory: searchBackendFactory,
       taskBackendFactory: taskBackendFactory,
+      taskBackendIsPrepared: taskBackendIsPrepared,
+      searchIndexFactory: searchIndexFactory,
+      taskRepositoryFactory: taskRepositoryFactory,
+      workflowRunRepositoryFactory: workflowRunRepositoryFactory,
+      agentExecutionRepositoryFactory: agentExecutionRepositoryFactory,
+      workflowStepExecutionRepositoryFactory: workflowStepExecutionRepositoryFactory,
+      executionRepositoryTransactorFactory: executionRepositoryTransactorFactory,
       credentialRegistry: _credentialRegistry(ctx),
       auditLogger: ctx.auditLogger,
       exitFn: exitFn,
       personalMemoryEnabled: !headless,
       serving: !headless,
       postgresInterlockFactory: postgresInterlockFactory,
-      inactivePostgresProbe: inactivePostgresProbe,
     );
     await storage.wire();
     _ownedStorage = storage;

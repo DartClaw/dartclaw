@@ -18,7 +18,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         MergeResolveEscalation,
         MessageService,
         OutputConfig,
-        SqliteWorkflowRunRepository,
         StepExecutionContext,
         TaskStatus,
         TaskStatusChangedEvent,
@@ -30,19 +29,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitStrategy,
         WorkflowGitWorktreeStrategy,
         WorkflowRun,
+        WorkflowRunRepository,
         WorkflowSerializationEnactedEvent,
         WorkflowStep,
         WorkflowTurnAdapter;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        SqliteAgentExecutionRepository,
-        SqliteBackend,
-        SqliteExecutionRepositoryTransactor,
-        SqliteSchemaGate,
-        SqliteTaskRepository,
-        SqliteWorkflowStepExecutionRepository;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart' show WorkflowExecutorHarness, standardTurnAdapter;
@@ -129,17 +122,13 @@ void main() {
 
       await eventBus.dispose();
       await taskService.dispose();
-      await h.taskBackend.close();
 
-      final resumedDb = sqlite3.openInMemory();
-      final resumedBackend = SqliteBackend(resumedDb);
-      await SqliteSchemaGate.prepareTasks(resumedBackend, storeName: 'tasks.db');
       eventBus = EventBus();
-      taskRepository = SqliteTaskRepository(resumedBackend);
-      agentExecutionRepository = SqliteAgentExecutionRepository(resumedBackend, eventBus: eventBus);
-      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(resumedBackend);
-      executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(resumedBackend);
-      repository = SqliteWorkflowRunRepository(resumedBackend);
+      taskRepository = InMemoryTaskRepository();
+      agentExecutionRepository = InMemoryAgentExecutionRepository();
+      workflowStepExecutionRepository = InMemoryWorkflowStepExecutionRepository();
+      executionRepositoryTransactor = const InMemoryExecutionRepositoryTransactor();
+      repository = InMemoryWorkflowRunRepository();
       taskService = TaskService(
         taskRepository,
         agentExecutionRepository: agentExecutionRepository,
@@ -155,8 +144,6 @@ void main() {
       h.workflowStepExecutionRepository = workflowStepExecutionRepository;
       h.executionRepositoryTransactor = executionRepositoryTransactor;
       h.repository = repository;
-      h.db = resumedDb;
-      h.taskBackend = resumedBackend;
 
       final resumedRun = crashSnapshot.copyWith(
         status: WorkflowRunStatus.running,
@@ -252,12 +239,12 @@ WorkflowRun _makeRun(WorkflowDefinition definition) {
 
 WorkflowExecutor _makeExecutor({
   required TaskService taskService,
-  required SqliteTaskRepository taskRepository,
+  required TaskRepository taskRepository,
   required EventBus eventBus,
-  required SqliteWorkflowRunRepository repository,
-  required SqliteAgentExecutionRepository agentExecutionRepository,
-  required SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository,
-  required SqliteExecutionRepositoryTransactor executionRepositoryTransactor,
+  required WorkflowRunRepository repository,
+  required AgentExecutionRepository agentExecutionRepository,
+  required WorkflowStepExecutionRepository workflowStepExecutionRepository,
+  required ExecutionRepositoryTransactor executionRepositoryTransactor,
   required MessageService messageService,
   required KvService kvService,
   required Directory dir,
@@ -334,7 +321,7 @@ Future<void> _completeIfActive(String taskId, TaskService taskService) async {
   }
 }
 
-Future<WorkflowRun> _waitForCrashSnapshot(SqliteWorkflowRunRepository repository, String runId, String stateKey) async {
+Future<WorkflowRun> _waitForCrashSnapshot(WorkflowRunRepository repository, String runId, String stateKey) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   WorkflowRun? lastRun;
   while (DateTime.now().isBefore(deadline)) {

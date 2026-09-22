@@ -8,6 +8,7 @@ import 'dart:isolate';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -72,7 +73,6 @@ Future<void> _disposeRuntime(DartclawRuntime runtime, LogService logService) asy
   await runtime.requireSelfImprovement.dispose();
   await runtime.taskService.dispose();
   await runtime.eventBus.dispose();
-  await runtime.qmdManager?.stop();
   await runtime.closeStorage();
   await logService.dispose();
 }
@@ -134,22 +134,33 @@ void main() {
     DartclawServer Function(DartclawServer)? serverFactory,
     HarnessFactory? harnessFactory,
     DatabaseBackendFactory? taskBackendFactory,
-  }) => DartclawRuntime.build(
-    config,
-    dataDir: tempDir.path,
-    port: 3000,
-    harnessFactory: harnessFactory ?? _harnessFactoryFor(worker, onCreate: onHarnessCreate),
-    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-    taskBackendFactory: taskBackendFactory ?? (_) async => SqliteBackend.openInMemory(),
-    stderrLine: (_) {},
-    exitFn: _unexpectedExit,
-    resolvedConfigPath: configFile.path,
-    messageRedactor: messageRedactor,
-    resolvedAssets: _resolvedAssetsForConfig(config),
-    runWorkflowSkillsBootstrap: false,
-    serverFactory: serverFactory,
-    runtimeCwd: tempDir.path,
-  );
+    TaskRepository? taskRepository,
+  }) {
+    final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
+    return DartclawRuntime.build(
+      config,
+      dataDir: tempDir.path,
+      port: 3000,
+      harnessFactory: harnessFactory ?? _harnessFactoryFor(worker, onCreate: onHarnessCreate),
+      taskBackendFactory: taskBackendFactory ?? (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
+      searchIndexFactory: (_, table, {required withinTransaction}) =>
+          indices.putIfAbsent(table, InMemoryFullTextIndex.new),
+      taskRepositoryFactory: (_) => taskRepository ?? InMemoryTaskRepository(),
+      workflowRunRepositoryFactory: (_) => InMemoryWorkflowRunRepository(),
+      agentExecutionRepositoryFactory: (_) => InMemoryAgentExecutionRepository(),
+      workflowStepExecutionRepositoryFactory: (_) => InMemoryWorkflowStepExecutionRepository(),
+      executionRepositoryTransactorFactory: (_) => const InMemoryExecutionRepositoryTransactor(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedConfigPath: configFile.path,
+      messageRedactor: messageRedactor,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      runWorkflowSkillsBootstrap: false,
+      serverFactory: serverFactory,
+      runtimeCwd: tempDir.path,
+    );
+  }
 
   setUpAll(() async {
     _staticDirPath = await _resolvePackageDir('src/static/app.js');
@@ -176,10 +187,7 @@ void main() {
   });
 
   test('queued workers wait for startup and discover the complete MCP registry', () async {
-    final taskDbPath = p.join(tempDir.path, 'queued-workers.db');
-    final seedBackend = await SqliteBackend.open(taskDbPath);
-    await SqliteSchemaGate.prepareTasks(seedBackend, storeName: 'tasks.db');
-    final repository = SqliteTaskRepository(seedBackend);
+    final repository = InMemoryTaskRepository();
     await repository.insert(
       Task(
         id: 'recovered-task',
@@ -189,7 +197,6 @@ void main() {
         createdAt: DateTime.utc(2026, 1, 1),
       ),
     );
-    await seedBackend.close();
     final primaryStarting = Completer<void>();
     final releasePrimary = Completer<void>();
     final workerStarting = Completer<void>();
@@ -226,7 +233,7 @@ void main() {
     final building = buildRuntime(
       config,
       harnessFactory: factory,
-      taskBackendFactory: (_) => SqliteBackend.open(taskDbPath),
+      taskRepository: repository,
       serverFactory: (composed) => server = composed,
     );
     await Future.any([primaryStarting.future, building.then<void>((_) {})]).timeout(const Duration(seconds: 10));
@@ -437,15 +444,7 @@ steps:
     "body": "Release notes summarize DartClaw changes.",
     "confidence": "medium"
   },
-  "facts": [
-    {
-      "entity": "DartClaw",
-      "predicate": "release-notes",
-      "value": "available",
-      "valid_from": "2026-05-01T00:00:00Z",
-      "valid_to": null
-    }
-  ]
+  "facts": []
 }</workflow-context>
 '''),
     );

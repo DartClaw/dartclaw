@@ -170,7 +170,7 @@ export 'src/search_config.dart'
         SearchProviderEntry,
         isValidEmbeddingCredentialEndpoint,
         isValidEmbeddingEndpoint;
-export 'src/database_config.dart' show DatabaseBackendKind, DatabaseConfig;
+export 'src/database_config.dart' show DatabaseConfig;
 export 'src/storage_exceptions.dart'
     show
         SchemaIncompatibleException,

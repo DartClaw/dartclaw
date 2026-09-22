@@ -6,7 +6,7 @@
 
 _Agentic powers. No supply-chain roulette. Secure by design._
 
-**DartClaw turns coding agents into a persistent, security-conscious personal AI – equal parts assistant, context engine, and software factory.** A single AOT-compiled Dart binary hosts Claude Code, Codex, or a supported ACP target and equips it with long-term memory and a citation-backed Context Engine, chat access via WhatsApp, Signal, and Google Chat, scheduled jobs and background tasks, logical-agent conversations, and end-to-end coding workflows – all driven from a full web UI, REST API, and CLI. Real security boundaries – container isolation, a fail-closed guard chain, credential isolation, runtime governance – stand between agents and your system. And the supply chain won't keep you up at night: no Node.js, no npm, a dependency list short enough to audit, every asset compiled into the binary, and a bundled SQLite as the only native companion. What you install is exactly what runs.
+**DartClaw turns coding agents into a persistent, security-conscious personal AI – equal parts assistant, context engine, and software factory.** A single AOT-compiled Dart binary hosts Claude Code, Codex, or a supported ACP target and equips it with long-term memory and a citation-backed Context Engine, chat access via WhatsApp, Signal, and Google Chat, scheduled jobs and background tasks, logical-agent conversations, and end-to-end coding workflows – all driven from a full web UI, REST API, and CLI. Real security boundaries – container isolation, a fail-closed guard chain, credential isolation, runtime governance – stand between agents and your system. The host has no Node.js or npm runtime; PostgreSQL 14+ is the sole relational database and ordinary lexical search needs no optional vector extension or embedding model.
 
 > [!NOTE]
 > DartClaw is **experimental** (soft-published, pre-alpha) – breaking changes are expected while the core matures.
@@ -23,7 +23,7 @@ _Agentic powers. No supply-chain roulette. Secure by design._
 - **Multiple agents, one runtime** – Claude Code (JSONL) and Codex (JSON-RPC) are first-class harnesses. An ACP registration is admitted only when it matches a verified target profile; admitted ACP agents run on the host and never receive terminal reverse-calls. One canonical tool policy applies across all providers.
 - **Secure by design, not by prompt** – defense-in-depth with container isolation (`network:none`), a fail-closed guard chain, a credential proxy that keeps API keys out of the container, audit logging, and content classification. Boundaries live in the OS and the host, not in the system prompt.
 - **Your AI, on your phone** – WhatsApp, Signal, and Google Chat channels with DM/group access control, mention gating, and thread-bound task sessions. **Crowd coding**: a group chat collaboratively steers a shared agent session.
-- **It remembers** – the Context Engine maintains an LLM-curated wiki, a temporal knowledge graph, and long-term memory, synthesized into compact citation-backed packets served to agents over MCP (`context_research`) – browsable in the web UI's read-only Knowledge Hub with a point-in-time timeline. Hybrid FTS5/QMD search across all of it.
+- **It remembers** – the Context Engine maintains an LLM-curated wiki, a temporal knowledge graph, and long-term memory, synthesized into compact citation-backed packets served to agents over MCP (`context_research`) – browsable in the web UI's read-only Knowledge Hub with a point-in-time timeline. PostgreSQL lexical search is built in; semantic hybrid search is explicit and optional.
 - **A software factory** – built-in `spec-and-implement`, `plan-and-implement`, and `code-review` YAML workflows take work from spec to reviewed code, plus custom workflows triggered from chat, web forms, or GitHub PR webhooks. Run server-backed or fully server-less, with approval gates, live CLI progress, and per-step token accounting.
 - **Task orchestration** – background tasks with review queues, goals, declared git worktrees, and per-task provider overrides; bounded per-provider worker capacity runs mixed providers in parallel.
 - **Scheduled autonomy** – heartbeat and cron jobs with configurable delivery: morning briefings, nightly reflection, a knowledge inbox – see the [recipes](docs/guide/recipes/README.md).
@@ -87,7 +87,7 @@ bash dev/tools/build.sh
 ./build/bin/dartclaw serve
 ```
 
-The build produces `build/bin/dartclaw` next to a `build/lib/` holding the bundled SQLite library; keep the two directories together when relocating. The standalone `dartclaw` binary is the recommended runtime entrypoint; use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
+The build produces `build/bin/dartclaw` and `build/bin/dartclaw-workflow`; release archives carry selected native embedding libraries when applicable. The standalone `dartclaw` binary is the recommended runtime entrypoint; use `dart run dartclaw_cli:dartclaw ...` only for source-based development and `--dev` hot-reload workflows.
 
 ### Prerequisites
 
@@ -95,13 +95,13 @@ The build produces `build/bin/dartclaw` next to a `build/lib/` holding the bundl
 - **API key** – `ANTHROPIC_API_KEY` (Claude) and/or `CODEX_API_KEY` (Codex CLI – primary; `OPENAI_API_KEY` is accepted as a legacy fallback)
 - **Docker** – optional, for container isolation
 - **Dart SDK** >= 3.13.0 – source builds only; the prebuilt binaries need no Dart toolchain
-- **SQLite** – bundled with the prebuilt binaries and source builds
+- **PostgreSQL 14+** – a native or remotely managed service; see [PostgreSQL setup](docs/guide/postgresql.md)
 
 ## How it works
 
 Two layers with a hard trust boundary between them:
 
-- **Dart host** – state (file-based + SQLite), HTTP API, web UI, security policy, scheduling, channels, task orchestration, runtime governance
+- **Dart host** – state (file-based + PostgreSQL), HTTP API, web UI, security policy, scheduling, channels, task orchestration, runtime governance
 - **Agent runtime** – reasoning, tool execution, bash commands (in per-owner Docker containers built from security profiles, or as a host process)
 
 ```
@@ -162,7 +162,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 - **[Agents](docs/guide/agents.md)** – logical-agent sessions, provider selection, model selection, shared worker capacity
 - **[Channels](docs/guide/whatsapp.md)** – [WhatsApp](docs/guide/whatsapp.md) / [Signal](docs/guide/signal.md) / [Google Chat](docs/guide/google-chat.md) setup and access control
 - **[Scheduling](docs/guide/scheduling.md)** – heartbeat, cron jobs
-- **[Search & Memory](docs/guide/search.md)** – search agent, FTS5/QMD hybrid search
+- **[Search & Memory](docs/guide/search.md)** – PostgreSQL lexical search and explicit hybrid search
 - **[Projects & Git](docs/guide/projects-and-git.md)** – project directory, worktrees, branch management
 - **[Deployment](docs/guide/deployment.md)** – LaunchDaemon, systemd, egress firewall
 - **[Customization](docs/guide/customization.md)** – L1-L5 customization ladder
@@ -195,7 +195,7 @@ packages/
   dartclaw/                     Client-tier umbrella – re-exports client + kernel contracts
   dartclaw_client/              Dependency-free HTTP/SSE client
   dartclaw_kernel/              Shared models, config, guards, and dependency-free utilities
-  dartclaw_core/                Runtime, persistence, SQLite/FTS5 search, channels, agents, scheduling, governance
+  dartclaw_core/                Runtime, PostgreSQL persistence/search, channels, agents, scheduling, governance
   dartclaw_acp/                 ACP harness adapter and registrar composed by the CLI
   dartclaw_bridge/              Zero-dependency container bridge wire contract
   dartclaw_runtime/              HTTP API (Shelf), web UI (HTMX/Trellis), SSE, tasks, turns
@@ -222,8 +222,8 @@ dart test apps/dartclaw_cli
 dart format --line-length=120 .
 ```
 
-On hosts that can load the bundled `sqlite3` native asset, the server and CLI test suites run without manual SQLite
-setup. The integration-tagged e2e suite is opt-in:
+The default suites use domain fakes where database behavior is not under test. PostgreSQL contracts run against a
+disposable PostgreSQL 14+ service. The integration-tagged e2e suite is opt-in:
 `dart test --run-skipped -t integration packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`.
 Contributor docs – architecture deep-dives, guidelines, testing profiles, and dev tooling – live under [`dev/`](dev/).
 

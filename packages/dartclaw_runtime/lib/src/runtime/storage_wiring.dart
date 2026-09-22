@@ -6,11 +6,17 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_search/dartclaw_search.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SqliteWorkflowRunRepository, WorkflowStepExecutionRepository;
+    show DatabaseWorkflowRunRepository, WorkflowRunRepository, WorkflowStepExecutionRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 enum MemoryCallerKind { ordinary, scheduled }
+
+typedef SearchIndexFactory = FullTextIndex Function(
+  DatabaseBackend backend,
+  PostgresFtsTable table, {
+  required bool withinTransaction,
+});
 
 /// Canonical and derived memory services bound to one storage principal.
 final class WorkspaceMemoryContext {
@@ -42,43 +48,56 @@ class StorageWiring {
   new({
     required this.config,
     required EventBus eventBus,
-    DatabaseBackendFactory? searchBackendFactory,
     DatabaseBackendFactory? taskBackendFactory,
-    DatabaseBackendFactory? vectorBackendFactory,
+    bool taskBackendIsPrepared = false,
+    SearchIndexFactory? searchIndexFactory,
+    TemporalKnowledgeGraphService Function(DatabaseBackend)? knowledgeGraphFactory,
+    TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory,
+    AgentExecutionRepository Function(DatabaseBackend)? agentExecutionRepositoryFactory,
+    WorkflowStepExecutionRepository Function(DatabaseBackend)? workflowStepExecutionRepositoryFactory,
+    ExecutionRepositoryTransactor Function(DatabaseBackend)? executionRepositoryTransactorFactory,
     EmbeddingProvider Function()? embeddingProviderFactory,
     required ExitFn exitFn,
     this.personalMemoryEnabled = true,
     this.serving = false,
     this.postgresInterlockFactory,
-    this.inactivePostgresProbe,
-    QmdManager Function()? qmdManagerFactory,
     CanonicalIndexReconciler? indexReconciler,
     CredentialRegistry? credentialRegistry,
     GuardAuditLogger? auditLogger,
   }) : _eventBus = eventBus,
-       _searchBackendFactory = searchBackendFactory,
        _taskBackendFactory = taskBackendFactory,
-       _vectorBackendFactory = vectorBackendFactory,
+       _taskBackendIsPrepared = taskBackendIsPrepared,
+       _searchIndexFactory = searchIndexFactory,
+       _knowledgeGraphFactory = knowledgeGraphFactory,
+       _taskRepositoryFactory = taskRepositoryFactory,
+       _workflowRunRepositoryFactory = workflowRunRepositoryFactory,
+       _agentExecutionRepositoryFactory = agentExecutionRepositoryFactory,
+       _workflowStepExecutionRepositoryFactory = workflowStepExecutionRepositoryFactory,
+       _executionRepositoryTransactorFactory = executionRepositoryTransactorFactory,
        _embeddingProviderFactory = embeddingProviderFactory,
        _exitFn = exitFn,
-       _qmdManagerFactory = qmdManagerFactory,
        _injectedIndexReconciler = indexReconciler,
        _credentialRegistry = credentialRegistry ?? CredentialRegistry(credentials: config.credentials),
        _auditLogger = auditLogger;
 
   final DartclawConfig config;
   final EventBus _eventBus;
-  final DatabaseBackendFactory? _searchBackendFactory;
   final DatabaseBackendFactory? _taskBackendFactory;
-  final DatabaseBackendFactory? _vectorBackendFactory;
+  final bool _taskBackendIsPrepared;
+  final SearchIndexFactory? _searchIndexFactory;
+  final TemporalKnowledgeGraphService Function(DatabaseBackend)? _knowledgeGraphFactory;
+  final TaskRepository Function(DatabaseBackend)? _taskRepositoryFactory;
+  final WorkflowRunRepository Function(DatabaseBackend)? _workflowRunRepositoryFactory;
+  final AgentExecutionRepository Function(DatabaseBackend)? _agentExecutionRepositoryFactory;
+  final WorkflowStepExecutionRepository Function(DatabaseBackend)? _workflowStepExecutionRepositoryFactory;
+  final ExecutionRepositoryTransactor Function(DatabaseBackend)? _executionRepositoryTransactorFactory;
   final EmbeddingProvider Function()? _embeddingProviderFactory;
   final ExitFn _exitFn;
   final bool personalMemoryEnabled;
   final bool serving;
   final PostgresInterlock Function()? postgresInterlockFactory;
-  final Future<InactivePostgresStoreProbe> Function()? inactivePostgresProbe;
   PostgresInterlock? _interlock;
-  final QmdManager Function()? _qmdManagerFactory;
   final CanonicalIndexReconciler? _injectedIndexReconciler;
   final CredentialRegistry _credentialRegistry;
   final GuardAuditLogger? _auditLogger;
@@ -87,9 +106,7 @@ class StorageWiring {
 
   late SessionService _sessions;
   late MessageService _messages;
-  DatabaseBackend? _searchBackend;
   DatabaseBackend? _taskBackend;
-  DatabaseBackend? _vectorBackend;
   EmbeddingProvider? _embeddingProvider;
   late TaskRepository _taskRepository;
   late AgentExecutionRepository _agentExecutionRepository;
@@ -116,12 +133,10 @@ class StorageWiring {
   var _memoryIndexRebuilt = false;
   TemporalKnowledgeGraphService? _kg;
   late KvService _kvService;
-  late SqliteWorkflowRunRepository _workflowRunRepository;
-  QmdManager? _qmdManager;
+  late WorkflowRunRepository _workflowRunRepository;
   SearchBackend? _searchService;
   final Map<String, WorkspaceMemoryContext> _memoryContexts = {};
   final Map<String, SearchBackend> _workspaceSearchBackends = {};
-  var _searchUnavailable = false;
 
   SessionService get sessions => _sessions;
   MessageService get messages => _messages;
@@ -146,8 +161,7 @@ class StorageWiring {
       _conversationSearch ?? _missingPersonalMemory('conversationSearch');
   TemporalKnowledgeGraphService get kg => _kg ?? _missingPersonalMemory('kg');
   KvService get kvService => _kvService;
-  SqliteWorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
-  QmdManager? get qmdManager => _qmdManager;
+  WorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
   SearchBackend get searchBackend => _searchService ?? _missingPersonalMemory('searchBackend');
   Iterable<WorkspaceMemoryContext> get memoryContexts => _memoryContexts.values;
 
@@ -228,18 +242,15 @@ class StorageWiring {
     }
 
     try {
-      if (config.database.backend == DatabaseBackendKind.sqlite) {
-        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
-      }
       final factory =
           _taskBackendFactory ??
-          databaseBackendFactoryFor(
+          postgresBackendFactory(
             config.database,
             resolveDsn: (database) => resolveDatabaseDsn(database, credentials: _credentialRegistry),
             auditLogger: _auditLogger,
           );
       final backend = _taskBackend = await factory(config.dartclawDbPath);
-      if (serving && _usesPostgres && backend is PostgresBackend) {
+      if (serving && backend is PostgresBackend) {
         final interlock = _interlock = postgresInterlockFactory?.call() ?? PostgresInterlock();
         await interlock.acquire(
           backend: backend,
@@ -249,29 +260,38 @@ class StorageWiring {
           },
         );
       }
-      if (personalMemoryEnabled && _hybridEnabled && _usesPostgres) {
-        await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: _postgresDatabaseIdentity);
+      if (personalMemoryEnabled && _hybridEnabled) {
+        if (!_taskBackendIsPrepared) {
+          await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: _postgresDatabaseIdentity);
+        }
         _ensureEmbeddingProvider();
       }
-      await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
-      if (personalMemoryEnabled && _hybridEnabled && _usesPostgres) {
+      if (!_taskBackendIsPrepared) {
+        await PostgresSchemaGate.prepare(backend, databaseIdentity: _postgresDatabaseIdentity);
+      }
+      if (!_taskBackendIsPrepared && personalMemoryEnabled && _hybridEnabled) {
         await PostgresSchemaGate.prepareVectorProjection(backend, databaseIdentity: _postgresDatabaseIdentity);
       }
-      if (personalMemoryEnabled && _usesPostgres) {
+      if (!_taskBackendIsPrepared && personalMemoryEnabled) {
         await validatePostgresFtsLanguage(backend, config.database.ftsLanguage);
+      }
+      if (personalMemoryEnabled) {
         await _wirePostgresIndex(backend);
       }
-      _agentExecutionRepository = SqliteAgentExecutionRepository(backend, eventBus: _eventBus);
-      _workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(backend);
-      _executionRepositoryTransactor = SqliteExecutionRepositoryTransactor(backend);
-      _taskRepository = SqliteTaskRepository(backend);
+      _agentExecutionRepository =
+          _agentExecutionRepositoryFactory?.call(backend) ??
+          DatabaseAgentExecutionRepository(backend, eventBus: _eventBus);
+      _workflowStepExecutionRepository =
+          _workflowStepExecutionRepositoryFactory?.call(backend) ?? DatabaseWorkflowStepExecutionRepository(backend);
+      _executionRepositoryTransactor =
+          _executionRepositoryTransactorFactory?.call(backend) ?? DatabaseExecutionRepositoryTransactor(backend);
+      _taskRepository = _taskRepositoryFactory?.call(backend) ?? DatabaseTaskRepository(backend);
       if (personalMemoryEnabled) {
-        _kg = TemporalKnowledgeGraphService(
-          backend,
-          factSearch: _usesPostgres ? PostgresFactSearch(config.database.ftsLanguage) : const SubstringFactSearch(),
-        );
+        _kg =
+            _knowledgeGraphFactory?.call(backend) ??
+            TemporalKnowledgeGraphService(backend, factSearch: PostgresFactSearch(config.database.ftsLanguage));
       }
-      final goalRepository = SqliteGoalRepository(backend);
+      final goalRepository = DatabaseGoalRepository(backend);
       _goalService = GoalService(goalRepository);
       _traceService = TurnTraceService(backend);
       _taskEventService = TaskEventService(backend);
@@ -283,7 +303,7 @@ class StorageWiring {
         eventBus: _eventBus,
         eventRecorder: _taskEventRecorder,
       );
-      _workflowRunRepository = SqliteWorkflowRunRepository(backend);
+      _workflowRunRepository = _workflowRunRepositoryFactory?.call(backend) ?? DatabaseWorkflowRunRepository(backend);
     } catch (e, st) {
       try {
         await closeBackends();
@@ -298,8 +318,6 @@ class StorageWiring {
       _log.severe('Cannot open task database at ${config.dartclawDbPath}', e, st);
       _exitFn(1);
     }
-
-    if (serving) await _noticeInactiveStore();
 
     if (personalMemoryEnabled) {
       await _wirePersonalMemoryAfterTaskStorage();
@@ -323,11 +341,10 @@ class StorageWiring {
 
   Future<void> _wirePersonalMemoryBeforeTaskStorage() async {
     final memoryCorpus = _memoryCorpus = MemoryCorpusService(workspaceDir: config.workspaceDir);
-    MemoryCorpusManifest? currentManifest;
     try {
       final result = await MemoryPreflight(workspaceDir: config.workspaceDir, corpusService: memoryCorpus).preflight();
       _log.info(result.render());
-      currentManifest = await memoryCorpus.manifest();
+      final currentManifest = await memoryCorpus.manifest();
       _memoryContexts['owner'] = WorkspaceMemoryContext(
         workspace: null,
         principal: 'owner',
@@ -386,135 +403,7 @@ class StorageWiring {
       configuredPrincipals: _memoryContexts.keys.toSet(),
     );
 
-    final indexHealth = _indexHealth = ownerMemoryContext.health;
-    if (config.database.backend != DatabaseBackendKind.sqlite) return;
-    final indexReconciler =
-        _injectedIndexReconciler ?? CanonicalIndexReconciler(targetPath: config.searchDbPath, healthStore: indexHealth);
-    final manifest = currentManifest;
-    DatabaseBackend? gateBackend;
-    try {
-      gateBackend = await (_searchBackendFactory ?? SqliteBackend.open)(config.searchDbPath);
-      await SqliteSchemaGate.prepareSearch(
-        gateBackend,
-        storeName: 'search.db',
-        rebuild: SqliteSearchRebuild(
-          manifestRevision: manifest.collectionRevision,
-          manifestFingerprint: manifest.fingerprint,
-          healthStore: indexHealth,
-          populate: (tx) async {
-            final index = SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.memoryChunks);
-            for (final context in _memoryContexts.values) {
-              var firstBatch = true;
-              await for (final batch in _canonicalRowBatches(context)) {
-                if (firstBatch) {
-                  await index.replaceAll(batch, userId: context.principal);
-                  firstBatch = false;
-                } else {
-                  await index.upsert(batch, userId: context.principal);
-                }
-              }
-              if (firstBatch) await index.replaceAll(const <SearchDocument>[], userId: context.principal);
-            }
-          },
-          authenticateComplete: () async {
-            for (final context in _memoryContexts.values) {
-              await context.corpus.authenticate(context.manifest);
-            }
-            return true;
-          },
-          corpora: [
-            SqliteSearchCorpusRebuild(
-              populate: (tx) async {
-                final index = SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.conversationChunks);
-                await _conversationProjection!.populate(index);
-              },
-              authenticateComplete: _conversationProjection!.authenticateComplete,
-            ),
-          ],
-        ),
-      );
-    } on SchemaIncompatibleException catch (e, st) {
-      _searchUnavailable = true;
-      _log.severe(e.toString(), e, st);
-    } on Object catch (e, st) {
-      _searchUnavailable = true;
-      _log.severe('Cannot open search database at ${config.searchDbPath}; booting with search unavailable', e, st);
-    } finally {
-      await gateBackend?.close();
-    }
-
-    if (!_searchUnavailable) {
-      try {
-        final recovery = await indexReconciler.ensureCurrentBatched(
-          rowBatches: () => _canonicalRowBatches(ownerMemoryContext),
-          canonicalRevision: manifest.collectionRevision,
-          canonicalFingerprint: manifest.fingerprint,
-          authenticateComplete: () => memoryCorpus.authenticate(manifest),
-        );
-        _memoryIndexRebuilt = recovery.rebuilt;
-        _log.info(
-          'Memory index ${recovery.health.state.name} at collection revision ${recovery.revision} '
-          '(${recovery.rowCount} rows)',
-        );
-      } on Object catch (e, st) {
-        _searchUnavailable = true;
-        _log.severe('Memory index recovery failed; canonical memory remains available', e, st);
-      }
-    }
-
-    try {
-      _searchBackend = _searchUnavailable
-          ? SqliteBackend.openInMemory()
-          : await (_searchBackendFactory ?? SqliteBackend.open)(config.searchDbPath);
-      await SqliteSchemaGate.prepareSearch(
-        _searchBackend!,
-        storeName: _searchUnavailable ? 'in-memory search.db' : 'search.db',
-      );
-    } on Object catch (e, st) {
-      await _searchBackend?.close();
-      _searchUnavailable = true;
-      try {
-        await indexHealth.recordDegraded(
-          canonicalRevision: manifest.collectionRevision,
-          canonicalFingerprint: manifest.fingerprint,
-          stage: 'open',
-          reason: e,
-        );
-      } catch (_) {}
-      _log.severe('Cannot open search database at ${config.searchDbPath}; booting with search unavailable', e, st);
-      _searchBackend = SqliteBackend.openInMemory();
-      await SqliteSchemaGate.prepareSearch(_searchBackend!, storeName: 'in-memory search.db');
-    }
-
-    if (_hybridEnabled) _ensureEmbeddingProvider();
-
-    if (!_searchUnavailable) {
-      final backend = _searchBackend!;
-      for (final context in _memoryContexts.values.where((context) => context.principal != 'owner')) {
-        final reconciler = CanonicalIndexReconciler(
-          healthStore: context.health,
-          target: TransactionalRebuildTarget(
-            backend,
-            indexFactory: (tx) => SqliteFtsIndex.withinTransaction(tx, table: SqliteFtsTable.memoryChunks),
-          ),
-        );
-        try {
-          await reconciler.ensureCurrentBatched(
-            rowBatches: () => _canonicalRowBatches(context),
-            canonicalRevision: context.manifest.collectionRevision,
-            canonicalFingerprint: context.manifest.fingerprint,
-            authenticateComplete: () => context.corpus.authenticate(context.manifest),
-            userId: context.principal,
-          );
-        } on Object catch (error, stackTrace) {
-          _log.severe(
-            '${context.principal} memory index recovery failed; canonical memory remains available',
-            error,
-            stackTrace,
-          );
-        }
-      }
-    }
+    _indexHealth = ownerMemoryContext.health;
   }
 
   void _ensureEmbeddingProvider() {
@@ -532,11 +421,7 @@ class StorageWiring {
     for (final context in _memoryContexts.values) {
       final target = TransactionalRebuildTarget(
         backend,
-        indexFactory: (tx) => PostgresFtsIndex.withinTransaction(
-          tx,
-          table: PostgresFtsTable.memoryChunks,
-          language: config.database.ftsLanguage,
-        ),
+        indexFactory: (tx) => _openSearchIndex(tx, PostgresFtsTable.memoryChunks, withinTransaction: true),
       );
       final injected = _injectedIndexReconciler;
       final reconciler = context.principal == 'owner' && injected != null
@@ -563,25 +448,21 @@ class StorageWiring {
         );
       }
     }
-    _memoryIndex = PostgresFtsIndex(
-      backend,
-      table: PostgresFtsTable.memoryChunks,
-      language: config.database.ftsLanguage,
-    );
+    _memoryIndex = _openSearchIndex(backend, PostgresFtsTable.memoryChunks, withinTransaction: false);
   }
 
   Future<void> _wirePersonalMemoryAfterTaskStorage() async {
     _memoryFile = ownerMemoryContext.file;
-    final memoryIndex = _memoryIndex ??= _usesPostgres
-        ? PostgresFtsIndex(_taskBackend!, table: PostgresFtsTable.memoryChunks, language: config.database.ftsLanguage)
-        : SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.memoryChunks);
-    final conversationIndex = _conversationIndex = _usesPostgres
-        ? PostgresFtsIndex(
-            _taskBackend!,
-            table: PostgresFtsTable.conversationChunks,
-            language: config.database.ftsLanguage,
-          )
-        : SqliteFtsIndex(_searchBackend!, table: SqliteFtsTable.conversationChunks);
+    final memoryIndex = _memoryIndex ??= _openSearchIndex(
+      _taskBackend!,
+      PostgresFtsTable.memoryChunks,
+      withinTransaction: false,
+    );
+    final conversationIndex = _conversationIndex = _openSearchIndex(
+      _taskBackend!,
+      PostgresFtsTable.conversationChunks,
+      withinTransaction: false,
+    );
 
     var conversationIndexCurrent = false;
     if (_memoryIndexRebuilt || _hybridEnabled) {
@@ -631,28 +512,8 @@ class StorageWiring {
       userIds: conversationPrincipals,
     );
 
-    if (config.search.backend == 'qmd') {
-      final mgr =
-          _qmdManagerFactory?.call() ??
-          QmdManager(host: config.search.qmdHost, port: config.search.qmdPort, workspaceDir: config.workspaceDir);
-      if (await mgr.isAvailable()) {
-        try {
-          await mgr.activate();
-          _qmdManager = mgr;
-          _log.info('QMD hybrid search active on ${mgr.baseUrl}');
-        } catch (e) {
-          _log.warning('QMD daemon failed to start, falling back to FTS5: $e');
-        }
-      } else {
-        _log.warning('search.backend is "qmd" but qmd binary not found — falling back to FTS5');
-      }
-    }
-
     final searchBackend = _searchService = createSearchBackend(
-      backend: config.search.backend,
       index: memoryIndex,
-      qmdManager: _qmdManager,
-      defaultDepth: config.search.defaultDepth,
       workspaceDir: config.workspaceDir,
       indexHealthProbe: _probeIndexHealth,
       personalBackend: _memoryHybridSearch == null
@@ -662,7 +523,6 @@ class StorageWiring {
     _workspaceSearchBackends['owner'] = searchBackend;
     for (final context in _memoryContexts.values.where((context) => context.principal != 'owner')) {
       _workspaceSearchBackends[context.principal] = createSearchBackend(
-        backend: 'fts5',
         index: memoryIndex,
         indexHealthProbe: () => _probeWorkspaceIndexHealth(context),
         personalBackend: _memoryHybridSearch == null
@@ -675,12 +535,21 @@ class StorageWiring {
     }
   }
 
+  FullTextIndex _openSearchIndex(DatabaseBackend backend, PostgresFtsTable table, {required bool withinTransaction}) {
+    final injected = _searchIndexFactory;
+    if (injected != null) {
+      return injected(backend, table, withinTransaction: withinTransaction);
+    }
+    return withinTransaction
+        ? PostgresFtsIndex.withinTransaction(backend, table: table, language: config.database.ftsLanguage)
+        : PostgresFtsIndex(backend, table: table, language: config.database.ftsLanguage);
+  }
+
   void _registerMemoryProjection(WorkspaceMemoryContext context, FullTextIndex memoryIndex) {
     final searchBackend = searchBackendFor(context.principal);
     context.corpus.registerPostCommitProjection((projection, result) async {
       List<SearchDocument>? publishedDocuments;
       try {
-        if (_searchUnavailable) throw StateError('persistent search index is unavailable');
         if (!projection.isComplete) {
           final priorHealth = await context.health.read(
             canonicalRevision: projection.baseRevision,
@@ -747,25 +616,15 @@ class StorageWiring {
     required bool conversationIndexCurrent,
   }) async {
     final provider = _embeddingProvider;
-    if (!_hybridEnabled || provider == null || _searchUnavailable) {
+    if (!_hybridEnabled || provider == null) {
       if (_hybridEnabled) await _discardHybridRuntime();
       return;
     }
 
     try {
-      final DatabaseBackend backend;
-      if (_usesPostgres) {
-        backend = _taskBackend!;
-      } else {
-        backend = _vectorBackend = await (_vectorBackendFactory ?? SqliteBackend.open)(config.vectorsDbPath);
-        await SqliteSchemaGate.prepareVectors(backend, storeName: 'vectors.db');
-      }
-      final memoryVectorIndex = _usesPostgres
-          ? PostgresVectorIndex(backend, table: VectorTable.memoryChunks)
-          : SqliteVectorIndex(backend, table: VectorTable.memoryChunks);
-      final conversationVectorIndex = _usesPostgres
-          ? PostgresVectorIndex(backend, table: VectorTable.conversationChunks)
-          : SqliteVectorIndex(backend, table: VectorTable.conversationChunks);
+      final backend = _taskBackend!;
+      final memoryVectorIndex = PostgresVectorIndex(backend, table: VectorTable.memoryChunks);
+      final conversationVectorIndex = PostgresVectorIndex(backend, table: VectorTable.conversationChunks);
       _memoryHybridSearch = HybridSearch(
         lexicalIndex: memoryIndex,
         vectorIndex: memoryVectorIndex,
@@ -909,8 +768,6 @@ class StorageWiring {
 
     await close(() async => _embeddingProvider?.dispose());
     _embeddingProvider = null;
-    await close(() async => _vectorBackend?.close());
-    _vectorBackend = null;
     try {
       _interlock?.beginShutdown();
     } on Object catch (error, stackTrace) {
@@ -919,7 +776,6 @@ class StorageWiring {
     }
     await close(() async => _taskBackend?.close());
     await close(() async => _interlock?.release());
-    await close(() async => _searchBackend?.close());
     if (failure case final error?) Error.throwWithStackTrace(error, failureStack!);
   }
 
@@ -930,49 +786,10 @@ class StorageWiring {
     _conversationVectorSynchronizer = null;
     final provider = _embeddingProvider;
     _embeddingProvider = null;
-    final vectorBackend = _vectorBackend;
-    _vectorBackend = null;
     try {
       await provider?.dispose();
     } on Object catch (error, stackTrace) {
       _log.warning('Embedding provider cleanup failed', error, stackTrace);
-    }
-    try {
-      await vectorBackend?.close();
-    } on Object catch (error, stackTrace) {
-      _log.warning('Vector database cleanup failed', error, stackTrace);
-    }
-  }
-
-  Future<void> _noticeInactiveStore() async {
-    try {
-      final String? notice;
-      if (_usesPostgres) {
-        final probe = await probeAuthoritativeStore(config.dartclawDbPath);
-        notice = switch (probe) {
-          AuthoritativeStoreAbsent() => null,
-          AuthoritativeStoreAmbiguous(:final currentPath, :final legacyPath) => PostgresStorageMessages.abandoned(
-            '$currentPath and $legacyPath (ambiguous)',
-          ),
-          AuthoritativeStorePresent(content: AuthoritativeStoreContentState.empty) => null,
-          AuthoritativeStorePresent(content: AuthoritativeStoreContentState.couldNotVerify) =>
-            PostgresStorageMessages.couldNotVerify('unreadable local store'),
-          AuthoritativeStorePresent(:final path) => PostgresStorageMessages.abandoned(path),
-        };
-      } else {
-        if (config.database.url == null && config.database.credential == null) return;
-        final probe =
-            await (inactivePostgresProbe?.call() ??
-                probeInactivePostgresStore(
-                  config.database,
-                  resolveDsn: (database) => resolveDatabaseDsn(database, credentials: _credentialRegistry),
-                  auditLogger: _auditLogger,
-                ));
-        notice = probe.notice;
-      }
-      if (notice != null) _log.warning(notice);
-    } on Object {
-      _log.warning(PostgresStorageMessages.couldNotVerify('inactive store'));
     }
   }
 
@@ -1061,8 +878,6 @@ class StorageWiring {
       );
     }
   }
-
-  bool get _usesPostgres => config.database.backend == DatabaseBackendKind.postgres;
 
   String get _postgresDatabaseIdentity {
     final database = config.database;

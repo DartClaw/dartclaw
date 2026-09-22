@@ -35,7 +35,7 @@ package boundaries from drifting after refactors, see
 
 The Dart host is the control plane. It is an AOT-compiled Shelf HTTP server with file-based storage that:
 
-- **Stores state** — sessions and messages in NDJSON files, tasks/search/turn-recovery state in SQLite, config in YAML
+- **Stores state** — sessions/messages/canonical memory in files, relational/search data in PostgreSQL, instance-local recovery in files, and config in YAML
 - **Serves the web UI** — Trellis HTML templates, HTMX + SSE streaming, CSS design tokens
 - **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat), composes system prompts, dispatches to agent harnesses, streams results back
 - **Enforces security** — guard chain (command/file/network/tool guards, content classification), credential isolation, container management, audit logging
@@ -114,7 +114,7 @@ packages/
                          guards, classification, and deterministic utilities.
 
   dartclaw_core/         Runtime and persistence authority: agent harnesses,
-                         channel interfaces, events, SQLite/PostgreSQL storage,
+                         channel interfaces, events, PostgreSQL storage,
                          lexical/vector indexes, and workflow/task seams.
 
   dartclaw_search/       Native embedding provider for local hybrid search.
@@ -157,7 +157,9 @@ The key boundaries are simple: `dartclaw_kernel` has no workspace dependency, ru
 
 ## Storage Design
 
-DartClaw uses a dual storage strategy: **files are the source of truth** for sessions, messages, memory, and config. **SQLite (default) or PostgreSQL stores relational data and derived search indexes**. Backend selection does not copy or migrate data between them.
+DartClaw uses two storage authorities: **files are the source of truth** for sessions, messages, memory/wiki, config,
+credentials, projects, logs and instance-local recovery. **PostgreSQL stores authoritative relational data and
+derived search indexes.** They remain separate backup targets.
 
 ### File-Based Storage
 
@@ -198,16 +200,17 @@ length, digest, and record IDs so targeted reads and sparse writes preserve unop
 the complete canonical union in bounded batches before it reports the derived index healthy. If the manifest is missing,
 DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fails closed before index publication.
 
-### SQLite
+### PostgreSQL
 
-| Database | Contents | Authoritative? |
+| Tables | Contents | Authoritative? |
 |----------|----------|----------------|
-| `search.db` | Memory and conversation lexical/vector indexes | No — derived from topic, archive, observation, and learning roles; rebuildable via `dartclaw rebuild-index` |
-| `dartclaw.db` | Tasks, goals, task artifacts, turn traces, task events | Yes — relational data with state machine transitions |
+| Memory and conversation lexical/vector projections | Search rows rebuilt from canonical memory and session NDJSON | No — rebuildable via `dartclaw rebuild-index` |
+| Tasks, goals, executions, workflow runs, artifacts, turn traces, task events, knowledge facts | Relational data and state-machine transitions | Yes |
 
-Existing `tasks.db` is adopted as `dartclaw.db` automatically before first use: WAL is checkpointed, the connection is closed, and the file is renamed. If both names exist, startup refuses; keep the store containing your data and remove or archive the other.
-
-PostgreSQL stores the corresponding relational data and derived indexes in the configured database. It uses native full-text search and pgvector for hybrid retrieval; startup validates the schema and required capabilities. See [PostgreSQL](postgresql.md) for setup and backend-switch behavior.
+PostgreSQL 14+ uses native full-text search for the default lexical mode. Hybrid retrieval is explicit and adds an
+administrator-installed pgvector extension plus an embedding provider. Startup validates the connection and schema;
+`doctor --fix` may bootstrap only an empty current application schema. See [PostgreSQL](postgresql.md) for native
+setup, backup/restore, and the bounded v0.26.1 cutover.
 
 ### Crash Recovery
 
@@ -219,7 +222,7 @@ The restart path is covered by the integration-tagged crash-recovery smoke test 
 
 ### Memory Search
 
-`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The selected derived search index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox/QMD source owner.
+`memory_apply` atomically curates personal memory with collection and entry revisions: a valid add/revise/merge/remove change set replaces the canonical Markdown corpus once, while exact no-ops do not write. `memory_observe` captures non-authoritative observations or bounded learnings. The selected derived search index is reconciled only after canonical success; failures are reported as degradation and remain rebuildable. `memory_search` returns role, provenance, locator, identity, and revision metadata, and `memory_read` resolves those stable selectors through the canonical corpus or the native wiki/KG/inbox source owner.
 
 Hybrid search combines lexical matches with local embeddings for both memory and conversation messages. Embedding failure degrades to lexical retrieval, with degradation reported to callers. For configuration and rebuild behavior, see the [Search guide](search.md).
 
@@ -304,7 +307,7 @@ draft → queued → running → review → accepted
 
 Key components:
 
-- **TaskService** — CRUD + state machine transitions, SQLite persistence, now owned by `dartclaw_runtime`
+- **TaskService** — CRUD + state machine transitions, PostgreSQL persistence, now owned by `dartclaw_runtime`
 - **TaskExecutor** — polls for queued tasks, acquires a provider worker lease, executes the task, collects artifacts
 - **WorktreeManager** — for tasks declaring `configJson.needsWorktree: true`, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
@@ -483,4 +486,5 @@ DartClaw evolved through three iterations:
 - **NanoClaw** — stripped-down version that identified the core feature set and proved OS-level isolation
 - **DartClaw** — current: rewritten in Dart for AOT compilation, zero npm runtime, security-first design
 
-The Dart rewrite targets a single AOT-compiled binary (no runtime dependencies beyond SQLite) and removes the Node.js/npm supply chain from the runtime.
+The Dart rewrite targets a single AOT-compiled host binary with no Node.js/npm runtime. PostgreSQL is operated as a
+separate native or managed service.

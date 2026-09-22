@@ -148,6 +148,7 @@ void main() {
     expect(posix, isNot(contains('native_embedding_probe')));
     expect(posix, isNot(contains('embeddinggemma')));
     expect(posix, isNot(contains('share/')));
+    expect(posix.toLowerCase(), isNot(contains('sqlite')));
 
     expect(windows, contains("@{ Name = 'dartclaw'; Entry = 'dartclaw' }"));
     expect(windows, contains("@{ Name = 'dartclaw-workflow'; Entry = 'dartclaw_workflow' }"));
@@ -156,12 +157,13 @@ void main() {
       contains(r"Copy-Item -LiteralPath $nativeLibraryRoot -Destination (Join-Path $stage 'lib') -Recurse"),
     );
     expect(windows, contains('function Get-WindowsRuntimeLibraryFiles'));
-    expect(windows, contains(r"Where-Object { $_.Name -notin @('sqlite3.dll', 'llamadart.dll') }"));
+    expect(windows, contains(r"Where-Object { $_.Name -ne 'llamadart.dll' }"));
     expect(windows, contains(r"Copy-Item -LiteralPath $runtimeLibrary.FullName -Destination (Join-Path $stage 'bin')"));
     expect(windows, contains(r"'bin/' + $_.Name"));
     expect(windows, contains("throw 'Windows artifact validation failed: unexpected share/ sidecar.'"));
     expect(windows, isNot(contains('native_embedding_probe')));
     expect(windows, isNot(contains('embeddinggemma')));
+    expect(windows.toLowerCase(), isNot(contains('sqlite')));
   });
 }
 

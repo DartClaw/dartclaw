@@ -2,11 +2,11 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.26 PostgreSQL database and native/HTTP embedding configuration, versioned schema `$id`, the
+**Current through**: 0.27 PostgreSQL-only database and lexical/hybrid configuration, versioned schema `$id`, the
 offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections,
 capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
 and kernel/channel loader constraint derivation, the declared per-section reload tiers, the schema-driven settings
-form, and kernel package formation. The authoritative SQLite store is `dartclaw.db`.
+form, and kernel package formation.
 
 ---
 
@@ -103,7 +103,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `contentGuardFailOpen` |
 | `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
 | `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode, effort), `wikiLint` (`KnowledgeWikiLintConfig`) |
-| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`fts5`, `hybrid`, deprecated `qmd`), `qmd.host`, `qmd.port`, `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`) |
+| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`lexical`, `hybrid`), `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`); the removed `qmd` subtree is parser-only transition input |
 | `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
 | `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, hard worker-execution `poolSize`, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
@@ -733,7 +733,7 @@ This is the **field-level** view — `ConfigMeta` mutability, which is what `PAT
 | `alerts.*` (targets, cooldowns, thresholds) | `logging.level`, `logging.format` |
 | | `governance.*` (turn limits, budgets, stall detection) |
 | | `container.*` |
-| | `search.backend`, `search.qmd.*`, `search.embedding.*` |
+| | `search.backend`, `search.embedding.*`; `search.qmd` is a removed parser-only transition key |
 | | `database.*` |
 | | `providers.*.pool_size`, `tasks.worktree.*`, guard chain (`guards.*`) |
 | | `harness.*`, `knowledge.*`, `workflow.*`, `mcp_servers.*` |
@@ -830,7 +830,9 @@ Hybrid retrieval is independent of `agent.provider`, model, effort and execution
 configuration above is its only model boundary; it creates no generative-agent turn or relevance-worker route.
 
 `database.credential` names one generic API-key entry whose resolved value is the PostgreSQL connection URL. It is
-mutually exclusive with `database.url`.
+mutually exclusive with `database.url`. There is no current database-engine selector. The 0.27 loader accepts only
+the exact legacy `database.backend: postgres` spelling with removal guidance and refuses other values. The exact old
+`search.backend: fts5` spelling similarly warns and normalizes to `lexical` for this transition release.
 
 ### CredentialsConfig
 
@@ -1043,8 +1045,8 @@ Comprehensive listing of all sections with hot-reload status. The **Reload Tier*
 |---------|-------------|-------------|---------------|---------------------|
 | `memory` | `MemoryConfig` | `restart` | No | Max bytes, pruning config |
 | `knowledge` | `KnowledgeConfig` | `restart` | No | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
-| `search` | `SearchConfig` | `restart` | No | Backend (`fts5`, `hybrid`, deprecated `qmd`), QMD connection, and the four `search.embedding.*` provider fields |
-| `database` | `DatabaseConfig` | `restart` | No | Backend selection, credential reference, pool size, FTS language |
+| `search` | `SearchConfig` | `restart` | No | Backend (`lexical`, `hybrid`) and the four `search.embedding.*` provider fields |
+| `database` | `DatabaseConfig` | `restart` | No | PostgreSQL URL or credential reference, pool size, text-search language |
 | `context` | `ContextConfig` | `reloadable` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, host tool-result byte cap |
 | `workspace` | `WorkspaceConfig` | `reloadable` | Yes (git sync toggles; `interval_minutes` needs a restart) | Git sync enabled/push/interval |
 | `workflow` | `WorkflowConfig` | `restart` | No | Workflow workspace directory |

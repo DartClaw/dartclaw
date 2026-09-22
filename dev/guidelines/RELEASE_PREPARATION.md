@@ -24,7 +24,7 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | `cleanup`, `versions` | No exported bundle; all version pins agree | Host |
 | `dependencies`, `assets` | Tracked enforced lockfiles; generated embedded assets | Host; always refreshed |
 | `format`, `analyze`, `tests` | Formatting, static analysis, default workspace suites | Host |
-| `postgres` | Existing PostgreSQL contract runner | Local Docker; always refreshed |
+| `postgres` | Plain PostgreSQL, explicit pgvector/hybrid, migration and restore contracts | Disposable live databases; always refreshed |
 | `architecture`, `fitness` | Package rules, schemas, architecture fitness | Host |
 | `build` | Both host release bundles through `build.sh` | Host; always refreshed |
 | `whitespace` | Whitespace errors in the candidate commit | Host |
@@ -35,8 +35,9 @@ bound to a single committed candidate and stop meaning anything once the tree mo
 own tests plus the `fast` / `full` tiers in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing).
 
 For the first host build, populate the verified native archive cache using the command in
-[Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#build). PostgreSQL requires a running Docker engine unless an
-explicit disposable test database is configured. The full workspace gate excludes integration-tagged live tests.
+[Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#build). PostgreSQL contract tests may use container-provisioned
+resources or explicit disposable endpoints; native operator setup does not require a container engine. The full
+workspace gate excludes integration-tagged live tests.
 
 Each `receipt.json` records the version, full commit SHA, Git tree, command arguments, host/SDK identity, a hash of
 relevant environment settings, timestamps, exit status and the combined output log's Git object hash. Environment
@@ -54,6 +55,11 @@ Exit codes: **0** means the selected automated gates passed, **1** means failure
 **3** means missing/stale/incomplete coverage. `--quick` skips only workspace tests and always exits 3 on an otherwise
 successful run. `--gate` and `--local` success do not imply full release readiness. Manual/live/platform gates below
 remain required and are not automatically certified by these receipts.
+
+For 0.27, record DB1–DB6 and the integrated Q/W/platform outcomes only in
+[`dev/testing/0.27-qualification.md`](../testing/0.27-qualification.md). Every pass binds the exact candidate and
+environment. Unavailable native macOS, Linux, Windows, container, pgvector, provider, device or release environments
+remain holds.
 
 The final CI gate requires `Check`, `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green
 by name on the full HEAD SHA. It excludes pull-request runs whose Check job may intentionally skip. Local checks can
@@ -96,7 +102,7 @@ Maintainers record milestone status in the private `docs/ROADMAP.md`, the sole r
 - Live integration tests: `bash dev/testing/profiles/workflow-live/run.sh --full` plus any package-specific `dart test --run-skipped -t integration ...` live files relevant to the release. Runs `dart test` directly – no running server required, but needs real provider credentials.
 - Claude subscription wire check: `dart test --run-skipped -t integration packages/dartclaw_runtime/test/integration/anthropic_setup_token_bearer_wire_check_test.dart`. Only `ACCEPTED` clears this gate. `SKIP` or `INCONCLUSIVE` is missing evidence; `REJECTED` blocks the subscription-default container claim. Resolve invalid requests or credentials before retrying; no API-key fallback is implied.
 - UI smoke test: start the server with `bash dev/testing/profiles/plain/run.sh` (port 3335, token `devtoken0`), then run the `andthen:visual-validation` skill against `http://localhost:3335/?token=devtoken0` covering TC-01…TC-31 and R-01…R-14 from `dev/testing/UI-SMOKE-TEST.md`.
-- Windows x64 release smoke: the tag workflow builds the archive from the tagged source, validates its layout and bundled SQLite/FTS5 runtime, runs the deterministic Windows smoke with provider turns disabled, and tests the installer against the staged archive. Live Claude and Codex turns are compatibility checks to repeat after relevant provider integration or protocol changes, not per-release publication inputs. When a provider interception path changes, its compatibility check must exercise at least one denied and one allowed operation for every claimed guard-mediated category; a conversational success alone is insufficient.
+- Windows x64 release smoke: the tag workflow builds the archive from the tagged source, validates its layout, runs the deterministic Windows smoke against a native PostgreSQL 14+ service with provider turns disabled, and tests the installer against the staged archive. Live Claude and Codex turns are compatibility checks to repeat after relevant provider integration or protocol changes, not per-release publication inputs. When a provider interception path changes, its compatibility check must exercise at least one denied and one allowed operation for every claimed guard-mediated category; a conversational success alone is insufficient.
 - Distribution publication security: before widening or rotating `HOMEBREW_TAP_TOKEN`, confirm the `distribution-publication` environment requires approval and permits only `v*` tags, and confirm a repository ruleset restricts creation/deletion of `v*` tags. Store the secret on that environment, not at repository scope. The fine-grained PAT must select only `DartClaw/homebrew-dartclaw` and `DartClaw/scoop-dartclaw` with `contents:write`. Do not authorize the Scoop repository while either protection is absent.
 - Provider prerequisite audit: confirm install docs keep `claude --version`, `codex --version`, Goose, and Vibe as explicit operator prerequisites rather than Homebrew dependencies.
 - Container conformance on both engines: run `dart test --run-skipped -t integration packages/dartclaw_runtime/test/integration/` on **Linux Docker** *and* on **Docker Desktop / OrbStack**, and record both non-skipped results (engine, host OS, date, pass counts) in the release PR. A container-execution claim in the docs is release-ready only with evidence from both engines; one platform passing is not a release gate pass. The default-suite matrix (`packages/dartclaw_runtime/test/execution_conformance_matrix_test.dart`) additionally fails if any advertised provider/execution/surface combination has lost its runtime evidence — it does not substitute for running the fixtures it names.
@@ -107,8 +113,8 @@ artifact paths in the release record. Optional accessibility/device audits follo
 
 ## Post-tag audits
 
-- Release assets: confirm GitHub Releases has `dartclaw-v{VERSION}-macos-arm64.tar.gz`, `dartclaw-v{VERSION}-macos-x64.tar.gz`, `dartclaw-v{VERSION}-linux-x64.tar.gz`, `dartclaw-v{VERSION}-linux-arm64.tar.gz`, and `dartclaw-v{VERSION}-windows-x64.zip`, each with a matching `.sha256`, plus the matching five `dartclaw-workflow-v{VERSION}-<target>` archives with the same extensions and their own `.sha256`; `SHA256SUMS.txt` must cover all ten archives. Each POSIX archive must contain `bin/dartclaw` and `lib/libsqlite3.*`; the Windows ZIP must contain `VERSION`, `bin/dartclaw.exe`, and `lib/sqlite3.dll`.
-- Lean archive layout: each POSIX archive contains `VERSION`, `bin/dartclaw-workflow`, and `lib/libsqlite3.*`; the ZIP contains `VERSION`, `bin/dartclaw-workflow.exe`, and `lib/sqlite3.dll`.
+- Release assets: confirm GitHub Releases has `dartclaw-v{VERSION}-macos-arm64.tar.gz`, `dartclaw-v{VERSION}-macos-x64.tar.gz`, `dartclaw-v{VERSION}-linux-x64.tar.gz`, `dartclaw-v{VERSION}-linux-arm64.tar.gz`, and `dartclaw-v{VERSION}-windows-x64.zip`, each with a matching `.sha256`, plus the matching five `dartclaw-workflow-v{VERSION}-<target>` archives with the same extensions and their own `.sha256`; `SHA256SUMS.txt` must cover all ten archives. Each archive must contain `VERSION` and its matching executable under `bin/`, contain no SQLite native library or mapping, and include only the selected native embedding libraries documented by its manifest.
+- Lean archive layout: each archive contains `VERSION`, `bin/dartclaw-workflow` (or `.exe`), no SQLite asset, and only its documented optional native embedding files.
 - Homebrew: approve the `Release Binaries` workflow's `homebrew` job in the `distribution-publication` environment, confirm both rendered formulas reached `DartClaw/homebrew-dartclaw`, then verify co-installation with `brew tap DartClaw/dartclaw && brew install dartclaw dartclaw-workflow && dartclaw --version && dartclaw-workflow --version`. If the environment secret is absent, render with `dart run dev/tools/render_homebrew_formula.dart` and publish manually. A successful job that reports skipping publication is not publication evidence; the same applies to Scoop.
 - Scoop: confirm the `scoop` job rendered each published Windows ZIP checksum into its own manifest in `DartClaw/scoop-dartclaw` (`bucket/dartclaw.json`, `bucket/dartclaw-workflow.json`), then follow [Windows Scoop Qualification](../testing/scenarios/windows-scoop.md) for the install/version/update/uninstall audit on Windows x64 for both, including co-installation with `scoop install dartclaw/dartclaw dartclaw/dartclaw-workflow && dartclaw --version && dartclaw-workflow --version`. If publication fails, render with `dev/tools/render_scoop_manifest.dart` (adding `--artifact dartclaw-workflow` for the lean manifest) and publish manually.
 

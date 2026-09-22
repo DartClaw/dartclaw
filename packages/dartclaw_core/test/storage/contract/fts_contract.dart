@@ -131,7 +131,7 @@ List<_WhitelistEntry> _parseWhitelist(List<dynamic> values) {
             documentId is! String ||
             documentId.isEmpty ||
             engine is! String ||
-            !const {'sqlite', 'postgres'}.contains(engine) ||
+            engine != 'postgres' ||
             evidence is! String ||
             evidence.trim().isEmpty ||
             reviewedOn is! String ||

@@ -58,7 +58,7 @@ export 'src/workflow/workflow_run.dart'
 export 'src/workflow/workflow_asset_source_resolver.dart' show WorkflowAssetSourceResolver;
 export 'src/workflow/workflow_materializer.dart' show WorkflowMaterializer;
 export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository;
-export 'src/storage/sqlite_workflow_run_repository.dart' show SqliteWorkflowRunRepository;
+export 'src/storage/database_workflow_run_repository.dart' show DatabaseWorkflowRunRepository;
 
 export 'package:dartclaw_kernel/dartclaw_kernel.dart' show WorkflowStepExecutionRepository;
 

@@ -377,7 +377,7 @@ layout-width jump appears during navigation; dashboard content no longer scrolls
 ### TC-18: Guard Block Message
 **Prerequisite:** A session message rendered as a guard block (content begins `[Blocked by guard: …]`).
 **Creating test data:** Trigger a blocked shell command, or insert an assistant message with that
-content directly (NDJSON file or SQLite).
+content directly (NDJSON file or PostgreSQL).
 
 **Steps:**
 1. Open the session

@@ -29,10 +29,9 @@ void main() {
   final repoRoot = _repoRoot();
 
   // Spawn the tool from a copy outside the workspace: `dart run` inside the repo
-  // triggers the sqlite3 build hooks and rewrites the shared
-  // .dart_tool/native_assets.yaml, racing the test runner's own concurrent suite
-  // compilation (VM aborts with "File not formatted as yaml"). The tool imports
-  // only dart:io, so a detached copy runs hook-free and hermetic.
+  // may rewrite shared native-asset metadata, racing the test runner's own
+  // concurrent suite compilation (VM aborts with "File not formatted as yaml").
+  // The tool imports only dart:io, so a detached copy runs hook-free and hermetic.
   final toolDir = Directory.systemTemp.createTempSync('dc-formula-tool');
   final toolPath = p.join(toolDir.path, 'render_homebrew_formula.dart');
   File(p.join(repoRoot, 'dev', 'tools', 'render_homebrew_formula.dart')).copySync(toolPath);

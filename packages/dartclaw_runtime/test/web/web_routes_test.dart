@@ -9,10 +9,10 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/turn_wait_status.dart';
 import 'package:dartclaw_runtime/src/web/pages/health_page.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../signal_test_support.dart';
@@ -112,18 +112,16 @@ void main() {
     /// Builds the wiki handler. A null [dataDirPath] reproduces the
     /// unconfigured-workspace rejection.
     Future<Handler> wikiHandler({String? dataDirPath}) async {
-      final memoryDb = sqlite3.openInMemory();
       final taskBackend = await openPreparedTaskBackend();
       addTearDown(() async {
-        memoryDb.close();
         await taskBackend.close();
       });
       return webRoutes(
         sessions,
         messages,
         kvService: kvService,
-        memoryIndex: await prepareMemoryIndex(memoryDb),
-        kgService: TemporalKnowledgeGraphService(taskBackend),
+        memoryIndex: await prepareMemoryIndex(),
+        kgService: InMemoryTemporalKnowledgeGraphService(),
         config: dataDirPath == null ? null : DartclawConfig(server: ServerConfig(dataDir: dataDirPath)),
         dataDir: dataDirPath,
       ).call;

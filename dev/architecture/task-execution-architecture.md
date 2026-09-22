@@ -2,8 +2,8 @@
 
 How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through coordinator admission, turn execution, artifact collection, and review lifecycle.
 
-**Current through**: 0.27 conversation workspace and effective-context boundary; 0.26 task storage backend and awaited
-event persistence. The authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.27 PostgreSQL-only task storage, conversation workspace and effective-context boundary, and
+awaited event persistence.
 
 ---
 
@@ -41,7 +41,7 @@ The task domain is split across three packages following the DartClaw package de
 dartclaw_kernel       TaskStatus and legacy refusal constants
 dartclaw_core         Task, TaskStatus, TaskArtifact, Goal, repositories
 dartclaw_runtime       TaskService, TaskExecutor, review, worktrees, scheduling
-dartclaw_core      SqliteTaskRepository, TaskEventService, TurnTraceService
+dartclaw_core      PostgreSQL repositories, TaskEventService, TurnTraceService
 ```
 
 ### 2.2 Task
@@ -76,7 +76,7 @@ The familiar convenience accessors still exist on `Task`: `sessionId`, `provider
 ### 2.3 Execution declarations
 
 Worktree isolation, artifact collection, review routing, prompt composition, and security profile are controlled by
-their own declarations and execution context. The legacy SQLite `tasks.type` column remains only for compatibility:
+their own declarations and execution context. The legacy `tasks.type` column remains only for compatibility:
 new rows receive a neutral placeholder, while pre-upgrade `research` and undeclared `coding` rows are refused with
 migration guidance before execution.
 
@@ -231,7 +231,9 @@ Business logic layer at `dartclaw_runtime/lib/src/task/task_service.dart`. Imple
 
 `TaskService.create()` creates or links an `AgentExecution` row in the same transaction as the task write when an execution row is required. `TaskService.get()` / `list()` hydrate the linked `AgentExecution` and `WorkflowStepExecution` rows through the joined storage query so dashboard/API consumers do not incur N+1 lookups for provider, session, or workflow-step metadata.
 
-`SqliteExecutionRepositoryTransactor` delegates to `DatabaseBackend.transaction`. Participating repositories share the same backend, so an action commits all its writes or rolls them back while preserving the original error. Unrelated seam operations wait until the action finishes; nested transactions reject with `NestedTransactionError`.
+The execution repository transactor delegates to `DatabaseBackend.transaction`. Participating repositories share the
+same PostgreSQL backend, so an action commits all its writes or rolls them back while preserving the original error.
+Unrelated seam operations wait until the action finishes; nested transactions reject with `NestedTransactionError`.
 
 Core operations:
 - **`create()`** – inserts task; when `autoStart=true`, records the draft-to-queued event before publishing `TaskStatusChangedEvent`
@@ -645,7 +647,7 @@ Sealed-class event hierarchy in `dartclaw_kernel/lib/src/task_event.dart`:
 
 `TaskEventService` in `dartclaw_core/lib/src/storage/task_event_service.dart`:
 
-- SQLite `task_events` table (append-only)
+- PostgreSQL `task_events` table (append-only)
 - Awaited writes through the shared `DatabaseBackend`; schema is prepared before construction
 - Indexed on `task_id`, `(task_id, kind)`, and `timestamp`
 - Queries: `listForTask()` (chronological), `countForTask()`
@@ -711,7 +713,7 @@ Provider summaries expose configured, effective, active, queued, cached, and qua
 
 ### 9.1 TurnTrace Model
 
-Rich per-turn record persisted to SQLite (`dartclaw_core`):
+Rich per-turn record persisted to PostgreSQL (`dartclaw_core`):
 
 | Field | Type | Purpose |
 |-------|------|---------|
@@ -738,7 +740,7 @@ Rich per-turn record persisted to SQLite (`dartclaw_core`):
 
 `TurnTraceService` in `dartclaw_core/lib/src/storage/turn_trace_service.dart`:
 
-- SQLite `turns` table, co-located in `dartclaw.db`
+- PostgreSQL `turns` table, co-located with other relational records
 - Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`
 - Fire-and-forget writes (callers use `unawaited`)
 
@@ -954,7 +956,7 @@ See [Security Architecture](security-architecture.md) for the full governance mo
 - [System Architecture](system-architecture.md) — component map, package DAG, deployment model
 - [Control Protocol](control-protocol.md) — harness interface, JSONL protocol, stream events, tool approval chain
 - [Security Architecture](security-architecture.md) — guard pipeline, TaskFileGuard integration, container isolation, governance enforcement
-- [Data Model](data-model.md) — dartclaw.db schema, worktree storage, entity relationships
+- [Data Model](data-model.md) — PostgreSQL schema, file stores, worktree storage, entity relationships
 - [Workflow Architecture](workflow-architecture.md) — workflow steps create tasks via `WorkflowTaskService`, session continuation across steps
 - [ADR-017](../adrs/017-multi-project-architecture.md) — multi-project design decisions and credential model
 - [ADR-021](../adrs/021-agent-execution-primitive.md) — `AgentExecution` + `WorkflowStepExecution` decomposition; `Task` carries nested `agentExecution` / `workflowStepExecution` objects

@@ -1,12 +1,8 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryFullTextIndex;
 
-Future<SqliteFtsIndex> prepareMemoryIndex(Database database) async {
-  final backend = SqliteBackend(database);
-  await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-  return SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
-}
+Future<FullTextIndex> prepareMemoryIndex() async => InMemoryFullTextIndex();
 
 Future<void> replaceMemoryCorpus(FullTextIndex index, CanonicalMemoryCorpus corpus, {String userId = 'owner'}) {
   return index.replaceAll(MemoryIndexProjection.documents(corpus), userId: userId);

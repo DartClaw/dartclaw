@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show CallbackEmbeddingProvider, seedCanonicalMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -147,8 +147,10 @@ void main() {
     await messages.insertMessage(sessionId: agentSession.id, role: 'user', content: 'agent-conversation-vector');
     await messages.dispose();
 
+    final vectorBackend = PostgresVectorTestBackend();
     final wiring = await _wire(
       config,
+      backend: vectorBackend,
       embeddingProvider: CallbackEmbeddingProvider(
         embedDocuments: (documents) async => [
           for (var index = 0; index < documents.length; index++) [1.0, index.toDouble()],
@@ -156,17 +158,15 @@ void main() {
       ),
     );
     try {
-      final vectors = await SqliteBackend.open(config.vectorsDbPath);
-      try {
-        for (final principal in ['owner', 'agent:a']) {
-          expect(await SqliteVectorIndex(vectors, table: VectorTable.memoryChunks).list(userId: principal), isNotEmpty);
-          expect(
-            await SqliteVectorIndex(vectors, table: VectorTable.conversationChunks).list(userId: principal),
-            isNotEmpty,
-          );
-        }
-      } finally {
-        await vectors.close();
+      for (final principal in ['owner', 'agent:a']) {
+        expect(
+          await PostgresVectorIndex(vectorBackend, table: VectorTable.memoryChunks).list(userId: principal),
+          isNotEmpty,
+        );
+        expect(
+          await PostgresVectorIndex(vectorBackend, table: VectorTable.conversationChunks).list(userId: principal),
+          isNotEmpty,
+        );
       }
     } finally {
       await wiring.messages.dispose();
@@ -187,12 +187,19 @@ DartclawConfig _config(Directory root, List<AgentDefinition> agents) => Dartclaw
   agent: AgentConfig(definitions: agents),
 );
 
-Future<StorageWiring> _wire(DartclawConfig config, {EmbeddingProvider? embeddingProvider}) async {
+Future<StorageWiring> _wire(
+  DartclawConfig config, {
+  DatabaseBackend? backend,
+  EmbeddingProvider? embeddingProvider,
+}) async {
+  final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
   final wiring = StorageWiring(
     config: config,
     eventBus: EventBus(),
-    searchBackendFactory: SqliteBackend.open,
-    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => backend ?? openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    searchIndexFactory: (_, table, {required withinTransaction}) =>
+        indices.putIfAbsent(table, InMemoryFullTextIndex.new),
     embeddingProviderFactory: embeddingProvider == null ? null : () => embeddingProvider,
     exitFn: (code) => throw StateError('unexpected exit $code'),
   );

@@ -148,7 +148,7 @@ class MemoryFileService {
   /// Disposes write queue. Drains in-flight writes before completing.
   Future<void> dispose() => _ownsCorpusService ? _corpusService.close() : Future.value();
 
-  /// Strips markdown formatting for cleaner FTS5 indexing.
+  /// Strips markdown formatting for cleaner lexical indexing.
   static String stripMarkdown(String text) => text
       .replaceAll(RegExp(r'#{1,6}\s*'), '')
       .replaceAll(RegExp(r'\*{1,2}|_{1,2}'), '')

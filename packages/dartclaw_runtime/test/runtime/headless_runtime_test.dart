@@ -147,22 +147,11 @@ steps:
     final config = fixture.config();
     final memory = seedInvalidCurrentMemory(config.workspaceDir);
     final before = memory.readAsBytesSync();
-    var searchFactoryCalls = 0;
-
-    final staging = await fixture.stage(
-      config,
-      searchBackendFactory: (_) {
-        searchFactoryCalls++;
-        throw StateError('standalone opened the personal-memory search database');
-      },
-      autoDispose: false,
-    );
+    final staging = await fixture.stage(config, autoDispose: false);
     final runtime = await staging.completeForLifecycle();
     addTearDown(runtime.shutdown);
 
-    expect(searchFactoryCalls, 0);
     expect(runtime.selfImprovement, isNull);
-    expect(runtime.qmdManager, isNull);
     expect(memory.readAsBytesSync(), before);
     expectNoPersonalMemoryArtifacts(config);
   });
@@ -184,16 +173,7 @@ steps:
         captured.add(factoryConfig);
         return worker;
       });
-    var searchFactoryCalls = 0;
-    final runtime = await fixture.runtime(
-      config,
-      harnessFactory: factory,
-      searchBackendFactory: (_) {
-        searchFactoryCalls++;
-        throw StateError('standalone opened the personal-memory search database');
-      },
-      autoDispose: false,
-    );
+    final runtime = await fixture.runtime(config, harnessFactory: factory, autoDispose: false);
     addTearDown(runtime.shutdown);
     runtime.taskExecutor!.stopPolling();
 
@@ -241,7 +221,6 @@ steps:
     expect(factoryConfig.onMemoryRead, isNull);
     expect(factoryConfig.ownMcpToolCanonicals.keys.where((name) => name.startsWith('memory_')), isEmpty);
     expect(runtime.selfImprovement, isNull);
-    expect(runtime.qmdManager, isNull);
 
     worker.completeSuccess(const TurnResult(finalText: 'Done.'));
     final deadline = DateTime.now().add(const Duration(seconds: 5));
@@ -255,7 +234,6 @@ steps:
     final task = (await runtime.taskService.list()).singleWhere((candidate) => candidate.workflowRunId == run.id);
     expect(task.agentExecution?.workspaceDir, workflowWorkspace.path);
     expect(projectInstructions.readAsStringSync(), contains('# DartClaw Workflow Step'));
-    expect(searchFactoryCalls, 0);
     expect(memory.readAsBytesSync(), before);
     expectNoPersonalMemoryArtifacts(config);
   });

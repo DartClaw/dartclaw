@@ -8,7 +8,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 
 - This package depends on no other `dartclaw_*` package. Runtime dependencies are limited to `collection`, `logging`,
   `meta`, `path`, `yaml`, and `yaml_edit`.
-- Do not add server, channel, workflow, storage, SQLite, or Shelf concerns. Channel-specific config classes stay in
+- Do not add server, channel, workflow, database-engine-specific storage, or Shelf concerns. Channel-specific config classes stay in
   their channel packages; server serializers and live subscribers stay in the runtime package.
 - Outbound HTTP is limited to the shared one-shot seam in `http_request.dart` (`HttpClientFactory`, `httpRequest`) and
   the classifiers that call it. It sits at this tier because every tier above needs it and none may be imported from

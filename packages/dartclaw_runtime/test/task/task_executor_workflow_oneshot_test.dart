@@ -8,7 +8,7 @@ import 'package:dartclaw_runtime/src/task/task_budget_policy.dart' show lastFail
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;
 import 'package:dartclaw_runtime/src/turn_wait_status.dart' show TurnCancelReason;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, InMemoryTaskEventService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowTaskConfig, executionEnvelopeMarkerKey, executionEnvelopeVersion;
 import 'package:fake_async/fake_async.dart';
@@ -176,9 +176,8 @@ void main() {
   }
 
   Future<TaskEventService> useEventRecorder({HarnessFactory? harnessFactory}) async {
-    final eventBackend = await openPreparedTaskBackend();
-    addTearDown(eventBackend.close);
-    final eventService = TaskEventService(eventBackend);
+    final eventService = InMemoryTaskEventService();
+    addTearDown(eventService.close);
     await executor.stop();
     executor = context.buildExecutor(
       turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),

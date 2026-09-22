@@ -8,7 +8,6 @@ import 'package:dartclaw_runtime/src/memory/memory_prune_service.dart';
 import 'package:dartclaw_runtime/src/web/pages/memory_page.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../test_utils.dart';
@@ -25,15 +24,13 @@ void main() {
   late FullTextIndex memoryIndex;
   late SessionService sessions;
   late MessageService messages;
-  late Database db;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_memory_page_test_');
     workspaceDir = p.join(tempDir.path, 'workspace');
     Directory(workspaceDir).createSync(recursive: true);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
-    db = sqlite3.open(p.join(tempDir.path, 'memory.db'));
-    memoryIndex = await prepareMemoryIndex(db);
+    memoryIndex = await prepareMemoryIndex();
     statusService = MemoryStatusService(
       workspaceDir: workspaceDir,
       config: DartclawConfig(server: ServerConfig(dataDir: tempDir.path)),
@@ -44,7 +41,6 @@ void main() {
   });
 
   tearDown(() async {
-    db.close();
     await kvService.dispose();
     tempDir.deleteSync(recursive: true);
   });

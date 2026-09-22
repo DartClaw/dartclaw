@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/kg_timeline_page.dart';
 import 'package:dartclaw_runtime/src/web/system_pages.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -14,7 +16,7 @@ import '../../test_utils.dart';
 void main() {
   late Directory tempDir;
   late SessionService sessions;
-  late SqliteBackend backend;
+  late DatabaseBackend backend;
   late TemporalKnowledgeGraphService kg;
 
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
@@ -24,7 +26,7 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('kg_timeline_page_test_');
     sessions = SessionService(baseDir: tempDir.path);
     backend = await openPreparedTaskBackend();
-    kg = TemporalKnowledgeGraphService(backend);
+    kg = InMemoryTemporalKnowledgeGraphService();
   });
 
   tearDown(() async {
@@ -45,14 +47,14 @@ void main() {
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite',
+      value: 'postgresql',
       validFrom: '2026-01-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite-wal',
+      value: 'postgresql-wal',
       validFrom: '2026-03-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
@@ -85,7 +87,7 @@ void main() {
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite',
+      value: 'postgresql',
       validFrom: '2026-01-01T00:00:00Z',
       source: 'wiki/architecture.md',
     );
@@ -101,7 +103,7 @@ void main() {
 
     expect(html, contains('alpha'));
     expect(html, contains('superseded'));
-    expect(html, contains('sqlite'));
+    expect(html, contains('postgresql'));
     expect(html, contains('postgres'));
     expect(html, contains('conflict cluster'));
     expect(RegExp(r'class="card kg-fact-card').allMatches(html), hasLength(4));
@@ -161,7 +163,7 @@ void main() {
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite',
+      value: 'postgresql',
       validFrom: '2026-01-15T00:00:00Z',
       source: 'wiki/architecture.md',
     );
@@ -187,7 +189,7 @@ void main() {
     await kg.addFact(
       entity: 'Architecture Decisions',
       predicate: 'database',
-      value: 'sqlite',
+      value: 'postgresql',
       validFrom: '2026-01-15T00:00:00Z',
       source: 'wiki/architecture.md',
     );
@@ -206,7 +208,7 @@ void main() {
       path: '/knowledge/timeline?as_of=2026-01-25T00:00:00Z',
     );
 
-    expect(html, contains('sqlite'));
+    expect(html, contains('postgresql'));
     expect(html, contains('postgres'));
     expect(RegExp('conflict cluster').allMatches(html), hasLength(2));
   });

@@ -197,45 +197,6 @@ final class EvaluationBackendPipeline {
   HybridSearch? _memoryHybrid;
   HybridSearch? _conversationHybrid;
 
-  static Future<EvaluationBackendPipeline> openSqlite({
-    required String directory,
-    required EmbeddingProvider embeddingProvider,
-  }) async {
-    final root = Directory(directory)..createSync(recursive: true);
-    final lexical = await SqliteBackend.open(p.join(root.path, 'search.db'));
-    DatabaseBackend? vectors;
-    try {
-      await SqliteSchemaGate.prepareSearch(lexical, storeName: 'search.db');
-      vectors = await SqliteBackend.open(p.join(root.path, 'vectors.db'));
-      await SqliteSchemaGate.prepareVectors(vectors, storeName: 'vectors.db');
-      return EvaluationBackendPipeline._(
-        backendName: 'sqlite',
-        vectorBackend: vectors,
-        embeddingProvider: embeddingProvider,
-        lexicalFactory: (_, corpus) => SqliteFtsIndex(
-          lexical,
-          table: corpus == 'memory' ? SqliteFtsTable.memoryChunks : SqliteFtsTable.conversationChunks,
-        ),
-        close: () async {
-          try {
-            await vectors!.close();
-          } finally {
-            try {
-              await lexical.close();
-            } finally {
-              if (root.existsSync()) root.deleteSync(recursive: true);
-            }
-          }
-        },
-      );
-    } catch (_) {
-      await vectors?.close();
-      await lexical.close();
-      if (root.existsSync()) root.deleteSync(recursive: true);
-      rethrow;
-    }
-  }
-
   static Future<EvaluationBackendPipeline> openPostgresql({
     required String dsn,
     required EmbeddingProvider embeddingProvider,
@@ -307,12 +268,11 @@ final class EvaluationBackendPipeline {
     await conversation.replaceAll(conversationDocuments, userId: 'fixture-owner');
     await conversation.replaceAll(foreignConversation, userId: 'other-owner');
 
-    final memoryVectors = _memoryVectors ??= backendName == 'sqlite'
-        ? SqliteVectorIndex(_vectorBackend, table: VectorTable.memoryChunks)
-        : PostgresVectorIndex(_vectorBackend, table: VectorTable.memoryChunks);
-    final conversationVectors = _conversationVectors ??= backendName == 'sqlite'
-        ? SqliteVectorIndex(_vectorBackend, table: VectorTable.conversationChunks)
-        : PostgresVectorIndex(_vectorBackend, table: VectorTable.conversationChunks);
+    final memoryVectors = _memoryVectors ??= PostgresVectorIndex(_vectorBackend, table: VectorTable.memoryChunks);
+    final conversationVectors = _conversationVectors ??= PostgresVectorIndex(
+      _vectorBackend,
+      table: VectorTable.conversationChunks,
+    );
     _memoryHybrid = HybridSearch(
       lexicalIndex: memory,
       vectorIndex: memoryVectors,
@@ -470,12 +430,7 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
         unembedded: 0,
       );
       try {
-        pipeline = backend == 'sqlite'
-            ? await EvaluationBackendPipeline.openSqlite(
-                directory: p.join(output.parent.path, '.retrieval-evaluation-sqlite-$pid'),
-                embeddingProvider: provider,
-              )
-            : await EvaluationBackendPipeline.openPostgresql(dsn: postgresDsn, embeddingProvider: provider);
+        pipeline = await EvaluationBackendPipeline.openPostgresql(dsn: postgresDsn, embeddingProvider: provider);
         for (final language in evaluationLanguages) {
           totals += await pipeline.prepareLanguage(language, fixture.documents);
           for (final query in fixture.queries.where((item) => item.language == language)) {
@@ -558,7 +513,7 @@ Future<int> runRetrievalEvaluation(RetrievalEvaluationArguments arguments, Retri
     };
     await writeEvaluationArtifacts(output, report, artifactHashes: artifactHashes);
     if (violations.isEmpty) {
-      stdout.writeln('Retrieval evaluation: PASS (144 slice rows, 0 violations)');
+      stdout.writeln('Retrieval evaluation: PASS (72 slice rows, 0 violations)');
       return 0;
     }
     stdout.writeln('Retrieval evaluation: FAIL (${violations.length} violations)');

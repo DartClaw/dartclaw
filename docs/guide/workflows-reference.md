@@ -142,7 +142,7 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `memory_apply` | Curating personal memory with collection CAS |
 | `memory_observe` | Capturing observations or learnings |
 | `memory_search` | Searching memory |
-| `memory_read` | Reading canonical memory or native wiki/KG/inbox/QMD sources by stable locator |
+| `memory_read` | Reading canonical memory or native wiki/KG/inbox sources by stable locator |
 | `task_create` | Creating a task |
 | `task_review` | Accepting, rejecting or pushing back a task in review |
 | `task_list` | Listing tasks |

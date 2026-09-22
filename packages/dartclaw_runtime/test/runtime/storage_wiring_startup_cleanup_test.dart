@@ -41,10 +41,7 @@ void main() {
       final wiring = StorageWiring(
         config: DartclawConfig(
           server: ServerConfig(dataDir: root.path),
-          database: const DatabaseConfig(
-            backend: DatabaseBackendKind.postgres,
-            url: 'postgresql://runtime@db.example.com/app',
-          ),
+          database: const DatabaseConfig(url: 'postgresql://runtime@db.example.com/app'),
         ),
         eventBus: eventBus,
         taskBackendFactory: (_) async => backend,

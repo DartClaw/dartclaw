@@ -115,7 +115,6 @@ class ConfigSerializer {
         },
       },
       'database': {
-        'backend': config.database.backend.name,
         'url': config.database.url == null ? null : '***',
         'credential': config.database.credential,
         'poolSize': config.database.poolSize,

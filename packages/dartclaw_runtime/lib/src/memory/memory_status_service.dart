@@ -17,7 +17,7 @@ final _dailyLogHeader = RegExp(r'^## (?:[01]\d|2[0-3]):[0-5]\d — ');
 
 /// Callback to count search index entries by role.
 ///
-/// Avoids direct `sqlite3` dependency in `dartclaw_runtime/lib/`.
+/// Keeps storage details outside `dartclaw_runtime/lib/`.
 /// The caller provides a function that queries `SELECT COUNT(*) FROM
 /// memory_chunks WHERE role = ?`.
 typedef SearchIndexCounter = FutureOr<int> Function(String role);
@@ -437,9 +437,6 @@ class MemoryStatusService {
       'memoryUnembeddedCount': memoryUnembeddedCount,
       'conversationUnembeddedCount': conversationUnembeddedCount,
       'dbSizeBytes': dbSizeBytes,
-      'qmdConfig': config.search.backend == 'qmd'
-          ? {'host': config.search.qmdHost, 'port': config.search.qmdPort}
-          : null,
     };
   }
 

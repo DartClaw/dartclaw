@@ -3,20 +3,12 @@ library;
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../storage/postgres_live_support.dart';
 
 void main() {
-  test('SQLite returns stable scoped citations and totals', () async {
-    final backend = SqliteBackend(sqlite3.openInMemory());
-    addTearDown(backend.close);
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    await _verifyBackend(SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks));
-  });
-
-  test('PostgreSQL returns the same stable scoped citations and totals', () async {
+  test('PostgreSQL returns stable scoped citations and totals', () async {
     await withPostgresBackend((backend, _) async {
       await PostgresSchemaGate.prepare(backend, databaseIdentity: backend.databaseIdentity);
       await _verifyBackend(PostgresFtsIndex(backend, table: PostgresFtsTable.conversationChunks, language: 'english'));

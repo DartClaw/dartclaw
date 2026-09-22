@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -45,15 +45,11 @@ void main() {
     final root = Directory.systemTemp.createTempSync('conversation_projection_');
     final sessions = SessionService(baseDir: root.path);
     final messages = MessageService(baseDir: root.path);
-    final database = sqlite3.openInMemory();
-    final backend = SqliteBackend(database);
+    final index = InMemoryFullTextIndex();
     addTearDown(() async {
       await messages.dispose();
-      await backend.close();
       root.deleteSync(recursive: true);
     });
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
     final first = await sessions.createSession();
     final second = await sessions.createSession(type: SessionType.channel);
     final task = await sessions.createSession(type: SessionType.task);
@@ -114,14 +110,11 @@ void main() {
     final root = Directory.systemTemp.createTempSync('conversation_projection_scoped_');
     final sessions = SessionService(baseDir: root.path);
     final messages = MessageService(baseDir: root.path);
-    final backend = SqliteBackend(sqlite3.openInMemory());
+    final index = InMemoryFullTextIndex();
     addTearDown(() async {
       await messages.dispose();
-      await backend.close();
       root.deleteSync(recursive: true);
     });
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
     final owner = await sessions.createSession();
     final agentA = await sessions.createSession(
       workspace: AgentWorkspace.pinned(agentId: 'a', directory: '${root.path}/agent-a'),

@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -60,7 +61,7 @@ void main() {
   test('lint includes the KG contradiction pre-screen category', () async {
     final backend = await openPreparedTaskBackend();
     addTearDown(backend.close);
-    final kg = TemporalKnowledgeGraphService(backend);
+    final kg = InMemoryTemporalKnowledgeGraphService();
     await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',
@@ -88,7 +89,7 @@ void main() {
   test('a KG contradiction carrying a line break cannot forge a line of the lint report', () async {
     final backend = await openPreparedTaskBackend();
     addTearDown(backend.close);
-    final kg = TemporalKnowledgeGraphService(backend);
+    final kg = InMemoryTemporalKnowledgeGraphService();
     await kg.addFact(
       entity: 'Dart SDK',
       predicate: 'channel',

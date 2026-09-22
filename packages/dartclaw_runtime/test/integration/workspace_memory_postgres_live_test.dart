@@ -60,7 +60,6 @@ void main() {
       final wiring = StorageWiring(
         config: config,
         eventBus: EventBus(),
-        searchBackendFactory: (_) async => throw StateError('PostgreSQL must use the authoritative backend'),
         taskBackendFactory: (_) async => backend,
         embeddingProviderFactory: () => CallbackEmbeddingProvider(
           embedDocuments: (documents) async => [
@@ -69,8 +68,10 @@ void main() {
         ),
         exitFn: (code) => throw StateError('unexpected exit $code'),
       );
+      var wired = false;
       try {
         await wiring.wire();
+        wired = true;
         final memory = PostgresFtsIndex(backend, table: PostgresFtsTable.memoryChunks, language: 'english');
         final conversation = PostgresFtsIndex(backend, table: PostgresFtsTable.conversationChunks, language: 'english');
         for (final evidence in [
@@ -121,8 +122,10 @@ void main() {
         expect(await memory.search('agent-a-postgres-incremental-marker', userId: 'owner'), isEmpty);
         expect(await memory.search('agent-a-postgres-incremental-marker', userId: 'agent:b'), isEmpty);
       } finally {
-        await wiring.messages.dispose();
-        await wiring.dispose();
+        if (wired) {
+          await wiring.messages.dispose();
+          await wiring.dispose();
+        }
         if (root.existsSync()) root.deleteSync(recursive: true);
       }
     });
@@ -155,8 +158,10 @@ void main() {
         taskBackendFactory: (_) async => backend,
         exitFn: (code) => throw StateError('unexpected exit $code'),
       );
+      var wired = false;
       try {
         await wiring.wire();
+        wired = true;
         expect(wiring.memoryContexts.map((context) => context.principal).toSet(), {'owner', 'agent:a'});
         expect(
           (await wiring.memoryIndex.search('healthy-owner-postgres-marker', userId: 'owner')).single.chunk,
@@ -168,8 +173,10 @@ void main() {
         );
         expect(await wiring.memoryIndex.search('preview', userId: 'agent:b'), isEmpty);
       } finally {
-        await wiring.messages.dispose();
-        await wiring.dispose();
+        if (wired) {
+          await wiring.messages.dispose();
+          await wiring.dispose();
+        }
         if (root.existsSync()) root.deleteSync(recursive: true);
       }
     });
@@ -185,7 +192,7 @@ AgentDefinition _agent(String id, String directory) => AgentDefinition(
 
 DartclawConfig _config(Directory root, List<AgentDefinition> agents) => DartclawConfig(
   server: ServerConfig(dataDir: root.path),
-  database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
+  database: const DatabaseConfig(),
   search: const SearchConfig(backend: 'hybrid'),
   agent: AgentConfig(definitions: agents),
 );

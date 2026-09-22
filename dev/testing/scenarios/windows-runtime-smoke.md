@@ -12,8 +12,9 @@ core layer passes; `incomplete` and `failed` are not release-ready.
 
 ### Prerequisites
 
-- Native Windows x64 with PowerShell and Dart on `PATH`.
+- Native Windows x64 with PowerShell, Dart and a PostgreSQL 14+ service on `PATH`/available.
 - A release archive named `dartclaw-v<version>-windows-x64.zip` with zip-root `VERSION`, `bin/`, and `lib/`.
+- An administrator-provisioned empty database and restricted runtime role; pgvector is not required.
 
 ### Steps
 
@@ -26,13 +27,15 @@ core layer passes; `incomplete` and `failed` are not release-ready.
    ```
 
 2. Read `.agent_temp/windows-runtime-smoke.md`.
-3. Confirm the required layers are present: Windows x64 host, server startup, Web UI, FTS5 search, and config reload.
+3. Confirm the required layers are present: Windows x64 host, PostgreSQL readiness, server startup, Web UI, lexical
+   search, and config reload.
 
 ### Expected
 
 - The artifact is rejected unless it has the pinned zip-root layout and no `share/` or `bundle/` wrapper.
 - Server startup and Web UI load pass against the extracted executable.
-- FTS5 returns `windowsfts5smokeseed`; the loaded module is the extracted `lib/sqlite3.dll`.
+- PostgreSQL lexical search returns the seeded marker without pgvector or embedding activation; the archive contains
+  no SQLite library or mapping.
 - Reload passes via file-watch (`gateway.reload.mode: auto`) with the same server process. SIGUSR1 is not used.
 - Provider turns are explicitly `skipped`; they are not required release-smoke layers.
 - Overall status is `supported` and release-ready is `true`.
@@ -52,9 +55,9 @@ core layer passes; `incomplete` and `failed` are not release-ready.
 
 ### Expected
 
-- Source mode records the Git revision, runtime-source fingerprint, and loaded `.dart_tool/lib/sqlite3.dll`.
-- Source mode exercises the same server, UI, FTS5, and file-watch paths as artifact mode.
-- Source mode remains `incomplete`; it does not replace the native Windows x64 artifact, bundled-SQLite, installer, or
+- Source mode records the Git revision and runtime-source fingerprint.
+- Source mode exercises the same server, UI, PostgreSQL lexical, and file-watch paths as artifact mode.
+- Source mode remains `incomplete`; it does not replace the native Windows x64 artifact, PostgreSQL service, installer, or
   core-runtime gates.
 
 ## S3: Optional live-provider compatibility

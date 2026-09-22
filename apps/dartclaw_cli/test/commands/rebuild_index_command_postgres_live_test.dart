@@ -20,7 +20,7 @@ void main() {
 
   DartclawConfig config({String language = 'english'}) => DartclawConfig(
     server: ServerConfig(dataDir: temp.path),
-    database: DatabaseConfig(backend: DatabaseBackendKind.postgres, ftsLanguage: language),
+    database: DatabaseConfig(ftsLanguage: language),
   );
 
   test('hybrid PostgreSQL rebuild reuses both corpora, recovers failures and clears empty sources', () async {
@@ -28,7 +28,7 @@ void main() {
       final agentDir = '${temp.path}/agent-a';
       final settings = DartclawConfig(
         server: ServerConfig(dataDir: temp.path),
-        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
+        database: const DatabaseConfig(),
         search: const SearchConfig(backend: 'hybrid'),
         agent: AgentConfig(
           definitions: [
@@ -181,7 +181,7 @@ void main() {
       final agentBDir = '${temp.path}/agent-b';
       final settings = DartclawConfig(
         server: ServerConfig(dataDir: temp.path),
-        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
+        database: const DatabaseConfig(),
         agent: AgentConfig(
           definitions: [
             AgentDefinition(

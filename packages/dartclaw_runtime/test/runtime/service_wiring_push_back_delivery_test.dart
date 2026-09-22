@@ -5,7 +5,8 @@ import 'dart:isolate';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeAgentHarness, InMemoryTaskRepository, openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -68,8 +69,9 @@ void main() {
       dataDir: dataDir.path,
       port: 3000,
       harnessFactory: factory,
-      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
+      taskRepositoryFactory: (_) => InMemoryTaskRepository(),
       resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
       messageRedactor: MessageRedactor(),
       resolvedAssets: ResolvedAssets.fromSourceTree(

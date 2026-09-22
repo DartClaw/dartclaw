@@ -1,0 +1,20 @@
+{
+  "canonical_sentinel_sha256": "937ae327d9b64f4079b6260b93774421fe79db123c42308f460b104beb5d1c4f",
+  "fixture_sha256": "cfc1b84db989b942fbdc6bf8eab67d78b9a7464c350a220b2dc5881224ba36ad",
+  "manifest_sha256": "d6a99d2749128c9b052cd5886295c7a33047cce3b4c4b39b132d628c43648bbd",
+  "next_kg_fact_id": 8,
+  "source_commit": "ef24b3302e936c4ff6183158da8462b866dbd7d2",
+  "table_counts": {
+    "agent_executions": 1,
+    "goals": 2,
+    "kg_facts": 1,
+    "task_artifacts": 1,
+    "task_events": 1,
+    "tasks": 2,
+    "turns": 1,
+    "workflow_run_migrations": 1,
+    "workflow_runs": 1,
+    "workflow_step_executions": 1
+  },
+  "wrong_shape_sha256": "ab6eef1d07b5eb9f80322fd92e898541afa4e622b6c9336ab641bc030a0f3b30"
+}

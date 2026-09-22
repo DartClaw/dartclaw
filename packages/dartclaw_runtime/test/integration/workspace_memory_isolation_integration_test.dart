@@ -6,7 +6,8 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show CallbackEmbeddingProvider, seedCanonicalMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show CallbackEmbeddingProvider, openPreparedTaskBackend, seedCanonicalMemory;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -73,8 +74,8 @@ void main() {
     final wiring = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
       embeddingProviderFactory: () => CallbackEmbeddingProvider(
         embedDocuments: (documents) async => [
           for (var index = 0; index < documents.length; index++) [1.0, index.toDouble()],
@@ -164,8 +165,8 @@ void main() {
     final wiring = StorageWiring(
       config: _config(root, const []),
       eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
       exitFn: (code) => throw StateError('unexpected exit $code'),
     );
     try {

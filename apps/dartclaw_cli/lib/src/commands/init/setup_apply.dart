@@ -96,6 +96,10 @@ class SetupApply {
       _set(editor, ['gateway', 'auth_mode'], state.gatewayAuthMode);
     }
     _set(editor, ['data_dir'], state.workflowTrack ? '.' : state.instanceDir);
+    if (!configExists) {
+      _set(editor, ['database', 'url'], r'${DARTCLAW_DATABASE_URL}');
+      _set(editor, ['search', 'backend'], 'lexical');
+    }
     _set(editor, ['agent', 'provider'], state.provider);
     if (state.model != null && state.model!.trim().isNotEmpty) {
       _set(editor, ['agent', 'model'], state.model!.trim());

@@ -26,6 +26,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   conversation, workspace and interlock suites. Native release builds default to `.agent_temp/native-cache` and verify
   their archive before replacing build outputs.
 
+- PostgreSQL 14+ is now the sole runtime database, with built-in lexical search as the default and pgvector-backed
+  hybrid search remaining explicit. Native setup and `doctor --fix` cover an empty schema without administrator
+  credentials, and a bounded offline utility moves the supported 0.26.1 SQLite records into an empty current schema.
+  Runtime packages and release archives no longer carry SQLite.
+
 - Server shutdown now waits for conversation outcomes and pending writes before closing storage, and holds queued
   conversation work instead of starting another turn during shutdown.
 

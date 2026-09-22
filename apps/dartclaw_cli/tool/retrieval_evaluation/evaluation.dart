@@ -5,7 +5,7 @@ import 'dart:math' as math;
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
-const evaluationBackends = ['sqlite', 'postgresql'];
+const evaluationBackends = ['postgresql'];
 const evaluationModes = ['keyword', 'vector', 'hybrid'];
 const evaluationCorpora = ['memory', 'conversation'];
 const evaluationLanguages = ['en', 'sv'];
@@ -239,7 +239,7 @@ List<SliceRow> buildSliceRows(List<EvaluationQuery> queries, List<RankingObserva
       }
     }
   }
-  if (rows.length != 144) throw StateError('evaluation slice matrix must contain 144 rows');
+  if (rows.length != 72) throw StateError('evaluation slice matrix must contain 72 rows');
   return List.unmodifiable(rows);
 }
 
@@ -359,7 +359,7 @@ List<GateRow> buildGateRows(List<EvaluationQuery> queries, List<RankingObservati
       );
     }
   }
-  if (rows.length != 116) throw StateError('evaluation gate matrix must contain 116 rows');
+  if (rows.length != 58) throw StateError('evaluation gate matrix must contain 58 rows');
   return List.unmodifiable(rows);
 }
 

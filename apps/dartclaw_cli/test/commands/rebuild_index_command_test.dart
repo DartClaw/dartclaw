@@ -6,36 +6,47 @@ import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart' hide DatabaseConfig;
 import 'package:test/test.dart';
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory, PostgresVectorSchemaTestBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 
 void main() {
   late Directory tempDir;
   late List<String> output;
+  late Map<PostgresFtsTable, InMemoryIndexRebuildTarget> indexes;
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_rebuild_idx_test_');
     output = [];
+    indexes = {
+      PostgresFtsTable.memoryChunks: InMemoryIndexRebuildTarget(),
+      PostgresFtsTable.conversationChunks: InMemoryIndexRebuildTarget(),
+    };
   });
 
   tearDown(() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
+  RebuildIndexCommand command(DartclawConfig config, {void Function(int)? exitFn}) => RebuildIndexCommand(
+    config: config,
+    writeLine: output.add,
+    exitFn: exitFn,
+    taskBackendFactory: (_) => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    indexFactory: (_, table) => indexes[table]!.index,
+    rebuildTargetFactory: (_, table) => indexes[table]!,
+  );
+
   Future<void> runCommand(DartclawConfig config) async {
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    final runner = DartclawRunner()..addCommand(command(config));
     await runner.run(['rebuild-index']);
   }
 
   Directory workspaceOf(DartclawConfig config) => Directory(config.workspaceDir)..createSync(recursive: true);
 
   test('postgres connection refusal reports safe guidance without a local search store', () async {
-    final config = DartclawConfig(
-      server: ServerConfig(dataDir: tempDir.path),
-      database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
-    );
+    final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     int? code;
     final runner = DartclawRunner()
       ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
@@ -52,12 +63,10 @@ void main() {
   test('hybrid PostgreSQL refusal precedes authoritative preparation and never opens SQLite vectors', () async {
     final config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path),
-      database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
       search: const SearchConfig(backend: 'hybrid'),
     );
     final backend = PostgresVectorSchemaTestBackend.current(extensionAvailable: false);
     var providerConstructed = false;
-    var vectorFileOpened = false;
     int? code;
     final runner = DartclawRunner()
       ..addCommand(
@@ -66,10 +75,6 @@ void main() {
           writeLine: output.add,
           exitFn: (value) => code = value,
           taskBackendFactory: (_) async => backend,
-          vectorBackendFactory: (_) async {
-            vectorFileOpened = true;
-            throw StateError('PostgreSQL must not open a SQLite vector file');
-          },
           embeddingProviderFactory: () {
             providerConstructed = true;
             throw StateError('Unavailable pgvector must refuse before provider construction');
@@ -86,7 +91,6 @@ void main() {
     expect(backend.queries, hasLength(1));
     expect(backend.queries.single.sql, contains('pg_catalog.pg_extension'));
     expect(providerConstructed, isFalse);
-    expect(vectorFileOpened, isFalse);
     expect(File(config.searchDbPath).existsSync(), isFalse);
     expect(File(config.vectorsDbPath).existsSync(), isFalse);
   });
@@ -106,7 +110,7 @@ void main() {
       server: ServerConfig(dataDir: tempDir.path),
       warnings: const ['legacy setting ignored'],
     );
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    final runner = DartclawRunner()..addCommand(command(config));
 
     await runner.run(['rebuild-index', '--json']);
 
@@ -124,23 +128,20 @@ void main() {
   test('missing canonical files clear stale index rows', () async {
     Directory(p.join(tempDir.path, 'workspace')).createSync();
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
-    final dbPath = p.join(tempDir.path, 'search.db');
-    final seededDb = sqlite3.open(dbPath);
-    await SqliteSchemaGate.prepareSearch(SqliteBackend(seededDb), storeName: 'search.db');
-    seededDb.execute(
-      'INSERT INTO memory_chunks (text, chunk_index, source, created_at, locator) VALUES (?, ?, ?, ?, ?)',
-      ['stale searchable row', 0, 'legacy-memory', DateTime(2026).toIso8601String(), 'legacy-memory'],
-    );
-    seededDb.close();
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    await indexes[PostgresFtsTable.memoryChunks]!.index.upsert([
+      SearchDocument(
+        id: 'legacy-memory',
+        chunks: const ['stale searchable row'],
+        metadata: const {'source': 'legacy-memory'},
+        timestamp: DateTime(2026),
+      ),
+    ], userId: 'owner');
+    final runner = DartclawRunner()..addCommand(command(config));
 
     await runner.run(['rebuild-index']);
 
-    final db = sqlite3.open(dbPath);
-    final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
-    expect(await index.search('stale', userId: 'owner'), isEmpty);
+    expect(await indexes[PostgresFtsTable.memoryChunks]!.index.search('stale', userId: 'owner'), isEmpty);
     expect(output[1], contains('Memory preflight: alreadyCurrent'));
-    db.close();
   });
 
   test('rebuilds the index from a canonical corpus', () async {
@@ -153,8 +154,7 @@ void main() {
         'project': ['Working on DartClaw'],
       },
     );
-    final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    final runner = DartclawRunner()..addCommand(command(config));
 
     await runner.run(['rebuild-index']);
 
@@ -163,12 +163,9 @@ void main() {
     expect(output[2], contains('Rebuilt index: 3 entries at collection revision 2'));
     expect(output.last, 'Rebuilt conversation index: 0 messages from 0 sessions');
 
-    final db = sqlite3.open(dbPath);
-    final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
-    final results = await index.search('Dart', userId: 'owner');
+    final results = await indexes[PostgresFtsTable.memoryChunks]!.index.search('Dart', userId: 'owner');
     expect(results, isNotEmpty);
     expect(results.first.chunk, contains('Dart'));
-    db.close();
   });
 
   test('rebuilds explicit workspace corpora independently and reports one failed binding', () async {
@@ -209,22 +206,22 @@ void main() {
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('## general\n- [2026-09-14 10:00] invalid-preview-marker\n');
     int? code;
-    final runner = DartclawRunner()
-      ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
+    final runner = DartclawRunner()..addCommand(command(config, exitFn: (value) => code = value));
 
     await runner.run(['rebuild-index']);
 
-    final backend = await SqliteBackend.open(config.searchDbPath);
-    try {
-      final index = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
-      expect((await index.search('owner-rebuild-marker', userId: 'owner')).single.chunk, 'owner-rebuild-marker');
-      expect((await index.search('agent-a-rebuild-marker', userId: 'agent:a')).single.chunk, 'agent-a-rebuild-marker');
-      expect(await index.search('owner-rebuild-marker', userId: 'agent:a'), isEmpty);
-      expect(await index.search('agent-a-rebuild-marker', userId: 'owner'), isEmpty);
-      expect(await index.search('invalid-preview-marker', userId: 'agent:b'), isEmpty);
-    } finally {
-      await backend.close();
-    }
+    final index = indexes[PostgresFtsTable.memoryChunks]!.index;
+    expect((await index.search('owner-rebuild-marker', userId: 'owner')).single.chunk, 'owner-rebuild-marker');
+    expect((await index.search('agent-a-rebuild-marker', userId: 'agent:a')).single.chunk, 'agent-a-rebuild-marker');
+    expect(
+      (await index.listRecent(userId: 'agent:a')).map((row) => row.chunk),
+      isNot(contains('owner-rebuild-marker')),
+    );
+    expect(
+      (await index.listRecent(userId: 'owner')).map((row) => row.chunk),
+      isNot(contains('agent-a-rebuild-marker')),
+    );
+    expect(await index.search('invalid-preview-marker', userId: 'agent:b'), isEmpty);
     expect(code, 1);
     expect(output, contains(contains('agent:a: rebuilt 1 entries')));
     expect(output, contains(allOf(contains('agent:b'), contains('preflight failed'))));
@@ -250,8 +247,7 @@ void main() {
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('## preview\n- invalid dialect\n');
     int? code;
-    final runner = DartclawRunner()
-      ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
+    final runner = DartclawRunner()..addCommand(command(config, exitFn: (value) => code = value));
 
     await runner.run(['rebuild-index', '--json']);
 
@@ -290,8 +286,7 @@ void main() {
     );
     Directory(p.join(agentDir, '.dartclaw-memory-index.json')).createSync();
     int? code;
-    final runner = DartclawRunner()
-      ..addCommand(RebuildIndexCommand(config: config, writeLine: output.add, exitFn: (value) => code = value));
+    final runner = DartclawRunner()..addCommand(command(config, exitFn: (value) => code = value));
 
     await runner.run(['rebuild-index', '--json']);
 
@@ -306,7 +301,7 @@ void main() {
     expect(failure['message'], isNotEmpty);
   });
 
-  test('rebuild repairs an incompatible search store and leaves the next reconciliation current', () async {
+  test('a repeated rebuild stays current and preserves only canonical rows', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
     workspaceOf(config);
     await seedCanonicalMemory(
@@ -315,42 +310,21 @@ void main() {
         'project': ['Canonical recovery fact'],
       },
     );
-    final legacy = sqlite3.open(config.searchDbPath);
-    try {
-      legacy.execute('''
-        CREATE TABLE memory_chunks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          text TEXT NOT NULL,
-          source TEXT NOT NULL,
-          category TEXT,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          user_id TEXT NOT NULL DEFAULT 'owner'
-        )
-      ''');
-      legacy.execute("INSERT INTO memory_chunks(text, source) VALUES ('Obsolete row', 'legacy')");
-    } finally {
-      legacy.close();
-    }
+    await indexes[PostgresFtsTable.memoryChunks]!.index.upsert([
+      SearchDocument(
+        id: 'legacy',
+        chunks: const ['Obsolete row'],
+        metadata: const {'source': 'legacy'},
+        timestamp: DateTime.utc(2025),
+      ),
+    ], userId: 'owner');
 
     await runCommand(config);
 
     expect(output[2], 'Rebuilt index: 1 entries at collection revision 2; health=healthy');
-    final backend = await SqliteBackend.open(config.searchDbPath);
-    try {
-      expect(await backend.query('SELECT id, epoch FROM dartclaw_schema'), [
-        {'id': 1, 'epoch': 1},
-      ]);
-      expect(
-        (await SqliteSchemaGate.inspect(backend, SchemaIdentity.search, storeName: 'search.db')).state,
-        SqliteSchemaState.current,
-      );
-      await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-      final index = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
-      expect((await index.search('Canonical recovery', userId: 'owner')).single.chunk, 'Canonical recovery fact');
-      expect(await index.search('Obsolete', userId: 'owner'), isEmpty);
-    } finally {
-      await backend.close();
-    }
+    final index = indexes[PostgresFtsTable.memoryChunks]!.index;
+    expect((await index.search('Canonical recovery', userId: 'owner')).single.chunk, 'Canonical recovery fact');
+    expect(await index.search('Obsolete', userId: 'owner'), isEmpty);
 
     final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
     try {
@@ -358,8 +332,8 @@ void main() {
       final transitions = <IndexReconcileTransition>[];
       final result =
           await CanonicalIndexReconciler(
-            targetPath: config.searchDbPath,
             healthStore: IndexHealthStore(workspaceDir: config.workspaceDir),
+            target: indexes[PostgresFtsTable.memoryChunks]!,
             transitionHook: (transition) async => transitions.add(transition),
           ).ensureCurrent(
             corpus: await corpusService.readCorpus(),
@@ -391,18 +365,15 @@ void main() {
         'project': [entryText],
       },
     );
-    final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    final runner = DartclawRunner()..addCommand(command(config));
 
     await runner.run(['rebuild-index']);
 
-    final db = sqlite3.open(dbPath);
-    final rows = db.select('SELECT text, source, category, created_at, locator FROM memory_chunks ORDER BY id');
-    expect(rows.map((row) => row['text']), expectedTexts);
-    expect(rows.every((row) => row['source'] == row['locator'] && row['category'] == 'project'), isTrue);
-    expect(rows.map((row) => row['created_at']).toSet(), {DateTime.utc(2026, 2, 23, 10).toIso8601String()});
+    final rows = await indexes[PostgresFtsTable.memoryChunks]!.index.listRecent(userId: 'owner', limit: 100);
+    expect(rows.map((row) => row.chunk), expectedTexts);
+    expect(rows.every((row) => row.metadata['source'] == row.id && row.metadata['category'] == 'project'), isTrue);
+    expect(rows.map((row) => row.timestamp).toSet(), {DateTime.utc(2026, 2, 23, 10)});
     expect(output[2], contains('Rebuilt index: ${expectedTexts.length} entries'));
-    db.close();
   });
 
   test('rebuilds topic, archive, and learning members with their canonical sources', () async {
@@ -418,25 +389,18 @@ void main() {
       },
       learnings: const ['Validate rebuild recovery'],
     );
-    final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    final runner = DartclawRunner()..addCommand(command(config));
 
     await runner.run(['rebuild-index']);
 
-    final db = sqlite3.open(dbPath);
-    final index = SqliteFtsIndex(SqliteBackend(db), table: SqliteFtsTable.memoryChunks);
-    final current = MemoryIndexProjection.toSearchResult(
-      (await index.search('Current searchable', userId: 'owner')).single,
-    );
-    final archived = MemoryIndexProjection.toSearchResult(
-      (await index.search('Archived searchable', userId: 'owner')).single,
-    );
+    final index = indexes[PostgresFtsTable.memoryChunks]!.index;
+    final current = MemoryIndexProjection.toSearchResult((await index.search('Current', userId: 'owner')).single);
+    final archived = MemoryIndexProjection.toSearchResult((await index.search('Archived', userId: 'owner')).single);
     final learning = MemoryIndexProjection.toSearchResult((await index.search('Validate', userId: 'owner')).single);
     expect((current.role, current.source == current.locator, current.category), ('topic', true, 'preferences'));
     expect((archived.role, archived.source == archived.locator, archived.category), ('archive', true, 'project'));
     expect((learning.role, learning.source == learning.locator, learning.category), ('learning', true, null));
     expect(output[2], contains('Rebuilt index: 3 entries'));
-    db.close();
   });
 
   test('rebuild preserves canonical timestamps across repeated runs', () async {
@@ -449,21 +413,17 @@ void main() {
       },
       updated: DateTime.utc(2025),
     );
-    final dbPath = p.join(tempDir.path, 'search.db');
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    final runner = DartclawRunner()..addCommand(command(config));
 
     await runner.run(['rebuild-index']);
-    final firstDb = sqlite3.open(dbPath);
-    final first = firstDb.select('SELECT created_at FROM memory_chunks').single['created_at'];
-    firstDb.close();
+    final index = indexes[PostgresFtsTable.memoryChunks]!.index;
+    final first = (await index.listRecent(userId: 'owner')).single.timestamp;
 
     output.clear();
     await runner.run(['rebuild-index']);
-    final secondDb = sqlite3.open(dbPath);
-    final second = secondDb.select('SELECT created_at FROM memory_chunks').single['created_at'];
-    secondDb.close();
+    final second = (await index.listRecent(userId: 'owner')).single.timestamp;
 
-    expect(first, DateTime.utc(2025).toIso8601String());
+    expect(first, DateTime.utc(2025));
     expect(second, first);
   });
 
@@ -472,17 +432,13 @@ void main() {
     final wsDir = workspaceOf(config);
     final memory = File(p.join(wsDir.path, 'MEMORY.md'))
       ..writeAsStringSync('## preferences\n- [2026-02-23 10:00] Preview dialect entry\n');
+    int? code;
+    final runner = DartclawRunner()..addCommand(command(config, exitFn: (value) => code = value));
 
-    await expectLater(
-      runCommand(config),
-      throwsA(
-        isA<MemoryPreflightException>()
-            .having((error) => error.report, 'report', contains('Stage: legacy-dialect-detected'))
-            .having((error) => error.report, 'report', contains('MEMORY.md'))
-            .having((error) => error.report, 'report', contains(MemoryPreflight.lastConvertingRelease)),
-      ),
-    );
+    await runner.run(['rebuild-index']);
 
+    expect(code, 1);
+    expect(output.last, 'Memory index rebuild failed. Check index health and retry rebuild-index.');
     expect(memory.readAsStringSync(), '## preferences\n- [2026-02-23 10:00] Preview dialect entry\n');
     expect(File(p.join(tempDir.path, 'search.db')).existsSync(), isFalse);
   });
@@ -493,18 +449,13 @@ void main() {
       ..writeAsStringSync('## general\n- [2026-02-23 10:00] External fact\n');
     Link(p.join(wsDir.path, 'MEMORY.archive.md')).createSync(external.path);
     final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
+    int? code;
+    final runner = DartclawRunner()..addCommand(command(config, exitFn: (value) => code = value));
 
-    await expectLater(
-      runCommand(config),
-      throwsA(
-        isA<MemoryPreflightException>().having(
-          (error) => error.report,
-          'report',
-          contains('Stage: legacy-dialect-detected'),
-        ),
-      ),
-    );
+    await runner.run(['rebuild-index']);
 
+    expect(code, 1);
+    expect(output.last, 'Memory index rebuild failed. Check index health and retry rebuild-index.');
     expect(external.readAsStringSync(), contains('External fact'));
   }, skip: Platform.isWindows);
 }

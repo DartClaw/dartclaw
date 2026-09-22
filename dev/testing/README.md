@@ -27,11 +27,13 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 | `conversation-loop` | n/a | `bash dev/testing/profiles/conversation-loop/run.sh --case <name>` | Browser and process-boundary conversation journeys. `run.sh --help` lists the cases; milestone-specific protocols live with the active plan bundle. `visual_checks.sh`'s `assert_layout_canon` measures the live app against the layout canon (desktop control heights, 40px topbar, composer anchoring, 44px touch targets, overflow, alignment, placeholder leaks); the screenshots it retains are reviewed by eye against `dev/bundle/docs/wireframes/chat-shell-target.html`. |
 | `container` | 3341 | `bash dev/testing/profiles/container/run.sh` | Real container isolation end to end: a turn runs inside a container, the container holds no provider credential, and a task tool is served over the MCP bridge. SIGKILL leaves the turn container running; restart reclaims it and its generated state. Reports a stated skip when no container runtime answers. |
 | `container --ci` | 3342 | `bash dev/testing/profiles/container/run.sh --ci` | What CI runs. Boots a config declaring **no** `container:` section and asserts the posture resolved to container isolation, so an advisory downgrade fails instead of passing. An absent runtime is a failure, not a skip. Injects SIGKILL and three decoys, then proves restart reclaims only the owned labelled decoy. Issues no model turn and needs no credential, so it runs on a fork PR. |
-| `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders` | Native Windows x64 release smoke: server, Web UI, FTS5, and file-watch reload. Claude and Codex turns are optional compatibility layers. Writes the layered report to `.agent_temp/windows-runtime-smoke.md`. |
+| `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders` | Native Windows x64 release smoke: server, Web UI, PostgreSQL lexical storage/search, and file-watch reload. Claude and Codex turns are optional compatibility layers. Writes the layered report to `.agent_temp/windows-runtime-smoke.md`. |
 
 ## Evidence and milestone records
 
-Keep reusable runners and test instructions under `dev/testing/`. Keep milestone-specific scenario mappings,
+Keep reusable runners and test instructions under `dev/testing/`. The single 0.27 result authority is
+[`0.27-qualification.md`](0.27-qualification.md); producer runs append actual candidate/environment-bound evidence or
+explicit holds there. Keep milestone-specific scenario mappings,
 qualification protocols, result ledgers and outstanding checks beside the plan in `dev/bundle/docs/specs/<version>/`.
 They follow the [spec lifecycle](../state/SPEC-LIFECYCLE.md), not the lifetime of permanent testing documentation.
 
@@ -64,10 +66,9 @@ The Windows runtime profile is release-ready only when its artifact-mode verdict
 explicit and uses a startup-only stub so the deterministic core layers run without credentials. Omit it to revalidate
 live Claude and Codex compatibility after relevant integration changes. See `scenarios/windows-runtime-smoke.md`.
 
-`-ArtifactPath` is the supported mode: the release bundle carries `lib/sqlite3.dll` and the profile loads it from
-there. **`-SourceDir` additionally requires `.dart_tool/lib/sqlite3.dll` in that checkout, and no repo tooling
-provisions it** — neither `dart pub get` nor any build script writes that file, so source mode on a fresh Windows
-checkout stops at `source-setup` until the module is supplied. Use artifact mode unless you have a reason not to.
+`-ArtifactPath` is the release-qualification mode. It validates that the archive has no SQLite runtime asset and uses
+a native PostgreSQL 14+ service for storage/search. `-SourceDir` remains useful for diagnosis but does not qualify the
+release artifact. Use artifact mode unless you have a reason not to.
 The `windows-x64-host` layer reports `skipped` on an arm64 Windows host, which alone keeps that host from ever
 reaching a release-ready verdict.
 

@@ -2,9 +2,8 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.27 conversation invalidation, attempt records, effective-context telemetry, inbox attention and
-action availability; plus 0.26 retrieval, capacity, alerting, and storage. The authoritative SQLite store is
-`dartclaw.db`.
+**Current through**: 0.27 PostgreSQL-only storage, conversation invalidation, attempt records, effective-context
+telemetry, inbox attention and action availability; plus retrieval, capacity and alerting.
 
 ---
 
@@ -134,7 +133,7 @@ Reported metrics:
 | `uptime_s` | Process start time | Seconds since server start |
 | `worker_state` | `AgentHarness.state` | `idle` / `busy` / `stopped` / `crashed` |
 | `session_count` | Directory listing | Count of session subdirectories |
-| `db_size_bytes` | File stat | Search index SQLite file size |
+| `db_size_bytes` | Database health projection | PostgreSQL storage size when available |
 | `artifact_disk_bytes` | Recursive scan | Total size of task artifact files |
 | `version` | `dartclawVersion` constant | Current DartClaw version |
 | `daily_usage` | `UsageTracker.dailySummary()` | Today's token consumption aggregate |
@@ -326,7 +325,10 @@ Source: `packages/dartclaw_core/lib/src/turn/turn_trace.dart`
 
 ### TurnTraceService
 
-SQLite-backed persistence in `turns` table (co-located in dartclaw.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable. Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
+PostgreSQL-backed persistence in the `turns` table. Indexed on `session_id`, `task_id`, `started_at`, `model`,
+`provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable.
+Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact
+tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
 
 Source: `packages/dartclaw_core/lib/src/storage/turn_trace_service.dart`
 
@@ -782,7 +784,7 @@ Agent Turn Execution
 
 - **`dartclaw_core`**: `DartclawEvent` subtypes, `EventBus`, compaction events, `TurnTrace`, `TurnTraceSummary`, `ToolCallRecord`
 - **`dartclaw_kernel`**: `GuardAuditLogger`, `AuditEntry`, `AlertsConfig`, `LoggingConfig`, `UsageConfig`, `ContextConfig`, `SchedulingConfig`
-- **`dartclaw_core`**: `TurnTraceService` (SQLite persistence)
+- **`dartclaw_core`**: `TurnTraceService` (PostgreSQL persistence)
 - **`dartclaw_google_chat`**: `PubSubHealthReporter`
 - **`dartclaw_runtime`**: All other observability components (alerts, audit bridging, health, usage, logging, SSE, context, governance, scheduling)
 

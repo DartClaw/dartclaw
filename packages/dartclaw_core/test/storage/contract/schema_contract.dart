@@ -3,7 +3,7 @@ import 'package:test/test.dart';
 
 import 'database_backend_contract.dart';
 
-void schemaContractGroups(ContractBackend Function() current, ContractBackendKind kind) {
+void schemaContractGroups(ContractBackend Function() current) {
   group('[contract:schema.fresh_bootstrap] atomic preparation', () {
     test('creates a current schema and a second prepare is a no-op', () async {
       final schema = current().schema;
@@ -75,12 +75,4 @@ void schemaContractGroups(ContractBackend Function() current, ContractBackendKin
       }
     });
   });
-
-  if (kind == ContractBackendKind.sqlite) {
-    group('[contract:schema.sqlite_derived_rebuild] derived store', () {
-      test('rebuilds only from a complete authenticated source', () async {
-        await current().schema.proveDerivedRebuild!();
-      });
-    });
-  }
 }

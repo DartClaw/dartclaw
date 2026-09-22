@@ -4,7 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 import 'package:logging/logging.dart';
 
-/// SQLite-backed persistence for task timeline events.
+/// Database-backed persistence for task timeline events.
 ///
 /// Writes complete before the returned future completes.
 class TaskEventService {

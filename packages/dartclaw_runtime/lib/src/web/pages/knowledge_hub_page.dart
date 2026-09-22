@@ -1,6 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ComposedSearchBackend, Fts5SearchBackend, TemporalKnowledgeGraphService, WikiSearchSource;
+    show ComposedSearchBackend, LexicalSearchBackend, TemporalKnowledgeGraphService, WikiSearchSource;
 import 'package:dartclaw_core/dartclaw_core.dart' show MemoryCorpusService;
 import 'package:shelf/shelf.dart';
 
@@ -102,7 +102,7 @@ KnowledgeHubService knowledgeHubServiceForWorkspace({
   final effectiveSearch =
       searchBackend ??
       ComposedSearchBackend(
-        personal: Fts5SearchBackend(index: memoryIndex),
+        personal: LexicalSearchBackend(index: memoryIndex),
         wiki: wiki,
       );
   return KnowledgeHubService(

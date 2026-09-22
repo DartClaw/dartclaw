@@ -118,13 +118,16 @@ group('SessionKey', () {
 
 ### Layer 2 — Component / Integration Tests
 
-**What**: Behavioral tests that need infrastructure — temp directories, in-memory SQLite, or fakes for external boundaries (harness, channels, third-party APIs). May involve one service or several wired together.
+**What**: Behavioral tests that need infrastructure — temp directories, domain fakes, or fakes for external boundaries
+(harness, channels, third-party APIs). SQL dialect, schema, transaction, interlock, search and restore behavior uses
+real disposable PostgreSQL instead. May involve one service or several wired together.
 
-**Targets**: Services with file-based or SQLite storage, multi-service interactions, EventBus subscriber chains, channel message routing, task lifecycle flows, workflow execution with fake harnesses, CLI/server wiring seams, and repository contracts.
+**Targets**: Services with file-based storage, multi-service interactions, EventBus subscriber chains, channel message
+routing, task lifecycle flows, workflow execution with fake harnesses, CLI/server wiring seams, and repository contracts.
 
 **Characteristics**:
 - Temp directories for file-based storage (`Directory.systemTemp.createTempSync`)
-- In-memory SQLite (`sqlite3.openInMemory()`) for search/task tests
+- Domain repository/backend fakes when SQL behavior is not the claim
 - Shared fakes from `dartclaw_testing` for external boundaries (harness, channels, processes)
 - Per-test isolation — `setUp` creates fresh state, `tearDown` cleans up
 - When testing real local resources (TCP ports, process wiring, working-directory behavior, static-asset lookup), isolate them per test: bind port `0`, use per-test temp directories, and inject the working directory rather than assigning `Directory.current`. Serialization (`-j 1`) is a last resort — it costs 3–5× wall time across the package.
@@ -142,8 +145,7 @@ late TaskService taskService;
 
 setUp(() {
   tempDir = Directory.systemTemp.createTempSync('task_test_');
-  final db = sqlite3.openInMemory();
-  taskService = TaskService(repository: SqliteTaskRepository(db));
+  taskService = TaskService(repository: InMemoryTaskRepository());
 });
 
 tearDown(() => tempDir.deleteSync(recursive: true));
@@ -196,7 +198,7 @@ Allow long timeouts (`Timeout(Duration(seconds: 60))`) and prepare required API 
 
 **When to skip**: Almost always — prefer Layer 2 integration tests with `FakeAgentHarness` / `FakeProcess`. Only write Layer 4 tests when the real binary's behavior cannot be faithfully simulated.
 
-The composition-root E2E coverage lives in [`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`](../../packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart), which boots the real `DartclawRuntime`, uses `FakeAgentHarness` plus in-memory SQLite, and verifies that the assembled server serves `/` and `/health`.
+The composition-root E2E coverage lives in [`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`](../../packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart), which boots the real `DartclawRuntime`, uses `FakeAgentHarness` plus prepared domain fakes, and verifies that the assembled server serves `/` and `/health`. Separate live PostgreSQL probes prove production storage wiring.
 
 ### Workflow Validation Ladder
 
@@ -357,8 +359,8 @@ Shared fakes for core-and-below boundaries live in `packages/dartclaw_testing/`.
 | `FakeTurnManager` | Turn lifecycle control | Reserve/execute/cancel hooks and configurable outcomes |
 | `NullIoSink` | Discard-all IOSink for subprocess tests | No-op `write`, `add`, `close` — silences stdout/stderr |
 | `InMemorySessionService` | Session storage without filesystem | Full API mirror, zero I/O |
-| `InMemoryTaskRepository` | Task storage without SQLite | Full CRUD, in-memory |
-| `InMemoryWorkflowStepExecutionRepository` | Workflow-step storage without SQLite | Full kernel repository contract, in-memory |
+| `InMemoryTaskRepository` | Task storage without a database | Full CRUD, in-memory |
+| `InMemoryWorkflowStepExecutionRepository` | Workflow-step storage without a database | Full kernel repository contract, in-memory |
 | `RecordingMessageQueue` | Queue routing assertions | Enqueued-message recording, optional forwarding |
 | `TaskOps` | Channel/task test scaffolding | Shared create/transition/update helpers |
 | `TestEventBus` | Event bus with recording | Event capture, subscription verification |
@@ -547,12 +549,13 @@ dart test --run-skipped -t integration packages/dartclaw_core
 bash dev/tools/postgres_contract.sh
 ```
 
-The script starts pinned PostgreSQL 14/pgvector on an ephemeral loopback port, waits up to 60 readiness attempts,
-installs `vector` in `public`, and removes its container and volume on success, failure or interruption.
+The script proves two separate resources: plain PostgreSQL 14 first with no `public.vector`, then a pgvector-capable
+database for explicit hybrid behavior. It removes disposable resources on success, failure or interruption. A
+container may provision test resources in CI, but that does not make a container engine the operator setup default.
 
-Alternatively, set `DARTCLAW_TEST_POSTGRES_URL` to a **disposable PostgreSQL 14+ test database** with `public.vector`
-already installed. Use a superuser URL with `sslmode=disable`: fixtures create/drop schemas, roles and databases,
-and terminate test connections. The vector fixture creates its own restricted role; a supplied database needs no Docker.
+Alternatively, supply the runner's documented disposable PostgreSQL URLs. Fixtures create/drop schemas, roles and
+databases and terminate test connections, so never point them at a retained deployment. The vector lane creates its
+own restricted role; a supplied database needs no container engine.
 
 Coverage: backend/repository contracts, schema/vector preparation, lexical/vector search, serving interlocks,
 hybrid/runtime wiring, workspace isolation and CLI rebuilds. The `full` workspace tier skips these live suites.
@@ -590,7 +593,7 @@ When implementing a new feature (FIS), determine test requirements by asking:
 
 1. **Is it security-critical?** (guards, auth, sanitization, access control) → Exhaustive Layer 1 + Layer 2 tests including false-positive coverage
 2. **Does it manage state transitions?** (task lifecycle, session scoping, binding lifecycle) → Layer 1 for the state machine (if no infrastructure needed), Layer 2 for service integration with storage
-3. **Does it persist data?** (storage, config, thread bindings) → Layer 2 with temp dirs or in-memory SQLite
+3. **Does it persist data?** (storage, config, thread bindings) → Layer 2 with temp dirs or domain fakes; real PostgreSQL for SQL behavior
 4. **Does it expose an API?** (HTTP routes, slash commands, config API) → Layer 3 handler tests
 5. **Does it interact with external systems?** (channels, claude binary, Google Chat API) → Layer 2 with fakes for external boundaries, Layer 4 only if fake coverage is insufficient
 6. **Is it pure logic or multi-class domain behavior?** (parsing, validation, rate calculation, guard chain orchestration) → Layer 1, letting real collaborators participate where practical

@@ -333,10 +333,6 @@
   [blocking] Invalid type for data_dir: "int" — using default
 === database#scalar ===
   [blocking] Invalid type for database: "int" — using defaults
-=== database.backend#non-member ===
-  [blocking] Invalid database.backend: "__dartclaw_not_a_member__" — using default
-=== database.backend#type-nonstring ===
-  [blocking] Invalid type for backend: "int" — using default
 === database.credential#type-nonstring ===
   [blocking] Invalid type for credential: "int" — using defaults
 === database.fts_language#type-nonstring ===
@@ -764,7 +760,7 @@
 === search#scalar ===
   [blocking] Invalid type for search: "int" — using defaults
 === search.backend#non-member ===
-  [blocking] Invalid search.backend: "__dartclaw_not_a_member__" — using default
+  [blocking] Invalid search.backend: "__dartclaw_not_a_member__" — expected lexical or hybrid.
 === search.backend#type-nonstring ===
   [blocking] Invalid type for backend: "int" — using defaults
 === search.default_depth#type-nonstring ===
@@ -783,18 +779,6 @@
   [blocking] Invalid type for search.embedding.provider: "int" — using default
 === search.providers#type-nonmap ===
   [blocking] Invalid type for providers: "int" — using defaults
-=== search.qmd#scalar ===
-  [blocking] Invalid type for qmd: "int" — using defaults
-=== search.qmd.host#type-nonstring ===
-  [blocking] Invalid type for host: "int" — using default
-=== search.qmd.port#above-max ===
-  (none)
-=== search.qmd.port#below-min ===
-  (none)
-=== search.qmd.port#type-nonstring ===
-  [blocking] Invalid type for port: "bool" — using default
-=== search.qmd.port#type-string ===
-  [blocking] Invalid type for port: "String" — using default
 === security#scalar ===
   [blocking] Invalid type for security: "int" — using defaults
 === security.bash_step#scalar ===

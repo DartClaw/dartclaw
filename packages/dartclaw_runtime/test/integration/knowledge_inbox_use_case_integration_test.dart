@@ -8,7 +8,6 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../execution_coordinator_test_support.dart';
@@ -220,10 +219,9 @@ void main() {
   late Directory workspaceDir;
   late SessionService sessions;
   late MessageService messages;
-  late Database db;
   late FullTextIndex memory;
   late MemoryFileService memoryFile;
-  late Fts5SearchBackend searchBackend;
+  late LexicalSearchBackend searchBackend;
   late _KnowledgeInboxSearchProvider provider;
   late _KnowledgeInboxWorker worker;
   late TurnManager turns;
@@ -237,8 +235,7 @@ void main() {
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
 
-    db = sqlite3.openInMemory();
-    memory = await prepareMemoryIndex(db);
+    memory = await prepareMemoryIndex();
     memoryFile = MemoryFileService(baseDir: workspaceDir.path);
 
     fetchServer = await _startKnowledgeInboxServer();
@@ -248,7 +245,7 @@ void main() {
 
     provider = _KnowledgeInboxSearchProvider(safeUrl: 'http://127.0.0.1:${fetchServer.port}/safe');
 
-    searchBackend = Fts5SearchBackend(index: memory);
+    searchBackend = LexicalSearchBackend(index: memory);
     final memoryHandlers = createMemoryHandlers(
       memoryIndex: memory,
       memoryFile: memoryFile,
@@ -295,7 +292,6 @@ void main() {
     await turns.executions.dispose();
     await messages.dispose();
     await memoryFile.dispose();
-    db.close();
     await fetchServer.close(force: true);
     if (workspaceDir.existsSync()) workspaceDir.deleteSync(recursive: true);
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);

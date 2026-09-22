@@ -94,8 +94,8 @@ dartclaw --version
 ```
 
 Workflow-only hosts can instead install `brew install DartClaw/dartclaw/dartclaw-workflow` and use flat commands
-such as `dartclaw-workflow run my-flow`. The formula keeps its executable and SQLite under its own `libexec/`,
-with a `bin/dartclaw-workflow` symlink, so both formulas can be installed together. The lean Windows ZIP is a
+such as `dartclaw-workflow run my-flow`. The formula keeps its executable and optional native embedding libraries
+under its own `libexec/`, with a `bin/dartclaw-workflow` symlink, so both formulas can be installed together. The lean Windows ZIP is a
 separate release asset for manual extraction; the installer and Scoop package below install the full binary.
 
 On Windows x64, use the checksum-verifying PowerShell installer:
@@ -136,13 +136,11 @@ in the repository; `DARTCLAW_NATIVE_ARCHIVE_CACHE` overrides that location. Wind
 `$env:DARTCLAW_NATIVE_ALLOW_DOWNLOAD = '1'` before the first `./dev/tools/build_windows.ps1` invocation.
 
 `dev/tools/build.sh` runs `dart build cli` for both entry points, producing `build/bin/dartclaw` and
-`build/bin/dartclaw-workflow` with one bundled SQLite library in `build/lib/` (`libsqlite3.dylib` on macOS,
-`libsqlite3.so` on Linux). It emits `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` and
+`build/bin/dartclaw-workflow`. It emits `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` and
 `build/dartclaw-workflow-v{VERSION}-{os}-{arch}.tar.gz`, each with its own checksum, `VERSION`, executable in
-`bin/`, and SQLite in `lib/`. Windows builds use `dev/tools/build_windows.ps1` to emit
+`bin/`, and selected native embedding libraries when applicable. Windows builds use `dev/tools/build_windows.ps1` to emit
 `dartclaw-v<version>-windows-x64.zip` and `dartclaw-workflow-v<version>-windows-x64.zip`, each with `VERSION`,
-its matching `.exe` in `bin/`, and `lib/sqlite3.dll`. Each binary resolves the library
-relative to itself, so `bin/` and `lib/` must stay siblings. Windows embedding backend modules and their dependencies
+its matching `.exe` in `bin/`. Windows embedding backend modules and their dependencies
 are also staged in `bin/` for native backend discovery; keep the complete archive layout when installing. Templates, static assets, skills, and workflows are
 embedded in the executable, so it needs no companion asset files and no first-run network request. `dart build cli`
 cannot cross-compile: each release target (`macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`, `windows-x64`)
@@ -282,8 +280,8 @@ so. The store is the answer for a secret that had nowhere better to live than a 
 `dartclaw secrets audit` to see which of your secrets are in which place; it exits non-zero on any finding, so it can
 gate a deploy.
 
-For an opt-in database deployment, [PostgreSQL](postgresql.md#configuration) shows both supported connection-reference
-forms and the required operating posture.
+Every deployment needs PostgreSQL 14+. [PostgreSQL](postgresql.md#configure-the-connection) shows both supported
+connection-reference forms, native service recipes, and the required restricted-role posture.
 
 `dartclaw deploy secrets` belongs to the superseded `deploy` path and is unchanged — prefer `dartclaw secrets set`.
 

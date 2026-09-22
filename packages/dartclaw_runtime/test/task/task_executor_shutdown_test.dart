@@ -2,20 +2,21 @@ import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 import 'task_executor_test_support.dart';
 
 void main() {
   late FakeTaskWorker worker;
-  late _PausingSqliteTaskRepository repository;
+  late _PausingInMemoryTaskRepository repository;
   late TaskExecutorTestHarness harness;
   late TaskExecutor executor;
 
   setUp(() async {
     worker = FakeTaskWorker()..shouldFail = true;
     harness = TaskExecutorTestHarness(worker);
-    await harness.setUp(taskRepositoryFactory: (_) => repository = _PausingSqliteTaskRepository(harness.taskBackend));
+    await harness.setUp(taskRepositoryFactory: (_) => repository = _PausingInMemoryTaskRepository());
     executor = harness.buildWorkflowExecutor();
   });
 
@@ -89,9 +90,7 @@ void main() {
   });
 }
 
-final class _PausingSqliteTaskRepository extends SqliteTaskRepository {
-  new(super.backend);
-
+final class _PausingInMemoryTaskRepository extends InMemoryTaskRepository {
   Completer<void>? _cancellationPaused;
   Completer<void>? _resumeCancellation;
   var _rejectCancellation = false;

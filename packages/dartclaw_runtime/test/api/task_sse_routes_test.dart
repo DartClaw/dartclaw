@@ -6,19 +6,17 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/api/task_sse_routes.dart';
 import 'package:dartclaw_runtime/src/task/task_progress_tracker.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
   late Handler handler;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(backend));
+    tasks = TaskService(InMemoryTaskRepository());
     eventBus = EventBus();
     handler = taskSseRoutes(tasks, eventBus).call;
   });
@@ -26,7 +24,6 @@ void main() {
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
-    await backend.close();
   });
 
   Map<String, dynamic> decodeFramePayload(String frame) {

@@ -14,7 +14,6 @@ import 'api_test_helpers.dart';
 import 'task_routes_test_support.dart';
 
 void main() {
-  late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
   late Handler handler;
@@ -22,12 +21,13 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
     eventBus = EventBus();
+    final taskRepository = InMemoryTaskRepository();
+    final agentExecutions = InMemoryAgentExecutionRepository();
     tasks = TaskService(
-      SqliteTaskRepository(backend),
-      agentExecutionRepository: SqliteAgentExecutionRepository(backend, eventBus: eventBus),
-      executionTransactor: SqliteExecutionRepositoryTransactor(backend),
+      taskRepository,
+      agentExecutionRepository: agentExecutions,
+      executionTransactor: const InMemoryExecutionRepositoryTransactor(),
       eventBus: eventBus,
     );
     tempDir = Directory.systemTemp.createTempSync('task_routes_test_');
@@ -38,7 +38,6 @@ void main() {
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
-    await backend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

@@ -32,7 +32,7 @@ void main() {
     String pruningSchedule = '0 3 * * *',
     int archiveAfterDays = 90,
     int memoryMaxBytes = 32768,
-    String searchBackend = 'fts5',
+    String searchBackend = 'postgresql',
   }) {
     return DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path),

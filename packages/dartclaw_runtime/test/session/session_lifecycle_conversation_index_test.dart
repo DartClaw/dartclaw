@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show PostgresFtsTable;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/maintenance/session_maintenance_service.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
 import 'package:dartclaw_runtime/src/session/session_reset_service.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -18,11 +19,14 @@ void main() {
   setUp(() async {
     dataDir = Directory.systemTemp.createTempSync('conversation_lifecycle_');
     config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
+    final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
     storage = StorageWiring(
       config: config,
       eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
+      searchIndexFactory: (_, table, {required withinTransaction}) =>
+          indices.putIfAbsent(table, InMemoryFullTextIndex.new),
       exitFn: (code) => throw StateError('unexpected exit $code'),
     );
     await storage.wire();

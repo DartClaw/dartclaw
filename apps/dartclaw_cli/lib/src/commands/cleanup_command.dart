@@ -6,8 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show SessionMaintenanceService, MaintenanceReport, MaintenanceAction, formatByteSize, resolveDatabaseDsn;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show RuntimeArtifactsPruneReport, SqliteWorkflowRunRepository, WorkflowRun, WorkflowRuntimeArtifactsPruner;
-import 'package:path/path.dart' as p;
+    show RuntimeArtifactsPruneReport, DatabaseWorkflowRunRepository, WorkflowRun, WorkflowRuntimeArtifactsPruner;
 
 import 'config_loader.dart';
 
@@ -105,13 +104,9 @@ class CleanupCommand extends Command<void> {
 
     final List<WorkflowRun> completedRuns;
     try {
-      if (config.database.backend == DatabaseBackendKind.sqlite) {
-        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
-        if (!File(config.dartclawDbPath).existsSync()) return false;
-      }
       final factory =
           _taskBackendFactory ??
-          databaseBackendFactoryFor(
+          postgresBackendFactory(
             config.database,
             resolveDsn: (database) =>
                 resolveDatabaseDsn(database, credentials: CredentialRegistry(credentials: config.credentials)),
@@ -119,8 +114,8 @@ class CleanupCommand extends Command<void> {
           );
       final backend = await factory(config.dartclawDbPath);
       try {
-        await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
-        final repository = SqliteWorkflowRunRepository(backend);
+        await PostgresSchemaGate.validateCurrent(backend, databaseIdentity: 'configured PostgreSQL database');
+        final repository = DatabaseWorkflowRunRepository(backend);
         completedRuns = (await repository.list()).where((run) => run.status.terminal).toList();
       } finally {
         // Best-effort close: a close error must not mask the original outcome.

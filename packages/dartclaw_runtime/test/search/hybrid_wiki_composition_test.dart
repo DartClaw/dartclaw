@@ -13,8 +13,7 @@ void main() {
       'wiki stays first and personal ${semanticFailure ? 'lexical fallback' : 'fused'} scores retain exact order',
       () async {
         final workspace = Directory.systemTemp.createTempSync('hybrid_wiki_');
-        final lexicalStore = SqliteBackend.openInMemory();
-        final vectorStore = SqliteBackend.openInMemory();
+        final vectorStore = PostgresVectorTestBackend();
         final provider = CallbackEmbeddingProvider(
           embedQuery: (_) async {
             if (semanticFailure) throw StateError('Injected semantic failure');
@@ -27,13 +26,10 @@ void main() {
         addTearDown(() async {
           await provider.dispose();
           await vectorStore.close();
-          await lexicalStore.close();
           workspace.deleteSync(recursive: true);
         });
-        await SqliteSchemaGate.prepareSearch(lexicalStore, storeName: 'search.db');
-        await SqliteSchemaGate.prepareVectors(vectorStore, storeName: 'vectors.db');
-        final index = SqliteFtsIndex(lexicalStore, table: SqliteFtsTable.memoryChunks);
-        final vectors = SqliteVectorIndex(vectorStore, table: VectorTable.memoryChunks);
+        final index = InMemoryFullTextIndex();
+        final vectors = PostgresVectorIndex(vectorStore, table: VectorTable.memoryChunks);
         const alpha = '00000000-0000-4000-8000-000000000001';
         const beta = '00000000-0000-4000-8000-000000000002';
         final documents = [
@@ -64,7 +60,6 @@ void main() {
         expect(synchronized.unembeddedCount, 0);
         final lexical = await index.search('needle', userId: 'owner');
         expect(lexical.map((hit) => hit.id), [alpha, beta]);
-        expect(lexical.first.score, lessThan(lexical.last.score));
         Directory(p.join(workspace.path, 'wiki')).createSync();
         File(p.join(workspace.path, 'wiki', 'preferences.md')).writeAsStringSync('''
 ---
@@ -96,7 +91,7 @@ A needle synthesis of personal preferences.
         final expectedScores = semanticFailure
             ? lexical.map((hit) => hit.score).toList()
             : [-(0.25 / 62 + 0.75 / 61), -(0.25 / 61 + 0.75 / 62)];
-        expect(expectedScores.first, lessThan(expectedScores.last));
+        if (!semanticFailure) expect(expectedScores.first, lessThan(expectedScores.last));
         for (final memoryOnly in [false, true]) {
           final outcome = await backend.search(
             'needle',

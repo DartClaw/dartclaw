@@ -190,9 +190,7 @@ final class ComposedSearchBackend implements SearchBackend {
   }
 
   static String _normalizedNativePath(String locator) {
-    final uri = Uri.tryParse(locator);
-    final path = uri?.scheme == 'qmd' ? uri!.pathSegments.join('/') : locator;
-    return path.replaceFirst(RegExp(r'^\./'), '').replaceAll('\\', '/');
+    return locator.replaceFirst(RegExp(r'^\./'), '').replaceAll('\\', '/');
   }
 
   static SearchResultLayer _layerFor(MemorySearchResult result) =>

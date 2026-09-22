@@ -10,21 +10,16 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart'
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime;
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
-import 'package:dartclaw_core/dartclaw_core.dart' show SqliteBackend, SqliteSchemaGate;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        SqliteWorkflowRunRepository,
-        WorkflowDefinition,
-        WorkflowRun,
-        WorkflowStep,
-        WorkflowTaskType,
-        skillProvisionerMarkerFile;
+    show WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowTaskType, skillProvisionerMarkerFile;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_exit.dart';
+
+final _stores = <String, _WorkflowStore>{};
 
 void main() {
   group('Standalone workflow lifecycle control', () {
@@ -37,12 +32,14 @@ void main() {
         agent: const AgentConfig(provider: 'claude'),
         server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       );
+      _stores[config.server.dataDir] = _WorkflowStore();
     });
 
     tearDown(() {
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }
+      _stores.remove(config.server.dataDir);
     });
 
     test('S01 resume --standalone advances an approval-paused run to completed (exit 0)', () async {
@@ -89,6 +86,13 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -113,14 +117,19 @@ void main() {
     });
 
     test('S04 retry --standalone on a non-failed run is rejected cleanly (exit 1)', () async {
-      final seed = await seedRun(WorkflowRunStatus.paused);
+      final seed = await seedRun(config, WorkflowRunStatus.paused);
       final output = <String>[];
       final command = WorkflowRetryCommand(
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => seed.backend,
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -141,14 +150,19 @@ void main() {
     });
 
     test('S05 resume --standalone on a stale running run is rejected cleanly (exit 1)', () async {
-      final seed = await seedRun(WorkflowRunStatus.running);
+      final seed = await seedRun(config, WorkflowRunStatus.running);
       final output = <String>[];
       final command = WorkflowResumeCommand(
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => seed.backend,
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -177,6 +191,13 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => true,
         harnessFactory: fakeHarness(),
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -202,6 +223,13 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => true,
         harnessFactory: fakeHarness(),
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -224,11 +252,14 @@ void main() {
     });
 
     test('S07 status --standalone points approval hints at the zero-server lifecycle commands', () async {
-      final seed = await seedApprovalPaused();
+      final seed = await seedApprovalPaused(config);
       final output = <String>[];
       final command = WorkflowStatusCommand(
         config: config,
-        taskBackendFactory: (_) async => seed.backend,
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
         writeLine: output.add,
         exitFn: fakeExit,
       );
@@ -252,7 +283,7 @@ void main() {
       // The seeded run's agent step resolves to the default provider claude,
       // which the injected preflight reports unauthenticated. Resume must abort
       // with the friendly remediation before execution services are wired.
-      final seed = await seedRun(WorkflowRunStatus.paused, definition: singleAgentDefinition());
+      final seed = await seedRun(config, WorkflowRunStatus.paused, definition: singleAgentDefinition());
       final started = <_ThrowOnStartHarness>[];
       final factory = HarnessFactory()
         ..register('claude', (_) {
@@ -266,8 +297,13 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: factory,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => seed.backend,
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(unauthenticated: {'claude'}),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -310,6 +346,13 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: factory,
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: preflight,
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -346,6 +389,13 @@ void main() {
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         // Production default — the verb must force it off, not rely on the flag.
         runWorkflowSkillsBootstrap: true,
         providerAuthPreflight: FakeProviderAuthPreflight(),
@@ -371,14 +421,19 @@ void main() {
       // Pause, like cancel, is a state-only transition. With the bootstrap
       // enabled (production default) it must still skip provisioning rather than
       // fail when the version-pinned asset dir is absent.
-      final seed = await seedRun(WorkflowRunStatus.running);
+      final seed = await seedRun(config, WorkflowRunStatus.running);
       final output = <String>[];
       final command = WorkflowPauseCommand(
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => seed.backend,
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         // Production default — the verb must force it off, not rely on the flag.
         runWorkflowSkillsBootstrap: true,
         providerAuthPreflight: FakeProviderAuthPreflight(),
@@ -404,14 +459,19 @@ void main() {
     });
 
     test('TI05 pause --standalone on a non-running run is rejected cleanly (exit 1)', () async {
-      final seed = await seedRun(WorkflowRunStatus.paused);
+      final seed = await seedRun(config, WorkflowRunStatus.paused);
       final output = <String>[];
       final command = WorkflowPauseCommand(
         config: config,
         reachabilityProbe: (_) async => false,
         harnessFactory: fakeHarness(),
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => seed.backend,
+        taskBackendFactory: (_) => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        taskRepositoryFactory: (_) => _store(config).tasks,
+        workflowRunRepositoryFactory: (_) => _store(config).runs,
+        agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+        workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+        executionRepositoryTransactorFactory: (_) => _store(config).transactor,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
         skillIntrospector: FakeSkillIntrospector(const {}),
@@ -449,6 +509,13 @@ WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) 
     config: config,
     reachabilityProbe: (_) async => false,
     harnessFactory: fakeHarness(),
+    taskBackendFactory: (_) => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    taskRepositoryFactory: (_) => _store(config).tasks,
+    workflowRunRepositoryFactory: (_) => _store(config).runs,
+    agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+    workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+    executionRepositoryTransactorFactory: (_) => _store(config).transactor,
     runWorkflowSkillsBootstrap: false,
     providerAuthPreflight: FakeProviderAuthPreflight(),
     skillIntrospector: FakeSkillIntrospector(const {}),
@@ -461,23 +528,20 @@ WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) 
 
 Future<WorkflowRunStatus?> statusOf(DartclawConfig config, String runId) async => (await runOf(config, runId))?.status;
 
-Future<WorkflowRun?> runOf(DartclawConfig config, String runId) async {
-  final backend = await SqliteBackend.open(config.dartclawDbPath);
-  try {
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'dartclaw.db');
-    return await SqliteWorkflowRunRepository(backend).getById(runId);
-  } finally {
-    await backend.close();
-  }
-}
+Future<WorkflowRun?> runOf(DartclawConfig config, String runId) => _store(config).runs.getById(runId);
 
 Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition definition) async {
   final staging = await DartclawRuntime.stageHeadless(
     config,
     dataDir: config.server.dataDir,
     harnessFactory: fakeHarness(),
-    searchBackendFactory: SqliteBackend.open,
-    taskBackendFactory: SqliteBackend.open,
+    taskBackendFactory: (_) => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    taskRepositoryFactory: (_) => _store(config).tasks,
+    workflowRunRepositoryFactory: (_) => _store(config).runs,
+    agentExecutionRepositoryFactory: (_) => _store(config).agentExecutions,
+    workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
+    executionRepositoryTransactorFactory: (_) => _store(config).transactor,
     stderrLine: (_) {},
     exitFn: (code) => throw StateError('Unexpected exit($code) while seeding an approval-paused run'),
     runWorkflowSkillsBootstrap: false,
@@ -504,11 +568,11 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
   }
 }
 
-Future<({SqliteBackend backend, String runId})> seedRun(
+Future<({String runId})> seedRun(
+  DartclawConfig config,
   WorkflowRunStatus status, {
   WorkflowDefinition? definition,
 }) async {
-  final backend = await openPreparedTaskBackend();
   final now = DateTime.now();
   final effectiveDefinition = definition ?? singleBashDefinition();
   final run = WorkflowRun(
@@ -520,12 +584,11 @@ Future<({SqliteBackend backend, String runId})> seedRun(
     definitionJson: effectiveDefinition.toJson(),
     contextJson: const {'data': <String, dynamic>{}, 'variables': <String, dynamic>{}},
   );
-  await SqliteWorkflowRunRepository(backend).insert(run);
-  return (backend: backend, runId: run.id);
+  await _store(config).runs.insert(run);
+  return (runId: run.id);
 }
 
-Future<({SqliteBackend backend, String runId})> seedApprovalPaused() async {
-  final backend = await openPreparedTaskBackend();
+Future<({String runId})> seedApprovalPaused(DartclawConfig config) async {
   final now = DateTime.now();
   const stepId = 'gate';
   final run = WorkflowRun(
@@ -545,8 +608,18 @@ Future<({SqliteBackend backend, String runId})> seedApprovalPaused() async {
       '_approval.pending.stepIndex': 0,
     },
   );
-  await SqliteWorkflowRunRepository(backend).insert(run);
-  return (backend: backend, runId: run.id);
+  await _store(config).runs.insert(run);
+  return (runId: run.id);
+}
+
+_WorkflowStore _store(DartclawConfig config) => _stores[config.server.dataDir]!;
+
+final class _WorkflowStore {
+  final tasks = InMemoryTaskRepository();
+  final runs = InMemoryWorkflowRunRepository();
+  final agentExecutions = InMemoryAgentExecutionRepository();
+  final stepExecutions = InMemoryWorkflowStepExecutionRepository();
+  final transactor = const InMemoryExecutionRepositoryTransactor();
 }
 
 Stream<void> Function() get noInterrupts =>

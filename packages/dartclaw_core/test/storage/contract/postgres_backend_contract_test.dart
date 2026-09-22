@@ -13,7 +13,7 @@ import '../postgres_live_support.dart';
 import 'database_backend_contract.dart';
 
 void main() {
-  databaseBackendContractTests(name: 'PostgreSQL', open: _openPostgresContract, kind: ContractBackendKind.postgres);
+  databaseBackendContractTests(name: 'PostgreSQL', open: _openPostgresContract);
 }
 
 Future<ContractBackend> _openPostgresContract() async {

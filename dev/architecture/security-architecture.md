@@ -2,9 +2,9 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.27 named-agent workspace principals, effective-context authorization, temporary conversation
-retention and confirmed cleanup, exact-request approval actions, and principal-scoped search; plus the 0.26 PostgreSQL
-connection and retrieval posture.
+**Current through**: 0.27 PostgreSQL-only storage, named-agent workspace principals, effective-context authorization,
+temporary conversation retention and confirmed cleanup, exact-request approval actions, principal-scoped search, and
+the restricted-role connection posture.
 
 ---
 
@@ -268,7 +268,7 @@ Provider adapters normalize tool requests into a DartClaw-canonical taxonomy bef
 | `memory_apply` | own MCP `mcp__dartclaw__memory_apply` | own MCP `{server: dartclaw, tool: memory_apply}` | Curated personal-memory writes |
 | `memory_observe` | own MCP `mcp__dartclaw__memory_observe` | own MCP `{server: dartclaw, tool: memory_observe}` | Observation and learning writes |
 | `memory_search` | own MCP `mcp__dartclaw__memory_search` | own MCP `{server: dartclaw, tool: memory_search}` | Read-only memory search |
-| `memory_read` | own MCP `mcp__dartclaw__memory_read` | own MCP `{server: dartclaw, tool: memory_read}` | Bounded read-only canonical or source-owner-routed wiki/KG/inbox/QMD access |
+| `memory_read` | own MCP `mcp__dartclaw__memory_read` | own MCP `{server: dartclaw, tool: memory_read}` | Bounded read-only canonical or source-owner-routed wiki/KG/inbox access |
 | `mcp_call` | MCP tool call | `mcp_tool_call` | Tool calls routed through an MCP server |
 
 ACP reverse-calls map at the handler level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`

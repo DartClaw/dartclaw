@@ -11,10 +11,10 @@ import 'package:dartclaw_runtime/src/conversation/inbox_service.dart';
 import 'package:dartclaw_runtime/src/conversation/product_conversation_search.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide FakeTurnManager, TurnManager;
 import 'package:shelf_router/shelf_router.dart';
-import 'package:sqlite3/sqlite3.dart' hide Session;
 import 'package:test/test.dart';
 
 import '../api/api_test_helpers.dart';
+import '../helpers/search_index_test_support.dart';
 import '../session_turn_manager_test_support.dart';
 
 void main() {
@@ -165,7 +165,6 @@ void main() {
 final class _SearchRouteFixture {
   new({
     required this.root,
-    required this.backend,
     required this.index,
     required this.sessions,
     required this.messages,
@@ -176,8 +175,7 @@ final class _SearchRouteFixture {
   });
 
   final Directory root;
-  final SqliteBackend backend;
-  final SqliteFtsIndex index;
+  final FullTextIndex index;
   final _RevalidationSessionService sessions;
   final MessageService messages;
   final Session owner;
@@ -205,9 +203,7 @@ final class _SearchRouteFixture {
       role: 'assistant',
       content: 'agent <exact> marker',
     );
-    final backend = SqliteBackend(sqlite3.openInMemory());
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+    final index = await prepareMemoryIndex();
     SearchDocument document(Message message) => SearchDocument(
       id: message.id,
       chunks: [message.content],
@@ -249,7 +245,6 @@ final class _SearchRouteFixture {
     final handler = localAdminMiddleware()(router.call);
     return _SearchRouteFixture(
       root: root,
-      backend: backend,
       index: index,
       sessions: sessions,
       messages: messages,
@@ -262,7 +257,6 @@ final class _SearchRouteFixture {
 
   Future<void> dispose() async {
     await messages.dispose();
-    await backend.close();
     root.deleteSync(recursive: true);
   }
 }

@@ -1,4 +1,4 @@
-// Pure unit test — SchemaValidator has no SQLite, filesystem, or
+// Pure unit test – SchemaValidator has no database, filesystem, or
 // service dependencies. Default tier so it runs on -x component too.
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';

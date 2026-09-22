@@ -348,6 +348,15 @@ void main() {
     expect((await nativeLibraryManifest(package))[0]['sha256'], isNot(manifest[0]['sha256']));
   });
 
+  test('native evidence contains embedding libraries without a SQLite asset', () {
+    final archives = _validEvidence()['releaseArchives']! as List<Object?>;
+    for (final archive in archives.cast<Map<String, Object?>>()) {
+      final libraries = (archive['nativeLibraries']! as List<Object?>).cast<Map<String, Object?>>();
+      expect(libraries.map((library) => library['path']), contains('lib/libllamadart.so'));
+      expect(libraries.where((library) => '${library['path']}'.toLowerCase().contains('sqlite')), isEmpty);
+    }
+  });
+
   test('Windows failure probes select core llama rather than the optional wrapper', () {
     final selected = selectNativeLoaderLibrary([
       File('/release/lib/llamadart.dll'),
@@ -360,7 +369,7 @@ void main() {
     test('Windows native failure fixture ${corrupt ? 'corrupts' : 'removes'} every core library copy', () async {
       final package = Directory.systemTemp.createTempSync('native-failure-copies');
       addTearDown(() => package.deleteSync(recursive: true));
-      for (final relative in ['lib/llama.dll', 'bin/llama.dll', 'lib/llamadart.dll', 'lib/sqlite3.dll']) {
+      for (final relative in ['lib/llama.dll', 'bin/llama.dll', 'lib/llamadart.dll', 'lib/ggml.dll']) {
         final file = File(p.join(package.path, relative));
         file.parent.createSync(recursive: true);
         file.writeAsStringSync(relative);
@@ -374,7 +383,7 @@ void main() {
           expect(file.existsSync(), isFalse);
         }
       }
-      for (final relative in ['lib/llamadart.dll', 'lib/sqlite3.dll']) {
+      for (final relative in ['lib/llamadart.dll', 'lib/ggml.dll']) {
         expect(File(p.join(package.path, relative)).readAsStringSync(), relative);
       }
     });
@@ -452,7 +461,7 @@ Map<String, Object?> _validEvidence() {
           'sha256': 'release archive sha256',
           'nativeLibraries': [
             {'path': 'lib/libllamadart.so', 'sha256': 'llamadart sha256'},
-            {'path': 'lib/libsqlite3.so', 'sha256': 'sqlite sha256'},
+            {'path': 'lib/libllama-common.so', 'sha256': 'llama common sha256'},
           ],
         },
     ],

@@ -7,7 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -111,7 +111,6 @@ void main() {
   late _FakeHarness worker;
   late TurnManager turns;
   late ArtifactCollector collector;
-  late SqliteBackend taskBackend;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_autonomy_test_');
@@ -121,8 +120,7 @@ void main() {
 
     sessions = SessionService(baseDir: sessionsDir);
     messages = MessageService(baseDir: sessionsDir);
-    taskBackend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(taskBackend));
+    tasks = TaskService(InMemoryTaskRepository());
     worker = _FakeHarness();
     turns = TurnManager(
       turnLimits: const TurnLimitsConfig.defaults(),
@@ -136,7 +134,6 @@ void main() {
 
   tearDown(() async {
     await tasks.dispose();
-    await taskBackend.close();
     await messages.dispose();
     await worker.dispose();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);

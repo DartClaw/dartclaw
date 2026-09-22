@@ -1,108 +1,22 @@
-import 'dart:io';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 import 'search_backend_contract.dart';
-
-// ---------------------------------------------------------------------------
-// MockQmdManager — in-memory content store with substring matching
-// ---------------------------------------------------------------------------
-
-class MockQmdManager extends QmdManager {
-  final _content = <Map<String, dynamic>>[];
-  bool fakeRunning = true;
-
-  new()
-    : super(
-        commandRunner: (exe, args, {workingDirectory}) async {
-          return ProcessResult(0, 0, '', '');
-        },
-      );
-
-  void addContent(String text, String source) {
-    _content.add({'text': text, 'source': source, 'score': 1.0});
-  }
-
-  @override
-  bool get isRunning => fakeRunning;
-
-  @override
-  Future<List<Map<String, dynamic>>> query(String queryText, {String depth = 'standard', int limit = 10}) async {
-    if (queryText.isEmpty) return [];
-    final lower = queryText.toLowerCase();
-    return _content.where((c) => (c['text'] as String).toLowerCase().contains(lower)).take(limit).toList();
-  }
-
-  @override
-  Future<void> triggerIndex() async {}
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+import 'search_test_support.dart';
 
 void main() {
-  group('Fts5SearchBackend', () {
-    late Database db;
-    late SqliteBackend databaseBackend;
-    late SqliteFtsIndex index;
+  group('LexicalSearchBackend', () {
+    late InMemoryFullTextIndex index;
 
-    setUp(() async {
-      db = sqlite3.openInMemory();
-      databaseBackend = SqliteBackend(db);
-      await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'search.db');
-      index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
+    setUp(() {
+      index = InMemoryFullTextIndex();
     });
 
-    tearDown(() => databaseBackend.close());
-
     searchBackendContractTests(
-      name: 'FTS5',
-      createBackend: () => Fts5SearchBackend(index: index),
-      indexContent: (text, source) async {
-        _seed(db, text: text, source: source);
-      },
+      name: 'lexical',
+      createBackend: () => LexicalSearchBackend(index: index),
+      indexContent: (text, source) => index.upsert([memorySearchDocument(text: text, source: source)], userId: 'owner'),
     );
   });
-
-  group('QmdSearchBackend', () {
-    late Database db;
-    late SqliteBackend databaseBackend;
-    late SqliteFtsIndex index;
-    late MockQmdManager mockQmd;
-
-    setUp(() async {
-      db = sqlite3.openInMemory();
-      databaseBackend = SqliteBackend(db);
-      await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'search.db');
-      index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
-      mockQmd = MockQmdManager();
-    });
-
-    tearDown(() => databaseBackend.close());
-
-    searchBackendContractTests(
-      name: 'QMD',
-      createBackend: () => QmdSearchBackend(
-        manager: mockQmd,
-        fallback: Fts5SearchBackend(index: index),
-      ),
-      indexContent: (text, source) async {
-        mockQmd.addContent(text, source);
-        _seed(db, text: text, source: source);
-      },
-    );
-  });
-}
-
-void _seed(Database db, {required String text, required String source}) {
-  db.execute('INSERT INTO memory_chunks (text, chunk_index, source, created_at, locator) VALUES (?, ?, ?, ?, ?)', [
-    text,
-    0,
-    source,
-    DateTime(2026).toIso8601String(),
-    source,
-  ]);
 }

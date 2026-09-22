@@ -1,28 +1,24 @@
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
 
 void main() {
   late TaskService tasks;
-  late SqliteBackend backend;
   late ApiRouteTestClient client;
 
-  setUp(() async {
-    backend = await openPreparedTaskBackend();
+  setUp(() {
     tasks = TaskService(
-      SqliteTaskRepository(backend),
-      agentExecutionRepository: SqliteAgentExecutionRepository(backend),
-      executionTransactor: SqliteExecutionRepositoryTransactor(backend),
+      InMemoryTaskRepository(),
+      agentExecutionRepository: InMemoryAgentExecutionRepository(),
+      executionTransactor: const InMemoryExecutionRepositoryTransactor(),
     );
     client = ApiRouteTestClient(taskRoutes(tasks).call);
   });
 
   tearDown(() async {
     await tasks.dispose();
-    await backend.close();
   });
 
   test('POST /api/tasks persists a provider hint on the created task', () async {
@@ -39,7 +35,7 @@ void main() {
     expect(agentExecution?['provider'], 'codex');
 
     final stored = await tasks.get(body['id'] as String);
-    expect(stored?.provider, 'codex');
+    expect(stored?.agentExecution?.provider, 'codex');
   });
 
   test('POST /api/tasks refuses research with explicit-profile remediation', () async {

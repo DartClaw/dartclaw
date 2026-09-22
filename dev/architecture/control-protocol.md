@@ -1048,7 +1048,7 @@ The bearer header is omitted only for an authentication-disabled loopback deploy
 | `memory_apply` | `MemoryApplyTool` | always | Atomically curate personal memory with collection CAS |
 | `memory_observe` | `MemoryObserveTool` | always | Capture observations or bounded learnings |
 | `memory_search` | `MemorySearchTool` | always | Natural-language search over canonical entries and native wiki sources |
-| `memory_read` | `MemoryReadTool` | always | Read bounded canonical records by locator or role/topic, or reopen native wiki/KG/inbox/QMD locators through their source owners |
+| `memory_read` | `MemoryReadTool` | always | Read bounded canonical records by locator or role/topic, or reopen native wiki/KG/inbox locators through their source owners |
 | `kg_add` | `KgAddTool` | always | Add a source-linked temporal fact to the knowledge graph |
 | `kg_query` | `KgQueryTool` | always | Query temporal knowledge-graph facts by entity/predicate (+ optional `as_of`) |
 | `kg_timeline` | `KgTimelineTool` | always | Return the full temporal fact timeline for an entity |

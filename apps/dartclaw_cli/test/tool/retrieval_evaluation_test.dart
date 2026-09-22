@@ -38,10 +38,10 @@ void main() {
 
     final rows = buildSliceRows(queries, observations);
 
-    expect(rows, hasLength(144));
+    expect(rows, hasLength(72));
     final mixed = rows.firstWhere(
       (row) =>
-          row.backend == 'sqlite' &&
+          row.backend == 'postgresql' &&
           row.mode == 'keyword' &&
           row.corpus == 'memory' &&
           row.language == 'en' &&
@@ -54,7 +54,7 @@ void main() {
 
     final diagnosticOnly = rows.firstWhere(
       (row) =>
-          row.backend == 'sqlite' &&
+          row.backend == 'postgresql' &&
           row.mode == 'keyword' &&
           row.corpus == 'conversation' &&
           row.language == 'en' &&
@@ -73,14 +73,14 @@ void main() {
     final queries = _queries();
     final gates = buildGateRows(queries, _observations(queries));
 
-    expect(gates, hasLength(116));
+    expect(gates, hasLength(58));
     expect(gates.where((row) => !row.passed), isEmpty);
     expect(
-      gates.singleWhere((row) => row.id == 'family-regression/sqlite/all/exact-keyword/hitAt1').observed,
+      gates.singleWhere((row) => row.id == 'family-regression/postgresql/all/exact-keyword/hitAt1').observed,
       closeTo(0.10, 1e-12),
     );
     expect(
-      gates.singleWhere((row) => row.id == 'corpus-family-regression/sqlite/memory/exact-keyword/hitAt1').observed,
+      gates.singleWhere((row) => row.id == 'corpus-family-regression/postgresql/memory/exact-keyword/hitAt1').observed,
       closeTo(0.20, 1e-12),
     );
     expect(gates.where((row) => row.id.startsWith('no-match/')), isEmpty);
@@ -96,7 +96,7 @@ void main() {
 
     final slice = buildSliceRows(queries, observations).singleWhere(
       (row) =>
-          row.backend == 'sqlite' &&
+          row.backend == 'postgresql' &&
           row.mode == 'keyword' &&
           row.corpus == 'memory' &&
           row.language == 'en' &&
@@ -118,11 +118,11 @@ void main() {
 
     final failures = {for (final row in buildGateRows(queries, observations).where((row) => !row.passed)) row.id};
 
-    expect(failures, contains('vocabulary-lift/sqlite/memory/hitAt1'));
-    expect(failures, contains('family-regression/sqlite/all/exact-keyword/hitAt1'));
-    expect(failures, contains('corpus-family-regression/sqlite/memory/exact-keyword/hitAt1'));
-    expect(failures, contains('owner-isolation/sqlite/keyword'));
-    expect(failures, contains('corpus-isolation/sqlite/keyword'));
+    expect(failures, contains('vocabulary-lift/postgresql/memory/hitAt1'));
+    expect(failures, contains('family-regression/postgresql/all/exact-keyword/hitAt1'));
+    expect(failures, contains('corpus-family-regression/postgresql/memory/exact-keyword/hitAt1'));
+    expect(failures, contains('owner-isolation/postgresql/keyword'));
+    expect(failures, contains('corpus-isolation/postgresql/keyword'));
   });
 
   test('version 2 fixture preserves historical assets and loads explicit no-match semantics', () {
@@ -267,14 +267,14 @@ List<RankingObservation> _observations(
             mode,
             vocabularyLift: vocabularyLift,
             exactHybridMisses: exactHybridMisses,
-            noMatchFailure: noMatchFailure && backend == 'sqlite' && mode == 'keyword',
+            noMatchFailure: noMatchFailure && backend == 'postgresql' && mode == 'keyword',
             unlabeledReturn: unlabeledReturn,
           ),
           warmMicros: 1000 + query.id.length,
-          foreignOwnerCount: backend == 'sqlite' && mode == 'keyword' && query.id == 'exact-keyword-0'
+          foreignOwnerCount: backend == 'postgresql' && mode == 'keyword' && query.id == 'exact-keyword-0'
               ? foreignOwnerCount
               : 0,
-          wrongCorpusCount: backend == 'sqlite' && mode == 'keyword' && query.id == 'exact-keyword-0'
+          wrongCorpusCount: backend == 'postgresql' && mode == 'keyword' && query.id == 'exact-keyword-0'
               ? wrongCorpusCount
               : 0,
         ),

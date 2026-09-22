@@ -10,11 +10,11 @@ import 'package:dartclaw_runtime/src/conversation/inbox_service.dart';
 import 'package:dartclaw_runtime/src/conversation/product_conversation_search.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide FakeTurnManager, TurnManager;
 import 'package:shelf_router/shelf_router.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../api/api_test_helpers.dart';
 import '../session_turn_manager_test_support.dart';
+import '../helpers/search_index_test_support.dart';
 
 void main() {
   test('stale, malformed, unavailable, and unconfirmed actions have no side effect', () async {
@@ -101,10 +101,9 @@ void main() {
 }
 
 final class _ActionFixture {
-  new(this.root, this.backend, this.sessions, this.messages, this.client, this.nativeInventory);
+  new(this.root, this.sessions, this.messages, this.client, this.nativeInventory);
 
   final Directory root;
-  final SqliteBackend backend;
   final SessionService sessions;
   final MessageService messages;
   final ApiRouteTestClient client;
@@ -114,9 +113,7 @@ final class _ActionFixture {
     final root = Directory.systemTemp.createTempSync('command_action_routes_');
     final sessions = SessionService(baseDir: root.path);
     final messages = MessageService(baseDir: root.path);
-    final backend = SqliteBackend(sqlite3.openInMemory());
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+    final index = await prepareMemoryIndex();
     final worker = FakeAgentHarness();
     final turns = FakeTurnManager(messages, worker);
     final mutations = SessionMutationCoordinator();
@@ -156,7 +153,6 @@ final class _ActionFixture {
     );
     return _ActionFixture(
       root,
-      backend,
       sessions,
       messages,
       ApiRouteTestClient(localAdminMiddleware()(router.call)),
@@ -166,7 +162,6 @@ final class _ActionFixture {
 
   Future<void> dispose() async {
     await messages.dispose();
-    await backend.close();
     root.deleteSync(recursive: true);
   }
 }

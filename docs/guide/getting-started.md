@@ -13,7 +13,7 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 | `claude` CLI | Stable channel | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Current release | Agent binary — optional, for OpenAI models (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | Goose or Vibe | Latest | Optional ACP agent binaries; install only when configured under `harness.acp.agents` |
-| SQLite | Bundled | FTS5 search library shipped with release builds |
+| PostgreSQL | 14+ | Native or managed relational service; ordinary lexical search needs no extension |
 
 Install DartClaw first, then install and verify provider CLIs separately. This example uses Homebrew on macOS/Linux;
 see [Windows](windows.md) for native Windows installation and support boundaries.
@@ -106,7 +106,8 @@ bash dev/tools/build.sh
 build/bin/dartclaw --version
 ```
 
-The build produces `build/bin/dartclaw` and `build/bin/dartclaw-workflow`, with a shared `build/lib/` holding the bundled SQLite library. Each release archive includes its own `bin/` and `lib/`; keep them together when relocating.
+The build produces `build/bin/dartclaw` and `build/bin/dartclaw-workflow`. A release archive may also carry selected
+native embedding libraries for explicit hybrid search; PostgreSQL is a separately installed service.
 
 All command examples below use `dartclaw`. If you have not installed it onto `PATH`, replace `dartclaw` with `build/bin/dartclaw`.
 
@@ -115,22 +116,29 @@ All command examples below use `dartclaw`. If you have not installed it onto `PA
 The fastest path to a running DartClaw instance:
 
 ```bash
-# 1. Set up the instance. It finishes by printing: Done. Config written to <path>
+# 1. Install PostgreSQL 14+, then have an administrator create the database and restricted runtime role.
+#    Follow docs/guide/postgresql.md; a container engine is not required.
+
+# 2. Expose the runtime connection and set up the instance.
+export DARTCLAW_DATABASE_URL='postgresql://dartclaw:<password>@127.0.0.1:5432/dartclaw?sslmode=disable'
 dartclaw init
 
-# 2. Store a provider credential against the instance step 1 just wrote.
-#    CONFIG is the path step 1 printed — ~/.dartclaw/dartclaw.yaml unless you chose another instance directory.
+# 3. Bootstrap the empty current schema through the restricted role.
 CONFIG=~/.dartclaw/dartclaw.yaml
+dartclaw --config "$CONFIG" doctor --fix
+
+# 4. Store a provider credential against the instance step 2 just wrote.
+#    CONFIG is the path init printed — ~/.dartclaw/dartclaw.yaml unless you chose another instance directory.
 claude setup-token
 dartclaw --config "$CONFIG" auth claude
 
-# 3. Start the server
+# 5. Start the server
 dartclaw serve --config "$CONFIG"
 
-# 4. Open http://127.0.0.1:3333
+# 6. Open http://127.0.0.1:3333
 ```
 
-Step 2 must come after step 1, and both must resolve the same store. `dartclaw auth` writes into
+Provider authentication must come after init, and both must resolve the same store. `dartclaw auth` writes into
 `<data_dir>/credentials/`, and `data_dir` is written by `init` — running `auth` first stores the credential against
 whatever `data_dir` was in effect then, which `init` may change underneath you. Two more things decide which store is
 resolved:
@@ -150,7 +158,8 @@ DartClaw's own credential store instead of `~/.codex`.
 
 `dartclaw init` is the primary setup command. It runs a Quick-track wizard in a terminal, or accepts all inputs via flags with `--non-interactive`. All preflight checks (provider binary, port, directory writability) run before any file is written, so an interrupted setup leaves nothing on disk. Re-running it against an existing instance shows current values as defaults.
 
-Re-run the same checks any time with `dartclaw doctor`.
+Re-run the same checks any time with `dartclaw doctor`. `doctor --fix` may create DartClaw objects only in an empty
+application schema; database/role/extension creation remains an administrator operation.
 
 ```bash
 # Non-interactive setup (e.g. for scripts or CI)
@@ -196,7 +205,7 @@ Existing installs can adopt the structure by running `dartclaw init --personaliz
 Reruns write `USER.md.draft` and `SOUL.md.draft` so curated behavior files are not overwritten. Review the drafts and apply
 them with `dartclaw init --apply-drafts`.
 
-**Important**: Standalone binaries produced by `bash dev/tools/build.sh` embed the web UI, static assets, skills, and workflows — no companion asset files and no first-run network request. The executable does ship with a bundled SQLite library in a sibling `lib/` (`build/bin/dartclaw` + `build/lib/libsqlite3.*`); the two directories must move together, since the binary resolves the library relative to itself. Clone-based `dart run`, `--dev`, and explicit source-directory runs still read from the source tree for live editing. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
+**Important**: Standalone binaries produced by `bash dev/tools/build.sh` embed the web UI, static assets, skills, and workflows — no companion web assets and no first-run network request. Explicit local hybrid search may use native libraries and a separately acquired verified model; plain lexical operation does not. Clone-based `dart run`, `--dev`, and explicit source-directory runs still read from the source tree for live editing. See [Deployment § Running Outside the Source Tree](deployment.md#running-outside-the-source-tree).
 
 ## Run from Source
 

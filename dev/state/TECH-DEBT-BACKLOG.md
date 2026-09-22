@@ -304,40 +304,6 @@ Last reviewed: 2026-08-21
 
 Last reviewed: 2026-08-28
 
-## TD-135 – The unit suite cannot execute on Windows, while Windows-semantics tests live inside it
-
-**Severity**: Medium (no current breakage — CI is `ubuntu-latest` — but the platform-specific tests the suite carries
-for Windows are unrunnable there, so their evidence is asserted rather than observed)
-**Found**: 2026-08-28, during the 0.25 live verification, running the two `posixSignalsAvailable`-gated tests on a
-real Windows 11 VM (arm64, Dart 3.13.2, `dart pub get` + `embed_assets` both clean)
-**Affects**: `packages/dartclaw_workflow/test/workflow/bash_step_runner_test.dart`,
-`packages/dartclaw_workflow/test/workflow/workflow_executor_test_support.dart`,
-`dev/testing/profiles/windows-runtime/run.ps1` (source mode), any suite opening SQLite
-
-**Observed**: `dart test packages/dartclaw_workflow/test/workflow/bash_step_runner_test.dart` on Windows gives
-**23 pass / 2 skip / 32 fail**, in two distinct kinds:
-
-1. **SQLite is unavailable.** `WorkflowExecutorHarness.setUp` dies at `sqlite3_initialize` →
-   `LateInitializationError: Field 'taskService' has not been initialized`. Windows resolves the module from
-   `.dart_tool/lib/sqlite3.dll`, and **no repo tooling provisions that file** — not `dart pub get`, not any build
-   script. The release bundle carries `lib/sqlite3.dll`, which is why artifact mode works and source mode does not.
-   This blocks the two Windows-only tests the gate wanted (`bash step timeout pauses workflow`) as collateral: they
-   are correctly not skipped, they start, and they die in setup.
-2. **Ungated POSIX assumptions.** Tests such as "POSIX bash step executes through `/bin/sh` and captures stdout"
-   carry no platform gate and cannot pass on Windows by construction.
-
-By contrast `packages/dartclaw_core/test/harness/process_lifecycle_test.dart` — which opens no database — passes
-natively 11/11, including "native Windows shutdown fails closed without an ownership-safe tree terminator". So the
-Windows-only evidence *is* obtainable where SQLite is not in the way.
-
-**Needs decision**: whether the unit suite is meant to run on Windows at all. If yes, it needs a provisioning step for
-the Windows SQLite module (and the ungated `/bin/sh` tests need gates or POSIX-neutral equivalents). If no, the
-`posixSignalsAvailable`-gated tests are unreachable evidence and should either move to a suite that can run there or
-be retired in favour of the `windows-runtime` profile. Either way the choice is a product/CI-scope decision, not a
-local fix.
-
-Last reviewed: 2026-08-28
-
 ## TD-143 – `dartclaw config get` is not on the one config schema source
 
 **Severity**: Low (wrong answer for a registered key, no data loss)

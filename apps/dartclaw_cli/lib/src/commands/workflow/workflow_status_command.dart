@@ -7,17 +7,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskRepository, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        adoptLegacyAuthoritativeStore,
-        AuthoritativeStoreAdoptionException,
-        SqliteTaskRepository,
-        databaseBackendFactoryFor,
-        prepareAuthoritativeStore;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
+    show DatabaseTaskRepository, PostgresSchemaGate, postgresBackendFactory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show DatabaseWorkflowRunRepository, WorkflowRun;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn, scrubAgentReportedText;
-import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
@@ -25,6 +20,9 @@ import '../connected_command_support.dart' hide truncate;
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends WorkflowConnectedCommand {
   final DatabaseBackendFactory? _taskBackendFactory;
+  final bool _taskBackendIsPrepared;
+  final TaskRepository Function(DatabaseBackend)? _taskRepositoryFactory;
+  final WorkflowRunRepository Function(DatabaseBackend)? _workflowRunRepositoryFactory;
   final String? _currentDirectory;
   final Map<String, String>? _environment;
 
@@ -34,12 +32,18 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     this.standaloneOnly = false,
     super.config,
     DatabaseBackendFactory? taskBackendFactory,
+    bool taskBackendIsPrepared = false,
+    TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory,
     String? currentDirectory,
     Map<String, String>? environment,
     super.connection,
     super.writeLine,
     super.exitFn,
   }) : _taskBackendFactory = taskBackendFactory,
+       _taskBackendIsPrepared = taskBackendIsPrepared,
+       _taskRepositoryFactory = taskRepositoryFactory,
+       _workflowRunRepositoryFactory = workflowRunRepositoryFactory,
        _currentDirectory = currentDirectory,
        _environment = environment {
     argParser
@@ -97,18 +101,9 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       exitFn(1);
     }
 
-    if (config.database.backend == DatabaseBackendKind.sqlite) {
-      try {
-        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
-      } on AuthoritativeStoreAdoptionException catch (error) {
-        writeLine(error.toString());
-        exitFn(1);
-      }
-    }
-
     final factory =
         _taskBackendFactory ??
-        databaseBackendFactoryFor(
+        postgresBackendFactory(
           config.database,
           resolveDsn: (database) =>
               resolveDatabaseDsn(database, credentials: CredentialRegistry(credentials: config.credentials)),
@@ -118,8 +113,10 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     try {
       WorkflowRun? run;
       try {
-        await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
-        final repository = SqliteWorkflowRunRepository(backend);
+        if (!_taskBackendIsPrepared) {
+          await PostgresSchemaGate.validateCurrent(backend, databaseIdentity: 'configured PostgreSQL database');
+        }
+        final repository = _workflowRunRepositoryFactory?.call(backend) ?? DatabaseWorkflowRunRepository(backend);
         run = await repository.getById(runId);
       } catch (_) {
         // DB not initialised or schema mismatch — user-visible message is the diagnostic.
@@ -132,7 +129,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         exitFn(1);
       }
 
-      final taskRepository = SqliteTaskRepository(backend);
+      final taskRepository = _taskRepositoryFactory?.call(backend) ?? DatabaseTaskRepository(backend);
       final childTasks = (await taskRepository.list()).where((task) => task.workflowRunId == runId).toList()
         ..sort((a, b) => (a.stepIndex ?? 0).compareTo(b.stepIndex ?? 0));
 

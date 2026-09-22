@@ -1,5 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 TaskEvent _makeEvent({
@@ -19,30 +19,14 @@ TaskEvent _makeEvent({
 }
 
 void main() {
-  late Database db;
-  late SqliteBackend backend;
-  late TaskEventService service;
+  late InMemoryTaskEventService service;
 
-  setUp(() async {
-    db = sqlite3.openInMemory();
-    backend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
-    service = TaskEventService(backend);
+  setUp(() {
+    service = InMemoryTaskEventService();
   });
 
   tearDown(() async {
-    await backend.close();
-  });
-
-  test('creates task_events table and indexes', () {
-    final names = db
-        .select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name")
-        .map((row) => row['name'])
-        .toList();
-    expect(names, contains('task_events'));
-    expect(names, contains('idx_task_events_task'));
-    expect(names, contains('idx_task_events_task_kind'));
-    expect(names, contains('idx_task_events_timestamp'));
+    await service.close();
   });
 
   test('insert and retrieve by taskId', () async {
@@ -182,15 +166,5 @@ void main() {
     expect(result[0].details['success'], isTrue);
     expect(result[0].details['durationMs'], 250);
     expect(result[0].details['errorType'], 'tool_error');
-  });
-
-  test('malformed JSON in details column returns empty map gracefully', () async {
-    // Insert malformed JSON directly into the DB to simulate corruption.
-    db.execute(
-      "INSERT INTO task_events (id, task_id, timestamp, kind, details) VALUES ('bad-evt', 'task-O', '2026-03-24T10:00:00.000Z', 'error', 'not-valid-json')",
-    );
-    final result = await service.listForTask('task-O');
-    expect(result, hasLength(1));
-    expect(result[0].details, isEmpty);
   });
 }

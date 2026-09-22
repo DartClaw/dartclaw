@@ -1,7 +1,6 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:io';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
@@ -9,16 +8,9 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/workflows_page.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        SqliteWorkflowRunRepository,
-        WorkflowDefinition,
-        WorkflowDefinitionSource,
-        WorkflowRun,
-        WorkflowService,
-        WorkflowStep,
-        WorkflowVariable;
+    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowService, WorkflowStep, WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -84,8 +76,7 @@ Request _get(String path) => Request('GET', Uri.parse('http://localhost$path'));
 
 void main() {
   late WorkflowsPage page;
-  late SqliteBackend taskBackend;
-  late SqliteWorkflowRunRepository workflowRepo;
+  late InMemoryWorkflowRunRepository workflowRepo;
   late TaskService tasks;
   late WorkflowService workflows;
   late Directory tempDir;
@@ -95,14 +86,13 @@ void main() {
 
   setUp(() async {
     page = WorkflowsPage();
-    taskBackend = await openPreparedTaskBackend();
     tempDir = Directory.systemTemp.createTempSync('wf_page_test_');
 
-    final taskRepo = SqliteTaskRepository(taskBackend);
+    final taskRepo = InMemoryTaskRepository();
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
 
-    workflowRepo = SqliteWorkflowRunRepository(taskBackend);
+    workflowRepo = InMemoryWorkflowRunRepository();
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     workflows = WorkflowService.lifecycleOnly(
@@ -118,7 +108,6 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 

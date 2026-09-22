@@ -87,7 +87,9 @@ For simple CLIs, a stable session key plus `MessageService.getMessages()` is eno
 
 ### Storage and Memory
 
-`dartclaw_core` provides file-backed session, message, key-value, and memory-file services together with SQLite-backed memory search, pruning, and repository implementations. Repository contracts remain substitutable when a host provides another persistence backend.
+`dartclaw_core` provides file-backed session, message, key-value, and memory-file services together with
+PostgreSQL-backed memory search, pruning, and repository implementations. Repository contracts remain available as
+test/composition seams, but the shipped runtime supports PostgreSQL only.
 
 ### Context Engine and MCP
 

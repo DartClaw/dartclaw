@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:?mode must be provider, browser, eof, graceful, sigkill, or postgres}"
 EVIDENCE="${2:?evidence directory required}"
-BACKEND="${3:-sqlite}"
+BACKEND="${3:-postgres}"
 TEMPORARY_MARKER_PATTERN='TEMPORARY_TURN_ONE|TEMPORARY_TURN_TWO|TEMPORARY_ATTACHMENT_MARKER|TEMPORARY_TOOL_DETAIL_MARKER|TEMPORARY_TOOL_REPLY_MARKER|TEMPORARY_LINEAGE_MARKER|TEMPORARY_PENDING_TOOL_MARKER|TEMPORARY_ACTIVE_REPLY_MARKER|TEMPORARY_QUEUED_INPUT_MARKER|TEMPORARY_QUEUED_REPLY_MARKER'
 if [ "$MODE" = postgres ]; then
   MODE=sigkill
@@ -13,10 +13,7 @@ case "$MODE" in
   provider|browser|eof|graceful|sigkill) ;;
   *) echo 'mode must be provider, browser, eof, graceful, sigkill, or postgres' >&2; exit 2 ;;
 esac
-case "$BACKEND" in
-  sqlite|postgres) ;;
-  *) echo 'backend must be sqlite or postgres' >&2; exit 2 ;;
-esac
+if [ "$BACKEND" != postgres ]; then echo 'backend must be postgres' >&2; exit 2; fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 source "${SCRIPT_DIR}/temporary_history_checks.sh"
@@ -46,18 +43,15 @@ DATA_DIR="$(mktemp -d "${EVIDENCE}/runtime-data-XXXXXX")"
 PORT="${DARTCLAW_TEMPORARY_PORT:-$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')}"
 BASE_URL="http://127.0.0.1:${PORT}"
 CONFIG="${DATA_DIR}/temporary.yaml"
-[ "$BACKEND" != postgres ] || : "${DARTCLAW_POSTGRES_URL:?DARTCLAW_POSTGRES_URL is required}"
+: "${DARTCLAW_POSTGRES_URL:?DARTCLAW_POSTGRES_URL is required}"
 {
   printf 'data_dir: %s\n' "$DATA_DIR"
   cat "${SCRIPT_DIR}/temporary_conversation.yaml"
 } >"$CONFIG"
-if [ "$BACKEND" = postgres ]; then
-  cat >>"$CONFIG" <<'YAML'
+cat >>"$CONFIG" <<'YAML'
 database:
-  backend: postgres
   url: ${DARTCLAW_POSTGRES_URL}
 YAML
-fi
 MODEL_CACHE="${REPO_ROOT}/.agent_temp/testing/temporary-conversation-model"
 MODEL_NAME='embeddinggemma-300M-Q8_0.gguf'
 mkdir -p "$MODEL_CACHE"

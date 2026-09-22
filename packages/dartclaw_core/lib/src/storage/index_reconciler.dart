@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:path/path.dart' as p;
 
+import '../memory/memory_corpus.dart';
+import '../memory/memory_index_projection.dart';
+import 'atomic_write.dart';
 import 'index_rebuild_target.dart';
 export 'index_rebuild_target.dart' show IndexReconcileTransition;
 
@@ -293,32 +295,15 @@ final class IndexReconcileResult {
 
 /// Rebuilds the derived index from one captured canonical corpus and publishes it atomically.
 final class CanonicalIndexReconciler {
-  /// Creates a reconciler for an explicit target or a SQLite file at [targetPath].
-  new({
-    this.targetPath,
-    required this.healthStore,
-    IndexStoreOpener? storeOpener,
-    IndexFileReplace? replaceFile,
-    IndexReconcileHook? transitionHook,
-    IndexRebuildTarget? target,
-  }) : _storeOpener = storeOpener,
-       _replaceFile = replaceFile ?? _replace,
-       _transitionHook = transitionHook,
-       _target = target {
-    if (targetPath == null && target == null) {
-      throw ArgumentError('targetPath or target is required');
-    }
-  }
-
-  /// SQLite target path when no explicit rebuild target is supplied.
-  final String? targetPath;
+  /// Creates a reconciler for an explicit rebuild target.
+  new({required this.healthStore, IndexReconcileHook? transitionHook, required IndexRebuildTarget target})
+    : _transitionHook = transitionHook,
+      _target = target;
 
   /// Workspace-scoped health evidence store.
   final IndexHealthStore healthStore;
-  final IndexStoreOpener? _storeOpener;
-  final IndexFileReplace _replaceFile;
   final IndexReconcileHook? _transitionHook;
-  final IndexRebuildTarget? _target;
+  final IndexRebuildTarget _target;
 
   /// Validates a current target or reconstructs it when evidence or bytes are stale.
   Future<IndexReconcileResult> ensureCurrent({
@@ -332,7 +317,7 @@ final class CanonicalIndexReconciler {
         canonicalRevision: canonicalRevision,
         canonicalFingerprint: canonicalFingerprint,
       );
-      final target = _rebuildTarget(canonicalRevision, canonicalFingerprint);
+      final target = _target;
       if (evidence.isCurrent(canonicalRevision, canonicalFingerprint) && await target.isPresent()) {
         return await target.validateLive((index) async {
           await index.verifyIntegrity();
@@ -369,7 +354,7 @@ final class CanonicalIndexReconciler {
         canonicalRevision: canonicalRevision,
         canonicalFingerprint: canonicalFingerprint,
       );
-      final target = _rebuildTarget(canonicalRevision, canonicalFingerprint);
+      final target = _target;
       if (evidence.isCurrent(canonicalRevision, canonicalFingerprint) && await target.isPresent()) {
         return await target.validateLive((index) async {
           await index.verifyIntegrity();
@@ -433,7 +418,7 @@ final class CanonicalIndexReconciler {
     var rowCount = 0;
     IndexHealthEvidence? publishedHealth;
     try {
-      final target = _rebuildTarget(canonicalRevision, canonicalFingerprint);
+      final target = _target;
       rowCount = await target.rebuild(
         transition: (transition) async {
           await _transition(transition);
@@ -491,42 +476,6 @@ final class CanonicalIndexReconciler {
 
   Future<void> _transition(IndexReconcileTransition transition) async => _transitionHook?.call(transition);
 
-  IndexRebuildTarget _rebuildTarget(int canonicalRevision, String canonicalFingerprint) {
-    final target = _target;
-    if (target != null) return target;
-    return SiblingFileRebuildTarget(
-      targetPath: targetPath!,
-      opener: (path) =>
-          _openStore(path, canonicalRevision: canonicalRevision, canonicalFingerprint: canonicalFingerprint),
-      replaceFile: _replaceFile,
-    );
-  }
-
-  Future<(FullTextIndex, DatabaseBackend)> _openStore(
-    String path, {
-    required int canonicalRevision,
-    required String canonicalFingerprint,
-  }) async {
-    final injected = _storeOpener;
-    if (injected != null) return injected(path);
-    final backend = await SqliteBackend.open(path);
-    try {
-      await SqliteSchemaGate.prepareSearch(
-        backend,
-        storeName: p.basename(path),
-        rebuild: SqliteSearchRebuild(
-          manifestRevision: canonicalRevision,
-          manifestFingerprint: canonicalFingerprint,
-          healthStore: healthStore,
-        ),
-      );
-      return (SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks), backend);
-    } catch (_) {
-      await backend.close();
-      rethrow;
-    }
-  }
-
   static Future<void> _validateDocuments(
     FullTextIndex index,
     List<SearchDocument> expected, {
@@ -561,6 +510,4 @@ final class CanonicalIndexReconciler {
     }
     return true;
   }
-
-  static void _replace(File sibling, String targetPath) => sibling.renameSync(targetPath);
 }

@@ -159,9 +159,7 @@ if [ ! -x "${REPO_ROOT}/build/bridge/dartclaw-bridge-linux-x64" ]; then
 fi
 
 boot_server() {
-  # `dart run`, not `dart <file>`: only `dart run` executes the build hooks that
-  # produce the sqlite3 native asset. A runner without a system libsqlite3 has
-  # nothing to fall back to and the server dies in storage wiring.
+  # `dart run` resolves the workspace entry point and its generated assets.
   (cd "${REPO_ROOT}" && exec dart run apps/dartclaw_cli/bin/dartclaw.dart \
     --config "$CONFIG" serve --data-dir "$DATA_DIR" --source-dir "$REPO_ROOT") >"$LOG_PATH" 2>&1 &
   SERVER_PID=$!

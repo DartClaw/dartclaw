@@ -79,6 +79,12 @@ HarnessFactory _harnessFactoryFor(AgentHarness harness) {
   return factory;
 }
 
+FullTextIndex _inMemorySearchIndex(
+  DatabaseBackend backend,
+  PostgresFtsTable table, {
+  required bool withinTransaction,
+}) => InMemoryFullTextIndex();
+
 Directory _tempDirectory([String prefix = 'dartclaw_serve_test_']) {
   final directory = Directory.systemTemp.createTempSync(prefix);
   addTearDown(() {
@@ -101,7 +107,9 @@ ServeCommand _bindingFailureCommand({
   void Function(String)? stderrLine,
 }) => ServeCommand(
   config: config,
-  searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+  taskBackendFactory: (_) async => openPreparedTaskBackend(),
+  taskBackendIsPrepared: true,
+  searchIndexFactory: _inMemorySearchIndex,
   harnessFactory: _harnessFactoryFor(worker),
   serverFactory: (server) => server,
   serveFn: (handler, address, port) async => throw SocketException('Address already in use'),
@@ -275,8 +283,9 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        searchIndexFactory: _inMemorySearchIndex,
         harnessFactory: _harnessFactoryFor(_FakeWorkerService()),
         serveFn: (handler, address, port) async {
           serveCalled = true;
@@ -315,8 +324,9 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        searchIndexFactory: _inMemorySearchIndex,
         harnessFactory: _harnessFactoryFor(_FakeWorkerService()),
         serveFn: (handler, address, port) => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
         stderrLine: (_) {},
@@ -360,8 +370,9 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        searchIndexFactory: _inMemorySearchIndex,
         harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) async {
           pairingBody = await (await handler(Request('GET', Uri.parse('http://localhost/whatsapp/pairing'))))
@@ -406,8 +417,9 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        searchIndexFactory: _inMemorySearchIndex,
         harnessFactory: _harnessFactoryFor(worker),
         serveFn: (handler, address, port) => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
         stderrLine: (_) {},
@@ -528,7 +540,9 @@ channels:
       late Handler capturedHandler;
       final command = ServeCommand(
         config: config,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        searchIndexFactory: _inMemorySearchIndex,
         harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (server) => server,
         serveFn: (handler, address, port) async {
@@ -666,51 +680,6 @@ channels:
       expect(kvContents.containsKey('session_cost:session-a'), isTrue);
     });
 
-    test('search database open failure boots degraded and reports search unavailable', () async {
-      final worker = _FakeWorkerService();
-      final tempDir = _tempDirectory();
-
-      final config = DartclawConfig(
-        container: const ContainerConfig(enabled: false),
-        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
-        workspace: const WorkspaceConfig(gitSyncEnabled: false),
-        server: ServerConfig(
-          dataDir: tempDir.path,
-          templatesDir: _templatesDir,
-          staticDir: _staticDir,
-          claudeExecutable: Platform.resolvedExecutable,
-        ),
-      );
-
-      final command = ServeCommand(
-        config: config,
-        searchBackendFactory: (_) async => throw FileSystemException('open failed'),
-        harnessFactory: _harnessFactoryFor(worker),
-        serveFn: (handler, address, port) async => throw SocketException('stop after degraded boot'),
-        stderrLine: (_) {},
-        exitFn: (code) => throw _ExitIntercept(code),
-        assetResolver: _assetResolverFor(tempDir),
-        runWorkflowSkillsBootstrap: false,
-      );
-      final localRunner = DartclawRunner()..addCommand(command);
-
-      final logs = await _captureExpectedServeLogs(
-        () => _expectExit(localRunner, code: 1),
-        expectedSevereSubstrings: const ['Cannot open search database', 'Cannot bind to localhost:3333'],
-      );
-      expect(
-        logs.any(
-          (record) =>
-              record.level == Level.SEVERE &&
-              record.message.contains('Cannot open search database') &&
-              record.message.contains('booting with search unavailable'),
-        ),
-        isTrue,
-      );
-      expect(worker.started, isTrue);
-      expect(worker.stopped, isTrue);
-    });
-
     test('task database open failure prints clear startup error', () async {
       final tempDir = _tempDirectory();
 
@@ -721,7 +690,6 @@ channels:
 
       final command = ServeCommand(
         config: config,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
         taskBackendFactory: (_) async => throw FileSystemException('open failed'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),

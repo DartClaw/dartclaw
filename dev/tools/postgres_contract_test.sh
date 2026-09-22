@@ -55,7 +55,7 @@ rg -q 'pgvector/pgvector:pg14@sha256:' "$POSTGRES_TEST_LOG"
 rg -q 'CREATE EXTENSION vector' "$POSTGRES_TEST_LOG"
 rg -q 'URL=postgres://postgres:PostgresFixturePasswordX9@127.0.0.1:49152/dartclaw_test\?sslmode=disable' "$POSTGRES_TEST_LOG"
 rg -q 'docker rm -f -v test-container' "$POSTGRES_TEST_LOG"
-rg -q 'Provider-dependent temporary-retention E2E was not run' "$fixture/output"
+rg -q 'including managed research, rebuild, and temporary retention' "$fixture/output"
 
 : > "$POSTGRES_TEST_LOG"
 DARTCLAW_TEST_POSTGRES_PLAIN_URL='postgres://plain.invalid/test' \

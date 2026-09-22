@@ -42,12 +42,38 @@ void main() {
     expect(all.entries.singleWhere((entry) => entry.session.id == destinationId).parentSessionId, sourceId);
 
     const scopedId = '00000000-0000-4000-9000-000000000001';
-    await fixture.sessions.createSessionWithIdentity(
-      id: scopedId,
-      workspace: AgentWorkspace.pinned(agentId: 'agent-fixture', directory: '/workspace/fixture'),
+    const peerId = '00000000-0000-4000-9000-000000000002';
+    final scopedWorkspace = AgentWorkspace.managed(
+      agentId: 'agent-fixture',
+      dataDir: fixture.root.path,
+      ownerWorkspaceDir: '${fixture.root.path}/workspace',
+    );
+    final peerWorkspace = AgentWorkspace.managed(
+      agentId: 'agent-peer',
+      dataDir: fixture.root.path,
+      ownerWorkspaceDir: '${fixture.root.path}/workspace',
+    );
+    await fixture.sessions.createSessionWithIdentity(id: scopedId, workspace: scopedWorkspace);
+    await fixture.sessions.createSessionWithIdentity(id: peerId, workspace: peerWorkspace);
+    await fixture.sessions.updateConversationState(
+      scopedId,
+      (await fixture.sessions.getConversationState(scopedId)).stageContext(
+        const EffectiveConversationContext(
+          projectId: 'project-after-pinning',
+          directory: '/project/after-pinning',
+          referenceRoot: '/project/after-pinning',
+          provider: 'claude',
+        ),
+      ),
     );
     final scoped = await fixture.inbox.inbox(principal: 'agent:agent-fixture', limit: 25);
     expect(scoped.entries.map((entry) => entry.session.id), [scopedId]);
+    expect(scoped.entries.single.session.workspace, scopedWorkspace);
+    expect(scoped.entries.single.projectId, 'project-after-pinning');
+    final peer = await fixture.inbox.inbox(principal: 'agent:agent-peer', limit: 25);
+    expect(peer.entries.map((entry) => entry.session.id), [peerId]);
+    final owner = await fixture.inbox.inbox(limit: 200);
+    expect(owner.entries.map((entry) => entry.session.id), containsAll(<String>[scopedId, peerId]));
   });
 
   test('active and settled keyset cursors survive boundary moves, ties and newer insertions', () async {

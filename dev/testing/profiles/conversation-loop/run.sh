@@ -10,7 +10,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --case) CASE="${2:-}"; shift 2 ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility [--live-provider]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|workspace-chat-integration [--live-provider]"
       exit 0
       ;;
     --live-provider) LIVE_PROVIDER=1; shift ;;
@@ -19,7 +19,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q6-q7-q9-history|q2-q3-q7-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility) ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q6-q7-q9-history|q2-q3-q7-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|workspace-chat-integration) ;;
   *) echo "--case names an unsupported conversation-loop fixture" >&2; exit 2 ;;
 esac
 
@@ -481,6 +481,80 @@ run_inbox_joined_proof() {
   assert_eval conversation-passive "(() => { if(document.querySelector('#sidebar').classList.contains('open')||document.querySelector('.shell-main').hasAttribute('inert')||document.activeElement!==document.querySelector('.menu-toggle'))throw new Error('drawer close did not restore focus'); return true })()"
 }
 
+run_workspace_chat_integration() {
+  capture_clean_browser_diagnostics() {
+    local surface="$1"
+    ab conversation-origin --json errors >"${EVIDENCE_ROOT}/workspace-${surface}-browser-errors.json"
+    ab conversation-origin --json console >"${EVIDENCE_ROOT}/workspace-${surface}-console.json"
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert not d["data"]["errors"], d["data"]["errors"]' "${EVIDENCE_ROOT}/workspace-${surface}-browser-errors.json"
+    python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); bad=[m for m in d["data"]["messages"] if str(m.get("type") or m.get("level") or "").lower() in {"error","severe"}]; assert not bad, bad' "${EVIDENCE_ROOT}/workspace-${surface}-console.json"
+  }
+
+  cp "${READY}" "${EVIDENCE_ROOT}/managed-setup-evidence.json"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["managedAgentMarker"]=="{\"agentId\":\"fixture-agent\"}\n"; assert d["managedRefusalPreserved"]=="retained bytes"; assert "nonempty but has no identity.json" in d["managedRefusal"]; assert d["managedAgentWorkspace"].endswith("/agents/fixture-agent/workspace")' "${READY}"
+
+  ab conversation-origin errors --clear >/dev/null
+  ab conversation-origin console --clear >/dev/null
+  ab conversation-origin open "${BASE_URL}/settings"
+  ab conversation-origin wait '#tab-server'
+  ab conversation-origin click '#tab-server'
+  assert_eval conversation-origin "(() => { const panel=document.querySelector('#panel-server-workspace'); if(!panel?.checkVisibility())throw new Error('workspace fact is not visible'); const displayed=panel.querySelector('.card-detail')?.textContent.trim(); if(displayed!=='${DATA_DIR}/workspace')throw new Error('owner workspace fact changed: '+displayed); const choices=[...document.querySelectorAll('input,select')].filter(control=>/agent.*workspace|workspace.*agent|persona|sharing/i.test((control.name||'')+' '+(control.id||''))); if(choices.length)throw new Error('obsolete agent-workspace/persona/sharing choice rendered'); if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('settings horizontal overflow'); return {workspace:displayed,obsoleteChoices:choices.length} })()"
+  ab conversation-origin --json eval "(() => { const current=document.querySelector('#tab-server'); current.focus(); current.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true,cancelable:true})); if(document.activeElement===current||document.activeElement?.getAttribute('role')!=='tab')throw new Error('settings tab keyboard navigation failed'); return {from:current.id,to:document.activeElement.id} })()" >"${EVIDENCE_ROOT}/workspace-settings-keyboard.json"
+  ab conversation-origin click '#tab-server'
+  for width in 390 1440; do
+    for theme in dark light; do
+      ab conversation-origin set viewport "${width}" 900
+      set_app_theme conversation-origin "${theme}"
+      assert_eval conversation-origin "(() => { const panel=document.querySelector('#panel-server-workspace'); panel.scrollIntoView({block:'center'}); if(!panel.checkVisibility())throw new Error('workspace fact hidden'); if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('settings overflow at ${width}'); return {surface:'settings',width:innerWidth,theme:'${theme}',workspace:panel.querySelector('.card-detail').textContent.trim()} })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/workspace-settings-${width}-${theme}.png"
+    done
+  done
+  ab conversation-origin --json eval "(() => ({surface:'settings',workspace:document.querySelector('#panel-server-workspace .card-detail').textContent.trim(),obsoleteAgentWorkspaceInputs:[...document.querySelectorAll('input,select')].filter(control=>/agent.*workspace|workspace.*agent|persona|sharing/i.test((control.name||'')+' '+(control.id||''))).length}))()" >"${EVIDENCE_ROOT}/workspace-settings-dom.json"
+  capture_clean_browser_diagnostics settings
+
+  ab conversation-origin errors --clear >/dev/null
+  ab conversation-origin console --clear >/dev/null
+  ab conversation-origin open "${BASE_URL}/sessions/${NAMED_AGENT_SESSION_ID}/info"
+  ab conversation-origin wait '#session-effective-context'
+  assert_eval conversation-origin "(() => { const rows=Object.fromEntries([...document.querySelectorAll('#session-effective-context .meta-row')].map(row=>[row.querySelector('.meta-label').textContent.trim(),row.querySelector('.meta-value').textContent.trim()])); if(rows['Workspace owner']!=='agent:fixture-agent')throw new Error('managed session principal changed '+JSON.stringify(rows)); if(rows['Project']!=='Search Project Alpha')throw new Error('project context missing without retargeting owner '+JSON.stringify(rows)); if(document.body.textContent.includes('${DATA_DIR}/agents/fixture-agent/workspace'))throw new Error('managed filesystem path leaked into session view'); if(document.querySelector('#session-effective-context input,#session-effective-context select'))throw new Error('session ownership rendered as a choice'); return rows })()"
+  ab conversation-origin focus '.tb-newchat'
+  ab conversation-origin press Tab
+  ab conversation-origin --json eval "(() => { if(document.activeElement===document.body||document.activeElement===document.querySelector('.tb-newchat'))throw new Error('session keyboard focus did not advance'); return {focused:document.activeElement.tagName,id:document.activeElement.id||null} })()" >"${EVIDENCE_ROOT}/workspace-session-keyboard.json"
+  for width in 390 1440; do
+    for theme in dark light; do
+      ab conversation-origin set viewport "${width}" 900
+      set_app_theme conversation-origin "${theme}"
+      assert_eval conversation-origin "(() => { if(!document.querySelector('#session-effective-context').checkVisibility())throw new Error('session ownership hidden'); if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('session info overflow at ${width}'); return {surface:'session',width:innerWidth,theme:'${theme}'} })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/workspace-session-${width}-${theme}.png"
+    done
+  done
+  ab conversation-origin --json eval "(() => ({surface:'session',rows:Object.fromEntries([...document.querySelectorAll('#session-effective-context .meta-row')].map(row=>[row.querySelector('.meta-label').textContent.trim(),row.querySelector('.meta-value').textContent.trim()]))}))()" >"${EVIDENCE_ROOT}/workspace-session-dom.json"
+  capture_clean_browser_diagnostics session
+
+  ab conversation-origin errors --clear >/dev/null
+  ab conversation-origin console --clear >/dev/null
+  ab conversation-origin open "${SESSION_URL}"
+  ab conversation-origin wait 500
+  assert_eval conversation-origin "(async () => { const first=await fetch('/api/inbox?limit=200').then(response=>response.json()); const tail=first.next_cursor?await fetch('/api/inbox?limit=200&cursor='+encodeURIComponent(first.next_cursor)).then(response=>response.json()):{entries:[]}; const entries=[...first.entries,...tail.entries]; const byId=Object.fromEntries(entries.map(entry=>[entry.session.id,entry])); const agentA=byId['${NAMED_AGENT_SESSION_ID}']; const agentB=byId['${SEARCH_AGENT_B_SESSION_ID}']; if(agentA?.session.workspaceAgentId!=='fixture-agent'||agentB?.session.workspaceAgentId!=='fixture-agent-b')throw new Error('owner inbox lost managed A/B identity'); if(agentA.project_id!=='${SEARCH_PROJECT_ALPHA}'||agentB.project_id!=='${SEARCH_PROJECT_BETA}')throw new Error('inbox project projection retargeted ownership'); if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('inbox horizontal overflow'); return {agentA:agentA.session.workspaceAgentId,agentB:agentB.session.workspaceAgentId,projectA:agentA.project_id,projectB:agentB.project_id} })()"
+  ab conversation-origin focus '[data-inbox-view]'
+  ab conversation-origin press Enter
+  ab conversation-origin press Tab
+  ab conversation-origin --json eval "(() => { const menu=document.querySelector('[data-inbox-view-menu]'); if(menu.hidden||!menu.contains(document.activeElement))throw new Error('inbox view keyboard navigation failed'); return {focused:document.activeElement.dataset.inboxFilter||document.activeElement.dataset.inboxGroup||null,expanded:document.querySelector('[data-inbox-view]').getAttribute('aria-expanded')} })()" >"${EVIDENCE_ROOT}/workspace-inbox-keyboard.json"
+  ab conversation-origin press Escape
+  for width in 390 1440; do
+    ab conversation-origin set viewport "${width}" 900
+    if [ "${width}" -eq 390 ]; then ab conversation-origin click '.menu-toggle'; fi
+    for theme in dark light; do
+      set_app_theme conversation-origin "${theme}"
+      assert_eval conversation-origin "(() => { if(!document.querySelector('[data-inbox-view]').checkVisibility())throw new Error('inbox controls hidden'); if(document.documentElement.scrollWidth>document.documentElement.clientWidth)throw new Error('inbox overflow at ${width}'); return {surface:'inbox',width:innerWidth,theme:'${theme}'} })()"
+      ab conversation-origin screenshot "${EVIDENCE_ROOT}/workspace-inbox-${width}-${theme}.png"
+    done
+  done
+  ab conversation-origin --json eval "(async () => { const first=await fetch('/api/inbox?limit=200').then(response=>response.json()); const tail=first.next_cursor?await fetch('/api/inbox?limit=200&cursor='+encodeURIComponent(first.next_cursor)).then(response=>response.json()):{entries:[]}; return {surface:'inbox',managedRows:[...first.entries,...tail.entries].filter(entry=>entry.session.workspaceAgentId).map(entry=>({id:entry.session.id,agentId:entry.session.workspaceAgentId,projectId:entry.project_id}))} })()" >"${EVIDENCE_ROOT}/workspace-inbox-dom.json"
+  ab conversation-origin --json eval "(async () => { const urls=['/settings','/sessions/${NAMED_AGENT_SESSION_ID}/info','/api/inbox?limit=200','/api/conversation-search?q=s07-agent-a-marker&scope=global']; const results=[]; for(const url of urls){const response=await fetch(url);results.push({url,status:response.status,type:response.headers.get('content-type')})} if(results.some(result=>result.status!==200))throw new Error('served surface request failed '+JSON.stringify(results)); return results })()" >"${EVIDENCE_ROOT}/workspace-network-evidence.json"
+  capture_clean_browser_diagnostics inbox
+}
+
 assert_visible_read_settled() {
   local session="$1"
   assert_eval "${session}" "(async () => { const c=window.dartclaw.stimulus.getControllerForElementAndIdentifier(document.querySelector('[data-controller~=dc-chat]'),'dc-chat'); c.handleVisibleReadBoundary(); const started=performance.now(); while(performance.now()-started<3000) { const visible=[...document.querySelectorAll('[data-message-id]')].filter(message=>{const b=message.getBoundingClientRect();return b.bottom>0&&b.top<innerHeight}); const latest=visible.at(-1); if(c.conversationReady&&latest&&c.lastReadMessageId===latest.dataset.messageId)return {readAcknowledged:c.lastReadMessageId,revision:c.conversationRevision}; await new Promise(r=>setTimeout(r,20)); } throw new Error('visible read boundary did not settle: '+JSON.stringify({ready:c.conversationReady,lastRead:c.lastReadMessageId,visibility:document.visibilityState,revision:c.conversationRevision,visible:[...document.querySelectorAll('[data-message-id]')].filter(m=>{const b=m.getBoundingClientRect();return b.bottom>0&&b.top<innerHeight}).map(m=>m.dataset.messageId)})); })()"
@@ -731,6 +805,7 @@ case "${CASE}" in
   q6-q8-q10-inbox-attention) run_q6; run_inbox_attention; run_inbox_joined_proof ;;
   q8-q10-inbox-attention) run_inbox_attention ;;
   search-commands|current-search-history|search-recovery|search-command-accessibility) run_search_commands ;;
+  workspace-chat-integration) run_workspace_chat_integration ;;
 esac
 
 echo "Evidence: ${EVIDENCE_ROOT}"

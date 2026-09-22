@@ -75,8 +75,9 @@ Content-Type: application/json
 - Tasks targeting external projects get auto-fetch before worktree creation and push-to-remote on accept. Tasks targeting `_local` use local merge.
 
 Project targeting selects the source checkout and optional task worktree. It does not assign a named agent workspace or
-change a workspace storage principal. The task execution directory and `agent.agents.<id>.workspace` are different
-authorities: the former is where the task runs; the latter owns a configured agent's behavior, skills, memory, and logs.
+change a workspace storage principal. The task execution directory and the managed `data_dir/agents/<id>/workspace`
+binding are different authorities: the former is where the task runs; the latter owns a configured agent's behavior,
+skills, memory, and logs.
 
 See [Projects & Git](projects-and-git.md) for project setup, auto-fetch behavior, and accept workflows.
 

@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerContext, McpCallerIdentity, McpCallerPolicy;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -57,8 +58,13 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  McpProtocolHandler handlerWith({GuardChain? chain, GuardAuditLogger? sink}) =>
-      McpProtocolHandler(guardChain: chain, auditLogger: sink)..registerTool(WikiWriteTool(wiki: wiki));
+  McpProtocolHandler handlerWith({
+    GuardChain? chain,
+    GuardAuditLogger? sink,
+    Future<ToolResult?> Function(McpCallerContext context)? contextualWriteGuard,
+  }) =>
+      McpProtocolHandler(guardChain: chain, auditLogger: sink)
+        ..registerTool(WikiWriteTool(wiki: wiki, contextualWriteGuard: contextualWriteGuard));
 
   McpProtocolHandler passingHandler() => handlerWith(
     chain: GuardChain(guards: [FakeGuard.pass()]),
@@ -215,6 +221,35 @@ void main() {
       expect(pageFile('dart-roadmap').existsSync(), isFalse);
       expect(auditRows(), [('wiki_write', 'deny')]);
     });
+
+    test('a temporary caller is refused before the page store writes', () async {
+      final base = handlerWith(
+        contextualWriteGuard: (context) async => context.sessionId == 'temporary-session'
+            ? const ToolResult.error('Temporary conversations cannot write durable knowledge')
+            : null,
+      );
+      final handler = base.scopedTo(
+        const _AllowWikiWrite(),
+        callerIdentity: const McpCallerIdentity(
+          authorityId: 'agent:main',
+          sessionId: 'temporary-session',
+          agentId: 'main',
+        ),
+      );
+
+      final result = _result(
+        await _call(handler, 'wiki_write', {
+          'slug': 'temporary-marker',
+          'title': 'Temporary Marker',
+          'body': _longBody('temporary'),
+          'sources': ['temporary-session'],
+        }),
+      );
+
+      expect(result['isError'], isTrue);
+      expect(_text(result), contains('Temporary conversations cannot write durable knowledge'));
+      expect(pageFile('temporary-marker').existsSync(), isFalse);
+    });
   });
 
   group('the declared argument contract is enforced', () {
@@ -271,4 +306,14 @@ void main() {
       expect((schema['properties'] as Map).keys, isNot(contains('provenance')));
     });
   });
+}
+
+final class _AllowWikiWrite implements McpCallerPolicy {
+  const new();
+
+  @override
+  bool allows(String toolName) => toolName == 'wiki_write';
+
+  @override
+  void onDenied(String toolName) {}
 }

@@ -42,6 +42,39 @@ Future<void> main(List<String> arguments) async {
   final searchProjectBetaDirectory = Directory(p.join(dataDirectory, _searchProjectBeta))..createSync(recursive: true);
   File(p.join(projectDirectory.path, 'reference.md')).writeAsStringSync('effective context reference');
   File(p.join(dataDirectory, 'TOOLS.md')).writeAsStringSync('Fixture browser behavior');
+  final ownerWorkspaceDirectory = p.join(dataDirectory, 'workspace');
+  final fixtureAgentWorkspace = AgentWorkspace.managed(
+    agentId: 'fixture-agent',
+    dataDir: dataDirectory,
+    ownerWorkspaceDir: ownerWorkspaceDirectory,
+  );
+  final fixtureAgentBWorkspace = AgentWorkspace.managed(
+    agentId: 'fixture-agent-b',
+    dataDir: dataDirectory,
+    ownerWorkspaceDir: ownerWorkspaceDirectory,
+  );
+  final fixtureSearchWorkspace = AgentWorkspace.managed(
+    agentId: 'fixture-search-owner',
+    dataDir: dataDirectory,
+    ownerWorkspaceDir: ownerWorkspaceDirectory,
+  );
+  final workspaceService = WorkspaceService(dataDir: dataDirectory);
+  await workspaceService.prepareManagedAgents([fixtureAgentWorkspace, fixtureAgentBWorkspace, fixtureSearchWorkspace]);
+  final refusedWorkspace = AgentWorkspace.managed(
+    agentId: 'refused-agent',
+    dataDir: dataDirectory,
+    ownerWorkspaceDir: ownerWorkspaceDirectory,
+  );
+  final refusedSentinel = File(p.join(p.dirname(refusedWorkspace.directory), 'retained.txt'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync('retained bytes');
+  String managedRefusal;
+  try {
+    workspaceService.validateManagedAgents([refusedWorkspace]);
+    managedRefusal = 'unexpected admission';
+  } on StateError catch (error) {
+    managedRefusal = '$error';
+  }
   final projectService = FakeProjectService(
     projects: [
       Project(
@@ -74,13 +107,36 @@ Future<void> main(List<String> arguments) async {
     ],
     defaultProjectId: 'fixture-docs',
   );
-  final config = DartclawConfig(server: ServerConfig(dataDir: dataDirectory));
-  final configWriter = ConfigWriter(configPath: p.join(dataDirectory, 'dartclaw.yaml'));
-  final namedAgentSession = await sessions.createSession(
-    workspace: AgentWorkspace.pinned(agentId: 'fixture-agent', directory: projectDirectory.path),
+  final config = DartclawConfig(
+    server: ServerConfig(dataDir: dataDirectory),
+    agent: AgentConfig(
+      definitions: [
+        AgentDefinition(
+          id: 'fixture-agent',
+          description: 'Managed fixture agent',
+          prompt: '',
+          workspace: fixtureAgentWorkspace,
+        ),
+        AgentDefinition(
+          id: 'fixture-agent-b',
+          description: 'Managed fixture peer',
+          prompt: '',
+          workspace: fixtureAgentBWorkspace,
+        ),
+      ],
+    ),
   );
+  final configWriter = ConfigWriter(configPath: p.join(dataDirectory, 'dartclaw.yaml'));
+  final namedAgentSession = await sessions.createSession(workspace: fixtureAgentWorkspace);
   final historyFixture = await _seedHistoryFixture(sessions, messages, dataDirectory);
-  final searchFixture = await seedSearchCommandFixture(sessions, messages, namedAgentSession, dataDirectory);
+  final searchFixture = await seedSearchCommandFixture(
+    sessions,
+    messages,
+    namedAgentSession,
+    dataDirectory,
+    agentBWorkspace: fixtureAgentBWorkspace,
+    searchOwnerWorkspace: fixtureSearchWorkspace,
+  );
   final channelSession = await _seedExternalSession(
     sessions,
     messages,
@@ -219,6 +275,11 @@ Future<void> main(List<String> arguments) async {
       'searchMarker': 's07-exact-unloaded-marker',
       'searchProjectAlpha': _searchProjectAlpha,
       'searchProjectBeta': _searchProjectBeta,
+      'managedAgentWorkspace': fixtureAgentWorkspace.directory,
+      'managedAgentMarker': File(p.join(p.dirname(fixtureAgentWorkspace.directory), 'identity.json'))
+          .readAsStringSync(),
+      'managedRefusal': managedRefusal,
+      'managedRefusalPreserved': refusedSentinel.readAsStringSync(),
     }),
     flush: true,
   );
@@ -239,7 +300,14 @@ Future<
     String exactMessageId,
   })
 >
-seedSearchCommandFixture(SessionService sessions, MessageService messages, Session agentA, String dataDirectory) async {
+seedSearchCommandFixture(
+  SessionService sessions,
+  MessageService messages,
+  Session agentA,
+  String dataDirectory, {
+  required AgentWorkspace agentBWorkspace,
+  required AgentWorkspace searchOwnerWorkspace,
+}) async {
   Directory(p.join(dataDirectory, _searchProjectAlpha)).createSync(recursive: true);
   Directory(p.join(dataDirectory, _searchProjectBeta)).createSync(recursive: true);
   EffectiveConversationContext context(String projectId) => EffectiveConversationContext(
@@ -255,10 +323,7 @@ seedSearchCommandFixture(SessionService sessions, MessageService messages, Sessi
   );
   await sessions.updateTitle(agentA.id, 'Search agent A');
   await messages.insertMessage(sessionId: agentA.id, role: 'assistant', content: 's07-agent-a-marker s07-scope-marker');
-  final agentB = await sessions.createSession(
-    provider: 'claude',
-    workspace: AgentWorkspace.pinned(agentId: 'fixture-agent-b', directory: p.join(dataDirectory, 'agent-b')),
-  );
+  final agentB = await sessions.createSession(provider: 'claude', workspace: agentBWorkspace);
   await sessions.updateConversationState(
     agentB.id,
     (await sessions.getConversationState(agentB.id)).stageContext(context(_searchProjectBeta)),
@@ -266,10 +331,7 @@ seedSearchCommandFixture(SessionService sessions, MessageService messages, Sessi
   await sessions.updateTitle(agentB.id, 'Search agent B');
   await messages.insertMessage(sessionId: agentB.id, role: 'assistant', content: 's07-agent-b-marker');
 
-  final owner = await sessions.createSession(
-    provider: 'claude',
-    workspace: AgentWorkspace.pinned(agentId: 'fixture-search-owner', directory: p.join(dataDirectory, 'search-owner')),
-  );
+  final owner = await sessions.createSession(provider: 'claude', workspace: searchOwnerWorkspace);
   await sessions.updateConversationState(
     owner.id,
     (await sessions.getConversationState(owner.id)).stageContext(context(_searchProjectAlpha)),

@@ -129,8 +129,8 @@ void main() {
       expect(ConfigMeta.fields, isNot(contains('guards.input_sanitizer.enabled')));
       expect(ConfigMeta.fields.keys.where((field) => field.startsWith('advisor.')), isEmpty);
       final agentEntry = _entryFieldsOf(ConfigMeta.fields['agent.agents']!.entry);
-      expect(agentEntry['workspace']?.type, ConfigFieldType.string);
-      expect(agentEntry['workspace']?.nullable, isFalse);
+      expect(agentEntry, isNot(contains('workspace')));
+      expect(ConfigMeta.fields['agent.agents']!.description, contains('data_dir/agents/<id>/workspace'));
       expect(ConfigMeta.fields['agent.agents']!.mutability, ConfigMutability.restart);
     });
 

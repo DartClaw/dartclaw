@@ -4,6 +4,8 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import 'mcp_server.dart';
+
 typedef KgPrincipalProvider = String Function();
 
 /// Steward identity for KG fact ownership.
@@ -15,12 +17,13 @@ typedef KgPrincipalProvider = String Function();
 const systemKgPrincipal = 'system';
 
 /// MCP tool for adding source-linked temporal facts.
-class KgAddTool implements McpTool {
+class KgAddTool implements ContextualMcpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
   final KgPrincipalProvider principalProvider;
+  final Future<ToolResult?> Function(McpCallerContext context)? contextualWriteGuard;
 
-  new({required this.kg, this.auditLogger, KgPrincipalProvider? principalProvider})
+  new({required this.kg, this.auditLogger, KgPrincipalProvider? principalProvider, this.contextualWriteGuard})
     : principalProvider = principalProvider ?? _systemPrincipal;
 
   @override
@@ -46,7 +49,16 @@ class KgAddTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _add(args);
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    final refusal = await contextualWriteGuard?.call(context);
+    if (refusal != null) return refusal;
+    return _add(args);
+  }
+
+  Future<ToolResult> _add(Map<String, dynamic> args) async {
     final principal = principalProvider();
     final contradictions = await kg.contradictions(
       entity: _string(args, 'entity'),
@@ -159,17 +171,19 @@ class KgTimelineTool implements McpTool {
 }
 
 /// MCP tool for invalidating a fact while preserving history.
-class KgInvalidateTool implements McpTool {
+class KgInvalidateTool implements ContextualMcpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
   final KgPrincipalProvider principalProvider;
   final String stewardPrincipal;
+  final Future<ToolResult?> Function(McpCallerContext context)? contextualWriteGuard;
 
   new({
     required this.kg,
     this.auditLogger,
     KgPrincipalProvider? principalProvider,
     this.stewardPrincipal = systemKgPrincipal,
+    this.contextualWriteGuard,
   }) : principalProvider = principalProvider ?? _systemPrincipal;
 
   @override
@@ -192,7 +206,16 @@ class KgInvalidateTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _invalidate(args);
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    final refusal = await contextualWriteGuard?.call(context);
+    if (refusal != null) return refusal;
+    return _invalidate(args);
+  }
+
+  Future<ToolResult> _invalidate(Map<String, dynamic> args) async {
     final principal = principalProvider();
     final id = (args['id'] as num).toInt();
     final reason = _string(args, 'reason');
@@ -283,7 +306,9 @@ class KgContradictionsTool implements McpTool {
 
 ToolResult _jsonText(Map<String, Object?> payload) => ToolResult.text(jsonEncode(payload));
 
-List<Map<String, Object?>> _factsJson(List<KnowledgeFact> facts) => facts.map((fact) => fact.toJson()).toList();
+List<Map<String, Object?>> _factsJson(List<KnowledgeFact> facts) => facts.map(_publishedFactJson).toList();
+
+Map<String, Object?> _publishedFactJson(KnowledgeFact fact) => {...fact.toJson(), 'source': 'published'};
 
 List<Map<String, Object?>> _contradictionsJson(List<KnowledgeContradiction> contradictions) =>
     contradictions.map((contradiction) => contradiction.toJson()).toList();

@@ -251,6 +251,106 @@ void main() {
       expect(created.where((path) => path.endsWith('AGENTS.md')), isEmpty);
     });
 
+    test('prepares configured named-agent homes without a workspace key', () async {
+      final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'));
+      configFile.writeAsStringSync('''
+data_dir: '${tempDir.path}'
+agent:
+  provider: claude
+  agents:
+    analyst:
+      provider: claude
+''');
+
+      await SetupApply.apply(state);
+
+      final home = p.join(tempDir.path, 'agents', 'analyst');
+      expect(File(p.join(home, 'identity.json')).readAsStringSync(), '{"agentId":"analyst"}\n');
+      expect(File(p.join(home, 'workspace', 'AGENTS.md')).existsSync(), isTrue);
+      expect(Directory(p.join(home, 'workspace', 'wiki')).existsSync(), isFalse);
+      expect(configFile.readAsStringSync(), isNot(contains('workspace:')));
+    });
+
+    test('refuses the retired workspace key before mutating config or scaffolds', () async {
+      final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'));
+      final legacy = Directory(p.join(tempDir.path, 'legacy-agent'))..createSync();
+      final retained = File(p.join(legacy.path, 'MEMORY.md'))..writeAsStringSync('retained');
+      final original =
+          '''
+data_dir: '${tempDir.path}'
+agent:
+  provider: claude
+  agents:
+    analyst:
+      provider: claude
+      workspace: '${legacy.path}'
+''';
+      configFile.writeAsStringSync(original);
+
+      await expectLater(SetupApply.apply(state), throwsA(isA<StateError>()));
+
+      expect(configFile.readAsStringSync(), original);
+      expect(retained.readAsStringSync(), 'retained');
+      expect(Directory(p.join(tempDir.path, 'workspace')).existsSync(), isFalse);
+      expect(Directory(p.join(tempDir.path, 'agents')).existsSync(), isFalse);
+    });
+
+    test('refuses an unmarked retained home before mutating config or owner workspace', () async {
+      final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'));
+      final original =
+          '''
+data_dir: '${tempDir.path}'
+agent:
+  provider: claude
+  agents:
+    analyst:
+      provider: claude
+''';
+      configFile.writeAsStringSync(original);
+      final retained = File(p.join(tempDir.path, 'agents', 'analyst', 'retained.txt'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('untouched');
+
+      await expectLater(SetupApply.apply(state), throwsA(isA<StateError>()));
+
+      expect(configFile.readAsStringSync(), original);
+      expect(retained.readAsStringSync(), 'untouched');
+      expect(Directory(p.join(tempDir.path, 'workspace')).existsSync(), isFalse);
+    });
+
+    test('supports deliberate cutover after the operator removes the retired key', () async {
+      final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'));
+      final legacy = Directory(p.join(tempDir.path, 'legacy-agent'))..createSync();
+      final legacyMemory = File(p.join(legacy.path, 'MEMORY.md'))..writeAsStringSync('curated memory');
+      configFile.writeAsStringSync('''
+data_dir: '${tempDir.path}'
+agent:
+  provider: claude
+  agents:
+    analyst:
+      provider: claude
+      workspace: '${legacy.path}'
+''');
+
+      await expectLater(SetupApply.apply(state), throwsA(isA<StateError>()));
+      configFile.writeAsStringSync('''
+data_dir: '${tempDir.path}'
+agent:
+  provider: claude
+  agents:
+    analyst:
+      provider: claude
+''');
+
+      await SetupApply.apply(state);
+      final managedMemory = File(p.join(tempDir.path, 'agents', 'analyst', 'workspace', 'MEMORY.md'));
+      managedMemory.writeAsStringSync(legacyMemory.readAsStringSync());
+      await SetupApply.apply(state);
+
+      expect(managedMemory.readAsStringSync(), 'curated memory');
+      expect(File(p.join(tempDir.path, 'agents', 'analyst', 'identity.json')).existsSync(), isTrue);
+    });
+
     test('onboarding template names structured USER sections, rerun command, and draft semantics', () async {
       await SetupApply.apply(state);
 

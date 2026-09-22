@@ -6,12 +6,27 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'citation_packet.dart';
+import 'mcp_server.dart';
 
 /// Synthesizes candidate source material into packet JSON or prose.
 typedef ContextResearchSynthesizer = Future<String> Function(ContextResearchSynthesisRequest request);
 
 /// Records per-call synthesis metrics.
 typedef ContextResearchMetricsSink = Future<void> Function(ContextResearchMetrics metrics);
+
+/// Resolves the private research source admitted for one authenticated caller.
+typedef ContextResearchScopeResolver = Future<ContextResearchScope> Function(McpCallerContext caller);
+
+/// Caller-private research source, or the absence of one for shared-only callers.
+final class ContextResearchScope {
+  const new private({required this.principal, required this.memorySearch, required this.memoryCorpus});
+
+  const new sharedOnly() : principal = null, memorySearch = null, memoryCorpus = null;
+
+  final String? principal;
+  final SearchBackend? memorySearch;
+  final MemoryCorpusService? memoryCorpus;
+}
 
 /// Candidate source material supplied to the synthesizer.
 final class ContextResearchCandidate {
@@ -87,10 +102,11 @@ final class ContextResearchMetrics {
 }
 
 /// MCP tool that synthesizes a compact cited packet across internal knowledge.
-final class ContextResearchTool implements McpTool {
-  final SearchBackend _memorySearch;
+final class ContextResearchTool implements ContextualMcpTool {
+  final ContextResearchScopeResolver _scopeResolver;
+  final WikiSearchSource _wiki;
   final TemporalKnowledgeGraphService _kg;
-  final CitationSourceResolver? _sourceResolver;
+  final CitationSourceResolver Function(ContextResearchScope scope)? _sourceResolverFactory;
   final ContextResearchSynthesizer _synthesizer;
   final ContextResearchMetricsSink? _metricsSink;
   final int _maxQueryLength;
@@ -99,17 +115,19 @@ final class ContextResearchTool implements McpTool {
 
   /// Creates the `context_research` MCP tool.
   new({
-    required SearchBackend memorySearch,
+    required ContextResearchScopeResolver scopeResolver,
+    required WikiSearchSource wiki,
     required TemporalKnowledgeGraphService kg,
     required ContextResearchSynthesizer synthesizer,
-    CitationSourceResolver? sourceResolver,
+    CitationSourceResolver Function(ContextResearchScope scope)? sourceResolverFactory,
     ContextResearchMetricsSink? metricsSink,
     int maxQueryLength = 500,
     int candidateLimit = 8,
     int defaultTokenBudget = 1200,
-  }) : _memorySearch = memorySearch,
+  }) : _scopeResolver = scopeResolver,
+       _wiki = wiki,
        _kg = kg,
-       _sourceResolver = sourceResolver,
+       _sourceResolverFactory = sourceResolverFactory,
        _synthesizer = synthesizer,
        _metricsSink = metricsSink,
        _maxQueryLength = maxQueryLength,
@@ -167,7 +185,11 @@ final class ContextResearchTool implements McpTool {
   McpToolAccess get access => McpToolAccess.read;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) async =>
+      const ToolResult.error('Tool requires authenticated caller context');
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
     final rawQuery = args['query'];
     if (rawQuery is! String || rawQuery.trim().isEmpty) {
       return ToolResult.error('Error: missing required parameter "query"');
@@ -178,7 +200,13 @@ final class ContextResearchTool implements McpTool {
     }
 
     final tokenBudget = (args['token_budget'] as int?)?.clamp(64, _defaultTokenBudget) ?? _defaultTokenBudget;
-    final retrieval = await _retrieve(query);
+    final ContextResearchScope scope;
+    try {
+      scope = await _scopeResolver(context);
+    } on Object catch (error) {
+      return ToolResult.error('Context research scope denied: $error');
+    }
+    final retrieval = await _retrieve(query, scope);
     if (retrieval.candidates.isEmpty) {
       final packet = CitationPacket(
         statements: const [],
@@ -241,22 +269,49 @@ final class ContextResearchTool implements McpTool {
     return ToolResult.text(jsonEncode({'status': status, 'packet': packet.toJson(), 'metrics': metrics.toJson()}));
   }
 
-  Future<_RetrievalResult> _retrieve(String query) async {
-    final memoryFuture = _retrieveMemory(query);
+  Future<_RetrievalResult> _retrieve(String query, ContextResearchScope scope) async {
+    final memoryFuture = _retrieveMemory(query, scope);
+    final wikiFuture = _captureLayer(CitationLayer.wiki, () async {
+      final scan = await _wiki.searchScan(query);
+      return _LayerResult(
+        candidates: scan.results
+            .map(
+              (result) => ContextResearchCandidate(
+                text: result.text,
+                sourceRef: SourceRef(
+                  layer: CitationLayer.wiki,
+                  locator: result.locator,
+                  label: result.category ?? result.locator,
+                  role: 'wiki',
+                ),
+              ),
+            )
+            .toList(),
+        degradedLayers: scan.degraded ? const ['wiki'] : const [],
+      );
+    });
     final kgFuture = _captureLayer(CitationLayer.kg, () async {
       final facts = <KnowledgeFact>[];
       for (final entity in _kgEntities(query)) {
         facts.addAll(await _kg.query(entity: entity));
         facts.addAll(await _kg.timeline(entity: entity));
       }
-      return facts.map((fact) {
-        return ContextResearchCandidate(
-          text: '${fact.entity} ${fact.predicate} ${fact.value}',
-          sourceRef: SourceRef(layer: CitationLayer.kg, locator: fact.id.toString(), label: fact.source, role: 'kg'),
-        );
-      }).toList();
+      return _LayerResult(
+        candidates: facts.map((fact) {
+          return ContextResearchCandidate(
+            text: '${fact.entity} ${fact.predicate} ${fact.value}',
+            sourceRef: SourceRef(
+              layer: CitationLayer.kg,
+              locator: fact.id.toString(),
+              label: 'Published knowledge graph fact',
+              role: 'kg',
+            ),
+          );
+        }).toList(),
+        degradedLayers: const [],
+      );
     });
-    final layers = await Future.wait([memoryFuture, kgFuture]);
+    final layers = await Future.wait([memoryFuture, wikiFuture, kgFuture]);
     final degradedLayers = <String>[];
     final candidates = <ContextResearchCandidate>[];
     for (final layer in layers) {
@@ -266,7 +321,7 @@ final class ContextResearchTool implements McpTool {
 
     final deduped = _dedupe(candidates).take(_candidateLimit * 3).toList();
     final resolver =
-        _sourceResolver ??
+        _sourceResolverFactory?.call(scope) ??
         CitationSourceIndexResolver(
           wikiLocators: deduped.where((c) => c.sourceRef.layer == CitationLayer.wiki).map((c) => c.sourceRef.locator),
           memoryLocators: deduped
@@ -277,17 +332,24 @@ final class ContextResearchTool implements McpTool {
     return _RetrievalResult(candidates: deduped, degradedLayers: degradedLayers, resolver: resolver);
   }
 
-  Future<_LayerResult> _retrieveMemory(String query) async {
+  Future<_LayerResult> _retrieveMemory(String query, ContextResearchScope scope) async {
+    final memorySearch = scope.memorySearch;
+    final principal = scope.principal;
+    if (memorySearch == null || principal == null) {
+      return const _LayerResult(candidates: [], degradedLayers: []);
+    }
     try {
-      final outcome = await _memorySearch.search(query, limit: _candidateLimit, userId: 'owner');
+      final outcome = await memorySearch.search(
+        query,
+        limit: _candidateLimit,
+        userId: principal,
+        layers: const {SearchResultLayer.memory},
+      );
       final candidates = <ContextResearchCandidate>[];
       var rejectedRole = false;
       for (final result in outcome.results) {
         final layer = switch (result.role) {
           'topic' || 'archive' || 'observation' || 'learning' || 'memory' => CitationLayer.memory,
-          'wiki' => CitationLayer.wiki,
-          'knowledge-inbox' => CitationLayer.inbox,
-          'kg' => CitationLayer.kg,
           _ => null,
         };
         if (layer == null) {
@@ -315,12 +377,9 @@ final class ContextResearchTool implements McpTool {
     }
   }
 
-  Future<_LayerResult> _captureLayer(
-    CitationLayer layer,
-    Future<List<ContextResearchCandidate>> Function() retrieve,
-  ) async {
+  Future<_LayerResult> _captureLayer(CitationLayer layer, Future<_LayerResult> Function() retrieve) async {
     try {
-      return _LayerResult(candidates: await retrieve(), degradedLayers: const []);
+      return await retrieve();
     } catch (_) {
       return _LayerResult(candidates: const [], degradedLayers: [layer.wireName]);
     }

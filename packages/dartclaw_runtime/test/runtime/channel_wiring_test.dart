@@ -254,12 +254,10 @@ void main() {
     );
 
     test('a reserved owner workspace binding is refused before channel dispatch', () {
-      final workspace = Directory(p.join(tempDir.path, 'agents', 'main'))..createSync(recursive: true);
       final owner = Directory(p.join(tempDir.path, 'workspace'))..createSync();
       final configured = AgentDefinition.fromYaml(
         'main',
-        {
-          'workspace': workspace.path,
+        const {
           'tools': ['Read'],
         },
         <String>[],
@@ -269,7 +267,13 @@ void main() {
 
       expect(
         () => binderFor(configured).bind(const GroupEntry(id: '+1', agent: 'main')),
-        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('reserved owner identity'))),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains(p.join('agents', 'main', 'workspace')), contains('reserved for the owner workspace')),
+          ),
+        ),
       );
       expect(turns.reserved, isEmpty);
       expect(turns.executed, isEmpty);

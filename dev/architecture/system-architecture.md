@@ -2,9 +2,9 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.27 PostgreSQL-only storage, conversation snapshot and attempt authority, effective context,
-workspace principals, temporary retention, product search, inbox and attention projections, plus the Trellis and
-HTMX upgrade.
+**Current through**: 0.27 PostgreSQL-only storage, conversation snapshot and attempt authority, managed workspace
+principals and caller-scoped research, temporary retention, product search, inbox and attention projections, plus the
+Trellis and HTMX upgrade.
 
 ---
 
@@ -245,6 +245,12 @@ effort may change for a later attempt, while the session's owner or named-agent 
 pinned. Durable conversations persist their snapshot beside session metadata. Process-retained conversations use the
 same services in memory and release their worker, container, attachments, and conversation state through one confirmed
 cleanup path.
+
+Named-agent workspaces are derived from the configured id at `data_dir/agents/<id>/workspace`; configuration does not
+select their path. Setup validates all homes before mutation, writes the exact id-only marker in the parent managed home,
+then scaffolds the workspace. The existing tool-policy cascade decides eligibility: a read or `context_research` grant
+wires retrieval and rebuild work, while a memory-write grant wires mutation and journal or curation schedules. Either
+kind may require a personal-memory corpus; directory existence alone is not a memory grant.
 
 **Context management strategy** (0.10): Layered mechanisms preserve useful context in long-running sessions:
 1. **Compact instructions** — `BehaviorFileService.composeSystemPrompt()` appends a `# Compact instructions` section for long-running session types (web, DM, group, cron), guiding the binary on what to preserve during auto-compaction. Configurable via `context.compact_instructions`.
@@ -659,9 +665,15 @@ requiring separate `memory_search`, temporal-KG, and wiki reads. Design rational
 
 At call time the tool fans out retrieval across:
 
-- configured PostgreSQL lexical or built-in hybrid memory search;
-- temporal-KG facts and timelines for query-derived entity candidates;
-- wiki/source documents exposed through the knowledge layer.
+- caller-private PostgreSQL lexical or built-in hybrid personal-memory search for an owner or named-agent session whose
+  tool policy grants it;
+- temporal-KG facts and timelines for query-derived entity candidates on the shared published surface;
+- wiki documents on that same shared surface.
+
+`McpCallerContext` is the source authority. Owner/default calls use principal `owner`; named-agent calls use only their
+pinned `agent:<id>` principal; named MCP clients are shared-only. The knowledge inbox and every other principal's memory
+are excluded. The client profile exposes exactly `context_research`, `kg_query`, and `kg_timeline`. Wiki/KG writes are
+separate publication paths, and returned KG provenance is labelled as published rather than exposing the stored source.
 
 Results are deduplicated while preserving source metadata. Synthesis then runs through the injected background-turn
 seam; production wiring uses the logical-agent session path, while tests can inject a deterministic synthesizer.
@@ -672,7 +684,8 @@ synthesizer returns malformed output, assembly falls back to citation-preserving
 Synthesized answers are never cached. Every `context_research` call reruns retrieval and synthesis so temporal facts,
 wiki edits, and memory updates are reflected by the next request.
 
-**Package**: `dartclaw_core` (file services, PostgreSQL services, and search backends)
+**Packages**: `dartclaw_runtime` (caller/source composition and tool), `dartclaw_core` (file services, PostgreSQL
+services, and search backends)
 
 #### Project Management
 

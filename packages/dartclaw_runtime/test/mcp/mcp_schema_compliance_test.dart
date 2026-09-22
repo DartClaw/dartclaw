@@ -82,8 +82,13 @@ void main() {
       );
     }
 
-    ContextResearchTool contextResearchTool() =>
-        ContextResearchTool(memorySearch: _StubSearchBackend(), kg: kg, synthesizer: (_) async => '{}');
+    ContextResearchTool contextResearchTool() => ContextResearchTool(
+      scopeResolver: (_) async =>
+          ContextResearchScope.private(principal: 'owner', memorySearch: _StubSearchBackend(), memoryCorpus: null),
+      wiki: WikiSearchSource(workspaceDir: '.'),
+      kg: kg,
+      synthesizer: (_) async => '{}',
+    );
 
     /// The six orchestration and content tools, built over throwaway
     /// collaborators — only their declared schemas are under test here.

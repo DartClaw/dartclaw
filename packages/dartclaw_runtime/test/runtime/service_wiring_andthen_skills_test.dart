@@ -43,7 +43,12 @@ void main() {
     final fakeHome = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
     final projectA = Directory(p.join(tempDir.path, 'project-a'))..createSync(recursive: true);
     final projectB = Directory(p.join(tempDir.path, 'project-b'))..createSync(recursive: true);
-    final agentWorkspace = Directory(p.join(tempDir.path, 'agent-workspace'))..createSync(recursive: true);
+    final agentWorkspace = AgentWorkspace.managed(
+      agentId: 'configured',
+      dataDir: dataDir,
+      ownerWorkspaceDir: p.join(dataDir, 'workspace'),
+    );
+    await WorkspaceService(dataDir: dataDir).prepareManagedAgents([agentWorkspace]);
     final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'))..writeAsStringSync('');
     addTearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -58,7 +63,7 @@ void main() {
       dataDir,
       projectA: projectA.path,
       projectB: projectB.path,
-      agentWorkspace: agentWorkspace.path,
+      agentWorkspace: agentWorkspace,
     );
     final result = await DartclawRuntime.build(
       config,
@@ -100,11 +105,11 @@ void main() {
         p.join(dataDir, '.claude', 'skills', name),
       );
       expect(
-        Link(p.join(agentWorkspace.path, '.agents', 'skills', name)).targetSync(),
+        Link(p.join(agentWorkspace.directory, '.agents', 'skills', name)).targetSync(),
         p.join(dataDir, '.agents', 'skills', name),
       );
       expect(
-        Link(p.join(agentWorkspace.path, '.claude', 'skills', name)).targetSync(),
+        Link(p.join(agentWorkspace.directory, '.claude', 'skills', name)).targetSync(),
         p.join(dataDir, '.claude', 'skills', name),
       );
     }
@@ -168,18 +173,13 @@ List<String> _unexpectedDataDirSkillEntries(String dataDir) {
   ];
 }
 
-DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB, String? agentWorkspace}) {
+DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB, AgentWorkspace? agentWorkspace}) {
   return DartclawConfig(
     agent: AgentConfig(
       provider: 'claude',
       definitions: [
         if (agentWorkspace != null)
-          AgentDefinition(
-            id: 'configured',
-            description: 'Configured',
-            prompt: '',
-            workspace: AgentWorkspace(agentId: 'configured', directory: agentWorkspace),
-          ),
+          AgentDefinition(id: 'configured', description: 'Configured', prompt: '', workspace: agentWorkspace),
         const AgentDefinition(id: 'absent', description: 'Absent', prompt: ''),
       ],
     ),

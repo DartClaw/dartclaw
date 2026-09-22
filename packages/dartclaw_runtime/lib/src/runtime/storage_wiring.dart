@@ -12,6 +12,8 @@ import 'package:path/path.dart' as p;
 
 enum MemoryCallerKind { ordinary, scheduled }
 
+enum MemoryAccess { read, write }
+
 typedef SearchIndexFactory = FullTextIndex Function(
   DatabaseBackend backend,
   PostgresFtsTable table, {
@@ -28,6 +30,8 @@ final class WorkspaceMemoryContext {
     required this.manifest,
     required this.health,
     required this.file,
+    required this.allowsRead,
+    required this.allowsWrite,
   });
 
   final AgentWorkspace? workspace;
@@ -37,6 +41,8 @@ final class WorkspaceMemoryContext {
   final MemoryCorpusManifest manifest;
   final IndexHealthStore health;
   final MemoryFileService file;
+  final bool allowsRead;
+  final bool allowsWrite;
 }
 
 /// Constructs and exposes storage-layer services.
@@ -182,6 +188,7 @@ class StorageWiring {
     required String? sessionId,
     required String? agentId,
     MemoryCallerKind callerKind = MemoryCallerKind.ordinary,
+    MemoryAccess access = MemoryAccess.read,
   }) async {
     if (sessionId == null || sessionId.isEmpty) {
       throw StateError('Memory access requires a pinned session workspace');
@@ -198,8 +205,17 @@ class StorageWiring {
     if (callerKind == MemoryCallerKind.ordinary && agentId != workspace.agentId) {
       throw StateError('Memory caller does not match the pinned session workspace');
     }
-    return memoryContextForWorkspace(workspace) ??
+    final context =
+        memoryContextForWorkspace(workspace) ??
         (throw StateError('Pinned memory workspace is unavailable: ${workspace.storagePrincipal}'));
+    final allowed = switch (access) {
+      MemoryAccess.read => context.allowsRead,
+      MemoryAccess.write => context.allowsWrite,
+    };
+    if (!allowed) {
+      throw StateError('Agent "${workspace.agentId}" has no ${access.name} grant for its pinned memory workspace');
+    }
+    return context;
   }
 
   Never _missingPersonalMemory(String service) =>
@@ -340,6 +356,16 @@ class StorageWiring {
   }
 
   Future<void> _wirePersonalMemoryBeforeTaskStorage() async {
+    final policy = ManagedMemoryPolicy(config);
+    final managedDefinitions = config.agent.definitions.where(
+      (definition) =>
+          definition.workspace != null &&
+          definition.workspaceConfigurationError == null &&
+          policy.allowsCorpus(definition),
+    );
+    WorkspaceService(dataDir: config.server.dataDir)
+        .validateManagedAgents(managedDefinitions.map((definition) => definition.workspace!));
+
     final memoryCorpus = _memoryCorpus = MemoryCorpusService(workspaceDir: config.workspaceDir);
     try {
       final result = await MemoryPreflight(workspaceDir: config.workspaceDir, corpusService: memoryCorpus).preflight();
@@ -353,6 +379,8 @@ class StorageWiring {
         manifest: currentManifest,
         health: IndexHealthStore(workspaceDir: config.workspaceDir),
         file: MemoryFileService(baseDir: config.workspaceDir, corpusService: memoryCorpus),
+        allowsRead: true,
+        allowsWrite: true,
       );
     } on MemoryPreflightException catch (e, st) {
       await memoryCorpus.close();
@@ -370,9 +398,9 @@ class StorageWiring {
       _exitFn(1);
     }
 
-    for (final definition in config.agent.definitions) {
+    for (final definition in managedDefinitions) {
       final workspace = definition.workspace;
-      if (workspace == null || definition.workspaceConfigurationError != null) continue;
+      if (workspace == null) continue;
       final corpus = MemoryCorpusService(workspaceDir: workspace.directory);
       try {
         final result = await MemoryPreflight(workspaceDir: workspace.directory, corpusService: corpus).preflight();
@@ -386,6 +414,8 @@ class StorageWiring {
           manifest: manifest,
           health: IndexHealthStore(workspaceDir: workspace.directory),
           file: MemoryFileService(baseDir: workspace.directory, corpusService: corpus),
+          allowsRead: policy.allowsRead(definition),
+          allowsWrite: policy.allowsWrite(definition),
         );
       } on Object catch (error, stackTrace) {
         await corpus.close();
@@ -418,7 +448,7 @@ class StorageWiring {
   }
 
   Future<void> _wirePostgresIndex(DatabaseBackend backend) async {
-    for (final context in _memoryContexts.values) {
+    for (final context in _memoryContexts.values.where((context) => context.allowsRead)) {
       final target = TransactionalRebuildTarget(
         backend,
         indexFactory: (tx) => _openSearchIndex(tx, PostgresFtsTable.memoryChunks, withinTransaction: true),
@@ -655,7 +685,7 @@ class StorageWiring {
       return;
     }
 
-    for (final context in _memoryContexts.values) {
+    for (final context in _memoryContexts.values.where((context) => context.allowsRead)) {
       try {
         final health = await _probeWorkspaceIndexHealth(context);
         if (health.isCurrent(health.canonicalRevision, health.canonicalFingerprint)) {

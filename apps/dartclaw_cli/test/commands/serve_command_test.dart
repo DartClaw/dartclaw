@@ -522,6 +522,89 @@ channels:
       expect(worker.stopped, isFalse);
     });
 
+    test('prepares configured managed homes before runtime construction', () async {
+      final worker = _FakeWorkerService();
+      final tempDir = _tempDirectory();
+      final workspace = AgentWorkspace.managed(
+        agentId: 'research',
+        dataDir: tempDir.path,
+        ownerWorkspaceDir: p.join(tempDir.path, 'workspace'),
+      );
+      final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        agent: AgentConfig(
+          definitions: [
+            AgentDefinition(
+              id: 'research',
+              description: 'Research',
+              prompt: '',
+              allowedTools: const {'context_research'},
+              workspace: workspace,
+            ),
+          ],
+        ),
+        server: ServerConfig(
+          dataDir: tempDir.path,
+          templatesDir: _templatesDir,
+          staticDir: _staticDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+      final command = _bindingFailureCommand(config: config, tempDir: tempDir, worker: worker);
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await _captureExpectedServeLogs(
+        () => _expectExit(localRunner, code: 1),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
+
+      expect(
+        File(p.join(tempDir.path, 'agents', 'research', 'identity.json')).readAsStringSync(),
+        '{"agentId":"research"}\n',
+      );
+      expect(File(p.join(workspace.directory, 'AGENTS.md')).existsSync(), isTrue);
+    });
+
+    test('refuses an unmarked retained home before owner scaffold or runtime construction', () async {
+      final worker = _FakeWorkerService();
+      final tempDir = _tempDirectory();
+      final workspace = AgentWorkspace.managed(
+        agentId: 'research',
+        dataDir: tempDir.path,
+        ownerWorkspaceDir: p.join(tempDir.path, 'workspace'),
+      );
+      final retained = File(p.join(p.dirname(workspace.directory), 'retained.txt'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('preserve');
+      final stderrLines = <String>[];
+      final config = DartclawConfig(
+        container: const ContainerConfig(enabled: false),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        agent: AgentConfig(
+          definitions: [AgentDefinition(id: 'research', description: 'Research', prompt: '', workspace: workspace)],
+        ),
+        server: ServerConfig(dataDir: tempDir.path, templatesDir: _templatesDir, staticDir: _staticDir),
+      );
+      final command = _bindingFailureCommand(
+        config: config,
+        tempDir: tempDir,
+        worker: worker,
+        stderrLine: stderrLines.add,
+      );
+      final localRunner = DartclawRunner()..addCommand(command);
+
+      await _expectExit(localRunner, code: 1);
+
+      expect(
+        stderrLines.join('\n'),
+        allOf(contains('research'), contains(p.dirname(workspace.directory)), contains('move it aside')),
+      );
+      expect(retained.readAsStringSync(), 'preserve');
+      expect(Directory(p.join(tempDir.path, 'workspace')).existsSync(), isFalse);
+      expect(worker.started, isFalse);
+    });
+
     test('uses embedded templates and static assets without filesystem assets', () async {
       final worker = _FakeWorkerService();
       final tempDir = _tempDirectory('dartclaw_serve_asset_root_test_');

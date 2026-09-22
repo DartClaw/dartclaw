@@ -11,6 +11,7 @@ extension _HarnessWiringMemory on HarnessWiring {
       sessionId: context.sessionId,
       agentId: context.agentName,
       callerKind: context.source == 'cron' ? MemoryCallerKind.scheduled : MemoryCallerKind.ordinary,
+      access: _memoryAccessFor(toolName),
     );
     final handlers =
         _workspaceMemoryHandlers[memory.principal] ??
@@ -42,7 +43,11 @@ extension _HarnessWiringMemory on HarnessWiring {
     McpCallerContext caller,
   ) async {
     await _refuseTemporaryMemoryWrite(toolName, caller.sessionId);
-    final memory = await _storage.memoryContextForCaller(sessionId: caller.sessionId, agentId: caller.agentId);
+    final memory = await _storage.memoryContextForCaller(
+      sessionId: caller.sessionId,
+      agentId: caller.agentId,
+      access: _memoryAccessFor(toolName),
+    );
     final handlers =
         _workspaceMemoryHandlers[memory.principal] ??
         (throw StateError('Memory workspace is unavailable: ${memory.principal}'));
@@ -74,6 +79,9 @@ extension _HarnessWiringMemory on HarnessWiring {
     'memory_read' => handlers.read(arguments, context),
     _ => throw StateError(unsupportedToolError),
   };
+
+  MemoryAccess _memoryAccessFor(String toolName) =>
+      toolName == 'memory_apply' || toolName == 'memory_observe' ? MemoryAccess.write : MemoryAccess.read;
 
   /// Wires compaction EventBus callbacks onto a [ClaudeCodeHarness] instance.
   ///
@@ -109,6 +117,7 @@ extension _HarnessWiringMemory on HarnessWiring {
       sessionId: sessionId,
       agentId: agentName,
       callerKind: turnContext?.source == 'cron' ? MemoryCallerKind.scheduled : MemoryCallerKind.ordinary,
+      access: MemoryAccess.write,
     );
     final memoryHandlers = _workspaceMemoryHandlers[memory.principal];
     if (memoryHandlers == null) return;

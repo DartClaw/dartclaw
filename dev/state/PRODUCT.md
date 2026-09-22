@@ -24,7 +24,7 @@
 - **Automated work:** background tasks, code changes, and validated workflows. Runtime composition of declarative, schema-validated workflow definitions by agents is planned.
 - **Inspectable knowledge:** memory, a wiki, and a temporal knowledge graph, with read-only access for trusted clients over MCP. A broader knowledge steward loop is planned.
 
-**Single-owner, multi-client.** One person administers the assistant through the main conversation, which has access to everything. Channel-bound agents connect to workspaces of their own, with narrower tools, and reach the owner's knowledge through the context engine. Other people use the assistant through those agents, or as read clients of the knowledge surface in a context-engine deployment; such a deployment serves many clients plus automated work such as repository maintenance rather than doubling as a personal assistant. Nobody but the administrator owns configuration or writes. Multi-tenant deployment, per-sender chat arbitration, and team/crowd features are out of scope; trusted group-chat use remains a recipe.
+**Single-owner, multi-client.** One person administers one assistant through the main conversation. Named agents are narrower execution identities of that assistant, not additional users or personas: each has a host-managed workspace and private personal-memory principal selected by its existing tool policy. Explicit publication puts accepted knowledge into the shared wiki or temporal graph; `context_research` combines a caller's own private memory with those shared sources and never another agent's memory or raw inbox inputs. Other people use the assistant through channel-bound agents, or as read-only clients of the shared knowledge surface. Nobody but the administrator owns configuration. Multi-tenant deployment, per-sender chat arbitration, and team/crowd features are out of scope; trusted group-chat use remains a recipe.
 
 ## Architecture
 
@@ -37,5 +37,5 @@ DartClaw remains early, experimental software. Breaking changes to APIs, configu
 ## Proportionality
 
 - **Stage:** prototype. Experimental, soft-published; breaking changes to APIs, configuration, protocols and storage are acceptable.
-- **Scale:** one owner per instance and a handful of instances in use (personal deployments plus development); one process on one host; SQLite per instance with data in the megabytes; one maintainer.
+- **Scale:** one owner per instance and a handful of instances in use (personal deployments plus development); one process on one host; PostgreSQL per instance with data in the megabytes; one maintainer.
 - **Standing technical non-goals:** multi-tenant or multi-user administration; horizontal scaling or a distributed runtime; isolates or worker pools without a profiled bottleneck; an ORM or a second storage authority beside the existing backends; a plugin or extension system beyond harness providers, skills and workflow definitions; backward-compatibility layers; full accessibility conformance — keyboard reach, focus order, labels and touch targets are held, but a gate is not blocked on an audit finding no measurement reproduces.

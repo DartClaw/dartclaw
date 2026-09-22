@@ -257,7 +257,16 @@ class ServeCommand extends Command<void> {
 
     // Workspace scaffold (before any service init)
     final workspace = WorkspaceService(dataDir: dataDir);
-    await workspace.scaffold();
+    try {
+      for (final definition in config.agent.definitions) {
+        definition.requireWorkspaceAvailable();
+      }
+      await workspace.prepareManagedAgents([for (final definition in config.agent.definitions) ?definition.workspace]);
+      await workspace.scaffold();
+    } on StateError catch (error) {
+      _stderrLine('ERROR: ${error.message}');
+      _exitFn(1);
+    }
 
     StreamSubscription<ProcessSignal>? sigintSub;
     StreamSubscription<ProcessSignal>? sigtermSub;

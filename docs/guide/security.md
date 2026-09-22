@@ -4,15 +4,26 @@ DartClaw uses defense-in-depth: multiple independent layers so that no single co
 
 ## Workspace and Retention Boundaries
 
-A named agent receives filesystem and storage ownership only from an explicit `agent.agents.<id>.workspace` binding.
-Projects and staged working directories do not grant that workspace or change its principal. Ordinary memory and
-conversation search stay within the pinned principal; `context_research` is the explicit read grant to owner knowledge
-and preserves owner provenance.
+A named agent receives one host-managed filesystem and storage identity derived from its id:
+`data_dir/agents/<id>/workspace` and principal `agent:<id>`. Projects and staged working directories do not grant that
+workspace or change its principal. Ordinary memory and conversation search stay within the pinned principal.
+`context_research` adds the caller's private memory to the shared wiki and knowledge graph; it never reads another
+principal's personal memory or the knowledge inbox.
 
-Supported temporary conversations keep DartClaw session state, messages, attachments, usage context, and provider home
-in process, page, or volatile container storage. Explicit end revokes the link only after cleanup is confirmed. This
-retention boundary cannot undo provider processing or deliberate writes through workspace or external tools, and release
-support remains conditional on the documented real-provider EOF and forced-termination qualification.
+The host writes `data_dir/agents/<id>/identity.json` before workspace content and validates its exact id-only bytes on
+later starts. Workspace-profile containers mount only the `workspace/` child, so the marker is neither mounted nor
+writable; required container confinement refuses execution if that boundary is unavailable. On unrestricted host
+execution, excluding the marker from declared writable roots and tool grants is policy, not an OS boundary: a provider
+process running as the same host user may still reach host files outside those declarations. Choose an enforced
+container profile when the marker and neighboring homes must be protected from provider filesystem access.
+
+Supported temporary conversations keep DartClaw session state, messages, attachments, usage context, provider home,
+browser draft, and replay state in process, page, or volatile container storage. They are excluded from conversation and
+memory lexical/vector projections, daily logs, personal memory, shared wiki and KG writes, and knowledge-inbox intake;
+audit and process logs record opaque operation metadata without prompt or result content. Explicit end revokes the link
+only after cleanup is confirmed. This retention boundary cannot undo provider processing or writes through external or
+unmediated provider tools, and release support remains conditional on the documented real-provider EOF and
+forced-termination qualification.
 
 ## Architecture
 
@@ -59,7 +70,7 @@ What this does **not** cover, named rather than omitted: the content classifier'
 guard chain at all. Two neighbouring surfaces are bounded rather than excluded — inbound MCP `tools/call` dispatch **is**
 guard-evaluated against the same base chain and audited, but it is not a runner turn, so per-task tool policy and
 read-only mode do not apply there (this holds for a named MCP client too — see
-[Context Engine Mode](context-engine.md), whose bound is the five-tool profile plus that base chain); and an ACP-backed provider carries only its own reverse-call mediation, which is
+[Context Engine Mode](context-engine.md), whose bound is the three-tool shared-knowledge profile plus that base chain); and an ACP-backed provider carries only its own reverse-call mediation, which is
 weaker than the host tool gate. DartClaw does not today refuse an ACP provider named by a workflow step, so treat
 "workflow steps are guarded" as bounded by whichever provider the step names. Do not read "the same guarded path" as
 "every model-spawning path is guard-evaluated" — that is a broader claim this release does not make.

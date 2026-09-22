@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:collection/collection.dart';
 import 'package:path/path.dart' as p;
 
@@ -7,10 +5,9 @@ import 'execution_policy.dart';
 import 'output_schema.dart';
 import 'task_legacy_compatibility.dart';
 
-/// An operator-configured execution home for one named agent.
+/// A host-managed execution home for one named agent.
 ///
-/// The agent id is the sole source of [storagePrincipal]. The configured path
-/// supplies execution context only and can never redefine that identity.
+/// The agent id is the sole source of [storagePrincipal] and the managed path.
 final class AgentWorkspace {
   /// Creates a trusted canonical workspace binding.
   const new({required this.agentId, required this.directory});
@@ -31,70 +28,27 @@ final class AgentWorkspace {
     return AgentWorkspace(agentId: agentId, directory: p.normalize(directory));
   }
 
-  /// Resolves and validates one explicit operator-configured workspace path.
-  static AgentWorkspace configured({
-    required String agentId,
-    required String configuredPath,
-    required String dataDir,
-    required String ownerWorkspaceDir,
-  }) {
-    final trimmed = configuredPath.trim();
-    if (trimmed.isEmpty) {
-      throw FormatException('agent.agents.$agentId.workspace must not be blank');
-    }
-    final absolute = p.normalize(p.isAbsolute(trimmed) ? trimmed : p.join(dataDir, trimmed));
-    final lexicalType = FileSystemEntity.typeSync(absolute, followLinks: false);
-    if (lexicalType == FileSystemEntityType.notFound) {
-      throw FormatException('agent.agents.$agentId.workspace does not exist: $configuredPath');
-    }
-    if (lexicalType != FileSystemEntityType.directory && lexicalType != FileSystemEntityType.link) {
-      throw FormatException('agent.agents.$agentId.workspace is not a directory: $configuredPath');
-    }
-
-    final String canonical;
-    try {
-      canonical = p.normalize(Directory(absolute).resolveSymbolicLinksSync());
-      Directory(canonical).listSync(followLinks: false);
-    } on FileSystemException catch (error) {
-      throw FormatException('agent.agents.$agentId.workspace is unreadable: $configuredPath (${error.message})');
-    }
-    if (!p.equals(absolute, canonical)) {
+  /// Derives one named agent's fixed managed workspace binding.
+  static AgentWorkspace managed({required String agentId, required String dataDir, required String ownerWorkspaceDir}) {
+    final managedRoot = p.normalize(p.absolute(p.join(dataDir, 'agents')));
+    if (agentId == 'main') {
       throw FormatException(
-        'agent.agents.$agentId.workspace uses a symlink alias: $configuredPath resolves to $canonical',
+        'Agent "main" cannot use managed destination $managedRoot/main/workspace because that id is reserved for '
+        'the owner workspace; rename the agent',
       );
     }
-
-    final canonicalDataDir = _canonicalExistingDirectory(dataDir);
-    final canonicalOwner = _canonicalExistingDirectory(ownerWorkspaceDir);
-    if (!p.isAbsolute(trimmed) && !p.isWithin(canonicalDataDir, canonical)) {
+    if (!_managedAgentId.hasMatch(agentId)) {
       throw FormatException(
-        'agent.agents.$agentId.workspace relative path must stay beneath the instance data directory: '
-        '$configuredPath resolves to $canonical',
+        'Agent "$agentId" cannot use a destination beneath $managedRoot because its id is unsafe; rename it to '
+        '1-64 lowercase letters, digits, hyphens or underscores, starting with a letter or digit',
       );
     }
-    if (p.equals(canonical, canonicalDataDir)) {
-      throw FormatException('agent.agents.$agentId.workspace must not equal the instance data directory: $canonical');
+    final directory = p.normalize(p.join(managedRoot, agentId, 'workspace'));
+    final owner = p.normalize(p.absolute(ownerWorkspaceDir));
+    if (!p.isWithin(managedRoot, directory) || _pathsOverlap(directory, owner)) {
+      throw FormatException('Managed workspace for agent "$agentId" overlaps the owner workspace: $directory');
     }
-    if (_pathsOverlap(canonical, canonicalOwner)) {
-      throw FormatException('agent.agents.$agentId.workspace overlaps the owner workspace: $canonical');
-    }
-    return AgentWorkspace(agentId: agentId, directory: canonical);
-  }
-
-  /// Rejects duplicate or nested agent workspaces after all entries parse.
-  static void validateDistinct(Iterable<AgentWorkspace> workspaces) {
-    final seen = <AgentWorkspace>[];
-    for (final workspace in workspaces) {
-      for (final other in seen) {
-        if (_pathsOverlap(workspace.directory, other.directory)) {
-          throw FormatException(
-            'agent.agents.${workspace.agentId}.workspace overlaps agent "${other.agentId}" workspace: '
-            '${workspace.directory} overlaps ${other.directory}',
-          );
-        }
-      }
-      seen.add(workspace);
-    }
+    return AgentWorkspace(agentId: agentId, directory: directory);
   }
 
   /// Refuses a changed, removed, or newly-added binding for an existing session.
@@ -111,17 +65,10 @@ final class AgentWorkspace {
     );
   }
 
-  static String _canonicalExistingDirectory(String path) {
-    final absolute = p.normalize(p.absolute(path));
-    try {
-      return p.normalize(Directory(absolute).resolveSymbolicLinksSync());
-    } on FileSystemException {
-      return absolute;
-    }
-  }
-
   static bool _pathsOverlap(String left, String right) =>
       p.equals(left, right) || p.isWithin(left, right) || p.isWithin(right, left);
+
+  static final _managedAgentId = RegExp(r'^[a-z0-9][a-z0-9_-]{0,63}$');
 
   @override
   bool operator ==(Object other) =>
@@ -187,11 +134,10 @@ class AgentDefinition {
   /// the turn rather than being repaired or truncated.
   final Map<String, dynamic>? outputSchema;
 
-  /// Explicit execution workspace, or null when this agent keeps its existing
-  /// no-workspace boundary.
+  /// Managed execution workspace, or null when configuration admission refused it.
   final AgentWorkspace? workspace;
 
-  /// The preflight error that keeps an explicitly configured workspace unavailable.
+  /// The preflight error that keeps this managed workspace unavailable.
   final String? workspaceConfigurationError;
 
   /// Creates a logical-agent definition.
@@ -308,29 +254,17 @@ class AgentDefinition {
     AgentWorkspace? workspace;
     String? workspaceConfigurationError;
     if (yaml.containsKey('workspace')) {
-      final workspaceValue = yaml['workspace'];
-      if (id == 'main') {
-        workspaceConfigurationError =
-            'agent.agents.main.workspace cannot bind the reserved owner identity "main"; remove this workspace key';
-      } else if (workspaceValue is! String) {
-        workspaceConfigurationError = 'agent.agents.$id.workspace must be a string path: $workspaceValue';
-      } else {
-        if (dataDir == null || ownerWorkspaceDir == null) {
-          throw StateError('Workspace parsing requires the resolved instance data directory');
-        }
-        try {
-          workspace = AgentWorkspace.configured(
-            agentId: id,
-            configuredPath: workspaceValue,
-            dataDir: dataDir,
-            ownerWorkspaceDir: ownerWorkspaceDir,
-          );
-        } on FormatException catch (error) {
-          workspaceConfigurationError = error.message;
-        }
+      workspaceConfigurationError =
+          'agent.agents.$id.workspace is no longer supported; remove the key so DartClaw can use '
+          'data_dir/agents/$id/workspace without moving or deleting existing data';
+    } else if (dataDir != null && ownerWorkspaceDir != null) {
+      try {
+        workspace = AgentWorkspace.managed(agentId: id, dataDir: dataDir, ownerWorkspaceDir: ownerWorkspaceDir);
+      } on FormatException catch (error) {
+        workspaceConfigurationError = error.message;
       }
-      if (workspaceConfigurationError != null) warns.add(workspaceConfigurationError);
     }
+    if (workspaceConfigurationError != null) warns.add(workspaceConfigurationError);
 
     return AgentDefinition(
       id: id,
@@ -351,25 +285,7 @@ class AgentDefinition {
     );
   }
 
-  /// Returns this definition with its explicit workspace kept unavailable.
-  AgentDefinition withWorkspaceConfigurationError(String error) => AgentDefinition(
-    id: id,
-    description: description,
-    prompt: prompt,
-    allowedTools: allowedTools,
-    deniedTools: deniedTools,
-    maxResponseBytes: maxResponseBytes,
-    provider: provider,
-    securityProfile: securityProfile,
-    profileIsOperatorConfigured: profileIsOperatorConfigured,
-    execution: execution,
-    model: model,
-    effort: effort,
-    outputSchema: outputSchema,
-    workspaceConfigurationError: error,
-  );
-
-  /// Refuses execution for an explicitly configured workspace that failed preflight.
+  /// Refuses execution for a managed workspace that failed preflight.
   void requireWorkspaceAvailable() {
     final error = workspaceConfigurationError;
     if (error != null) throw StateError('$error. Fix this binding before using agent "$id".');

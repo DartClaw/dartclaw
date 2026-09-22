@@ -48,7 +48,10 @@ Handler mcpRoute(
       client.token: handler.scopedTo(
         ContextEngineCallerPolicy(principal: mcpClientPrincipal(client.name), auditLogger: auditLogger),
         toolCanonicals: toolCanonicals,
-        callerIdentity: McpCallerIdentity(authorityId: mcpClientPrincipal(client.name)),
+        callerIdentity: McpCallerIdentity(
+          authorityId: mcpClientPrincipal(client.name),
+          knowledgeScope: McpKnowledgeScope.sharedOnly,
+        ),
       ),
   };
 

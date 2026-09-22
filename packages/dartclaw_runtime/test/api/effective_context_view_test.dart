@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -8,20 +9,56 @@ import 'package:test/test.dart';
 void main() {
   final now = DateTime.utc(2026, 9, 19, 11, 42);
 
-  Session session() => Session(
+  Session session({AgentWorkspace? workspace}) => Session(
     id: 'session-1',
     type: SessionType.user,
     retention: ConversationRetention.durable,
     provider: 'claude',
+    workspace: workspace,
     createdAt: now,
     updatedAt: now,
   );
 
   Future<Map<String, dynamic>> view(
     ConversationState state, {
+    Session? target,
     Map<String, EffectiveContextCapabilities> capabilities = const {},
     Map<String, ModelCatalogue> catalogues = const {},
-  }) => effectiveContextView(session(), state, null, 'claude', capabilities, catalogues: (id) => catalogues[id]);
+  }) => effectiveContextView(
+    target ?? session(),
+    state,
+    null,
+    'claude',
+    capabilities,
+    catalogues: (id) => catalogues[id],
+  );
+
+  test('named-agent ownership remains a fixed fact while project context changes', () async {
+    final temporaryRoot = Directory.systemTemp.path;
+    final workspace = AgentWorkspace.managed(
+      agentId: 'research',
+      dataDir: '$temporaryRoot${Platform.pathSeparator}dartclaw-effective-context',
+      ownerWorkspaceDir: '$temporaryRoot${Platform.pathSeparator}dartclaw-owner-workspace',
+    );
+    final projection = await view(
+      ConversationState().stageContext(
+        const EffectiveConversationContext(
+          projectId: 'another-project',
+          directory: '/tmp/another-project',
+          referenceRoot: '/tmp/another-project',
+          provider: 'codex',
+        ),
+      ),
+      target: session(workspace: workspace),
+    );
+
+    expect(projection['workspace'], 'agent:research');
+    expect(projection['projectId'], 'another-project');
+    expect(projection['directory'], '/tmp/another-project');
+    for (final obsolete in ['workspaceOptions', 'workspacePath', 'personaOptions', 'sharingOptions']) {
+      expect(projection, isNot(contains(obsolete)));
+    }
+  });
 
   // The composer pill is read as a claim about the next turn. A segment nobody
   // has selected has to be absent, because a stand-in reads as a selection.

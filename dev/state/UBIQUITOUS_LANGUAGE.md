@@ -86,15 +86,14 @@
 | Emergency Control | Admin-only: `/stop` (abort all), `/pause` (queue messages), `/resume` (drain queue) | kill switch |
 
 ## Conversation & Session
-
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
 | Session | Top-level conversation container with persisted messages. Types: main, channel, cron, user, task, logicalAgent, archive | conversation, thread, chat |
 | Session Key | Deterministic routing string `agent:<agentId>:<scope>:<identifiers>`. Decouples scoping from session discovery | session ID, routing key |
 | Session Scope | Rules for session creation: `shared`, `per_contact`, `per_channel_contact`, `per_member` | isolation mode, distribution |
-| Workspace Binding | Agent id and canonical workspace directory pinned to a conversation at creation; owns behavior, skills, memory, logs, and the `agent:<id>` storage principal independently of project context | workspace selection, project workspace |
+| Managed Workspace Binding | Agent id and derived `data_dir/agents/<id>/workspace` directory pinned to a conversation at creation; owns behavior and skills under the `agent:<id>` storage principal independently of project context | workspace selection, configured path, project workspace |
 | Conversation Attempt | One admitted unit of conversation work linking its submission, captured effective context, provider turn, terminal outcome, messages, tools, approvals, and branch lineage | turn (when persistence identity matters), retry |
-| Effective Context | Complete project, directory, reference root, provider, model, and effort snapshot staged by revision and captured by the next admitted attempt; it never changes the Workspace Binding | workspace, execution defaults |
+| Effective Context | Complete project, directory, reference root, provider, model, and effort snapshot staged by revision and captured by the next admitted attempt; it never changes the Managed Workspace Binding | workspace, execution defaults |
 | Attention Event | Durable completion, failure, or input-request record linked to exact conversation history and projected into the owner's attention feed | notification, alert |
 | Action Availability | Server projection that an exact live request and owning turn still permit an action; read or dismiss state does not confer it | button state, permission |
 | Temporary Conversation | Owner-authorized conversation with `process` retention whose DartClaw state, attachments, usage context, and provider home remain in process, page, or volatile container storage until confirmed end | incognito chat, automatically private chat |
@@ -167,10 +166,11 @@
 | Workflow Run Artifact | Persistent record of a workflow run event – outcome, inputs/outputs, metadata. Stored alongside other workflow run state and queryable post-hoc. Examples: per-step output records, Resolution Attempt artifact | run artifact, structured artifact |
 
 ## Knowledge & Memory
-
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
-| Context Engine | Server-side layer that synthesizes internal knowledge from wiki, temporal KG, and memory, ingests external sources through MCP, and serves compact citation-backed packets to agents over MCP | turn context assembler, context window assembler |
+| Context Engine | Server-side layer that combines caller-private personal memory with the shared wiki and temporal KG, then serves compact citation-backed packets to agents and read-only MCP clients | turn context assembler, context window assembler |
+| Personal Memory | Canonical memory and derived projections owned by one storage principal (`owner` or `agent:<id>`); never a shared source merely because its managed workspace exists | global memory, shared memory |
+| Shared Knowledge Surface | Explicitly published wiki pages and temporal KG facts readable by owner, named agents with `context_research`, and named MCP clients; excludes personal memory and knowledge-inbox files | all knowledge, global memory |
 | Canonical Memory Entry | Stable UUID-addressed record with revision, role, provenance, and validated Markdown representation | memory chunk, indexed text |
 | Memory Role | Closed discriminant for every canonical memory document kind: `index`, `topic`, `archive`, `observation`, `learning`, `audit`, `wiki`, `kg`. Topic, archive, observation, and learning entries are index-eligible; index, audit, wiki, and KG entries are not | memory type, category |
 | Memory Provenance | The `MemorySourceRef` tuple every canonical record carries (origin kind, source locator, source event, caller, session ref). Origin kinds: `turn`, `journal`, `inbox`, `curation`, `migration`. Compare with `isExactReplayOf` for dedup and deletion authorization – structural equality is deliberately looser | source ref, origin |
@@ -180,14 +180,14 @@
 | Knowledge Inbox | Drop-folder ingestion path whose files move through the fixed states `inbox`, `processed`, `quarantine`, `skipped` | upload folder, import queue |
 | Knowledge Hub | Operator-facing browse/search surface over the knowledge layers (`all`, `wiki`, `kg`, `memory`, `inbox`) | knowledge UI, memory browser |
 | Search Index | Rebuildable backend-native lexical and vector projections of canonical memory and chat-facing conversation messages in separate corpora. Memory audit entries and non-chat messages are excluded | source of truth, search database |
-| Full-Text Index | Generic lexical-document `FullTextIndex` port over PostgreSQL text search, instantiated separately for memory documents and conversation messages. Search, upsert, and delete carry `user_id`; current projections use the instance-owner identity. It is not a global knowledge index | FTS layer, search abstraction |
+| Full-Text Index | Generic lexical-document `FullTextIndex` port over PostgreSQL text search, instantiated separately for memory documents and conversation messages. Search, upsert, and delete carry the owner or `agent:<id>` principal as `user_id`; it is not a global knowledge index | FTS layer, search abstraction |
 | Embedding Provider | Owner of query and ordered document embeddings under one Model Fingerprint. The `local` provider uses the verified EmbeddingGemma artifact and its query/document prefixes; `http` sends raw input to one explicit endpoint that owns preprocessing and the external trust boundary | embedding backend, model |
 | Model Fingerprint | Derived identity of the provider, model and input convention used to authenticate reusable vectors. It is never an operator-supplied configuration value | model ID, embedding version |
-| Vector Index | Optional owner- and corpus-scoped PostgreSQL `VectorIndex` projection for exact-fingerprint embeddings, using application vector tables with administrator-provisioned `public.vector` and its qualified cosine operator | vector database, semantic store |
+| Vector Index | Optional principal- and corpus-scoped PostgreSQL `VectorIndex` projection for exact-fingerprint embeddings, using application vector tables with administrator-provisioned `public.vector` and its qualified cosine operator | vector database, semantic store |
 | Hybrid Search | `dartclaw_search` composition of one Full-Text Index and one Vector Index using frozen weighted RRF. Memory and conversation instances synchronize independently; lexical results remain available when embeddings or vectors degrade | semantic search, reranker |
 | QMD | Retired external hybrid-search daemon removed in 0.27. Its old config subtree is parser-only transition input and never activates a runtime path; built-in Hybrid Search is the semantic path | current hybrid backend, embeddings service |
 | citation packet | Compact synthesized response where each claim carries source references resolvable to wiki, temporal KG, memory, or external MCP source material | answer blob, summary packet |
-| `context_research` | MCP synthesis tool that retrieves across internal knowledge layers and returns a citation packet | context engine tool, research outpost, search summary |
+| `context_research` | MCP synthesis tool that retrieves caller-private personal memory when available plus the shared wiki and KG, then returns a citation packet; named clients receive shared sources only | context engine tool, research outpost, search summary |
 | wiki provenance | Frontmatter field recording who authored a wiki page's content. `human-authored` and `hybrid` rank as search-trusted; `llm-authored` ranks trusted while `sources` is populated; any other stored value is preserved untouched and reported by wiki lint | authorship, page origin |
 | `hybrid` | The wiki provenance a page takes on when a `human-authored` or `hybrid` page gains machine-synthesized content, so it is neither relabelled as machine-authored nor claimed as sole machine authorship | mixed, merged provenance |
 | supplement section | A `## Supplement from <source> (<date>)` block appended to an existing wiki page. Reachable only when the merge turn declares the new material unrelated to the stored page | append block, merge section |
@@ -277,7 +277,7 @@
 | Drain | Workflow Orchestration | Cancelling and re-queueing in-flight foreach iterations on Serialize-remaining | Runtime Governance | `/resume (drain queue)` – replaying the paused message queue |
 
 ## Changelog
-
+- 2026-09-22: Replaced configurable Workspace Binding with Managed Workspace Binding and added Personal Memory and Shared Knowledge Surface.
 - 2026-09-14: Added Workspace Binding, Conversation Attempt, Effective Context, Attention Event, Action Availability, and Temporary Conversation.
 - 2026-09-09: Aligned database and schema-compatibility terms and added Instance-Local Store.
 - 2026-09-09: Full-Text Index and Search Index now name separate memory and conversation corpora and their owner scope.

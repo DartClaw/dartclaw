@@ -27,8 +27,9 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
   sessions/          # Authoritative per-session message history (NDJSON)
   logs/              # Daily logs and structured logs
   agents/
-    search/
-      sessions/      # Search agent session store (isolated)
+    <id>/
+      identity.json  # Exact host-owned id-only marker, ending with LF
+      workspace/     # Managed behavior, skills, and eligible personal memory
   kv.json            # Key-value store (cost tracking, etc.)
 ```
 
@@ -44,24 +45,33 @@ See [Conversation Search](search.md#conversation-search) for inclusion and lifec
 
 ## Owner and Named-Agent Workspaces
 
-The default workspace belongs to the instance owner. A named agent receives a workspace only through its explicit
-`agent.agents.<id>.workspace` setting:
+The default workspace belongs to the instance owner. Every configured named agent has one derived workspace:
 
-```yaml
-agent:
-  agents:
-    reviewer:
-      workspace: workspaces/reviewer
+```text
+<data_dir>/agents/<id>/workspace
 ```
 
-The directory must already exist. Relative paths resolve under `data_dir`; absolute paths are accepted. Startup rejects
-overlapping workspaces, the owner workspace, `data_dir`, and aliases through symlinks. Omitting `workspace` grants no
-workspace and does not fall back to the owner's files.
+`dartclaw init` and `dartclaw serve` validate every managed destination before changing any of them. A new home gets an
+exact `identity.json` containing only `{"agentId":"<id>"}` plus a trailing newline before the workspace is scaffolded.
+Setup refuses symlinks, malformed or mismatched markers, and a non-empty unmarked home. It never adopts, backs up,
+empties, moves, or copies an old directory. Back up and move an unsafe destination aside yourself, rerun setup, then
+deliberately copy retained content into its managed `workspace/` if appropriate.
 
-The binding is pinned when a conversation is created. It owns that agent's behavior files, native skills, canonical
-memory, daily logs, and storage principal. A project or staged directory selects where a turn works; it does not replace
-the workspace binding or principal. `context_research` is the separate explicit grant through which a named agent may
-read owner knowledge, and its results retain owner provenance.
+Agent ids must be 1–64 lowercase letters, digits, hyphens, or underscores, start with a letter or digit, and cannot be
+`main`. The old `agent.agents.<id>.workspace` key is rejected even when blank or null. Remove it; there is no replacement
+path or sharing setting.
+
+The binding is pinned when a conversation is created. It owns that agent's behavior files, native skills, and
+`agent:<id>` storage principal. Existing tool policy decides whether its personal memory corpus is wired: read tools and
+`context_research` grant local retrieval, while `memory_apply` and `memory_observe` grant local writes and maintenance.
+A project or staged directory selects where a turn works; it does not replace the workspace binding or principal.
+`context_research` combines the caller's private memory with the shared wiki and knowledge graph; it excludes other
+agents' memory and the knowledge inbox.
+
+Durable sessions keep the absolute workspace binding they were created with, so retained history stays readable after
+the configured agent is removed or its derived root relocates. Such a stale session is not reclassified or silently
+moved. Branching or forking it refuses the unavailable destination and tells the operator to create a new conversation
+for the current managed workspace.
 
 ## Behavior Files
 

@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerIdentity, McpCallerPolicy, McpProtocolHandler;
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart'
+    show McpCallerIdentity, McpCallerPolicy, McpKnowledgeScope, McpProtocolHandler;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -15,11 +16,12 @@ void main() {
   late Directory root;
   late DartclawRuntime runtime;
   late List<Map<String, dynamic>> curationResults;
+  late String agentDir;
 
   setUp(() async {
     root = Directory.systemTemp.createTempSync('service_memory_scope_');
     curationResults = [];
-    final agentDir = p.join(root.path, 'agent-a');
+    agentDir = p.join(root.path, 'agents', 'a', 'workspace');
     final config = DartclawConfig(
       server: ServerConfig(dataDir: root.path, claudeExecutable: Platform.resolvedExecutable),
       agent: AgentConfig(
@@ -54,6 +56,8 @@ void main() {
         'general': ['owner-service-marker'],
       },
     );
+    await WorkspaceService(dataDir: root.path)
+        .prepareManagedAgents([AgentWorkspace.pinned(agentId: 'a', directory: agentDir)]);
     await seedCanonicalMemory(
       agentDir,
       topics: const {
@@ -62,7 +66,7 @@ void main() {
     );
     File(p.join(config.workspaceDir, 'wiki', 'owner.md'))
       ..parent.createSync(recursive: true)
-      ..writeAsStringSync('owner-wiki-boundary-marker');
+      ..writeAsStringSync('owner-wiki-boundary-marker shared-service-marker');
     File(p.join(agentDir, 'wiki', 'agent.md'))
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('agent-wiki-boundary-marker');
@@ -99,7 +103,7 @@ void main() {
     'ordinary memory follows the authenticated pinned session while context research stays separately granted',
     () async {
       final agent = await runtime.sessionService.createSession(
-        workspace: AgentWorkspace.pinned(agentId: 'a', directory: p.join(root.path, 'agent-a')),
+        workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
       );
       final handler = runtime.server!.mcpHandler.scopedTo(
         const _AllowMemoryAndContext(),
@@ -121,7 +125,7 @@ void main() {
         agentName: 'a',
       );
       await runtime.server!.turns.waitForOutcome(agent.id, turnId);
-      final agentLogs = Directory(p.join(root.path, 'agent-a', 'memory'))
+      final agentLogs = Directory(p.join(agentDir, 'memory'))
           .listSync()
           .whereType<File>()
           .map((file) => file.readAsStringSync())
@@ -145,7 +149,7 @@ void main() {
         contains(
           isA<Session>()
               .having((session) => session.workspace?.storagePrincipal, 'principal', 'agent:a')
-              .having((session) => session.workspace?.directory, 'directory', p.join(root.path, 'agent-a')),
+              .having((session) => session.workspace?.directory, 'directory', agentDir),
         ),
       );
       expect(runtime.scheduleService!.runJobNow('memory-curation:a'), RunScheduledJobResult.started);
@@ -172,11 +176,25 @@ void main() {
       expect(observed, contains('collectionRevision'));
       expect(runtime.server!.mcpHandler.toolNames, contains('context_research'));
 
-      final beforeContext = File(p.join(root.path, 'agent-a', 'MEMORY.md')).readAsBytesSync();
-      final researched = await _call(handler, 'context_research', {'query': 'owner-wiki-boundary-marker'});
-      expect(researched, allOf(contains('owner-wiki-boundary-marker'), contains('"layer":"wiki"')));
-      expect(researched, isNot(contains('agent-wiki-boundary-marker')));
-      expect(File(p.join(root.path, 'agent-a', 'MEMORY.md')).readAsBytesSync(), beforeContext);
+      final beforeContext = File(p.join(agentDir, 'MEMORY.md')).readAsBytesSync();
+      final researched = await _call(handler, 'context_research', {'query': 'service-marker'});
+      expect(
+        researched,
+        allOf(contains('agent-service-marker'), contains('shared-service-marker'), contains('"layer":"wiki"')),
+      );
+      expect(researched, isNot(anyOf(contains('owner-service-marker'), contains('agent-wiki-boundary-marker'))));
+      expect(File(p.join(agentDir, 'MEMORY.md')).readAsBytesSync(), beforeContext);
+
+      final client = runtime.server!.mcpHandler.scopedTo(
+        const _AllowContextOnly(),
+        callerIdentity: const McpCallerIdentity(
+          authorityId: 'mcp-client:ide',
+          knowledgeScope: McpKnowledgeScope.sharedOnly,
+        ),
+      );
+      final clientResearch = await _call(client, 'context_research', {'query': 'service-marker'});
+      expect(clientResearch, contains('shared-service-marker'));
+      expect(clientResearch, isNot(anyOf(contains('owner-service-marker'), contains('agent-service-marker'))));
       final audit = await AuditLogReader(dataDir: root.path).read(pageSize: 100);
       expect(
         audit.entries,
@@ -187,7 +205,7 @@ void main() {
         ),
       );
 
-      final agentCorpus = MemoryCorpusService(workspaceDir: p.join(root.path, 'agent-a'));
+      final agentCorpus = MemoryCorpusService(workspaceDir: agentDir);
       final ownerCorpus = MemoryCorpusService(workspaceDir: p.join(root.path, 'workspace'));
       addTearDown(agentCorpus.close);
       addTearDown(ownerCorpus.close);
@@ -209,7 +227,6 @@ void main() {
   );
 
   test('agent memory search suppresses stale rows when its workspace index health is degraded', () async {
-    final agentDir = p.join(root.path, 'agent-a');
     final agent = await runtime.sessionService.createSession(
       workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
     );
@@ -236,7 +253,7 @@ void main() {
 
   test('missing or forged caller binding cannot fall back to owner memory', () async {
     final agent = await runtime.sessionService.createSession(
-      workspace: AgentWorkspace.pinned(agentId: 'a', directory: p.join(root.path, 'agent-a')),
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
     );
     final missingIdentity = runtime.server!.mcpHandler.scopedTo(const _AllowMemoryOnly());
     final forged = runtime.server!.mcpHandler.scopedTo(
@@ -255,6 +272,64 @@ void main() {
     expect(
       await _callRaw(forgedCron, 'memory_search', {'query': 'owner'}),
       allOf(contains('Tool execution failed'), contains('does not match'), isNot(contains('owner-service-marker'))),
+    );
+
+    final missingResearch = runtime.server!.mcpHandler.scopedTo(const _AllowContextOnly());
+    final forgedResearch = runtime.server!.mcpHandler.scopedTo(
+      const _AllowContextOnly(),
+      callerIdentity: McpCallerIdentity(authorityId: 'agent:b', sessionId: agent.id, agentId: 'b'),
+    );
+    final reclassifiedClient = runtime.server!.mcpHandler.scopedTo(
+      const _AllowContextOnly(),
+      callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:ide'),
+    );
+    expect(await _callRaw(missingResearch, 'context_research', {'query': 'owner'}), contains('authenticated caller'));
+    expect(
+      await _callRaw(forgedResearch, 'context_research', {'query': 'owner'}),
+      allOf(contains('scope denied'), contains('does not match'), isNot(contains('owner-service-marker'))),
+    );
+    expect(
+      await _callRaw(reclassifiedClient, 'context_research', {'query': 'owner'}),
+      allOf(contains('scope denied'), contains('cannot acquire private research scope')),
+    );
+  });
+
+  test('temporary caller context refuses personal and shared durable writes through registered tools', () async {
+    final temporary = await runtime.sessionService.createSession(retention: ConversationRetention.process);
+    final handler = runtime.server!.mcpHandler.scopedTo(
+      const _AllowDurableWrites(),
+      callerIdentity: McpCallerIdentity(
+        authorityId: 'temporary:${temporary.id}',
+        sessionId: temporary.id,
+        agentId: 'main',
+      ),
+    );
+
+    final observe = await _callRaw(handler, 'memory_observe', {
+      'text': 'temporary private marker',
+      'role': 'observation',
+    });
+    final wiki = await _callRaw(handler, 'wiki_write', {
+      'slug': 'temporary-shared-marker',
+      'title': 'Temporary Shared Marker',
+      'body': 'This must not become durable shared knowledge.',
+      'sources': ['temporary'],
+    });
+    final kg = await _callRaw(handler, 'kg_add', {
+      'entity': 'Temporary shared marker',
+      'predicate': 'status',
+      'value': 'must not persist',
+      'valid_from': '2026-09-22T00:00:00Z',
+      'source': 'temporary',
+    });
+
+    expect(observe, contains('Temporary conversations cannot write memory'));
+    expect(wiki, contains('Temporary conversations cannot write durable knowledge'));
+    expect(kg, contains('Temporary conversations cannot write durable knowledge'));
+    expect(File(p.join(root.path, 'workspace', 'wiki', 'temporary-shared-marker.md')).existsSync(), isFalse);
+    expect(
+      await _call(runtime.server!.mcpHandler, 'kg_query', {'entity': 'Temporary shared marker'}),
+      contains('"status":"no_result"'),
     );
   });
 }
@@ -292,6 +367,26 @@ class _AllowMemoryOnly implements McpCallerPolicy {
 
   @override
   bool allows(String toolName) => toolName.startsWith('memory_');
+
+  @override
+  void onDenied(String toolName) {}
+}
+
+class _AllowContextOnly implements McpCallerPolicy {
+  const new();
+
+  @override
+  bool allows(String toolName) => toolName == 'context_research';
+
+  @override
+  void onDenied(String toolName) {}
+}
+
+class _AllowDurableWrites implements McpCallerPolicy {
+  const new();
+
+  @override
+  bool allows(String toolName) => const {'memory_observe', 'wiki_write', 'kg_add'}.contains(toolName);
 
   @override
   void onDenied(String toolName) {}

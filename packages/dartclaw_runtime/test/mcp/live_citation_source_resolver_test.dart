@@ -48,12 +48,7 @@ void main() {
       validFrom: '2026-08-12T00:00:00Z',
       source: 'wiki/falcon.md',
     );
-    final resolver = LiveCitationSourceResolver(
-      corpus: corpus,
-      wiki: wiki,
-      kg: kg,
-      inbox: KnowledgeInboxReadService(workspaceDir: workspace.path),
-    );
+    final resolver = LiveCitationSourceResolver(corpus: corpus, wiki: wiki, kg: kg);
 
     expect(first, isNot(second));
     expect(await resolver.resolves(_ref(CitationLayer.memory, first, 'topic')), isTrue);
@@ -66,7 +61,7 @@ void main() {
     expect(await resolver.resolves(_ref(CitationLayer.wiki, 'wiki/falcon.md', null)), isFalse);
     expect(await resolver.resolves(_ref(CitationLayer.kg, '$factId', 'kg')), isTrue);
     expect(await resolver.resolves(_ref(CitationLayer.kg, '$factId', null)), isFalse);
-    expect(await resolver.resolves(_ref(CitationLayer.inbox, 'inbox/note.md', 'knowledge-inbox')), isTrue);
+    expect(await resolver.resolves(_ref(CitationLayer.inbox, 'inbox/note.md', 'knowledge-inbox')), isFalse);
     expect(await resolver.resolves(_ref(CitationLayer.inbox, 'inbox/note.md', null)), isFalse);
   });
 }

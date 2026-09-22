@@ -22,7 +22,7 @@ extension _ConversationServiceBranching on ConversationService {
       throw const ConversationMutationException(
         409,
         'BRANCH_DESTINATION_UNAVAILABLE',
-        'The configured destination is no longer available',
+        'The configured destination is no longer available. Create a new conversation to use the current workspace.',
       );
     }
     final context = claim?.admittedContext ?? state.currentContext ?? state.nextContext;
@@ -56,7 +56,7 @@ extension _ConversationServiceBranching on ConversationService {
         throw const ConversationMutationException(
           409,
           'BRANCH_DESTINATION_UNAVAILABLE',
-          'The configured destination is no longer available',
+          'The configured destination is no longer available. Create a new conversation to use the current workspace.',
         );
       }
       destination = await sessions.createSessionWithIdentity(

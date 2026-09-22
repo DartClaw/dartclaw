@@ -32,8 +32,8 @@
 - `serve` registers SIGINT, SIGTERM (skipped on Windows), and SIGUSR1 (`ReloadTriggerService`). New long-running work must wire into the `shutdown()` path in `serve_command.dart` and time out within 10 s, or `serve` will force-exit.
 - After `shutdown()` the command calls `_exitFn(0)` outside the `finally` to force VM exit despite pending IO futures — preserve this pattern when editing.
 - Local `dartclaw status` reads persisted corpus and index evidence without starting services or rescanning corpus
-  members. `rebuild-index` enumerates only the owner and explicit valid `agent.agents.*.workspace` bindings, authenticates
-  and rebuilds each canonical memory corpus under its storage principal, and projects conversations from persisted
+  members. `rebuild-index` enumerates only the owner and valid, read-granted managed agent bindings, authenticates and
+  rebuilds each canonical memory corpus under its storage principal, and projects conversations from persisted
   session ownership. One workspace failure is reported without substituting another. `--json` reports the owner revision,
   indexed rows, and resulting health.
 - AOT build target: avoid `dart:mirrors`, runtime `import` strings, and reflective package APIs anywhere reachable from either `bin/dartclaw.dart` or `bin/dartclaw_workflow.dart`.

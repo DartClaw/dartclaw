@@ -435,10 +435,12 @@ void main() {
       );
     }
 
-    final configured = await sessions.createSession(
-      provider: 'stale-provider',
-      workspace: const AgentWorkspace(agentId: 'research', directory: '/workspace/current'),
+    final configuredWorkspace = AgentWorkspace.managed(
+      agentId: 'research',
+      dataDir: root.path,
+      ownerWorkspaceDir: '${root.path}/workspace',
     );
+    final configured = await sessions.createSession(provider: 'stale-provider', workspace: configuredWorkspace);
     final configuredMessage = await messages.insertMessage(
       sessionId: configured.id,
       role: 'assistant',
@@ -450,13 +452,13 @@ void main() {
       behavior: BehaviorFileService(workspaceDir: root.path),
       sessions: sessions,
       turnLimits: const TurnLimitsConfig.defaults(),
-      agentDefinitions: (agentId) => const {
+      agentDefinitions: (agentId) => {
         'research': AgentDefinition(
           id: 'research',
           description: 'Research',
           prompt: '',
           provider: 'codex',
-          workspace: AgentWorkspace(agentId: 'research', directory: '/workspace/current'),
+          workspace: configuredWorkspace,
         ),
       }[agentId],
     );
@@ -475,7 +477,17 @@ void main() {
     final configuredDestination = await sessions.getSession(configuredFork['destinationSessionId']! as String);
     expect(configuredDestination?.provider, 'codex');
     expect(configuredDestination?.workspace?.agentId, 'research');
-    expect(configuredDestination?.workspace?.directory, '/workspace/current');
+    expect(configuredDestination?.workspace, configuredWorkspace);
+    expect(configuredFork['destinationSessionId'], configuredDestination?.id);
+    expect(SessionService.persistedPrincipal(configured), 'agent:research');
+    expect(SessionService.isVisibleToPrincipal(configured, 'owner'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'agent:research'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'agent:peer'), isFalse);
+
+    final restartedSessions = SessionService(baseDir: root.path);
+    final restarted = await restartedSessions.getSession(configured.id);
+    expect(restarted?.workspace, configuredWorkspace);
+    expect(SessionService.persistedPrincipal(restarted!), 'agent:research');
 
     final removedTurns = runtime.TurnManager(
       messages: messages,
@@ -498,8 +510,15 @@ void main() {
         kind: ConversationBranchKind.fork,
       ),
       throwsA(
-        isA<ConversationMutationException>().having((error) => error.code, 'code', 'BRANCH_DESTINATION_UNAVAILABLE'),
+        isA<ConversationMutationException>()
+            .having((error) => error.code, 'code', 'BRANCH_DESTINATION_UNAVAILABLE')
+            .having((error) => error.message, 'message', contains('new conversation')),
       ),
+    );
+    final relocatedWorkspace = AgentWorkspace.managed(
+      agentId: 'research',
+      dataDir: '${root.path}/relocated',
+      ownerWorkspaceDir: '${root.path}/relocated-workspace',
     );
     final changedTurns = runtime.TurnManager(
       messages: messages,
@@ -507,13 +526,13 @@ void main() {
       behavior: BehaviorFileService(workspaceDir: root.path),
       sessions: sessions,
       turnLimits: const TurnLimitsConfig.defaults(),
-      agentDefinitions: (agentId) => const {
+      agentDefinitions: (agentId) => {
         'research': AgentDefinition(
           id: 'research',
           description: 'Research',
           prompt: '',
           provider: 'codex',
-          workspace: AgentWorkspace(agentId: 'research', directory: '/workspace/changed'),
+          workspace: relocatedWorkspace,
         ),
       }[agentId],
     );
@@ -530,7 +549,9 @@ void main() {
         kind: ConversationBranchKind.fork,
       ),
       throwsA(
-        isA<ConversationMutationException>().having((error) => error.code, 'code', 'BRANCH_DESTINATION_UNAVAILABLE'),
+        isA<ConversationMutationException>()
+            .having((error) => error.code, 'code', 'BRANCH_DESTINATION_UNAVAILABLE')
+            .having((error) => error.message, 'message', contains('new conversation')),
       ),
     );
   });

@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show createConfiguredEmbeddingProvider, resolveDatabaseDsn;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart'
+    show ManagedMemoryPolicy, WorkspaceService, createConfiguredEmbeddingProvider, resolveDatabaseDsn;
 import 'package:dartclaw_search/dartclaw_search.dart';
 
 import 'config_loader.dart';
@@ -68,6 +69,24 @@ class RebuildIndexCommand extends Command<void> {
     }
     if (!json) write('WARNING: DartClaw must remain stopped until rebuild-index completes.');
 
+    final memoryPolicy = ManagedMemoryPolicy(config);
+    final rebuildDefinitions = config.agent.definitions
+        .where(
+          (definition) =>
+              definition.workspace != null &&
+              definition.workspaceConfigurationError == null &&
+              memoryPolicy.allowsRead(definition),
+        )
+        .toList(growable: false);
+    try {
+      WorkspaceService(dataDir: config.server.dataDir)
+          .validateManagedAgents(rebuildDefinitions.map((definition) => definition.workspace!));
+    } on StateError catch (error) {
+      write(error.message);
+      _exitFn(1);
+      return;
+    }
+
     final corpusService = MemoryCorpusService(workspaceDir: config.workspaceDir);
     DatabaseBackend? backend;
     EmbeddingProvider? embeddingProvider;
@@ -91,9 +110,9 @@ class RebuildIndexCommand extends Command<void> {
       ).preflight();
       if (!json) write(preflight.render());
       final manifest = await corpusService.manifest();
-      for (final definition in config.agent.definitions) {
+      for (final definition in rebuildDefinitions) {
         final workspace = definition.workspace;
-        if (workspace == null || definition.workspaceConfigurationError != null) continue;
+        if (workspace == null) continue;
         final corpus = MemoryCorpusService(workspaceDir: workspace.directory);
         try {
           final scopedPreflight = await MemoryPreflight(

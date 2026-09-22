@@ -250,7 +250,17 @@ _seedProductionState(DartclawConfig config, Directory root) async {
     provider: 'claude',
     workspace: AgentWorkspace.pinned(agentId: 'fixture-agent', directory: p.join(root.path, 'agent-a')),
   );
-  final search = await seedSearchCommandFixture(sessions, messages, agentA, root.path);
+  final search = await seedSearchCommandFixture(
+    sessions,
+    messages,
+    agentA,
+    root.path,
+    agentBWorkspace: AgentWorkspace.pinned(agentId: 'fixture-agent-b', directory: p.join(root.path, 'agent-b')),
+    searchOwnerWorkspace: AgentWorkspace.pinned(
+      agentId: 'fixture-search-owner',
+      directory: p.join(root.path, 'search-owner'),
+    ),
+  );
   final ownerState = await sessions.getConversationState(search.ownerSessionId);
   await sessions.updateConversationState(
     search.ownerSessionId,

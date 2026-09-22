@@ -49,6 +49,18 @@ Callers pass trimmed natural language; the FTS5 adapter owns MATCH encoding. Per
 UUID locators and revisions, while wiki/KG retain native locators and provenance. Native wiki wins over a duplicate QMD
 copy, and failure of one layer is reported without discarding healthy results.
 
+## Amendment (2026-09-22) – caller-private memory and explicit publication
+
+The research tool remains the one synthesis and citation authority, but its source set is resolved from the authenticated
+caller. Owner conversations retrieve owner personal memory; a named agent retrieves only its own personal memory when
+its tool policy grants `context_research`; named MCP clients receive no personal-memory source. Every caller may receive
+the shared wiki and temporal KG. The knowledge inbox and every other principal's memory are excluded.
+
+Publication is explicit rather than inferred from a managed workspace. Separately authorized wiki/KG writes and the
+validated knowledge-inbox pipeline put accepted outputs onto the shared surface. Direct KG reads and citation labels
+describe published facts without exposing their stored private source field. The named-client profile is therefore
+exactly `context_research`, `kg_query`, and `kg_timeline`; it no longer exposes personal-memory search or reads.
+
 ### Positive
 
 - Agents get one compact MCP result instead of coordinating multiple raw retrieval tools.

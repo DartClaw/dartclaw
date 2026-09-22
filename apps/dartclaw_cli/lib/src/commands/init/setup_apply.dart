@@ -55,12 +55,10 @@ class SetupApply {
     final created = <String>[];
 
     final instanceDir = Directory(state.instanceDir);
-    instanceDir.createSync(recursive: true);
 
     // --- Config file ---
     final configPath = state.configPath;
     final configFile = File(configPath);
-    configFile.parent.createSync(recursive: true);
     final configExists = configFile.existsSync();
 
     final String configContent;
@@ -224,9 +222,25 @@ class SetupApply {
     // New files are normalized to block style; existing files keep the surgical
     // editor output so user content and comments survive untouched.
     final body = configExists ? editor.toString() : _blockStyle(editor);
+    final prospectiveConfig = '$headerForNewFile$body';
+    final parsedConfig = loadDartclawConfig(
+      configPath: configPath,
+      fileReader: (path) => path == configPath ? prospectiveConfig : null,
+      env: Platform.environment,
+      resolveStoredCredentials: false,
+    );
+    for (final definition in parsedConfig.agent.definitions) {
+      definition.requireWorkspaceAvailable();
+    }
+    final workspaceService = WorkspaceService(dataDir: state.instanceDir);
+    final managedWorkspaces = [for (final definition in parsedConfig.agent.definitions) ?definition.workspace];
+    workspaceService.validateManagedAgents(managedWorkspaces);
+
+    instanceDir.createSync(recursive: true);
+    configFile.parent.createSync(recursive: true);
     final tmpPath = '$configPath.tmp';
     final tmpFile = File(tmpPath);
-    tmpFile.writeAsStringSync('$headerForNewFile$body');
+    tmpFile.writeAsStringSync(prospectiveConfig);
     tmpFile.renameSync(configPath);
 
     if (configExists) {
@@ -241,6 +255,8 @@ class SetupApply {
       }
       return created;
     }
+
+    await workspaceService.prepareManagedAgents(managedWorkspaces);
 
     // --- Workspace scaffold ---
     final workspaceDir = p.join(state.instanceDir, 'workspace');

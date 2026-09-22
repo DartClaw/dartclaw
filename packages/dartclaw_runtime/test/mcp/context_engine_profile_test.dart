@@ -28,6 +28,18 @@ class _NamedTool implements McpTool {
   Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text('called $name');
 }
 
+class _ContextResearchProbe extends _NamedTool implements ContextualMcpTool {
+  new() : super('context_research', McpToolAccess.read);
+
+  McpCallerContext? caller;
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    caller = context;
+    return ToolResult.text(context.knowledgeScope.name);
+  }
+}
+
 List<Map<String, dynamic>> _entries(Directory dataDir) => [
   for (final file in dataDir.listSync().whereType<File>().where((f) => f.path.endsWith('.ndjson')))
     for (final line in file.readAsLinesSync())
@@ -49,11 +61,8 @@ void main() {
   });
 
   group('the context-engine profile', () {
-    test('is exactly the five read tools the client surface promises', () {
-      expect(
-        contextEngineProfileTools,
-        unorderedEquals(['context_research', 'memory_search', 'memory_read', 'kg_query', 'kg_timeline']),
-      );
+    test('is exactly the three shared read tools the client surface promises', () {
+      expect(contextEngineProfileTools, unorderedEquals(['context_research', 'kg_query', 'kg_timeline']));
     });
 
     test('namespaces the client principal so it cannot be read as the steward or a session', () {
@@ -115,7 +124,10 @@ void main() {
 
     McpProtocolHandler scoped() => handler.scopedTo(
       ContextEngineCallerPolicy(principal: mcpClientPrincipal('ide'), auditLogger: auditLogger),
-      callerIdentity: McpCallerIdentity(authorityId: mcpClientPrincipal('ide')),
+      callerIdentity: McpCallerIdentity(
+        authorityId: mcpClientPrincipal('ide'),
+        knowledgeScope: McpKnowledgeScope.sharedOnly,
+      ),
     );
 
     Future<Map<String, dynamic>> call(McpProtocolHandler target, String method, Map<String, dynamic> params) async {
@@ -133,6 +145,7 @@ void main() {
       handler.registerTool(KgTimelineTool(kg: kg));
       handler.registerTool(KgAddTool(kg: kg));
       handler.registerTool(KgContradictionsTool(kg: kg));
+      handler.registerTool(_ContextResearchProbe());
       handler.registerTool(MemoryReadTool(handler: (args) async => {'echo': args}));
       handler.registerTool(MemorySearchTool(handler: (args) async => {'echo': args}));
       handler.registerTool(_NamedTool('web_fetch', McpToolAccess.write));
@@ -147,7 +160,7 @@ void main() {
           .map((tool) => (tool as Map<String, dynamic>)['name'])
           .toList();
 
-      expect(names, unorderedEquals(['kg_query', 'kg_timeline', 'memory_read', 'memory_search']));
+      expect(names, unorderedEquals(['context_research', 'kg_query', 'kg_timeline']));
     });
 
     test('refuses a write tool, a read-classified egress tool and an unknown name identically', () async {
@@ -205,13 +218,13 @@ void main() {
       expect(allows.every((entry) => entry['tool'] == 'kg_query'), isTrue);
     });
 
-    test('reads owner knowledge facts while unbound memory access fails closed', () async {
+    test('reads published knowledge facts with safe provenance while private memory tools are unavailable', () async {
       await kg.addFact(
         entity: 'Release',
         predicate: 'channel',
         value: 'stable',
         validFrom: '2026-05-01T00:00:00Z',
-        source: 'wiki/release.md',
+        source: '/private/owner/release.md',
         owner: 'owner',
       );
       await kg.addFact(
@@ -231,16 +244,24 @@ void main() {
       final clientView = await call(scoped(), 'tools/call', params);
 
       expect(clientView['result'], ownerView['result']);
-      expect(jsonEncode(clientView['result']), allOf(contains('stable'), contains('ubuntu')));
+      expect(jsonEncode(clientView['result']), allOf(contains('stable'), contains('ubuntu'), contains('published')));
+      expect(jsonEncode(clientView['result']), isNot(contains('/private/owner/release.md')));
 
       const readParams = {
         'name': 'memory_read',
         'arguments': {'locator': 'wiki/release.md'},
       };
-      final scopedMemory = (await call(scoped(), 'tools/call', readParams))['result'] as Map<String, dynamic>;
-      expect(scopedMemory['isError'], isTrue);
-      expect(jsonEncode(scopedMemory), contains('Tool requires an authenticated contextual handler'));
+      final scopedMemory = (await call(scoped(), 'tools/call', readParams))['error'] as Map<String, dynamic>;
+      expect(scopedMemory['code'], -32601);
+      expect(scopedMemory['message'], 'Tool not available: memory_read');
       expect(((await call(handler, 'tools/call', readParams))['result'] as Map<String, dynamic>)['isError'], isNull);
+    });
+
+    test('context research receives a host-selected shared-only scope', () async {
+      final target = scoped();
+      final response = await call(target, 'tools/call', {'name': 'context_research', 'arguments': <String, dynamic>{}});
+
+      expect(jsonEncode(response['result']), contains('sharedOnly'));
     });
   });
 }

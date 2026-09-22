@@ -3,7 +3,7 @@
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
 **Current through**: 0.27 conversation attempts, effective context, inbox and attention state, temporary retention,
-named-agent workspace ownership, and principal-scoped conversation search.
+managed named-agent workspace ownership and cutover, and principal-scoped conversation search.
 
 ---
 
@@ -142,6 +142,13 @@ An admitted attempt captures one complete `EffectiveConversationContext`: projec
 model, and effort. The session's `AgentWorkspace` and `agent:<id>` storage principal remain pinned across these changes.
 Queue accepts ordinary input in order; steer first confirms cancellation of the displayed turn and then uses ordinary
 admission. Channel and cron snapshots disable these browser controls.
+
+New named-agent sessions pin the derived absolute `data_dir/agents/<id>/workspace` binding after its host marker passes
+admission. `meta.json` remains authoritative for an existing session's absolute binding: moving `data_dir`, removing the
+agent, or changing the current derived root does not rewrite the session, change its principal, or reclassify history as
+owner data. History and authorized search remain readable. A branch or fork whose pinned destination no longer matches
+the current agent definition refuses with `BRANCH_DESTINATION_UNAVAILABLE` and directs the operator to create a new
+conversation; there is no automatic adoption, copy, or relocation path.
 
 The session route factory registers its conversation owner with the server. Shutdown first stops new conversation
 admission and drains admitted mutations, then cancels active turns and awaits retained outcomes and background writes

@@ -111,9 +111,7 @@ KnowledgeHubService knowledgeHubServiceForWorkspace({
     memoryIndex: memoryIndex,
     searchBackend: effectiveSearch,
     inbox: inbox,
-    sourceResolver: memoryCorpus == null
-        ? null
-        : LiveCitationSourceResolver(corpus: memoryCorpus, wiki: wiki, kg: kg, inbox: inbox),
+    sourceResolver: memoryCorpus == null ? null : LiveCitationSourceResolver(corpus: memoryCorpus, wiki: wiki, kg: kg),
   );
 }
 

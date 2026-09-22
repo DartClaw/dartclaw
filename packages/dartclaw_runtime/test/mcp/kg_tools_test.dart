@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/mcp/kg_tools.dart';
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
@@ -61,6 +62,65 @@ void main() {
     final contradiction = await KgContradictionsTool(kg: kg)
         .call({'entity': 'Dart SDK', 'predicate': 'channel', 'value': 'beta'});
     expect(jsonDecode((contradiction as dynamic).content as String), containsPair('status', 'contradiction'));
+  });
+
+  test('direct shared reads preserve published content without disclosing private source provenance', () async {
+    await kg.addFact(
+      entity: 'Boundary',
+      predicate: 'status',
+      value: 'shared fact remains visible',
+      validFrom: '2026-09-22T00:00:00Z',
+      source: '/private/agent-a/MEMORY.md',
+    );
+
+    final query = await KgQueryTool(kg: kg).call({'entity': 'Boundary'});
+    final timeline = await KgTimelineTool(kg: kg).call({'entity': 'Boundary'});
+    final encoded = '${(query as ToolResultText).content}\n${(timeline as ToolResultText).content}';
+
+    expect(encoded, contains('shared fact remains visible'));
+    expect(encoded, contains('"source":"published"'));
+    expect(encoded, isNot(contains('/private/agent-a/MEMORY.md')));
+  });
+
+  test('contextual durable writes honor a temporary-conversation refusal before mutation', () async {
+    Future<ToolResult?> denyTemporary(McpCallerContext context) async => context.sessionId == 'temporary-session'
+        ? const ToolResult.error('Temporary conversations cannot write durable knowledge')
+        : null;
+    const temporary = McpCallerContext(
+      authorityId: 'agent:main',
+      sourceEvent: 'test:temporary',
+      sessionId: 'temporary-session',
+      agentId: 'main',
+    );
+    final add = KgAddTool(kg: kg, contextualWriteGuard: denyTemporary);
+    final addResult = await add.callWithContext({
+      'entity': 'Temporary marker',
+      'predicate': 'status',
+      'value': 'must not persist',
+      'valid_from': '2026-09-22T00:00:00Z',
+      'source': 'temporary',
+    }, temporary);
+
+    expect(addResult, isA<ToolResultError>());
+    expect(await kg.query(entity: 'Temporary marker', includeInvalidated: true), isEmpty);
+
+    final id = await kg.addFact(
+      entity: 'Existing',
+      predicate: 'status',
+      value: 'active',
+      validFrom: '2026-09-22T00:00:00Z',
+      source: 'published',
+      owner: systemKgPrincipal,
+    );
+    final invalidate = KgInvalidateTool(kg: kg, contextualWriteGuard: denyTemporary);
+    final invalidateResult = await invalidate.callWithContext({
+      'id': id,
+      'invalidated_at': '2026-09-22T01:00:00Z',
+      'reason': 'temporary attempt',
+    }, temporary);
+
+    expect(invalidateResult, isA<ToolResultError>());
+    expect((await kg.query(entity: 'Existing', includeInvalidated: true)).single.invalidatedAt, isNull);
   });
 
   group('F-04 audit logging', () {

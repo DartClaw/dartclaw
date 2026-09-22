@@ -97,10 +97,8 @@ scheduling:
       ),
     );
     Directory(config.workspaceDir).createSync(recursive: true);
-    for (final agent in agents) {
-      final workspace = agent.workspace;
-      if (workspace != null) Directory(workspace.directory).createSync(recursive: true);
-    }
+    await WorkspaceService(dataDir: tempDir.path)
+        .prepareManagedAgents(agents.map((agent) => agent.workspace).whereType<AgentWorkspace>());
     final runtime = await DartclawRuntime.build(
       config,
       dataDir: tempDir.path,
@@ -152,23 +150,22 @@ scheduling:
   }
 
   test('workspace journal and curation jobs keep unique pinned owners without other fanout', () async {
-    final agentADir = p.join(tempDir.path, 'agents', 'a');
-    final agentBDir = p.join(tempDir.path, 'agents', 'b');
+    final ownerWorkspaceDir = p.join(tempDir.path, 'workspace');
+    final agentAWorkspace = AgentWorkspace.managed(
+      agentId: 'a',
+      dataDir: tempDir.path,
+      ownerWorkspaceDir: ownerWorkspaceDir,
+    );
+    final agentBWorkspace = AgentWorkspace.managed(
+      agentId: 'b',
+      dataDir: tempDir.path,
+      ownerWorkspaceDir: ownerWorkspaceDir,
+    );
     final runtime = await boot(
       const [],
       agents: [
-        AgentDefinition(
-          id: 'a',
-          description: 'A',
-          prompt: 'A',
-          workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentADir),
-        ),
-        AgentDefinition(
-          id: 'b',
-          description: 'B',
-          prompt: 'B',
-          workspace: AgentWorkspace.pinned(agentId: 'b', directory: agentBDir),
-        ),
+        AgentDefinition(id: 'a', description: 'A', prompt: 'A', workspace: agentAWorkspace),
+        AgentDefinition(id: 'b', description: 'B', prompt: 'B', workspace: agentBWorkspace),
       ],
       memory: MemoryConfig(journalEnabled: true, curationEnabled: true),
     );
@@ -214,7 +211,7 @@ scheduling:
       contains(
         isA<Session>()
             .having((session) => session.workspace?.storagePrincipal, 'principal', 'agent:a')
-            .having((session) => session.workspace?.directory, 'directory', agentADir),
+            .having((session) => session.workspace?.directory, 'directory', agentAWorkspace.directory),
       ),
     );
   });

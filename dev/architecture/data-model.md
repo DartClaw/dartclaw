@@ -2,9 +2,9 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.27 PostgreSQL-only storage, owner and configured-workspace memory/conversation projections,
-embedding-fingerprint lifecycle, serving interlock, language-aware search, bounded turn-source provenance, and
-filesystem-backed instance-local state.
+**Current through**: 0.27 PostgreSQL-only storage, managed-workspace identity and principal-scoped memory/conversation
+projections, embedding-fingerprint lifecycle, serving interlock, language-aware search, bounded turn-source provenance,
+and filesystem-backed instance-local state.
 
 ---
 
@@ -95,6 +95,10 @@ compatibility, merge, overwrite, synchronization, or reverse migration.
 │   ├── AGENTS.md                     # [MD]     Safety rules (read-only by runtime)
 │   ├── HEARTBEAT.md                  # [MD]     Periodic task checklist (read-only by runtime)
 │   └── .git/                         # [Git]    Workspace version control
+├── agents/
+│   └── <id>/
+│       ├── identity.json              # [JSON]   Exact host marker containing only agentId
+│       └── workspace/                 # [MD]     Managed behavior, skills and eligible personal memory
 ├── worktrees/
 │   └── <taskId>/                     #          Git worktree for tasks that declare one
 ├── projects/
@@ -125,10 +129,12 @@ not searchable — it is excluded from the derived search index, unlike `learnin
 converted to the error role by memory preflight at startup; unrecognised remainder text is preserved verbatim under
 `memory/legacy/`.
 
-The owner corpus lives in `workspace/` under principal `owner`. Every explicitly configured named-agent workspace owns
-the same canonical memory layout and daily-log partitions under principal `agent:<agent-id>`. Canonical files, health
-state, lexical rows, and vectors use that directory-principal pair together; a project working directory does not
-change it.
+The owner corpus lives in `workspace/` under principal `owner`. A named agent's directory is derived as
+`agents/<agent-id>/workspace` and its principal as `agent:<agent-id>`. Its parent `identity.json` is the exact canonical
+JSON `{"agentId":"<id>"}` followed by one newline; it is host admission state, not workspace content or a provider
+mount. Only a named agent whose tool policy grants personal-memory read or write operations receives the corresponding
+corpus services. Canonical files, health state, lexical rows, and vectors use that directory-principal pair together; a
+project working directory does not change it.
 
 `.dartclaw-memory-corpus.json` is non-authoritative coordination state. It records the authenticated identity, role,
 length, digest, and record IDs of each canonical member so ordinary reads and sparse writes can select only relevant
@@ -185,6 +191,9 @@ Session
 in-memory store only.
 **Messages**: durable sessions use `sessions/<id>/messages.ndjson` (append-only, cursor = line number); process-retained
 messages remain in memory.
+**Workspace authority**: durable session metadata preserves the absolute `AgentWorkspace` directory and agent id that
+were admitted at creation. Current configuration derives new bindings independently. A removed or relocated binding
+does not rewrite or reclassify retained history; branch/fork admission refuses it and requires a new conversation.
 **Package**: `dartclaw_kernel` (model), `dartclaw_core` (service)
 
 #### Conversation State
@@ -432,11 +441,12 @@ index; `errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjecti
 `PostgresFtsIndex` stores the projection rows and binds the configured language as data. One deployment language
 drives memory, conversation, and KG search. KG facts remain in
 `kg_facts` and use a query-time vector; they have no stored vector or search index beyond `kg_facts_lookup`.
-Owner documents use `user_id = 'owner'`; each configured workspace uses `user_id = 'agent:<agent-id>'` in the same
-lexical and vector stores. Ordinary memory access resolves the pinned session workspace before touching canonical or
-derived data. `context_research` remains an explicitly granted read of owner knowledge with owner provenance.
-**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` enumerates the owner and explicit current configured
-workspaces and atomically recreates their memory projection data while preserving
+Owner documents use `user_id = 'owner'`; each memory-eligible managed workspace uses
+`user_id = 'agent:<agent-id>'` in the same lexical and vector stores. Ordinary memory access resolves the pinned session
+workspace and its read/write grant before touching canonical or derived data. `context_research` reads only that private
+principal plus the shared wiki/KG; a named MCP client receives shared sources only.
+**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` validates managed identity markers, enumerates the owner and
+current read-eligible named agents, and atomically recreates their memory projection data while preserving
 stable entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild authenticates
 bounded corpus batches and validates the complete projection before publication. PostgreSQL publishes through one
 transaction. A principal failure preserves its prior index. KG search uses the new language
@@ -451,7 +461,7 @@ persisted message UUID; metadata contains `session_id` and `role`, and its times
 System messages, message metadata, attachments, and non-chat session types are excluded.
 `ConversationState.includesMessage` is the visibility authority for both incremental re-projection and complete
 rebuild, so queued, held, or removed input does not enter search. Each eligible row uses the session's pinned workspace
-principal, or `owner` when the session has no configured workspace.
+principal, or `owner` when the session has no managed workspace binding.
 
 **Storage**: PostgreSQL holds `conversation_chunks` with `content_tsv` and a GIN index plus optional
 `conversation_vectors` using `public.vector`. Named lexical projection columns are `message_id`,
@@ -463,8 +473,8 @@ rows for owner-authorized archived-lifecycle search. Index failures are logged a
 **Query**: `ConversationSearchService` returns message/session IDs, role, UTC timestamp, text and backend score.
 Its administrative surface aggregates the owner and configured principal scopes; agent memory tools do not receive
 that cross-workspace view.
-**Rebuild**: `dartclaw rebuild-index` reconstructs both corpora from their own files for the owner and explicit current
-configured workspaces. Conversation rebuilding clears stale rows even when there are no chat-facing sessions. A
+**Rebuild**: `dartclaw rebuild-index` reconstructs both corpora from their own files for the owner and admitted managed
+workspaces. Conversation rebuilding clears stale rows even when there are no chat-facing sessions. A
 memory rebuild also re-projects conversations in the same PostgreSQL transaction. Neither rebuild changes message
 NDJSON, wiki pages or KG facts. PostgreSQL uses `database.fts_language`; stored conversation text vectors change
 language only after rebuild.
@@ -857,7 +867,7 @@ durable seam that connects workflow execution to task/worktree persistence.
 | **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
 | **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in the configured derived index. |
 | **Memory or chat-facing message changes** | The workspace principal's lexical projection updates first. Hybrid mode then reuses exact content-hash/provider-fingerprint vectors, embeds missing chunks, retires stale identities and refuses late results if the source changed. Embedding failure leaves lexical search current and increments that corpus's unembedded count. |
-| **Embedding provider or model changes** | The new provider fingerprint makes prior vectors ineligible. Startup and `rebuild-index` reconcile owner and configured workspace memory and conversations independently without changing canonical sources. |
+| **Embedding provider or model changes** | The new provider fingerprint makes prior vectors ineligible. Startup and `rebuild-index` reconcile owner and admitted managed-workspace memory and conversations independently without changing canonical sources. |
 | **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks. |
 
 ---

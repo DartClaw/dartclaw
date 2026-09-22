@@ -50,6 +50,7 @@ import '../server.dart'
 import '../server_composition.dart';
 import '../conversation/human_command_catalog.dart';
 import '../conversation/product_conversation_search.dart';
+import '../mcp/mcp_server.dart' show McpCallerContext, McpKnowledgeScope;
 import '../restart_service.dart' show consumeRestartPending;
 import 'channel_agent_binding.dart';
 import 'channel_wiring.dart';

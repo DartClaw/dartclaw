@@ -2,9 +2,9 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.27 PostgreSQL-only database and lexical/hybrid configuration, versioned schema `$id`, the
-offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections,
-capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
+**Current through**: 0.27 PostgreSQL-only database and lexical/hybrid configuration, managed named-agent workspace
+derivation, versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load;
+0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
 and kernel/channel loader constraint derivation, the declared per-section reload tiers, the schema-driven settings
 form, and kernel package formation.
 
@@ -94,7 +94,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | Section | Class | Domain | Key Fields |
 |---------|-------|--------|------------|
 | `server` | `ServerConfig` | Server runtime | `port`, `host`, `name`, `dataDir`, `baseUrl`, `claudeExecutable`, `devMode`, `maxParallelTurns` |
-| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider`, logical agents with optional per-agent provider |
+| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider`, logical agents with optional per-agent provider and derived managed workspace |
 | `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
 | `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
 | `harness` | `HarnessConfig` | Harness-owned raw sections | Map-valued `harness.<name>` sections retained as data. The package owning a section parses it through the shared warning sink; `dartclaw_acp` owns `acp.agents.*`, and startup refuses any populated section for which no parser was composed. ACP container fields feed startup compatibility only, so `container_isolation_required: true` is startup-fatal |
@@ -120,6 +120,20 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `features` | `FeaturesConfig` | Feature flags | `threadBinding` (enabled, idleTimeoutMinutes) |
 | `projects` | `ProjectConfig` | Multi-project | Project definitions |
 | `alerts` | `AlertsConfig` | Alert routing | `enabled`, `cooldownSeconds`, `burstThreshold`, `targets`, `routes` – all five registered in `ConfigMeta` |
+
+### Managed named-agent workspace derivation
+
+`agent.agents.<id>` defines an execution identity, not a filesystem path. Parsing derives
+`data_dir/agents/<id>/workspace` and the `agent:<id>` storage principal without touching disk. Ids are restricted to
+1–64 lowercase ASCII letters, digits, hyphens, or underscores, must start alphanumeric, and reserve `main` for the
+owner. The removed `workspace` entry field is absent from `ConfigMeta`, the generated JSON Schema, and the generated
+operator reference. The parser still detects its presence, including null or blank values, and records a fatal
+per-agent admission error directing the operator to remove it; no replacement path or sharing field exists.
+
+Init and serve own the filesystem phase. They validate every managed destination first, including exact id-only marker
+bytes and symlink/non-empty-unmarked refusal, then prepare all accepted homes before owner scaffolding or runtime/storage
+wiring. This keeps configuration parsing pure and makes partial setup unable to convert an arbitrary existing directory
+into a managed workspace.
 
 ### Nested Config Types
 

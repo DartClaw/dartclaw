@@ -279,6 +279,7 @@ class HarnessWiring {
   late BehaviorFileService _behavior;
   late String _defaultProviderId;
   SelfImprovementService? _selfImprovement;
+  final Map<String, SelfImprovementService> _selfImprovementByPrincipal = {};
   late LogicalAgentSessionService _logicalAgentSessions;
   late UsageTracker _usageTracker;
   HealthService? _healthService;
@@ -412,6 +413,7 @@ class HarnessWiring {
     if (memoryCorpus != null) {
       for (final context in _storage.memoryContexts) {
         final selfImprovement = SelfImprovementService(workspaceDir: context.directory, corpusService: context.corpus);
+        _selfImprovementByPrincipal[context.principal] = selfImprovement;
         if (context.principal == 'owner') _selfImprovement = selfImprovement;
         final handlers = createMemoryHandlers(
           memoryIndex: _storage.memoryIndex,
@@ -928,6 +930,7 @@ class HarnessWiring {
       required TaskToolFilterGuard toolFilter,
       required String providerId,
       required ExecutionPolicy executionPolicy,
+      required SelfImprovementService? selfImprovement,
       BehaviorFileService? behavior,
     }) => TurnRunner(
       harness: harness,
@@ -938,7 +941,8 @@ class HarnessWiring {
         if (session.workspace == null && agentName != null && agentName != 'main' && !agentName.startsWith('cron:')) {
           return null;
         }
-        return _storage.memoryContextForWorkspace(session.workspace)?.file;
+        final memory = _storage.memoryContextForWorkspace(session.workspace);
+        return memory?.allowsWrite == true ? memory!.file : null;
       },
       sessions: _storage.sessions,
       turnState: _storage.turnStateStore,
@@ -950,7 +954,7 @@ class HarnessWiring {
       resetService: _resetService,
       contextMonitor: _contextMonitor,
       redactor: _messageRedactor,
-      selfImprovement: _selfImprovement,
+      selfImprovement: selfImprovement,
       usageTracker: _usageTracker,
       sseBroadcast: _sseBroadcast,
       globalRateLimiter: globalRateLimiter,
@@ -975,6 +979,7 @@ class HarnessWiring {
             toolFilter: primaryFilter,
             providerId: defaultProviderId,
             executionPolicy: _primaryPolicy,
+            selfImprovement: _selfImprovement,
           );
     _executions = ExecutionCoordinator(
       primary: primaryRunner,
@@ -1135,6 +1140,10 @@ class HarnessWiring {
             toolFilter: workerFilter,
             executionPolicy: request.policy,
             providerId: request.providerId,
+            selfImprovement: switch (_storage.memoryContextForWorkspace(request.workspace)) {
+              WorkspaceMemoryContext(allowsWrite: true, :final principal) => _selfImprovementByPrincipal[principal],
+              _ => null,
+            },
             behavior: workerBehavior,
           );
           if (lease != null) _workerContainers[runner] = lease;

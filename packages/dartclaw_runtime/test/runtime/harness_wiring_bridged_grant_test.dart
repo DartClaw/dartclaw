@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
+import 'package:dartclaw_runtime/src/workspace/workspace_service.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
@@ -202,6 +203,32 @@ void main() {
       await subscription.cancel();
     }
   }
+
+  test('composed model guidance keeps routine capture private and requires deliberate publication intent', () async {
+    await wireAll();
+
+    final prompt = recordedConfigs.first.harnessConfig.appendSystemPrompt!;
+    expect(prompt, contains('Capture routine observations and preferences in personal memory'));
+    expect(prompt, contains('Use wiki_write or kg_add only when the user deliberately asks to share or publish'));
+    expect(prompt, contains('If publication intent is ambiguous, ask which audience they intend'));
+    expect(prompt, contains('Temporary conversations cannot write personal memory or shared durable knowledge'));
+  });
+
+  test('temporary conversations cannot reach contextual personal-memory writes', () async {
+    await wireAll();
+    final temporary = await storage!.sessions.createSession(retention: ConversationRetention.process);
+    final callback = recordedConfigs.first.onContextualMemoryObserve!;
+    final before = File('${config.workspaceDir}/MEMORY.md').readAsBytesSync();
+
+    await expectLater(
+      callback({
+        'text': 'temporary durable marker',
+        'role': 'observation',
+      }, HarnessTurnContext(sessionId: temporary.id, turnId: 'temporary-turn', source: 'api', agentName: 'main')),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('cannot write memory'))),
+    );
+    expect(File('${config.workspaceDir}/MEMORY.md').readAsBytesSync(), before);
+  });
 
   test('a restricted task in a container is granted the host tools its own policy allows', () async {
     await wireAll();
@@ -469,8 +496,10 @@ void main() {
   });
 
   test('a configured agent authority receives only its pinned workspace and admitted execution directory', () async {
-    final workspace = Directory('${tempDir.path}/agent-search')..createSync(recursive: true);
+    final workspace = Directory('${tempDir.path}/agents/search/workspace');
     final project = Directory('${tempDir.path}/authorized-project')..createSync();
+    await WorkspaceService(dataDir: tempDir.path)
+        .prepareManagedAgents([AgentWorkspace.pinned(agentId: 'search', directory: workspace.path)]);
     await writeWorkspacePromptFiles(workspace.path);
     config = config.copyWith(
       agent: AgentConfig(

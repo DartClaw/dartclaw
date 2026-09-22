@@ -52,6 +52,7 @@ stop_database() {
 }
 
 run_plain_lane() {
+  export DARTCLAW_TEST_SEARCH_BACKEND=lexical
   local report_dir="$root_dir/build/postgres-contract"
   local manifest="$root_dir/packages/dartclaw_core/test/storage/contract/contract_groups.json"
   local postgres_report="$report_dir/postgres.json"
@@ -79,13 +80,15 @@ run_plain_lane() {
       test/runtime/storage_wiring_postgres_live_test.dart \
       test/runtime/storage_wiring_postgres_search_live_test.dart \
       test/runtime/storage_wiring_postgres_interlock_live_test.dart \
-      test/integration/postgres_serve_run_probe_test.dart
+      test/integration/postgres_serve_run_probe_test.dart \
+      test/integration/workspace_memory_postgres_live_test.dart
   )
 
   (
     cd "$root_dir/apps/dartclaw_cli"
     dart test --run-skipped -t integration --reporter=failures-only --concurrency=1 \
-      test/commands/postgres_sanctioned_clients_live_test.dart
+      test/commands/postgres_sanctioned_clients_live_test.dart \
+      test/commands/rebuild_index_command_postgres_live_test.dart
   )
 
   dart run "$root_dir/dev/tools/contract_groups_check.dart" \
@@ -93,6 +96,7 @@ run_plain_lane() {
 }
 
 run_vector_lane() {
+  export DARTCLAW_TEST_SEARCH_BACKEND=hybrid
   (
     cd "$root_dir/packages/dartclaw_core"
     dart test --run-skipped -t integration --reporter=failures-only --concurrency=1 \
@@ -143,4 +147,4 @@ else
 fi
 run_vector_lane
 
-echo "PostgreSQL plain and pgvector gates passed. Provider-dependent temporary-retention E2E was not run; see dev/guidelines/TESTING-STRATEGY.md."
+echo "PostgreSQL plain and pgvector gates passed, including managed research, rebuild, and temporary retention."

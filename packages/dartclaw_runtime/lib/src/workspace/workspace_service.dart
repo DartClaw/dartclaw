@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show secureWriteFileSync;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show AgentWorkspace;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -16,6 +19,55 @@ class WorkspaceService {
   String get workspaceDir => p.join(dataDir, 'workspace');
   String get logsDir => p.join(dataDir, 'logs');
   String get sessionsDir => p.join(dataDir, 'sessions');
+
+  /// Validates every managed agent home without changing the filesystem.
+  void validateManagedAgents(Iterable<AgentWorkspace> workspaces) {
+    _refuseLink(p.normalize(p.absolute(dataDir)), subject: 'Instance data directory');
+    final expectedRoot = p.normalize(p.absolute(p.join(dataDir, 'agents')));
+    final ownerTargets = _ownerWorkspaceTargets();
+    _refuseLink(expectedRoot, subject: 'Managed agents root');
+    for (final workspace in workspaces) {
+      final expectedDirectory = p.join(expectedRoot, workspace.agentId, 'workspace');
+      if (!p.equals(workspace.directory, expectedDirectory)) {
+        throw StateError(
+          'Agent "${workspace.agentId}" workspace ${workspace.directory} is outside its managed destination '
+          '$expectedDirectory. Remove the obsolete workspace setting and restart.',
+        );
+      }
+      final home = p.dirname(workspace.directory);
+      if (ownerTargets.any((owner) => _pathsOverlap(owner, home))) {
+        throw StateError(
+          'Agent "${workspace.agentId}" managed destination $home overlaps the owner workspace $workspaceDir. '
+          'Move the owner workspace link aside and rerun setup.',
+        );
+      }
+      _validateManagedHome(workspace);
+    }
+  }
+
+  /// Creates or resumes validated managed homes, writing identity before workspace content.
+  Future<void> prepareManagedAgents(Iterable<AgentWorkspace> workspaces) async {
+    final bindings = workspaces.toList(growable: false);
+    validateManagedAgents(bindings);
+    for (final workspace in bindings) {
+      final home = Directory(p.dirname(workspace.directory));
+      home.createSync(recursive: true);
+      _refuseLink(home.path, subject: 'Agent "${workspace.agentId}" managed home');
+
+      final marker = File(p.join(home.path, 'identity.json'));
+      if (!marker.existsSync()) {
+        final staging = File(p.join(home.parent.path, '.identity-${workspace.agentId}.json'));
+        secureWriteFileSync(staging, '${jsonEncode({'agentId': workspace.agentId})}\n');
+        staging.renameSync(marker.path);
+      }
+
+      Directory(workspace.directory).createSync();
+      _scaffoldFile(p.join(workspace.directory, 'AGENTS.md'), defaultAgentsMd);
+      _scaffoldFile(p.join(workspace.directory, 'SOUL.md'), defaultSoulMd);
+      _scaffoldFile(p.join(workspace.directory, 'USER.md'), defaultUserMd);
+      _scaffoldFile(p.join(workspace.directory, 'TOOLS.md'), defaultToolsMd);
+    }
+  }
 
   /// Creates workspace directories and default files if missing. Idempotent.
   ///
@@ -48,6 +100,99 @@ class WorkspaceService {
       file.writeAsStringSync(content);
     }
   }
+
+  void _validateManagedHome(AgentWorkspace workspace) {
+    final home = p.dirname(workspace.directory);
+    _refuseLink(home, subject: 'Agent "${workspace.agentId}" managed home');
+    _refuseLink(workspace.directory, subject: 'Agent "${workspace.agentId}" workspace');
+
+    final homeType = FileSystemEntity.typeSync(home, followLinks: false);
+    if (homeType == FileSystemEntityType.notFound) return;
+    if (homeType != FileSystemEntityType.directory) {
+      throw StateError(
+        'Agent "${workspace.agentId}" managed destination $home is not a directory. Move it aside and rerun setup.',
+      );
+    }
+
+    final marker = File(p.join(home, 'identity.json'));
+    _refuseLink(marker.path, subject: 'Agent "${workspace.agentId}" identity marker');
+    final entries = Directory(home).listSync(followLinks: false);
+    if (!marker.existsSync()) {
+      if (entries.isEmpty) return;
+      throw StateError(
+        'Agent "${workspace.agentId}" managed destination $home is nonempty but has no identity.json. '
+        'Back it up, move it aside, rerun setup, then deliberately copy retained content into ${workspace.directory}.',
+      );
+    }
+
+    final String markerContent;
+    final Object? decoded;
+    try {
+      markerContent = marker.readAsStringSync();
+      decoded = jsonDecode(markerContent);
+    } on FileSystemException catch (error) {
+      throw StateError(
+        'Agent "${workspace.agentId}" identity marker ${marker.path} is unreadable (${error.message}). '
+        'Restore the matching marker or move the home aside.',
+      );
+    } on FormatException {
+      throw StateError(
+        'Agent "${workspace.agentId}" identity marker ${marker.path} is malformed. '
+        'Restore the matching marker or move the home aside.',
+      );
+    }
+    final canonicalMarker = '${jsonEncode({'agentId': workspace.agentId})}\n';
+    if (decoded is! Map<String, dynamic> ||
+        decoded.length != 1 ||
+        decoded['agentId'] != workspace.agentId ||
+        markerContent != canonicalMarker) {
+      throw StateError(
+        'Agent "${workspace.agentId}" identity marker ${marker.path} does not match this managed destination. '
+        'Restore the matching marker or move the home aside.',
+      );
+    }
+
+    final workspaceType = FileSystemEntity.typeSync(workspace.directory, followLinks: false);
+    if (workspaceType != FileSystemEntityType.notFound && workspaceType != FileSystemEntityType.directory) {
+      throw StateError(
+        'Agent "${workspace.agentId}" workspace ${workspace.directory} is not a directory. '
+        'Restore the managed home or move it aside.',
+      );
+    }
+    if (workspaceType == FileSystemEntityType.directory) {
+      try {
+        Directory(workspace.directory).listSync(followLinks: false);
+      } on FileSystemException catch (error) {
+        throw StateError(
+          'Agent "${workspace.agentId}" workspace ${workspace.directory} is unreadable (${error.message}). '
+          'Restore access before restarting.',
+        );
+      }
+    }
+  }
+
+  void _refuseLink(String path, {required String subject}) {
+    if (FileSystemEntity.typeSync(path, followLinks: false) == FileSystemEntityType.link) {
+      throw StateError('$subject $path is a symlink. Move it aside and rerun setup.');
+    }
+  }
+
+  Set<String> _ownerWorkspaceTargets() {
+    final owner = p.normalize(p.absolute(workspaceDir));
+    final targets = {owner};
+    if (FileSystemEntity.typeSync(owner, followLinks: false) != FileSystemEntityType.link) return targets;
+    final target = Link(owner).targetSync();
+    targets.add(p.normalize(p.isAbsolute(target) ? target : p.join(p.dirname(owner), target)));
+    try {
+      targets.add(p.normalize(Directory(owner).resolveSymbolicLinksSync()));
+    } on FileSystemException {
+      // The lexical link target still catches overlap with a fresh managed home.
+    }
+    return targets;
+  }
+
+  static bool _pathsOverlap(String left, String right) =>
+      p.equals(left, right) || p.isWithin(left, right) || p.isWithin(right, left);
 
   static const defaultAgentsMd = '''## Agent Safety Rules
 

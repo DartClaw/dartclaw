@@ -181,7 +181,7 @@ class SchedulingWiring {
     _scheduledJobs = [...composed.jobs];
 
     if (config.memory.journalEnabled) {
-      for (final context in _storage.memoryContexts) {
+      for (final context in _storage.memoryContexts.where((context) => context.allowsWrite)) {
         final id = context.workspace == null ? 'memory-journal' : 'memory-journal:${context.workspace!.agentId}';
         _scheduledJobs.add(
           ScheduledJob(
@@ -207,7 +207,7 @@ class SchedulingWiring {
     }
 
     if (curationCron != null) {
-      for (final context in _storage.memoryContexts) {
+      for (final context in _storage.memoryContexts.where((context) => context.allowsWrite)) {
         final id = context.workspace == null
             ? memoryCurationJobId
             : '$memoryCurationJobId:${context.workspace!.agentId}';

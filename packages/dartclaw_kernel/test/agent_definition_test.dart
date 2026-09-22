@@ -164,141 +164,15 @@ void main() {
           if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
         });
 
-        test('absence preserves the existing no-workspace agent definition', () {
-          final agent = AgentDefinition.fromYaml('plain', const {
-            'prompt': 'Plain prompt',
-            'tools': ['Read'],
-          }, <String>[]);
-
-          expect(agent.workspace, isNull);
-          expect(agent.workspaceConfigurationError, isNull);
-          expect(agent.prompt, 'Plain prompt');
-          expect(agent.allowedTools, {'Read'});
-        });
-
-        test('the reserved owner identity cannot opt into an agent workspace', () {
-          final workspaceDir = Directory(p.join(dataDir.path, 'agents', 'main'))..createSync(recursive: true);
-          final warnings = <String>[];
-
-          final configured = AgentDefinition.fromYaml(
-            'main',
-            {
-              'workspace': workspaceDir.path,
-              'tools': ['Read'],
-            },
-            warnings,
-            dataDir: dataDir.path,
-            ownerWorkspaceDir: ownerDir,
-          );
-          final absent = AgentDefinition.fromYaml('main', const {
-            'tools': ['Read'],
-          }, <String>[]);
-
-          expect(configured.workspace, isNull);
-          expect(
-            configured.workspaceConfigurationError,
-            allOf(contains('agent.agents.main.workspace'), contains('reserved owner identity')),
-          );
-          expect(() => configured.requireWorkspaceAvailable(), throwsStateError);
-          expect(warnings, contains(configured.workspaceConfigurationError));
-          expect(absent.workspaceConfigurationError, isNull);
-          expect(absent.requireWorkspaceAvailable, returnsNormally);
-        });
-
-        test('resolves valid relative and explicit absolute paths to canonical bindings', () {
-          final relativeDir = Directory(p.join(dataDir.path, 'agents', 'a'))..createSync(recursive: true);
-          final absoluteDir = Directory(p.join(dataDir.path, 'agents', 'b'))..createSync();
-
-          final relative = AgentDefinition.fromYaml(
-            'a',
-            const {
-              'workspace': 'agents/a',
-              'tools': ['Read'],
-            },
-            <String>[],
-            dataDir: dataDir.path,
-            ownerWorkspaceDir: ownerDir,
-          );
-          final absolute = AgentDefinition.fromYaml(
-            'b',
-            {
-              'workspace': absoluteDir.path,
-              'tools': ['Read'],
-            },
-            <String>[],
-            dataDir: dataDir.path,
-            ownerWorkspaceDir: ownerDir,
-          );
-
-          expect(relative.workspace?.directory, relativeDir.resolveSymbolicLinksSync());
-          expect(relative.workspace?.storagePrincipal, 'agent:a');
-          expect(absolute.workspace?.directory, absoluteDir.resolveSymbolicLinksSync());
-          expect(absolute.workspace?.storagePrincipal, 'agent:b');
-        });
-
-        test('unsafe paths leave only their explicit binding unavailable', () {
-          final healthyDir = Directory(p.join(dataDir.path, 'agents', 'healthy'))..createSync(recursive: true);
-          final alias = Link(p.join(dataDir.path, 'agents', 'alias'))..createSync(healthyDir.path);
-          final outside = Directory(p.join(dataDir.parent.path, '${p.basename(dataDir.path)}-outside'))..createSync();
-          addTearDown(() => outside.deleteSync(recursive: true));
-          final warnings = <String>[];
-
-          final owner = AgentDefinition.fromYaml(
-            'owner-overlap',
-            {
-              'workspace': ownerDir,
-              'tools': ['Read'],
-            },
-            warnings,
-            dataDir: dataDir.path,
-            ownerWorkspaceDir: ownerDir,
-          );
-          final aliased = AgentDefinition.fromYaml(
-            'aliased',
-            {
-              'workspace': alias.path,
-              'tools': ['Read'],
-            },
-            warnings,
-            dataDir: dataDir.path,
-            ownerWorkspaceDir: ownerDir,
-          );
-          final escaping = AgentDefinition.fromYaml(
-            'escaping',
-            {
-              'workspace': p.relative(outside.path, from: dataDir.path),
-              'tools': ['Read'],
-            },
-            warnings,
-            dataDir: dataDir.path,
-            ownerWorkspaceDir: ownerDir,
-          );
-
-          expect(owner.workspace, isNull);
-          expect(owner.workspaceConfigurationError, allOf(contains('owner-overlap'), contains(ownerDir)));
-          expect(aliased.workspace, isNull);
-          expect(aliased.workspaceConfigurationError, allOf(contains('aliased'), contains(alias.path)));
-          expect(escaping.workspace, isNull);
-          expect(escaping.workspaceConfigurationError, allOf(contains('escaping'), contains(outside.path)));
-          expect(() => owner.requireWorkspaceAvailable(), throwsStateError);
-          expect(warnings, hasLength(3));
-        });
-
-        test('duplicate and nested paths keep healthy and absent agents available', () {
-          final healthyDir = Directory(p.join(dataDir.path, 'agents', 'healthy'))..createSync(recursive: true);
-          final nestedDir = Directory(p.join(healthyDir.path, 'nested'))..createSync();
+        test('omitted paths derive distinct managed bindings without touching disk', () {
           final yaml =
               '''
 data_dir: "${dataDir.path}"
 agent:
   agents:
-    healthy:
-      workspace: "${healthyDir.path}"
+    a:
       tools: [Read]
-    nested:
-      workspace: "${nestedDir.path}"
-      tools: [Read]
-    plain:
+    b:
       tools: [Read]
 ''';
 
@@ -310,17 +184,59 @@ agent:
           );
           final definitions = {for (final definition in config.agent.definitions) definition.id: definition};
 
-          expect(definitions['healthy']!.workspace?.directory, healthyDir.path);
-          expect(definitions['healthy']!.workspaceConfigurationError, isNull);
-          expect(definitions['nested']!.workspace, isNull);
-          expect(
-            definitions['nested']!.workspaceConfigurationError,
-            allOf(contains('nested'), contains('healthy'), contains(nestedDir.path), contains(healthyDir.path)),
-          );
-          expect(definitions['plain']!.workspaceConfigurationError, isNull);
-          expect(() => definitions['nested']!.requireWorkspaceAvailable(), throwsStateError);
-          expect(definitions['healthy']!.requireWorkspaceAvailable, returnsNormally);
-          expect(definitions['plain']!.requireWorkspaceAvailable, returnsNormally);
+          expect(definitions['a']!.workspace?.directory, p.join(dataDir.path, 'agents', 'a', 'workspace'));
+          expect(definitions['a']!.workspace?.storagePrincipal, 'agent:a');
+          expect(definitions['b']!.workspace?.directory, p.join(dataDir.path, 'agents', 'b', 'workspace'));
+          expect(definitions.values.every((definition) => definition.workspaceConfigurationError == null), isTrue);
+          expect(Directory(p.join(dataDir.path, 'agents')).existsSync(), isFalse);
+        });
+
+        test('every obsolete workspace value refuses without adopting its path', () {
+          for (final value in <Object?>[null, '', 'legacy', p.join(dataDir.path, 'legacy')]) {
+            final warnings = <String>[];
+            final definition = AgentDefinition.fromYaml(
+              'a',
+              {
+                'workspace': value,
+                'tools': ['Read'],
+              },
+              warnings,
+              dataDir: dataDir.path,
+              ownerWorkspaceDir: ownerDir,
+            );
+
+            expect(definition.workspace, isNull, reason: 'value=$value');
+            expect(
+              definition.workspaceConfigurationError,
+              allOf(contains('agent.agents.a.workspace'), contains('no longer')),
+            );
+            expect(definition.requireWorkspaceAvailable, throwsStateError);
+            expect(warnings, contains(definition.workspaceConfigurationError));
+          }
+          expect(Directory(p.join(dataDir.path, 'agents')).existsSync(), isFalse);
+        });
+
+        test('reserved and unsafe ids cannot collide with owner or peer homes', () {
+          for (final id in ['main', '../peer', 'Peer', '.hidden', 'a/b', '']) {
+            final definition = AgentDefinition.fromYaml(
+              id,
+              const {
+                'tools': ['Read'],
+              },
+              <String>[],
+              dataDir: dataDir.path,
+              ownerWorkspaceDir: ownerDir,
+            );
+
+            expect(definition.workspace, isNull, reason: 'id=$id');
+            expect(definition.workspaceConfigurationError, isNotNull, reason: 'id=$id');
+            expect(definition.requireWorkspaceAvailable, throwsStateError, reason: 'id=$id');
+          }
+
+          final safe = AgentWorkspace.managed(agentId: 'peer_2', dataDir: dataDir.path, ownerWorkspaceDir: ownerDir);
+          expect(safe.directory, p.join(dataDir.path, 'agents', 'peer_2', 'workspace'));
+          expect(p.isWithin(dataDir.path, safe.directory), isTrue);
+          expect(p.isWithin(ownerDir, safe.directory), isFalse);
         });
       });
     });

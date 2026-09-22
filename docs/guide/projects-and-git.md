@@ -23,7 +23,7 @@ There are two kinds of projects:
 
 A project chooses a repository and, when requested, an isolated worktree for execution. It does not assign an agent,
 change a conversation's storage principal, or grant behavior files, native skills, memory, or logs. Those belong to the
-owner workspace or to the named agent workspace explicitly configured under `agent.agents.<id>.workspace`.
+owner workspace or to the named agent workspace DartClaw derives as `data_dir/agents/<id>/workspace`.
 
 Interactive conversations expose project, directory, provider, model, and effort as their effective context. A valid
 change is staged for the next turn and that admitted attempt captures the complete context. The conversation's workspace

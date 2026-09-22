@@ -39,10 +39,12 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   supplies the Cmd-K and slash palettes with nine built-ins plus authorized provider-native skills; unknown slash text
   remains ordinary provider input, unchanged.
 
-- Owner-authorized temporary conversations are implemented for the mediated Codex container row; end-to-end container
-  conformance for that row has not been verified yet. Their session, messages,
-  history, attachments, usage context, provider home, and browser draft stay within process, container, or page memory;
-  explicit end revokes the conversation after confirmed shutdown, and confirmed export streams a durable Markdown copy.
+- Owner-authorized temporary conversations are implemented for the mediated Codex container row; end-to-end
+  real-provider conformance remains a release hold. Their session, messages, history, attachments, usage context,
+  provider home, browser draft, and replay state stay within process, container, or page memory. They are excluded from
+  conversation and memory projections, daily logs, personal memory, shared wiki and KG writes, and knowledge-inbox
+  intake. Explicit end revokes the conversation after confirmed shutdown, and confirmed export streams a durable
+  Markdown copy.
 
 - Conversations now show their immutable workspace owner separately from revisioned current and next-turn project,
   directory, provider, model and effort context. Changes are authorized and captured at admission, telemetry names its
@@ -63,15 +65,24 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   reload. Exact live Codex `on-request` and Claude native permission requests can be approved once from ordinary web
   chats; failed inputs can be retried, edited into a linked chat, or forked without changing their source history.
 
-- Named agents can now use an operator-configured workspace as their isolated execution home. The agent id pins the
-  storage identity for the conversation, while project context can change the working directory without changing
-  ownership. Behavior files and provider-native skills continue to come from that workspace during project work.
-  Unsafe, overlapping, reserved-owner and changed bindings are refused without exposing the owner's workspace.
+- Named agents now use a fixed host-managed execution home at `data_dir/agents/<id>/workspace`. Setup validates every
+  destination before mutation and writes an exact id-only `identity.json` marker before workspace content. Unsafe ids,
+  symlinks, mismatched markers, and non-empty unmarked homes are refused without adoption or deletion. The former
+  `agent.agents.<id>.workspace` key is a breaking removal: any occurrence is refused, with no replacement path or
+  sharing choice. Retained sessions keep their absolute historical binding; if its agent was removed or relocated,
+  history remains readable but branch and fork direct the operator to a new conversation.
 
-- Configured named-agent workspaces now own their canonical memory, daily logs, and lexical, vector, and conversation
-  projections. Ordinary memory tools stay within the session's pinned workspace; explicitly granted
-  `context_research` still retrieves cited owner knowledge. Startup, index rebuild, and journal or curation runs keep
-  each configured workspace independent, and no other per-workspace scheduled jobs are added.
+- Managed named-agent workspaces own their private canonical memory, daily logs, and lexical, vector, and conversation
+  projections only when the existing tool policy grants the relevant read or write operations. Ordinary memory tools
+  stay within the session's pinned principal. `context_research` combines that caller-private memory with the shared
+  wiki and knowledge graph while excluding other principals and the knowledge inbox. Read grants govern retrieval and
+  rebuild; write grants govern mutation, journal, and curation work. Startup keeps each eligible workspace independent.
+
+- Named context-engine clients now have exactly three read tools: `context_research`, `kg_query`, and `kg_timeline`.
+  This is a breaking removal of `memory_search` and `memory_read` from that profile. Clients see only the explicitly
+  published wiki and knowledge graph, while owner and named-agent research add only the caller's own personal memory.
+  Knowledge-inbox files are never research sources, and direct KG results and citations no longer reveal stored private
+  source provenance.
 
 - `dartclaw_core` and `dartclaw_runtime` `lib/` LOC ceilings rebaselined for the milestone's backend scope
   (core 31254 → 34710, runtime 68649 → 75596), each cut to the ratchet's own maximum for the measured size.

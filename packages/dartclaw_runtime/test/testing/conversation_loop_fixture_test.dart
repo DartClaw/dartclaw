@@ -20,7 +20,17 @@ void main() {
       workspace: AgentWorkspace.pinned(agentId: 'fixture-agent', directory: '${root.path}/agent-a'),
     );
 
-    final fixture = await seedSearchCommandFixture(sessions, messages, agentA, root.path);
+    final fixture = await seedSearchCommandFixture(
+      sessions,
+      messages,
+      agentA,
+      root.path,
+      agentBWorkspace: AgentWorkspace.pinned(agentId: 'fixture-agent-b', directory: '${root.path}/agent-b'),
+      searchOwnerWorkspace: AgentWorkspace.pinned(
+        agentId: 'fixture-search-owner',
+        directory: '${root.path}/search-owner',
+      ),
+    );
 
     expect((await messages.getMessages(agentA.id)).single.content, 's07-agent-a-marker s07-scope-marker');
     expect((await messages.getMessages(fixture.agentBSessionId)).single.content, 's07-agent-b-marker');

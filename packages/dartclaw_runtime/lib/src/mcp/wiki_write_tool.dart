@@ -1,6 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../knowledge/wiki_page_store.dart';
+import 'mcp_server.dart';
 import 'tool_schema.dart';
 
 /// Principal recorded as the author of a tool-written wiki page.
@@ -14,11 +15,18 @@ const wikiWritePrincipal = 'agent-tool';
 /// exactly one rule of its own: it refuses a slug that is not already canonical
 /// rather than letting the store's sanitizer silently rewrite a model-supplied
 /// value into a different page.
-class WikiWriteTool implements McpTool {
-  new({required WikiPageStore wiki, DateTime Function()? now}) : _wiki = wiki, _now = now ?? DateTime.now;
+class WikiWriteTool implements ContextualMcpTool {
+  new({
+    required WikiPageStore wiki,
+    DateTime Function()? now,
+    Future<ToolResult?> Function(McpCallerContext context)? contextualWriteGuard,
+  }) : _wiki = wiki,
+       _now = now ?? DateTime.now,
+       _contextualWriteGuard = contextualWriteGuard;
 
   final WikiPageStore _wiki;
   final DateTime Function() _now;
+  final Future<ToolResult?> Function(McpCallerContext context)? _contextualWriteGuard;
 
   @override
   String get name => 'wiki_write';
@@ -48,7 +56,16 @@ class WikiWriteTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _write(args);
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    final refusal = await _contextualWriteGuard?.call(context);
+    if (refusal != null) return refusal;
+    return _write(args);
+  }
+
+  Future<ToolResult> _write(Map<String, dynamic> args) async {
     final invalid = validateToolArguments(inputSchema, args);
     if (invalid != null) return invalid;
 

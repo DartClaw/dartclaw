@@ -32,23 +32,41 @@ abstract interface class McpCallerPolicy {
 
 /// Trusted identity supplied by the transport that authenticated an MCP caller.
 final class McpCallerIdentity {
-  const new({required this.authorityId, this.sessionId, this.taskId, this.agentId});
+  const new({
+    required this.authorityId,
+    this.sessionId,
+    this.taskId,
+    this.agentId,
+    this.knowledgeScope = McpKnowledgeScope.privateAndShared,
+  });
 
   final String authorityId;
   final String? sessionId;
   final String? taskId;
   final String? agentId;
+  final McpKnowledgeScope knowledgeScope;
 }
+
+/// Host-selected knowledge boundary for an authenticated MCP caller.
+enum McpKnowledgeScope { privateAndShared, sharedOnly }
 
 /// Trusted caller identity plus one host-generated MCP call event.
 final class McpCallerContext {
-  const new({required this.authorityId, required this.sourceEvent, this.sessionId, this.taskId, this.agentId});
+  const new({
+    required this.authorityId,
+    required this.sourceEvent,
+    this.sessionId,
+    this.taskId,
+    this.agentId,
+    this.knowledgeScope = McpKnowledgeScope.privateAndShared,
+  });
 
   final String authorityId;
   final String sourceEvent;
   final String? sessionId;
   final String? taskId;
   final String? agentId;
+  final McpKnowledgeScope knowledgeScope;
 }
 
 /// MCP tool that consumes transport-authenticated caller identity.
@@ -271,6 +289,7 @@ class McpProtocolHandler {
               sessionId: callerIdentity.sessionId,
               taskId: callerIdentity.taskId,
               agentId: callerIdentity.agentId,
+              knowledgeScope: callerIdentity.knowledgeScope,
             ),
           ),
           ContextualMcpTool() when _policy != null => Future<ToolResult>.value(

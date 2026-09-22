@@ -520,22 +520,18 @@ const Map<String, FieldMeta> _agentFields = {
     jsonKey: 'agent.agents',
     type: ConfigFieldType.objectMap,
     mutability: ConfigMutability.restart,
-    description: 'Logical agents keyed by the id the session tools address them with. The built-in search agent is defined here too.',
+    description:
+        'Logical agents keyed by the id the session tools address them with. Each configured id receives the managed '
+        'workspace data_dir/agents/<id>/workspace; the built-in search agent is defined here too.',
     entry: ObjectEntry(
       fields: {
-        'workspace': EntryFieldMeta(
-          type: ConfigFieldType.string,
-          description:
-              'Existing execution-home directory for this agent. Relative paths resolve under data_dir; '
-              'omit the field to leave the agent without a workspace.',
-        ),
         'description': EntryFieldMeta(
           type: ConfigFieldType.string,
           description: 'One line shown in the spawn tool schema so a caller knows when to pick this agent.',
         ),
         'prompt': EntryFieldMeta(
           type: ConfigFieldType.string,
-          description: 'Explicit SOUL prompt for this agent. Empty reads SOUL.md from a configured agent workspace or uses the built-in default.',
+          description: 'Explicit SOUL prompt for this agent. Empty reads SOUL.md from its managed workspace.',
         ),
         'provider': EntryFieldMeta(
           type: ConfigFieldType.string,

@@ -354,22 +354,13 @@ AgentConfig _parseAgent(
       final id = entry.key;
       final value = entry.value;
       if (value is Map) {
-        var definition = AgentDefinition.fromYaml(
+        final definition = AgentDefinition.fromYaml(
           id as String,
           Map<String, dynamic>.from(value),
           warns,
           dataDir: dataDir,
           ownerWorkspaceDir: ownerWorkspaceDir,
         );
-        final workspace = definition.workspace;
-        if (workspace != null) {
-          try {
-            AgentWorkspace.validateDistinct([for (final accepted in definitions) ?accepted.workspace, workspace]);
-          } on FormatException catch (error) {
-            warns.add(error.message);
-            definition = definition.withWorkspaceConfigurationError(error.message);
-          }
-        }
         definitions.add(definition);
       }
     }

@@ -5,6 +5,7 @@ import 'package:dartclaw_cli/src/commands/rebuild_index_command.dart';
 import 'package:dartclaw_cli/src/runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WorkspaceService;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -169,27 +170,15 @@ void main() {
   });
 
   test('rebuilds explicit workspace corpora independently and reports one failed binding', () async {
-    final agentADir = p.join(tempDir.path, 'agents', 'a');
-    final agentBDir = p.join(tempDir.path, 'agents', 'b');
+    final agentA = _managedDefinition(tempDir, 'a');
+    final agentB = _managedDefinition(tempDir, 'b');
+    final agentADir = agentA.workspace!.directory;
+    final agentBDir = agentB.workspace!.directory;
     final config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path),
-      agent: AgentConfig(
-        definitions: [
-          AgentDefinition(
-            id: 'a',
-            description: 'Agent A',
-            prompt: 'A',
-            workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentADir),
-          ),
-          AgentDefinition(
-            id: 'b',
-            description: 'Agent B',
-            prompt: 'B',
-            workspace: AgentWorkspace.pinned(agentId: 'b', directory: agentBDir),
-          ),
-        ],
-      ),
+      agent: AgentConfig(definitions: [agentA, agentB]),
     );
+    await _prepareManaged(config);
     await seedCanonicalMemory(
       config.workspaceDir,
       topics: const {
@@ -228,21 +217,44 @@ void main() {
     expect(output, isNot(contains(contains('agent:b: rebuilt'))));
   });
 
-  test('--json reports configured workspace failures in its single structured result', () async {
-    final invalidDir = p.join(tempDir.path, 'agents', 'invalid');
+  test('an unmarked managed home refuses before owner corpus or index writes', () async {
+    final blocked = _managedDefinition(tempDir, 'blocked');
     final config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path),
-      agent: AgentConfig(
-        definitions: [
-          AgentDefinition(
-            id: 'invalid',
-            description: 'Invalid corpus',
-            prompt: '',
-            workspace: AgentWorkspace.pinned(agentId: 'invalid', directory: invalidDir),
-          ),
-        ],
-      ),
+      agent: AgentConfig(definitions: [blocked]),
     );
+    final home = Directory(p.dirname(blocked.workspace!.directory))..createSync(recursive: true);
+    File(p.join(home.path, 'retained.txt')).writeAsStringSync('preserve');
+    await indexes[PostgresFtsTable.memoryChunks]!.index.upsert([
+      SearchDocument(
+        id: 'existing-owner-row',
+        chunks: const ['existing owner row'],
+        metadata: const {'source': 'fixture'},
+        timestamp: DateTime.utc(2026),
+      ),
+    ], userId: 'owner');
+    int? code;
+    final runner = DartclawRunner()..addCommand(command(config, exitFn: (value) => code = value));
+
+    await runner.run(['rebuild-index']);
+
+    expect(code, 1);
+    expect(
+      (await indexes[PostgresFtsTable.memoryChunks]!.index.listRecent(userId: 'owner')).single.id,
+      'existing-owner-row',
+    );
+    expect(File(p.join(config.workspaceDir, 'MEMORY.md')).existsSync(), isFalse);
+    expect(File(p.join(home.path, 'retained.txt')).readAsStringSync(), 'preserve');
+  });
+
+  test('--json reports configured workspace failures in its single structured result', () async {
+    final invalid = _managedDefinition(tempDir, 'invalid');
+    final invalidDir = invalid.workspace!.directory;
+    final config = DartclawConfig(
+      server: ServerConfig(dataDir: tempDir.path),
+      agent: AgentConfig(definitions: [invalid]),
+    );
+    await _prepareManaged(config);
     File(p.join(invalidDir, 'MEMORY.md'))
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('## preview\n- invalid dialect\n');
@@ -264,20 +276,13 @@ void main() {
   });
 
   test('--json keeps a configured workspace rebuild failure in the structured result', () async {
-    final agentDir = p.join(tempDir.path, 'agents', 'a');
+    final agent = _managedDefinition(tempDir, 'a');
+    final agentDir = agent.workspace!.directory;
     final config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path),
-      agent: AgentConfig(
-        definitions: [
-          AgentDefinition(
-            id: 'a',
-            description: 'Agent A',
-            prompt: '',
-            workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
-          ),
-        ],
-      ),
+      agent: AgentConfig(definitions: [agent]),
     );
+    await _prepareManaged(config);
     await seedCanonicalMemory(
       agentDir,
       topics: const {
@@ -459,3 +464,14 @@ void main() {
     expect(external.readAsStringSync(), contains('External fact'));
   }, skip: Platform.isWindows);
 }
+
+AgentDefinition _managedDefinition(Directory root, String id) => AgentDefinition(
+  id: id,
+  description: 'Agent $id',
+  prompt: id,
+  workspace: AgentWorkspace.managed(agentId: id, dataDir: root.path, ownerWorkspaceDir: p.join(root.path, 'workspace')),
+);
+
+Future<void> _prepareManaged(DartclawConfig config) =>
+    WorkspaceService(dataDir: config.server.dataDir)
+        .prepareManagedAgents(config.agent.definitions.map((definition) => definition.workspace!).toList());

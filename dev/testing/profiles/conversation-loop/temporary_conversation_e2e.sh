@@ -4,7 +4,7 @@ set -euo pipefail
 MODE="${1:?mode must be provider, browser, eof, graceful, sigkill, or postgres}"
 EVIDENCE="${2:?evidence directory required}"
 BACKEND="${3:-postgres}"
-TEMPORARY_MARKER_PATTERN='TEMPORARY_TURN_ONE|TEMPORARY_TURN_TWO|TEMPORARY_ATTACHMENT_MARKER|TEMPORARY_TOOL_DETAIL_MARKER|TEMPORARY_TOOL_REPLY_MARKER|TEMPORARY_LINEAGE_MARKER|TEMPORARY_PENDING_TOOL_MARKER|TEMPORARY_ACTIVE_REPLY_MARKER|TEMPORARY_QUEUED_INPUT_MARKER|TEMPORARY_QUEUED_REPLY_MARKER'
+TEMPORARY_MARKER_PATTERN='TEMPORARY_TURN_ONE|TEMPORARY_TURN_TWO|TEMPORARY_ATTACHMENT_MARKER|TEMPORARY_TOOL_DETAIL_MARKER|TEMPORARY_TOOL_REPLY_MARKER|TEMPORARY_LINEAGE_MARKER|TEMPORARY_PENDING_TOOL_MARKER|TEMPORARY_ACTIVE_REPLY_MARKER|TEMPORARY_QUEUED_INPUT_MARKER|TEMPORARY_QUEUED_REPLY_MARKER|TEMPORARY_DURABLE_SINK_MARKER'
 if [ "$MODE" = postgres ]; then
   MODE=sigkill
   BACKEND=postgres
@@ -153,6 +153,28 @@ assert not any('/home/dartclaw/.dartclaw' in mount for mount in row['HostConfig'
 PY
 send_turn 'TEMPORARY_TURN_TWO' 'temporary-turn-two'
 temporary_history_setup "$BASE_URL" "$SESSION_ID" "$EVIDENCE"
+send_turn 'Call memory_observe exactly once with text TEMPORARY_DURABLE_SINK_MARKER and role observation. The retention refusal is expected. Do not use shell or file tools. After the attempt, reply exactly LOCAL_CAPTURE_REFUSED.' 'temporary-local-capture'
+send_turn 'Call the DartClaw MCP wiki_write tool directly, including through its provider alias if one is shown, with slug temporary-durable-sink-marker, title Temporary Durable Sink Marker, body TEMPORARY_DURABLE_SINK_MARKER must never enter shared knowledge, and sources containing temporary-conversation. The retention refusal is expected. Do not use shell or file tools. After the attempt, reply exactly SHARED_PUBLICATION_REFUSED.' 'temporary-shared-publication'
+curl -fsS "http://127.0.0.1:${PORT}/api/sessions/${SESSION_ID}/conversation-state" >"${EVIDENCE}/temporary-durable-sink-state.json"
+python3 - "${EVIDENCE}/temporary-durable-sink-state.json" <<'PY'
+import json, sys
+records = [row for row in json.load(open(sys.argv[1]))['records'] if row['kind'] == 'tool']
+for tool, refusal in (
+    ('memory_observe', 'Temporary conversations cannot write memory'),
+    ('wiki_write', 'Temporary conversations cannot write durable knowledge'),
+):
+    matching = [row for row in records
+                if tool in row['label']
+                and 'TEMPORARY_DURABLE_SINK_MARKER' in (row.get('arguments') or '')]
+    assert matching, f'{tool} retention attempt was not recorded'
+    assert any(refusal in (row.get('result') or '') for row in matching), f'{tool} did not return the retention refusal'
+PY
+curl -fsS -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"wiki_write","arguments":{"slug":"temporary-durable-sink-marker","title":"Temporary Durable Sink Marker","body":"TEMPORARY_DURABLE_SINK_MARKER"}}}' "http://127.0.0.1:${PORT}/mcp" >"${EVIDENCE}/temporary-malformed-publication.json"
+rg -q 'sources' "${EVIDENCE}/temporary-malformed-publication.json"
+curl -fsS -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"mcp__dartclaw__wiki_write","arguments":{"body":"TEMPORARY_DURABLE_SINK_MARKER"}}}' "http://127.0.0.1:${PORT}/mcp" >"${EVIDENCE}/temporary-alias-publication.json"
+rg -q 'Unknown tool' "${EVIDENCE}/temporary-alias-publication.json"
+curl -fsS -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"knowledge_inbox_ingest","arguments":{"text":"TEMPORARY_DURABLE_SINK_MARKER"}}}' "http://127.0.0.1:${PORT}/mcp" >"${EVIDENCE}/temporary-inbox-ingestion.json"
+rg -q 'Unknown tool' "${EVIDENCE}/temporary-inbox-ingestion.json"
 BRANCH_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${EVIDENCE}/temporary-branch-session.json")"
 cp "${EVIDENCE}/messages.json" "${EVIDENCE}/temporary-messages.json"
 owned_containers >"${EVIDENCE}/containers-after-turn-two.txt"
@@ -167,6 +189,12 @@ ATTACHMENTS="[{\"id\":\"${ORDINARY_ATTACHMENT_ID}\"}]"
 send_turn 'Reply exactly ORDINARY_TURN_CONTROL. Before replying, call memory_observe once with text ORDINARY_MEMORY_CONTROL and role observation.' 'ordinary-replay-control'
 cp "${EVIDENCE}/messages.json" "${EVIDENCE}/ordinary-messages.json"
 ATTACHMENTS='[]'
+curl -fsS -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wiki_write","arguments":{"slug":"ordinary-wiki-control","title":"Ordinary Wiki Control","body":"ORDINARY_WIKI_CONTROL proves the shared wiki sink is live.","sources":["ordinary-control"]}}}' "http://127.0.0.1:${PORT}/mcp" >"${EVIDENCE}/ordinary-wiki-control.json"
+rg -q 'ordinary-wiki-control' "${EVIDENCE}/ordinary-wiki-control.json"
+curl -fsS -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kg_add","arguments":{"entity":"ORDINARY_KG_CONTROL","predicate":"status","value":"published","valid_from":"2026-09-22T00:00:00Z","source":"ordinary-control"}}}' "http://127.0.0.1:${PORT}/mcp" >"${EVIDENCE}/ordinary-kg-control.json"
+rg -q 'added' "${EVIDENCE}/ordinary-kg-control.json"
+mkdir -p "${DATA_DIR}/workspace/processed"
+printf '%s\n' 'ORDINARY_INBOX_CONTROL' >"${DATA_DIR}/workspace/processed/ordinary-inbox-control.md"
 curl -fsS -w '%{http_code}' -o "${EVIDENCE}/ordinary-replay.json" -H 'accept: application/json' -H 'content-type: application/x-www-form-urlencoded' --data-urlencode 'message=Reply exactly ORDINARY_TURN_CONTROL. Before replying, call memory_observe once with text ORDINARY_MEMORY_CONTROL and role observation.' --data-urlencode "attachments=[{\"id\":\"${ORDINARY_ATTACHMENT_ID}\"}]" --data-urlencode 'submission_id=ordinary-replay-control' --data-urlencode 'revision_id=ordinary-replay-control-revision' "http://127.0.0.1:${PORT}/api/sessions/${SESSION_ID}/send" >"${EVIDENCE}/ordinary-replay.status"
 [ "$(cat "${EVIDENCE}/ordinary-replay.status")" = 200 ]
 python3 - "${EVIDENCE}/ordinary-replay.json" <<'PY'
@@ -185,6 +213,17 @@ run_sink_checks() {
   done
   cat "${EVIDENCE}/sink-checks-${artifact}.err" >&2
   exit 1
+}
+run_rebuild_checks() {
+  if [ -n "$SERVER_PID" ]; then
+    kill "$SERVER_PID"
+    wait "$SERVER_PID" 2>/dev/null || true
+    SERVER_PID=""
+  fi
+  "$DARTCLAW_EXECUTABLE" --config "$CONFIG" rebuild-index --json >"${EVIDENCE}/rebuild-index.json"
+  if rg -uuu -q "$TEMPORARY_MARKER_PATTERN" "$DATA_DIR"; then echo 'temporary marker returned during rebuild' >&2; exit 1; fi
+  boot
+  run_sink_checks after-rebuild
 }
 run_sink_checks before-queue
 SESSION_ID="$TEMPORARY_SESSION_ID"
@@ -246,5 +285,7 @@ elif [ "$MODE" = graceful ] || [ "$MODE" = sigkill ]; then
   fi
   run_sink_checks after-restart
 fi
+
+run_rebuild_checks
 
 printf '%s\n' "$FIRST_CONTAINER" >"${EVIDENCE}/authority.txt"

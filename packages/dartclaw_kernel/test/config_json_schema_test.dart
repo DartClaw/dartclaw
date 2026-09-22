@@ -158,6 +158,8 @@ void main() {
 
     test('a list-valued field emits its entry shape as items', () {
       expect(_node(schema, 'agent.agents.<entry>.tools')['items'], {'type': 'string'});
+      final agentEntry = _node(schema, 'agent.agents.<entry>');
+      expect(agentEntry['properties'], isNot(contains('workspace')));
       expect(_node(schema, 'guards.file.extra_rules.[].pattern')['type'], 'string');
       expect(_node(schema, 'guards.file.extra_rules.[].level')['enum'], ['no_access', 'no_delete', 'read_only']);
       expect(_node(schema, 'github.triggers.[]')['properties'], isA<Map<String, Object?>>());

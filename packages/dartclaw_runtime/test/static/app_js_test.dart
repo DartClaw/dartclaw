@@ -1064,7 +1064,7 @@ function enhancedSelect(options, { parentElement = null } = {}) {
 const _customSelectCursorHarness =
     _customSelectDom +
     r'''
-const { trigger, menu } = enhancedSelect([['low'], ['medium'], ['high'], ['max'], ['xhigh', true]]);
+const { wrapper, trigger, menu } = enhancedSelect([['low'], ['medium'], ['high'], ['max'], ['xhigh', true]]);
 trigger.rect = { top: 100, bottom: 128, height: 28 };
 menu.rect = { top: 132, bottom: 300, height: 168 };
 const row = (value) => menu.children.find((candidate) => candidate.dataset.value === value);
@@ -1093,6 +1093,25 @@ if (focused() !== 'max') throw new Error('ArrowDown did not continue from the po
 // A disabled row cannot take the cursor.
 row('xhigh').listeners.pointermove();
 if (focused() !== 'max') throw new Error('a disabled row took the cursor: ' + focused());
+
+// A second press on the trigger closes the open menu. Modelled on WebKit, which
+// focuses nothing when a button is pressed: unless the page takes focus itself,
+// the row blurs to nowhere, the focusout closes the menu, and the click that
+// follows reopens it.
+function press() {
+  const from = document.activeElement;
+  let prevented = false;
+  trigger.listeners.mousedown?.({ preventDefault() { prevented = true; } });
+  const to = prevented ? document.activeElement : null;
+  if (to !== from) wrapper.listeners.focusout({ relatedTarget: to });
+  trigger.listeners.click();
+}
+if (wrapper.dataset.open !== 'true') throw new Error('the menu was not open before the second press');
+press();
+if (wrapper.dataset.open !== 'false') throw new Error('a second press on the trigger left the menu open');
+if (document.activeElement !== trigger) throw new Error('closing from the trigger did not leave focus on it');
+press();
+if (wrapper.dataset.open !== 'true') throw new Error('a press on the closed trigger did not open the menu');
 ''';
 
 const _customSelectPlacementHarness =

@@ -463,6 +463,14 @@ function enhanceCustomSelect(select) {
   const isTypeAheadKey = (event) =>
     event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && event.key !== ' ';
 
+  // WebKit does not focus a pressed button, so pressing the trigger of an open
+  // menu blurs the focused row to nowhere and the focusout below closes it; the
+  // click then reads it closed and reopens it. Taking focus here keeps it inside
+  // the wrapper in every engine, so the click toggles.
+  trigger.addEventListener('mousedown', (event) => {
+    event.preventDefault();
+    trigger.focus();
+  });
   trigger.addEventListener('click', () => setOpen(wrapper.dataset.open !== 'true', { focusOption: true }));
   trigger.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {

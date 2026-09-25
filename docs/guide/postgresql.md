@@ -193,58 +193,89 @@ replace lexical search. See [Search & Memory](search.md) for provider configurat
 ## Back Up and Restore
 
 The PostgreSQL database and canonical files are separate authorities and must be preserved separately.
+Stop DartClaw before capturing both so the database and file archive describe one stopped state. Set `instance_dir`
+to the effective `data_dir` from your config if it differs from the default shown here.
+These commands expect `DARTCLAW_DATABASE_URL` to point at the configured database. If the runtime uses
+`database.credential`, set it to an equivalent libpq URL for these commands.
 
 ```bash
+instance_dir="${DARTCLAW_HOME:-$HOME/.dartclaw}"
 pg_dump --format=custom --file=dartclaw.dump "$DARTCLAW_DATABASE_URL"
-tar czf dartclaw-files.tar.gz \
-  "$DARTCLAW_HOME/sessions" \
-  "$DARTCLAW_HOME/workspace" \
-  "$DARTCLAW_HOME/dartclaw.yaml" \
-  "$DARTCLAW_HOME/projects.json" \
-  "$DARTCLAW_HOME/credentials"
+backup_entries=(dartclaw.yaml workspace sessions)
+for optional in agents projects.json credentials; do
+  if [ -e "$instance_dir/$optional" ]; then backup_entries+=("$optional"); fi
+done
+tar -C "$instance_dir" -czf dartclaw-files.tar.gz "${backup_entries[@]}"
 ```
 
-If `DARTCLAW_HOME` is unset, substitute the default `~/.dartclaw`. Treat the credential archive as sensitive. Audit
-and usage logs are optional retention targets; `turn_state.json` and webhook deduplication state are instance-local.
-Derived lexical and vector rows can be rebuilt and do not replace the canonical memory and session files.
+The optional `agents/` directory holds managed identity markers, agent behavior, and eligible personal memory. Treat
+the credential archive as sensitive. Audit and usage logs are optional retention targets; `turn_state.json` and
+webhook deduplication state are instance-local. Derived lexical and vector rows can be rebuilt and do not replace the
+canonical memory and session files.
 
 Restore into an empty compatible deployment while DartClaw is stopped:
 
 ```bash
+instance_dir="${DARTCLAW_HOME:-$HOME/.dartclaw}"
 pg_restore --clean --if-exists --dbname="$DARTCLAW_DATABASE_URL" dartclaw.dump
-tar xzf dartclaw-files.tar.gz -C /
+mkdir -p "$instance_dir"
+tar -C "$instance_dir" -xzf dartclaw-files.tar.gz
 dartclaw doctor
 dartclaw rebuild-index
 ```
 
-Use an archive layout and extraction destination appropriate to the paths captured on your host. Verify both the
-database and canonical-file restore before serving traffic.
+Set `instance_dir` to the intended effective `data_dir` on the restore host. Restore into an empty instance directory;
+the relative archive layout keeps managed agent homes under that directory even when its absolute path changes. Retained
+sessions can still carry the old absolute workspace binding; create a new conversation for work in a relocated managed
+home. Verify both the database and canonical-file restore before serving traffic.
 
-## Move a 0.26.1 SQLite Installation
+## Move a 0.26.2 SQLite Installation
 
-The transition utility supports only the authoritative SQLite shape shipped by v0.26.1 at commit
-`ef24b3302e936c4ff6183158da8462b866dbd7d2`. It is an offline, one-shot import into an empty current PostgreSQL schema,
-not synchronization, merge, upsert, overwrite, or reverse migration.
+The transition utility supports the authoritative SQLite shape shipped by v0.26.2. That shape is unchanged from
+v0.26.1, which supplied the pinned manifest at commit `ef24b3302e936c4ff6183158da8462b866dbd7d2`; snapshots
+from either release are accepted. This is an offline, one-shot import into an empty current PostgreSQL schema, not
+synchronization, merge, upsert, overwrite, or reverse migration.
 
-1. Stop the v0.26.1 DartClaw process and keep it stopped.
-2. Make a consistent SQLite backup that includes committed WAL data. Do not copy only the main database file while
-   the old process is running.
-3. Back up `sessions/`, `workspace/`, configuration, projects, credentials, and any retained logs separately. The
-   database importer never copies or changes canonical files.
-4. Install/provision PostgreSQL, configure the restricted runtime role, and run `dartclaw doctor --fix`. Do not start
-   DartClaw against the target; the target must contain the current schema and no application rows.
-5. Export libpq settings for that same target and role. The importer inherits `PGHOST`, `PGPORT`, `PGDATABASE`,
-   `PGUSER`, and the normal service/passfile/TLS/password mechanisms; it accepts no target URL argument.
-6. Run the importer and keep its table-count receipt:
+1. Stop the v0.26.2 DartClaw process and keep it stopped. The same procedure applies to v0.26.1.
+2. From the old installation's effective `data_dir`, back up **`dartclaw.db`** with SQLite's backup command. This
+   produces one consistent snapshot including committed WAL data; copying only the main file can lose it. Keep the
+   snapshot outside the instance directory and verify the result is `ok`:
 
    ```bash
-   python3 dev/tools/migrate_sqlite_to_postgres.py <stopped-backup.db>
+   sqlite3 "/path/to/old/data_dir/dartclaw.db" ".backup 'dartclaw-v0.26.2.db'"
+   sqlite3 dartclaw-v0.26.2.db 'PRAGMA integrity_check;'
    ```
 
-7. Run `dartclaw doctor`, then `dartclaw rebuild-index`. The importer intentionally excludes derived lexical and
-   vector tables; those rebuild from the unchanged canonical files.
-8. Start DartClaw, run an operator smoke check, and take a new PostgreSQL-plus-files backup before retiring the old
-   installation.
+   The old `search.db` and `vectors.db` are derived indexes, not inputs to this importer. It refuses a snapshot with
+   `-wal`, `-shm`, or journal sidecars.
+3. Back up `sessions/`, `workspace/`, configuration, projects, credentials, any retained `agents/` homes, and logs you
+   need separately. The database importer never copies or changes canonical files.
+4. Use the 0.27 source checkout matching the new binary for `dev/tools/migrate_sqlite_to_postgres.py` and its adjacent
+   pinned manifest; release binary archives do not contain the utility. Install/provision PostgreSQL, add exactly one
+   `database.url` or `database.credential` to the existing config, and remove any `database.backend: sqlite` setting.
+   Keep the same effective `data_dir` and config path for `doctor`, rebuild, and serve. Run `dartclaw doctor --fix`
+   with the new binary. Do not start the server against the target; it must have the current schema and no application
+   rows.
+5. Export libpq settings for that **same database, role, and schema**. The importer inherits `PGHOST`, `PGPORT`,
+   `PGDATABASE`, `PGUSER`, `PGOPTIONS`, and the normal service/passfile/TLS/password mechanisms. It accepts no target
+   URL argument.
+   Confirm the libpq target with `psql -XAtqc 'SELECT current_database(), current_user, current_schema()'` before
+   importing. The importer does not read DartClaw's `database.url` or named credential.
+6. From the 0.27 source checkout, run the importer and keep its table-count receipt:
+
+   ```bash
+   python3 dev/tools/migrate_sqlite_to_postgres.py /path/to/dartclaw-v0.26.2.db
+   ```
+
+7. For configured named agents, 0.27 creates new managed homes under `agents/<id>/workspace`; it does not copy the
+   owner's files or memory into them. If selected content should move, run `dartclaw init --launch skip` against the
+   updated config to prepare marked homes, review any config edits, then copy only the selected files while stopped.
+   Do not copy an `identity.json` marker. See [Workspace](workspace.md#owner-and-named-agent-workspaces).
+8. Run `dartclaw doctor`, then `dartclaw rebuild-index`. The importer intentionally excludes derived lexical and
+   vector tables; those rebuild from the preserved canonical files, including any deliberately copied agent memory.
+9. Start DartClaw, run an operator smoke check, and take a new PostgreSQL-plus-files backup before retiring the old
+   installation. Retained conversations with an obsolete workspace binding remain readable but need a new conversation
+   for further work in a managed home.
 
 The importer verifies the exact source manifest, target compatibility and emptiness, row values and counts,
 constraints, relationships, and the next knowledge-fact identity inside one transaction. Failure rolls back the

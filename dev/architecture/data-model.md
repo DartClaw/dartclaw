@@ -48,9 +48,10 @@ quarantines every backend and prepared-statement operation before dispatch; acce
 reacquisition, PostgreSQL version validation, and a current-schema check. A competing owner or terminal recovery
 failure stops the process. Shutdown disables recovery, closes the pool, then releases the dedicated connection.
 
-The separate 0.27 transition utility imports only the pinned v0.26.1 authoritative SQLite shape into an empty current
-schema while DartClaw is stopped. It never imports derived indexes or canonical files and does not provide ongoing
-compatibility, merge, overwrite, synchronization, or reverse migration.
+The separate 0.27 transition utility imports the authoritative SQLite shape shared by v0.26.1 and v0.26.2 into an
+empty current schema while DartClaw is stopped. Its pinned manifest comes from v0.26.1; the v0.26.2 release did not
+change SQLite storage. It never imports derived indexes or canonical files and does not provide ongoing compatibility,
+merge, overwrite, synchronization, or reverse migration.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
@@ -1009,6 +1010,7 @@ source files even when the derived tables are excluded from a database backup.
 | `kv.json` corrupted | Loss of daily usage aggregates. Recoverable from `usage.jsonl` re-aggregation. |
 | Canonical memory member deleted | Corpus validation/reconciliation reports the missing member; restore the validated canonical topic, archive, observation, learning, or audit member from workspace Git or another trusted backup before rebuilding the derived index. `MEMORY.md` alone is only the bounded index, not the complete knowledge body. |
 
-The v0.26.1 SQLite transition is a stopped-source, one-shot import into an empty current PostgreSQL schema. Preserve a
-consistent source snapshot including committed WAL data and a separate canonical-file backup. Rollback to the old
-binary/configuration/snapshot is supported only before accepting new PostgreSQL writes; there is no reverse migration.
+The v0.26.1/v0.26.2 SQLite transition is a stopped-source, one-shot import into an empty current PostgreSQL schema.
+Preserve a consistent source snapshot including committed WAL data and a separate canonical-file backup. Rollback to
+the old binary/configuration/snapshot is supported only before accepting new PostgreSQL writes; there is no reverse
+migration.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import one stopped v0.26.1 SQLite snapshot into an empty current PostgreSQL schema.
+"""Import a stopped v0.26.1 or v0.26.2 SQLite snapshot into an empty current PostgreSQL schema.
 
 Usage:
     python3 dev/tools/migrate_sqlite_to_postgres.py /path/to/stopped-backup.db
@@ -103,7 +103,7 @@ def _source_rows(snapshot, manifest):
         ]
         expected_objects = manifest["source"]["objects"]
         if len(live_objects) != len(expected_objects):
-            raise MigrationRefusal("source-shape", "the source snapshot is not the exact supported v0.26.1 shape")
+            raise MigrationRefusal("source-shape", "the source snapshot is not the exact supported 0.26.1/0.26.2 shape")
         for live, expected in zip(live_objects, expected_objects):
             if (
                 live["type"] != expected["type"]
@@ -111,7 +111,7 @@ def _source_rows(snapshot, manifest):
                 or live["table"] != expected["table"]
                 or _normalize_sql(live["sql"]) != _normalize_sql(expected["sql"])
             ):
-                raise MigrationRefusal("source-shape", "the source snapshot is not the exact supported v0.26.1 shape")
+                raise MigrationRefusal("source-shape", "the source snapshot is not the exact supported 0.26.1/0.26.2 shape")
 
         table_manifests = {table["name"]: table for table in manifest["source"]["tables"]}
         rows = {}
@@ -128,7 +128,7 @@ def _source_rows(snapshot, manifest):
                 for row in connection.execute(f"PRAGMA table_info({_quote_identifier(table_name)})")
             ]
             if live_columns != table["columns"]:
-                raise MigrationRefusal("source-shape", "the source snapshot is not the exact supported v0.26.1 shape")
+                raise MigrationRefusal("source-shape", "the source snapshot is not the exact supported 0.26.1/0.26.2 shape")
             columns = [column["name"] for column in table["columns"]]
             primary = [column["name"] for column in table["columns"] if column["primary_key"]]
             selected = ", ".join(_quote_identifier(column) for column in columns)
@@ -423,13 +423,16 @@ def _run_psql(script):
 
 def _arguments(argv):
     parser = argparse.ArgumentParser(
-        description="Import one stopped DartClaw v0.26.1 SQLite backup into an empty current PostgreSQL schema.",
+        description=(
+            "Import a stopped DartClaw v0.26.1 or v0.26.2 SQLite backup "
+            "into an empty current PostgreSQL schema."
+        ),
         epilog=(
             "The PostgreSQL target comes from inherited libpq settings (PGHOST/PGPORT/PGDATABASE/PGUSER, "
             "PGSERVICE, PGPASSFILE, and TLS variables). No merge, overwrite, reset, or reverse migration is provided."
         ),
     )
-    parser.add_argument("snapshot", type=pathlib.Path, help="consistent stopped v0.26.1 SQLite backup snapshot")
+    parser.add_argument("snapshot", type=pathlib.Path, help="consistent stopped v0.26.1 or v0.26.2 SQLite backup snapshot")
     return parser.parse_args(argv)
 
 

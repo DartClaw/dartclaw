@@ -235,11 +235,13 @@ DartClaw stores all configuration and runtime artifacts in a single **instance d
 ~/.dartclaw/
   dartclaw.yaml      ← configuration
   workspace/         ← behavior files that shape the agent
+  agents/            ← managed named-agent homes, when configured
   sessions/
   logs/
-  search.db
-  dartclaw.db
 ```
+
+Relational records and search projections live in PostgreSQL; the instance directory still holds canonical
+workspace and session files. See [PostgreSQL](postgresql.md) for setup, backup, and the v0.26.2 SQLite cutover.
 
 To use a different location, set `DARTCLAW_HOME` to point at your instance directory. Config is resolved in this order: `--config` flag > `DARTCLAW_CONFIG` env var > `DARTCLAW_HOME` env var > `~/.dartclaw/dartclaw.yaml`.
 

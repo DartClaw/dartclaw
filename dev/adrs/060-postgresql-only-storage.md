@@ -4,7 +4,7 @@
 
 Accepted – 2026-09-20, for implementation in 0.27. The owner approved PostgreSQL-only storage, native local setup,
 optional pgvector and a separate temporary migration tool as one additional story before final qualification.
-Implementation is pending; released 0.26.1 still supports both databases.
+The 0.27 working tree implements this decision; released 0.26.1 and 0.26.2 support both databases.
 
 For 0.27, this supersedes ADR-045's SQLite-default/dual-backend policy, ADR-048's requirement to bundle SQLite,
 and ADR-050's SQLite vector-storage branch. Their other contracts remain unless explicitly changed below.
@@ -69,10 +69,11 @@ Extend existing `init` and `doctor` flows for connection setup and readiness. Th
 database is configured; help/version and database-independent commands must not require a database. Administrative
 installation/provisioning is explicit and separate from the runtime role. Preserve the normal config loader's authority.
 
-Provide a separate bounded offline converter from the authoritative SQLite shape in released `v0.26.1`
-(`ef24b3302e936c4ff6183158da8462b866dbd7d2`) into the current 0.27 PostgreSQL schema. Compatible in-flight SQLite
-stores must match that supported source shape; unknown shapes refuse. Stop writes, take a consistent SQLite backup
-including committed WAL data and preserve canonical files. Import only into a freshly bootstrapped target with no
+Provide a separate bounded offline converter from the authoritative SQLite shape shared by released `v0.26.1`
+(`ef24b3302e936c4ff6183158da8462b866dbd7d2`) and `v0.26.2` into the current 0.27 PostgreSQL schema. The pinned
+manifest comes from v0.26.1; v0.26.2 made no SQLite storage change. Compatible in-flight SQLite stores must match that
+supported source shape; unknown shapes refuse. Stop writes, take a consistent SQLite backup including committed WAL
+data and preserve canonical files. Import only into a freshly bootstrapped target with no
 application records, preserving identities, values, ordering, stored principals and relationships. Verify counts,
 normalized values and integrity before committing the import transaction; failure must leave no partial records.
 Refuse populated targets and repeat imports; there is no merge/overwrite mode. Keep source data untouched and rebuild
@@ -82,10 +83,10 @@ The converter uses Python 3's standard-library SQLite support and the PostgreSQL
 dependencies. Its target uses inherited libpq environment/service/passfile settings for the database and runtime role
 bootstrapped by doctor, preserving the existing TLS/loopback posture; it does not resolve DartClaw named credentials.
 It consumes the existing PostgreSQL schema bootstrap authority instead of owning another copy of its
-DDL. Package the tool and a bounded source fixture with the transition release. Treat stored text only as data, never
-SQL or shell instructions. Keep passwords and record contents out of diagnostics and process arguments. Retain backups
-and document rollback before accepting new PostgreSQL writes;
-do not promise lossless rollback after new writes or introduce ongoing synchronization.
+DDL. Keep the tool and bounded source fixture in the 0.27 source checkout; binary archives do not contain them. Treat
+stored text only as data, never SQL or shell instructions. Keep passwords and record contents out of diagnostics and
+process arguments. Retain backups and document rollback before accepting new PostgreSQL writes; do not promise
+lossless rollback after new writes or introduce ongoing synchronization.
 
 Remove SQLite-specific configuration/defaults, wiring, schema/search/vector implementations, dependencies, build hooks
 and release assets together. Include standalone workflow and maintenance entry points, examples, test fixtures,

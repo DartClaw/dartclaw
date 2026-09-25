@@ -145,13 +145,16 @@ int _maxCeilingFor(int loc) {
 //   and human commands, temporary conversations and export) landed against
 //   ceilings last cut before it opened. Both are cut to _maxCeilingFor(measured),
 //   so neither banks headroom beyond the band.
+// 2026-09-25 (0.27): ratchet core 34710 -> 32367 (measured 30867) after
+// PostgreSQL-only storage; rebaseline CLI 12719 -> 14480 (measured 12980) on
+// the joined milestone tree. Both ceilings equal _maxCeilingFor(measured).
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
-  'dartclaw_cli': 12719,
+  'dartclaw_cli': 14480,
   'dartclaw_client': 625,
-  'dartclaw_core': 34710,
+  'dartclaw_core': 32367,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
   'dartclaw_runtime': 75596,

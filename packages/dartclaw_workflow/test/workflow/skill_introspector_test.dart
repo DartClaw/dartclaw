@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
@@ -150,6 +151,73 @@ void main() {
     expect(capturedArguments, isNot(contains('--permission-mode')));
     expect(capturedArguments.indexOf('--allowedTools'), lessThan(capturedArguments.indexOf('-p')));
     expect(capturedArguments.indexOf('--setting-sources'), lessThan(capturedArguments.indexOf('-p')));
+  });
+
+  test('passes Claude provider settings to skill discovery only when configured', () async {
+    final calls = <List<String>>[];
+    final introspector = CliSkillIntrospector(
+      runner: (executable, arguments, {environment}) async {
+        calls.add(arguments);
+        final settingsIndex = arguments.indexOf('--settings');
+        return ProcessResult(1, 0, settingsIndex < 0 ? 'project-skill\n' : 'andthen:review\n', '');
+      },
+    );
+
+    expect(
+      await introspector.listAvailable(
+        provider: 'claude',
+        providerOptions: const {
+          'inherit_user_settings': false,
+          'settings': {
+            'enabledPlugins': {'andthen@andthen': true},
+          },
+        },
+      ),
+      {'andthen:review'},
+    );
+    expect(await introspector.listAvailable(provider: 'claude'), {'project-skill'});
+    final configured = calls.first;
+    final settingsIndex = configured.indexOf('--settings');
+    expect(settingsIndex, greaterThanOrEqualTo(0));
+    expect(jsonDecode(configured[settingsIndex + 1]), {
+      'enabledPlugins': {'andthen@andthen': true},
+    });
+    expect(configured, containsAll(['--setting-sources', 'project']));
+    expect(calls.last, isNot(contains('--settings')));
+  });
+
+  test('does not coalesce concurrent Claude probes with different settings', () async {
+    final calls = <List<String>>[];
+    final completers = [Completer<ProcessResult>(), Completer<ProcessResult>()];
+    final introspector = CliSkillIntrospector(
+      runner: (executable, arguments, {environment}) {
+        calls.add(arguments);
+        return completers[calls.length - 1].future;
+      },
+    );
+
+    final first = introspector.listAvailable(
+      provider: 'claude',
+      providerOptions: const {
+        'settings': {
+          'enabledPlugins': {'one@marketplace': true},
+        },
+      },
+    );
+    final second = introspector.listAvailable(
+      provider: 'claude',
+      providerOptions: const {
+        'settings': {
+          'enabledPlugins': {'two@marketplace': true},
+        },
+      },
+    );
+    completers[0].complete(ProcessResult(1, 0, 'one:skill\n', ''));
+    completers[1].complete(ProcessResult(2, 0, 'two:skill\n', ''));
+
+    expect(await first, {'one:skill'});
+    expect(await second, {'two:skill'});
+    expect(calls, hasLength(2));
   });
 
   test('does not coalesce probes with different Claude setting-source policies', () async {

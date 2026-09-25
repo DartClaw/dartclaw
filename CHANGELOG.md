@@ -18,6 +18,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Claude workflow skill preflight now uses the provider's native settings, so plugins configured through
+  `providers.<name>.settings` are visible before a step runs.
+
+- The 0.27 LOC ceilings now reflect the joined tree: core ratchets to 32,367 lines and CLI rebaselines to 14,480.
+
 - Release checks retain commit-bound gate receipts, support local runs, status inspection and resuming unchanged
   candidates, and include PostgreSQL and host builds. Quick checks report incomplete coverage. PowerShell validation
   shares one script between Windows development VMs and CI.

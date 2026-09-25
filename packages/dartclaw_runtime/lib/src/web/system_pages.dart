@@ -9,6 +9,7 @@ import '../api/channel_access_service.dart';
 import '../api/guard_editor_service.dart';
 import '../health/health_service.dart';
 import '../memory/memory_status_service.dart';
+import '../memory/memory_admin_service.dart';
 import '../memory/memory_prune_service.dart';
 import '../provider_status_service.dart';
 import '../runtime_config.dart';
@@ -39,6 +40,7 @@ void registerSystemDashboardPages(
   RuntimeConfig? Function()? runtimeConfigGetter,
   ConfigWriter? configWriter,
   MemoryStatusService? Function()? memoryStatusServiceGetter,
+  MemoryAdminService? Function()? memoryAdminServiceGetter,
   MemoryPruneService? Function()? memoryPruneServiceGetter,
   ScheduleService? Function()? scheduleServiceGetter,
   Future<void> Function()? schedulingJobsApplier,
@@ -88,6 +90,7 @@ void registerSystemDashboardPages(
     registry.register(
       MemoryPage(
         memoryStatusServiceGetter: memoryStatusServiceGetter,
+        memoryAdminServiceGetter: memoryAdminServiceGetter,
         memoryPruneServiceGetter: memoryPruneServiceGetter,
       ),
     );

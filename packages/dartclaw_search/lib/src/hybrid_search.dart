@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -46,16 +47,18 @@ final class HybridSearch {
       diagnostics?.call(SearchDiagnostics(candidates: const []));
       return const [];
     }
+    final candidateLimit = max(_candidateLimit, limit);
 
     final lexical = _deduplicate(
       await (scope == null
-          ? _lexicalIndex.search(query, userId: userId, limit: _candidateLimit)
+          ? _lexicalIndex.search(query, userId: userId, limit: candidateLimit)
           : (_lexicalIndex as ScopedFullTextIndex).searchScoped(
               query,
               userId: userId,
               scope: scope,
-              limit: _candidateLimit,
+              limit: candidateLimit,
             )),
+      candidateLimit,
     );
     final lexicalIdentities = {
       for (final result in lexical) VectorIdentity(documentId: result.id, chunkIndex: result.chunkIndex),
@@ -74,7 +77,7 @@ final class HybridSearch {
         queryVector,
         userId: userId,
         modelFingerprint: _embeddingProvider.modelFingerprint,
-        limit: _candidateLimit,
+        limit: candidateLimit,
       );
     } on Object {
       return _fallback(lexical, userId, limit, scope, diagnostics, reason: 'vectorSearchFailure');
@@ -82,7 +85,7 @@ final class HybridSearch {
 
     final eligibleMatches = <VectorMatch>[];
     final seenMatches = <VectorIdentity>{};
-    for (final match in matches.take(_candidateLimit)) {
+    for (final match in matches.take(candidateLimit)) {
       final identity = VectorIdentity(documentId: match.documentId, chunkIndex: match.chunkIndex);
       if (scope != null && !lexicalIdentities.contains(identity)) continue;
       if (match.score >= _vectorCutoff && seenMatches.add(identity)) eligibleMatches.add(match);
@@ -217,10 +220,10 @@ final class HybridSearch {
     if (staleCount > 0) MemorySearchDegradation(layer: _sourceLayer, reason: 'staleVector', omittedCount: staleCount),
   ];
 
-  static List<SearchResult> _deduplicate(List<SearchResult> results) {
+  static List<SearchResult> _deduplicate(List<SearchResult> results, int limit) {
     final seen = <VectorIdentity>{};
     return [
-      for (final result in results.take(_candidateLimit))
+      for (final result in results.take(limit))
         if (seen.add(VectorIdentity(documentId: result.id, chunkIndex: result.chunkIndex))) result,
     ];
   }

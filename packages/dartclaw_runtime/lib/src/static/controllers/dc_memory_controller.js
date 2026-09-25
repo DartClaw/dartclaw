@@ -175,4 +175,23 @@ export default class DcMemoryController extends Stimulus.Controller {
     }
   }
 
+  openEditDialog(event) {
+    this.openEntryDialog('memory-edit-dialog', event.currentTarget);
+  }
+
+  openRemoveDialog(event) {
+    this.openEntryDialog('memory-remove-dialog', event.currentTarget);
+  }
+
+  openEntryDialog(id, trigger) {
+    const dialog = this.element.querySelector('#' + id);
+    if (!dialog || !trigger) return;
+    dialog.addEventListener('close', () => trigger.focus(), { once: true });
+    dialog.showModal();
+  }
+
+  closeDialog(event) {
+    event.currentTarget.closest('dialog')?.close();
+  }
+
 }

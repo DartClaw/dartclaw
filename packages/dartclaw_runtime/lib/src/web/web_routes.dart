@@ -27,6 +27,7 @@ import '../templates/layout.dart';
 import '../templates/login.dart';
 import '../templates/memory_dashboard.dart';
 import '../memory/memory_status_service.dart';
+import '../memory/memory_admin_service.dart';
 import '../memory/memory_prune_service.dart';
 import '../session/session_display_title.dart';
 import '../templates/session_info.dart';
@@ -80,6 +81,7 @@ Router webRoutes(
   TurnManager? turns,
   RuntimeConfig? runtimeConfig,
   MemoryStatusService? memoryStatusService,
+  MemoryAdminService? memoryAdminService,
   MemoryPruneService? memoryPruneService,
   FullTextIndex? memoryIndex,
   TemporalKnowledgeGraphService? kgService,
@@ -130,6 +132,7 @@ Router webRoutes(
       guardChain: guardChain,
       runtimeConfigGetter: () => runtimeConfig,
       memoryStatusServiceGetter: () => memoryStatusService,
+      memoryAdminServiceGetter: () => memoryAdminService,
       memoryPruneServiceGetter: () => memoryPruneService,
       memoryIndexGetter: () => memoryIndex,
       kgServiceGetter: () => kgService,
@@ -581,6 +584,7 @@ Router webRoutes(
       final memService = memoryStatusService;
       if (memService == null) return _htmlError('Memory not configured');
 
+      if (request.url.queryParameters.containsKey('corpus')) return Response.notFound('Memory selection unavailable');
       final status = await memService.getStatus();
       final fragment = memoryDashboardContentFragment(status: status, workspacePath: config?.workspaceDir ?? '');
       return htmlFragment(fragment);

@@ -185,6 +185,7 @@ DartclawServer _composeRuntimeServer(
       providerStatus: providerStatus,
       memoryFile: storage.memoryFile,
       memoryStatusService: scheduling.memoryStatusService,
+      memoryAdminService: scheduling.memoryStatusService == null ? null : MemoryAdminService(storage: storage),
       inspectMemorySearch: storage.inspectMemorySearch,
       conversationSearch: storage.conversationSearch,
       memoryPruner: scheduling.memoryPruner,

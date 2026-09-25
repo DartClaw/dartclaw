@@ -142,7 +142,7 @@ void main() {
     expect(File(p.join(home.path, 'retained.txt')).readAsStringSync(), 'do not adopt');
   });
 
-  test('a managed directory without a memory grant is not admitted as a corpus', () async {
+  test('a managed directory without a memory grant is admin-visible but unavailable to its agent', () async {
     final noGrant = _agent(root, 'helper', tools: const {'web_search'});
     final config = _config(root, [noGrant]);
     await _prepare(config);
@@ -156,7 +156,16 @@ void main() {
     final wiring = await _wire(config);
     try {
       expect(wiring.memoryContexts.map((context) => context.principal), ['owner']);
-      expect(await wiring.memoryIndex.search('must-not-index', userId: 'agent:helper'), isEmpty);
+      expect(wiring.adminMemoryContexts.map((context) => context.principal), contains('agent:helper'));
+      expect(
+        (await wiring.memoryIndex.search('must-not-index', userId: 'agent:helper')).single.chunk,
+        'must-not-index',
+      );
+      final session = await wiring.sessions.createSession(workspace: noGrant.workspace);
+      await expectLater(
+        wiring.memoryContextForCaller(sessionId: session.id, agentId: 'helper'),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('unavailable'))),
+      );
     } finally {
       await wiring.messages.dispose();
       await wiring.dispose();

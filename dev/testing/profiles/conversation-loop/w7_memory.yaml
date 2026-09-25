@@ -1,0 +1,43 @@
+name: W7 Memory Administration
+data_dir: __DATA_DIR__
+dev_mode: true
+
+database:
+  url: ${DARTCLAW_POSTGRES_URL}
+
+gateway:
+  auth_mode: none
+
+guards:
+  enabled: false
+
+container:
+  enabled: false
+
+agent:
+  agents:
+    alpha:
+      description: Browser fixture agent A
+      prompt: ''
+    beta:
+      description: Browser fixture agent B
+      prompt: ''
+    empty:
+      description: Browser fixture empty agent
+      prompt: ''
+
+scheduling:
+  heartbeat:
+    enabled: false
+  jobs:
+    - id: memory-browser-fixture
+      schedule: 0 4 * * *
+      type: task
+      task:
+        title: Memory browser fixture
+        description: Enables the Memory surface during the browser journey.
+        auto_start: false
+
+workspace:
+  git_sync:
+    enabled: false

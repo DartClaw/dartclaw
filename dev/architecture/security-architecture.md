@@ -4,7 +4,7 @@ Deep-dive reference on DartClaw's defense-in-depth security model: OS-level cont
 
 **Current through**: 0.27 PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
 temporary conversation sink exclusion and confirmed cleanup, exact-request approval actions, principal-scoped search,
-and the restricted-role connection posture.
+the restricted-role connection posture, and owner Memory administration.
 
 ---
 
@@ -869,7 +869,7 @@ An authentication-disabled deployment mounts the route without a bearer only whe
 **Security response headers** (global):
 
 ```
-Referrer-Policy: no-referrer       # Prevent token leakage via referrer
+Referrer-Policy: same-origin       # Withhold referrers from other origins
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
 Cache-Control: no-store            # Auth-gated pages not cached
@@ -1046,7 +1046,7 @@ DartClaw defends against cross-site request forgery in depth rather than relying
 
 - **`SameSite=Strict` session cookies** (primary). The session cookie is not sent on cross-site requests, so a forged cross-origin request arrives unauthenticated. This blocks the common CSRF vector at the browser level without CSRF tokens. It is strong but not absolute — older browsers, some same-site navigation edge cases, and misconfigured intermediaries can weaken the guarantee — so it is backed by an explicit server-side check.
 - **Same-origin Origin/Host guard** (`origin_host_guard.dart`, wired in `server.dart` via `originHostGuardMiddleware`). For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the middleware compares the request's `Origin` authority – scheme, host, effective port – against the request's own `Host` authority (falling back to `Referer` when `Origin` is absent) and returns **403** on mismatch or when neither header is present. No-auth local-admin writes require the configured server host and request `Host` to be literal loopback hosts before the same authority comparison; this rejects DNS-rebinding requests whose attacker-controlled `Origin` and `Host` match. Origin-less loopback API clients remain supported. Safe methods and Bearer-token requests are exempt.
-- **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, same-origin-only sources — `script-src 'self'` plus the inline-script hash, `style-src 'self'`, `font-src 'self'`, no external origin — `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
+- **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, same-origin-only sources — `script-src 'self'` plus the inline-script hash, `style-src 'self'`, `font-src 'self'`, no external origin — `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: same-origin`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. Same-origin referrers allow native browser forms to provide a usable write origin while cross-origin destinations receive no referrer. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
 
 ---
 

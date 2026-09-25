@@ -675,4 +675,74 @@ void main() {
       expect(html.substring(pollEnd), contains('id="memory-files-card"'));
     });
   });
+
+  group('selected personal memory', () {
+    String render(Map<String, dynamic> admin) => memoryDashboardTemplate(
+      status: sampleStatus(),
+      sidebarData: emptySidebarData(),
+      navItems: emptyNavItems,
+      workspacePath: '/private/owner/workspace',
+      administration: admin,
+    );
+
+    test('named selection shows only its escaped canonical entries and current revisions', () {
+      final html = render({
+        'corpora': [
+          {'selector': 'owner', 'label': 'Default agent'},
+          {'selector': 'opaque-a', 'label': '<Agent A>'},
+        ],
+        'selected': {'selector': 'opaque-a', 'label': '<Agent A>', 'kind': 'configured'},
+        'collectionRevision': 7,
+        'health': {'state': 'healthy'},
+        'state': 'available',
+        'entries': [
+          {
+            'id': 'entry-a',
+            'topic': 'general',
+            'summary': '<script>private A</script>',
+            'content': 'private A',
+            'state': 'active',
+            'entryRevision': 3,
+          },
+        ],
+        'detail': {
+          'id': 'entry-a',
+          'topic': 'general',
+          'content': 'private A',
+          'state': 'active',
+          'entryRevision': 3,
+          'provenance': 'observation',
+        },
+      });
+
+      expect(html, contains('&lt;Agent A&gt;'));
+      expect(html, contains('&lt;script&gt;private A&lt;/script&gt;'));
+      expect(html, isNot(contains('<script>private A</script>')));
+      expect(html, contains('name="expectedCollectionRevision" value="7"'));
+      expect(html, contains('name="expectedEntryRevision" value="3"'));
+      expect(html, contains('does not erase retained source observations'));
+      expect(html, isNot(contains('/private/owner/workspace')));
+      expect(html, isNot(contains('id="memory-files-card"')));
+    });
+
+    test('empty, no match, degraded, and unavailable remain distinct', () {
+      Map<String, dynamic> state(String value) => {
+        'corpora': [
+          {'selector': 'opaque-a', 'label': 'Agent A'},
+        ],
+        'selected': {'selector': 'opaque-a', 'label': 'Agent A', 'kind': 'retained'},
+        'collectionRevision': 8,
+        'health': {'state': value == 'degraded' ? 'degraded' : 'healthy'},
+        'state': value,
+        'entries': <Map<String, dynamic>>[],
+        'query': value == 'noMatch' ? 'collision' : '',
+      };
+
+      expect(render(state('empty')), contains('This agent has no curated canonical entries yet.'));
+      expect(render(state('noMatch')), contains('Clear search to return to this corpus.'));
+      expect(render(state('degraded')), contains('Search may be incomplete'));
+      expect(render(state('unavailable')), contains('no default corpus is substituted'));
+      expect(render(state('staleResult')), contains('Reload selected corpus'));
+    });
+  });
 }

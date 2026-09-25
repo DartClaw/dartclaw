@@ -78,6 +78,10 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   wiki and knowledge graph while excluding other principals and the knowledge inbox. Read grants govern retrieval and
   rebuild; write grants govern mutation, journal, and curation work. Startup keeps each eligible workspace independent.
 
+- The owner Memory page and API now inspect, search, and page canonical entries in one selected default, configured,
+  or validated retained agent corpus. Entry edits and curated removals check collection and entry revisions, report
+  index health separately, and leave source observations, transcripts, audit records, and backups in place.
+
 - Named context-engine clients now have exactly three read tools: `context_research`, `kg_query`, and `kg_timeline`.
   This is a breaking removal of `memory_search` and `memory_read` from that profile. Clients see only the explicitly
   published wiki and knowledge graph, while owner and named-agent research add only the caller's own personal memory.

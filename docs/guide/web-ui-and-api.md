@@ -160,7 +160,8 @@ brings it back.
 - **Read-only**: Ingestion and invalidation remain MCP/tool or job operations
 
 **Memory lifecycle**
-- **Inspect**: `/memory` separates canonical roles, raw observations, the bounded prompt index, and rebuildable search rows
+- **Inspect**: `/memory` selects the default agent, a configured agent, or a retained removed-agent private corpus. It shows the selected owner, index health, and paged canonical entries; search and entry detail stay within that corpus. Empty, no-match, degraded, unavailable, and stale-result views offer a return to the selected corpus. Shared wiki and graph knowledge remain separate.
+- **Correct**: Open an entry to revise its content or confirm curated removal. Each write checks both the collection and entry revision; a stale write shows the current selected entry instead of overwriting it. Removal leaves source observations, transcripts, audit records, and backups in place.
 - **Curate**: enable the `memory-curation` job (`memory.curation.enabled`); run it on demand from Scheduling or `dartclaw jobs run memory-curation`
 - **Recover**: Degraded index states keep canonical success intact and point to the stopped-runtime `dartclaw rebuild-index` path
 
@@ -562,6 +563,20 @@ Refused `400 INVALID_INPUT` for a `type: shell` entry, as for an update.
 
 ### Memory
 
+#### Administer private agent corpora
+
+```
+GET /api/memory/corpora
+GET /api/memory/entries?corpus=<selector>&q=<query>&page=<number>
+GET /api/memory/entries/:id?corpus=<selector>
+POST /api/memory/entries/:id/revise
+POST /api/memory/entries/:id/remove
+```
+
+These owner-only routes list the default, configured, and validated retained private corpora. The inventory supplies an opaque `selector`; omitted `corpus` selects the default agent for reads. A forged or no-longer-available selector returns `404 CORPUS_UNAVAILABLE`. Entries are paged 20 at a time; search pages within at most 50 matches, sorted by update time. Each entry supplies its ID, topic, content, state, provenance, and entry and collection revisions. Search uses the selected principal's index and reports degraded, empty, no-match, or stale-result state without substituting another corpus.
+
+Writes require JSON with `corpus`, `expectedCollectionRevision`, and `expectedEntryRevision`. Revision also requires `topic`, `content`, and `state`; removal requires `reason`. Both use the selected canonical corpus's revision check. A stale write returns `409` with the current entry; a committed write reports canonical and derived-index outcomes separately. Removing a curated entry does not erase retained source observations, transcripts, audit records, or backups. Agent and named-client callers cannot use these routes. The existing status, raw-file, and prune endpoints below remain default-agent only and reject a corpus selector.
+
 #### Get memory status
 
 ```
@@ -958,8 +973,9 @@ is an ordinary `WARNING`, so a `logging.level` above that suppresses it along wi
 | `POST /settings` | Save one settings section (form-encoded, admin-only); answers with that section re-rendered |
 | `GET /settings/channels/:type` | Channel detail page (DM/group access, allowlist management, pairing) |
 | `GET /scheduling` | Scheduling status, heartbeat, job management |
-| `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
+| `GET /memory` | Owner Memory dashboard with selected private corpus inspection and revision-checked edit/removal, plus default-agent lifecycle controls |
 | `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |
+| `POST /memory/edit`, `POST /memory/remove` | Owner form actions for selected canonical entries |
 | `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
 | `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |

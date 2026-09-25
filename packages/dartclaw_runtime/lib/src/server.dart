@@ -54,6 +54,7 @@ import 'health/health_service.dart';
 import 'generated/embedded_assets.g.dart';
 import 'memory/memory_status_service.dart';
 import 'memory/memory_prune_service.dart';
+import 'memory/memory_admin_service.dart';
 import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
 import 'project/project_mutation_service.dart';
@@ -572,7 +573,12 @@ class DartclawServer {
     final memStatus = _observability.memoryStatusService;
     final wp = _core.config?.workspaceDir;
     if (memStatus != null && wp != null) {
-      final memRouter = memoryRoutes(statusService: memStatus, workspaceDir: wp, pruneService: _memoryPruneService);
+      final memRouter = memoryRoutes(
+        statusService: memStatus,
+        workspaceDir: wp,
+        pruneService: _memoryPruneService,
+        adminService: _observability.memoryAdminService,
+      );
       router.mount('/', memRouter.call);
     }
   }
@@ -783,6 +789,7 @@ class DartclawServer {
       turns: _turn.turns,
       runtimeConfig: _core.runtimeConfig,
       memoryStatusService: _observability.memoryStatusService,
+      memoryAdminService: _observability.memoryAdminService,
       memoryPruneService: _memoryPruneService,
       memoryIndex: _observability.memoryIndex,
       kgService: _web.kgService,

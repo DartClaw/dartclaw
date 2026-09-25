@@ -3,7 +3,7 @@
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
 **Current through**: 0.27 PostgreSQL-only CLI readiness/maintenance, hybrid search inspection, connected search
-commands, and HTMX 4 preparation
+commands, HTMX 4 preparation, and selected-corpus Memory administration
 
 ---
 
@@ -205,6 +205,15 @@ bounded result identity and provenance with nullable lexical/vector ranks, fixed
 unembedded count and structured degradations. It does not widen normal agent retrieval payloads. Memory inspection
 also authenticates one unchanged canonical-index fingerprint around the query; unavailable or changing state returns
 `503 SEARCH_INSPECTION_UNAVAILABLE` without hits.
+
+Owner Memory administration uses `GET /api/memory/corpora` for opaque selectors, then selected `GET /api/memory/entries`
+and `GET /api/memory/entries/:id` reads. `POST /api/memory/entries/:id/revise|remove` requires the selector and expected
+collection and entry revisions. The routes check admin access before resolving a corpus. `MemoryAdminService` maps the
+selector only to already validated configured or retained `StorageWiring` contexts; a missing or forged selector never
+falls back to owner. Canonical reads use that context's `MemoryCorpusService`; search and health use its matching
+principal. Writes go through `MemoryApplyService` and corpus CAS, reporting canonical and derived-index outcomes
+separately. The web Memory page uses the same administration service. Legacy status, file, prune, and polling routes
+remain default-agent only and reject a selector.
 
 The `/api/scheduling/jobs*` and `/api/scheduling/tasks*` handlers are likewise not the scheduling-mutation authority. Cron validation, the fresh read of `scheduling.jobs`, the modify-write and the restart-pending marker all live in `ScheduleMutationService` (`dartclaw_runtime/lib/src/scheduling/schedule_mutation.dart`); the routes map its outcome onto their status and error codes, and the `schedule_upsert` agent tool consumes the same seam. Neither surface can drift from the other's cron rule, and neither writes `scheduling.jobs` on its own. A written job takes effect only at the next restart: `ScheduleService` takes its job list at construction, which is why every write records the restart marker and why `schedule_list` reports what the running server actually loaded rather than what config says.
 

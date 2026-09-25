@@ -49,9 +49,9 @@ void main() {
     expect(response.headers['x-content-type-options'], 'nosniff');
   });
 
-  test('sets Referrer-Policy no-referrer', () async {
+  test('keeps referrers on the same origin for guarded browser writes', () async {
     final response = await buildHandler()(Request('GET', Uri.parse('http://localhost/')));
-    expect(response.headers['referrer-policy'], 'no-referrer');
+    expect(response.headers['referrer-policy'], 'same-origin');
   });
 
   test('sets Cache-Control no-store', () async {

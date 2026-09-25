@@ -1179,6 +1179,9 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 .memory-dashboard-section > .section-title,
 .memory-dashboard-section > .metrics-grid { margin-bottom: 0; }
 
+.memory-dashboard-section .list-toolbar > .form-field { flex: 1 1 16rem; min-width: 0; }
+.memory-dashboard-section .list-toolbar > .form-field > .form-input--search { flex: none; width: 100%; }
+
 /* Every tile takes the row's three tracks – numeral, label, meter – so the two
    tiles with no bounded ratio still align their numeral and label with the
    three that have one, instead of ending short of them. */

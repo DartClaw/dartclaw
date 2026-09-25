@@ -170,6 +170,9 @@
 |------|-----------|-------------------|
 | Context Engine | Server-side layer that combines caller-private personal memory with the shared wiki and temporal KG, then serves compact citation-backed packets to agents and read-only MCP clients | turn context assembler, context window assembler |
 | Personal Memory | Canonical memory and derived projections owned by one storage principal (`owner` or `agent:<id>`); never a shared source merely because its managed workspace exists | global memory, shared memory |
+| Selected Private Corpus | The single owner-authorized personal-memory corpus chosen for administration by an opaque selector. Reads, health, search, and revision-checked writes use that corpus's principal | active workspace, shared memory |
+| Retained Agent Corpus | Existing canonical memory under a removed named agent's validated managed home. The owner may inspect and correct it; the removed agent has no tool access | orphan workspace, adopted memory |
+| Curated Removal | Revision-checked removal of one canonical curated entry. It does not erase its source observations, transcripts, audit records, or backups | source purge, hard delete |
 | Shared Knowledge Surface | Explicitly published wiki pages and temporal KG facts readable by owner, named agents with `context_research`, and named MCP clients; excludes personal memory and knowledge-inbox files | all knowledge, global memory |
 | Canonical Memory Entry | Stable UUID-addressed record with revision, role, provenance, and validated Markdown representation | memory chunk, indexed text |
 | Memory Role | Closed discriminant for every canonical memory document kind: `index`, `topic`, `archive`, `observation`, `learning`, `audit`, `wiki`, `kg`. Topic, archive, observation, and learning entries are index-eligible; index, audit, wiki, and KG entries are not | memory type, category |

@@ -142,6 +142,7 @@ class StorageWiring {
   late WorkflowRunRepository _workflowRunRepository;
   SearchBackend? _searchService;
   final Map<String, WorkspaceMemoryContext> _memoryContexts = {};
+  final Map<String, WorkspaceMemoryContext> _retainedMemoryContexts = {};
   final Map<String, SearchBackend> _workspaceSearchBackends = {};
 
   SessionService get sessions => _sessions;
@@ -170,6 +171,10 @@ class StorageWiring {
   WorkflowRunRepository get workflowRunRepository => _workflowRunRepository;
   SearchBackend get searchBackend => _searchService ?? _missingPersonalMemory('searchBackend');
   Iterable<WorkspaceMemoryContext> get memoryContexts => _memoryContexts.values;
+  Iterable<WorkspaceMemoryContext> get adminMemoryContexts => [
+    ..._memoryContexts.values,
+    ..._retainedMemoryContexts.values,
+  ];
 
   WorkspaceMemoryContext get ownerMemoryContext =>
       _memoryContexts['owner'] ?? _missingPersonalMemory('ownerMemoryContext');
@@ -427,6 +432,44 @@ class StorageWiring {
       }
     }
 
+    final managedRoot = Directory(p.join(config.server.dataDir, 'agents'));
+    if (managedRoot.existsSync() &&
+        FileSystemEntity.typeSync(managedRoot.path, followLinks: false) == FileSystemEntityType.directory) {
+      for (final child in managedRoot.listSync(followLinks: false)) {
+        if (child is! Directory) continue;
+        final id = p.basename(child.path);
+        if (_memoryContexts.containsKey('agent:$id')) continue;
+        try {
+          final workspace = AgentWorkspace.managed(
+            agentId: id,
+            dataDir: config.server.dataDir,
+            ownerWorkspaceDir: config.workspaceDir,
+          );
+          WorkspaceService(dataDir: config.server.dataDir).validateManagedAgents([workspace]);
+          if (FileSystemEntity.typeSync(workspace.directory, followLinks: false) != FileSystemEntityType.directory ||
+              !MemoryCorpusService.hasCanonicalState(workspaceDir: workspace.directory) ||
+              MemoryCorpusService.readPersistedStatus(workspaceDir: workspace.directory) == null) {
+            continue;
+          }
+          final corpus = MemoryCorpusService(workspaceDir: workspace.directory);
+          final manifest = await corpus.manifest();
+          _retainedMemoryContexts[workspace.storagePrincipal] = WorkspaceMemoryContext(
+            workspace: workspace,
+            principal: workspace.storagePrincipal,
+            directory: workspace.directory,
+            corpus: corpus,
+            manifest: manifest,
+            health: IndexHealthStore(workspaceDir: workspace.directory),
+            file: MemoryFileService(baseDir: workspace.directory, corpusService: corpus),
+            allowsRead: false,
+            allowsWrite: false,
+          );
+        } on Object catch (error) {
+          _log.warning('Retained memory corpus $id is unavailable: $error');
+        }
+      }
+    }
+
     _conversationProjection = ConversationIndexProjection(
       sessions: _sessions,
       messages: _messages,
@@ -448,7 +491,9 @@ class StorageWiring {
   }
 
   Future<void> _wirePostgresIndex(DatabaseBackend backend) async {
-    for (final context in _memoryContexts.values.where((context) => context.allowsRead)) {
+    for (final context in adminMemoryContexts.where(
+      (context) => context.allowsRead || _retainedMemoryContexts.containsKey(context.principal),
+    )) {
       final target = TransactionalRebuildTarget(
         backend,
         indexFactory: (tx) => _openSearchIndex(tx, PostgresFtsTable.memoryChunks, withinTransaction: true),
@@ -551,7 +596,7 @@ class StorageWiring {
           : HybridSearchBackend(search: _memoryHybridSearch!, toMemoryResult: MemoryIndexProjection.toSearchResult),
     );
     _workspaceSearchBackends['owner'] = searchBackend;
-    for (final context in _memoryContexts.values.where((context) => context.principal != 'owner')) {
+    for (final context in adminMemoryContexts.where((context) => context.principal != 'owner')) {
       _workspaceSearchBackends[context.principal] = createSearchBackend(
         index: memoryIndex,
         indexHealthProbe: () => _probeWorkspaceIndexHealth(context),
@@ -560,7 +605,7 @@ class StorageWiring {
             : HybridSearchBackend(search: _memoryHybridSearch!, toMemoryResult: MemoryIndexProjection.toSearchResult),
       );
     }
-    for (final context in _memoryContexts.values) {
+    for (final context in adminMemoryContexts) {
       _registerMemoryProjection(context, memoryIndex);
     }
   }
@@ -776,7 +821,7 @@ class StorageWiring {
   Future<void> dispose() async {
     await _taskService.dispose();
     await _turnStateStore.dispose();
-    for (final context in _memoryContexts.values) {
+    for (final context in adminMemoryContexts) {
       await context.file.dispose();
       await context.corpus.close();
     }

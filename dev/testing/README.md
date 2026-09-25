@@ -50,6 +50,15 @@ writable temp directory by default, and starts `dartclaw_cli` in `--dev` mode. S
 (e.g. `DARTCLAW_VISUAL_DATA_DIR=/tmp/visual`) to persist those server-profile states across runs. Command and
 Windows-native profiles document their own inputs in the table and linked scenario.
 
+The `plain`, `channels`, `governance`, `visual`, and `container` launchers use `DARTCLAW_POSTGRES_URL` when set. Otherwise
+they start a disposable PostgreSQL 14 database through Docker or Podman and remove it when the launcher exits. Supply
+a dedicated PostgreSQL 14+ database through that variable when you need state to survive a restart, including when
+using a persistent `DARTCLAW_<PROFILE>_DATA_DIR`. The `workflows` profile persists its data by default and requires the
+variable. The Windows runtime smoke also requires it and expects a native PostgreSQL service. Do not point concurrent
+profiles at the same database: the serving interlock and seeded data are profile-specific.
+Existing persistent data directories keep their copied YAML; add `database.url: ${DARTCLAW_POSTGRES_URL}` there if the
+copy predates 0.27.
+
 The `workflow-contract` and `workflow-live` profiles are command profiles rather than server profiles. They do not bind a port. Use them as the workflow validation ladder:
 
 ```bash

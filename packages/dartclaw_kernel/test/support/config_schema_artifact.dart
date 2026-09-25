@@ -19,6 +19,8 @@ const List<String> shippedConfigCorpus = [
   'examples/personal-assistant.yaml',
   'examples/production.yaml',
   'dev/testing/profiles/channels/data/dartclaw.yaml',
+  'dev/testing/profiles/container/data/dartclaw.ci.yaml',
+  'dev/testing/profiles/container/data/dartclaw.yaml',
   'dev/testing/profiles/governance/data/dartclaw.yaml',
   'dev/testing/profiles/plain/data/dartclaw.yaml',
   'dev/testing/profiles/visual/data/dartclaw.yaml',

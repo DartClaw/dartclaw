@@ -132,6 +132,9 @@ function Invoke-SelfTest {
     $script:ProviderStubPath = Join-Path $testRoot 'provider-startup-stub.exe'
     Write-SmokeConfig -Provider claude -UseProviderStub $true
     $stubConfig = Get-Content -LiteralPath $script:ConfigPath -Raw
+    if ($stubConfig -notmatch '(?m)^  url: \$\{DARTCLAW_POSTGRES_URL\}$') {
+      throw 'PostgreSQL URL reference was not written to the smoke config'
+    }
     if ([regex]::Matches($stubConfig, '(?m)^    executable: provider-startup-stub\.exe$').Count -ne 2) {
       throw 'provider stub was not selected for both providers'
     }
@@ -216,6 +219,9 @@ data_dir: $dataDir
 host: 127.0.0.1
 port: $Port
 dev_mode: true
+
+database:
+  url: `${DARTCLAW_POSTGRES_URL}
 
 gateway:
   auth_mode: none
@@ -504,6 +510,10 @@ $script:ConfigPath = Join-Path $script:TempRoot 'dartclaw.yaml'
 New-Item -ItemType Directory -Path (Join-Path $script:DataDir 'workspace') -Force | Out-Null
 
 try {
+  $script:CurrentStage = 'database-preflight'
+  if (-not $env:DARTCLAW_POSTGRES_URL) {
+    throw 'Set DARTCLAW_POSTGRES_URL to a dedicated PostgreSQL 14+ database before running the Windows runtime smoke.'
+  }
   $script:DartVersion = Get-CommandVersion 'dart'
   if ($PSCmdlet.ParameterSetName -eq 'Artifact') {
     $script:CurrentStage = 'artifact-layout'

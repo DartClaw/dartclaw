@@ -6,6 +6,9 @@ This profile provides a pre-configured environment with custom workflow workspac
 
 The `run.sh` script handles config templating (absolute paths for `data_dir` and `workflow.workspace_dir`) and supports both CLI and server modes.
 
+Set `DARTCLAW_POSTGRES_URL` to a dedicated PostgreSQL 14+ database before serving or running a workflow. This profile
+keeps its data across commands, so it does not create a disposable database.
+
 ## Built-In Workflow Source
 
 This profile uses the built-in workflow definitions materialized at runtime into `data/workspace/workflows/`.

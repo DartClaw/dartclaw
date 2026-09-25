@@ -32,6 +32,7 @@ case "${1:-}" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/../postgres.sh"
 SEED_DIR="${SCRIPT_DIR}/data"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 if [ -n "$CI_MODE" ]; then
@@ -134,8 +135,11 @@ cleanup() {
   if [ -z "${DARTCLAW_CONTAINER_DATA_DIR:-}" ]; then
     rm -rf "${DATA_DIR}"
   fi
+  profile_postgres_stop
 }
 trap cleanup EXIT
+
+profile_postgres_start
 
 fail_with_log() {
   echo "FAIL: $1" >&2

@@ -3,6 +3,9 @@
 
 port: 3338
 
+database:
+  url: ${DARTCLAW_POSTGRES_URL}
+
 # Declared, not inferred: these profiles exercise the host lane, and an
 # undeclared posture would isolate wherever a container runtime happens to exist.
 container:

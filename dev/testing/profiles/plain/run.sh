@@ -9,6 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/../postgres.sh"
 SEED_DIR="${SCRIPT_DIR}/data"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
@@ -26,12 +27,13 @@ if [ -n "${DARTCLAW_PLAIN_DATA_DIR:-}" ]; then
   if [ ! -e "${DATA_DIR}/dartclaw.yaml" ]; then
     cp -R "${SEED_DIR}/." "${DATA_DIR}/"
   fi
+  trap profile_postgres_stop EXIT
 else
   # The data dir is the server's cwd, and the runtime names its implicit local
   # project after it — so the unique part goes on the parent and the dir itself
   # keeps a readable fixed name.
   DATA_PARENT="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-plain-XXXXXX")"
-  trap 'rm -rf "${DATA_PARENT}"' EXIT
+  trap 'profile_postgres_stop; rm -rf "${DATA_PARENT}"' EXIT
   DATA_DIR="${DATA_PARENT}/dartclaw-plain"
   mkdir -p "${DATA_DIR}"
   cp -R "${SEED_DIR}/." "${DATA_DIR}/"
@@ -39,6 +41,7 @@ fi
 
 CONFIG="${DATA_DIR}/dartclaw.yaml"
 chmod 600 "${DATA_DIR}/gateway_token" 2>/dev/null || true
+profile_postgres_start
 
 cd "${DATA_DIR}"
 

@@ -43,6 +43,11 @@ void main() {
     final source = (await controllerAsset('dc_conversation_command_controller.js')).readAsStringSync();
     expect(source, contains("document.addEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest)"));
     expect(source, contains("document.removeEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest)"));
+    expect(source, contains("document.addEventListener('dartclaw:slash-palette-close', this.handleSlashPaletteClose)"));
+    expect(
+      source,
+      contains("document.removeEventListener('dartclaw:slash-palette-close', this.handleSlashPaletteClose)"),
+    );
     final method = source.substring(
       source.indexOf('handleSlashPaletteRequest() {'),
       source.indexOf('async renderSlash(query)'),
@@ -188,7 +193,14 @@ const textarea = {
   dispatchEvent(event) { if (event.type === 'input') this.inputEvents += 1; return true; },
 };
 const controller = new module.default();
-controller.element = { querySelector: (selector) => (selector === '#message-input' ? textarea : null) };
+let paletteOpen = false;
+controller.element = {
+  querySelector(selector) {
+    if (selector === '#message-input') return textarea;
+    if (selector === '[data-slash-palette]:not([hidden])') return paletteOpen ? {} : null;
+    return null;
+  },
+};
 
 controller.openCommands();
 assert(textarea.value === '/', 'empty composer was not seeded with a slash: ' + textarea.value);
@@ -208,6 +220,28 @@ textarea.value = '/mod';
 controller.openCommands();
 assert(textarea.value === '/mod', 'slash text already typed was re-prefixed: ' + textarea.value);
 assert(dispatched.length === 1, 'slash text took the direct-open path instead of filtering');
+
+// The button toggles: a second press closes the palette and takes back the
+// slash the first press seeded, through the typing path so the draft sees it.
+paletteOpen = true;
+textarea.value = '/';
+textarea.inputEvents = 0;
+dispatched.length = 0;
+controller.openCommands();
+assert(dispatched.length === 1 && dispatched[0] === 'dartclaw:slash-palette-close',
+  'a second press did not ask the palette to close: ' + JSON.stringify(dispatched));
+assert(textarea.value === '', 'the seeded slash stayed behind: ' + textarea.value);
+assert(textarea.inputEvents === 1, 'the cleared slash did not reach the draft through an input event');
+
+// Slash text the user typed survives the close.
+textarea.value = '/mod';
+textarea.inputEvents = 0;
+dispatched.length = 0;
+controller.openCommands();
+assert(dispatched.length === 1 && dispatched[0] === 'dartclaw:slash-palette-close',
+  'a second press over typed slash text did not close the palette');
+assert(textarea.value === '/mod', 'closing the palette discarded typed text: ' + textarea.value);
+assert(textarea.inputEvents === 0, 'closing over typed text re-ran the typing path');
 ''';
 
 /// Loads dc-chat with the shared module stubbed out.

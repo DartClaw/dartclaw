@@ -16,16 +16,20 @@ export default class DcConversationCommandController extends Stimulus.Controller
     this.handleKeydown = this.handleKeydown.bind(this);
     this.handlePointerMove = this.handlePointerMove.bind(this);
     this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.handlePointerDown = this.handlePointerDown.bind(this);
     this.handleInput = this.handleInput.bind(this);
     this.handlePopstate = this.handlePopstate.bind(this);
     this.handleConversationChanged = this.handleConversationChanged.bind(this);
     this.handleSlashPaletteRequest = this.handleSlashPaletteRequest.bind(this);
+    this.handleSlashPaletteClose = this.handleSlashPaletteClose.bind(this);
     document.addEventListener('click', this.handleClick);
     document.addEventListener('keydown', this.handleKeydown);
     document.addEventListener('pointermove', this.handlePointerMove);
     document.addEventListener('mousedown', this.handleMouseDown);
+    document.addEventListener('pointerdown', this.handlePointerDown);
     document.addEventListener('input', this.handleInput);
     document.addEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
+    document.addEventListener('dartclaw:slash-palette-close', this.handleSlashPaletteClose);
     window.addEventListener('popstate', this.handlePopstate);
     document.body.addEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     this.restoreSearchReturn();
@@ -36,8 +40,10 @@ export default class DcConversationCommandController extends Stimulus.Controller
     document.removeEventListener('keydown', this.handleKeydown);
     document.removeEventListener('pointermove', this.handlePointerMove);
     document.removeEventListener('mousedown', this.handleMouseDown);
+    document.removeEventListener('pointerdown', this.handlePointerDown);
     document.removeEventListener('input', this.handleInput);
     document.removeEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
+    document.removeEventListener('dartclaw:slash-palette-close', this.handleSlashPaletteClose);
     window.removeEventListener('popstate', this.handlePopstate);
     document.body.removeEventListener('dartclaw:conversation-changed', this.handleConversationChanged);
     clearTimeout(this.searchTimer);
@@ -144,6 +150,16 @@ export default class DcConversationCommandController extends Stimulus.Controller
     if (event.target.closest?.('[data-slash-palette], dialog.command-dialog [data-command-results]')) {
       event.preventDefault();
     }
+  }
+
+  /// A press outside the slash palette closes it, on pointerdown like every
+  /// other composer popover. The composer keeps it open because its text drives
+  /// the palette, and the commands button because its own click toggles it.
+  handlePointerDown(event) {
+    const palette = document.querySelector('[data-slash-palette]:not([hidden])');
+    if (!palette) return;
+    if (event.target.closest?.('[data-slash-palette], #message-input, [data-action~="dc-chat#openCommands"]')) return;
+    palette.hidden = true;
   }
 
   handleInput(event) {
@@ -271,6 +287,11 @@ export default class DcConversationCommandController extends Stimulus.Controller
   /// The composer button asks for the whole catalogue: it is opening the
   /// palette, not typing a query, and the composer may hold a draft that is no
   /// query at all.
+  handleSlashPaletteClose() {
+    const palette = document.querySelector('[data-slash-palette]');
+    if (palette) palette.hidden = true;
+  }
+
   handleSlashPaletteRequest() {
     const palette = document.querySelector('[data-slash-palette]');
     if (!palette) return;

@@ -61,6 +61,8 @@ void main() {
     await expectNodeHarness(_palettePressHarness, [controller.absolute.uri.toString()]);
     expect(source, contains("document.addEventListener('mousedown', this.handleMouseDown)"));
     expect(source, contains("document.removeEventListener('mousedown', this.handleMouseDown)"));
+    expect(source, contains("document.addEventListener('pointerdown', this.handlePointerDown)"));
+    expect(source, contains("document.removeEventListener('pointerdown', this.handlePointerDown)"));
   });
 
   test('search highlights are built from text nodes rather than result HTML', () {
@@ -452,4 +454,18 @@ const option = {
 };
 controller.handleClick({ target: option, preventDefault() {} });
 assert(chosen.length === 1 && chosen[0] === option, 'a row click no longer chooses the row');
+
+// A press outside the open slash palette closes it. The palette, the composer
+// that drives it and the commands button that toggles it are not outside.
+const palette = { hidden: false };
+globalThis.document = {
+  querySelector: (selector) => (selector === '[data-slash-palette]:not([hidden])' && !palette.hidden ? palette : null),
+};
+const pressDown = (element) => controller.handlePointerDown({ target: element });
+for (const inside of ['[data-slash-palette]', '#message-input', '[data-action~="dc-chat#openCommands"]']) {
+  pressDown(target(inside));
+  assert(!palette.hidden, 'a press on ' + inside + ' closed the slash palette');
+}
+pressDown(target('#main-content'));
+assert(palette.hidden, 'a press outside the slash palette left it open');
 ''';

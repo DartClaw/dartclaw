@@ -344,6 +344,17 @@ export default class DcChatController extends Stimulus.Controller {
   openCommands() {
     const textarea = this.textarea;
     if (!textarea) return;
+    // A second press closes the palette, and takes back the slash the first
+    // press seeded; text the user typed stays.
+    if (this.element.querySelector('[data-slash-palette]:not([hidden])')) {
+      document.dispatchEvent(new CustomEvent('dartclaw:slash-palette-close'));
+      if (textarea.value === '/') {
+        textarea.value = '';
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      textarea.focus();
+      return;
+    }
     if (textarea.value && !textarea.value.startsWith('/')) {
       document.dispatchEvent(new CustomEvent('dartclaw:slash-palette'));
       return;

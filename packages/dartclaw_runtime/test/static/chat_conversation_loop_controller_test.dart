@@ -182,6 +182,29 @@ form.submitted = false;
 controller.handleTextareaKeydown({ isComposing: false, metaKey: true, key: 'Enter', preventDefault() { prevented = true; } });
 assert(prevented && form.submitted, 'Cmd+Enter did not submit');
 
+// Enter sends, as in every chat app; Shift+Enter (and Alt+Enter) keep the newline.
+const press = (keys) => {
+  prevented = false;
+  form.submitted = false;
+  controller.handleTextareaKeydown({ isComposing: false, key: 'Enter', ...keys, preventDefault() { prevented = true; } });
+  return prevented && form.submitted;
+};
+assert(press({}), 'Enter did not submit');
+assert(!press({ shiftKey: true }) && !prevented, 'Shift+Enter did not keep the newline');
+assert(!press({ altKey: true }) && !prevented, 'Alt+Enter did not keep the newline');
+
+// An open slash palette takes a plain Enter for its own row.
+nodes.set('[data-slash-palette]:not([hidden])', {});
+assert(!press({}) && !prevented, 'Enter sent past an open slash palette');
+nodes.delete('[data-slash-palette]:not([hidden])');
+
+// On a touch screen the on-screen Return has no Shift, so it keeps the newline
+// and only the modified chord sends.
+globalThis.matchMedia = (query) => ({ matches: query === '(pointer: coarse)' });
+assert(!press({}) && !prevented, 'Enter sent from a touch keyboard');
+assert(press({ ctrlKey: true }), 'Ctrl+Enter did not submit on a touch screen');
+delete globalThis.matchMedia;
+
 let authoritativeCanCancel = false;
 let authoritativeRevision = 20;
 globalThis.fetch = async () => ({

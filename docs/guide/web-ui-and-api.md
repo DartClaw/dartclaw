@@ -69,7 +69,8 @@ brings it back.
   **Send to provider** and follows the ordinary message path without byte changes or a capability claim. A built-in
   keeps its canonical action when a native skill has the same name; the skill remains available with a skill label.
 - **Rich composer**: The composer floats over the transcript, aligned to the message column. Type, then press
-  **Ctrl+Enter** (or **Cmd+Enter** on macOS) or the square arrow send button. Its toolbar carries attach, commands, and
+  **Enter** or the square arrow send button; **Shift+Enter** starts a new line. On a touch screen Return starts a new
+  line and the send button sends. Its toolbar carries attach, commands, and
   a context chip naming the project the next turn runs in — with the context window percentage when the provider
   reports a live measurement — and, on the right, the draft-save status, a pill stating the provider, model and effort
   for the next turn, and the send control. Drafts and selected file bytes are saved in this browser and restored after
@@ -175,7 +176,8 @@ brings it back.
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+Enter / Cmd+Enter | Send message |
+| Enter, or Ctrl+Enter / Cmd+Enter | Send message (on a touch screen only the send button or Ctrl/Cmd+Enter) |
+| Shift+Enter | New line |
 | Tab | Focus textarea (when not focused) |
 
 ## REST API

@@ -475,7 +475,7 @@ Object? _tryDecodeJson(String value) {
 
 /// Desktop composer placeholder. The shortcut hint is dropped at the touch tier
 /// by `dc-chat`, which is the only side that knows the active tier.
-const composerPlaceholder = 'Message DartClaw…  ⌘↵ to send';
+const composerPlaceholder = 'Message DartClaw…  ⇧↵ for new line';
 
 /// Renders the full chat area, including the messages list and input form.
 /// [chatNoticeHtml] is optional pre-rendered one-shot session-notice HTML

@@ -306,13 +306,13 @@ export default class DcChatController extends Stimulus.Controller {
     publish();
   }
 
-  /// The shortcut hint is a desktop-only placeholder: there is no modifier key
+  /// The shortcut hint is a desktop-only placeholder: Enter keeps the newline
   /// at the touch tier, and the longer string wraps onto a second line.
   handleViewportChange() {
     const textarea = this.textarea;
     if (!textarea || this.streaming) return;
     const narrow = globalThis.matchMedia?.('(max-width: 768px)').matches;
-    textarea.placeholder = narrow ? 'Message DartClaw…' : 'Message DartClaw…  ⌘↵ to send';
+    textarea.placeholder = narrow ? 'Message DartClaw…' : 'Message DartClaw…  ⇧↵ for new line';
   }
 
   /// The topbar overflow menu and the command palette live outside this
@@ -773,10 +773,19 @@ export default class DcChatController extends Stimulus.Controller {
     this.scheduleDraftSave();
   }
 
+  /// Enter sends and Shift+Enter breaks the line, except on a touch screen,
+  /// where the on-screen Return has no Shift to reach for and so keeps the
+  /// newline; the send button sends there. Ctrl/Cmd+Enter sends everywhere.
+  /// An open slash palette takes Enter for its own row.
   handleTextareaKeydown(event) {
     if (this.referencePalette && !this.referencePalette.hidden && this.handlePaletteKey(event)) return;
-    if (event.isComposing) return;
-    if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
+    if (event.isComposing || event.key !== 'Enter') return;
+    const modified = event.ctrlKey || event.metaKey;
+    if (!modified) {
+      if (event.shiftKey || event.altKey) return;
+      if (globalThis.matchMedia?.('(pointer: coarse)').matches) return;
+      if (this.element.querySelector('[data-slash-palette]:not([hidden])')) return;
+    }
     event.preventDefault();
     this.form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   }

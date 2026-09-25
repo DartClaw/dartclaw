@@ -222,7 +222,7 @@ That path is intentionally secondary in the user guide. For normal operation, pr
 
 1. Open [http://127.0.0.1:3333](http://127.0.0.1:3333)
 2. Click **New Chat**
-3. Type a message, then press **Ctrl+Enter** or **Cmd+Enter** on macOS
+3. Type a message, then press **Enter**
 4. The agent responds with streaming text via SSE
 
 See `examples/` for ready-made configs such as dev, production, and personal assistant setups.

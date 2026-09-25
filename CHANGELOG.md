@@ -135,6 +135,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   change shows why and the controls return to the applied context. The context diagnostics stay on Session info.
   Queue, its steer caret and send share one 28px control tier, and queued-turn actions rest borderless.
 
+- Enter sends a chat message and Shift+Enter starts a new line; Ctrl/Cmd+Enter still sends. On a touch screen Return
+  keeps starting a new line and the send button sends. The composer hint reads *⇧↵ for new line*.
+
 ### Fixed
 
 - Dropdown menus and command palettes highlight exactly one row, moved by the pointer and the arrow keys alike, and

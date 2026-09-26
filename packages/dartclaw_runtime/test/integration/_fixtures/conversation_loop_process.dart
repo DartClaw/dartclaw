@@ -45,6 +45,7 @@ Future<void> main(List<String> arguments) async {
               .writeAsStringSync(jsonEncode({'boundary': name, 'attachmentId': id}), flush: true);
           exit(86);
         },
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
       final upload = await uploadHandler(
         Request(
@@ -69,6 +70,7 @@ Future<void> main(List<String> arguments) async {
   if (admission == 'queue') await turns.reserveTurn(sessionId);
   final service = ConversationService(
     sessions: sessions,
+    ownerWorkspaceDir: sessions.baseDir,
     messages: messages,
     turns: turns,
     mutations: SessionMutationCoordinator(),

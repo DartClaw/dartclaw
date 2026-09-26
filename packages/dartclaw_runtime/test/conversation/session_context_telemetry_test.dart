@@ -21,6 +21,7 @@ void main() {
     final session = await sessions.createSession();
     final service = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: FakeTurnManager(messages, FakeAgentHarness()),
       mutations: SessionMutationCoordinator(),
@@ -126,6 +127,7 @@ void main() {
     );
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),

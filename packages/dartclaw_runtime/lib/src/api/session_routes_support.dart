@@ -176,14 +176,14 @@ Future<Map<String, dynamic>> effectiveContextView(
   String defaultProvider,
   Map<String, EffectiveContextCapabilities> capabilities, {
   ModelCatalogueLookup catalogues = noModelCatalogues,
+  String? ownerWorkspaceDir,
 }) async {
-  final fallbackProject = projects == null ? null : await projects.defaultProject;
   final availableProjects = projects == null ? const <Project>[] : await projects.getAll();
   final next = state.nextContext;
   final current = state.currentContext;
-  final projectId = next?.projectId ?? fallbackProject?.id ?? '_local';
-  final project = projects == null ? null : await projects.get(projectId);
-  final projectName = project?.name ?? projectId;
+  final projectId = next?.projectId;
+  final project = projectId == null || projects == null ? null : await projects.get(projectId);
+  final projectName = projectId == null ? 'General chat' : project?.name ?? projectId;
   final provider = next?.provider ?? session.provider ?? defaultProvider;
   final providerCapabilities = capabilities[provider];
   final telemetry = state.telemetry;
@@ -199,7 +199,7 @@ Future<Map<String, dynamic>> effectiveContextView(
   String contextLabel(EffectiveConversationContext? value) {
     if (value == null) return 'Pending first turn';
     final model = contextModelLabel(catalogues(value.provider), value.model);
-    return [value.projectId, value.provider, model, value.effort].nonNulls.join(' · ');
+    return [value.projectId ?? 'General chat', value.provider, model, value.effort].nonNulls.join(' · ');
   }
 
   // The composer pill states what the next turn will actually run, naming the
@@ -242,18 +242,21 @@ Future<Map<String, dynamic>> effectiveContextView(
     'workspace': session.workspace == null ? 'web' : 'agent:${session.workspace!.agentId}',
     'project': projectName,
     'projectId': projectId,
+    'projectUnavailable': projectId != null && (project == null || project.status != ProjectStatus.ready),
+    'ownerDirectory': ownerWorkspaceDir ?? (projectId == null ? next?.directory : null),
     'projects': availableProjects
-        .where((candidate) => candidate.status == ProjectStatus.ready)
+        .where((candidate) => candidate.id != '_local' && candidate.status == ProjectStatus.ready)
         .map(
           (candidate) => {
             'value': candidate.id,
             'label': candidate.name.isEmpty ? candidate.id : candidate.name,
+            'directory': candidate.localPath,
             'selected': candidate.id == projectId,
           },
         )
         .toList(growable: false),
-    'directory': next?.directory ?? fallbackProject?.localPath ?? Directory.current.path,
-    'referenceRoot': next?.referenceRoot ?? fallbackProject?.localPath ?? Directory.current.path,
+    'directory': next?.directory ?? session.workspace?.directory,
+    'referenceRoot': next?.referenceRoot ?? session.workspace?.directory,
     'provider': provider,
     'providers': {...capabilities.keys, provider}
         .map(

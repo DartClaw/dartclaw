@@ -119,6 +119,7 @@ final class _ActionFixture {
     final mutations = SessionMutationCoordinator();
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: mutations,

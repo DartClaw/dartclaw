@@ -20,7 +20,9 @@ void main() {
     final messages = MessageService(baseDir: root.path);
     final worker = FakeAgentHarness();
     final turns = FakeTurnManager(messages, worker);
-    final handler = localAdminMiddleware()(sessionRoutes(sessions, messages, turns, worker).call);
+    final handler = localAdminMiddleware()(
+      sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+    );
     addTearDown(() async {
       await messages.dispose();
       root.deleteSync(recursive: true);

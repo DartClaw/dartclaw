@@ -28,6 +28,7 @@ void main() {
     turns = _CompletingTurnManager(messages, FakeAgentHarness());
     conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -44,6 +45,7 @@ void main() {
     final observed = _PausingApprovalSessionService(baseDir: temporaryDirectory.path);
     final stopping = ConversationService(
       sessions: observed,
+      ownerWorkspaceDir: observed.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -94,6 +96,7 @@ void main() {
       final observed = _PausingApprovalSessionService(baseDir: temporaryDirectory.path);
       final stopping = ConversationService(
         sessions: observed,
+        ownerWorkspaceDir: observed.baseDir,
         messages: messages,
         turns: turns,
         mutations: SessionMutationCoordinator(),
@@ -136,6 +139,7 @@ void main() {
     final releaseWrite = Completer<void>();
     final stopping = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -230,6 +234,7 @@ void main() {
     var crashEdits = false;
     final interrupted = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -260,6 +265,7 @@ void main() {
 
     final recovered = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -538,6 +544,7 @@ void main() {
     turns.setBusy();
     final interrupted = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -563,6 +570,7 @@ void main() {
 
     final recovered = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -671,6 +679,7 @@ void main() {
     await _waitForWorkState(conversation, sessionId, 'shared-retry', ConversationWorkState.completed);
     final restarted = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),

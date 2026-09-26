@@ -75,6 +75,7 @@ final class ConversationService {
   final ConversationReferenceValidator? referenceValidator;
   final ConversationBranchFailpoint? branchFailpoint;
   final ProjectService? projects;
+  final String ownerWorkspaceDir;
   final Map<String, EffectiveContextCapabilities> contextCapabilities;
   final String defaultProvider;
   final LogicalAgentSessionService? titleAgents;
@@ -99,6 +100,7 @@ final class ConversationService {
     this.referenceValidator,
     this.branchFailpoint,
     this.projects,
+    required this.ownerWorkspaceDir,
     this.contextCapabilities = const {},
     this.defaultProvider = 'claude',
     this.titleAgents,
@@ -143,66 +145,40 @@ final class ConversationService {
     return session;
   }
 
-  Future<ConversationState> snapshot(String sessionId) async {
-    await _ensureRecovered(sessionId);
-    return mutations.run(sessionId, () async {
-      final state = await sessions.getConversationState(sessionId);
-      return _ensureContext(sessionId, state);
-    });
-  }
+  Future<ConversationState> snapshot(String sessionId) => _snapshot(sessionId);
+
+  Future<EffectiveConversationContext> newChatContext(String? projectId) => _newChatContext(projectId);
+
+  Future<void> initializeNewChat(String sessionId, EffectiveConversationContext context) =>
+      _initializeNewChat(sessionId, context);
 
   /// Atomically stages the full context used by subsequently admitted turns.
   Future<ConversationState> updateContext({
     required String sessionId,
     required int expectedRevision,
-    required String projectId,
+    required String? projectId,
     required String directory,
     required String provider,
     String? model,
     String? effort,
     List<Map<String, dynamic>> attachments = const [],
     List<Map<String, dynamic>> references = const [],
-  }) => _ensureRecovered(sessionId).then(
-    (_) => mutations.run(sessionId, () async {
-      var state = await sessions.getConversationState(sessionId);
-      state = await _ensureContext(sessionId, state, persist: false);
-      _requireRevision(state, expectedRevision);
-      final context = await _validatedContext(
-        projectId: projectId,
-        directory: directory,
-        provider: provider,
-        model: model,
-        effort: effort,
-      );
-      await _validateReferences(context, references);
-      await _attachmentManifests(sessionId, attachments);
-      final next = state.stageContext(context);
-      await sessions.updateConversationState(sessionId, next);
-      _broadcast(sessionId, next.revision);
-      return next;
-    }),
+  }) => _updateContext(
+    sessionId: sessionId,
+    expectedRevision: expectedRevision,
+    projectId: projectId,
+    directory: directory,
+    provider: provider,
+    model: model,
+    effort: effort,
+    attachments: attachments,
+    references: references,
   );
 
-  Future<ConversationState> recordTelemetry(String sessionId, SessionContextTelemetry telemetry) => mutations.run(
-    sessionId,
-    () async {
-      var state = await sessions.getConversationState(sessionId);
-      if (telemetry.sessionId != sessionId) {
-        throw ConversationMutationException(400, 'TELEMETRY_SESSION_MISMATCH', 'Telemetry belongs to another session');
-      }
-      state = state.recordTelemetry(telemetry);
-      await sessions.updateConversationState(sessionId, state);
-      _broadcast(sessionId, state.revision);
-      return state;
-    },
-  );
+  Future<ConversationState> recordTelemetry(String sessionId, SessionContextTelemetry telemetry) =>
+      _recordTelemetry(sessionId, telemetry);
 
-  Future<List<Message>> visibleMessages(String sessionId) async {
-    final state = await snapshot(sessionId);
-    return (await messages.getMessages(sessionId))
-        .where((message) => state.includesMessage(message.id))
-        .toList(growable: false);
-  }
+  Future<List<Message>> visibleMessages(String sessionId) => _visibleMessages(sessionId);
 
   Future<Map<String, Object?>> historyWindow(
     String sessionId, {
@@ -293,7 +269,13 @@ final class ConversationService {
       'revision': state.revision,
       'messages': visible.map(_redactedMessageJson).toList(growable: false),
       'records': state.records
-          .where((record) => attempts.contains(record.attemptId))
+          .where(
+            (record) =>
+                attempts.contains(record.attemptId) ||
+                (record.kind == ConversationRecordKind.contextChange &&
+                    beforeCursor == null &&
+                    aroundMessageId == null),
+          )
           .map((record) => record.toJson())
           .toList(),
       'branches': state.branches
@@ -947,7 +929,7 @@ final class ConversationService {
       }
     }
     final admittedContext = retainedContext ?? state.nextContext!;
-    if (retainedContext != null) await _revalidateContext(retainedContext);
+    await _revalidateContext(admittedContext);
     await _validateReferences(admittedContext, references);
     final manifests = await _attachmentManifests(sessionId, attachments);
     final payloadDigest = _payloadDigest(
@@ -1419,6 +1401,14 @@ bool _isTerminal(ConversationWorkState state) =>
     state == ConversationWorkState.failed ||
     state == ConversationWorkState.cancelled ||
     state == ConversationWorkState.removed;
+
+bool _sameContext(EffectiveConversationContext left, EffectiveConversationContext right) =>
+    left.projectId == right.projectId &&
+    left.directory == right.directory &&
+    left.referenceRoot == right.referenceRoot &&
+    left.provider == right.provider &&
+    left.model == right.model &&
+    left.effort == right.effort;
 
 bool _isTerminalRecordState(ConversationRecordState state) =>
     state == ConversationRecordState.succeeded ||

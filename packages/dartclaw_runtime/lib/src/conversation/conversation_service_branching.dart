@@ -26,10 +26,9 @@ extension _ConversationServiceBranching on ConversationService {
       );
     }
     final context = claim?.admittedContext ?? state.currentContext ?? state.nextContext;
-    final project = context == null ? await projects?.defaultProject : null;
     return _validatedContext(
-      projectId: context?.projectId ?? project?.id ?? '_local',
-      directory: context?.directory ?? project?.localPath ?? Directory.current.path,
+      projectId: context?.projectId,
+      directory: context?.directory ?? ownerWorkspaceDir,
       provider: resolved.provider,
       model: context?.provider == resolved.provider ? context?.model : null,
       effort: context?.provider == resolved.provider ? context?.effort : null,

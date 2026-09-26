@@ -32,8 +32,8 @@
         <h2 class="section-title">Session Details</h2>
         <div tl:if="${hasEffectiveContext}" id="session-effective-context" class="well">
           <div class="meta-row"><span class="meta-label">Workspace owner</span><span class="meta-value meta-value-mono" tl:text="${effectiveContext.workspace}">web</span></div>
-          <div class="meta-row"><span class="meta-label">Project</span><span class="identicon identicon--5" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span><span class="meta-value" tl:text="${effectiveContext.project}">project</span></div>
-          <div class="meta-row"><span class="meta-label">Directory</span><span class="meta-value meta-value-mono" tl:text="${effectiveContext.directory}">directory</span></div>
+          <div class="meta-row"><span class="meta-label">Context</span><span tl:if="${effectiveContext.projectId}" class="identicon identicon--5" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span><span class="meta-value" tl:text="${effectiveContext.project}">General chat</span></div>
+          <div class="meta-row"><span class="meta-label">Execution directory</span><span class="meta-value meta-value-mono" tl:text="${effectiveContext.directory}">directory</span></div>
           <div class="meta-row"><span class="meta-label">Current context</span><span class="meta-value" tl:text="${effectiveContext.current}">current</span></div>
           <div class="meta-row"><span class="meta-label">Next turn</span><span class="meta-value" tl:text="${effectiveContext.next}">next</span></div>
           <div class="meta-row"><span class="meta-label">Provider</span><span class="meta-value" tl:text="${effectiveContext.provider}">provider</span></div>

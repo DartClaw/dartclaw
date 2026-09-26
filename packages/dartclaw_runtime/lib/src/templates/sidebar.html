@@ -22,7 +22,7 @@
   </div>
 
   <div class="rail-controls rail-scope-row">
-    <button type="button" class="rail-scope" data-inbox-scope aria-haspopup="menu" aria-expanded="false">
+    <button type="button" class="rail-scope" data-inbox-scope data-project-controls hidden aria-haspopup="menu" aria-expanded="false">
       <span class="icon-lead"><span class="icon icon-folder-kanban" aria-hidden="true"></span></span>
       <span class="rail-scope-label" data-inbox-scope-label>All projects</span>
       <span class="icon-slot"><span class="icon icon-chevron-down" aria-hidden="true"></span></span>
@@ -63,7 +63,7 @@
       <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-group="none">
         <span class="menu-tick"></span><span class="palette-item-label">None</span>
       </button>
-      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-group="project">
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-group="project" data-project-controls hidden>
         <span class="menu-tick"></span><span class="palette-item-label">Project</span>
       </button>
       <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-group="status">
@@ -98,7 +98,7 @@
   <div role="status" aria-live="polite" aria-atomic="true" data-inbox-announcer></div>
 
   <div class="session-list">
-  <div tl:if="${mainSession}" class="sidebar-section-label">Workspace</div>
+  <div tl:if="${mainSession}" class="sidebar-section-label">Pinned</div>
   <div tl:if="${mainSession}" class="session-item session-item-main"
     tl:classappend="${mainActive} ? 'active' : ''">
     <a tl:attr="href=${mainHref},hx-get=${mainHref},data-icon=${'terminal'}" class="session-item-link"
@@ -270,6 +270,10 @@
       </div>
     </div>
   </div>
+  </section>
+  <section class="sidebar-project-section" aria-label="Projects" data-sidebar-projects hidden>
+    <div class="sidebar-section-label">Projects</div>
+    <div data-sidebar-project-list></div>
   </section>
   </div>
 

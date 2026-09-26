@@ -758,6 +758,7 @@ class DartclawServer {
       resetService: _core.resetService,
       redactor: _core.redactor,
       projectService: _tasks.projectService,
+      ownerWorkspaceDir: _core.config?.workspaceDir ?? _core.sessions.baseDir,
       contextCapabilities: _core.effectiveContextCapabilities,
       modelCatalogues: _core.modelCatalogues,
       defaultProvider: defaultProvider,

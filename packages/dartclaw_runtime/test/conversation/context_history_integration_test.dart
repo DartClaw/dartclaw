@@ -55,6 +55,7 @@ void main() {
         harness,
         projectService: projects,
         contextCapabilities: const {'claude': EffectiveContextCapabilities(model: true, effort: true)},
+        ownerWorkspaceDir: sessions.baseDir,
       ).call,
     );
     addTearDown(() async {
@@ -126,8 +127,8 @@ void main() {
       200,
       body: {
         'conversation_revision': stateJson['revision'],
-        'project_id': 'project-b',
-        'directory': projectB.path,
+        'project_id': 'project-a',
+        'directory': projectA.path,
         'provider': 'claude',
         'model': 'sonnet',
         'effort': 'medium',
@@ -150,7 +151,7 @@ void main() {
     final whileActive = await sessions.getConversationState(session.id);
     expect(whileActive.currentContext?.projectId, 'project-a');
     expect(whileActive.currentContext?.model, 'opus');
-    expect(whileActive.nextContext?.projectId, 'project-b');
+    expect(whileActive.nextContext?.projectId, 'project-a');
     expect(whileActive.nextContext?.model, 'sonnet');
     expect(whileActive.findSubmission('context-a')?.admittedContext?.model, 'opus');
     expect(whileActive.findSubmission('context-b')?.admittedContext?.model, 'sonnet');
@@ -174,7 +175,7 @@ void main() {
     await runner.waitForExecutionSettled(session.id, activeTurnId);
     await _eventually(() async => harness.turnCallCount == 2);
 
-    expect(harness.lastDirectory, projectB.resolveSymbolicLinksSync());
+    expect(harness.lastDirectory, projectA.resolveSymbolicLinksSync());
     expect(harness.lastModel, 'sonnet');
     expect(harness.lastEffort, 'medium');
 
@@ -188,7 +189,7 @@ void main() {
     expect(persisted.findSubmission('context-a')?.admittedContext?.model, 'opus');
     expect(queuedClaim?.workState, ConversationWorkState.running);
     expect(queuedClaim?.queueId, queued['queue_id']);
-    expect(queuedClaim?.admittedContext?.projectId, 'project-b');
+    expect(queuedClaim?.admittedContext?.projectId, 'project-a');
     expect(queuedClaim?.admittedContext?.model, 'sonnet');
     expect(persisted.queue.map((claim) => claim.submissionId), contains('context-b'));
     expect(tool?.state, ConversationRecordState.succeeded);

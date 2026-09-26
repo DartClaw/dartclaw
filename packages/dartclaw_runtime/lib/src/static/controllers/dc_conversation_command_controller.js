@@ -28,6 +28,7 @@ export default class DcConversationCommandController extends Stimulus.Controller
     document.addEventListener('mousedown', this.handleMouseDown);
     document.addEventListener('pointerdown', this.handlePointerDown);
     document.addEventListener('input', this.handleInput);
+    document.addEventListener('change', this.handleInput);
     document.addEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
     document.addEventListener('dartclaw:slash-palette-close', this.handleSlashPaletteClose);
     window.addEventListener('popstate', this.handlePopstate);
@@ -42,6 +43,7 @@ export default class DcConversationCommandController extends Stimulus.Controller
     document.removeEventListener('mousedown', this.handleMouseDown);
     document.removeEventListener('pointerdown', this.handlePointerDown);
     document.removeEventListener('input', this.handleInput);
+    document.removeEventListener('change', this.handleInput);
     document.removeEventListener('dartclaw:slash-palette', this.handleSlashPaletteRequest);
     document.removeEventListener('dartclaw:slash-palette-close', this.handleSlashPaletteClose);
     window.removeEventListener('popstate', this.handlePopstate);
@@ -163,6 +165,10 @@ export default class DcConversationCommandController extends Stimulus.Controller
   }
 
   handleInput(event) {
+    if (event.target.matches?.('[data-search-project]')) {
+      this.refreshDialog(event.target.closest('dialog'));
+      return;
+    }
     const queryInput = event.target.closest('[data-command-query]');
     if (queryInput) {
       clearTimeout(this.searchTimer);
@@ -246,8 +252,8 @@ export default class DcConversationCommandController extends Stimulus.Controller
       request_token: String(generation),
     });
     if (scope === 'current') parameters.set('session_id', this.sessionId);
-    const project = dialog.querySelector('[data-search-project]')?.value.trim();
-    if (project) parameters.set('project_id', project);
+    const project = dialog.querySelector('[data-search-project]')?.value;
+    if (project !== undefined && project !== ':all') parameters.set('project_id', project);
     try {
       const response = await fetch(this.apiUrl('/api/conversation-search', parameters));
       const data = await response.json();

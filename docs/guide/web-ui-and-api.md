@@ -10,12 +10,12 @@ The interface has three main areas:
 
 ```
 ┌──────────────┬──────────────────────────────┐
-│ ❯ DartClaw   │ Title · project · provider   │
+│ ❯ DartClaw   │ Title · context · provider   │
 │ Search  ⌘K ✎ │        state  🔍 🔔 ⋯        │
-│ All projects⚙├──────────────────────────────┤
+│ Agent       ⚙├──────────────────────────────┤
 │ n waiting    │                              │
 │ ┌──────────┐ │  Chat Area                   │
-│ │ project  ⏱│ │  (messages + streaming)      │
+│ │ Chats    ⏱│ │  (messages + streaming)      │
 │ │ Title    ●│ │                              │
 │ └──────────┘ ├──────────────────────────────┤
 │ Settled (n)  │  Rich composer + context tray │
@@ -32,15 +32,15 @@ brings it back.
 ### Features
 
 **Session Management**
-- **Create**: Click the **New chat** icon beside the rail's search row (at narrow widths it moves into the topbar, so creation stays reachable without opening the drawer). If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**. Activating New chat from that draft simply returns focus to its composer.
-- **Switch**: Click any conversation in the rail to load its messages. A row carries its project and relative time on the first line, its title and a state dot on the second, and — only when there is one — an attention reason, a failure reason or its fork lineage on a third. Hovering or focusing the row swaps the time for **Settle** and **Archive**.
+- **Create**: Click global **New chat** beside the rail's search row (in the topbar at narrow widths), or use `/new`, to open a general chat in the owner workspace. An untouched general draft is reused only for general creation. **New chat** under a named project creates or reuses a draft for that exact ready project. An untouched draft in another context is never reused. Blank destinations are labelled **Untitled draft**.
+- **Switch**: Agent stays pinned. General conversations appear under **Chats**; conversations explicitly associated with registered projects appear under **Projects**. Click a row to load its messages. Its title, time, state and any attention or failure reason remain visible; project association appears only for project chats. Hovering or focusing the row swaps the time for **Settle** and **Archive**.
 - **Triage**: The inbox keeps creation order stable while showing unread, running, waiting, done, failed and local-draft state. Settle completed and fully read conversations to move them into the paged Settled tail; Restore returns them to their original place. New work restores a settled conversation automatically.
-- **Filter, scope and group**: The sliders icon beside the project scope opens **View options** — *Show* (All · Unread · Waiting on you · Running · Failed · Drafts on this device) and *Group by* (None · Project · Status). A non-default filter shows as a removable chip with a **Clear** action. The scope selector narrows the rail to one project. All three are per-device view state: they never change stored order and are not sent to the server.
+- **Filter, scope and group**: **View options** offers *Show* (All · Unread · Waiting on you · Running · Failed · Drafts on this device) and grouping where relevant. Project scopes and filters appear only when an explicit project is registered. These are per-device view state: they never change stored order or the conversation's next context.
 - **Bulk settle**: **Select conversations** in the same menu reveals a checkbox on every row and a bulk bar with the selection count, a clear action and **Settle**. Each member settles against the revision the row was rendered with, so the result reports per-conversation acceptance. Escape leaves select mode.
 - **Waiting count**: A **n waiting on you** row appears above the list only while something is blocked on you, and jumps to the next such conversation.
 - **Settle and archive**: Settling is reversible inbox organization; the conversation stays writable and searchable. Archiving is a read-only historical lifecycle used by reset and maintenance, remains searchable under the archived filter, and appears in the separate Archived subsection.
 - **Attention**: The topbar bell pages durable completion, failure and input-request events, grouped into **Blocked on you** and **Finished**. A row links back to the exact transcript record; hovering or focusing it reveals approve, reject and dismiss, and the approval actions appear only while the underlying request remains pending. Opening the panel marks the newest unread item per conversation as read.
-- **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity. Beside the title, a context crumb names the conversation's project, provider and model, and a badge reports its state.
+- **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity and general context. Beside the title, a context crumb names a project only for a project chat, followed by provider and model; a badge reports its state.
 - **Delete**: Click the × button on an archived conversation. Active conversations carry settle and archive instead.
 - **Auto-title**: A new non-workspace conversation gets an immediate title from the first message. After the first assistant response, one schema-bound title request may replace that fallback. A manual or newer title always wins, and the workspace **Agent** is never auto-titled.
 - **Temporary conversations**: Start one from the topbar's overflow menu or the command palette. Creation requires the retention disclosure and is available only when the effective
@@ -54,7 +54,7 @@ brings it back.
   contains visible redacted messages, UTC timestamps, branch lineage, and an attachment availability manifest. It never
   embeds attachment bytes. The downloaded file is a deliberate durable copy.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
-- **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
+- **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages, including **Add project**. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`
 - **Session cost**: Available only when every recorded turn has provider-reported cost. Missing, partial, and older records without this evidence show cost as unavailable; an explicitly reported zero remains zero. Token counts remain available independently.
 
@@ -63,7 +63,7 @@ brings it back.
   slim bar above the transcript with a match count and previous/next controls. It searches indexed matches in the whole
   conversation, including history outside the loaded 200-message window, and the count reports only matches the bar can
   step to; a page it could not reach is marked with a trailing `+`. Press **Cmd-K** or **Ctrl-K** for global
-  conversation search and the shared command catalog. Global search can narrow by lifecycle and project and opens the
+  conversation search and the shared command catalog. Global search can narrow by lifecycle and, when projects are registered, project; it opens the
   exact matching message. The composer's `>_` button, or typing `/`, filters the same nine built-ins (`/new`, `/reset`, `/stop`, `/status`, `/fork`, `/settle`,
   `/model`, `/effort`, `/help`) plus authorized provider-native skills. An unknown slash-prefixed message is labelled
   **Send to provider** and follows the ordinary message path without byte changes or a capability claim. A built-in
@@ -71,7 +71,7 @@ brings it back.
 - **Rich composer**: The composer floats over the transcript, aligned to the message column. Type, then press
   **Enter** or the square arrow send button; **Shift+Enter** starts a new line. On a touch screen Return starts a new
   line and the send button sends. Its toolbar carries attach, commands, and
-  a context chip naming the project the next turn runs in — with the context window percentage when the provider
+  a context chip naming the next context (General chat or an explicit project) — with the context window percentage when the provider
   reports a live measurement — and, on the right, the draft-save status, a pill stating the provider, model and effort
   for the next turn, and the send control. Drafts and selected file bytes are saved in this browser and restored after
   reload. A persistent warning with retry, copy, and download actions replaces the saved status if browser storage
@@ -96,9 +96,13 @@ brings it back.
   open while any call is running, failed or blocked, and closes once every call in the run has succeeded. Opening it
   shows each call's retained arguments and result.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
-- **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
+- **Context references**: Type `@` to resolve sessions, files, tools, and memory into explicit removable chips. A project reference is suggested only when the chat is in that explicit project.
 - **Effective context**: The context chip and the model pill open one popover each, anchored under the control that
-  opens them. **Project** stages the project and working directory and links to Session info, which lists the workspace
+  opens them. An eligible idle owner web chat can move between General chat and a ready named project. The move retains
+  history and applies only to future turns. A stale revision, pending work, ineligible conversation or invalid destination
+  leaves its current context and browser draft intact; invalid draft references must be corrected explicitly before a
+  move. Session info shows the actual execution directory, including for a general chat, without calling it a project or
+  offering a general-chat path override. It also lists the workspace
   owner, the current turn, and the measurement, behavior and memory records. **Model** stages the provider, model and
   effort. The model picker lists the models the provider reports for your account, each under the provider's own name,
   after **Default · <name>** (what Default resolves to), plus any model already staged from YAML or the JSON API under
@@ -107,12 +111,12 @@ brings it back.
   provider's CLI on the host with your configured model and credentials, runs no model turn, and keeps the list until
   the server restarts. Until then, or when that fails, the pickers offer Default plus any staged value; a failed
   provider is tried again at most every 5 minutes when the page renders. There is no Apply button: a pick applies as
-  soon as it is made, and Directory applies on Enter or when you leave the field. Each change takes effect for the next
+  soon as it is made. Provider, model and effort changes take effect for the next
   turn and never interrupts a running one, and a change made while another is still being applied is sent right after
   it. A provider change warns about provider-native continuity while the next turn's provider differs from the one the
   conversation last ran on. Context changes carry the displayed conversation revision. Fields an adapter does not
   transport are disabled. A rejected change shows the reason in the popover and the pickers return to the applied
-  context; a rejected directory stays in its field, marked invalid, until a change is accepted.
+  context. Project association moves require the conversation to be idle; provider/model choices retain their existing next-turn behavior.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
 - **Syntax highlighting**: Code blocks are highlighted via highlight.js
 - **Tool indicators**: When the agent uses tools, you see status lines:
@@ -270,7 +274,7 @@ manifest. It contains no attachment bytes, hidden messages, or provider-native s
 POST /api/sessions/open
 ```
 
-Used by the web UI's **New Chat** command. Returns the newest untitled, message-free default user session with `200`, or creates one and returns it with `201`. Concurrent requests are coalesced. Generic `POST /api/sessions` remains unconditional.
+Used by global **New chat** and **New chat** in a named project. Omitted or explicit `project_id: null` requests a general chat; a named `project_id` requests exactly that eligible project. Returns an untouched draft only in the requested context with `200`, or creates one and returns it with `201`. An invalid project rejects without a default fallback. Concurrent requests for the same context are coalesced. Generic `POST /api/sessions` remains unconditional.
 
 #### Rename session
 
@@ -322,10 +326,16 @@ GET /api/sessions/:id/conversation-state
 PATCH /api/sessions/:id/context
 Content-Type: application/json
 
-{"conversation_revision":4,"project_id":"docs","directory":"/workspace/docs","provider":"claude","model":"sonnet","effort":"high"}
+{"conversation_revision":4,"project_id":null,"directory":"/owner/workspace","provider":"claude","model":"sonnet","effort":"high","references":[]}
 ```
 
-The conversation snapshot includes `current_context`, `next_context`, and session-scoped telemetry when recorded. A context mutation stages the complete next-turn context only after its revision, project, directory, provider, and adapter-supported overrides pass validation. The next admitted attempt captures that exact snapshot. Stale or unauthorized mutations reject atomically.
+The conversation snapshot includes `current_context`, `next_context`, and session-scoped telemetry when recorded. A
+context mutation requires `project_id`: explicit `null` selects general context; omission is invalid. An eligible
+owner web conversation may change project association only while idle. Submit its current revision and browser draft
+references with the move; an invalid destination, stale revision, accepted pending work, or invalid reference rejects
+without changing the conversation or draft. A valid move adds one visible context-change marker and affects only
+future admitted attempts. Provider/model-only changes keep their next-turn behavior. General directory is the validated
+owner workspace, not a user-selected path. Past attempts retain their captured contexts.
 
 #### Send message and start turn
 
@@ -622,7 +632,8 @@ GET /api/conversation-search/target?session_id=<session>&message_id=<message>
 ```
 
 The authenticated operator route searches authorized owner and configured-agent conversation indexes. `scope` is
-`current` or `global`; lifecycle is `all`, `active`, `settled`, or `archived`. Results include the total before page
+`current` or `global`; lifecycle is `all`, `active`, `settled`, or `archived`. Project filtering applies only to explicit
+project associations; a general result has no synthetic project label. Results include the total before page
 limits, a bounded snippet and highlight offsets, conversation revision, project/origin metadata, a stable
 `conversation:<session>/message:<message>` citation, and an exact-message URL. The target route reauthorizes the
 session and message immediately before navigation. Backend failures return `503 SEARCH_BACKEND_UNAVAILABLE`; missing

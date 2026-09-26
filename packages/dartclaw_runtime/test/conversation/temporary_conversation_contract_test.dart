@@ -87,7 +87,9 @@ void main() {
     final allowCompletion = Completer<void>();
     final waitStarted = Completer<void>();
     final turns = _PausingCompletionTurnManager(messages, worker, waitStarted, allowCompletion);
-    final handler = localAdminMiddleware()(sessionRoutes(sessions, messages, turns, worker).call);
+    final handler = localAdminMiddleware()(
+      sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+    );
     final session = await sessions.createSession(retention: ConversationRetention.process);
     await messages.insertMessage(sessionId: session.id, role: 'user', content: 'held');
     final response = handler(apiRequest('POST', '/api/sessions/${session.id}/end-temporary'));

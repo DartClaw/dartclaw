@@ -18,6 +18,9 @@ void main() {
     expect(html, contains('class="chip" aria-pressed="true" data-search-lifecycle-option="all"'));
     expect(html, isNot(contains('<select class="form-select" data-search-lifecycle')));
     expect(html, contains('data-search-project'));
+    expect(html, contains('data-search-project="" data-project-controls="" hidden=""'));
+    expect(html, contains('<option value="">General chats</option>'));
+    expect(html, isNot(contains('placeholder="All projects"')));
     expect(html, contains('class="palette-input-row"'));
     expect(html, contains('data-command-status="" role="status" aria-live="polite"'));
     expect(html, contains('data-command-results="" role="listbox"'));

@@ -23,6 +23,69 @@ void main() {
   setUpAll(() async => initTemplates(await resolveTemplatesDir()));
   tearDownAll(resetTemplates);
 
+  test('general chat names the owner directory and offers an explicit move without a directory editor', () {
+    final html = chatAreaTemplate(
+      sessionId: 'general-1',
+      messagesHtml: '',
+      canMove: true,
+      effectiveContext: const {
+        'project': 'General chat',
+        'projectId': null,
+        'directory': '/owner',
+        'ownerDirectory': '/owner',
+        'provider': 'claude',
+        'composer': 'Claude',
+        'projects': [
+          {'value': 'website', 'label': 'Website', 'directory': '/projects/website'},
+        ],
+      },
+    );
+
+    expect(html, contains('data-owner-directory="/owner"'));
+    expect(html, contains('id="context-move-dialog"'));
+    expect(html, contains('data-directory="/projects/website"'));
+    expect(html, contains('id="effective-context-directory" name="directory" type="hidden"'));
+    expect(html, isNot(contains('data-identicon-id="_local"')));
+  });
+
+  test('Agent does not expose a move action', () {
+    final html = chatAreaTemplate(
+      sessionId: 'agent',
+      messagesHtml: '',
+      effectiveContext: const {
+        'project': 'General chat',
+        'projectId': null,
+        'directory': '/owner',
+        'projects': [
+          {'value': 'website', 'label': 'Website', 'directory': '/projects/website'},
+        ],
+      },
+    );
+    expect(html, isNot(contains('id="context-move-dialog"')));
+  });
+
+  test('an unavailable project pauses sending and keeps General recovery reachable', () {
+    final html = chatAreaTemplate(
+      sessionId: 'project-1',
+      messagesHtml: '<p>Retained history</p>',
+      canMove: true,
+      effectiveContext: const {
+        'project': 'Website',
+        'projectId': 'website',
+        'projectUnavailable': true,
+        'directory': '/projects/website',
+        'ownerDirectory': '/owner',
+        'projects': [],
+      },
+    );
+    expect(html, contains('Retained history'));
+    expect(html, contains('sending is paused'));
+    expect(html, contains('id="context-move-dialog"'));
+    expect(html, contains('<option value="">General chat</option>'));
+    expect(html, contains('id="send-btn"'));
+    expect(html, contains('disabled=""'));
+  });
+
   test('the chip and the pill open separate popovers over the fields each names', () {
     final html = chatAreaTemplate(
       sessionId: 'session-id',
@@ -106,7 +169,8 @@ void main() {
     // part of the first paint rather than something only a client apply shows.
     expect(html, contains('id="effective-context-continuity" class="banner banner-warning">'));
     // Long values stay readable: the full string is on the title.
-    expect(html, contains('title="/project/subdir"'));
+    expect(html, contains('id="effective-context-directory-label"'));
+    expect(html, contains('/project/subdir'));
     // No measurement, so the chip carries no percentage — never a stand-in.
     expect(html, contains('id="effective-context-usage" hidden'));
   });
@@ -172,6 +236,17 @@ void main() {
     test('names a catalogued model by the provider\'s label', () {
       expect(crumb('sonnet'), contains('>Sonnet<'));
       expect(crumb('sonnet'), isNot(contains('>sonnet<')));
+    });
+
+    test('a general chat names its context without a project identicon', () {
+      final html = topbarTemplate(
+        title: 'Chat',
+        sessionId: 'general',
+        sessionType: SessionType.user,
+        providerLabel: 'claude',
+      );
+      expect(html, contains('>General chat<'));
+      expect(html, isNot(contains('class="identicon"')));
     });
 
     test('names an uncatalogued model by its id', () {

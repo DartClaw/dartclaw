@@ -39,6 +39,7 @@ void main() {
   test('tool records retain redacted partial and terminal history exactly once', () async {
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -106,6 +107,7 @@ void main() {
 
     final restarted = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -124,6 +126,7 @@ void main() {
     final redactor = _HistoryRedactor();
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -156,6 +159,7 @@ void main() {
   test('split history windows retain their owning attempt records without export duplicates', () async {
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -192,6 +196,7 @@ void main() {
     addTearDown(boundedMessages.dispose);
     final boundedConversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: boundedMessages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -219,6 +224,7 @@ void main() {
     var responses = 0;
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -322,7 +328,7 @@ void main() {
       turnLimits: const TurnLimitsConfig.defaults(),
       sessions: sessions,
     );
-    sessionRoutes(sessions, messages, manager, worker);
+    sessionRoutes(sessions, messages, manager, worker, ownerWorkspaceDir: sessions.baseDir);
     final lease = (await coordinator.acquire(
       ExecutionRequest(
         surface: ExecutionSurface.workflow,
@@ -375,7 +381,13 @@ void main() {
       sessions: sessions,
       turnLimits: const TurnLimitsConfig.defaults(),
     );
-    final rawHandler = sessionRoutes(sessions, messages, liveTurns, liveWorker).call;
+    final rawHandler = sessionRoutes(
+      sessions,
+      messages,
+      liveTurns,
+      liveWorker,
+      ownerWorkspaceDir: sessions.baseDir,
+    ).call;
     final handler = localAdminMiddleware()(rawHandler);
     final sendResponse = await handler(
       Request(
@@ -531,6 +543,7 @@ void main() {
     var responses = 0;
     final uncertain = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -592,6 +605,7 @@ void main() {
     await sessions.updateConversationState(sessionId, persisted);
     final restarted = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),

@@ -21,7 +21,13 @@ void main() {
     sessions = SessionService(baseDir: root.path);
     messages = MessageService(baseDir: root.path);
     final worker = FakeAgentHarness();
-    handler = sessionRoutes(sessions, messages, FakeTurnManager(messages, worker), worker).call;
+    handler = sessionRoutes(
+      sessions,
+      messages,
+      FakeTurnManager(messages, worker),
+      worker,
+      ownerWorkspaceDir: sessions.baseDir,
+    ).call;
   });
 
   tearDown(() async {

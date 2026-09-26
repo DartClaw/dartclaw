@@ -12,7 +12,7 @@ while [ $# -gt 0 ]; do
     --case) CASE="${2:-}"; shift 2 ;;
     --compare-wireframes) COMPARE_WIREFRAMES=1; shift ;;
     --help|-h)
-      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|workspace-chat-integration|w7-memory-administration [--live-provider] [--compare-wireframes]"
+      echo "usage: $0 --case fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q7-history|q2-q3-q6-q7-q9-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|workspace-chat-integration|w7-memory-administration|general-project-chat [--live-provider] [--compare-wireframes]"
       exit 0
       ;;
     --live-provider) LIVE_PROVIDER=1; shift ;;
@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "${CASE}" in
-  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q6-q7-q9-history|q2-q3-q7-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|workspace-chat-integration|w7-memory-administration) ;;
+  fixture-self-test|q4-draft-send|q6-live-delivery|q1-e11|q2-q3-q6-q7-q9-history|q2-q3-q7-history|q9-effective-context|e11-effective-context|q6-q8-q10-inbox-attention|q8-q10-inbox-attention|q9-temporary-destruction-boundaries|q9-temporary-supported-provider|q9-temporary-browser-memory|q9-temporary-export-e11|search-commands|current-search-history|search-recovery|search-command-accessibility|workspace-chat-integration|w7-memory-administration|general-project-chat) ;;
   *) echo "--case names an unsupported conversation-loop fixture" >&2; exit 2 ;;
 esac
 
@@ -77,6 +77,8 @@ close_all() {
   agent-browser --session conversation-draft close >/dev/null 2>&1 || true
   agent-browser --session conversation-quota close >/dev/null 2>&1 || true
   agent-browser --session conversation-history close >/dev/null 2>&1 || true
+  agent-browser --session general-project-chat close >/dev/null 2>&1 || true
+  agent-browser --session general-project-wireframe close >/dev/null 2>&1 || true
   if [ -n "${SERVER_PID}" ]; then
     kill "${SERVER_PID}" >/dev/null 2>&1 || true
     wait "${SERVER_PID}" >/dev/null 2>&1 || true
@@ -85,7 +87,7 @@ close_all() {
 trap close_all EXIT
 
 start_server() {
-  dart run "${FIXTURE}" "${DATA_DIR}" "${PORT}" >>"${EVIDENCE_ROOT}/server.log" 2>&1 &
+  DARTCLAW_CONVERSATION_CASE="${CASE}" dart run "${FIXTURE}" "${DATA_DIR}" "${PORT}" >>"${EVIDENCE_ROOT}/server.log" 2>&1 &
   SERVER_PID=$!
   for _ in $(seq 1 600); do
     if [ -s "${READY}" ]; then return; fi
@@ -108,6 +110,11 @@ restart_server() {
 
 start_server
 BASE_URL="http://127.0.0.1:${PORT}"
+if [ "${CASE}" = "general-project-chat" ]; then
+  "${SCRIPT_DIR}/general_project_chat_browser.sh" "${BASE_URL}" "${EVIDENCE_ROOT}" "${COMPARE_WIREFRAMES}"
+  echo "Evidence: ${EVIDENCE_ROOT}"
+  exit 0
+fi
 curl -fsS -X POST -H 'content-type: application/json' -d '{}' "${BASE_URL}/api/sessions" >"${EVIDENCE_ROOT}/session.json"
 SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "${EVIDENCE_ROOT}/session.json")"
 CHANNEL_SESSION_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["channelSessionId"])' "${READY}")"

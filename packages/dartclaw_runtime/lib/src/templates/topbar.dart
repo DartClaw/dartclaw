@@ -43,7 +43,7 @@ String topbarTemplate({
   // The crumb renders once the conversation has a provider. A conversation with
   // no project says so in the same words the rail rows use rather than dropping
   // the segment, so the two surfaces never disagree about what is known.
-  const noProjectLabel = 'No project';
+  const noProjectLabel = 'General chat';
   final resolvedProject = (projectName ?? '').trim();
   final resolvedProvider = (providerLabel ?? '').trim();
   final resolvedModel = (model ?? '').trim();
@@ -64,6 +64,7 @@ String topbarTemplate({
         'showReset': !isArchive,
         'infoHref': '/sessions/$sessionId/info',
         'hasCrumb': hasCrumb,
+        'hasProject': projectId != null && projectId.isNotEmpty,
         'projectId': projectId ?? '',
         'projectName': crumbProject,
         'noProject': resolvedProject.isEmpty,

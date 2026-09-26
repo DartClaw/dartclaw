@@ -47,6 +47,7 @@ Router sessionRoutes(
   SessionResetService? resetService,
   MessageRedactor? redactor,
   ProjectService? projectService,
+  required String ownerWorkspaceDir,
   Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
   ModelCatalogueLookup modelCatalogues = noModelCatalogues,
   String defaultProvider = 'claude',
@@ -85,6 +86,7 @@ Router sessionRoutes(
     updates: sseBroadcast,
     failpoint: conversationFailpoint,
     projects: projectService,
+    ownerWorkspaceDir: ownerWorkspaceDir,
     contextCapabilities: contextCapabilities,
     defaultProvider: defaultProvider,
     titleAgents: logicalAgentSessions,
@@ -131,21 +133,23 @@ Router sessionRoutes(
     inputRequested: (sessionId) => inbox.handleWorkSignal(sessionId, InboxWorkSignal.inputRequested),
   );
   inbox.bindApprovalResolver(conversation.resolveApproval);
-  Future<({Session session, bool created})>? openNewChatPromise;
+  final openNewChatPromises = <String?, Future<({Session session, bool created})>>{};
 
-  Future<({Session session, bool created})> openNewChat() {
-    final pending = openNewChatPromise;
+  Future<({Session session, bool created})> openNewChat(String? projectId) {
+    final pending = openNewChatPromises[projectId];
     if (pending != null) return pending;
 
     late final Future<({Session session, bool created})> operation;
     operation = () async {
       try {
-        return await _openNewChat(sessions, messages, turns, sessionMutations);
+        return await _openNewChat(sessions, messages, turns, sessionMutations, conversation, projectId);
       } finally {
-        if (identical(openNewChatPromise, operation)) openNewChatPromise = null;
+        if (identical(openNewChatPromises[projectId], operation)) {
+          final _ = openNewChatPromises.remove(projectId);
+        }
       }
     }();
-    openNewChatPromise = operation;
+    openNewChatPromises[projectId] = operation;
     return operation;
   }
 
@@ -244,8 +248,18 @@ Router sessionRoutes(
   // POST /api/sessions/open — open the single reusable blank default chat.
   router.post('/api/sessions/open', (Request request) async {
     try {
-      final result = await openNewChat();
+      final raw = await readRequestBody(request, maxBytes: defaultMaxJsonBodyBytes);
+      if (raw.error != null) return raw.error!;
+      final parsed = raw.body!.trim().isEmpty ? null : decodeJsonObject(raw.body!);
+      if (parsed?.error != null) return parsed!.error!;
+      final body = parsed?.value ?? const <String, dynamic>{};
+      if (body.containsKey('project_id') && body['project_id'] != null && body['project_id'] is! String) {
+        return errorResponse(400, 'INVALID_INPUT', 'project_id must be a project id or null');
+      }
+      final result = await openNewChat(body['project_id'] as String?);
       return jsonResponse(result.created ? 201 : 200, result.session.toJson());
+    } on ConversationMutationException catch (error) {
+      return errorResponse(error.statusCode, error.code, error.message);
     } catch (e) {
       _log.warning('Failed to open a new chat: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to open a new chat');
@@ -389,7 +403,10 @@ Future<({Session session, bool created})> _openNewChat(
   MessageService messages,
   TurnManager turns,
   SessionMutationCoordinator sessionMutations,
+  ConversationService conversation,
+  String? projectId,
 ) async {
+  final context = await conversation.newChatContext(projectId);
   final candidates = await sessions.listSessions(type: SessionType.user);
   for (final session in candidates) {
     if (!_isReusableNewChatMetadata(session)) continue;
@@ -398,15 +415,22 @@ Future<({Session session, bool created})> _openNewChat(
       if ((await messages.getMessagesTail(session.id, count: 1)).isNotEmpty) return null;
       final current = await sessions.getSession(session.id);
       if (current == null || !_isReusableNewChatMetadata(current) || turns.isActive(current.id)) return null;
+      final state = await sessions.getConversationState(current.id);
+      if (state.nextContext != null && state.nextContext!.projectId != projectId) return null;
+      if (state.nextContext == null && projectId != null) return null;
       return current;
     });
     if (reusable != null) return (session: reusable, created: false);
   }
-  return (session: await sessions.createSession(), created: true);
+  final created = await sessions.createSession();
+  await conversation.initializeNewChat(created.id, context);
+  return (session: created, created: true);
 }
 
 bool _isReusableNewChatMetadata(Session session) =>
     session.type == SessionType.user &&
+    session.retention.isDurable &&
+    session.workspace == null &&
     session.channelKey == null &&
     !(session.provider?.trim().isNotEmpty ?? false) &&
     (session.title == null || session.title!.trim().isEmpty);

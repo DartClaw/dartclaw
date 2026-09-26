@@ -198,6 +198,45 @@ void main() {
     expect(row.projectId, 'p-known');
     expect(row.projectName, 'p-known');
   });
+
+  test('a moved chat groups by next context while the previous attempt remains project-bound', () async {
+    final fixture = await InboxTestFixture.create(count: 1);
+    addTearDown(fixture.dispose);
+    final id = fixture.sessionIds.single;
+    const project = EffectiveConversationContext(
+      projectId: 'previous-project',
+      directory: '/workspace/previous',
+      referenceRoot: '/workspace/previous',
+      provider: 'claude',
+    );
+    const general = EffectiveConversationContext(
+      projectId: null,
+      directory: '/workspace/owner',
+      referenceRoot: '/workspace/owner',
+      provider: 'claude',
+    );
+    final moved = (await fixture.sessions.getConversationState(id)).admitContext(project).stageContext(general);
+    await fixture.sessions.updateConversationState(
+      id,
+      moved.putRecord(
+        ConversationDisplayRecord(
+          id: 'context-change',
+          attemptId: '',
+          turnId: '',
+          kind: ConversationRecordKind.contextChange,
+          state: ConversationRecordState.succeeded,
+          label: 'Future messages run in General chat.',
+          createdAt: InboxTestFixture.now,
+          updatedAt: InboxTestFixture.now,
+        ),
+      ),
+    );
+
+    final entry = (await fixture.inbox.inbox(limit: 10)).entries.single;
+    expect(entry.projectId, isNull);
+    expect(entry.projectName, isNull);
+    expect((await fixture.inbox.attention()).items, isEmpty);
+  });
 }
 
 Future<void> _setCreatedAt(InboxTestFixture fixture, String id, DateTime value) async {

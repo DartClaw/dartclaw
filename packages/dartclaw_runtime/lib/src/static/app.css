@@ -3929,13 +3929,20 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
   /* The rail is a drawer here; there is nothing to resize. */
   .sidebar-resize-handle { display: none; }
   /* Topbar budget at 390: menu + title + dot + new chat + search + bell +
-     overflow. The state badge becomes a dot (its label costs ~76px the title
-     needs), the crumb and the ⌘K hint drop, and New chat surfaces as its own
-     icon button — PRD E6 keeps creation reachable outside the drawer. */
+     overflow. The state badge becomes a dot and New chat surfaces as its own
+     icon button. The context sits on a second line in chat chrome. */
   .topbar .status-badge { display: none; }
   .tb-dot { display: inline-block; }
   .tb-kbd { display: none; }
   .crumb { display: none; }
+  body:has(.shell--chat) { --topbar-h: 60px; }
+  .shell--chat .topbar { align-items: flex-start; padding-top: 2px; }
+  .shell--chat .crumb {
+    display: inline-flex; position: absolute; left: 56px; right: 12px; bottom: 4px;
+    min-width: 0; overflow: hidden;
+  }
+  .shell--chat .crumb-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .shell--chat .crumb [data-crumb-tail] { display: none; }
   .topbar-actions .btn-icon.tb-newchat { display: inline-flex; }
   .topbar :is(.session-title, .session-title-static) { font-size: var(--text-sm); }
   .topbar-actions { gap: 0; }
@@ -3966,3 +3973,12 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
 @media (max-width: 640px) {
   .topbar [data-command-open] kbd { display: none; }
 }
+
+[data-project-controls][hidden], [data-sidebar-projects][hidden], [data-sidebar-project][hidden] { display: none !important; }
+[data-has-projects="false"] .row-project { display: none; }
+.sidebar-project-section { padding-top: var(--sp-3); }
+.sidebar-project { margin-top: var(--sp-2); }
+.sidebar-project > summary { min-height: 32px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.sidebar-project > .rail-rows { padding-left: var(--sp-2); }
+.sidebar-project-create { margin: var(--sp-2) 0 var(--sp-2) var(--sp-2); }
+.conversation-context-marker { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-5) auto; padding: var(--sp-2) var(--sp-3); width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-muted); font-size: var(--text-sm); }

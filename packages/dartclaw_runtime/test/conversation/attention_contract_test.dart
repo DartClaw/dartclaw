@@ -307,6 +307,7 @@ void main() {
     var responderCalls = 0;
     final conversation = ConversationService(
       sessions: fixture.sessions,
+      ownerWorkspaceDir: fixture.sessions.baseDir,
       messages: fixture.messages,
       turns: FakeTurnManager(fixture.messages, FakeAgentHarness()),
       mutations: fixture.mutations,

@@ -25,6 +25,7 @@ void main() {
 
   ConversationService buildService(FakeTurnManager turns) => ConversationService(
     sessions: sessions,
+    ownerWorkspaceDir: sessions.baseDir,
     messages: messages,
     turns: turns,
     mutations: SessionMutationCoordinator(),

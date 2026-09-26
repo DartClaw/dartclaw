@@ -52,6 +52,7 @@ void main() {
             worker,
             defaultProvider: 'codex',
             temporaryConversationCapability: _temporaryCapability,
+            ownerWorkspaceDir: sessions.baseDir,
           ).call,
         ),
       );
@@ -84,6 +85,7 @@ void main() {
           worker,
           defaultProvider: 'codex',
           temporaryConversationCapability: _temporaryCapability,
+          ownerWorkspaceDir: sessions.baseDir,
         ).call,
       );
       final api = ApiRouteTestClient(handler);
@@ -119,7 +121,9 @@ void main() {
     final worker = FakeAgentHarness();
     final turns = FakeTurnManager(messages, worker);
     final unavailable = ApiRouteTestClient(
-      localAdminMiddleware()(sessionRoutes(sessions, messages, turns, worker).call),
+      localAdminMiddleware()(
+        sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+      ),
     );
     expect(
       await unavailable.expectJsonErrorCode(
@@ -147,6 +151,7 @@ void main() {
           reason: '',
         ),
         processAttachmentOwner: processAttachments,
+        ownerWorkspaceDir: sessions.baseDir,
       ).call,
     );
     final supported = ApiRouteTestClient(supportedHandler);
@@ -184,6 +189,7 @@ void main() {
         defaultProvider: 'codex',
         temporaryConversationCapability: _temporaryCapability,
         processAttachmentOwner: processAttachments,
+        ownerWorkspaceDir: sessions.baseDir,
       ).call,
     );
     final api = ApiRouteTestClient(handler);

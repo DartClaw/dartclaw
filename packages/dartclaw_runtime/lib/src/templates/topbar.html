@@ -8,7 +8,7 @@
       tl:attr="value=${displayTitle},data-session-id=${sessionId},data-original-title=${displayTitle}"
       maxlength="100" aria-label="Session title">
     <span tl:if="${hasCrumb}" class="crumb" data-session-crumb>
-      <span class="identicon" aria-hidden="true" tl:classappend="${noProject} ? 'identicon--none' : ''"
+      <span tl:if="${hasProject}" class="identicon" aria-hidden="true"
         tl:attr="data-identicon-id=${projectId},data-identicon-initials=${projectInitial}"></span>
       <span class="crumb-project" tl:classappend="${noProject} ? 'row-project--none' : ''"
         tl:text="${projectName}">project</span>

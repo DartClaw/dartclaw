@@ -66,12 +66,17 @@
 </div>
 
 <main tl:fragment="chatArea" id="main-content" tabindex="-1" class="chat-area print-in" data-controller="dc-chat dc-tasks"
-  tl:attr="data-session-id=${sessionId},data-retention=${retention},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor},data-target-message-id=${targetMessageId},hx-history=${historyDisabled}">
+  tl:attr="data-session-id=${sessionId},data-retention=${retention},data-project-id=${projectId},data-has-title=${hasTitle},data-new-chat-draft=${newChatDraft},data-earliest-cursor=${earliestCursor},data-target-message-id=${targetMessageId},hx-history=${historyDisabled}">
   <div tl:if="${isTemporary}" class="banner banner-info conversation-temporary-banner">
     <span class="icon icon-clock" aria-hidden="true"></span>
     <span data-temporary-state role="status" tl:text="${temporaryStatus}">Active until you end it or this server stops.</span>
     <button type="button" class="btn btn-sm" data-action="dc-chat#openTemporaryExport" tl:attr="disabled=${temporaryEnding}">Export</button>
     <button type="button" class="btn btn-sm btn-danger" data-action="dc-chat#openTemporaryEnd" tl:attr="disabled=${temporaryEnding}">End</button>
+  </div>
+  <div tl:if="${projectUnavailable}" class="banner banner-warning" role="status">
+    <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+    This project is unavailable. Your chat and draft are preserved, and sending is paused.
+    <button tl:if="${canMove}" type="button" class="btn btn-sm" data-action="dc-chat#openMoveDialog">Move chat</button>
   </div>
   <div class="find-bar" data-dc-chat-target="findBar" role="search" aria-label="Find in conversation" hidden>
     <span class="icon icon-search" aria-hidden="true"></span>
@@ -161,7 +166,7 @@
           <button tl:if="${hasEffectiveContext}" id="effective-context-open" type="button"
                   class="chip chip--ref composer-context-chip" aria-haspopup="dialog" aria-expanded="false"
                   aria-controls="effective-context-project-pop" data-action="dc-chat#toggleContextPopover">
-            <span class="identicon" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span>
+            <span tl:if="${effectiveContext.projectId}" class="identicon" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span>
             <span class="chip-name" id="effective-context-project-name" tl:text="${effectiveContext.project}">project</span>
             <span class="chip-meta" id="effective-context-usage"
                   tl:attr="hidden=${effectiveContext.usageHidden}" tl:text="${effectiveContext.usage}"></span>
@@ -210,22 +215,25 @@
           <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Close"
                   data-action="dc-chat#closeContextPopover"></button>
         </div>
-        <form id="effective-context-project-form"
-              data-action="change->dc-chat#applyContext submit->dc-chat#holdContextSubmit">
+        <form id="effective-context-project-form" data-action="submit->dc-chat#holdContextSubmit">
           <div class="form-field">
-            <label class="form-label t-caption tracking-caps" for="effective-context-project">Project</label>
-            <select id="effective-context-project" name="project_id" class="form-select">
-              <option tl:each="project : ${effectiveContext.projects}" tl:text="${project.label}"
+            <span class="form-label t-caption tracking-caps">Context for the next message</span>
+            <strong id="effective-context-project-label" tl:text="${effectiveContext.project}">General chat</strong>
+            <select id="effective-context-project" name="project_id" hidden aria-hidden="true" tabindex="-1">
+              <option value="" tl:attr="selected=${generalSelected}">General chat</option>
+              <option tl:each="project : ${contextProjects}" tl:text="${project.label}"
                       tl:attr="value=${project.value},selected=${project.selected}">project</option>
             </select>
           </div>
           <div class="form-field">
-            <label class="form-label t-caption tracking-caps" for="effective-context-directory">Directory</label>
-            <input id="effective-context-directory" name="directory" class="form-input meta-value-mono"
-                   required tl:attr="value=${effectiveContext.directory},title=${effectiveContext.directory}">
+            <span class="form-label t-caption tracking-caps">Working directory</span>
+            <span class="meta-value meta-value-mono" id="effective-context-directory-label" tl:text="${effectiveContext.directory}">directory</span>
+            <input id="effective-context-directory" name="directory" type="hidden"
+                   tl:attr="value=${effectiveContext.directory}">
           </div>
           <p id="effective-context-project-validation" class="pop-validation" role="alert" hidden></p>
           <div class="pop-foot">
+            <button tl:if="${canMove}" type="button" class="btn btn-sm" data-action="dc-chat#openMoveDialog">Move chat</button>
             <a class="pop-foot-link" tl:attr="href=${infoHref},hx-get=${infoHref}"
                hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
                hx-select-oob="#topbar,#restart-banner-slot,#sidebar">Session info</a>
@@ -272,6 +280,24 @@
       </div>
     </div>
   </div>
+  <dialog tl:if="${canMove}" id="context-move-dialog" class="dialog dialog--sm card card-glass" aria-labelledby="context-move-title"
+          tl:attr="data-owner-directory=${effectiveContext.ownerDirectory}">
+    <div class="dialog-header"><h2 id="context-move-title" class="t-heading">Move chat</h2></div>
+    <div class="dialog-body">
+      <p>History stays in this chat. New messages use the selected context.</p>
+      <label class="form-label" for="context-move-destination">Destination</label>
+      <select id="context-move-destination" class="form-select">
+        <option value="">General chat</option>
+        <option tl:each="project : ${effectiveContext.projects}" tl:text="${project.label}"
+                tl:attr="value=${project.value},data-directory=${project.directory}">Project</option>
+      </select>
+      <p id="context-move-error" class="pop-validation" role="alert" hidden></p>
+    </div>
+    <div class="dialog-footer dialog-actions">
+      <button type="button" class="btn btn-ghost" data-action="dc-chat#closeMoveDialog">Cancel</button>
+      <button type="button" class="btn btn-primary" data-action="dc-chat#confirmMove">Move chat</button>
+    </div>
+  </dialog>
   <dialog id="temporary-create-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-create-title" aria-describedby="temporary-create-detail">
     <div class="dialog-header"><h2 id="temporary-create-title">Start temporary conversation?</h2></div>
     <div class="dialog-body">

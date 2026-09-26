@@ -31,9 +31,9 @@ void main() {
     );
     expect(popovers, isNot(contains('type="submit"')));
     expect(popovers, isNot(contains('Apply')));
-    // Selects commit on pick and Directory on Enter or leaving the field: both
-    // are its `change`, so nothing listens per keystroke.
-    expect(popovers, contains('data-action="change->dc-chat#applyContext submit->dc-chat#holdContextSubmit"'));
+    // Project moves require confirmation; provider/model picks still apply on change.
+    expect(popovers, contains('data-action="submit->dc-chat#holdContextSubmit"'));
+    expect(popovers, contains('data-action="dc-chat#openMoveDialog"'));
     expect(popovers, contains('<form id="effective-context-model-form" data-action="change->dc-chat#applyContext">'));
     expect(popovers, contains('data-action="change->dc-chat#contextProviderChanged"'));
     expect(popovers, isNot(contains('input->')));
@@ -52,6 +52,12 @@ void main() {
   test('the continuity notice follows the applied context after a client apply', () async {
     final controller = await controllerAsset('dc_chat_controller.js');
     await expectNodeHarness(_continuityHarness, [controller.absolute.uri.toString()]);
+  });
+
+  test('a move submits every retained reference so an invalid chip cannot silently disappear', () async {
+    final source = (await controllerAsset('dc_chat_controller.js')).readAsStringSync();
+    expect(source, contains('references: validateAllReferences ? this.references'));
+    expect(source, contains('this.sendContext({ validateAllReferences: true })'));
   });
 
   // Opening the sibling hides it directly rather than going through the close
@@ -92,7 +98,7 @@ void main() {
     );
     expect(method, contains('snapshot.effective_context'));
     for (final field in const [
-      'this.setSelectValue(project, view.projectId)',
+      "this.setSelectValue(project, view.projectId ?? '')",
       'directory.value = view.directory',
       'this.setSelectValue(provider, view.provider)',
     ]) {
@@ -103,7 +109,7 @@ void main() {
     expect(method, contains('this.renderOptions(model, view.modelOptions'));
     expect(method, contains('this.renderOptions(effort, view.effortOptions'));
     expect(
-      method.indexOf('this.setSelectValue(project, view.projectId)'),
+      method.indexOf("this.setSelectValue(project, view.projectId ?? '')"),
       lessThan(method.indexOf('this.conversationRevision = nextRevision')),
     );
     expect(method, isNot(contains('this.textarea')));

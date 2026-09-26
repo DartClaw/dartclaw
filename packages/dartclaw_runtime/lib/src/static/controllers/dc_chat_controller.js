@@ -73,6 +73,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.handleTemporaryPageHide = this.handleTemporaryPageHide.bind(this);
     this.handleTemporaryDialogKeydown = this.handleTemporaryDialogKeydown.bind(this);
     this.handleTemporaryDialogClose = this.handleTemporaryDialogClose.bind(this);
+    this.handleMoveDialogClose = this.handleMoveDialogClose.bind(this);
 
     document.body.addEventListener('htmx:before:request', this.handleBeforeRequest);
     document.body.addEventListener('htmx:finally:request', this.handleFinallyRequest);
@@ -106,6 +107,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.initializeConversationState();
     this.initializeDraftStorage();
     this.contextPopovers.forEach((popover) => popover.addEventListener('keydown', this.handleContextDialogKeydown));
+    this.element.querySelector('#context-move-dialog')?.addEventListener('close', this.handleMoveDialogClose);
     this.temporaryDialogs.forEach((dialog) => {
       dialog.addEventListener('keydown', this.handleTemporaryDialogKeydown);
       dialog.addEventListener('close', this.handleTemporaryDialogClose);
@@ -146,6 +148,7 @@ export default class DcChatController extends Stimulus.Controller {
     clearTimeout(this.findTimer);
     this.draftChannel?.close();
     this.contextPopovers.forEach((popover) => popover.removeEventListener('keydown', this.handleContextDialogKeydown));
+    this.element.querySelector('#context-move-dialog')?.removeEventListener('close', this.handleMoveDialogClose);
     this.temporaryDialogs.forEach((dialog) => {
       dialog.removeEventListener('keydown', this.handleTemporaryDialogKeydown);
       dialog.removeEventListener('close', this.handleTemporaryDialogClose);
@@ -402,8 +405,10 @@ export default class DcChatController extends Stimulus.Controller {
     this.contextPopoverReturnFocus = trigger;
     popover.hidden = false;
     this.setContextExpanded(popover, true);
-    // The first editable row, not the close button that precedes it in the head.
-    popover.querySelector('form select, form input:not([type="hidden"])')?.focus();
+    const first = popover.id === 'effective-context-project-pop'
+      ? popover.querySelector('[data-action="dc-chat#openMoveDialog"], .pop-foot-link')
+      : popover.querySelector('form select, form input:not([type="hidden"])');
+    first?.focus();
   }
 
   closeContextPopover() {
@@ -504,10 +509,9 @@ export default class DcChatController extends Stimulus.Controller {
     return typeof field?.value === 'string' ? field.value : '';
   }
 
-  /// Every context control commits on its own `change` (a select on pick,
-  /// Directory on Enter or blur) and takes effect for the next turn; a running
-  /// turn is never touched. One request is in flight at a time: a commit made
-  /// meanwhile is sent once that one returns, on the revision it returned.
+  /// Provider and model picks apply on change for the next turn. Project moves
+  /// use the confirmation dialog. One request is in flight at a time, so a
+  /// provider pick made during a request uses the revision it returns.
   async applyContext(event) {
     if (event?.target?.id === 'effective-context-directory') this.directoryRejected = false;
     this.contextApplyQueued = true;
@@ -532,14 +536,14 @@ export default class DcChatController extends Stimulus.Controller {
 
   /// One commit states the whole next-turn context from every control on the
   /// page. Resolves false when it was refused.
-  async sendContext() {
+  async sendContext({ validateAllReferences = false } = {}) {
     const optionalValue = (id) => {
       const value = this.contextFieldValue(id).trim();
       return value ? value : null;
     };
     const payload = {
       conversation_revision: this.conversationRevision,
-      project_id: this.contextFieldValue('effective-context-project'),
+      project_id: this.contextFieldValue('effective-context-project') || null,
       // A refused directory stays in the field for correction, but it is not a
       // value anyone applied, so other commits carry the applied one.
       directory: this.directoryRejected
@@ -549,7 +553,7 @@ export default class DcChatController extends Stimulus.Controller {
       model: optionalValue('effective-context-model-input'),
       effort: optionalValue('effective-context-effort-input'),
       attachments: this.attachments.filter((item) => item.state === 'ready'),
-      references: this.references.filter((item) => item.state === 'resolved'),
+      references: validateAllReferences ? this.references : this.references.filter((item) => item.state === 'resolved'),
     };
     let message;
     try {
@@ -620,7 +624,7 @@ export default class DcChatController extends Stimulus.Controller {
       revision: this.conversationRevision,
       next_context: {},
       effective_context: {
-        projectId: field('effective-context-project')?.value,
+        projectId: field('effective-context-project')?.value || null,
         project: field('effective-context-project-name')?.textContent,
         directory: field('effective-context-directory')?.value,
         provider: provider.value,
@@ -656,11 +660,11 @@ export default class DcChatController extends Stimulus.Controller {
     const model = this.element.querySelector('#effective-context-model-input');
     const effort = this.element.querySelector('#effective-context-effort-input');
     if (!project || !directory || !provider || !model || !effort) return;
-    if (![...project.options].some((option) => option.value === view.projectId)) return;
+    if (![...project.options].some((option) => option.value === (view.projectId ?? ''))) return;
     if (![...provider.options].some((option) => option.value === view.provider)) return;
 
     this.appliedContextSnapshot = snapshot;
-    this.setSelectValue(project, view.projectId);
+    this.setSelectValue(project, view.projectId ?? '');
     if (!this.directoryRejected) directory.value = view.directory;
     this.setSelectValue(provider, view.provider);
     // The applied provider's pickers exactly as the server built them — its
@@ -670,6 +674,7 @@ export default class DcChatController extends Stimulus.Controller {
 
     const text = {
       '#effective-context-project-name': view.project,
+      '#effective-context-project-label': view.project,
       '#effective-context-composer-provider': view.composer,
     };
     for (const [selector, value] of Object.entries(text)) {
@@ -682,7 +687,10 @@ export default class DcChatController extends Stimulus.Controller {
       usage.hidden = !view.usage;
     }
     const identicon = this.element.querySelector('.composer-context-chip [data-identicon-id]');
-    if (identicon) identicon.dataset.identiconId = view.projectId;
+    if (identicon) identicon.dataset.identiconId = view.projectId || '';
+    if (this.element.dataset) this.element.dataset.projectId = view.projectId || '';
+    const directoryLabel = this.element.querySelector('#effective-context-directory-label');
+    if (directoryLabel) directoryLabel.textContent = view.directory;
     directory.title = directory.value;
     this.updateContinuityWarning(view);
 
@@ -697,6 +705,79 @@ export default class DcChatController extends Stimulus.Controller {
   updateContinuityWarning(view) {
     const warning = this.element.querySelector('#effective-context-continuity');
     if (warning) warning.hidden = view.continuityHidden === true;
+  }
+
+  openMoveDialog(event) {
+    const dialog = this.element.querySelector('#context-move-dialog');
+    if (!dialog) return;
+    this.moveReturnFocus = this.element.querySelector('#effective-context-open') || event?.currentTarget || document.activeElement;
+    this.closeContextPopover();
+    const destination = dialog.querySelector('#context-move-destination');
+    destination.value = this.contextFieldValue('effective-context-project');
+    syncCustomSelect(destination);
+    const error = dialog.querySelector('#context-move-error');
+    error.hidden = true;
+    error.textContent = '';
+    dialog.showModal();
+    destination.focus();
+  }
+
+  closeMoveDialog() {
+    this.element.querySelector('#context-move-dialog')?.close();
+  }
+
+  handleMoveDialogClose() {
+    if (this.moveReturnFocus?.isConnected) this.moveReturnFocus.focus();
+    else this.textarea?.focus();
+  }
+
+  async confirmMove() {
+    const dialog = this.element.querySelector('#context-move-dialog');
+    const destination = dialog?.querySelector('#context-move-destination');
+    if (!destination) return;
+    const error = dialog.querySelector('#context-move-error');
+    if (this.contextApplying) {
+      error.textContent = 'Wait for the provider or model change to finish, then try again.';
+      error.hidden = false;
+      return;
+    }
+    const selected = destination.value;
+    const current = this.contextFieldValue('effective-context-project');
+    if (selected === current) {
+      this.closeMoveDialog();
+      return;
+    }
+    const directory = selected
+      ? destination.selectedOptions[0]?.dataset.directory
+      : dialog.dataset.ownerDirectory;
+    if (!directory) {
+      error.textContent = 'The destination directory is unavailable. Check the project in System and try again.';
+      error.hidden = false;
+      return;
+    }
+    const button = dialog.querySelector('[data-action="dc-chat#confirmMove"]');
+    button.disabled = true;
+    const project = this.element.querySelector('#effective-context-project');
+    const directoryField = this.element.querySelector('#effective-context-directory');
+    project.value = selected;
+    directoryField.value = directory;
+    this.directoryRejected = false;
+    const moved = await this.sendContext({ validateAllReferences: true });
+    button.disabled = false;
+    if (!moved) {
+      directoryField.value = this.appliedContextSnapshot?.effective_context?.directory || directoryField.value;
+      this.directoryRejected = false;
+      error.textContent = this.element.querySelector('#effective-context-project-validation')?.textContent ||
+        'This chat could not be moved. Your draft and current context are unchanged.';
+      error.hidden = false;
+      await this.refreshConversationState();
+      return;
+    }
+    this.closeMoveDialog();
+    htmx.ajax('GET', '/sessions/' + encodeURIComponent(this.sessionId) + '/messages-html', {
+      target: '#messages', swap: 'innerHTML', source: this.element.querySelector('#messages'),
+    }).then(() => renderMarkdown(this.element)).catch(() => showToast('error', 'Failed to refresh history'));
+    document.body.dispatchEvent(new CustomEvent('dartclaw:conversation-changed', { bubbles: true }));
   }
 
   handleContextDialogKeydown(event) {

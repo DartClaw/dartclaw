@@ -18,6 +18,14 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Agent and global New chat now use the owner workspace without a project. Named projects have explicit chat entry
+  points and separate navigation. Eligible idle owner chats can move between general and project context with a
+  revision check; history and drafts remain, while the new context applies to future turns. This pre-release change
+  uses fresh conversation state and does not migrate existing chats.
+- The `dartclaw_runtime` LOC ceiling rises from 75,596 to 77,328 under ADR-033 after the general/project context
+  implementation measured 75,828 lines. Oversized service and test files were reduced before this reviewed raise;
+  the remaining growth owns context validation, revisioned moves, API routes and projections.
+
 - Claude workflow skill preflight now uses the provider's native settings, so plugins configured through
   `providers.<name>.settings` are visible before a step runs.
 

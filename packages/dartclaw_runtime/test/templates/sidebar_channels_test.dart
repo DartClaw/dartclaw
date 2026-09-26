@@ -34,5 +34,18 @@ void main() {
 
       expect(html, contains('data-tasks-enabled="true"'));
     });
+
+    test('project-free first paint keeps inbox view controls but hides project navigation', () {
+      final html = sidebarTemplate(
+        showChannels: false,
+        mainSession: const (id: 'agent', title: 'Agent', type: SessionType.main, provider: 'claude'),
+        navItems: const [],
+      );
+
+      expect(html, contains('data-inbox-view="" data-icon="sliders"'));
+      expect(html, contains('data-inbox-scope="" data-project-controls="" hidden=""'));
+      expect(html, contains('data-sidebar-projects="" hidden=""'));
+      expect(html, contains('>Chats</div>'));
+    });
   });
 }

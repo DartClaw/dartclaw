@@ -166,6 +166,7 @@ void registerSessionAttachmentRoutes(
         projectService,
         query,
         referenceRoot: context.nextContext?.referenceRoot,
+        projectId: context.nextContext?.projectId,
       );
       return jsonResponse(200, {'references': references});
     } catch (e) {
@@ -240,6 +241,7 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
   ProjectService? projectService,
   String query, {
   String? referenceRoot,
+  String? projectId,
 }) async {
   final normalizedQuery = query.toLowerCase();
   bool matches(String value) => normalizedQuery.isEmpty || value.toLowerCase().contains(normalizedQuery);
@@ -254,7 +256,7 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
   }
 
   final projects = projectService == null ? const <Project>[] : await projectService.getAll();
-  for (final project in projects.take(20)) {
+  for (final project in projects.where((project) => project.id == projectId && project.id != '_local').take(20)) {
     if (matches(project.name) || matches(project.id)) {
       references.add({'type': 'project', 'id': project.id, 'label': project.name});
     }

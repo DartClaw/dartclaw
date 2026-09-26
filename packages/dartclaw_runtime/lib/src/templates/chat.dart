@@ -118,10 +118,15 @@ String messagesHtmlFragment(
   Map<String, dynamic>? effectiveContext,
 }) {
   final src = templateLoader.source('chat');
+  final contextMarkers =
+      (conversationState?.records ?? const <ConversationDisplayRecord>[])
+          .where((record) => record.kind == ConversationRecordKind.contextChange)
+          .toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
   if (messages.isEmpty) {
     final project = effectiveContext?['project'] as String?;
     final composer = effectiveContext?['composer'] as String?;
-    return templateLoader.trellis.renderFragment(
+    final empty = templateLoader.trellis.renderFragment(
       src,
       fragment: 'chatEmptyState',
       context: {
@@ -138,10 +143,19 @@ String messagesHtmlFragment(
         ),
       },
     );
+    return '$empty${contextMarkers.map(_contextMarkerHtml).join()}';
   }
 
   final trellis = templateLoader.trellis;
   final buffer = StringBuffer();
+  var markerIndex = 0;
+  void writeMarkersBefore(DateTime? instant) {
+    if (instant == null) return;
+    while (markerIndex < contextMarkers.length && !contextMarkers[markerIndex].createdAt.isAfter(instant)) {
+      buffer.write(_contextMarkerHtml(contextMarkers[markerIndex++]));
+    }
+  }
+
   // Tool calls and approvals are keyed to the attempt, which is keyed to the
   // user message that opened it — but they are the assistant's work, so they
   // render at the head of the reply that answers them. An attempt that never
@@ -162,6 +176,7 @@ String messagesHtmlFragment(
   }
 
   for (final m in messages) {
+    writeMarkersBefore(m.createdAt);
     final submission = conversationState?.submissions.where((item) => item.messageId == m.id).firstOrNull;
     final terminal =
         submission != null &&
@@ -232,8 +247,16 @@ String messagesHtmlFragment(
     }
   }
   flushOrphanRecords();
+  while (markerIndex < contextMarkers.length) {
+    buffer.write(_contextMarkerHtml(contextMarkers[markerIndex++]));
+  }
   return buffer.toString();
 }
+
+String _contextMarkerHtml(ConversationDisplayRecord record) =>
+    '<div class="conversation-context-marker" role="note" id="record-${htmlEscape.convert(record.id)}">'
+    '<span class="icon icon-folder-kanban" aria-hidden="true"></span>'
+    '${htmlEscape.convert(record.label)}</div>';
 
 /// The attempt's tool calls and approvals, keyed to the user message that
 /// opened it. The caller decides where they render.
@@ -258,6 +281,7 @@ String _recordsForMessage(
     }
 
     for (final record in records) {
+      if (record.kind == ConversationRecordKind.contextChange) continue;
       if (record.kind == ConversationRecordKind.tool) {
         pendingTools.add(record);
         continue;
@@ -493,14 +517,27 @@ String chatAreaTemplate({
   bool autofocus = false,
   bool isNewChatDraft = false,
   bool isTemporary = false,
+  bool canMove = false,
   String? temporaryEndState,
   Map<String, dynamic>? turnStatus,
   String? targetMessageId,
   Map<String, dynamic>? effectiveContext,
 }) {
   final placeholder = isStreaming ? 'Write the next message while the agent works…' : composerPlaceholder;
-  final inputDisabled = isStreaming || readOnly || temporaryEndState == 'ending';
+  final projectUnavailable = effectiveContext?['projectUnavailable'] == true;
+  final inputDisabled = isStreaming || readOnly || temporaryEndState == 'ending' || projectUnavailable;
   final turnStatusView = sessionTurnStatusMountView(turnStatus, fallbackSessionId: sessionId);
+  final projectOptions = List<Map<String, dynamic>>.from(
+    (effectiveContext?['projects'] as List? ?? const []).whereType<Map<String, dynamic>>(),
+  );
+  final currentProjectId = effectiveContext?['projectId'] as String?;
+  if (currentProjectId != null && !projectOptions.any((project) => project['value'] == currentProjectId)) {
+    projectOptions.add({
+      'value': currentProjectId,
+      'label': effectiveContext?['project'] ?? currentProjectId,
+      'selected': true,
+    });
+  }
 
   // Trellis auto-escapes attribute values set via tl:attr, so pass raw sessionId.
   return templateLoader.trellis.renderFragment(
@@ -510,6 +547,10 @@ String chatAreaTemplate({
       'sessionId': sessionId,
       'hasTitle': hasTitle ? 'true' : 'false',
       'newChatDraft': isNewChatDraft ? 'true' : null,
+      'projectId': effectiveContext?['projectId'],
+      'generalSelected': effectiveContext?['projectId'] == null ? 'selected' : null,
+      'canMove': canMove && (projectOptions.isNotEmpty),
+      'projectUnavailable': projectUnavailable,
       'retention': isTemporary ? 'process' : 'durable',
       'isTemporary': isTemporary,
       'temporaryStatus': switch (temporaryEndState) {
@@ -533,6 +574,7 @@ String chatAreaTemplate({
       'inputDisabled': inputDisabled ? true : null,
       'autofocus': autofocus && !inputDisabled ? true : null,
       'effectiveContext': effectiveContext,
+      'contextProjects': projectOptions,
       'hasEffectiveContext': effectiveContext != null,
     },
   );

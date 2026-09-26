@@ -1,6 +1,35 @@
 part of 'conversation_service.dart';
 
 extension _ConversationServicePersistence on ConversationService {
+  Future<ConversationState> _snapshot(String sessionId) async {
+    await _ensureRecovered(sessionId);
+    return mutations.run(sessionId, () async {
+      final state = await sessions.getConversationState(sessionId);
+      return _ensureContext(sessionId, state);
+    });
+  }
+
+  Future<ConversationState> _recordTelemetry(String sessionId, SessionContextTelemetry telemetry) => mutations.run(
+    sessionId,
+    () async {
+      var state = await sessions.getConversationState(sessionId);
+      if (telemetry.sessionId != sessionId) {
+        throw ConversationMutationException(400, 'TELEMETRY_SESSION_MISMATCH', 'Telemetry belongs to another session');
+      }
+      state = state.recordTelemetry(telemetry);
+      await sessions.updateConversationState(sessionId, state);
+      _broadcast(sessionId, state.revision);
+      return state;
+    },
+  );
+
+  Future<List<Message>> _visibleMessages(String sessionId) async {
+    final state = await snapshot(sessionId);
+    return (await messages.getMessages(sessionId))
+        .where((message) => state.includesMessage(message.id))
+        .toList(growable: false);
+  }
+
   Future<void> _trackWork(Future<void> work) {
     late final Future<void> pending;
     pending = work.whenComplete(() => _pendingWork.remove(pending));
@@ -381,17 +410,130 @@ extension _ConversationServicePersistence on ConversationService {
     }
   }
 
+  Future<EffectiveConversationContext> _newChatContext(String? projectId) async {
+    final project = projectId == null ? null : await projects?.get(projectId);
+    return _validatedContext(
+      projectId: projectId,
+      directory: project?.localPath ?? ownerWorkspaceDir,
+      provider: defaultProvider,
+    );
+  }
+
+  Future<void> _initializeNewChat(String sessionId, EffectiveConversationContext context) =>
+      mutations.run(sessionId, () async {
+        final state = await sessions.getConversationState(sessionId);
+        if (state.nextContext != null) throw StateError('New chat already has a context');
+        await sessions.updateConversationState(sessionId, state.stageContext(context));
+      });
+
+  Future<ConversationState> _updateContext({
+    required String sessionId,
+    required int expectedRevision,
+    required String? projectId,
+    required String directory,
+    required String provider,
+    String? model,
+    String? effort,
+    List<Map<String, dynamic>> attachments = const [],
+    List<Map<String, dynamic>> references = const [],
+  }) => _ensureRecovered(sessionId).then(
+    (_) => mutations.run(sessionId, () async {
+      var state = await sessions.getConversationState(sessionId);
+      final hadContext = state.nextContext != null;
+      state = await _ensureContext(sessionId, state, persist: false);
+      _requireRevision(state, expectedRevision);
+      final moving = state.nextContext!.projectId != projectId;
+      if (moving) {
+        final session = requireSession(await sessions.getSession(sessionId));
+        if (session.type != SessionType.user ||
+            !session.retention.isDurable ||
+            session.channelKey != null ||
+            session.workspace != null) {
+          throw const ConversationMutationException(
+            409,
+            'CONTEXT_MOVE_UNAVAILABLE',
+            'Only durable owner web chats can move between General chat and projects',
+          );
+        }
+        if (turns.isActive(sessionId) || state.submissions.any((item) => !_isTerminal(item.workState))) {
+          throw const ConversationMutationException(
+            409,
+            'CONTEXT_MOVE_BUSY',
+            'Finish or cancel pending work before moving this chat',
+          );
+        }
+      }
+      final context = await _validatedContext(
+        projectId: projectId,
+        directory: directory,
+        provider: provider,
+        model: model,
+        effort: effort,
+      );
+      await _validateReferences(context, references);
+      await _attachmentManifests(sessionId, attachments);
+      if (_sameContext(context, state.nextContext!)) {
+        if (!hadContext) await sessions.updateConversationState(sessionId, state);
+        return state;
+      }
+      if (moving) await turns.resetSessionContinuity(sessionId);
+      var next = state.stageContext(context);
+      if (moving) {
+        final now = clock().toUtc();
+        final previousProjectId = state.nextContext!.projectId;
+        final previousProject = previousProjectId == null ? null : await projects?.get(previousProjectId);
+        final source = previousProjectId == null ? 'General chat' : (previousProject?.name ?? previousProjectId);
+        final project = projectId == null ? null : await projects?.get(projectId);
+        final destination = projectId == null ? 'General chat' : (project?.name ?? projectId);
+        next = ConversationState(
+          revision: next.revision,
+          submissions: next.submissions,
+          records: [
+            ...next.records,
+            ConversationDisplayRecord(
+              id: ConversationService._uuid.v4(),
+              attemptId: '',
+              turnId: '',
+              kind: ConversationRecordKind.contextChange,
+              state: ConversationRecordState.succeeded,
+              label:
+                  'Moved from $source to $destination. Future messages run in $destination. Earlier history stays here.',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+          branches: next.branches,
+          currentContext: next.currentContext,
+          nextContext: next.nextContext,
+          telemetry: next.telemetry,
+        );
+      }
+      await sessions.updateConversationState(sessionId, next);
+      _broadcast(sessionId, next.revision);
+      return next;
+    }),
+  );
+
   Future<ConversationState> _ensureContext(String sessionId, ConversationState state, {bool persist = true}) async {
     if (state.nextContext != null) return state;
     final session = await sessions.getSession(sessionId);
     if (session == null) {
       throw ConversationMutationException(404, 'SESSION_NOT_FOUND', 'Session not found', current: state);
     }
-    final project = projects == null ? null : await projects!.defaultProject;
-    final projectId = project?.id ?? '_local';
-    final root = p.normalize(p.absolute(project?.localPath ?? Directory.current.path));
+    final ownerWebChat =
+        session.workspace == null && (session.type == SessionType.user || session.type == SessionType.main);
+    final project = ownerWebChat || projects == null ? null : await projects!.defaultProject;
+    final projectId = ownerWebChat ? null : project?.id ?? '_local';
+    final root = p.normalize(
+      p.absolute(ownerWebChat ? ownerWorkspaceDir : project?.localPath ?? Directory.current.path),
+    );
     final provider = session.provider?.trim().isNotEmpty == true ? session.provider!.trim() : defaultProvider;
-    final context = await _validatedContext(projectId: projectId, directory: root, provider: provider);
+    final context = await _validatedContext(
+      projectId: projectId,
+      directory: root,
+      provider: provider,
+      allowImplicitLocal: !ownerWebChat,
+    );
     final initialized = ConversationState(
       revision: persist ? state.revision + 1 : state.revision,
       submissions: state.submissions,
@@ -409,27 +551,43 @@ extension _ConversationServicePersistence on ConversationService {
   }
 
   Future<EffectiveConversationContext> _validatedContext({
-    required String projectId,
+    required String? projectId,
     required String directory,
     required String provider,
     String? model,
     String? effort,
+    bool allowImplicitLocal = false,
   }) async {
-    final project = projects == null
+    if (projectId == '_local' && !allowImplicitLocal) {
+      throw const ConversationMutationException(
+        403,
+        'PROJECT_FORBIDDEN',
+        'Select a registered project or General chat',
+      );
+    }
+    final project = projectId == null
+        ? null
+        : projects == null
         ? projectId == '_local'
               ? null
               : throw const ConversationMutationException(403, 'PROJECT_FORBIDDEN', 'Project is not available')
         : await projects!.get(projectId);
-    if (projects != null && project == null) {
+    if (projectId != null && projects != null && project == null) {
       throw const ConversationMutationException(403, 'PROJECT_FORBIDDEN', 'Project is not available');
     }
     if (project != null && project.status != ProjectStatus.ready) {
       throw const ConversationMutationException(409, 'PROJECT_UNAVAILABLE', 'Project is not ready');
     }
-    final root = _canonicalDirectory(project?.localPath ?? Directory.current.path);
+    final root = _canonicalDirectory(
+      project?.localPath ?? (allowImplicitLocal ? Directory.current.path : ownerWorkspaceDir),
+    );
     final chosen = _canonicalDirectory(directory);
-    if (!p.equals(root, chosen) && !p.isWithin(root, chosen)) {
-      throw const ConversationMutationException(403, 'DIRECTORY_FORBIDDEN', 'Directory is outside the project');
+    if (!p.equals(root, chosen) && (projectId == null || !p.isWithin(root, chosen))) {
+      throw ConversationMutationException(
+        403,
+        'DIRECTORY_FORBIDDEN',
+        projectId == null ? 'Directory is outside the owner workspace' : 'Directory is outside the project',
+      );
     }
     if (!Directory(chosen).existsSync()) {
       throw const ConversationMutationException(400, 'DIRECTORY_UNAVAILABLE', 'Directory does not exist');
@@ -467,13 +625,17 @@ extension _ConversationServicePersistence on ConversationService {
   }
 
   Future<void> _revalidateContext(EffectiveConversationContext context) async {
-    await _validatedContext(
+    final validated = await _validatedContext(
       projectId: context.projectId,
       directory: context.directory,
       provider: context.provider,
       model: context.model,
       effort: context.effort,
+      allowImplicitLocal: context.projectId == '_local',
     );
+    if (!p.equals(validated.referenceRoot, context.referenceRoot)) {
+      throw const ConversationMutationException(409, 'CONTEXT_INVALID', 'Stored reference root is outside the context');
+    }
   }
 
   Future<void> _validateReferences(EffectiveConversationContext context, List<Map<String, dynamic>> references) async {
@@ -484,31 +646,35 @@ extension _ConversationServicePersistence on ConversationService {
         throw const ConversationMutationException(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved');
       }
       if (type == 'project' && id != context.projectId) {
-        throw const ConversationMutationException(
+        throw ConversationMutationException(
           403,
           'REFERENCE_FORBIDDEN',
-          'Project reference is outside the context',
+          'Project reference "$id" is outside the destination. Remove or replace it before moving.',
         );
       }
       if (type == 'file') {
         final normalized = p.normalize(id);
         if (p.isAbsolute(normalized) || normalized == '..' || normalized.startsWith('..${p.separator}')) {
-          throw const ConversationMutationException(
+          throw ConversationMutationException(
             403,
             'REFERENCE_FORBIDDEN',
-            'File reference is outside the project',
+            'File reference "$id" is outside the destination. Remove or replace it before moving.',
           );
         }
         final target = File(p.join(context.referenceRoot, normalized));
         if (!target.existsSync()) {
-          throw const ConversationMutationException(400, 'UNKNOWN_REFERENCE', 'File reference could not be resolved');
+          throw ConversationMutationException(
+            400,
+            'UNKNOWN_REFERENCE',
+            'File reference "$id" is unavailable in the destination. Remove or replace it before moving.',
+          );
         }
         final canonical = p.normalize(target.resolveSymbolicLinksSync());
         if (!p.isWithin(context.referenceRoot, canonical) && !p.equals(context.referenceRoot, canonical)) {
-          throw const ConversationMutationException(
+          throw ConversationMutationException(
             403,
             'REFERENCE_FORBIDDEN',
-            'File reference is outside the project',
+            'File reference "$id" is outside the destination. Remove or replace it before moving.',
           );
         }
       }

@@ -58,10 +58,9 @@ function railInitial(value) {
   return Array.from(String(value ?? '')).find((char) => /[\p{L}\p{N}]/u.test(char)) || '·';
 }
 
-/// One rule for a conversation with no project, shared by the rows, the group
-/// headers and (server-side) the topbar crumb: a muted "No project" label and a
-/// neutral identicon rather than an empty cell that leaves line 1 looking broken.
-const noProjectLabel = 'No project';
+/// One label for a general conversation across rows, groups and the crumb.
+const noProjectLabel = 'General chat';
+const generalScope = ':general';
 
 export default class DcShellController extends Stimulus.Controller {
   connect() {
@@ -174,7 +173,7 @@ export default class DcShellController extends Stimulus.Controller {
     const createButton = event.target.closest('[data-session-create]');
     if (createButton) {
       event.preventDefault();
-      this.createSession();
+      this.createSession(createButton.dataset.projectId || null);
       return;
     }
 
@@ -589,6 +588,7 @@ export default class DcShellController extends Stimulus.Controller {
   initInboxUi() {
     this.loadInboxView();
     if (!document.querySelector('[data-inbox-list]')) return;
+    this.loadSidebarProjects();
     if (!this.inboxEntries) {
       this.refreshInboxUi();
       return;
@@ -598,6 +598,31 @@ export default class DcShellController extends Stimulus.Controller {
       if (row) this.paintInboxRow(row, entry);
     }
     this.applyInboxView();
+  }
+
+  async loadSidebarProjects() {
+    try {
+      const response = await fetch('/api/projects');
+      if (!response.ok) return;
+      const projects = await response.json();
+      this.sidebarProjects = Array.isArray(projects) ? projects.filter((project) => project.id !== '_local') : [];
+      const searchProject = document.querySelector('[data-search-project]');
+      if (searchProject) {
+        const previous = searchProject.value;
+        searchProject.querySelectorAll('option[data-named-project]').forEach((option) => option.remove());
+        for (const project of this.sidebarProjects) {
+          const option = document.createElement('option');
+          option.value = project.id;
+          option.textContent = project.name || project.id;
+          option.dataset.namedProject = '';
+          searchProject.append(option);
+        }
+        searchProject.value = [...searchProject.options].some((option) => option.value === previous) ? previous : ':all';
+      }
+      this.applyInboxView();
+    } catch (_) {
+      // Keep the last known rail when project management is temporarily unavailable.
+    }
   }
 
   async refreshInboxUi(nextSettledPage = false) {
@@ -801,6 +826,9 @@ export default class DcShellController extends Stimulus.Controller {
     const list = document.querySelector('[data-inbox-list]');
     if (!list) return;
 
+    this.renderProjectSections(entries);
+    if (document.querySelector('[data-sidebar-projects]')?.hidden && view.scope) view.scope = '';
+
     for (const [filter] of Object.entries(inboxFilters)) {
       const count = document.querySelector('[data-inbox-count="' + filter + '"]');
       if (!count) continue;
@@ -810,9 +838,9 @@ export default class DcShellController extends Stimulus.Controller {
 
     const visible = entries.filter((entry) =>
       this.matchesInboxFilter(entry, view.filter) &&
-      (!view.scope || entry.project_id === view.scope));
+      (!view.scope || (view.scope === generalScope ? !entry.project_id : entry.project_id === view.scope)));
     const visibleIds = new Set(visible.map((entry) => entry.session.id));
-    for (const row of list.querySelectorAll('[data-inbox-session-id]')) {
+    for (const row of document.querySelectorAll('.sidebar-chat-section [data-inbox-session-id], [data-sidebar-projects] [data-inbox-session-id]')) {
       row.hidden = !visibleIds.has(row.dataset.inboxSessionId);
     }
     // Counted from the rows, not from the entries: the inbox also returns the
@@ -820,11 +848,19 @@ export default class DcShellController extends Stimulus.Controller {
     // and never as a chat row. Counting entries hid the empty state on an
     // install whose only conversation is that one. Read before grouping, so a
     // collapsed group does not read as an empty list either.
-    const shownRows = [...list.querySelectorAll('[data-inbox-session-id]')].filter((row) => !row.hidden).length;
+    const shownRows = [...list.querySelectorAll('[data-inbox-session-id]')]
+      .filter((row) => !row.hidden).length;
 
     this.renderScopeMenu(entries, view);
     this.renderViewMenu(view);
-    this.renderInboxGroups(list, visible, view);
+    this.renderInboxGroups(list, visible.filter((entry) => !entry.project_id), view);
+    for (const project of document.querySelectorAll('[data-sidebar-project]')) {
+      const rows = [...project.querySelectorAll('[data-inbox-session-id]')].filter((row) => !row.hidden);
+      project.hidden = Boolean(view.scope && view.scope !== project.dataset.sidebarProject) ||
+        (view.filter !== 'all' && rows.length === 0);
+    }
+    const chats = document.querySelector('.sidebar-chat-section');
+    if (chats) chats.hidden = Boolean(view.scope && view.scope !== generalScope);
     this.renderActiveFilter(view);
     this.renderAttentionRow();
     this.syncTopbarState();
@@ -835,8 +871,63 @@ export default class DcShellController extends Stimulus.Controller {
       empty.hidden = shownRows !== 0;
       empty.querySelector('[data-inbox-empty-label]').textContent = filtered
         ? 'No matching conversations.'
-        : 'No chats yet';
+        : document.querySelector('[data-sidebar-projects]')?.hidden === false ? 'No general chats yet' : 'No chats yet';
       empty.querySelector('[data-inbox-clear-filter]').hidden = !filtered;
+    }
+  }
+
+  renderProjectSections(entries) {
+    const section = document.querySelector('[data-sidebar-projects]');
+    const list = document.querySelector('[data-inbox-list]');
+    if (!section || !list) return;
+    const configured = this.sidebarProjects || [];
+    const known = new Map(configured.map((project) => [project.id, project]));
+    for (const entry of entries) {
+      if (entry.project_id && entry.project_id !== '_local' && !known.has(entry.project_id)) {
+        known.set(entry.project_id, { id: entry.project_id, name: entry.project_name || entry.project_id, status: 'unavailable' });
+      }
+    }
+    const hasProjects = known.size > 0;
+    section.hidden = !hasProjects;
+    for (const control of document.querySelectorAll('[data-project-controls]')) control.hidden = !hasProjects;
+    document.getElementById('sidebar')?.setAttribute('data-has-projects', String(hasProjects));
+    const rows = new Map([...document.querySelectorAll('.sidebar-chat-section [data-inbox-session-id], [data-sidebar-projects] [data-inbox-session-id]')]
+      .map((row) => [row.dataset.inboxSessionId, row]));
+    const settled = list.querySelector('[data-settled-section]');
+    for (const entry of entries) {
+      const row = rows.get(entry.session.id);
+      if (row && settled) list.insertBefore(row, settled);
+    }
+    const host = section.querySelector('[data-sidebar-project-list]');
+    host.replaceChildren();
+    if (!hasProjects) return;
+    for (const project of known.values()) {
+      const details = document.createElement('details');
+      details.className = 'sidebar-project';
+      details.dataset.sidebarProject = project.id;
+      details.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = project.name || project.id;
+      const projectRows = document.createElement('div');
+      projectRows.className = 'rail-rows';
+      for (const entry of entries) {
+        if (entry.project_id !== project.id) continue;
+        const row = rows.get(entry.session.id);
+        if (row) projectRows.append(row);
+      }
+      const create = document.createElement('button');
+      create.type = 'button';
+      create.className = 'btn btn-ghost btn-sm sidebar-project-create';
+      create.dataset.sessionCreate = '';
+      create.dataset.projectId = project.id;
+      create.textContent = 'New chat in ' + (project.name || project.id);
+      create.disabled = project.status !== 'ready';
+      if (create.disabled) create.title = 'This project is unavailable. Open System to check its status.';
+      details.append(summary, projectRows, create);
+      host.append(details);
+    }
+    for (const row of list.querySelectorAll('[data-inbox-session-id]')) {
+      row.querySelector('[data-inbox-project]')?.setAttribute('hidden', '');
     }
   }
 
@@ -859,6 +950,7 @@ export default class DcShellController extends Stimulus.Controller {
     const label = document.querySelector('[data-inbox-scope-label]');
     if (!menu) return;
     const projects = new Map();
+    for (const project of this.sidebarProjects || []) projects.set(project.id, project.name || project.id);
     for (const entry of entries) {
       if (entry.project_id) projects.set(entry.project_id, entry.project_name || entry.project_id);
     }
@@ -866,9 +958,10 @@ export default class DcShellController extends Stimulus.Controller {
     const head = document.createElement('div');
     head.className = 'pop-head';
     head.textContent = 'Scope';
-    menu.append(head, this.scopeOption('', 'All projects', view.scope === ''));
+    menu.append(head, this.scopeOption('', 'All chats', view.scope === ''));
+    menu.append(this.scopeOption(generalScope, 'General chats', view.scope === generalScope));
     for (const [id, name] of projects) menu.append(this.scopeOption(id, name, view.scope === id));
-    if (label) label.textContent = view.scope ? projects.get(view.scope) || view.scope : 'All projects';
+    if (label) label.textContent = view.scope === generalScope ? 'General chats' : view.scope ? projects.get(view.scope) || view.scope : 'All chats';
   }
 
   scopeOption(id, name, on) {
@@ -1017,17 +1110,24 @@ export default class DcShellController extends Stimulus.Controller {
   syncTopbarCrumb(entry) {
     const crumb = document.querySelector('[data-session-crumb]');
     if (!crumb || !entry?.provider) return;
-    const identicon = crumb.querySelector('.identicon');
+    let identicon = crumb.querySelector('.identicon');
     const project = crumb.querySelector('.crumb-project');
     const name = entry.project_name || noProjectLabel;
     if (project) {
       project.textContent = name;
       project.classList.toggle('row-project--none', !entry.project_name);
     }
-    if (identicon) {
+    if (!entry.project_id) {
+      identicon?.remove();
+    } else {
+      if (!identicon) {
+        identicon = document.createElement('span');
+        identicon.className = 'identicon';
+        identicon.setAttribute('aria-hidden', 'true');
+        crumb.insertBefore(identicon, project);
+      }
       identicon.dataset.identiconId = entry.project_id || '';
       identicon.dataset.identiconInitials = railInitial(entry.project_name);
-      identicon.classList.toggle('identicon--none', !entry.project_id);
       applyIdenticons(identicon);
     }
     // The crumb's provider/model segments are the last two spans; the server
@@ -1610,7 +1710,7 @@ export default class DcShellController extends Stimulus.Controller {
       .finally(() => endSessionDraftMutation(sessionId));
   }
 
-  createSession() {
+  createSession(projectId = null) {
     if (this.sessionCreatePromise) return this.sessionCreatePromise;
 
     const createButtons = Array.from(document.querySelectorAll('[data-session-create]'));
@@ -1619,7 +1719,7 @@ export default class DcShellController extends Stimulus.Controller {
       button.setAttribute('aria-busy', 'true');
     }
 
-    this.sessionCreatePromise = this.openNewChatAfterPendingMutation()
+    this.sessionCreatePromise = this.openNewChatAfterPendingMutation(projectId)
       .catch((error) => {
         showToast('error', error.message || 'Failed to create session');
       })
@@ -1633,14 +1733,21 @@ export default class DcShellController extends Stimulus.Controller {
     return this.sessionCreatePromise;
   }
 
-  async openNewChatAfterPendingMutation() {
+  async openNewChatAfterPendingMutation(projectId = null) {
     await this.waitForSessionDraftMutation();
-    if (this.focusCurrentNewChatDraft()) return;
+    if (this.focusCurrentNewChatDraft(projectId)) return;
 
-    const response = await fetch('/api/sessions/open', { method: 'POST' });
-    if (!response.ok) throw new Error('Failed to create session');
+    const response = await fetch('/api/sessions/open', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project_id: projectId }),
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.error?.message || 'Failed to create session');
+    }
     const data = await response.json();
-    if (data.id === this.currentSessionPathId() && this.focusCurrentNewChatDraft()) return;
+    if (data.id === this.currentSessionPathId() && this.focusCurrentNewChatDraft(projectId)) return;
     window.location.href = '/sessions/' + data.id;
   }
 
@@ -1663,9 +1770,10 @@ export default class DcShellController extends Stimulus.Controller {
     });
   }
 
-  focusCurrentNewChatDraft() {
+  focusCurrentNewChatDraft(projectId = null) {
     const chatArea = document.querySelector('.chat-area[data-new-chat-draft="true"]');
     if (!chatArea || chatArea.dataset.sessionId !== this.currentSessionPathId()) return false;
+    if ((chatArea.dataset.projectId || null) !== projectId) return false;
     if (chatArea.querySelector('#messages .msg')) return false;
     this.setSidebarOpen(false);
     chatArea.querySelector('#message-input')?.focus();

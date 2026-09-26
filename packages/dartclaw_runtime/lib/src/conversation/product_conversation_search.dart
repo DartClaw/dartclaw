@@ -16,6 +16,7 @@ final class ProductConversationHit {
     required this.title,
     required this.origin,
     required this.projectId,
+    this.attemptProjectId,
     required this.role,
     required this.createdAt,
     required this.snippet,
@@ -29,6 +30,7 @@ final class ProductConversationHit {
   final String title;
   final String origin;
   final String? projectId;
+  final String? attemptProjectId;
   final String role;
   final DateTime createdAt;
   final String snippet;
@@ -50,6 +52,7 @@ final class ProductConversationHit {
     'title': title,
     'origin': origin,
     'project_id': projectId,
+    'attempt_project_id': attemptProjectId,
     'role': role,
     'created_at': createdAt.toUtc().toIso8601String(),
     'snippet': snippet,
@@ -164,6 +167,11 @@ final class ProductConversationSearchService {
           title: current.title?.trim().isNotEmpty == true ? current.title!.trim() : 'Untitled conversation',
           origin: current.channelKey ?? current.type.name,
           projectId: candidate.projectId,
+          attemptProjectId: candidate.state.submissions
+              .where((submission) => submission.messageId == message.id)
+              .firstOrNull
+              ?.admittedContext
+              ?.projectId,
           role: message.role,
           createdAt: message.createdAt,
           snippet: snippet.text,
@@ -214,6 +222,11 @@ final class ProductConversationSearchService {
       title: session.title?.trim().isNotEmpty == true ? session.title!.trim() : 'Untitled conversation',
       origin: session.channelKey ?? session.type.name,
       projectId: candidate.projectId,
+      attemptProjectId: candidate.state.submissions
+          .where((submission) => submission.messageId == message.id)
+          .firstOrNull
+          ?.admittedContext
+          ?.projectId,
       role: message.role,
       createdAt: message.createdAt,
       snippet: message.content,
@@ -240,8 +253,8 @@ final class ProductConversationSearchService {
     if (scope == ConversationSearchScope.current && session.id != currentSessionId) return null;
     if (!_matchesLifecycle(session, lifecycle)) return null;
     final state = await sessions.getConversationState(session.id);
-    final effectiveProject = state.currentContext?.projectId ?? state.nextContext?.projectId;
-    if (projectId != null && effectiveProject != projectId) return null;
+    final effectiveProject = state.nextContext?.projectId;
+    if (projectId != null && effectiveProject != (projectId.isEmpty ? null : projectId)) return null;
     return _EligibleSession(
       principal: SessionService.persistedPrincipal(session),
       projectId: effectiveProject,

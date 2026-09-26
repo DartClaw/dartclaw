@@ -34,6 +34,7 @@ void main() {
         available: true,
         reason: '',
       ),
+      ownerWorkspaceDir: sessions.baseDir,
     ).call;
     final admin = ApiRouteTestClient(localAdminMiddleware()(raw));
     final denied = ApiRouteTestClient(raw);

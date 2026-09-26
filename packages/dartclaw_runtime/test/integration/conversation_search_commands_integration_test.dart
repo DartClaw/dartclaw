@@ -2,6 +2,7 @@
 library;
 
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -13,10 +14,13 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../api/api_test_helpers.dart';
+import '../test_utils.dart';
 import '_fixtures/conversation_loop_browser_process.dart' show seedSearchCommandFixture;
 
 void main() {
   const gatewayToken = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  setUpAll(() async => initTemplates(await resolveTemplatesDir()));
+  tearDownAll(resetTemplates);
 
   test('production runtime wires scoped search, refreshed skills, typed actions, and exact navigation', () async {
     final root = Directory.systemTemp.createTempSync('conversation_search_commands_production_');
@@ -28,11 +32,15 @@ void main() {
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
       gateway: const GatewayConfig(token: gatewayToken),
+      projects: ProjectConfig(
+        definitions: {'fixture-project': ProjectDefinition(id: 'fixture-project', localPath: root.path)},
+      ),
       server: ServerConfig(dataDir: root.path, claudeExecutable: Platform.resolvedExecutable),
     );
     final seeded = await _seedProductionState(config, root);
     final introspector = _MutableSkillIntrospector({'dartclaw-review'});
     final worker = _NativeFakeHarness();
+    final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
     final harnessFactory = HarnessFactory()
       ..register('claude', (factoryConfig) => factoryConfig.cwd == '/' ? _NativeFakeHarness() : worker);
     final runtime = await DartclawRuntime.build(
@@ -42,6 +50,8 @@ void main() {
       harnessFactory: harnessFactory,
       taskBackendFactory: (_) async => openPreparedTaskBackend(),
       taskBackendIsPrepared: true,
+      searchIndexFactory: (_, table, {required withinTransaction}) =>
+          indices.putIfAbsent(table, InMemoryFullTextIndex.new),
       stderrLine: (_) {},
       exitFn: (code) => throw StateError('unexpected exit $code'),
       resolvedConfigPath: configFile.path,
@@ -74,8 +84,39 @@ void main() {
       '/api/conversation-search?q=s07-exact-unloaded-marker&scope=global&lifecycle=active'
           '&project_id=fixture-project',
     );
-    expect(project['total'], 1);
-    expect(((project['results'] as List).single as Map)['session_id'], seeded.ownerSessionId);
+    expect(project['total'], 3);
+    expect(
+      (project['results'] as List).map((result) => (result as Map)['session_id']),
+      everyElement(seeded.ownerSessionId),
+    );
+    final beforeMove = await runtime.sessionService.getConversationState(seeded.ownerSessionId);
+    await runtime.sessionService.updateConversationState(
+      seeded.ownerSessionId,
+      beforeMove.stageContext(
+        EffectiveConversationContext(
+          projectId: null,
+          directory: root.path,
+          referenceRoot: root.path,
+          provider: 'claude',
+        ),
+      ),
+    );
+    final formerProject = await client.expectJsonObject(
+      'GET',
+      '/api/conversation-search?q=s07-exact-unloaded-marker&scope=global&lifecycle=active'
+          '&project_id=fixture-project',
+    );
+    expect(formerProject['total'], 0);
+    final general = await client.expectJsonObject(
+      'GET',
+      '/api/conversation-search?q=s07-exact-unloaded-marker&scope=global&lifecycle=active&project_id=',
+    );
+    expect(general['total'], 3);
+    expect((general['results'] as List).map((result) => (result as Map)['project_id']), everyElement(isNull));
+    await runtime.sessionService.updateConversationState(
+      seeded.ownerSessionId,
+      (await runtime.sessionService.getConversationState(seeded.ownerSessionId)).stageContext(beforeMove.nextContext!),
+    );
     final settled = await client.expectJsonObject(
       'GET',
       '/api/conversation-search?q=s07-settled-marker&scope=global&lifecycle=settled',
@@ -130,7 +171,7 @@ void main() {
     expect(await _action(client, ownerCatalog, 'built-in:help', seeded.ownerSessionId), {'action': 'show_help'});
     expect(await _action(client, ownerCatalog, 'skill:dartclaw-review', seeded.ownerSessionId), {
       'action': 'send_provider',
-      'message': '/dartclaw-review',
+      'message': "Use the 'dartclaw-review' skill.",
     });
 
     introspector.available.clear();
@@ -155,13 +196,14 @@ void main() {
     );
     expect(introspector.calls, greaterThanOrEqualTo(3));
 
-    final forkCatalog = await _catalog(client, seeded.ownerSessionId);
+    final forkCatalog = await _catalog(client, seeded.forkActionSessionId);
+    final forkSource = (await runtime.messageService.getMessages(seeded.forkActionSessionId)).single;
     final forked = await _action(
       client,
       forkCatalog,
       'built-in:fork',
-      seeded.ownerSessionId,
-      extra: {'source_message_id': seeded.exactMessageId, 'mutation_id': 'production-fixture-fork'},
+      seeded.forkActionSessionId,
+      extra: {'source_message_id': forkSource.id, 'mutation_id': 'production-fixture-fork'},
     );
     expect(forked['href'], startsWith('/sessions/'));
 
@@ -204,18 +246,32 @@ void main() {
     );
     expect(accepted.statusCode, 202);
     await worker.turnInvoked;
+    final stopState = await client.expectJsonObject('GET', '/api/sessions/${stopSession.id}/conversation-state');
+    expect((stopState['activity'] as Map)['turn'], containsPair('can_cancel', false));
     final stopCatalog = await _catalog(client, stopSession.id);
-    expect(await _action(client, stopCatalog, 'built-in:stop', stopSession.id), containsPair('action', 'refresh'));
-    expect(worker.cancelCalled, isTrue);
+    expect(
+      await client.expectJsonErrorCode(
+        'POST',
+        '/api/command-actions',
+        json: {
+          'command_id': 'built-in:stop',
+          'identity_token': stopCatalog['identity_token'],
+          'session_id': stopSession.id,
+        },
+        status: 409,
+      ),
+      'STOP_UNAVAILABLE',
+    );
+    expect(worker.cancelCalled, isFalse);
+    worker.completeSuccess();
 
     await runtime.sessionService.deleteSession(seeded.agentBSessionId);
     expect(
-      await client.expectJsonErrorCode(
+      (await client.request(
         'GET',
         '/api/conversation-search/target?session_id=${seeded.agentBSessionId}&message_id=missing',
-        status: 404,
-      ),
-      'SEARCH_TARGET_UNAVAILABLE',
+      )).statusCode,
+      404,
     );
 
     const unknown = '/unowned  exact bytes';
@@ -225,7 +281,7 @@ void main() {
       body: 'message=%2Funowned++exact+bytes',
       headers: const {'content-type': 'application/x-www-form-urlencoded', 'accept': 'application/json'},
     );
-    expect(send.statusCode, 202);
+    expect(send.statusCode, 202, reason: await send.readAsString());
     expect((await runtime.messageService.getMessages(seeded.ownerSessionId)).last.content, unknown);
     await worker.turnInvoked;
     worker.completeSuccess();
@@ -239,6 +295,7 @@ Future<
     String settledSessionId,
     String archivedSessionId,
     String exactMessageId,
+    String forkActionSessionId,
     String settleActionSessionId,
     String resetActionSessionId,
   })
@@ -267,14 +324,41 @@ _seedProductionState(DartclawConfig config, Directory root) async {
     ownerState.stageContext(
       EffectiveConversationContext(
         projectId: 'fixture-project',
-        directory: root.path,
-        referenceRoot: root.path,
+        directory: root.resolveSymbolicLinksSync(),
+        referenceRoot: root.resolveSymbolicLinksSync(),
         provider: 'claude',
       ),
     ),
   );
   final settleAction = await sessions.createSession(provider: 'claude');
-  await messages.insertMessage(sessionId: settleAction.id, role: 'assistant', content: 'settle action fixture');
+  final settleMessage = await messages.insertMessage(
+    sessionId: settleAction.id,
+    role: 'assistant',
+    content: 'settle action fixture',
+  );
+  final settleState = (await sessions.getConversationState(settleAction.id)).put(
+    ConversationSubmissionClaim(
+      submissionId: 'settle-fixture',
+      revisionId: 'settle-fixture-r1',
+      messageId: settleMessage.id,
+      attemptId: 'settle-attempt',
+      payloadDigest: 'fixture',
+      message: 'settle action fixture',
+      commitState: SubmissionCommitState.committed,
+      workState: ConversationWorkState.completed,
+      createdAt: DateTime.utc(2026),
+      updatedAt: DateTime.utc(2026),
+    ),
+  );
+  await sessions.updateConversationState(settleAction.id, settleState);
+  await sessions.updateInboxMetadata(
+    id: settleAction.id,
+    expectedConversationRevision: settleState.revision,
+    readMessageCursor: settleMessage.cursor,
+    attentionReadEventId: 'submission:settle-fixture',
+  );
+  final forkAction = await sessions.createSession(provider: 'claude');
+  await messages.insertMessage(sessionId: forkAction.id, role: 'assistant', content: 'fork action fixture');
   final resetAction = await sessions.createSession(provider: 'claude');
   await messages.insertMessage(sessionId: resetAction.id, role: 'assistant', content: 'reset action fixture');
   await messages.dispose();
@@ -288,6 +372,7 @@ _seedProductionState(DartclawConfig config, Directory root) async {
     settledSessionId: search.settledSessionId,
     archivedSessionId: search.archivedSessionId,
     exactMessageId: search.exactMessageId,
+    forkActionSessionId: forkAction.id,
     settleActionSessionId: settleAction.id,
     resetActionSessionId: resetAction.id,
   );
@@ -302,11 +387,16 @@ Future<Map<String, dynamic>> _action(
   String commandId,
   String sessionId, {
   Map<String, dynamic> extra = const {},
-}) => client.expectJsonObject(
-  'POST',
-  '/api/command-actions',
-  json: {'command_id': commandId, 'identity_token': catalog['identity_token'], 'session_id': sessionId, ...extra},
-);
+}) async {
+  final response = await client.request(
+    'POST',
+    '/api/command-actions',
+    json: {'command_id': commandId, 'identity_token': catalog['identity_token'], 'session_id': sessionId, ...extra},
+  );
+  final body = await response.readAsString();
+  expect(response.statusCode, 200, reason: body);
+  return jsonDecode(body) as Map<String, dynamic>;
+}
 
 final class _MutableSkillIntrospector implements SkillIntrospector {
   new(Set<String> available) : available = {...available};

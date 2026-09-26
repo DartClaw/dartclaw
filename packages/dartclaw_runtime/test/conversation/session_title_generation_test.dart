@@ -33,6 +33,7 @@ void main() {
     );
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: FakeTurnManager(messages, FakeAgentHarness()),
       mutations: SessionMutationCoordinator(),
@@ -109,6 +110,7 @@ void main() {
 
     final conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: FakeTurnManager(messages, FakeAgentHarness()),
       mutations: SessionMutationCoordinator(),

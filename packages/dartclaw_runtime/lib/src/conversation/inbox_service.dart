@@ -323,6 +323,7 @@ final class ConversationInboxService implements MessageServiceObserver {
         if (attemptId != null) messageByAttemptId[attemptId] = submission.messageId;
       }
       for (final record in state.records) {
+        if (record.kind == ConversationRecordKind.contextChange) continue;
         final eventId = 'record:${record.id}';
         raw.add(
           _AttentionCandidate(
@@ -686,7 +687,7 @@ final class ConversationInboxService implements MessageServiceObserver {
     final stored = await messages.getMessages(session.id);
     final latestCursor = stored.lastOrNull?.cursor ?? 0;
     final status = _projectStatus(session, state);
-    final context = state.currentContext ?? state.nextContext;
+    final context = state.nextContext ?? state.currentContext;
     final projectId = context?.projectId;
     return InboxEntry(
       session: session,
@@ -834,7 +835,8 @@ final class ConversationInboxService implements MessageServiceObserver {
   List<String> _attentionEventIds(ConversationState state) {
     final candidates =
         <({String id, DateTime at})>[
-          for (final record in state.records) (id: 'record:${record.id}', at: record.updatedAt),
+          for (final record in state.records)
+            if (record.kind != ConversationRecordKind.contextChange) (id: 'record:${record.id}', at: record.updatedAt),
           for (final submission in state.submissions.where((item) => _isAttentionSubmission(item.workState)))
             (id: 'submission:${submission.submissionId}', at: submission.updatedAt),
         ]..sort((left, right) {

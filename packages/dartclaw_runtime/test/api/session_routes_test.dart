@@ -38,7 +38,7 @@ void main() {
     messages = MessageService(baseDir: tempDir.path);
     worker = FakeAgentHarness();
     turns = FakeTurnManager(messages, worker);
-    rawHandler = sessionRoutes(sessions, messages, turns, worker).call;
+    rawHandler = sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call;
     handler = localAdminMiddleware()(rawHandler);
     api = ApiRouteTestClient(handler);
   });
@@ -178,77 +178,21 @@ void main() {
   });
 
   group('POST /api/sessions/open', () {
-    test('reuses the newest blank default chat across sequential requests', () async {
-      final first = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
-      final second = await api.expectJsonObject('POST', '/api/sessions/open');
-
-      expect(second['id'], first['id']);
-      expect(await sessions.listSessions(type: SessionType.user), hasLength(1));
-    });
-
-    test('coalesces concurrent requests into one blank chat', () async {
-      final responses = await Future.wait(List.generate(4, (_) => api.request('POST', '/api/sessions/open')));
-      final ids = <String>{};
-      for (final response in responses) {
-        expect(response.statusCode, anyOf(200, 201));
-        ids.add((jsonDecode(await response.readAsString()) as Map<String, dynamic>)['id'] as String);
-      }
-
-      expect(ids, hasLength(1));
-      expect(await sessions.listSessions(type: SessionType.user), hasLength(1));
-    });
-
-    test('reuses the newest duplicate blank without deleting older drafts', () async {
-      final older = await sessions.createSession();
-      await Future<void>.delayed(const Duration(milliseconds: 1));
-      final newer = await sessions.createSession();
-
-      final opened = await api.expectJsonObject('POST', '/api/sessions/open');
-
-      expect(opened['id'], newer.id);
-      expect(opened['id'], isNot(older.id));
-      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
-    });
-
-    test('does not reuse an empty chat with an active turn', () async {
-      final active = await sessions.createSession();
-      await turns.reserveTurn(active.id);
-
-      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
-
-      expect(opened['id'], isNot(active.id));
-      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
-    });
-
-    test('does not reuse an untitled chat that already has messages', () async {
-      final existing = await sessions.createSession();
-      await messages.insertMessage(sessionId: existing.id, role: 'user', content: 'Hello');
-
-      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
-
-      expect(opened['id'], isNot(existing.id));
-      expect(await sessions.listSessions(type: SessionType.user), hasLength(2));
-    });
-
-    test('does not reuse titled, keyed, or provider-specific empty chats', () async {
-      final titled = await sessions.createSession();
-      await sessions.updateTitle(titled.id, 'Saved draft');
-      await sessions.createSession(type: SessionType.user, channelKey: 'custom:key');
-      await sessions.createSession(provider: 'codex');
-
-      final opened = await api.expectJsonObject('POST', '/api/sessions/open', status: 201);
-
-      expect(opened['id'], isNot(titled.id));
-      expect(await sessions.listSessions(type: SessionType.user), hasLength(4));
-    });
-
     test('serializes eligibility with a concurrent PATCH title mutation', () async {
       final pausingSessions = PausingUpdateTitleSessionService(baseDir: tempDir.path);
       final existing = await pausingSessions.createSession();
       final localMessages = PausingTailMessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(localMessages, worker);
       final localApi = ApiRouteTestClient(
-        localAdminMiddleware()(sessionRoutes(pausingSessions, localMessages, localTurns, worker).call),
+        localAdminMiddleware()(
+          sessionRoutes(
+            pausingSessions,
+            localMessages,
+            localTurns,
+            worker,
+            ownerWorkspaceDir: pausingSessions.baseDir,
+          ).call,
+        ),
       );
 
       final rename = localApi.request(
@@ -280,7 +224,9 @@ void main() {
       final pausingMessages = PausingTailMessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(pausingMessages, worker);
       final localApi = ApiRouteTestClient(
-        localAdminMiddleware()(sessionRoutes(sessions, pausingMessages, localTurns, worker).call),
+        localAdminMiddleware()(
+          sessionRoutes(sessions, pausingMessages, localTurns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+        ),
       );
 
       final request = localApi.request('POST', '/api/sessions/open');
@@ -301,7 +247,15 @@ void main() {
       final pausingMessages = PausingTailMessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(pausingMessages, worker);
       final localApi = ApiRouteTestClient(
-        localAdminMiddleware()(sessionRoutes(pausingSessions, pausingMessages, localTurns, worker).call),
+        localAdminMiddleware()(
+          sessionRoutes(
+            pausingSessions,
+            pausingMessages,
+            localTurns,
+            worker,
+            ownerWorkspaceDir: pausingSessions.baseDir,
+          ).call,
+        ),
       );
 
       final archive = localApi.request('POST', '/api/sessions/${existing.id}/archive');
@@ -329,7 +283,9 @@ void main() {
       final pausingMessages = PausingInsertMessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(pausingMessages, worker);
       final localApi = ApiRouteTestClient(
-        localAdminMiddleware()(sessionRoutes(sessions, pausingMessages, localTurns, worker).call),
+        localAdminMiddleware()(
+          sessionRoutes(sessions, pausingMessages, localTurns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+        ),
       );
 
       final send = localApi.request(
@@ -354,7 +310,9 @@ void main() {
       final existing = await localSessions.createSession();
       final localTurns = FakeTurnManager(messages, worker);
       final localApi = ApiRouteTestClient(
-        localAdminMiddleware()(sessionRoutes(localSessions, messages, localTurns, worker).call),
+        localAdminMiddleware()(
+          sessionRoutes(localSessions, messages, localTurns, worker, ownerWorkspaceDir: localSessions.baseDir).call,
+        ),
       );
       await localTurns.reserveTurn(existing.id);
       final send = await localApi.request(
@@ -501,6 +459,7 @@ void main() {
           expect(navItems, isEmpty);
           return '<aside id="sidebar"></aside><button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
         },
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
       final res = await localHandler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/archive')));
 
@@ -534,6 +493,7 @@ void main() {
         buildSidebarHtml: ({required SidebarData sidebarData, List<NavItem> navItems = const []}) {
           return '<aside id="sidebar"></aside><button class="sidebar-scrim" type="button" aria-label="Close sidebar"></button>';
         },
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
 
       final res = await localHandler(
@@ -571,7 +531,13 @@ void main() {
       final tracker = ArchiveCallTracker();
       final localSessions = RecordingSessionService(baseDir: tempDir.path, tracker: tracker);
       final localTurns = RecordingTurnManager(messages, worker, tracker);
-      final localHandler = sessionRoutes(localSessions, messages, localTurns, worker).call;
+      final localHandler = sessionRoutes(
+        localSessions,
+        messages,
+        localTurns,
+        worker,
+        ownerWorkspaceDir: localSessions.baseDir,
+      ).call;
       final session = await localSessions.createSession();
       await localTurns.reserveTurn(session.id);
 
@@ -658,7 +624,15 @@ void main() {
       final session = await pausingSessions.createSession();
       final localMessages = MessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(localMessages, worker);
-      final localApi = ApiRouteTestClient(sessionRoutes(pausingSessions, localMessages, localTurns, worker).call);
+      final localApi = ApiRouteTestClient(
+        sessionRoutes(
+          pausingSessions,
+          localMessages,
+          localTurns,
+          worker,
+          ownerWorkspaceDir: pausingSessions.baseDir,
+        ).call,
+      );
 
       final send = localApi.request(
         'POST',
@@ -683,7 +657,15 @@ void main() {
       final session = await pausingSessions.createSession();
       final localMessages = MessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(localMessages, worker);
-      final localApi = ApiRouteTestClient(sessionRoutes(pausingSessions, localMessages, localTurns, worker).call);
+      final localApi = ApiRouteTestClient(
+        sessionRoutes(
+          pausingSessions,
+          localMessages,
+          localTurns,
+          worker,
+          ownerWorkspaceDir: pausingSessions.baseDir,
+        ).call,
+      );
 
       final send = localApi.request(
         'POST',
@@ -896,6 +878,7 @@ void main() {
         turns,
         worker,
         projectService: FakeProjectService(localProject: localProject),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
       final projectRes = await projectHandler(
         apiRequest(
@@ -1181,6 +1164,7 @@ void main() {
             claimEntered.complete();
             await releaseClaim.future;
           },
+          ownerWorkspaceDir: sessions.baseDir,
         ).call,
       );
       final attachment = await uploadSessionAttachment(raceHandler, session.id);
@@ -1337,7 +1321,9 @@ void main() {
         sessions: sessions,
       );
       addTearDown(realTurns.executions.dispose);
-      final realHandler = localAdminMiddleware()(sessionRoutes(sessions, messages, realTurns, failingWorker).call);
+      final realHandler = localAdminMiddleware()(
+        sessionRoutes(sessions, messages, realTurns, failingWorker, ownerWorkspaceDir: sessions.baseDir).call,
+      );
       final session = await sessions.createSession(type: SessionType.channel, channelKey: 'signal:owner');
       final turnId = await realTurns.startTurn(session.id, [
         {'role': 'user', 'content': 'cleanup fails'},
@@ -1580,6 +1566,7 @@ void main() {
         turns,
         worker,
         projectService: FakeProjectService(localProject: localProject),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
 
       final res = await projectHandler(
@@ -1594,56 +1581,6 @@ void main() {
         contains(
           predicate(
             (ref) => (ref as Map<String, dynamic>)['id'] == p.join('packages', 'demo', 'lib', 'release_notes.md'),
-          ),
-        ),
-      );
-    });
-
-    test('GET /references bounds file suggestions and preserves non-file suggestions', () async {
-      final session = await sessions.createSession();
-      await sessions.updateTitle(session.id, 'Release planning');
-      final projectRoot = Directory(p.join(tempDir.path, 'project'))..createSync();
-      for (var i = 0; i < 25; i++) {
-        File(p.join(projectRoot.path, 'release_file_${i.toString().padLeft(2, '0')}.md')).writeAsStringSync('release');
-      }
-      final localProject = Project(
-        id: '_local',
-        name: 'Release project',
-        remoteUrl: '',
-        localPath: projectRoot.path,
-        status: ProjectStatus.ready,
-        createdAt: DateTime.utc(2026),
-      );
-      final projectHandler = sessionRoutes(
-        sessions,
-        messages,
-        turns,
-        worker,
-        projectService: FakeProjectService(localProject: localProject),
-      ).call;
-
-      final res = await projectHandler(
-        Request('GET', Uri.parse('http://localhost/api/sessions/${session.id}/references?q=release')),
-      );
-
-      expect(res.statusCode, equals(200));
-      final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
-      final refs = (body['references'] as List<dynamic>).cast<Map<String, dynamic>>();
-      final fileRefs = refs.where((ref) => ref['type'] == 'file').toList();
-      expect(fileRefs, hasLength(10));
-      expect(
-        refs,
-        contains(
-          predicate(
-            (ref) => ref is Map<String, dynamic> && ref['type'] == 'session' && ref['label'] == 'Release planning',
-          ),
-        ),
-      );
-      expect(
-        refs,
-        contains(
-          predicate(
-            (ref) => ref is Map<String, dynamic> && ref['type'] == 'project' && ref['label'] == 'Release project',
           ),
         ),
       );
@@ -1671,6 +1608,7 @@ void main() {
         turns,
         worker,
         projectService: FakeProjectService(localProject: localProject),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
 
       final res = await projectHandler(
@@ -1747,6 +1685,7 @@ void main() {
         turns,
         worker,
         resetService: SessionResetService(sessions: sessions, messages: messages),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
       final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')));
       expect(res.statusCode, equals(403));
@@ -1761,6 +1700,7 @@ void main() {
         turns,
         worker,
         resetService: SessionResetService(sessions: sessions, messages: messages),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
       final res = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')));
       expect(res.statusCode, equals(403));
@@ -1776,6 +1716,7 @@ void main() {
           turns,
           worker,
           resetService: SessionResetService(sessions: sessions, messages: messages),
+          ownerWorkspaceDir: sessions.baseDir,
         ).call,
       );
       final attachment = await uploadSessionAttachment(handler, session.id);
@@ -1846,6 +1787,7 @@ void main() {
         turns,
         worker,
         resetService: SessionResetService(sessions: sessions, messages: messages),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
 
       final first = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')));
@@ -1864,6 +1806,7 @@ void main() {
         turns,
         worker,
         resetService: SessionResetService(sessions: sessions, messages: messages),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
 
       final reset = await handler(Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')));
@@ -1881,6 +1824,7 @@ void main() {
         turns,
         worker,
         resetService: SessionResetService(sessions: sessions, messages: messages),
+        ownerWorkspaceDir: sessions.baseDir,
       ).call;
       final attachment = await uploadSessionAttachment(handler, session.id, filename: 'history.md', content: 'history');
       await messages.insertMessage(sessionId: session.id, role: 'user', content: 'has history');

@@ -73,6 +73,7 @@ void main() {
     final turns = FakeTurnManager(fixture.messages, FakeAgentHarness());
     final conversation = ConversationService(
       sessions: fixture.sessions,
+      ownerWorkspaceDir: fixture.sessions.baseDir,
       messages: fixture.messages,
       turns: turns,
       mutations: fixture.mutations,

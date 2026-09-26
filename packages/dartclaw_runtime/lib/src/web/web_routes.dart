@@ -277,6 +277,7 @@ Router webRoutes(
         defaultProvider,
         contextCapabilities,
         catalogues: modelCatalogues,
+        ownerWorkspaceDir: config?.workspaceDir,
       );
       final targetMessageId = request.url.queryParameters['message'];
       late final List<Message> msgs;
@@ -329,12 +330,9 @@ Router webRoutes(
 
       final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appName);
       final displayTitle = displaySessionTitle(session.title, session.type);
-      // The crumb labels the conversation, so it reads the same context the rail
-      // row does — `currentContext ?? nextContext`. `effectiveContext` answers
-      // the *next* turn's editable selection and would name a different project
-      // for a conversation whose staged context has not been touched.
-      final crumb = conversationState.currentContext ?? conversationState.nextContext;
-      final crumbProject = crumb == null ? null : await projectService?.get(crumb.projectId);
+      // The crumb follows the same next-turn association as the rail and composer.
+      final crumb = conversationState.nextContext;
+      final crumbProject = crumb?.projectId == null ? null : await projectService?.get(crumb!.projectId!);
       final topbar = topbarTemplate(
         title: session.title,
         sessionId: id,
@@ -381,6 +379,10 @@ Router webRoutes(
       final chat = chatAreaTemplate(
         sessionId: id,
         isTemporary: session.retention == ConversationRetention.process,
+        canMove:
+            session.type == SessionType.user &&
+            session.channelKey == null &&
+            session.retention == ConversationRetention.durable,
         temporaryEndState: sessions.temporaryEndState(id),
         messagesHtml: msgsHtml,
         hasTitle: session.type == SessionType.main || (session.title != null && session.title!.trim().isNotEmpty),
@@ -410,7 +412,8 @@ Router webRoutes(
       }
 
       final history = session.retention == ConversationRetention.process ? ' hx-history="false"' : ' hx-history-elt';
-      final bodyHtml = '<div class="shell"$history>$sidebar<div class="shell-main">$topbar$chat</div></div>';
+      final bodyHtml =
+          '<div class="shell shell--chat"$history>$sidebar<div class="shell-main">$topbar$chat</div></div>';
       final page = layoutTemplate(
         title: displayTitle,
         body: bodyHtml,
@@ -542,6 +545,7 @@ Router webRoutes(
           defaultProvider,
           contextCapabilities,
           catalogues: modelCatalogues,
+          ownerWorkspaceDir: config?.workspaceDir,
         ),
       );
 

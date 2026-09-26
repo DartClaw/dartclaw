@@ -25,9 +25,12 @@ A project chooses a repository and, when requested, an isolated worktree for exe
 change a conversation's storage principal, or grant behavior files, native skills, memory, or logs. Those belong to the
 owner workspace or to the named agent workspace DartClaw derives as `data_dir/agents/<id>/workspace`.
 
-Interactive conversations expose project, directory, provider, model, and effort as their effective context. A valid
-change is staged for the next turn and that admitted attempt captures the complete context. The conversation's workspace
-owner remains fixed; changing it requires a new conversation.
+Owner web conversations start in the owner workspace without a project. Agent and global New chat stay general even
+when a task/workflow default project is configured. Only **New chat** in a named project selects a checkout. Other
+eligible idle durable owner web chats can explicitly move between general and a ready named project. The move uses the
+conversation revision, retains history and drafts, and applies to future attempts; pending work or invalid references
+refuse it. A conversation's workspace owner and memory principal remain fixed. Session info shows the actual execution
+directory for either context. Provider, model, and effort retain their next-turn selection semantics.
 
 ### The Implicit `_local` Project
 
@@ -41,10 +44,12 @@ dartclaw serve
 The `_local` project:
 - Is always available, even when external projects are registered
 - Uses local merge semantics (squash-merge into the base ref) -- no remote push
-- Is the **default project** when no external projects exist
+- Is the task/workflow **default project** when no external projects exist
 - Requires a `.git/` directory and a local base ref
 
-When you register external projects, `_local` remains selectable but is no longer the default -- the first external project (or whichever is marked `default: true`) takes over.
+When you register external projects, `_local` remains available for task/workflow project selection but is not offered as
+an owner chat destination. The first external project (or whichever is marked `default: true`) becomes the task/workflow
+default. Neither default supplies context to Agent or global New chat.
 
 ### External Projects
 

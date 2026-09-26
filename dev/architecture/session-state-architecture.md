@@ -138,8 +138,13 @@ branches, current and next effective context, telemetry, and visible message ide
 `meta.json`; process-retained sessions use the same service authority in memory. `SessionMutationCoordinator` serializes
 mutations, and revision checks reject stale changes without partially applying them.
 
-An admitted attempt captures one complete `EffectiveConversationContext`: project, directory, reference root, provider,
-model, and effort. The session's `AgentWorkspace` and `agent:<id>` storage principal remain pinned across these changes.
+An admitted attempt captures one complete `EffectiveConversationContext`: nullable project association, concrete
+directory and reference root, provider, model, and effort. General owner web chats resolve the directory and reference
+root to the validated owner workspace; project chats resolve the named ready checkout. The next context is authoritative
+for current association, even when a retained attempt still records an older project. Project association moves require
+an eligible idle durable owner web conversation and its revision; they change future context and append one visible
+marker without rewriting past attempts. The session's `AgentWorkspace` and `agent:<id>` storage principal remain pinned
+across these changes.
 Queue accepts ordinary input in order; steer first confirms cancellation of the displayed turn and then uses ordinary
 admission. Channel and cron snapshots disable these browser controls.
 

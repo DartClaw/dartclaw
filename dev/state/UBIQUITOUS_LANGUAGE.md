@@ -93,7 +93,7 @@
 | Session Scope | Rules for session creation: `shared`, `per_contact`, `per_channel_contact`, `per_member` | isolation mode, distribution |
 | Managed Workspace Binding | Agent id and derived `data_dir/agents/<id>/workspace` directory pinned to a conversation at creation; owns behavior and skills under the `agent:<id>` storage principal independently of project context | workspace selection, configured path, project workspace |
 | Conversation Attempt | One admitted unit of conversation work linking its submission, captured effective context, provider turn, terminal outcome, messages, tools, approvals, and branch lineage | turn (when persistence identity matters), retry |
-| Effective Context | Complete project, directory, reference root, provider, model, and effort snapshot staged by revision and captured by the next admitted attempt; it never changes the Managed Workspace Binding | workspace, execution defaults |
+| Effective Context | Complete nullable project association, directory, reference root, provider, model, and effort snapshot captured by the next admitted attempt; never changes the Managed Workspace Binding | workspace, execution defaults |
 | Attention Event | Durable completion, failure, or input-request record linked to exact conversation history and projected into the owner's attention feed | notification, alert |
 | Action Availability | Server projection that an exact live request and owning turn still permit an action; read or dismiss state does not confer it | button state, permission |
 | Temporary Conversation | Owner-authorized conversation with `process` retention whose DartClaw state, attachments, usage context, and provider home remain in process, page, or volatile container storage until confirmed end | incognito chat, automatically private chat |
@@ -280,6 +280,7 @@
 | Drain | Workflow Orchestration | Cancelling and re-queueing in-flight foreach iterations on Serialize-remaining | Runtime Governance | `/resume (drain queue)` – replaying the paused message queue |
 
 ## Changelog
+- 2026-09-26: Clarified that Effective Context permits a null project association for general chats.
 - 2026-09-22: Replaced configurable Workspace Binding with Managed Workspace Binding and added Personal Memory and Shared Knowledge Surface.
 - 2026-09-14: Added Workspace Binding, Conversation Attempt, Effective Context, Attention Event, Action Availability, and Temporary Conversation.
 - 2026-09-09: Aligned database and schema-compatibility terms and added Instance-Local Store.

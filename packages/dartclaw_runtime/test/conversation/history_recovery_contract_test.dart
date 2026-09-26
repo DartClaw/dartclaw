@@ -32,6 +32,7 @@ void main() {
     turns = FakeTurnManager(messages, worker);
     conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -52,7 +53,7 @@ void main() {
       message: 'Original request',
       attachments: const [],
       references: const [
-        {'type': 'project', 'id': '_local', 'label': 'Local'},
+        {'type': 'task', 'id': 'retained-task', 'label': 'Retained task'},
       ],
     );
     final partial = await messages.insertMessage(sessionId: sessionId, role: 'assistant', content: 'Partial output');
@@ -85,6 +86,7 @@ void main() {
 
     final staleReference = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -97,7 +99,7 @@ void main() {
     );
     expect(await messages.getMessages(sessionId), hasLength(sourceMessageCount));
 
-    final rawHandler = sessionRoutes(sessions, messages, turns, worker).call;
+    final rawHandler = sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call;
     final branchAdminHandler = localAdminMiddleware()(rawHandler);
     final sessionsBeforeStaleBranch = (await sessions.listSessions()).map((session) => session.id).toSet();
     final revisionBeforeStaleBranch = (await sessions.getConversationState(sessionId)).revision;
@@ -367,6 +369,7 @@ void main() {
 
     final staleReference = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -404,7 +407,7 @@ void main() {
       throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_REFERENCE')),
     );
 
-    final rawHandler = sessionRoutes(sessions, messages, turns, worker).call;
+    final rawHandler = sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call;
     final unauthorized = await rawHandler(
       Request(
         'POST',
@@ -464,6 +467,7 @@ void main() {
     );
     final configuredConversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: configuredTurns,
       mutations: SessionMutationCoordinator(),
@@ -500,6 +504,7 @@ void main() {
     await expectLater(
       ConversationService(
         sessions: sessions,
+        ownerWorkspaceDir: sessions.baseDir,
         messages: messages,
         turns: removedTurns,
         mutations: SessionMutationCoordinator(),
@@ -539,6 +544,7 @@ void main() {
     await expectLater(
       ConversationService(
         sessions: sessions,
+        ownerWorkspaceDir: sessions.baseDir,
         messages: messages,
         turns: changedTurns,
         mutations: SessionMutationCoordinator(),
@@ -581,6 +587,7 @@ void main() {
       var failed = false;
       final interrupted = ConversationService(
         sessions: sessions,
+        ownerWorkspaceDir: sessions.baseDir,
         messages: messages,
         turns: turns,
         mutations: SessionMutationCoordinator(),
@@ -623,6 +630,7 @@ void main() {
     var failed = false;
     final interruptedEdit = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),

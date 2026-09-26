@@ -148,6 +148,9 @@ int _maxCeilingFor(int loc) {
 // 2026-09-25 (0.27): ratchet core 34710 -> 32367 (measured 30867) after
 // PostgreSQL-only storage; rebaseline CLI 12719 -> 14480 (measured 12980) on
 // the joined milestone tree. Both ceilings equal _maxCeilingFor(measured).
+// Reviewed necessity, 2026-09-26 (ADR-033): runtime 75596 -> 77328
+// (measured 75828 after S13 general/project context). The context authority,
+// API and projection growth remains after reducing oversized service and test files.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -157,7 +160,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_core': 32367,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 75596,
+  'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 5026,

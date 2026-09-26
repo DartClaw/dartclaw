@@ -31,6 +31,7 @@ Future<void> main(List<String> arguments) async {
   }
   final dataDirectory = arguments.first;
   final port = int.parse(arguments.last);
+  final generalProjectFixture = Platform.environment['DARTCLAW_CONVERSATION_CASE'] == 'general-project-chat';
   final turnState = openTurnStateStore(p.join(dataDirectory, 'turn_state.json'));
   final kv = KvService(filePath: p.join(dataDirectory, 'kv.json'));
   final messages = MessageService(baseDir: dataDirectory);
@@ -43,6 +44,7 @@ Future<void> main(List<String> arguments) async {
   File(p.join(projectDirectory.path, 'reference.md')).writeAsStringSync('effective context reference');
   File(p.join(dataDirectory, 'TOOLS.md')).writeAsStringSync('Fixture browser behavior');
   final ownerWorkspaceDirectory = p.join(dataDirectory, 'workspace');
+  Directory(ownerWorkspaceDirectory).createSync(recursive: true);
   final fixtureAgentWorkspace = AgentWorkspace.managed(
     agentId: 'fixture-agent',
     dataDir: dataDirectory,
@@ -76,36 +78,38 @@ Future<void> main(List<String> arguments) async {
     managedRefusal = '$error';
   }
   final projectService = FakeProjectService(
-    projects: [
-      Project(
-        id: 'fixture-docs',
-        name: 'Fixture Docs',
-        remoteUrl: '',
-        localPath: projectDirectory.path,
-        defaultBranch: 'main',
-        status: ProjectStatus.ready,
-        createdAt: DateTime.now(),
-      ),
-      Project(
-        id: _searchProjectAlpha,
-        name: 'Search Project Alpha',
-        remoteUrl: '',
-        localPath: searchProjectAlphaDirectory.path,
-        defaultBranch: 'main',
-        status: ProjectStatus.ready,
-        createdAt: DateTime.now(),
-      ),
-      Project(
-        id: _searchProjectBeta,
-        name: 'Search Project Beta',
-        remoteUrl: '',
-        localPath: searchProjectBetaDirectory.path,
-        defaultBranch: 'main',
-        status: ProjectStatus.ready,
-        createdAt: DateTime.now(),
-      ),
-    ],
-    defaultProjectId: 'fixture-docs',
+    projects: generalProjectFixture
+        ? []
+        : [
+            Project(
+              id: 'fixture-docs',
+              name: 'Fixture Docs',
+              remoteUrl: '',
+              localPath: projectDirectory.path,
+              defaultBranch: 'main',
+              status: ProjectStatus.ready,
+              createdAt: DateTime.now(),
+            ),
+            Project(
+              id: _searchProjectAlpha,
+              name: 'Search Project Alpha',
+              remoteUrl: '',
+              localPath: searchProjectAlphaDirectory.path,
+              defaultBranch: 'main',
+              status: ProjectStatus.ready,
+              createdAt: DateTime.now(),
+            ),
+            Project(
+              id: _searchProjectBeta,
+              name: 'Search Project Beta',
+              remoteUrl: '',
+              localPath: searchProjectBetaDirectory.path,
+              defaultBranch: 'main',
+              status: ProjectStatus.ready,
+              createdAt: DateTime.now(),
+            ),
+          ],
+    defaultProjectId: generalProjectFixture ? null : 'fixture-docs',
   );
   final config = DartclawConfig(
     server: ServerConfig(dataDir: dataDirectory),
@@ -127,16 +131,23 @@ Future<void> main(List<String> arguments) async {
     ),
   );
   final configWriter = ConfigWriter(configPath: p.join(dataDirectory, 'dartclaw.yaml'));
-  final namedAgentSession = await sessions.createSession(workspace: fixtureAgentWorkspace);
-  final historyFixture = await _seedHistoryFixture(sessions, messages, dataDirectory);
-  final searchFixture = await seedSearchCommandFixture(
-    sessions,
-    messages,
-    namedAgentSession,
-    dataDirectory,
-    agentBWorkspace: fixtureAgentBWorkspace,
-    searchOwnerWorkspace: fixtureSearchWorkspace,
-  );
+  if (generalProjectFixture) {
+    await sessions.createSession(type: SessionType.main, provider: 'claude');
+  }
+  final namedAgentSession = generalProjectFixture
+      ? null
+      : await sessions.createSession(workspace: fixtureAgentWorkspace);
+  final historyFixture = generalProjectFixture ? null : await _seedHistoryFixture(sessions, messages, dataDirectory);
+  final searchFixture = generalProjectFixture
+      ? null
+      : await seedSearchCommandFixture(
+          sessions,
+          messages,
+          namedAgentSession!,
+          dataDirectory,
+          agentBWorkspace: fixtureAgentBWorkspace,
+          searchOwnerWorkspace: fixtureSearchWorkspace,
+        );
   final channelSession = await _seedExternalSession(
     sessions,
     messages,
@@ -158,7 +169,7 @@ Future<void> main(List<String> arguments) async {
     turnLimits: fixtureTurnLimits,
     harness: harness,
     messages: messages,
-    behavior: BehaviorFileService(workspaceDir: dataDirectory),
+    behavior: BehaviorFileService(workspaceDir: config.workspaceDir),
     sessions: sessions,
     turnState: turnState,
     kv: kv,
@@ -173,7 +184,7 @@ Future<void> main(List<String> arguments) async {
       turnLimits: fixtureTurnLimits,
       harness: request.providerId == 'acp' ? secondaryHarness : FakeAgentHarness(),
       messages: messages,
-      behavior: BehaviorFileService(workspaceDir: dataDirectory),
+      behavior: BehaviorFileService(workspaceDir: config.workspaceDir),
       sessions: sessions,
       turnState: turnState,
       kv: kv,
@@ -186,7 +197,7 @@ Future<void> main(List<String> arguments) async {
     sessions: sessions,
     messages: messages,
     worker: harness,
-    behavior: BehaviorFileService(workspaceDir: dataDirectory),
+    behavior: BehaviorFileService(workspaceDir: config.workspaceDir),
     kv: kv,
     executions: executions,
     sessionsForTurns: sessions,
@@ -249,6 +260,8 @@ Future<void> main(List<String> arguments) async {
     channelSession: channelSession,
     cronSession: cronSession,
     nativeSkillInventory: nativeSkillInventory,
+    projectService: projectService,
+    projectDirectories: [projectDirectory, searchProjectAlphaDirectory, searchProjectBetaDirectory],
   );
   final httpServer = await shelf_io.serve(handler, InternetAddress.loopbackIPv4, port);
   File(p.join(dataDirectory, 'conversation-browser-ready.json')).writeAsStringSync(
@@ -257,24 +270,28 @@ Future<void> main(List<String> arguments) async {
       'recoveredSessions': recoveredSessions,
       'channelSessionId': channelSession.id,
       'cronSessionId': cronSession.id,
-      'namedAgentSessionId': namedAgentSession.id,
-      'historySessionId': historyFixture.sessionId,
-      'historyOldMessageId': historyFixture.oldMessageId,
-      'historyApprovalRequestId': historyFixture.approvalRequestId,
-      'historyLiveApprovalRequestId': _HistoryBrowserHarness.approvalId,
-      'inboxDraftSessionId': historyFixture.draftSessionId,
-      'inboxDoneSessionId': historyFixture.doneSessionId,
-      'inboxArchivedSessionId': historyFixture.archivedSessionId,
-      'inboxLineageSessionId': historyFixture.lineageSessionId,
-      'searchOwnerSessionId': searchFixture.ownerSessionId,
-      'searchAgentASessionId': namedAgentSession.id,
-      'searchAgentBSessionId': searchFixture.agentBSessionId,
-      'searchSettledSessionId': searchFixture.settledSessionId,
-      'searchArchivedSessionId': searchFixture.archivedSessionId,
-      'searchExactMessageId': searchFixture.exactMessageId,
-      'searchMarker': 's07-exact-unloaded-marker',
-      'searchProjectAlpha': _searchProjectAlpha,
-      'searchProjectBeta': _searchProjectBeta,
+      if (namedAgentSession != null) 'namedAgentSessionId': namedAgentSession.id,
+      if (historyFixture != null) ...{
+        'historySessionId': historyFixture.sessionId,
+        'historyOldMessageId': historyFixture.oldMessageId,
+        'historyApprovalRequestId': historyFixture.approvalRequestId,
+        'historyLiveApprovalRequestId': _HistoryBrowserHarness.approvalId,
+        'inboxDraftSessionId': historyFixture.draftSessionId,
+        'inboxDoneSessionId': historyFixture.doneSessionId,
+        'inboxArchivedSessionId': historyFixture.archivedSessionId,
+        'inboxLineageSessionId': historyFixture.lineageSessionId,
+      },
+      if (searchFixture != null) ...{
+        'searchOwnerSessionId': searchFixture.ownerSessionId,
+        'searchAgentASessionId': namedAgentSession!.id,
+        'searchAgentBSessionId': searchFixture.agentBSessionId,
+        'searchSettledSessionId': searchFixture.settledSessionId,
+        'searchArchivedSessionId': searchFixture.archivedSessionId,
+        'searchExactMessageId': searchFixture.exactMessageId,
+        'searchMarker': 's07-exact-unloaded-marker',
+        'searchProjectAlpha': _searchProjectAlpha,
+        'searchProjectBeta': _searchProjectBeta,
+      },
       'managedAgentWorkspace': fixtureAgentWorkspace.directory,
       'managedAgentMarker': File(p.join(p.dirname(fixtureAgentWorkspace.directory), 'identity.json'))
           .readAsStringSync(),
@@ -399,12 +416,45 @@ Handler _fixtureHarnessControls(
   required Session channelSession,
   required Session cronSession,
   required _BrowserNativeSkillInventory nativeSkillInventory,
+  required FakeProjectService projectService,
+  required List<Directory> projectDirectories,
 }) {
   var externalActivityStarted = false;
   String? channelTurnId;
   String? cronTurnId;
   return (request) async {
     final segments = request.url.pathSegments;
+    if (request.method == 'POST' &&
+        segments.length == 3 &&
+        segments[0] == '__fixture' &&
+        segments[1] == 'projects' &&
+        segments[2] == 'enable') {
+      for (final (index, id, name) in [
+        (1, _searchProjectAlpha, 'Search Project Alpha'),
+        (2, _searchProjectBeta, 'Search Project Beta'),
+      ]) {
+        projectService.seed(
+          Project(
+            id: id,
+            name: name,
+            remoteUrl: '',
+            localPath: projectDirectories[index].path,
+            defaultBranch: 'main',
+            status: ProjectStatus.ready,
+            createdAt: DateTime.now(),
+          ),
+        );
+      }
+      return Response.ok('{}', headers: const {'content-type': 'application/json'});
+    }
+    if (request.method == 'POST' &&
+        segments.length == 4 &&
+        segments[0] == '__fixture' &&
+        segments[1] == 'projects' &&
+        segments[2] == 'remove') {
+      projectService.remove(segments[3]);
+      return Response.ok('{}', headers: const {'content-type': 'application/json'});
+    }
     if (request.method == 'POST' &&
         segments.length == 3 &&
         segments[0] == '__fixture' &&

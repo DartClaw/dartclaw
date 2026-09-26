@@ -49,9 +49,12 @@
     <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="active">Active</button>
     <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="settled">Settled</button>
     <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="archived">Archived</button>
-    <label class="sr-only" for="global-command-project">Project</label>
-    <input id="global-command-project" class="form-input form-input--search palette-project"
-           data-search-project placeholder="All projects">
+    <label class="sr-only" for="global-command-project" data-project-controls hidden>Project</label>
+    <select id="global-command-project" class="palette-project"
+            data-search-project data-project-controls hidden>
+      <option value=":all">All chats</option>
+      <option value="">General chats</option>
+    </select>
   </div>
   <div class="command-results" data-command-results role="listbox" aria-label="Search and command results"></div>
   <div class="palette-foot">

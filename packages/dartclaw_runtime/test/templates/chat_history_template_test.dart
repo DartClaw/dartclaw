@@ -11,6 +11,37 @@ void main() {
 
   final now = DateTime.utc(2026, 9, 14, 12, 30);
 
+  test('a project move stays visible between old and future messages without trusting its label as HTML', () {
+    final state = ConversationState(
+      records: [
+        ConversationDisplayRecord(
+          id: 'move-1',
+          attemptId: '',
+          turnId: '',
+          kind: ConversationRecordKind.contextChange,
+          state: ConversationRecordState.succeeded,
+          label: 'Moved to <project>. Future messages run there; earlier history stays here.',
+          createdAt: now.add(const Duration(minutes: 1)),
+          updatedAt: now.add(const Duration(minutes: 1)),
+        ),
+      ],
+    );
+    final html = messagesHtmlFragment([
+      classifyMessage(id: 'old', role: 'user', content: 'Earlier question', createdAt: now),
+      classifyMessage(
+        id: 'new',
+        role: 'user',
+        content: 'Next question',
+        createdAt: now.add(const Duration(minutes: 2)),
+      ),
+    ], conversationState: state);
+
+    expect(html.indexOf('Earlier question'), lessThan(html.indexOf('conversation-context-marker')));
+    expect(html.indexOf('conversation-context-marker'), lessThan(html.indexOf('Next question')));
+    expect(html, contains('Moved to &lt;project&gt;'));
+    expect(html, isNot(contains('<project>')));
+  });
+
   ConversationSubmissionClaim submission({ConversationWorkState state = ConversationWorkState.failed}) =>
       ConversationSubmissionClaim(
         submissionId: 'submission-1',

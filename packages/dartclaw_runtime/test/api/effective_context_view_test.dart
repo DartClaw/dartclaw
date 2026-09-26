@@ -60,6 +60,33 @@ void main() {
     }
   });
 
+  test('next general association wins over the previous project and exposes no synthetic project', () async {
+    final state = ConversationState()
+        .admitContext(
+          const EffectiveConversationContext(
+            projectId: 'previous',
+            directory: '/checkout',
+            referenceRoot: '/checkout',
+            provider: 'claude',
+          ),
+        )
+        .stageContext(
+          const EffectiveConversationContext(
+            projectId: null,
+            directory: '/owner',
+            referenceRoot: '/owner',
+            provider: 'claude',
+          ),
+        );
+    final projection = await view(state);
+    expect(projection['projectId'], isNull);
+    expect(projection['project'], 'General chat');
+    expect(projection['directory'], '/owner');
+    expect(projection['current'], contains('previous'));
+    expect(projection['next'], contains('General chat'));
+    expect(projection['projects'], isEmpty);
+  });
+
   // The composer pill is read as a claim about the next turn. A segment nobody
   // has selected has to be absent, because a stand-in reads as a selection.
   test('the composer label omits segments the conversation has not selected', () async {

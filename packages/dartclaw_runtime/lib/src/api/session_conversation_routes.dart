@@ -42,6 +42,7 @@ void registerSessionConversationRoutes(
           defaultProvider,
           contextCapabilities,
           catalogues: modelCatalogues,
+          ownerWorkspaceDir: conversation.ownerWorkspaceDir,
         ),
       ),
       'activity': {
@@ -63,7 +64,8 @@ void registerSessionConversationRoutes(
       if (body.error != null) return errorResponse(400, 'INVALID_INPUT', 'JSON body must be an object');
       final value = body.value!;
       if (value['conversation_revision'] is! int ||
-          value['project_id'] is! String ||
+          !value.containsKey('project_id') ||
+          (value['project_id'] != null && value['project_id'] is! String) ||
           value['directory'] is! String ||
           value['provider'] is! String) {
         return errorResponse(
@@ -75,7 +77,7 @@ void registerSessionConversationRoutes(
       final state = await conversation.updateContext(
         sessionId: id,
         expectedRevision: value['conversation_revision'] as int,
-        projectId: value['project_id'] as String,
+        projectId: value['project_id'] as String?,
         directory: value['directory'] as String,
         provider: value['provider'] as String,
         model: value['model'] as String?,
@@ -97,6 +99,7 @@ void registerSessionConversationRoutes(
             defaultProvider,
             contextCapabilities,
             catalogues: modelCatalogues,
+            ownerWorkspaceDir: conversation.ownerWorkspaceDir,
           ),
         ),
       );

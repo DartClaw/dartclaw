@@ -14,7 +14,7 @@ enum ConversationWorkState {
   removed,
 }
 
-enum ConversationRecordKind { tool, approval }
+enum ConversationRecordKind { tool, approval, contextChange }
 
 enum ConversationRecordState {
   running,
@@ -187,7 +187,7 @@ final class ConversationBranchLink {
 
 /// Selectable context captured at ordinary-conversation admission.
 final class EffectiveConversationContext {
-  final String projectId;
+  final String? projectId;
   final String directory;
   final String referenceRoot;
   final String provider;
@@ -213,7 +213,7 @@ final class EffectiveConversationContext {
   };
 
   factory fromJson(Map<String, dynamic> json) => EffectiveConversationContext(
-    projectId: json['projectId'] as String,
+    projectId: json['projectId'] as String?,
     directory: json['directory'] as String,
     referenceRoot: json['referenceRoot'] as String,
     provider: json['provider'] as String,

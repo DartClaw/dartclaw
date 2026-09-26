@@ -32,9 +32,22 @@ void main() {
         status: ProjectStatus.ready,
         createdAt: DateTime.utc(2026, 9, 14),
       ),
+      projects: [
+        Project(
+          id: 'selected',
+          name: 'Selected',
+          remoteUrl: '',
+          localPath: root.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.utc(2026, 9, 14),
+        ),
+      ],
+      defaultProjectId: 'selected',
     );
     conversation = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -51,15 +64,149 @@ void main() {
 
   tearDown(() => root.deleteSync(recursive: true));
 
+  test('owner web context starts general despite a configured default project', () async {
+    final owner = Directory('${root.path}/owner')..createSync();
+    final checkout = Directory('${root.path}/checkout')..createSync();
+    final service = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      ownerWorkspaceDir: owner.path,
+      projects: FakeProjectService(
+        localProject: Project(
+          id: '_local',
+          name: 'Local',
+          remoteUrl: '',
+          localPath: root.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.utc(2026, 9, 14),
+        ),
+        projects: [
+          Project(
+            id: 'checkout',
+            name: 'Checkout',
+            remoteUrl: '',
+            localPath: checkout.path,
+            defaultBranch: 'main',
+            status: ProjectStatus.ready,
+            createdAt: DateTime.utc(2026, 9, 14),
+          ),
+        ],
+        defaultProjectId: 'checkout',
+      ),
+    );
+    final ownerSession = await sessions.createSession();
+
+    final state = await service.snapshot(ownerSession.id);
+    expect(state.nextContext?.projectId, isNull);
+    expect(state.nextContext?.directory, owner.resolveSymbolicLinksSync());
+    expect(state.nextContext?.referenceRoot, owner.resolveSymbolicLinksSync());
+
+    final admitted = await _submit(service, ownerSession.id, 'general');
+    expect(admitted.submission.admittedContext?.projectId, isNull);
+    expect(turns.context?.directory, owner.resolveSymbolicLinksSync());
+    expect((await sessions.getSession(ownerSession.id))?.workspace, isNull);
+  });
+
+  test('general root rejects checkout paths and _local without changing context', () async {
+    final owner = Directory('${root.path}/owner')..createSync();
+    final nested = Directory('${owner.path}/nested')..createSync();
+    final checkout = Directory('${root.path}/checkout')..createSync();
+    final service = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      ownerWorkspaceDir: owner.path,
+      projects: FakeProjectService(
+        localProject: Project(
+          id: '_local',
+          name: 'Local',
+          remoteUrl: '',
+          localPath: root.path,
+          defaultBranch: 'main',
+          status: ProjectStatus.ready,
+          createdAt: DateTime.utc(2026, 9, 14),
+        ),
+      ),
+    );
+    final ownerSession = await sessions.createSession();
+    final before = await service.snapshot(ownerSession.id);
+
+    for (final (projectId, directory, code) in [
+      (null, checkout.path, 'DIRECTORY_FORBIDDEN'),
+      (null, nested.path, 'DIRECTORY_FORBIDDEN'),
+      ('_local', root.path, 'PROJECT_FORBIDDEN'),
+    ]) {
+      await expectLater(
+        service.updateContext(
+          sessionId: ownerSession.id,
+          expectedRevision: before.revision,
+          projectId: projectId,
+          directory: directory,
+          provider: 'claude',
+        ),
+        throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', code)),
+      );
+      expect((await service.snapshot(ownerSession.id)).toJson(), before.toJson());
+    }
+  });
+
+  test('a stored general reference root outside owner workspace cannot dispatch', () async {
+    final owner = Directory('${root.path}/owner')..createSync();
+    final checkout = Directory('${root.path}/checkout')..createSync();
+    File('${checkout.path}/secret.md').writeAsStringSync('checkout-only');
+    final service = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: owner.path,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+    final ownerSession = await sessions.createSession();
+    final initial = await service.snapshot(ownerSession.id);
+    final context = initial.nextContext!;
+    await sessions.updateConversationState(
+      ownerSession.id,
+      ConversationState(
+        revision: initial.revision,
+        nextContext: EffectiveConversationContext(
+          projectId: null,
+          directory: context.directory,
+          referenceRoot: checkout.resolveSymbolicLinksSync(),
+          provider: context.provider,
+        ),
+      ),
+    );
+
+    await expectLater(
+      service.submit(
+        sessionId: ownerSession.id,
+        submissionId: 'tampered-root',
+        revisionId: 'tampered-root-r1',
+        message: 'Read secret.md',
+        attachments: const [],
+        references: const [
+          {'type': 'file', 'id': 'secret.md'},
+        ],
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'CONTEXT_INVALID')),
+    );
+    expect(turns.reserveCalled, isFalse);
+    expect((await sessions.getConversationState(ownerSession.id)).submissions, isEmpty);
+  });
+
   test('session context stages by revision and admission snapshots one next-turn context', () async {
     final initial = await conversation.snapshot(sessionId);
-    expect(initial.nextContext?.projectId, '_local');
+    expect(initial.nextContext?.projectId, 'selected');
     expect((await sessions.getSession(sessionId))?.workspace?.storagePrincipal, 'agent:configured-agent');
 
     final staged = await conversation.updateContext(
       sessionId: sessionId,
       expectedRevision: initial.revision,
-      projectId: '_local',
+      projectId: 'selected',
       directory: root.path,
       provider: 'claude',
       model: 'opus',
@@ -76,7 +223,7 @@ void main() {
     final next = await conversation.updateContext(
       sessionId: sessionId,
       expectedRevision: active.snapshot.revision,
-      projectId: '_local',
+      projectId: 'selected',
       directory: root.path,
       provider: 'claude',
       model: 'sonnet',
@@ -90,6 +237,7 @@ void main() {
 
     final reloaded = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -116,16 +264,17 @@ void main() {
     final accepted = await conversation.updateContext(
       sessionId: sessionId,
       expectedRevision: initial.revision,
-      projectId: '_local',
+      projectId: 'selected',
       directory: root.path,
       provider: 'claude',
+      model: 'opus',
     );
 
     for (final mutation in [
       () => conversation.updateContext(
         sessionId: sessionId,
         expectedRevision: initial.revision,
-        projectId: '_local',
+        projectId: 'selected',
         directory: root.path,
         provider: 'claude',
       ),
@@ -139,7 +288,7 @@ void main() {
       () => conversation.updateContext(
         sessionId: sessionId,
         expectedRevision: accepted.revision,
-        projectId: '_local',
+        projectId: 'selected',
         directory: root.path,
         provider: 'acp',
         model: 'ignored-model',
@@ -174,6 +323,7 @@ void main() {
     File('${projectA.path}/retained.md').writeAsStringSync('retained draft reference');
     final service = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),
@@ -225,7 +375,7 @@ void main() {
     expect(await messages.getMessages(draftSession), isEmpty);
   });
 
-  test('queue edits validate references against the item admitted context before mutation', () async {
+  test('queue edits validate admitted references while project moves are blocked', () async {
     final projectA = Directory('${root.path}/project-a')..createSync();
     final projectB = Directory('${root.path}/project-b')..createSync();
     File('${projectA.path}/a.md').writeAsStringSync('A');
@@ -233,6 +383,7 @@ void main() {
     final localTurns = _ContextTurns(messages, FakeAgentHarness());
     final service = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: localTurns,
       mutations: SessionMutationCoordinator(),
@@ -249,6 +400,15 @@ void main() {
         ),
         projects: [
           Project(
+            id: 'project-a',
+            name: 'Project A',
+            remoteUrl: '',
+            localPath: projectA.path,
+            defaultBranch: 'main',
+            status: ProjectStatus.ready,
+            createdAt: DateTime.utc(2026, 9, 14),
+          ),
+          Project(
             id: 'project-b',
             name: 'Project B',
             remoteUrl: '',
@@ -262,6 +422,14 @@ void main() {
       ),
     );
     final queueSession = (await sessions.createSession()).id;
+    final general = await service.snapshot(queueSession);
+    await service.updateContext(
+      sessionId: queueSession,
+      expectedRevision: general.revision,
+      projectId: 'project-a',
+      directory: projectA.path,
+      provider: 'claude',
+    );
     await _submit(service, queueSession, 'active-a');
     final queued = await service.submit(
       sessionId: queueSession,
@@ -273,12 +441,15 @@ void main() {
         {'type': 'file', 'id': 'a.md'},
       ],
     );
-    final stagedB = await service.updateContext(
-      sessionId: queueSession,
-      expectedRevision: queued.snapshot.revision,
-      projectId: 'project-b',
-      directory: projectB.path,
-      provider: 'claude',
+    await expectLater(
+      service.updateContext(
+        sessionId: queueSession,
+        expectedRevision: queued.snapshot.revision,
+        projectId: 'project-b',
+        directory: projectB.path,
+        provider: 'claude',
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'CONTEXT_MOVE_BUSY')),
     );
     final before = (await service.snapshot(queueSession)).toJson();
     final messagesBefore = (await messages.getMessages(queueSession)).map((message) => message.toJson()).toList();
@@ -288,7 +459,7 @@ void main() {
         service.editQueueItem(
           sessionId: queueSession,
           queueId: queued.submission.queueId!,
-          expectedRevision: stagedB.revision,
+          expectedRevision: queued.snapshot.revision,
           revisionId: 'queued-a-$invalid',
           message: 'must remain unchanged',
           attachments: const [],
@@ -305,7 +476,7 @@ void main() {
     final valid = await service.editQueueItem(
       sessionId: queueSession,
       queueId: queued.submission.queueId!,
-      expectedRevision: stagedB.revision,
+      expectedRevision: queued.snapshot.revision,
       revisionId: 'queued-a-r2',
       message: 'still admitted under A',
       attachments: const [],
@@ -313,7 +484,7 @@ void main() {
         {'type': 'file', 'id': 'a.md'},
       ],
     );
-    expect(valid.submission.admittedContext?.projectId, '_local');
+    expect(valid.submission.admittedContext?.projectId, 'project-a');
     expect(valid.submission.references.single['id'], 'a.md');
   });
   test('recovery branches retain the selected project and reject stale references before copying', () async {
@@ -343,6 +514,7 @@ void main() {
     );
     final service = ConversationService(
       sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
       messages: messages,
       turns: turns,
       mutations: SessionMutationCoordinator(),

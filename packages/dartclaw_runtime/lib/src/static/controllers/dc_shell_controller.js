@@ -1156,7 +1156,7 @@ export default class DcShellController extends Stimulus.Controller {
 
   setSelectMode(on) {
     this.loadInboxView().selectMode = on;
-    document.querySelector('[data-inbox-list]')?.setAttribute('data-inbox-select-mode', String(on));
+    document.querySelector('.sidebar-body')?.setAttribute('data-inbox-select-mode', String(on));
     if (!on) {
       for (const input of document.querySelectorAll('[data-inbox-select]:checked')) input.checked = false;
     }

@@ -42,6 +42,44 @@ void main() {
     expect(html, isNot(contains('<project>')));
   });
 
+  test('a move marker appears once at its boundary across paged history', () {
+    final state = ConversationState(
+      records: [
+        ConversationDisplayRecord(
+          id: 'move-1',
+          attemptId: '',
+          turnId: '',
+          kind: ConversationRecordKind.contextChange,
+          state: ConversationRecordState.succeeded,
+          label: 'Moved to project',
+          createdAt: now.add(const Duration(minutes: 2)),
+          updatedAt: now.add(const Duration(minutes: 2)),
+        ),
+      ],
+    );
+    final older = messagesHtmlFragment(
+      [classifyMessage(id: 'old', role: 'user', content: 'Earlier question', createdAt: now)],
+      conversationState: state,
+      includeTrailingMarkers: false,
+    );
+    final latest = messagesHtmlFragment(
+      [
+        classifyMessage(
+          id: 'new',
+          role: 'user',
+          content: 'Next question',
+          createdAt: now.add(const Duration(minutes: 3)),
+        ),
+      ],
+      conversationState: state,
+      markerAfter: now,
+    );
+
+    expect(older, isNot(contains('id="record-move-1"')));
+    expect(latest, contains('id="record-move-1"'));
+    expect(latest.indexOf('record-move-1'), lessThan(latest.indexOf('Next question')));
+  });
+
   ConversationSubmissionClaim submission({ConversationWorkState state = ConversationWorkState.failed}) =>
       ConversationSubmissionClaim(
         submissionId: 'submission-1',

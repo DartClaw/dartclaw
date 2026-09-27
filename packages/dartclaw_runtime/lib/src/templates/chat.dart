@@ -116,11 +116,19 @@ String messagesHtmlFragment(
   ConversationState? conversationState,
   bool Function(ConversationDisplayRecord record)? approvalAvailable,
   Map<String, dynamic>? effectiveContext,
+  DateTime? markerAfter,
+  bool includeTrailingMarkers = true,
 }) {
   final src = templateLoader.source('chat');
+  final lastMessageAt = messages.lastOrNull?.createdAt;
   final contextMarkers =
       (conversationState?.records ?? const <ConversationDisplayRecord>[])
-          .where((record) => record.kind == ConversationRecordKind.contextChange)
+          .where(
+            (record) =>
+                record.kind == ConversationRecordKind.contextChange &&
+                (markerAfter == null || record.createdAt.isAfter(markerAfter)) &&
+                (includeTrailingMarkers || (lastMessageAt != null && !record.createdAt.isAfter(lastMessageAt))),
+          )
           .toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
   if (messages.isEmpty) {
@@ -538,6 +546,7 @@ String chatAreaTemplate({
       'selected': true,
     });
   }
+  final showProjectControl = currentProjectId != null || projectOptions.isNotEmpty;
 
   // Trellis auto-escapes attribute values set via tl:attr, so pass raw sessionId.
   return templateLoader.trellis.renderFragment(
@@ -576,6 +585,7 @@ String chatAreaTemplate({
       'effectiveContext': effectiveContext,
       'contextProjects': projectOptions,
       'hasEffectiveContext': effectiveContext != null,
+      'showProjectControl': showProjectControl,
     },
   );
 }

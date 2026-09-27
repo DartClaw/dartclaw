@@ -49,8 +49,8 @@ void main() {
       expect(html, contains('data-inbox-group="$group"'));
     }
     expect(html, contains('data-inbox-select-toggle'));
-    // `data-inbox-select-mode` is the list's state attribute, written by the
-    // controller. Markup carrying it too made every click inside the list match
+    // `data-inbox-select-mode` is the rail body's state attribute, written by
+    // the controller. Markup carrying it too made every click inside the rail match
     // the command hook, so the rail toggled the mode instead of selecting a row.
     expect(html, isNot(contains('data-inbox-select-mode')));
     // The <select> and the always-visible "Next attention" / "Settle selected"

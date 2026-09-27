@@ -282,6 +282,7 @@ Router webRoutes(
       final targetMessageId = request.url.queryParameters['message'];
       late final List<Message> msgs;
       late final bool hasEarlierMessages;
+      DateTime? markerAfter;
       var targetUnavailable = false;
       if (targetMessageId != null) {
         try {
@@ -296,14 +297,16 @@ Router webRoutes(
           msgs = const [];
         }
         targetUnavailable = msgs.isEmpty;
-        hasEarlierMessages =
-            msgs.isNotEmpty &&
-            (await messages.getMessagesBeforeWhere(
-              id,
-              msgs.first.cursor,
-              include: (message) => conversationState.includesMessage(message.id),
-              count: 1,
-            )).isNotEmpty;
+        final priorMessages = msgs.isEmpty
+            ? const <Message>[]
+            : await messages.getMessagesBeforeWhere(
+                id,
+                msgs.first.cursor,
+                include: (message) => conversationState.includesMessage(message.id),
+                count: 1,
+              );
+        hasEarlierMessages = priorMessages.isNotEmpty;
+        markerAfter = priorMessages.lastOrNull?.createdAt;
       } else {
         final boundedMessages = await messages.getMessagesTailWhere(
           id,
@@ -311,6 +314,7 @@ Router webRoutes(
           count: 201,
         );
         hasEarlierMessages = boundedMessages.length > 200;
+        markerAfter = hasEarlierMessages ? boundedMessages.first.createdAt : null;
         msgs = hasEarlierMessages ? boundedMessages.sublist(1) : boundedMessages;
       }
       final messageList = msgs
@@ -347,6 +351,7 @@ Router webRoutes(
       final msgsHtml = messagesHtmlFragment(
         messageList,
         conversationState: conversationState,
+        markerAfter: markerAfter,
         effectiveContext: effectiveContext,
         approvalAvailable: (record) =>
             turns?.canResolveToolApproval(sessionId: id, turnId: record.turnId, requestId: record.id) ?? false,
@@ -470,6 +475,8 @@ Router webRoutes(
           ? messagesHtmlFragment(
               messageList,
               conversationState: state,
+              markerAfter: hasEarlierMessages ? boundedMessages.first.createdAt : null,
+              includeTrailingMarkers: beforeCursor == null,
               approvalAvailable: (record) =>
                   turns?.canResolveToolApproval(sessionId: id, turnId: record.turnId, requestId: record.id) ?? false,
             )

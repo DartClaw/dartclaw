@@ -9,6 +9,10 @@ void main() {
     await expectNodeHarness(_inboxViewHarness, [(await controller).absolute.uri.toString()]);
   });
 
+  test('select mode reaches project rows and keeps their bulk settle selection', () async {
+    await expectNodeHarness(_projectSelectionHarness, [(await controller).absolute.uri.toString()]);
+  });
+
   test('rail width defaults to 280, clamps 240-420 and persists every change', () async {
     await expectNodeHarness(_resizeHarness, [(await controller).absolute.uri.toString()]);
   });
@@ -136,7 +140,7 @@ const persisted = JSON.parse(globalThis.storage.get('dartclaw-inbox-view'));
 assert(persisted.filter === 'waiting', 'the chosen filter was not persisted');
 assert(!('selectMode' in persisted), 'select mode was persisted as a preference');
 
-// Only the view-options command toggles select mode. The list carries
+// Only the view-options command toggles select mode. The rail body carries
 // `data-inbox-select-mode` as its own state, so a click on a row — or on the
 // checkbox — reaches the document handler with that attribute above it.
 const clickOn = (selectors) => ({
@@ -208,4 +212,35 @@ assert(globalThis.documentElement.dataset.railCollapsed === 'true', 'collapsing 
 assert(globalThis.storage.get('dartclaw-rail-collapsed') === 'true', 'the collapsed rail was not remembered');
 controller.setRailCollapsed(false);
 assert(globalThis.documentElement.dataset.railCollapsed === 'false', 'expanding did not clear the marker');
+''';
+
+const _projectSelectionHarness =
+    _prelude +
+    r'''
+const attributes = {};
+const body = { setAttribute(name, value) { attributes[name] = value; } };
+const projectCheckbox = { checked: false };
+const settleButton = { disabled: true };
+const selectedCount = { textContent: '' };
+const bulk = {
+  hidden: true,
+  querySelector(selector) {
+    return selector === '[data-inbox-selected-count]' ? selectedCount : settleButton;
+  },
+};
+globalThis.document.querySelector = (selector) => ({
+  '.sidebar-body': body,
+  '[data-inbox-bulk]': bulk,
+})[selector] || null;
+globalThis.document.querySelectorAll = (selector) =>
+  selector === '[data-inbox-select]:checked' && projectCheckbox.checked ? [projectCheckbox] : [];
+
+controller.setSelectMode(true);
+assert(attributes['data-inbox-select-mode'] === 'true', 'project rows did not enter select mode');
+projectCheckbox.checked = true;
+controller.syncBulkBar();
+assert(selectedCount.textContent === '1 selected', 'project row was not counted');
+assert(settleButton.disabled === false, 'project row did not enable bulk settle');
+controller.setSelectMode(false);
+assert(projectCheckbox.checked === false, 'project selection remained checked');
 ''';

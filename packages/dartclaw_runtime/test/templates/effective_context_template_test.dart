@@ -48,6 +48,24 @@ void main() {
     expect(html, isNot(contains('data-identicon-id="_local"')));
   });
 
+  test('project-free general chat has no composer project control', () {
+    final html = chatAreaTemplate(
+      sessionId: 'general-1',
+      messagesHtml: '',
+      effectiveContext: const {
+        'project': 'General chat',
+        'projectId': null,
+        'directory': '/owner',
+        'composer': 'Claude',
+        'projects': [],
+      },
+    );
+
+    expect(html, isNot(contains('id="effective-context-open"')));
+    expect(html, isNot(contains('id="effective-context-project-pop"')));
+    expect(html, contains('id="effective-context-composer-provider"'));
+  });
+
   test('Agent does not expose a move action', () {
     final html = chatAreaTemplate(
       sessionId: 'agent',

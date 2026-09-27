@@ -712,6 +712,47 @@ void main() {
       expect(res.headers['x-dartclaw-earliest-cursor'], '1');
       expect(res.headers['x-dartclaw-has-earlier-messages'], 'false');
     });
+
+    test('paged history places a move marker in only its message window', () async {
+      final session = await sessions.createSession();
+      DateTime? movedAt;
+      for (var i = 1; i <= 260; i++) {
+        final message = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Message $i');
+        if (i == 30) movedAt = message.createdAt;
+      }
+      await sessions.updateConversationState(
+        session.id,
+        ConversationState(
+          records: [
+            ConversationDisplayRecord(
+              id: 'move-1',
+              attemptId: '',
+              turnId: '',
+              kind: ConversationRecordKind.contextChange,
+              state: ConversationRecordState.succeeded,
+              label: 'Moved to project',
+              createdAt: movedAt!,
+              updatedAt: movedAt,
+            ),
+          ],
+        ),
+      );
+
+      Future<String> load([String suffix = '']) async {
+        final res = await handler(
+          Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html$suffix')),
+        );
+        expect(res.statusCode, 200);
+        return res.readAsString();
+      }
+
+      expect(await load(), isNot(contains('id="record-move-1"')));
+      final middle = await load('?before=61');
+      expect(middle, contains('id="record-move-1"'));
+      expect(middle.indexOf('Message 29'), lessThan(middle.indexOf('record-move-1')));
+      expect(middle.indexOf('record-move-1'), lessThan(middle.indexOf('Message 31')));
+      expect(await load('?before=11'), isNot(contains('id="record-move-1"')));
+    });
   });
 
   group('GET /sessions/<id>/info', () {

@@ -163,7 +163,7 @@
                   aria-label="Attach files" title="Attach files" data-action="dc-chat#openAttach"></button>
           <button type="button" class="btn btn-icon" data-icon="square-slash" title="Slash commands (/)"
                   aria-label="Slash commands (/)" data-action="dc-chat#openCommands"></button>
-          <button tl:if="${hasEffectiveContext}" id="effective-context-open" type="button"
+          <button tl:if="${showProjectControl}" id="effective-context-open" type="button"
                   class="chip chip--ref composer-context-chip" aria-haspopup="dialog" aria-expanded="false"
                   aria-controls="effective-context-project-pop" data-action="dc-chat#toggleContextPopover">
             <span tl:if="${effectiveContext.projectId}" class="identicon" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span>
@@ -203,12 +203,11 @@
         </div>
       </form>
       <div id="composer-live-status" class="sr-only" data-dc-chat-target="liveStatus" role="status" aria-live="polite"></div>
-      <!-- Two controls, two popovers, one apply path: each trigger opens the
-           fields it names, and every committed change applies to the next turn
-           with one payload built from both forms. Workspace, measurement,
+      <!-- Each available control opens the fields it names, and committed changes apply to the next turn.
+           Workspace, measurement,
            behavior, memory and the current turn are read-only facts, and
            Session info already lists them. -->
-      <div tl:if="${hasEffectiveContext}" id="effective-context-project-pop" class="pop pop-project card card-elevated"
+      <div tl:if="${showProjectControl}" id="effective-context-project-pop" class="pop pop-project card card-elevated"
            role="dialog" aria-labelledby="effective-context-project-title" hidden>
         <div class="pop-head">
           <span id="effective-context-project-title">Project</span>

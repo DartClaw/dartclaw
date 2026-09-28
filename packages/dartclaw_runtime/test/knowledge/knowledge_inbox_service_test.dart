@@ -1,5 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -434,10 +435,21 @@ Celebrity gossip should be excluded.
         return const {};
       },
     );
-    Future<void>.delayed(const Duration(milliseconds: 1), () => file.writeAsStringSync('changed content'));
+    var changedDuringWindow = false;
+    final report = await runZoned(
+      () => service.runOnce(),
+      zoneSpecification: ZoneSpecification(
+        createTimer: (self, parent, zone, duration, callback) {
+          if (!changedDuringWindow && duration == service.stabilityWindow) {
+            changedDuringWindow = true;
+            file.writeAsStringSync('changed content');
+          }
+          return parent.createTimer(zone, duration, callback);
+        },
+      ),
+    );
 
-    final report = await service.runOnce();
-
+    expect(changedDuringWindow, isTrue);
     expect(report.skipped.single.reason, 'file is still changing');
     expect(file.existsSync(), isTrue);
     expect(File(p.join(workspace.path, 'skipped', 'draft.md')).existsSync(), isFalse);

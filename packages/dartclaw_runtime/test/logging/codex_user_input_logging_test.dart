@@ -8,6 +8,8 @@ import 'package:dartclaw_runtime/src/logging/log_service.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
+import '../test_utils.dart';
+
 Future<void> _emitHostedQuestion(String format, String logPath) async {
   final service = LogService.fromConfig(
     format: format,
@@ -95,9 +97,8 @@ Future<void> main() async {
       final directory = Directory.systemTemp.createTempSync('codex_user_input_logging');
       addTearDown(() => directory.deleteSync(recursive: true));
       final logFile = File('${directory.path}/harness.log');
-      final file =
-          '${Directory.current.path}/packages/dartclaw_runtime/test/logging/codex_user_input_logging_test.dart';
-      final packageConfig = '${Directory.current.path}/.dart_tool/package_config.json';
+      final file = await resolveServerPackagePath('test', 'logging', 'codex_user_input_logging_test.dart');
+      final packageConfig = await resolveWorkspacePath('.dart_tool', 'package_config.json');
       final result = await Process.run(
         Platform.resolvedExecutable,
         ['--packages=$packageConfig', file],

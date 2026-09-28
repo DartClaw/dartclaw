@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:dartclaw_cli/src/commands/config_loader.dart';
 import 'package:dartclaw_cli/src/commands/workflow/standalone_lifecycle_support.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show LogService;
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -12,10 +14,20 @@ void main() {
       final directory = Directory.systemTemp.createTempSync('standalone_codex_logging');
       addTearDown(() => directory.deleteSync(recursive: true));
       final logFile = '${directory.path}/dartclaw.log';
-      final fixture =
-          '${Directory.current.path}/apps/dartclaw_cli/test/commands/workflow/fixtures/'
-          'standalone_codex_logging_probe.dart';
-      final packageConfig = '${Directory.current.path}/.dart_tool/package_config.json';
+      final library = await Isolate.resolvePackageUri(
+        Uri.parse('package:dartclaw_cli/src/commands/config_loader.dart'),
+      );
+      if (library == null) throw StateError('Could not resolve dartclaw_cli package root');
+      final packageRoot = File.fromUri(library).parent.parent.parent.parent.path;
+      final fixture = p.join(
+        packageRoot,
+        'test',
+        'commands',
+        'workflow',
+        'fixtures',
+        'standalone_codex_logging_probe.dart',
+      );
+      final packageConfig = p.join(Directory(packageRoot).parent.parent.path, '.dart_tool', 'package_config.json');
       final result = await Process.run(Platform.resolvedExecutable, [
         '--packages=$packageConfig',
         fixture,

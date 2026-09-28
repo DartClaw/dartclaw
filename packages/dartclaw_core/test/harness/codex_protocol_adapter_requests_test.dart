@@ -273,7 +273,11 @@ void main() {
 
         expect(
           request,
-          isA<ControlRequest>().having((request) => request.subtype, 'subtype', 'unsupported_server_request'),
+          isA<ControlRequest>().having(
+            (request) => request.subtype,
+            'subtype',
+            method == 'item/tool/requestUserInput' ? 'unsupported_user_input_request' : 'unsupported_server_request',
+          ),
           reason: method,
         );
         expect(adapter.buildApprovalResponse(method, allow: false), {

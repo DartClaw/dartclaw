@@ -7,6 +7,32 @@ import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 void main() {
+  for (final format in ['human', 'json']) {
+    test('standalone $format question warning reaches real stderr and file with redaction', () async {
+      final directory = Directory.systemTemp.createTempSync('standalone_codex_logging');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final logFile = '${directory.path}/dartclaw.log';
+      final fixture =
+          '${Directory.current.path}/apps/dartclaw_cli/test/commands/workflow/fixtures/'
+          'standalone_codex_logging_probe.dart';
+      final packageConfig = '${Directory.current.path}/.dart_tool/package_config.json';
+      final result = await Process.run(Platform.resolvedExecutable, [
+        '--packages=$packageConfig',
+        fixture,
+        logFile,
+        format,
+      ]);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
+      for (final content in [result.stderr as String, File(logFile).readAsStringSync()]) {
+        expect('Unsupported Codex user input'.allMatches(content), hasLength(1));
+        expect(content, contains('Blue'));
+        expect(content, isNot(contains('sk_test_ABCSECRET')));
+        expect(content, isNot(contains('CUSTOM_SENTINEL')));
+        expect(content.split('\n').where((line) => line.trim().isNotEmpty), hasLength(1));
+      }
+    });
+  }
+
   test('a standalone run installs a sink, so harness diagnostics are not discarded', () async {
     // Standalone lanes print only their own progress lines. Without an
     // installed sink every runtime record — provider stderr included — is

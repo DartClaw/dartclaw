@@ -687,6 +687,14 @@ Ordinary web approval cards follow actual native requests rather than the coarse
 the coarse `approval: on-request` and `unless-allow-listed` settings keep the guarded `dontAsk` host default and do not
 create a human prompt. `dontAsk`, `bypassPermissions`, background work, and unsupported providers remain non-interactive.
 
+Codex launches with `tools.experimental_request_user_input.enabled=false`, which disables the client-advertised
+`request_user_input` tool even if the Codex home enables it. Codex 0.155.1 can still emit
+`request_user_input_async`; DartClaw cannot collect an answer to a native mid-turn question. New Codex threads receive
+guidance to ask necessary clarification in a final reply for your next turn. If a native question arrives, DartClaw
+records its thread/turn/item identity, title and options as a WARNING in the configured stderr and optional file logs,
+subject to normal log level and redaction. The turn continues to its provider-reported outcome; no choice is inferred
+from an acknowledgement or recommended option. Existing threads keep their saved instructions.
+
 **Note on `harness.acp.agents`:** Each `harness.acp.agents.<id>` entry registers one ACP provider identity.
 
 - Required keys: `binary`, `args`, `topology`, `model_provider`, `verification`, `requires_guard_mediation`, and `required_builtins`. `container_isolation_required` defaults to `false`. `container_profile` still selects the profile the execution policy resolves to, so on a container-enabled deployment leaving it set pins the agent to a container policy that is then refused — omit it, or pair it with an explicit `execution: host`.

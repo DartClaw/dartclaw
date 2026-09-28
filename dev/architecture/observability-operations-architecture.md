@@ -3,7 +3,7 @@
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
 **Current through**: 0.27 PostgreSQL-only storage, conversation invalidation, attempt records, effective-context
-telemetry, inbox attention and action availability; plus retrieval, capacity and alerting.
+telemetry, inbox attention, Codex question diagnostics and action availability; plus retrieval, capacity and alerting.
 
 ---
 
@@ -372,6 +372,10 @@ Two implementations:
 - **JsonFormatter**: NDJSON with `level`, `time`, `logger`, `message`, optional `sessionId`, `turnId`, `error`, `stackTrace`
 
 Both apply `LogRedactor` (delegates to `MessageRedactor` from `dartclaw_core`) before output.
+Codex native questions that DartClaw cannot answer enter this standard WARNING path with selected source IDs, titles
+and options. The harness JSON-encodes untrusted fields before formatting so embedded newlines stay in one record.
+The hosted and standalone log setups retain the warning on stderr and in an enabled file sink under the configured
+level and built-in/custom redaction patterns. No rollout or full protocol frame is copied to the log.
 
 Sources: `packages/dartclaw_runtime/lib/src/logging/log_formatter.dart`, `log_redactor.dart`
 

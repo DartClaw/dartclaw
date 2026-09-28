@@ -61,6 +61,9 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
         case 'item/permissions/requestApproval':
           final requestId = _registerApproval(id, _ApprovalResponseKind.permissions);
           return ControlRequest(requestId: requestId, subtype: 'unsupported_permission_request', data: params);
+        case 'item/tool/requestUserInput':
+          final requestId = _registerApproval(id, _ApprovalResponseKind.unsupported);
+          return ControlRequest(requestId: requestId, subtype: 'unsupported_user_input_request', data: params);
         case 'mcpServer/elicitation/request':
           final requestId = _registerApproval(id, _ApprovalResponseKind.elicitation);
           if (stringValue(mapValue(params['_meta'])?['codex_approval_kind']) != 'mcp_tool_call') {

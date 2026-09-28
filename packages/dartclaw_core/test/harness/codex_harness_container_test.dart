@@ -173,6 +173,15 @@ void main() {
   });
 
   group('containerized Codex placement', () {
+    test('user input override reaches the container image process', () async {
+      final harness = _harness(container);
+      await _start(harness, container);
+      expect(
+        container.commands.last,
+        containsAllInOrder(['app-server', '-c', 'tools.experimental_request_user_input.enabled=false']),
+      );
+      await harness.stop();
+    });
     test('spawns the image binary inside the container, not on the host', () async {
       final harness = _harness(container);
       await _start(harness, container);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -103,6 +104,10 @@ class CodexHarness extends BaseHarness
   final Future<String?> Function()? prepareSubscriptionHome;
 
   static final _log = Logger('CodexHarness');
+  static const _userInputGuidance =
+      'DartClaw cannot collect answers from native mid-turn question tools. '
+      'If clarification is necessary, ask in your final reply so the user can answer in a subsequent turn. '
+      'A queued acknowledgement or recommended option is not a user answer.';
 
   final Map<String, ({String threadId, String? instructions})> _threads = {};
   String? _activeSessionId;
@@ -114,6 +119,7 @@ class CodexHarness extends BaseHarness
   Completer<Map<String, dynamic>>? _initializeCompleter;
   Completer<TurnResult>? _turnCompleter;
   final Set<String> _agentMessageDeltaIds = <String>{};
+  final Set<String> _reportedQuestionItems = <String>{};
   CodexEnvironment? _environment;
   String? _activeProviderSessionId;
   String? _activeThreadId;
@@ -433,7 +439,9 @@ class CodexHarness extends BaseHarness
     final deadline = effectiveTimeout > Duration.zero ? DateTime.now().add(effectiveTimeout) : null;
 
     try {
-      final scopedInstructions = systemPrompt.trim().isEmpty ? null : systemPrompt;
+      final scopedInstructions = systemPrompt.trim().isEmpty
+          ? _userInputGuidance
+          : '$systemPrompt\n\n$_userInputGuidance';
       var thread = _threads[sessionId];
       thread = providerSessionId != null && thread?.threadId != providerSessionId ? null : thread;
       if (providerSessionId == null && thread != null && thread.instructions != scopedInstructions) {
@@ -509,6 +517,7 @@ class CodexHarness extends BaseHarness
         _declineOperatorApproval(requestId, expired: false);
       }
       _agentMessageDeltaIds.clear();
+      _reportedQuestionItems.clear();
       _threadRequest = null;
       _turnCompleter = null;
       _activeSessionId = null;
@@ -606,7 +615,7 @@ class CodexHarness extends BaseHarness
     // Build app-server args with sandbox permissions from provider options.
     // The per-turn `sandbox` JSON-RPC parameter is ignored in app-server mode;
     // sandbox must be configured at process startup via `-c sandbox_permissions`.
-    final args = ['app-server'];
+    final args = ['app-server', '-c', 'tools.experimental_request_user_input.enabled=false'];
     final container = containerManager;
     // Containerized spawns always run danger-full-access: the container is the
     // isolation boundary, and Codex's own sandbox tooling can neither ship in
@@ -784,6 +793,7 @@ class CodexHarness extends BaseHarness
     if (_isUnrelatedTurnNotification(decoded)) {
       return;
     }
+    _recordUserInputQuestion(decoded);
     _emitCompletedAgentMessageFallback(line);
     _handlePendingResponse(line);
 
@@ -925,6 +935,77 @@ class CodexHarness extends BaseHarness
     return false;
   }
 
+  void _recordUserInputQuestion(Map<String, dynamic>? decoded) {
+    final method = stringValue(decoded?['method']);
+    final params = mapValue(decoded?['params']);
+    final isRequest = method == 'item/tool/requestUserInput';
+    final item = isRequest ? params : mapValue(params?['item']);
+    final isMessage =
+        (method == 'item/started' || method == 'item/completed') &&
+        (stringValue(item?['type']) == 'agentMessage' || stringValue(item?['type']) == 'agent_message');
+    final isSummary = method == 'turn/completed';
+    if (!isRequest && !isMessage && !isSummary) return;
+
+    final completer = _turnCompleter;
+    final threadId = stringValue(params?['threadId']);
+    final turnId = stringValue(params?['turnId']) ?? stringValue(mapValue(params?['turn'])?['id']);
+    if (completer == null ||
+        completer.isCompleted ||
+        threadId == null ||
+        threadId != _activeThreadId ||
+        turnId == null ||
+        turnId != _activeTurnId) {
+      return;
+    }
+
+    final items = isSummary ? listValue(mapValue(params?['turn'])?['items']) : null;
+    if (isSummary) {
+      if (items == null) return;
+      for (final raw in items) {
+        final summaryItem = mapValue(raw);
+        final type = stringValue(summaryItem?['type']);
+        if (type == 'agentMessage' || type == 'agent_message') {
+          _reportQuestionItem(summaryItem, threadId, turnId);
+        }
+      }
+      return;
+    }
+    _reportQuestionItem(item, threadId, turnId, itemId: isRequest ? stringValue(params?['itemId']) : null);
+  }
+
+  void _reportQuestionItem(Map<String, dynamic>? item, String threadId, String turnId, {String? itemId}) {
+    final rawQuestions = item?['questions'];
+    if (rawQuestions == null) return;
+    final id = itemId ?? stringValue(item?['id']);
+    final source = 'thread=${jsonEncode(threadId)} turn=${jsonEncode(turnId)} item=${jsonEncode(id ?? 'unknown')}';
+    if (id != null && !_reportedQuestionItems.add(id)) return;
+
+    final questions = <Map<String, dynamic>>[];
+    if (rawQuestions is List && rawQuestions.isNotEmpty) {
+      for (final raw in rawQuestions) {
+        final question = mapValue(raw);
+        final title = question?['title'];
+        final options = question?['options'];
+        if (title is! String ||
+            title.trim().isEmpty ||
+            options is! List ||
+            !options.every((option) => option is String && option.trim().isNotEmpty)) {
+          questions.clear();
+          break;
+        }
+        questions.add({'title': title, 'options': options});
+      }
+    }
+    if (questions.isEmpty) {
+      _log.warning('Malformed Codex user input: $source; invalid questions metadata');
+      return;
+    }
+    _log.warning(
+      'Unsupported Codex user input: $source questions=${jsonEncode(questions)}. '
+      'No answer was supplied through DartClaw.',
+    );
+  }
+
   @override
   void handleProcessStderrLine(String line) {
     _log.warning('stderr: $line');
@@ -990,6 +1071,10 @@ class CodexHarness extends BaseHarness
     String? sessionId,
     String? agentId,
   }) async {
+    if (subtype == 'unsupported_user_input_request') {
+      _tryWriteApprovalResponse(requestId, allow: false, reason: 'Unsupported Codex request');
+      return;
+    }
     if (subtype == 'unsupported_elicitation' ||
         subtype == 'unsupported_permission_request' ||
         subtype == 'unsupported_command_request' ||

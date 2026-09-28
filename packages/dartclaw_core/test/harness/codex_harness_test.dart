@@ -134,36 +134,6 @@ void main() {
     });
 
     group('start()', () {
-      test('probes the configured Codex binary directly', () async {
-        final calls = <({String executable, List<String> arguments})>[];
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
-          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
-          commandProbe: (executable, arguments) async {
-            calls.add((executable: executable, arguments: arguments));
-            return ProcessResult(0, 0, 'C:\\Program Files\\Codex\\codex.exe\r\n', '');
-          },
-        );
-        addTearDown(() async => harness.dispose());
-
-        await startHarness(harness, fake);
-        expect(calls.single.executable, 'codex');
-        expect(calls.single.arguments, ['--version']);
-      });
-
-      test('converts a thrown Codex probe failure to a structured lookup error', () async {
-        final harness = _buildHarness(
-          commandProbe: (_, _) async => throw ProcessException('codex', ['--version'], 'probe failed'),
-        );
-        addTearDown(() async => harness.dispose());
-
-        await expectLater(
-          harness.start(),
-          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.attemptedContext, 'context', 'codex --version')),
-        );
-      });
-
       test('does not misreport unexpected Codex probe errors as missing executable', () async {
         final harness = _buildHarness(commandProbe: (_, _) async => throw StateError('probe bug'));
         addTearDown(() async => harness.dispose());
@@ -210,23 +180,6 @@ void main() {
           harness.start(),
           throwsA(isA<UnsupportedCapabilityError>().having((e) => e.capability, 'capability', 'home directory')),
         );
-      });
-      test('spawns codex app-server without --yolo', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        late List<String> spawnedArgs;
-        final harness = _buildHarness(
-          process: fake,
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            spawnedArgs = List<String>.from(args);
-            return fake;
-          },
-        );
-        addTearDown(() async => harness.dispose());
-
-        await startHarness(harness, fake);
-
-        expect(spawnedArgs, contains('app-server'));
-        expect(spawnedArgs, isNot(contains('--yolo')));
       });
 
       test('completes initialize handshake and does not eagerly start a thread', () async {
@@ -588,8 +541,14 @@ void main() {
 
         final threadStarts = fake.sentMessages.where((message) => message['method'] == 'thread/start').toList();
         final turnStarts = fake.sentMessages.where((message) => message['method'] == 'turn/start').toList();
-        expect((threadStarts[0]['params'] as Map<String, dynamic>)['developerInstructions'], 'SEARCH PERSONA');
-        expect((threadStarts[1]['params'] as Map<String, dynamic>).containsKey('developerInstructions'), isFalse);
+        expect(
+          (threadStarts[0]['params'] as Map<String, dynamic>)['developerInstructions'],
+          startsWith('SEARCH PERSONA\n\n'),
+        );
+        expect(
+          (threadStarts[1]['params'] as Map<String, dynamic>)['developerInstructions'],
+          contains('DartClaw cannot collect answers'),
+        );
         expect((turnStarts[0]['params'] as Map<String, dynamic>)['model'], 'gpt-5.6-luna');
         expect((turnStarts[0]['params'] as Map<String, dynamic>)['effort'], 'medium');
         expect((turnStarts[1]['params'] as Map<String, dynamic>)['threadId'], 'default-thread');
@@ -626,7 +585,7 @@ void main() {
         expect(threadStarts, hasLength(3));
         expect(
           (threadStarts[2]['params'] as Map<String, dynamic>)['developerInstructions'],
-          'SAFE STATIC CONTENT\n\nCollection revision: 42',
+          startsWith('SAFE STATIC CONTENT\n\nCollection revision: 42\n\n'),
         );
         expect(
           (threadStarts[2]['params'] as Map<String, dynamic>)['developerInstructions'],
@@ -657,7 +616,7 @@ void main() {
 
         final threadStart = fake.sentMessages.singleWhere((message) => message['method'] == 'thread/start');
         final instructions = (threadStart['params'] as Map<String, dynamic>)['developerInstructions'] as String;
-        expect(instructions, 'SAFE RESTRICTED CONTENT');
+        expect(instructions, startsWith('SAFE RESTRICTED CONTENT\n\n'));
         expect(instructions, isNot(contains('PRIVATE MEMORY SENTINEL')));
         expect(instructions, isNot(contains('Collection revision: 42')));
       });

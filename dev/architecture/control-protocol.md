@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.27 Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.27 Codex user-input diagnostics, Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -1104,7 +1104,7 @@ Codex integrates through `codex app-server`, a long-lived subprocess that speaks
 The Codex harness spawns the app-server binary directly:
 
 ```bash
-codex app-server
+codex app-server -c tools.experimental_request_user_input.enabled=false
 ```
 
 Startup uses a two-step handshake:
@@ -1120,6 +1120,10 @@ project becomes the turn cwd. Restricted and unconfigured agents send no additio
 
 Only after that does DartClaw create a thread with `thread/start`, or load an explicitly requested durable thread with
 `thread/resume {"threadId": "…"}`. The first ordinary turn for a session creates a thread; later turns reuse its cached ID.
+The process override applies to host and container launches, including restarts, and takes precedence over an enabled
+tool in the selected Codex home. Codex 0.155.1 removes the client-advertised `request_user_input` tool under this
+override, but a subscription-backed `request_user_input_async` call remains possible. A CLI that rejects the override
+fails startup; DartClaw does not retry without it.
 
 ### Model catalogue discovery (`model/list` + ephemeral `thread/start`)
 
@@ -1151,6 +1155,10 @@ The harness correlates response notifications with the active thread and, once `
 turn. Agent messages and terminal notifications from background subagent threads or an earlier turn cannot emit
 parent-response text, contribute usage, or settle the pending parent turn. Child tool lifecycle notifications continue
 through the approval and guard path.
+Every new thread receives developer instructions that DartClaw cannot collect native mid-turn question answers, that
+necessary clarification belongs in the final reply for a later user turn, and that a queued acknowledgement or
+recommendation is not an answer. Caller instructions remain intact. Local reuse compares these effective instructions;
+an explicit `thread/resume` retains instructions saved at thread creation. This does not retrofit older threads.
 
 When the app-server exits unexpectedly, DartClaw clears the cached thread IDs, restarts the process with backoff, re-runs the handshake, creates a fresh thread, and replays the saved history into the next `turn/start` request.
 
@@ -1170,6 +1178,13 @@ Codex emits turn and item notifications over stdout. DartClaw parses and maps th
 | `thread/tokenUsage/updated` | The turn's usage. `tokenUsage.last` is this turn's, `tokenUsage.total` the thread's running sum; `inputTokens` includes `cachedInputTokens`, normalised to the fresh-input convention on arrival. Held until the `turn/completed` it precedes |
 | `turn/failed` | Completes the pending turn with an error stop reason |
 
+An active turn's `agentMessage` with valid structured `questions` produces one WARNING per question item, carrying
+thread, turn and item IDs, question titles and options, and the fact that DartClaw supplied no answer. A question first
+present in `turn/completed.turn.items` is covered too. Malformed non-null metadata yields a warning without echoing the
+frame. The warning is independent of final-text extraction, which remains provider-authoritative; no diagnostic text,
+answer or synthetic completion enters the assistant response. Ordinary prose and `delivery: async` alone are not
+classified as questions.
+
 This is the Codex path implemented by `CodexProtocolAdapter`. The adapter also accepts the v0.118.0 `ClientResponse` envelope variants while preserving the same `SystemInit` and thread-id extraction behavior.
 
 ### Approval flow
@@ -1182,6 +1197,8 @@ accepts the legacy `control/approval` and `approval/request` shapes. Broad
 declined because DartClaw has no interactive form surface. Other server requests receive a terminal JSON-RPC
 unsupported-method error rather than holding the turn. It evaluates each recognized tool request through the same guard
 chain used elsewhere in the runtime, then replies using that request type's native result shape.
+`item/tool/requestUserInput` also logs the structured question when it belongs to the active turn, then receives the
+existing `-32601` unsupported-method error on its wire ID. It does not create an approval card or an answers map.
 
 The approval payload is normalized before guard evaluation so DartClaw can strip sensitive environment values and
 translate provider tool names into canonical tool names. File approvals reuse the preceding `item/started` context and

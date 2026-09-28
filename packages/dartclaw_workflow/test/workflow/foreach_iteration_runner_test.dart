@@ -506,6 +506,7 @@ void main() {
       await h.seedStepOutcome(e.taskId, outcome: 'succeeded', reason: 'story done');
       final currentRun = await h.repository.getById('run-1');
       await h.repository.update(currentRun!.copyWith(totalTokens: 1));
+      await h.seedTaskUsage(e.taskId, session.id, 1);
       await h.completeTask(e.taskId);
     });
 
@@ -2093,11 +2094,11 @@ steps:
           );
         } else if (title.contains('Remediate')) {
           remediateCount++;
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         } else if (title.contains('Review')) {
           await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         }
       });
 
@@ -2142,11 +2143,11 @@ steps:
           if (remediateCount == 3) {
             totalTokensBeforeThirdRemediate = (await h.repository.getById(run.id))?.totalTokens;
           }
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         } else if (title.contains('Review')) {
           await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         }
       });
 
@@ -2183,7 +2184,7 @@ steps:
             tokenCount: 80,
           );
         } else if (title.contains('Remediate')) {
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         } else if (title.contains('Review')) {
           reviewCount++;
           await h.completeTaskWithOutcome(
@@ -2192,7 +2193,7 @@ steps:
             tokenCount: 30,
           );
         } else {
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         }
       });
 
@@ -2235,12 +2236,12 @@ steps:
           );
         } else if (title.contains('Remediate')) {
           remediateByItem[currentItem] = remediateByItem[currentItem]! + 1;
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         } else if (title.contains('Review')) {
           currentItem++;
           await h.completeTaskWithOutcome(e.taskId, outputs: {'gating_findings_count': 1, 'review_report_path': 'rf'});
         } else {
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         }
       });
 
@@ -2300,7 +2301,7 @@ steps:
         final title = t!.title;
         if (title.contains('Remediate')) {
           remediateCount++;
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         } else if (title.contains('Re-review')) {
           reReviewCount++;
           await h.completeTaskWithOutcome(
@@ -2310,9 +2311,9 @@ steps:
           );
         } else if (title.contains('Review')) {
           reviewCount++;
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         } else {
-          await h.completeTask(e.taskId);
+          await h.completeTaskWithOutcome(e.taskId);
         }
       });
 
@@ -2360,6 +2361,9 @@ steps:
       ) async {
         await Future<void>.delayed(Duration.zero);
         final task = await h.taskService.get(e.taskId);
+        final session = await h.sessionService.createSession(type: SessionType.task);
+        await h.taskService.updateFields(e.taskId, sessionId: session.id);
+        await h.seedTaskUsage(e.taskId, session.id, 0);
         if (task!.title.contains('Second Child')) {
           await h.completeTask(e.taskId, status: TaskStatus.cancelled);
         } else {

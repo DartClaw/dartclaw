@@ -210,8 +210,11 @@ class WorkflowRun {
   /// Error or hold message when status is paused, awaitingApproval, or failed.
   final String? errorMessage;
 
-  /// Cumulative tokens consumed across all steps.
+  /// Known lower bound of tokens consumed across all steps.
   final int totalTokens;
+
+  /// Whether every agent step's token usage was measured.
+  final bool tokenUsageComplete;
 
   /// Index of the currently executing or next step.
   final int currentStepIndex;
@@ -241,6 +244,7 @@ class WorkflowRun {
     this.completedAt,
     this.errorMessage,
     this.totalTokens = 0,
+    this.tokenUsageComplete = true,
     this.currentStepIndex = 0,
     this.definitionJson = const {},
     this.executionCursor,
@@ -264,6 +268,7 @@ class WorkflowRun {
     Object? completedAt = _sentinel,
     Object? errorMessage = _sentinel,
     int? totalTokens,
+    bool? tokenUsageComplete,
     int? currentStepIndex,
     Map<String, dynamic>? definitionJson,
     Object? executionCursor = _sentinel,
@@ -280,6 +285,7 @@ class WorkflowRun {
     completedAt: identical(completedAt, _sentinel) ? this.completedAt : completedAt as DateTime?,
     errorMessage: identical(errorMessage, _sentinel) ? this.errorMessage : errorMessage as String?,
     totalTokens: totalTokens ?? this.totalTokens,
+    tokenUsageComplete: tokenUsageComplete ?? this.tokenUsageComplete,
     currentStepIndex: currentStepIndex ?? this.currentStepIndex,
     definitionJson: definitionJson ?? this.definitionJson,
     executionCursor: identical(executionCursor, _sentinel)
@@ -303,6 +309,7 @@ class WorkflowRun {
     if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
     if (errorMessage != null) 'errorMessage': errorMessage,
     'totalTokens': totalTokens,
+    'tokenUsageComplete': tokenUsageComplete,
     'currentStepIndex': currentStepIndex,
     'definitionJson': Map<String, dynamic>.from(definitionJson),
     if (executionCursor != null) 'executionCursor': executionCursor!.toJson(),
@@ -322,6 +329,7 @@ class WorkflowRun {
     completedAt: json['completedAt'] != null ? DateTime.parse(json['completedAt'] as String) : null,
     errorMessage: json['errorMessage'] as String?,
     totalTokens: (json['totalTokens'] as int?) ?? 0,
+    tokenUsageComplete: json['tokenUsageComplete'] == true,
     currentStepIndex: (json['currentStepIndex'] as int?) ?? 0,
     definitionJson: _toStringDynamicMap(json['definitionJson']),
     executionCursor: _toExecutionCursor(json['executionCursor']),

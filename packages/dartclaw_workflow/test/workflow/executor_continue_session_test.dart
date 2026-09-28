@@ -244,8 +244,15 @@ void main() {
       Directory(p.join(h.sessionsDir, sessionId)).createSync(recursive: true);
     }
 
-    Future<void> seedSessionCost(String sessionId, int totalTokens) async {
-      await h.kvService.set('session_cost:$sessionId', jsonEncode({'total_tokens': totalTokens}));
+    Future<void> seedSessionCost(String sessionId, int totalTokens, {String? taskId}) async {
+      if (taskId != null) {
+        await h.seedTaskUsage(taskId, sessionId, totalTokens);
+        return;
+      }
+      await h.kvService.set(
+        'session_cost:$sessionId',
+        jsonEncode({'total_tokens': totalTokens, 'token_usage_complete': true, 'last_accounted_turn_id': 'seeded'}),
+      );
     }
 
     test('continued step receives _continueSessionId from preceding step', () async {
@@ -271,7 +278,7 @@ void main() {
         if (step1TaskId.isEmpty) {
           step1TaskId = e.taskId;
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 100);
+          await seedSessionCost(sessionStep1, 100, taskId: e.taskId);
         } else {
           step2TaskId = e.taskId;
         }
@@ -347,7 +354,7 @@ void main() {
         createdCount++;
         if (createdCount == 1) {
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 100);
+          await seedSessionCost(sessionStep1, 100, taskId: e.taskId);
         }
         await h.completeTask(e.taskId);
       });
@@ -417,10 +424,10 @@ void main() {
         if (!step1Done) {
           step1Done = true;
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 150);
+          await seedSessionCost(sessionStep1, 150, taskId: e.taskId);
         } else {
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 300);
+          await seedSessionCost(sessionStep1, 300, taskId: e.taskId);
         }
         await h.completeTask(e.taskId);
       });
@@ -480,7 +487,7 @@ void main() {
         stepCount++;
         if (stepCount == 1) {
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 100);
+          await seedSessionCost(sessionStep1, 100, taskId: e.taskId);
         }
         await h.completeTask(e.taskId);
       });

@@ -238,7 +238,11 @@ class ApiWorkflowConnection implements WorkflowConnection {
           if (!jsonOutput) {
             switch (lastStatus) {
               case WorkflowRunStatus.completed:
-                printer.workflowCompleted(definition.steps.length, event['totalTokens'] as int? ?? run.totalTokens);
+                printer.workflowCompleted(
+                  definition.steps.length,
+                  event['totalTokens'] as int? ?? run.totalTokens,
+                  tokenUsageComplete: event['tokenUsageComplete'] != false,
+                );
               case WorkflowRunStatus.failed:
                 printer.workflowFailed((event['currentStepIndex'] as int? ?? 0), lastError);
               case WorkflowRunStatus.cancelled:

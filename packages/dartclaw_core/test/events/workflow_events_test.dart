@@ -118,6 +118,45 @@ void main() {
       expect(WorkflowLifecycleEvent.fromJson(json).toJson(), json);
     });
 
+    test('preserves unavailable and measured-zero step and iteration counts', () {
+      final timestamp = DateTime.utc(2026, 4);
+      for (final tokens in <int?>[null, 0]) {
+        final step = WorkflowStepCompletedEvent(
+          runId: 'run-1',
+          stepId: 'implement',
+          stepName: 'Implement',
+          stepIndex: 0,
+          totalSteps: 1,
+          taskId: 'task-1',
+          success: false,
+          outcome: 'failed',
+          reason: 'accounting unavailable',
+          tokenCount: tokens,
+          timestamp: timestamp,
+        );
+        final iteration = MapIterationCompletedEvent(
+          runId: 'run-1',
+          stepId: 'implement',
+          iterationIndex: 0,
+          totalIterations: 1,
+          taskId: 'task-1',
+          success: false,
+          outcome: 'failed',
+          reason: 'accounting unavailable',
+          tokenCount: tokens,
+          timestamp: timestamp,
+        );
+        for (final event in <WorkflowLifecycleEvent>[step, iteration]) {
+          final json = event.toJson();
+          expect(json['tokenCount'], tokens);
+          final restored = WorkflowLifecycleEvent.fromJson(json).toJson();
+          expect(restored['tokenCount'], tokens);
+          expect(restored['outcome'], 'failed');
+          expect(restored['reason'], 'accounting unavailable');
+        }
+      }
+    });
+
     test('serializes approval, skip, and serialization lifecycle events', () {
       final timestamp = DateTime.utc(2026, 4, 1, 12);
       final events = <WorkflowLifecycleEvent>[

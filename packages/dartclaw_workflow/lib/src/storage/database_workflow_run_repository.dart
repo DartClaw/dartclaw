@@ -5,6 +5,8 @@ import 'dart:convert';
 import '../workflow/workflow_run.dart' show WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
 import '../workflow/workflow_run_repository.dart' show WorkflowRunRepository;
 
+const _tokenUsageCompleteKey = '_accounting.tokenUsageComplete';
+
 /// Database-backed repository for workflow run persistence.
 ///
 /// Requires a prepared tasks store shared with the other task and execution repositories.
@@ -29,7 +31,7 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
         run.id,
         run.definitionName,
         run.status.name,
-        _encodeJson(run.contextJson),
+        _encodeRunContext(run),
         _encodeJson(run.variablesJson),
         run.startedAt.toIso8601String(),
         run.updatedAt.toIso8601String(),
@@ -104,7 +106,7 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
     try {
       await stmt.execute([
         run.status.name,
-        _encodeJson(run.contextJson),
+        _encodeRunContext(run),
         _encodeJson(run.variablesJson),
         run.updatedAt.toIso8601String(),
         run.completedAt?.toIso8601String(),
@@ -177,17 +179,22 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
   }
 
   WorkflowRun _workflowRunFromRow(Map<String, Object?> row) {
+    final storedContext = _decodeJson(row['context_json'] as String);
     return WorkflowRun(
       id: row['id'] as String,
       definitionName: row['definition_name'] as String,
       status: WorkflowRunStatus.values.byName(row['status'] as String),
-      contextJson: _decodeJson(row['context_json'] as String),
+      contextJson: {
+        for (final entry in storedContext.entries)
+          if (entry.key != _tokenUsageCompleteKey) entry.key: entry.value,
+      },
       variablesJson: _decodeStringMap(row['variables_json'] as String),
       startedAt: DateTime.parse(row['started_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
       completedAt: _decodeDateTime(row['completed_at']),
       errorMessage: row['error_message'] as String?,
       totalTokens: (row['total_tokens'] as int?) ?? 0,
+      tokenUsageComplete: storedContext[_tokenUsageCompleteKey] == true,
       currentStepIndex: (row['current_step_index'] as int?) ?? 0,
       definitionJson: _decodeJson(row['definition_json'] as String),
       executionCursor: _decodeExecutionCursor(row['execution_cursor_json']),
@@ -198,6 +205,9 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
   DateTime? _decodeDateTime(Object? value) => value == null ? null : DateTime.parse(value as String);
 
   String _encodeJson(Map<dynamic, dynamic> value) => jsonEncode(value);
+
+  String _encodeRunContext(WorkflowRun run) =>
+      _encodeJson({...run.contextJson, _tokenUsageCompleteKey: run.tokenUsageComplete});
 
   String? _encodeJsonNullable(Map<dynamic, dynamic>? value) => value == null ? null : jsonEncode(value);
 

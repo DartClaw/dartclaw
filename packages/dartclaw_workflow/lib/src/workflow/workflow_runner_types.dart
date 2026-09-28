@@ -59,6 +59,10 @@ class StepOutcome {
   final Task? task;
   final Map<String, dynamic> outputs;
   final int tokenCount;
+  final bool tokenUsageComplete;
+  final bool accountingReadError;
+  final bool accountingStop;
+  final int accountingKnownBeforeReadError;
   final bool success;
   final String? error;
   final String? outcome;
@@ -82,6 +86,10 @@ class StepOutcome {
     this.task,
     this.outputs = const {},
     this.tokenCount = 0,
+    this.tokenUsageComplete = true,
+    this.accountingReadError = false,
+    this.accountingStop = false,
+    this.accountingKnownBeforeReadError = 0,
     required this.success,
     this.error,
     this.outcome,
@@ -97,11 +105,12 @@ class StepOutcome {
 final class MapStepResult {
   final List<dynamic> results;
   final int totalTokens;
+  final bool tokenUsageComplete;
 
   /// Typed reason the aggregate failed; null exactly when it succeeded.
   final WorkflowFailure? failure;
 
-  const new({required this.results, required this.totalTokens, this.failure});
+  const new({required this.results, required this.totalTokens, this.tokenUsageComplete = true, this.failure});
 
   /// Derived, not stored: a failed aggregate is exactly one that named a
   /// [failure], so no aggregate can fail without a vocabulary value.

@@ -32,7 +32,9 @@ extension TurnRunnerExecution on TurnRunner {
         : ClaudeUsageSnapshot.fromJson(before['claude_native_snapshot']);
     final baselineMissing = before != null && before['pending_accounting_turn_id'] != null;
     final noEarlierTurn = before == null ? !_processUsageSeen.contains(sessionId) : before.isEmpty;
-    final canStartFresh = !resumed && !baselineMissing &&
+    final canStartFresh =
+        !resumed &&
+        !baselineMissing &&
         (noEarlierTurn || (prior != null && prior.nativeSessionId != snapshot.nativeSessionId));
     final comparable = prior != null && prior.nativeSessionId == snapshot.nativeSessionId && !baselineMissing;
     var complete = canStartFresh || comparable;

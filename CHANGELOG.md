@@ -18,6 +18,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Workflow token usage now distinguishes measured zero from unavailable accounting. Uncapped runs label known totals as incomplete lower bounds; capped runs stop dispatch when required usage cannot be verified.
+
 - Codex launches disable the client-side native question tool and guide new threads to ask for clarification in a final reply. Structured native questions that still arrive produce redacted warning logs with their source and options; DartClaw supplies no answer and keeps the provider's real turn outcome.
 
 - Claude token and cost accounting now includes delegated model usage once per turn, including resumed sessions and workflow follow-ups. Incomplete measurements retain known tokens and expose unavailable cost instead of charging cumulative totals again.

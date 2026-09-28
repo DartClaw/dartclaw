@@ -507,6 +507,7 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
       'type': step.taskType.toJson(),
       'status': stepStatusFromTask(run, i, task, stepId: step.id),
       'taskId': task?.id,
+      'tokenCount': workflowContextValue(run, '${step.id}.tokenCount'),
     };
     // Attach approval metadata for approval-type steps.
     if (step.taskType == WorkflowTaskType.approval) {
@@ -556,8 +557,16 @@ Future<Response> _workflowRunSseHandler(
   }
 
   final controller = StreamController<List<int>>();
-  final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((event) {
-    sendSseData(controller, event.toJson());
+  final runStatusSub = eventBus.on<WorkflowRunStatusChangedEvent>().where((e) => e.runId == runId).listen((
+    event,
+  ) async {
+    final current = await workflows.get(runId);
+    sendSseData(controller, {
+      ...event.toJson(),
+      'totalTokens': current?.totalTokens ?? run.totalTokens,
+      'tokenUsageComplete': current?.tokenUsageComplete ?? run.tokenUsageComplete,
+      'currentStepIndex': current?.currentStepIndex ?? run.currentStepIndex,
+    });
   });
   final stepCompletedSub = eventBus.on<WorkflowStepCompletedEvent>().where((e) => e.runId == runId).listen((
     event,
@@ -662,6 +671,7 @@ Future<Response> _workflowRunSseHandler(
         'name': definition.steps[i].name,
         'status': stepStatusFromTask(snapshotRun, i, tasksByStepIndex[i], stepId: definition.steps[i].id),
         'taskId': tasksByStepIndex[i]?.id,
+        'tokenCount': workflowContextValue(snapshotRun, '${definition.steps[i].id}.tokenCount'),
       },
   ];
   sendSseData(controller, {
@@ -671,6 +681,7 @@ Future<Response> _workflowRunSseHandler(
       'status': snapshotRun.status.name,
       'currentStepIndex': snapshotRun.currentStepIndex,
       'totalTokens': snapshotRun.totalTokens,
+      'tokenUsageComplete': snapshotRun.tokenUsageComplete,
     },
     'steps': stepsPayload,
   });

@@ -428,9 +428,9 @@ class WorkflowStepTrace {
   final String title;
   final String description;
   final TaskStatus terminalStatus;
-  final int tokenCount;
+  final int? tokenCount;
   final int sessionTotalTokens;
-  final int stepDeltaTokens;
+  final int? stepDeltaTokens;
   final int inputTokensNew;
   final int cacheReadTokens;
   final int outputTokens;
@@ -699,9 +699,9 @@ class WorkflowExecutionRecorder {
     required String stepName,
     required bool stepSuccess,
     required TaskStatus terminalStatus,
-    required int tokenCount,
+    required int? tokenCount,
     required int sessionTotalTokens,
-    required int stepDeltaTokens,
+    required int? stepDeltaTokens,
     required int inputTokensNew,
     required int cacheReadTokens,
     required int outputTokens,

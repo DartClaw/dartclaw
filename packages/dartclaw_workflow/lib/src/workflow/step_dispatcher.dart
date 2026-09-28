@@ -140,8 +140,25 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         await _failRun(run, msg);
         return null;
       }
-      final baselineTokens = await _readSessionTokens(prevSessionId);
-      taskConfig = {...taskConfig, '_continueSessionId': prevSessionId, '_sessionBaselineTokens': baselineTokens};
+      int? baselineTokens;
+      try {
+        baselineTokens = await _readSessionTokens(prevSessionId);
+      } catch (_) {
+        baselineTokens = null;
+      }
+      if (baselineTokens == null && definition.maxTokens != null) {
+        await _failRun(
+          run,
+          "Workflow accounting unavailable for continued step '${step.id}'; retry after session usage is complete.",
+        );
+        return null;
+      }
+      taskConfig = {
+        ...taskConfig,
+        '_continueSessionId': prevSessionId,
+        '_sessionBaselineTokens': ?baselineTokens,
+        '_sessionBaselineValid': baselineTokens != null,
+      };
       final prevProviderSessionId = _resolveContinueSessionRootProviderSessionId(definition, step, context);
       if (prevProviderSessionId != null && prevProviderSessionId.isNotEmpty) {
         taskConfig = {...taskConfig, '_continueProviderSessionId': prevProviderSessionId};
@@ -194,12 +211,15 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     }
     taskConfig[WorkflowTaskConfig.workflowStepName] = step.name;
     var accumulatedTokenCount = 0;
+    var tokenUsageComplete = true;
+    var accountingReadError = false;
+    var accountingKnownBeforeReadError = 0;
 
     WorkflowStepRetryFailure? lastFailure;
     return runWithWorkflowRetry<StepOutcome?>(
       onFailure: step.onFailure,
       maxRetries: resolved.maxRetries ?? 0,
-      isFailedOutcome: (result) => result?.outcome == 'failed',
+      isFailedOutcome: (result) => result?.outcome == 'failed' && result?.accountingStop != true,
       failure: (result) {
         lastFailure = result?.retryFailure;
         return lastFailure;
@@ -211,6 +231,9 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         );
       },
       dispatchAttempt: (attemptIndex) async {
+        if (attemptIndex > 0 && definition.maxTokens != null && !tokenUsageComplete) {
+          return null;
+        }
         final taskId = _uuid.v4();
         final completer = Completer<Task>();
         final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) {
@@ -271,8 +294,11 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           return null;
         }
 
-        final tokenCount = await _readStepTokenCount(finalTask);
-        accumulatedTokenCount += tokenCount;
+        final tokenUsage = await _readStepTokenCount(finalTask);
+        if (tokenUsage.readError) accountingKnownBeforeReadError = accumulatedTokenCount;
+        accumulatedTokenCount += tokenUsage.knownTokens;
+        tokenUsageComplete = tokenUsageComplete && tokenUsage.complete;
+        accountingReadError = accountingReadError || tokenUsage.readError;
 
         Map<String, dynamic> outputs = {};
         StepValidationFailure? extractionFailure;
@@ -359,6 +385,10 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           task: finalTask,
           outputs: outputs,
           tokenCount: accumulatedTokenCount,
+          tokenUsageComplete: tokenUsageComplete,
+          accountingReadError: accountingReadError,
+          accountingStop: definition.maxTokens != null && !tokenUsageComplete,
+          accountingKnownBeforeReadError: accountingKnownBeforeReadError,
           success: success,
           error: error,
           outcome: effectiveOutcome,
@@ -367,6 +397,14 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           validationFailure: validationFailure,
           retryFailure: retryFailure,
         );
+
+        if (definition.maxTokens != null && !tokenUsageComplete) {
+          return buildTaskOutcome(
+            success: false,
+            error: "Workflow accounting unavailable for step '${step.id}'; token usage is incomplete.",
+            reason: "Workflow accounting unavailable for step '${step.id}'; token usage is incomplete.",
+          );
+        }
 
         // Teardown interruption bypasses every policy branch: onFailure
         // retry/continue/pause must not re-dispatch or advance past a task the

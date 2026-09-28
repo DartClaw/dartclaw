@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.27 Claude turn accounting, PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.27 workflow accounting availability, Claude turn accounting, PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -592,6 +592,10 @@ Budgeting exists at two levels:
 
 - workflow-level `maxTokens`
 - agent-step `turn_timeout`, including inherited `stepDefaults`
+
+The workflow run stores `totalTokens` as the sum of known contributions and `tokenUsageComplete` as a sticky availability flag. A fresh run starts complete; a legacy run without the flag is incomplete. For agent tasks, the workflow reads the durable step receipt's latest turn ID and completeness, then accepts the session ledger only when `token_usage_complete` is true, `last_accounted_turn_id` matches, no accounting turn is pending, and the cumulative total is a valid nonnegative integer. A continued step requires a valid baseline and charges only its nonnegative increment. Known tokens from an incomplete receipt remain in the lower bound; that step's context token count is null. Bash, skipped, approval and other zero-work units keep measured zero.
+
+With `maxTokens`, incomplete required usage fails the run before the next dispatch. `onError` and `onFailure` cannot continue past this accounting stop. A transient read error leaves the settled task pending in linear, loop, parallel or foreach progress; explicit retry re-reads that task's same receipt and ledger, adds it once if complete, then checks the numeric cap before new work. Producer-declared incomplete history remains incomplete. Parallel and foreach work already in flight settles and contributes through the existing checkpoints before a stop; the cap is a dispatch guard, not a strict ceiling on concurrent spend or a rollback of work already started.
 
 `stepDefaults` applies glob-matched defaults before per-step overrides. The first match wins.
 

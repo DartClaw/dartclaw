@@ -172,8 +172,18 @@ class WorkflowExecutor {
   }) async {
     final runtimeArtifactsDir = await _initializeRuntimeArtifactsDir(run.id);
     context.mergeSystemVariables({'workflow.runtime_artifacts_dir': runtimeArtifactsDir});
-    final resumeCursor = startCursor;
-    final effectiveStartStepIndex = resumeCursor?.stepIndex ?? startFromStepIndex;
+    final hadPendingAccounting = run.contextJson['_accounting.pendingTaskId'] is String;
+    if (hadPendingAccounting) {
+      final reconciled = await _reconcilePendingAccounting(run, context);
+      if (reconciled == null) return;
+      run = reconciled;
+      final checked = await _budgetPreflight(run, definition);
+      if (checked == null) return;
+      run = checked;
+    }
+    final resumeCursor = startCursor ?? (hadPendingAccounting ? run.executionCursor : null);
+    final effectiveStartStepIndex =
+        resumeCursor?.stepIndex ?? (hadPendingAccounting ? run.currentStepIndex : startFromStepIndex);
     _log.info("Workflow '${definition.name}' (${run.id}) executing from step $effectiveStartStepIndex");
     final nodes = definition.nodes;
     final stepById = {for (final step in definition.steps) step.id: step};
@@ -347,6 +357,7 @@ class WorkflowExecutor {
                   outcome: result.outcome,
                   reason: result.outcomeReason,
                   tokenCount: result.tokenCount,
+                  tokenUsageComplete: result.tokenUsageComplete,
                 );
               }
             }
@@ -373,14 +384,28 @@ class WorkflowExecutor {
               // _parallel.* markers), then overwrites the two we set here. Symmetric
               // with the success path's filtered spread is intentional: on failure-resume
               // we want the merged-but-not-yet-cleaned context preserved.
+              final readFaults = results.where((result) => result.accountingReadError && result.task != null).toList();
+              final pendingRead = readFaults.singleOrNull;
               run = refreshedRun.copyWith(
                 totalTokens: run.totalTokens,
+                tokenUsageComplete: run.tokenUsageComplete,
                 currentStepIndex: groupStartStepIndex,
                 contextJson: {
                   ...refreshedRun.contextJson,
                   ...context.toJson(),
                   '_parallel.current.stepIds': fullGroupStepIds,
                   '_parallel.failed.stepIds': failedSteps.map((result) => result.step.id).toList(),
+                  if (pendingRead != null) ...{
+                    '_accounting.pendingTaskId': pendingRead.task!.id,
+                    '_accounting.pendingStepId': pendingRead.step.id,
+                    '_accounting.pendingKnownTokens': pendingRead.accountingKnownBeforeReadError,
+                    '_accounting.baseComplete':
+                        postGroupRun.tokenUsageComplete &&
+                        results.every((result) => result.accountingReadError || result.tokenUsageComplete),
+                    '_accounting.pendingScope': 'parallel',
+                    '_accounting.pendingNextStepIndex': groupStartStepIndex + fullGroup.length,
+                    '_accounting.pendingTaskSucceeded': pendingRead.outcome == 'succeeded',
+                  },
                 },
                 updatedAt: DateTime.now(),
               );
@@ -388,6 +413,12 @@ class WorkflowExecutor {
               await _repository.update(run);
               fireParallelStepCompletedEvents(results);
               fireParallelGroupCompletedEvent(results);
+
+              final accountingStop = failedSteps.where((result) => result.accountingStop).firstOrNull;
+              if (accountingStop != null) {
+                await _failRun(run, accountingStop.error ?? 'Workflow accounting unavailable');
+                return;
+              }
 
               // Interruption dominates the group verdict: a teardown-cancelled
               // member pauses the run (group-restart state is already persisted
@@ -453,6 +484,7 @@ class WorkflowExecutor {
                             task: eventResult.task,
                             outputs: eventResult.outputs,
                             tokenCount: eventResult.tokenCount,
+                            tokenUsageComplete: eventResult.tokenUsageComplete,
                             success: false,
                             error: msg,
                             outcome: eventResult.outcome,
@@ -523,25 +555,62 @@ class WorkflowExecutor {
               final msg = foreachFailure.message;
               _logRun(run, msg, level: Level.INFO);
               final refreshedRun = await _repository.getById(run.id) ?? run;
+              final pendingForeachRead = context['_accounting.pendingScope'] == 'foreach';
+              final pendingKnown = pendingForeachRead ? (context['_accounting.pendingKnownTokens'] as int? ?? 0) : 0;
+              final previouslyCommitted = refreshedRun.contextJson['_accounting.foreachCommittedTokens'] as int? ?? 0;
+              final settledKnown = foreachResult.totalTokens + pendingKnown;
+              final newKnown = settledKnown > previouslyCommitted ? settledKnown - previouslyCommitted : 0;
+              final pendingContextKey = context['_accounting.pendingContextKey'];
+              const pendingKeys = [
+                '_accounting.pendingTaskId',
+                '_accounting.pendingStepId',
+                '_accounting.pendingKnownTokens',
+                '_accounting.pendingScope',
+                '_accounting.pendingContextKey',
+                '_accounting.pendingControllerId',
+                '_accounting.pendingIterationIndex',
+                '_accounting.pendingTaskSucceeded',
+              ];
+              final pendingFields = {
+                for (final key in pendingKeys)
+                  if (pendingForeachRead) key: context[key],
+              };
+              for (final key in pendingKeys) {
+                context.remove(key);
+              }
+              final baseComplete =
+                  refreshedRun.tokenUsageComplete &&
+                  context.data.entries.every(
+                    (entry) =>
+                        entry.key == pendingContextKey ||
+                        !entry.key.contains('[') ||
+                        !entry.key.endsWith('.tokenCount') ||
+                        entry.value != null,
+                  );
               // A promotion conflict keeps its cursor so the conflicted item can
               // be re-dispatched; so does a legacy-state resume break, which must
               // leave the persisted cursor describing where the run stopped.
               final keepCursor =
+                  pendingForeachRead ||
                   foreachFailure is WorkflowPromotionConflictFailure ||
                   foreachFailure is WorkflowLegacyIterationStateFailure ||
                   foreachResult.results.any((result) => result == null);
               // The shipped stop set: these fail the run even under
               // `onFailure: continue`. The empty-result guard beside it keeps the
               // settle-timeout and the zero-item preflight aggregates out too.
-              final stopsRun = switch (foreachFailure) {
-                WorkflowForeachControllerFailure() ||
-                WorkflowEscalatedHardFailure() ||
-                WorkflowPromotionConflictFailure() ||
-                WorkflowPromotionFailure() ||
-                WorkflowSerializeRemainingSettleTimeout() ||
-                WorkflowLegacyIterationStateFailure() => true,
-                WorkflowIterationFailure() || WorkflowIterationBlockedHold() || WorkflowIterationCancelled() => false,
-              };
+              final stopsRun =
+                  (definition.maxTokens != null && !foreachResult.tokenUsageComplete) ||
+                  switch (foreachFailure) {
+                    WorkflowForeachControllerFailure() ||
+                    WorkflowEscalatedHardFailure() ||
+                    WorkflowPromotionConflictFailure() ||
+                    WorkflowPromotionFailure() ||
+                    WorkflowSerializeRemainingSettleTimeout() ||
+                    WorkflowLegacyIterationStateFailure() => true,
+                    WorkflowIterationFailure() ||
+                    WorkflowIterationBlockedHold() ||
+                    WorkflowIterationCancelled() => false,
+                  };
               if (foreachStep.onFailure == OnFailurePolicy.continueWorkflow &&
                   foreachResult.results.isNotEmpty &&
                   !stopsRun) {
@@ -549,6 +618,7 @@ class WorkflowExecutor {
                 context['step.${foreachStep.id}.outcome.reason'] = msg;
                 run = refreshedRun.copyWith(
                   totalTokens: refreshedRun.totalTokens + foreachResult.totalTokens,
+                  tokenUsageComplete: refreshedRun.tokenUsageComplete && foreachResult.tokenUsageComplete,
                   currentStepIndex: foreachStepIndex + 1,
                   executionCursor: keepCursor ? refreshedRun.executionCursor : null,
                   contextJson: {
@@ -567,16 +637,25 @@ class WorkflowExecutor {
                   taskId: '',
                   success: false,
                   tokenCount: foreachResult.totalTokens,
+                  tokenUsageComplete: foreachResult.tokenUsageComplete,
                 );
                 nodeIndex++;
                 continue;
               }
               run = refreshedRun.copyWith(
-                totalTokens: refreshedRun.totalTokens + foreachResult.totalTokens,
+                totalTokens: refreshedRun.totalTokens + newKnown,
+                tokenUsageComplete: refreshedRun.tokenUsageComplete && foreachResult.tokenUsageComplete,
                 executionCursor: keepCursor ? refreshedRun.executionCursor : null,
                 contextJson: {
                   ...privateContextEntries(refreshedRun.contextJson, exclude: '_foreach.current'),
                   ...context.toJson(),
+                  ...pendingFields,
+                  if (pendingForeachRead || previouslyCommitted > 0) ...{
+                    '_accounting.baseComplete': baseComplete,
+                    '_accounting.foreachCommittedTokens': settledKnown > previouslyCommitted
+                        ? settledKnown
+                        : previouslyCommitted,
+                  },
                 },
                 updatedAt: DateTime.now(),
               );
@@ -589,12 +668,19 @@ class WorkflowExecutor {
               }
               return;
             }
+            final previouslyCommitted = run.contextJson['_accounting.foreachCommittedTokens'] as int? ?? 0;
+            final newlySettled = foreachResult.totalTokens > previouslyCommitted
+                ? foreachResult.totalTokens - previouslyCommitted
+                : 0;
             run = run.copyWith(
-              totalTokens: run.totalTokens + foreachResult.totalTokens,
+              totalTokens: run.totalTokens + newlySettled,
+              tokenUsageComplete: run.tokenUsageComplete && foreachResult.tokenUsageComplete,
               currentStepIndex: foreachStepIndex + 1,
               executionCursor: null,
               contextJson: {
-                ...privateContextEntries(run.contextJson, exclude: '_foreach.current'),
+                for (final entry in privateContextEntries(run.contextJson, exclude: '_foreach.current').entries)
+                  if (entry.key != '_accounting.foreachCommittedTokens' && entry.key != '_accounting.baseComplete')
+                    entry.key: entry.value,
                 ...context.toJson(),
               },
               updatedAt: DateTime.now(),
@@ -609,6 +695,7 @@ class WorkflowExecutor {
               taskId: '',
               success: true,
               tokenCount: foreachResult.totalTokens,
+              tokenUsageComplete: foreachResult.tokenUsageComplete,
             );
             nodeIndex++;
           case ActionNode(stepId: final stepId):
@@ -662,6 +749,7 @@ class WorkflowExecutor {
                 outcome: result.outcome,
                 reason: result.outcomeReason ?? reason,
                 tokenCount: result.tokenCount,
+                tokenUsageComplete: result.tokenUsageComplete,
               );
 
               // Teardown interruption pauses without advancing currentStepIndex
@@ -683,27 +771,58 @@ class WorkflowExecutor {
                 );
                 return;
               }
+              if (result.accountingStop && result.accountingReadError && result.task != null) {
+                _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
+                run = run.copyWith(
+                  totalTokens: run.totalTokens + result.accountingKnownBeforeReadError,
+                  tokenUsageComplete: false,
+                  currentStepIndex: stepIndex + 1,
+                  contextJson: {
+                    ...privateContextEntries(run.contextJson),
+                    ...context.toJson(),
+                    '_accounting.pendingTaskId': result.task!.id,
+                    '_accounting.pendingStepId': step.id,
+                    '_accounting.pendingKnownTokens': result.accountingKnownBeforeReadError,
+                    '_accounting.baseComplete': run.tokenUsageComplete,
+                  },
+                  updatedAt: DateTime.now(),
+                );
+                await _persistContextThenRun(run, context);
+                fireFailedStepCompletedEvent();
+                await _failRun(run, result.error ?? 'Workflow accounting unavailable');
+                return;
+              }
               if (step.onError == OnErrorPolicy.continueWorkflow) {
                 _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
                 run = run.copyWith(
                   totalTokens: run.totalTokens + result.tokenCount,
+                  tokenUsageComplete: run.tokenUsageComplete && result.tokenUsageComplete,
                   currentStepIndex: stepIndex + 1,
                   contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
                   updatedAt: DateTime.now(),
                 );
                 await _persistContextThenRun(run, context);
                 fireFailedStepCompletedEvent();
+                if (result.accountingStop) {
+                  await _failRun(run, result.error ?? 'Workflow accounting unavailable');
+                  return;
+                }
                 nodeIndex++;
                 continue;
               }
               _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
               run = run.copyWith(
                 totalTokens: run.totalTokens + result.tokenCount,
+                tokenUsageComplete: run.tokenUsageComplete && result.tokenUsageComplete,
                 contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
                 updatedAt: DateTime.now(),
               );
               await _persistContextThenRun(run, context);
               fireFailedStepCompletedEvent();
+              if (result.accountingStop) {
+                await _failRun(run, result.error ?? 'Workflow accounting unavailable');
+                return;
+              }
               if (result.awaitingApproval) {
                 run = await _transitionStepAwaitingApproval(
                   run,
@@ -732,6 +851,7 @@ class WorkflowExecutor {
               final msg = artifactCommitResult.failureReason ?? "Artifact commit failed for step '${step.id}'";
               run = run.copyWith(
                 totalTokens: run.totalTokens + result.tokenCount,
+                tokenUsageComplete: run.tokenUsageComplete && result.tokenUsageComplete,
                 contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
                 updatedAt: DateTime.now(),
               );
@@ -744,12 +864,14 @@ class WorkflowExecutor {
                 taskId: result.task?.id ?? '',
                 success: false,
                 tokenCount: result.tokenCount,
+                tokenUsageComplete: result.tokenUsageComplete,
               );
               await _failRun(run, msg);
               return;
             }
             run = run.copyWith(
               totalTokens: run.totalTokens + result.tokenCount,
+              tokenUsageComplete: run.tokenUsageComplete && result.tokenUsageComplete,
               currentStepIndex: stepIndex + 1,
               contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
               updatedAt: DateTime.now(),
@@ -763,6 +885,7 @@ class WorkflowExecutor {
               taskId: result.task?.id ?? '',
               success: true,
               tokenCount: result.tokenCount,
+              tokenUsageComplete: result.tokenUsageComplete,
             );
             nodeIndex++;
         }

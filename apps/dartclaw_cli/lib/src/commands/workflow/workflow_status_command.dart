@@ -10,7 +10,8 @@ import 'package:args/command_runner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskRepository, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart'
     show DatabaseTaskRepository, PostgresSchemaGate, postgresBackendFactory;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show DatabaseWorkflowRunRepository, WorkflowRun;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show DatabaseWorkflowRunRepository, WorkflowDefinition, WorkflowRun, workflowContextValue;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn, scrubAgentReportedText;
 
@@ -160,7 +161,9 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     writeLine(
       '  Steps:       ${steps.where((step) => step['status'] == 'completed').length}/${steps.length} completed',
     );
-    writeLine('  Tokens:      ${_formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0)}');
+    writeLine(
+      '  Tokens:      ${_formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0)}${run['tokenUsageComplete'] == true ? '' : ' (incomplete lower bound)'}',
+    );
     _printApiWhyPaused(run);
     if (run['errorMessage'] != null) {
       writeLine('  Error:       ${scrubAgentReportedText('${run['errorMessage']}')}');
@@ -170,14 +173,24 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       return;
     }
     writeLine('');
-    writeLine('  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(18)}  TASK');
+    writeLine(
+      '  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(18)}  ${'TOKENS'.padRight(11)}  TASK',
+    );
     for (var index = 0; index < steps.length; index++) {
       final step = Map<String, dynamic>.from(steps[index]);
       final label = '${index + 1}/${steps.length}'.padRight(6);
       final name = truncate(step['name']?.toString() ?? '', 30, suffix: '...').padRight(30);
-      final status = (step['status']?.toString() ?? 'pending').padRight(18);
+      final rawStatus = step['status']?.toString() ?? 'pending';
+      final status = rawStatus.padRight(18);
+      final tokens = step['tokenCount'] is num
+          ? _formatNumber((step['tokenCount'] as num).toInt())
+          : switch (rawStatus) {
+              'skipped' => '0',
+              'pending' => '—',
+              _ => 'unavailable',
+            };
       final taskId = step['taskId']?.toString() ?? '—';
-      writeLine('  $label  $name  $status  $taskId');
+      writeLine('  $label  $name  $status  ${tokens.padRight(11)}  $taskId');
     }
   }
 
@@ -220,7 +233,9 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       writeLine('  Completed:   ${formatLocalDateTime(run.completedAt!.toIso8601String())}');
     }
     writeLine('  Steps:       ${run.currentStepIndex}/${_totalSteps(run)} completed');
-    writeLine('  Tokens:      ${_formatNumber(run.totalTokens)}');
+    writeLine(
+      '  Tokens:      ${_formatNumber(run.totalTokens)}${run.tokenUsageComplete ? '' : ' (incomplete lower bound)'}',
+    );
     if (isAwaitingApproval) {
       final approvalMessage = run.contextJson['$pendingApprovalStepId.approval.message'] as String?;
       writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
@@ -243,13 +258,21 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     writeLine(
       '  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(10)}  ${'TOKENS'.padRight(8)}  DURATION',
     );
+    WorkflowDefinition? definition;
+    try {
+      definition = WorkflowDefinition.fromJson(run.definitionJson);
+    } catch (_) {}
     for (final task in childTasks) {
       final stepNum = task.stepIndex != null ? '${task.stepIndex! + 1}' : '?';
       final totalStr = _totalSteps(run).toString();
       final stepLabel = '$stepNum/$totalStr'.padRight(6);
       final name = truncate(scrubAgentReportedText(task.title), 30, suffix: '...').padRight(30);
       final status = task.status.name.padRight(10);
-      final tokens = '—'.padRight(8);
+      final stepId = task.stepIndex != null && definition != null && task.stepIndex! < definition.steps.length
+          ? definition.steps[task.stepIndex!].id
+          : null;
+      final count = stepId == null ? null : workflowContextValue(run, '$stepId.tokenCount');
+      final tokens = (count is num ? _formatNumber(count.toInt()) : 'unavailable').padRight(8);
       final duration = _taskDuration(task);
       writeLine('  $stepLabel  $name  $status  $tokens  $duration');
     }

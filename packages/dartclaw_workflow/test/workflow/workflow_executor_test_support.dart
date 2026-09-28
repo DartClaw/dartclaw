@@ -60,6 +60,24 @@ import 'package:path/path.dart' as p;
 
 import 'package:dartclaw_workflow/testing.dart';
 
+final class FaultOnceSessionKvService extends KvService {
+  bool failNextSessionRead = false;
+  String? failForSessionId;
+
+  new({required super.filePath});
+
+  @override
+  Future<String?> get(String key) {
+    if ((key.startsWith('session_cost:') && failNextSessionRead) ||
+        (failForSessionId != null && key == 'session_cost:$failForSessionId')) {
+      failNextSessionRead = false;
+      failForSessionId = null;
+      throw StateError('injected KV read failure');
+    }
+    return super.get(key);
+  }
+}
+
 /// A [ContextExtractor] whose [extract] always throws an unexpected (generic)
 /// exception — neither [MissingArtifactFailure] nor [StateError]. Used to
 /// exercise the dispatchers' generic extraction-failure handling, which must
@@ -107,6 +125,8 @@ final class FailFirstContextExtractor extends ContextExtractor {
 /// Call [setUp] / [tearDown] in each test file's setUp/tearDown hooks.
 /// Provides [makeExecutor], [makeRun], [makeDefinition], [completeTask],
 /// and [executeAndCaptureSingleTask] utilities.
+const _defaultMeasuredTokens = Object();
+
 final class WorkflowExecutorHarness {
   late Directory tempDir;
   late String sessionsDir;
@@ -260,12 +280,13 @@ final class WorkflowExecutorHarness {
     Map<String, dynamic> outputs = const {},
     String? outcomeContent,
     TaskStatus finalStatus = TaskStatus.accepted,
-    int? tokenCount,
+    Object? tokenCount = _defaultMeasuredTokens,
   }) async {
     final session = await sessionService.createSession(type: SessionType.task);
     await taskService.updateFields(taskId, sessionId: session.id);
     if (tokenCount != null) {
-      await kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': tokenCount}));
+      final measured = identical(tokenCount, _defaultMeasuredTokens) ? 0 : tokenCount as int;
+      await seedTaskUsage(taskId, session.id, measured);
     }
     if (outcomeContent != null) {
       await messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);
@@ -278,6 +299,29 @@ final class WorkflowExecutorHarness {
       });
     }
     await completeTask(taskId, status: finalStatus);
+  }
+
+  /// Seeds the receipt and matching complete ledger a real turn would write.
+  Future<void> seedTaskUsage(String taskId, String sessionId, int totalTokens, {int? stepTokens}) async {
+    final turnId = 'turn-$taskId';
+    await kvService.set(
+      'session_cost:$sessionId',
+      jsonEncode({'total_tokens': totalTokens, 'token_usage_complete': true, 'last_accounted_turn_id': turnId}),
+    );
+    final execution = await workflowStepExecutionRepository.getByTaskId(taskId);
+    if (execution != null) {
+      await workflowStepExecutionRepository.update(
+        execution.copyWith(
+          stepTokenBreakdownJson: jsonEncode({
+            'inputTokensNew': stepTokens ?? totalTokens,
+            'cacheReadTokens': 0,
+            'outputTokens': 0,
+            'turnId': turnId,
+            'tokenUsageComplete': true,
+          }),
+        ),
+      );
+    }
   }
 
   /// Seeds the step outcome a step's finalizer envelope would carry.

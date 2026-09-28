@@ -226,7 +226,11 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
     if (!jsonOutput) {
       switch (finalRun.status) {
         case WorkflowRunStatus.completed:
-          printer.workflowCompleted(finalRun.currentStepIndex, finalRun.totalTokens);
+          printer.workflowCompleted(
+            finalRun.currentStepIndex,
+            finalRun.totalTokens,
+            tokenUsageComplete: finalRun.tokenUsageComplete,
+          );
         case WorkflowRunStatus.paused || WorkflowRunStatus.awaitingApproval:
           final approval = lastApprovalEvent;
           if (approval != null) {

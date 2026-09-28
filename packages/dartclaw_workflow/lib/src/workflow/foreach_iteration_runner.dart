@@ -404,6 +404,15 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         foreachStepId: controllerStep.id,
         childStepIds: childStepIds,
       );
+      if (definition.maxTokens != null &&
+          context.data.entries.any(
+            (entry) => entry.key.endsWith('.tokenCount') && entry.key.contains('[') && entry.value == null,
+          )) {
+        mapCtx.budgetExhausted = true;
+        controllerFailure ??= WorkflowForeachControllerFailure(
+          "Workflow accounting unavailable in foreach step '${controllerStep.id}'",
+        );
+      }
       run = await _checkWorkflowBudgetWarning(run, definition, additionalTokens: foreachConsumedTokens);
       if (_workflowBudgetExceeded(run, definition, additionalTokens: foreachConsumedTokens)) {
         mapCtx.budgetExhausted = true;
@@ -464,16 +473,19 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       );
       return null;
     }
+    var tokenUsageComplete = true;
     for (var i = 0; i < collection.length; i++) {
       for (final childStep in childSteps) {
-        final t = context['${childStep.id}[$i].tokenCount'];
+        final key = '${childStep.id}[$i].tokenCount';
+        final t = context[key];
         if (t is int) totalTokens += t;
+        if (context.data.containsKey(key) && t == null) tokenUsageComplete = false;
       }
     }
     // Surface the controller-level token total under the same `<stepId>.tokenCount`
     // key non-foreach steps use, so the settle-time digest reports per-story tokens
     // for the foreach controller row (foreach otherwise only writes per-child keys).
-    context['${controllerStep.id}.tokenCount'] = totalTokens;
+    context['${controllerStep.id}.tokenCount'] = tokenUsageComplete ? totalTokens : null;
     _eventBus.fire(
       MapStepCompletedEvent(
         runId: run.id,
@@ -493,6 +505,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       return MapStepResult(
         results: List<dynamic>.from(mapCtx.results),
         totalTokens: totalTokens,
+        tokenUsageComplete: tokenUsageComplete,
         failure: settledControllerFailure,
       );
     }
@@ -514,6 +527,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       return MapStepResult(
         results: List<dynamic>.from(mapCtx.results),
         totalTokens: totalTokens,
+        tokenUsageComplete: tokenUsageComplete,
         failure: escalatedHold != null
             ? WorkflowEscalatedHardFailure(
                 "foreach-hard-failure-with-escalation: Foreach step '${controllerStep.id}': "
@@ -573,7 +587,11 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           "Foreach step '${controllerStep.id}': ${mapCtx.blockedCount} item(s) blocked (recoverable): "
           '${_sanitizeAgentReportedText(blockedIds.join(', '))}';
     }
-    return MapStepResult(results: List<dynamic>.from(mapCtx.results), totalTokens: totalTokens);
+    return MapStepResult(
+      results: List<dynamic>.from(mapCtx.results),
+      totalTokens: totalTokens,
+      tokenUsageComplete: tokenUsageComplete,
+    );
   }
 
   Future<void> _dispatchForeachIteration({
@@ -636,6 +654,11 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         run: run,
         step: controllerStep,
         iterTokens: iterTokens,
+        tokenUsageComplete: !childSteps.any(
+          (step) =>
+              context.data.containsKey('${step.id}[$iterIndex].tokenCount') &&
+              context['${step.id}[$iterIndex].tokenCount'] == null,
+        ),
         persistProgress: persistProgress,
       );
     }
@@ -646,6 +669,19 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         _restoreCompletedForeachSubStep(context, iterContext, childStep.id, iterIndex);
         iterResult[childStep.id] = _restoredForeachSubStepOutputs(context, childStep, iterIndex);
         continue;
+      }
+      if (definition.maxTokens != null &&
+          context.data.entries.any(
+            (entry) => entry.key.endsWith('.tokenCount') && entry.key.contains('[') && entry.value == null,
+          )) {
+        mapCtx.budgetExhausted = true;
+        await failAndReturn(
+          WorkflowIterationFailure(
+            "Foreach child step '${childStep.id}' not dispatched: workflow accounting unavailable",
+          ),
+          firstTaskId,
+        );
+        return;
       }
       // Between children, re-check the budget against the foreach-scope basis so
       // an item stops once earlier children (its own or a sibling iteration's)
@@ -728,7 +764,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       }
       final tokenCount = result.tokenCount;
       iterTokens += tokenCount;
-      context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
+      context['${childStep.id}[$iterIndex].tokenCount'] = result.tokenUsageComplete ? tokenCount : null;
       if (!result.success) {
         _mirrorForeachChildResult(
           context: context,
@@ -768,6 +804,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             outcome: result.outcome,
             reason: reason,
             tokenCount: tokenCount,
+            tokenUsageComplete: result.tokenUsageComplete,
             displayScope: _mapItemDisplayScope(mapContext),
           );
           return;
@@ -797,6 +834,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             outcome: result.outcome,
             reason: reason,
             tokenCount: tokenCount,
+            tokenUsageComplete: result.tokenUsageComplete,
             displayScope: _mapItemDisplayScope(mapContext),
           );
           _eventBus.fire(
@@ -810,11 +848,21 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               success: false,
               outcome: result.outcome,
               reason: reason,
-              tokenCount: tokenCount,
+              tokenCount: result.tokenUsageComplete ? tokenCount : null,
               timestamp: DateTime.now(),
             ),
           );
           return;
+        }
+        if (result.accountingReadError && result.task != null) {
+          context['_accounting.pendingTaskId'] = result.task!.id;
+          context['_accounting.pendingStepId'] = childStep.id;
+          context['_accounting.pendingKnownTokens'] = result.accountingKnownBeforeReadError;
+          context['_accounting.pendingScope'] = 'foreach';
+          context['_accounting.pendingContextKey'] = '${childStep.id}[$iterIndex].tokenCount';
+          context['_accounting.pendingControllerId'] = controllerStep.id;
+          context['_accounting.pendingIterationIndex'] = iterIndex;
+          context['_accounting.pendingTaskSucceeded'] = result.outcome == 'succeeded';
         }
         await failAndReturn(WorkflowIterationFailure("Foreach child step '${childStep.id}' failed"), result.task?.id);
         _fireStepCompletedEvent(
@@ -827,6 +875,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           outcome: result.outcome,
           reason: result.outcomeReason,
           tokenCount: tokenCount,
+          tokenUsageComplete: result.tokenUsageComplete,
           displayScope: _mapItemDisplayScope(mapContext),
         );
         return;
@@ -840,7 +889,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         fallbackStatus: result.task?.status.name ?? 'completed',
         mergeStepResult: _mergeStepResultIntoContext,
       );
-      context['${childStep.id}[$iterIndex].tokenCount'] = tokenCount;
+      context['${childStep.id}[$iterIndex].tokenCount'] = result.tokenUsageComplete ? tokenCount : null;
       iterResult[childStep.id] = Map<String, dynamic>.from(result.outputs);
       completedSubStepIds.add(childStep.id);
       _writeCompletedForeachSubStepIds(context, controllerStep.id, iterIndex, completedSubStepIds);
@@ -853,6 +902,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         taskId: result.task?.id ?? '',
         success: true,
         tokenCount: tokenCount,
+        tokenUsageComplete: result.tokenUsageComplete,
         displayScope: _mapItemDisplayScope(mapContext),
       );
     }
@@ -1020,7 +1070,14 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         itemId: mapCtx.itemId(iterIndex),
         taskId: firstTaskId ?? '',
         success: true,
-        tokenCount: iterTokens,
+        tokenCount:
+            childSteps.any(
+              (step) =>
+                  context.data.containsKey('${step.id}[$iterIndex].tokenCount') &&
+                  context['${step.id}[$iterIndex].tokenCount'] == null,
+            )
+            ? null
+            : iterTokens,
         timestamp: DateTime.now(),
       ),
     );

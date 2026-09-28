@@ -48,7 +48,7 @@ Rules of thumb:
 | `variables` | map | `{}` | Input variable declarations |
 | `steps` | list | required | Ordered step definitions |
 | `gitStrategy` | map | none | Workflow-owned integration branch, promotion, publish, artifact, and cleanup policy |
-| `maxTokens` | int | none | Global per-workflow token budget |
+| `maxTokens` | int | none | Global per-workflow token budget. If completed agent work has unavailable accounting, the run stops before dispatching more work; an explicit retry rechecks durable accounting. Already running parallel work can still settle, so this is not an absolute concurrent spend ceiling. |
 | `stepDefaults` | list | none | Default config entries applied by glob pattern |
 
 Unknown top-level fields fail at parse time. Use inline `type: loop` steps for loops.
@@ -326,7 +326,7 @@ Templates in `prompt`, `project`, and similar fields resolve through these names
 | `{{VARIABLE}}` | Declared workflow variable |
 | `{{context.key}}` | Workflow context key from prior outputs or auto-written metadata |
 | `{{context.<stepId>.status}}` | Per-step lifecycle outcome |
-| `{{context.<stepId>.tokenCount}}` | Per-step token usage |
+| `{{context.<stepId>.tokenCount}}` | Per-step token usage, numeric `0` for measured zero or null when unavailable |
 | `{{context.<stepId>.branch}}` / `{{context.<stepId>.worktree_path}}` | Worktree metadata |
 | `{{context.<stepId>.<key>}}` | Step-prefixed author-declared key |
 | `{{map.item}}` / `{{map.item.field}}` | Current mapped item or field |
@@ -335,6 +335,8 @@ Templates in `prompt`, `project`, and similar fields resolve through these names
 | `{{workflow.runtime_artifacts_dir}}` | Absolute runtime-artifacts root for the run |
 
 Use the `context.` prefix when reading another step's output. Without it, the engine treats the name as a workflow variable.
+
+Run `totalTokens` and the workflow status displays sum known contributions. When `tokenUsageComplete` is false, that number is an incomplete lower bound. An uncapped workflow can continue with unavailable step usage; later measured steps do not make the earlier gap complete.
 
 Each workflow task also receives `DARTCLAW_STEP_ARTIFACTS_DIR`, an environment variable pointing at a host-created per-step artifacts directory. Built-in review steps pass this to their review skill as `--output-dir` so the host can capture review reports deterministically.
 

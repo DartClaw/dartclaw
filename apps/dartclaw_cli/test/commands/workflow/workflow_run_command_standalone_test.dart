@@ -218,7 +218,7 @@ steps:
         'workflow_step_completed type,runId,stepId,stepIndex,totalSteps,taskId,success,tokenCount,durationMs',
         'workflow_step_completed type,runId,stepId,stepIndex,totalSteps,taskId,success,reason,tokenCount,durationMs',
         'workflow_status_changed type,runId,definitionName,oldStatus,newStatus,errorMessage',
-        'workflow_run_digest type,runId,status,steps,nextActions',
+        'workflow_run_digest type,runId,status,totalTokens,tokenUsageComplete,steps,nextActions',
       ], reason: 'renderer-authored payloads are lane-owned and must not converge on the connected lane\'s echo');
       // The renderer-authored keys the connected lane never carries.
       expect(frames[1]['definitionName'], 'mixed');

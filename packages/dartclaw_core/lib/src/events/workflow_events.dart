@@ -120,8 +120,8 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   /// explanation surfaced inline in the console.
   final String? reason;
 
-  /// Tokens consumed by this step.
-  final int tokenCount;
+  /// Tokens consumed by this step, or null when accounting is unavailable.
+  final int? tokenCount;
 
   @override
   final DateTime timestamp;
@@ -154,7 +154,7 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
       success: _requiredBool(json, 'success'),
       outcome: _optionalString(json, 'outcome'),
       reason: _optionalString(json, 'reason'),
-      tokenCount: _requiredInt(json, 'tokenCount'),
+      tokenCount: _optionalInt(json, 'tokenCount'),
       timestamp: _timestampFromJson(json),
     );
   }
@@ -460,8 +460,8 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
   /// when none was recorded. Surfaced inline for failed/blocked iterations.
   final String? reason;
 
-  /// Tokens consumed by this iteration.
-  final int tokenCount;
+  /// Tokens consumed by this iteration, or null when accounting is unavailable.
+  final int? tokenCount;
 
   @override
   final DateTime timestamp;
@@ -490,7 +490,7 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
     success: _requiredBool(json, 'success'),
     outcome: _optionalString(json, 'outcome'),
     reason: _optionalString(json, 'reason'),
-    tokenCount: _requiredInt(json, 'tokenCount'),
+    tokenCount: _optionalInt(json, 'tokenCount'),
     timestamp: _timestampFromJson(json),
   );
 

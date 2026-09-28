@@ -144,6 +144,13 @@ void repositoryContractGroups(ContractBackend Function() current) {
       );
       await repository.insert(run);
       expect((await repository.getById(run.id))?.toJson(), run.toJson());
+
+      final incomplete = run.copyWith(totalTokens: 12, tokenUsageComplete: false);
+      await repository.update(incomplete);
+      final reloaded = await repository.getById(run.id);
+      expect(reloaded?.totalTokens, 12);
+      expect(reloaded?.tokenUsageComplete, isFalse);
+      expect(reloaded?.contextJson, run.contextJson);
     });
   });
 

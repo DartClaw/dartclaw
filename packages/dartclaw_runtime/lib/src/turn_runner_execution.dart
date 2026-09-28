@@ -46,10 +46,6 @@ extension TurnRunnerExecution on TurnRunner {
     if (complete) {
       for (final entry in snapshot.models.entries) {
         final old = comparable ? prior.models[entry.key] : null;
-        if (comparable && old == null) {
-          complete = false;
-          break;
-        }
         final value = entry.value;
         final nextInput = value.input - (old?.input ?? 0);
         final nextOutput = value.output - (old?.output ?? 0);

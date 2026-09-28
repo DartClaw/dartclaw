@@ -84,6 +84,38 @@ void main() {
     expect(ledger['estimated_cost_usd'], closeTo(0.0808288, 0.000000001));
   });
 
+  test('charges a delegate model first seen on a later native snapshot', () async {
+    final session = await sessions.getOrCreateMainSession();
+    TurnResult snapshot(Map<String, int> outputs, int rootOutput, double cost) => TurnResult(
+      outputTokens: rootOutput,
+      claudeUsageSnapshot: ClaudeUsageSnapshot(
+        nativeSessionId: 'native-1',
+        models: {
+          for (final entry in outputs.entries)
+            entry.key: ClaudeModelUsage(input: 0, output: entry.value, cacheRead: 0, cacheWrite: 0),
+        },
+        totalCostUsd: cost,
+      ),
+    );
+    Future<TurnOutcome> run(TurnResult result) async {
+      scheduleTurnCompletion(worker, result: result);
+      final id = await runner.startTurn(session.id, [
+        {'role': 'user', 'content': 'Measure'},
+      ]);
+      return runner.waitForOutcome(session.id, id);
+    }
+
+    await run(snapshot({'root': 100}, 100, 0.10));
+    final second = await run(snapshot({'root': 120, 'delegate': 50}, 20, 0.17));
+    expect(second.outputTokens, 70);
+    expect(second.tokenUsageComplete, isTrue);
+    final ledger = await readSessionCost(kvService, session.id);
+    expect(ledger['output_tokens'], 170);
+    expect(ledger['total_tokens'], 170);
+    expect(ledger['estimated_cost_usd'], closeTo(0.17, 0.000000001));
+    expect(ledger['token_usage_complete'], isTrue);
+  });
+
   test('refuses provider dispatch when the pending accounting marker cannot persist', () async {
     final path = kvService.filePath;
     await kvService.dispose();

@@ -978,7 +978,7 @@ class CodexHarness extends BaseHarness
     if (rawQuestions == null) return;
     final id = itemId ?? stringValue(item?['id']);
     final source = 'thread=${jsonEncode(threadId)} turn=${jsonEncode(turnId)} item=${jsonEncode(id ?? 'unknown')}';
-    if (id != null && !_reportedQuestionItems.add(id)) return;
+    if (id != null && _reportedQuestionItems.contains(id)) return;
 
     final questions = <Map<String, dynamic>>[];
     if (rawQuestions is List && rawQuestions.isNotEmpty) {
@@ -1000,6 +1000,7 @@ class CodexHarness extends BaseHarness
       _log.warning('Malformed Codex user input: $source; invalid questions metadata');
       return;
     }
+    if (id != null) _reportedQuestionItems.add(id);
     _log.warning(
       'Unsupported Codex user input: $source questions=${jsonEncode(questions)}. '
       'No answer was supplied through DartClaw.',

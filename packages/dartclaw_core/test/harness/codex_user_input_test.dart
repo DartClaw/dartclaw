@@ -254,6 +254,67 @@ void main() {
     expect(warnings.where((record) => record.message.contains('Unsupported Codex user input')), hasLength(2));
   });
 
+  test('valid question after malformed started frame warns once across completion and summary', () async {
+    final process = FakeCodexProcess(completeExitOnKill: true);
+    final harness = _harness(process);
+    addTearDown(harness.dispose);
+    final subscription = Logger('CodexHarness').onRecord.listen(warnings.add);
+    addTearDown(subscription.cancel);
+    await startHarness(harness, process);
+    final turn = harness.turn(
+      sessionId: 'recovered-question',
+      messages: const [
+        {'role': 'user', 'content': 'Ask a question'},
+      ],
+      systemPrompt: '',
+    );
+    await respondToLatestThreadStart(process);
+    _send(
+      harness,
+      _frame('turn/started', {
+        'threadId': 'thread-123',
+        'turn': {'id': 'turn-1'},
+      }),
+    );
+    final malformed = _item(
+      'question-1',
+      questions: [
+        {
+          'title': '',
+          'options': ['Blue'],
+        },
+      ],
+    );
+    final valid = _item(
+      'question-1',
+      questions: [
+        {
+          'title': 'Pick a color?',
+          'options': ['Blue', 'Green'],
+        },
+      ],
+    );
+    _send(harness, _frame('item/started', {'threadId': 'thread-123', 'turnId': 'turn-1', 'item': malformed}));
+    _send(harness, _frame('item/completed', {'threadId': 'thread-123', 'turnId': 'turn-1', 'item': valid}));
+    _send(
+      harness,
+      _frame('turn/completed', {
+        'threadId': 'thread-123',
+        'turn': {
+          'id': 'turn-1',
+          'status': 'completed',
+          'items': [valid],
+        },
+      }),
+    );
+    await turn;
+    expect(warnings.where((record) => record.message.contains('Malformed Codex user input')), hasLength(1));
+    final validWarnings = warnings.where((record) => record.message.contains('Unsupported Codex user input')).toList();
+    expect(validWarnings, hasLength(1));
+    expect(validWarnings.single.message, contains('Pick a color?'));
+    expect(validWarnings.single.message, contains('Blue'));
+  });
+
   test('request/response question warns and receives unsupported error without approval wait', () async {
     final process = FakeCodexProcess(completeExitOnKill: true);
     final harness = _harness(process);

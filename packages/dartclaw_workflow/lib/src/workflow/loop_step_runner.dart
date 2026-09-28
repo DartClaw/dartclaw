@@ -130,7 +130,13 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       nested: scope,
     );
 
-    if (result.halted) return null;
+    if (result.halted) {
+      if (!result.tokenUsageComplete) {
+        scope.runContext['${loopStep.id}[${scope.iterIndex}].tokenCount'] = null;
+        await scope.persist();
+      }
+      return null;
+    }
     StepOutcome nestedOutcome({
       required bool success,
       required String outcome,
@@ -232,6 +238,13 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       tokensConsumed: loopTokens,
       tokenUsageComplete: loopUsageComplete,
     );
+    WorkflowLoopExecutionResult? cancellationAfterStep(WorkflowStep step, int iteration) {
+      if (isCancelled?.call() != true) return null;
+      WorkflowExecutor._log.info(
+        "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
+      );
+      return loopResult(halted: true);
+    }
 
     // Top-level loops fail the whole run; a nested loop reports the failure up
     // so the enclosing foreach iteration records it without failing the run.
@@ -543,14 +556,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               tokenCount: result.tokenCount,
               tokenUsageComplete: result.tokenUsageComplete,
             );
-            final cancelledResult = _loopCancellationResult(
-              run,
-              loop,
-              step,
-              iteration: iteration,
-              loopTokens: loopTokens,
-              isCancelled: isCancelled?.call() ?? false,
-            );
+            final cancelledResult = cancellationAfterStep(step, iteration);
             if (cancelledResult != null) {
               return cancelledResult;
             }
@@ -629,14 +635,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           tokenUsageComplete: result.tokenUsageComplete,
         );
 
-        final cancelledResult = _loopCancellationResult(
-          run,
-          loop,
-          step,
-          iteration: iteration,
-          loopTokens: loopTokens,
-          isCancelled: isCancelled?.call() ?? false,
-        );
+        final cancelledResult = cancellationAfterStep(step, iteration);
         if (cancelledResult != null) {
           return cancelledResult;
         }
@@ -826,23 +825,6 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     );
     onRunUpdated(persistedRun);
     return persistedRun;
-  }
-
-  WorkflowLoopExecutionResult? _loopCancellationResult(
-    WorkflowRun run,
-    WorkflowLoop loop,
-    WorkflowStep step, {
-    required int iteration,
-    required int loopTokens,
-    required bool isCancelled,
-  }) {
-    if (!isCancelled) {
-      return null;
-    }
-    WorkflowExecutor._log.info(
-      "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
-    );
-    return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
   }
 
   void _fireLoopIterationCompletedEvent(

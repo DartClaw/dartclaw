@@ -42,6 +42,75 @@ void main() {
     expect(finalRun?.status, WorkflowRunStatus.failed);
   });
 
+  test('uncapped loop cancellation retains unavailable settled usage', () async {
+    final definition = h.makeDefinition(
+      steps: const [
+        WorkflowStep(id: 'work', name: 'Work', prompts: ['work']),
+      ],
+      loops: const [
+        WorkflowLoop(id: 'repeat', steps: ['work'], maxIterations: 2, exitGate: 'loop.repeat.iteration == 2'),
+      ],
+    );
+    var cancelled = false;
+    var dispatched = 0;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      dispatched++;
+      await h.completeTaskWithOutcome(e.taskId, outcome: 'succeeded', tokenCount: null);
+      cancelled = true;
+    });
+    addTearDown(sub.cancel);
+
+    final run = await h.insertRun(definition);
+    await h.executor.execute(run, definition, WorkflowContext(), isCancelled: () => cancelled);
+
+    final stopped = (await h.repository.getById(run.id))!;
+    expect(dispatched, 1);
+    expect(stopped.totalTokens, 0);
+    expect(stopped.tokenUsageComplete, isFalse, reason: 'cancellation cannot turn a settled gap into exact usage');
+    expect((stopped.contextJson['data'] as Map<String, dynamic>)['work.tokenCount'], isNull);
+  });
+
+  test('uncapped nested loop cancellation retains unavailable settled usage', () async {
+    final definition = h.makeDefinition(
+      steps: const [
+        WorkflowStep(
+          id: 'map-step',
+          name: 'Map Step',
+          taskType: WorkflowTaskType.foreach,
+          mapOver: 'items',
+          foreachSteps: ['repeat'],
+        ),
+        WorkflowStep(id: 'repeat', name: 'Repeat', taskType: WorkflowTaskType.loop),
+        WorkflowStep(id: 'work', name: 'Work', prompts: ['work']),
+      ],
+      loops: const [
+        WorkflowLoop(id: 'repeat', steps: ['work'], maxIterations: 3, exitGate: 'loop.repeat.iteration == 3'),
+      ],
+    );
+    var cancelled = false;
+    var dispatched = 0;
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      dispatched++;
+      await h.completeTaskWithOutcome(e.taskId, outcome: 'succeeded', tokenCount: dispatched == 1 ? 9 : null);
+      cancelled = dispatched == 2;
+    });
+    addTearDown(sub.cancel);
+
+    final run = await h.insertRun(definition);
+    await h.executor.execute(run, definition, h.itemsContext(['one']), isCancelled: () => cancelled);
+
+    final stopped = (await h.repository.getById(run.id))!;
+    expect(dispatched, 2);
+    expect((stopped.contextJson['data'] as Map<String, dynamic>)['_loop.repeat.foreach.map-step[0].tokens'], 9);
+    expect(stopped.tokenUsageComplete, isFalse, reason: 'nested cancellation cannot make settled usage exact');
+  });
+
   test('foreach accounting recovery retains an unavailable child and known lower bound', () async {
     final definition = h.foreachStepDefinition();
     final result = await h.executeQueuedTasks(

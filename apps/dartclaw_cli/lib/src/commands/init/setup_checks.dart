@@ -107,7 +107,7 @@ enum VerificationOutcome {
   /// All local and provider-auth checks passed.
   success,
 
-  /// Local checks passed; provider verification was skipped or unavailable.
+  /// Setup completed, but the schema or provider still needs verification.
   configuredButUnverified,
 
   /// A blocking local check failed (config parse, binary, port, writability).
@@ -139,8 +139,9 @@ class SetupVerificationResult {
   final VerificationOutcome outcome;
   final LocalVerificationResult local;
   final NetworkVerificationResult? network;
+  final bool databaseBootstrapPending;
 
-  const new({required this.outcome, required this.local, this.network});
+  const new({required this.outcome, required this.local, this.network, this.databaseBootstrapPending = false});
 
   bool get success => outcome == VerificationOutcome.success;
   bool get configuredButUnverified => outcome == VerificationOutcome.configuredButUnverified;
@@ -267,25 +268,38 @@ class SetupChecks {
     );
     final databaseRows = await _databaseReadiness(config, bootstrap: false, environment: Platform.environment);
     final localRows = [...localCheck.rows, ...databaseRows];
-    final failures = localRows.where((row) => row.status == DiagnosticStatus.fail).map((row) => row.summary).toList();
+    final pendingBootstrap = databaseRows.any(
+      (row) => row.id == 'database.schema' && row.status == DiagnosticStatus.fail && row.fixable,
+    );
+    final failures = localRows
+        .where((row) => row.status == DiagnosticStatus.fail && !(pendingBootstrap && row.id == 'database.schema'))
+        .map((row) => row.summary)
+        .toList();
     final local = LocalVerificationResult(
       passed: failures.isEmpty,
       failures: failures,
-      warnings: localRows.where((row) => row.status == DiagnosticStatus.warn).map((row) => row.summary).toList(),
+      warnings: [
+        ...localRows.where((row) => row.status == DiagnosticStatus.warn).map((row) => row.summary),
+        if (pendingBootstrap) 'PostgreSQL application schema is empty.',
+      ],
     );
 
     if (!local.passed) {
       return SetupVerificationResult(outcome: VerificationOutcome.localFailure, local: local);
     }
 
-    if (skipNetwork) {
+    if (skipNetwork || pendingBootstrap) {
       return SetupVerificationResult(
         outcome: VerificationOutcome.configuredButUnverified,
         local: local,
-        network: const NetworkVerificationResult(
+        databaseBootstrapPending: pendingBootstrap,
+        network: NetworkVerificationResult(
           reachable: false,
           skipped: true,
-          messages: ['Provider verification skipped (--skip-verify).'],
+          messages: [
+            if (pendingBootstrap) 'Run dartclaw doctor --fix to bootstrap the empty application schema.',
+            if (skipNetwork) 'Provider verification skipped (--skip-verify).',
+          ],
         ),
       );
     }

@@ -190,9 +190,12 @@ does not perform. Verification does read that store, so an instance whose only c
 Setup reports one of two completion states:
 
 - `Status: verified` means local checks passed and the selected provider already has a credential DartClaw can resolve – an API key, a subscription credential stored by `dartclaw auth`, or the provider CLI's own login.
-- `Status: configured but unverified` means the instance is valid, but provider verification was skipped or still needs login/API-key setup.
+- `Status: configured but unverified` means the instance still needs `doctor --fix` to bootstrap an empty PostgreSQL
+  schema, or provider verification was skipped or still needs login/API-key setup.
 
-Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup, or accept the default `--launch skip` to configure only.
+Use `--launch foreground`, `--launch background`, or `--launch service` to start immediately after setup once the
+PostgreSQL schema is current. An empty schema defers launch until `doctor --fix` has bootstrapped it; the default
+`--launch skip` configures the instance without starting it.
 
 `dartclaw init` also creates the 0.17 workspace personalization structure:
 

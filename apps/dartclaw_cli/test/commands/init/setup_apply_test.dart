@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_cli/src/commands/init/setup_apply.dart';
 import 'package:dartclaw_cli/src/commands/init/setup_state.dart';
-import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta, DartclawConfig;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -63,6 +63,31 @@ void main() {
       expect(yaml['governance']['turn_limits']['stall_timeout'], '300s');
       expect(yaml['governance']['turn_limits']['stall_action'], 'cancel');
       expect(yaml['governance']['turn_limits']['turn_timeout'], '1800s');
+    });
+
+    test('new config and a rerun of a loose config are owner-only', () async {
+      if (Platform.isWindows) return;
+      final config = File(state.configPath);
+      await SetupApply.apply(state);
+      expect(config.statSync().mode & 0x1ff, 0x180);
+
+      Process.runSync('chmod', ['644', config.path]);
+      await SetupApply.apply(state);
+      expect(config.statSync().mode & 0x1ff, 0x180);
+    });
+
+    test('relative instance directory resolves once before config is written', () async {
+      final relative = p.relative(p.join(tempDir.path, 'instance'));
+      final resolved = _state(instanceDir: relative);
+      await SetupApply.apply(resolved);
+
+      final config = File(resolved.configPath);
+      final yaml = loadYaml(config.readAsStringSync()) as Map;
+      expect(resolved.instanceDir, p.join(tempDir.path, 'instance'));
+      expect(yaml['data_dir'], resolved.instanceDir);
+      expect(DartclawConfig.load(configPath: config.path).server.dataDir, resolved.instanceDir);
+      expect(Directory(p.join(resolved.instanceDir, 'workspace')).existsSync(), isTrue);
+      expect(Directory(p.join(resolved.instanceDir, relative)).existsSync(), isFalse);
     });
 
     test('workflow track keeps data_dir relative to the config folder', () async {

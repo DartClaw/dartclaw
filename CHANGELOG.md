@@ -33,6 +33,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
   points and separate navigation. Eligible idle owner chats can move between general and project context with a
   revision check; history and drafts remain, while the new context applies to future turns. This pre-release change
   uses fresh conversation state and does not migrate existing chats.
+- Web chat preserves the visible message position when loading earlier messages and navigating back, and keeps turn
+  recovery active after an SSE disconnection.
 - The `dartclaw_runtime` LOC ceiling rises from 75,596 to 77,328 under ADR-033 after the general/project context
   implementation measured 75,828 lines. Oversized service and test files were reduced before this reviewed raise;
   the remaining growth owns context validation, revisioned moves, API routes and projections.
@@ -52,7 +54,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - PostgreSQL 14+ is now the sole runtime database, with built-in lexical search as the default and pgvector-backed
   hybrid search remaining explicit. Native setup and `doctor --fix` cover an empty schema without administrator
-  credentials, and a bounded offline utility moves the supported 0.26.1 SQLite records into an empty current schema.
+  credentials; `init` leaves a fresh schema for `doctor --fix` and creates an owner-only config. A bounded offline utility
+  moves the supported 0.26.1 SQLite records into an empty current schema.
   Runtime packages and release archives no longer carry SQLite.
 
 - Server shutdown now waits for conversation outcomes and pending writes before closing storage, and holds queued

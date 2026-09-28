@@ -45,6 +45,7 @@ abstract class _InitImpl extends Command<void> {
   final Logger _logger;
   final SetupChecks _setupChecks;
   final Future<List<String>> Function(SetupState) _applySetup;
+  final Future<void> Function(String, SetupState)? _launchSetup;
   final void Function(String) _writeLine;
   final bool Function() _hasTerminal;
   final DartclawConfig? Function(String? configPath) _loadConfig;
@@ -55,6 +56,7 @@ abstract class _InitImpl extends Command<void> {
     Logger? logger,
     SetupChecks? setupChecks,
     Future<List<String>> Function(SetupState)? applySetup,
+    Future<void> Function(String, SetupState)? launchSetup,
     void Function(String)? writeLine,
     bool Function()? hasTerminal,
     DartclawConfig? Function(String? configPath)? loadConfig,
@@ -62,6 +64,7 @@ abstract class _InitImpl extends Command<void> {
   }) : _logger = logger ?? Logger(),
        _setupChecks = setupChecks ?? SetupChecks(),
        _applySetup = applySetup ?? SetupApply.apply,
+       _launchSetup = launchSetup,
        _writeLine = writeLine ?? stdout.writeln,
        _hasTerminal = hasTerminal ?? (() => stdout.hasTerminal),
        _loadConfig = loadConfig ?? _defaultLoadConfig,
@@ -287,7 +290,15 @@ abstract class _InitImpl extends Command<void> {
       return;
     }
 
-    await _handleLaunch(launch, state);
+    if (verification.databaseBootstrapPending && launch != 'skip') {
+      throw UsageException(
+        'Instance configured, but launch requires a bootstrapped PostgreSQL schema. '
+        'Run dartclaw --config $configPath doctor --fix, then retry --launch $launch.',
+        usage,
+      );
+    }
+
+    await (_launchSetup ?? _handleLaunch)(launch, state);
   }
 
   Future<void> _runPersonalize(DartclawConfig? existingConfig) async {
@@ -1124,6 +1135,7 @@ class InitCommand extends _InitImpl {
     super.logger,
     super.setupChecks,
     super.applySetup,
+    super.launchSetup,
     super.writeLine,
     super.hasTerminal,
     super.loadConfig,
@@ -1140,6 +1152,7 @@ class SetupAliasCommand extends _InitImpl {
     super.logger,
     super.setupChecks,
     super.applySetup,
+    super.launchSetup,
     super.writeLine,
     super.hasTerminal,
     super.loadConfig,

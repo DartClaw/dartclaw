@@ -501,6 +501,49 @@ mcp_servers:
       expect(result.local.failures, ['PostgreSQL authentication failed.']);
     });
 
+    test('empty schema defers verification until doctor can bootstrap it', () async {
+      var providerChecks = 0;
+      final checks = SetupChecks(
+        loadConfig: (_) => const DartclawConfig.defaults(),
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+        configParseable: (_) async => true,
+        writeProbeFile: (_) {},
+        portFree: (_) async => true,
+        providerVerified: (_, _, _) async {
+          providerChecks++;
+          return true;
+        },
+        databaseReadiness: (_, {required bootstrap, required environment}) async => const [
+          DiagnosticRow(
+            id: 'database.connection',
+            status: DiagnosticStatus.pass,
+            summary: 'PostgreSQL connection is ready.',
+          ),
+          DiagnosticRow(
+            id: 'database.schema',
+            status: DiagnosticStatus.fail,
+            summary: 'PostgreSQL application schema is empty.',
+            fixable: true,
+          ),
+        ],
+      );
+
+      final result = await checks.verify(
+        configPath: _params.configPath,
+        providerIds: _params.providerIds,
+        instanceDir: _params.instanceDir,
+        port: _params.port,
+      );
+
+      expect(result.configuredButUnverified, isTrue);
+      expect(result.databaseBootstrapPending, isTrue);
+      expect(result.local.failures, isEmpty);
+      expect(result.local.warnings.single, 'PostgreSQL application schema is empty.');
+      expect(result.network?.message, contains('doctor --fix'));
+      expect(result.network?.skipped, isTrue);
+      expect(providerChecks, 0);
+    });
+
     test('port conflict is a blocking local failure', () async {
       final result = await _postWrite(portFree: false).verify(
         configPath: _params.configPath,

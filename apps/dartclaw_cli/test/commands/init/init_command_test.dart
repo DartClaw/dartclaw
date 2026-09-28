@@ -89,6 +89,7 @@ InitCommand _nonInteractiveCmd({
   List<SetupState>? captureInto,
   List<String>? outputCapture,
   SetupChecks? setupChecks,
+  Future<void> Function(String, SetupState)? launchSetup,
   ServiceBackend? serviceBackend,
   DartclawConfig? Function(String? configPath)? loadConfig,
 }) {
@@ -100,6 +101,7 @@ InitCommand _nonInteractiveCmd({
       captureInto?.add(state);
       return [state.configPath];
     },
+    launchSetup: launchSetup,
     writeLine: outputCapture != null ? outputCapture.add : (_) {},
     serviceBackend: serviceBackend,
     loadConfig: loadConfig ?? ((_) => null),
@@ -299,8 +301,8 @@ void main() {
 
       final state = captured.single;
       expect(state.workflowTrack, isTrue);
-      expect(state.instanceDir, './.dartclaw');
-      expect(state.configPath, './.dartclaw/dartclaw.yaml');
+      expect(state.instanceDir, p.join(Directory.current.path, '.dartclaw'));
+      expect(state.configPath, p.join(Directory.current.path, '.dartclaw', 'dartclaw.yaml'));
       expect(state.provider, 'claude');
       expect(state.providers, ['claude']);
       expect(state.authMethod, 'oauth');
@@ -680,6 +682,66 @@ void main() {
         ),
       );
       expect(applied, hasLength(1), reason: 'the post-write stage reports after the files are written');
+    });
+
+    test('empty PostgreSQL schema refuses all immediate launch modes after configuring', () async {
+      final checks = SetupChecks(
+        databaseReadiness: (_, {required bootstrap, required environment}) async => const [
+          DiagnosticRow(
+            id: 'database.connection',
+            status: DiagnosticStatus.pass,
+            summary: 'PostgreSQL connection is ready.',
+          ),
+          DiagnosticRow(
+            id: 'database.schema',
+            status: DiagnosticStatus.fail,
+            summary: 'PostgreSQL application schema is empty.',
+            fixable: true,
+          ),
+        ],
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+        configParseable: (_) async => true,
+        writeProbeFile: (_) {},
+        portFree: (_) async => true,
+        providerVerified: (_, _, _) async => true,
+      );
+      for (final launch in ['foreground', 'background', 'service']) {
+        final applied = <SetupState>[];
+        final launched = <String>[];
+        final output = <String>[];
+        final cmd = _nonInteractiveCmd(
+          captureInto: applied,
+          outputCapture: output,
+          setupChecks: checks,
+          launchSetup: (mode, _) async => launched.add(mode),
+        );
+        final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
+
+        await expectLater(
+          runner.run([
+            'init',
+            '--non-interactive',
+            '--provider',
+            'claude',
+            '--auth-claude',
+            'oauth',
+            '--model-claude',
+            'sonnet',
+            '--launch',
+            launch,
+          ]),
+          throwsA(
+            isA<UsageException>().having(
+              (error) => error.message,
+              'message',
+              allOf(contains('doctor --fix'), contains('retry --launch $launch')),
+            ),
+          ),
+        );
+        expect(applied, hasLength(1));
+        expect(output, contains('Status: configured but unverified'));
+        expect(launched, isEmpty);
+      }
     });
 
     test('configured but unverified state is surfaced when provider verification fails', () async {

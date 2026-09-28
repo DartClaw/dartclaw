@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show secureWriteFileSync;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta, ConfigWriter;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:path/path.dart' as p;
@@ -238,10 +239,7 @@ class SetupApply {
 
     instanceDir.createSync(recursive: true);
     configFile.parent.createSync(recursive: true);
-    final tmpPath = '$configPath.tmp';
-    final tmpFile = File(tmpPath);
-    tmpFile.writeAsStringSync(prospectiveConfig);
-    tmpFile.renameSync(configPath);
+    secureWriteFileSync(configFile, prospectiveConfig);
 
     if (configExists) {
       created.add('$configPath (updated)');

@@ -19,6 +19,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 ### Changed
 
 - Workflow token usage now distinguishes measured zero from unavailable accounting. Uncapped runs label known totals as incomplete lower bounds; capped runs stop dispatch when required usage cannot be verified.
+- Workflow event streams now include the persisted failure cause in connected snapshots, and status changes retain
+  their transition cause, so an accounting stop and a retryable execution pause remain distinguishable to live clients.
 
 - Codex launches disable the client-side native question tool and guide new threads to ask for clarification in a final reply. Structured native questions that still arrive produce redacted warning logs with their source and options; DartClaw supplies no answer and keeps the provider's real turn outcome.
 

@@ -932,8 +932,8 @@ The per-run SSE endpoint (`GET /api/workflows/runs/<id>/events`) streams real-ti
 
 | Event type | Payload |
 |---|---|
-| `connected` | Run state snapshot + step statuses at connection time |
-| `workflow_status_changed` | Run status transition (running → paused, etc.) |
+| `connected` | Run state, token completeness and error cause + step statuses at connection time |
+| `workflow_status_changed` | Run status transition (running → paused, etc.), current token completeness and error cause |
 | `workflow_step_completed` | Step result with token count and task ID, plus additive `outcome`/`reason` (present only when the executor recorded a semantic outcome — e.g. `failed`/`needsInput` with an operator-facing reason) |
 | `parallel_group_completed` | Group summary with success/failure counts |
 | `loop_iteration_completed` | Iteration number, max iterations, gate result |

@@ -235,6 +235,39 @@ Resume restarts the failed step, loop body position, parallel member, or foreach
 
 A cancelled step pauses at its cursor ahead of either policy – cancellation is an interruption, never a failure.
 
+For a host Claude workflow, `providers.claude.options.permissionMode: dontAsk` in the server configuration requests
+the no-prompt posture. DartClaw starts a compatible CLI with native prompts `none`, retains subprocess credential
+scrubbing and host guards, and records the effective native mode as `default`. This is separate from a workflow's
+step policies. For example:
+
+```yaml
+name: bounded-review
+description: Review and report under a token cap
+maxTokens: 200
+steps:
+  - id: review
+    name: Review
+    provider: claude
+    prompt: Review the change
+    onError: continue
+    onFailure: continue
+  - id: report
+    name: Report
+    type: bash
+    script: printf 'Review finished\n'
+```
+
+Claude reports cumulative native-session totals across the root turn and delegated models; DartClaw charges only
+each turn's additive increment. If a prior turn has 100 output tokens and the next reports 130, the known increment
+is 30. If that turn's final ledger write fails, its durable receipt is incomplete. A complete 100-token ledger from
+the prior turn cannot certify the new turn: with `maxTokens`, the run fails before `report` despite both `continue`
+policies. The status and event stream carry the accounting reason, and `workflow retry <runId>` rechecks the same
+receipt. A transient read fault can clear on retry and count settled work once; a failed write leaves its gap
+incomplete. Without a cap, the workflow may advance, but that step's tokens remain unavailable (`null`) and the
+numeric run total is labelled an incomplete lower bound. A measured bash step reports zero. A genuine execution
+error under `onError: pause` instead holds its failed unit for `workflow resume <runId>`; a modeled failure follows
+`onFailure`.
+
 ### `outputs` Fields
 
 `outputs:` map keys are the canonical declaration of the step's context-write set. Each value is either a map or a string shorthand.

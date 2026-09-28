@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-04-20; amended 2026-07-04 and 2026-08-21
+Accepted — 2026-04-20; amended 2026-07-04, 2026-08-21 and 2026-09-28
 
 ## Context
 
@@ -96,6 +96,17 @@ This compatibility fallback was retired by the 0.25 amendment below.
 **Decision**: Declared outputs and the ordinary step outcome come only from the validated execution envelope. Inline `<workflow-context>` parsing is removed without a compatibility window. The inline `<step-outcome>` tag remains only as the designed channel for steps that explicitly set `emitsOwnOutcome: true`; it is never a fallback for another step. A persisted pre-envelope turn fails with an instruction to re-run under 0.25.
 
 **Consequences**: A missing or malformed envelope charges the existing bounded re-ask and then fails with its typed reason. Custom workflows use the same envelope contract as built-ins, and old in-flight runs cannot silently recover data from assistant prose.
+
+## Amendment (0.27): retryable execution-error pause
+
+**Status**: Accepted — 2026-09-28. Supersedes the original decision's “deliberate operator holds only” limit on
+`paused`; the original split remains the historical decision.
+
+**Decision**: An explicit step `onError: pause` also sets `paused` after an execution error, records its cause and
+failed unit, and makes that unit retryable through resume. A terminal error uses `failed` and retry; a modeled
+`needsInput` or approval gate continues to use `awaitingApproval`. Completed siblings retain their outputs and
+accounted usage. Cancellation, budget/security stops and unavailable required token accounting keep their own
+precedence over `onError` continuation.
 
 ## References
 

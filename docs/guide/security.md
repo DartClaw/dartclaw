@@ -551,6 +551,8 @@ a scoped API key. Read this before making subscription the credential your deplo
   workers instead carry only a placeholder key with scrub `0`, under their separate host-mediated boundary. **Use an API key for
   host-mode deployments running less-trusted agents**: losing a scoped, individually revocable key is a far smaller
   event than losing a year-long full-account token.
+  The [bounded workflow example](workflows-reference.md#onfailure-and-onerror-policies) shows how this permission
+  posture composes with token availability and recovery policy.
 - **Blast radius.** A subscription Bearer authenticates as your whole account, is long-lived (~1 year for Claude), and
   is harder to revoke than a scoped API key. Container isolation and execution-scoped authorities bound the window, but
   a compromise anywhere drives calls under the broader credential. Choose an API key when you want least privilege or

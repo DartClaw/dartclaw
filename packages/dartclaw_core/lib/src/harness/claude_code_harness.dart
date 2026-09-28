@@ -1415,61 +1415,6 @@ class ClaudeCodeHarness extends BaseHarness
     _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true));
   }
 
-  Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic> hookInput) async {
-    final rawToolName = hookInput['tool_name'] as String;
-    emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
-    final toolInput = hookInput['tool_input'] as Map<String, dynamic>;
-    final canonicalTool = _adapter.mapToolName(rawToolName);
-    final guardToolName = canonicalTool?.stableName ?? 'claude:$rawToolName';
-
-    if (canonicalTool == null) {
-      _log.warning('Falling back to unmapped Claude tool name: $rawToolName -> $guardToolName');
-    }
-
-    try {
-      final chain = guardChain;
-      if (chain != null) {
-        final verdict = await chain.evaluateBeforeToolCall(
-          guardToolName,
-          toolInput,
-          sessionId: _activeTurnSessionId,
-          agentId: _activeAgentId,
-          rawProviderToolName: rawToolName,
-        );
-        if (verdict.isBlock) {
-          if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false))) {
-            emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-          }
-          return;
-        }
-      }
-    } catch (error, stackTrace) {
-      _log.severe('Claude hook guard evaluation failed for $requestId: $error', error, stackTrace);
-      if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false))) {
-        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-      }
-      return;
-    }
-
-    final envMap = toolInput['env'] as Map<String, dynamic>?;
-    if (envMap != null) {
-      final strippedNames = _bashEnvCredentialNames.where(envMap.containsKey).toList();
-      if (strippedNames.isNotEmpty) {
-        final sanitizedEnv = Map<String, dynamic>.from(envMap)..removeWhere((name, _) => strippedNames.contains(name));
-        final updatedInput = Map<String, dynamic>.from(toolInput)..['env'] = sanitizedEnv;
-        _log.info('Stripped ${strippedNames.join(', ')} from bash env');
-        if (_tryWriteHookResponse(requestId, _adapter.buildCredentialStripResponse(requestId, updatedInput))) {
-          emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-        }
-        return;
-      }
-    }
-
-    if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true))) {
-      emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-    }
-  }
-
   bool _tryWriteHookResponse(String requestId, Map<String, dynamic> response) {
     try {
       writeJsonLine(response);

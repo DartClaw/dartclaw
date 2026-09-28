@@ -539,6 +539,54 @@ void main() {
       }
     });
 
+    test(
+      'accounting stop and error pause keep their persisted cause and nullable usage in status and events',
+      () async {
+        handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+        for (final status in [WorkflowRunStatus.failed, WorkflowRunStatus.paused]) {
+          final run = WorkflowRun.fromJson(
+            _makeRun(
+                  status: status,
+                  currentStepIndex: 0,
+                  contextJson: {
+                    'data': {
+                      'research.status': status == WorkflowRunStatus.failed ? 'success' : 'failed',
+                      'research.tokenCount': null,
+                      if (status == WorkflowRunStatus.paused) 'research.error': 'shell exited 7',
+                    },
+                  },
+                )
+                .copyWith(
+                  errorMessage: status == WorkflowRunStatus.failed
+                      ? "Workflow accounting unavailable for step 'research'; token usage is incomplete."
+                      : 'shell exited 7',
+                  totalTokens: 30,
+                  tokenUsageComplete: false,
+                )
+                .toJson(),
+          );
+          workflows.getResult = run;
+          final detail = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+          final body = decodeObject(await detail.readAsString());
+          expect(body['status'], status.name);
+          expect(body['errorMessage'], run.errorMessage);
+          expect(body['totalTokens'], 30);
+          expect(body['tokenUsageComplete'], isFalse);
+          expect(body['isApprovalPaused'], isFalse);
+          expect((body['steps'] as List).first['tokenCount'], isNull);
+
+          final events = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+          final frame = utf8.decode(await events.read().first);
+          final payload = jsonDecode(frame.split('data: ')[1].split('\n').first) as Map<String, dynamic>;
+          final connectedRun = payload['run'] as Map<String, dynamic>;
+          expect(connectedRun['status'], status.name);
+          expect(connectedRun['errorMessage'], run.errorMessage);
+          expect(connectedRun['tokenUsageComplete'], isFalse);
+          expect((payload['steps'] as List).first['tokenCount'], isNull);
+        }
+      },
+    );
+
     test('a modeled failed outcome beats an accepted task status', () async {
       workflows.getResult = _makeRun(
         status: WorkflowRunStatus.completed,

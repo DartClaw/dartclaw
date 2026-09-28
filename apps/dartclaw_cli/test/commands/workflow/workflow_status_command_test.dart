@@ -23,6 +23,52 @@ void main() {
     });
 
     group('connected-mode table output', () {
+      test('accounting stop recommends retry while an execution pause recommends resume', () async {
+        for (final status in ['failed', 'paused']) {
+          final cause = status == 'failed'
+              ? "Workflow accounting unavailable for step 'work'; token usage is incomplete."
+              : 'shell exited 7';
+          final transport = FakeApiTransport(
+            sendResponses: [
+              jsonResponse(200, {
+                'id': 'run-correction',
+                'definitionName': 'demo-wf',
+                'status': status,
+                'startedAt': '2026-06-01T10:00:00Z',
+                'totalTokens': 30,
+                'tokenUsageComplete': false,
+                'errorMessage': cause,
+                'steps': [
+                  {
+                    'id': 'work',
+                    'name': 'Work',
+                    'status': status == 'failed' ? 'completed' : 'failed',
+                    'tokenCount': null,
+                  },
+                  {'id': 'zero', 'name': 'Zero', 'status': 'completed', 'tokenCount': 0},
+                ],
+              }),
+            ],
+          );
+          final output = <String>[];
+          final command = WorkflowStatusCommand(
+            connection: ApiWorkflowConnection(
+              apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+            ),
+            writeLine: output.add,
+            exitFn: fakeExit,
+          );
+          await (CommandRunner<void>('dartclaw', 'test')..addCommand(command)).run(['status', 'run-correction']);
+          final text = output.join('\n');
+          expect(text, contains(cause));
+          expect(text, contains('30 (incomplete lower bound)'));
+          expect(output.any((line) => line.contains('Work') && line.contains('unavailable')), isTrue);
+          expect(output.singleWhere((line) => line.contains('Zero')), contains('  0'));
+          expect(text, isNot(contains('Approval:')));
+          expect(text, contains(status == 'failed' ? 'retry run-correction' : 'resume run-correction'));
+        }
+      });
+
       test('error policy status shows cause, failed step, and matching recovery command', () async {
         for (final status in ['failed', 'paused', 'completed']) {
           final transport = FakeApiTransport(

@@ -687,6 +687,7 @@ Future<Response> _workflowRunSseHandler(
       'currentStepIndex': snapshotRun.currentStepIndex,
       'totalTokens': snapshotRun.totalTokens,
       'tokenUsageComplete': snapshotRun.tokenUsageComplete,
+      'errorMessage': snapshotRun.errorMessage,
     },
     'steps': stepsPayload,
   });

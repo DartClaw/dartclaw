@@ -335,6 +335,9 @@ Only `Failed` shows the **Retry** action in the workflow detail UI and via `dart
 
 `onFailure` handles model-declared failure, failed/rejected tasks and post-task validation, including its bounded retry. `onError` handles non-zero/unstartable bash and task creation/wait errors: omission/`fail` stops the run, `pause` holds it for resume, and `continue` advances the owning unit with a failed record. Resume retains earlier successful linear/loop steps and settled parallel/foreach work, including outputs and accounted usage. It cannot undo side effects from the failed attempt.
 
+The [bounded workflow example](workflows-reference.md#onfailure-and-onerror-policies) joins host Claude permission
+posture, additive token accounting and the accounting stop that takes precedence over both continuation policies.
+
 Two resume semantics to know before reaching for `resume`:
 
 - **The definition is frozen at run start.** `resume` and `retry` re-execute the definition snapshot stored with the run – editing the workflow YAML (or a skill prompt referenced by it) has no effect on an in-flight run. To pick up a definition fix, cancel and start a fresh run.

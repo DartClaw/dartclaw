@@ -357,6 +357,28 @@ void main() {
       expect(statusChanged.first['errorMessage'], 'Step failed');
     });
 
+    test('a recovered run clears its earlier failure cause from status events', () async {
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.failed).copyWith(errorMessage: 'accounting unavailable');
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+      final frames = await collectSseFramesWithAction(
+        response,
+        action: () async {
+          workflows.getResult = _makeRun();
+          eventBus.fire(
+            WorkflowRunStatusChangedEvent(
+              runId: 'run-001',
+              definitionName: 'spec-and-implement',
+              oldStatus: WorkflowRunStatus.failed,
+              newStatus: WorkflowRunStatus.running,
+              timestamp: DateTime.now(),
+            ),
+          );
+        },
+      );
+      final statusChanged = frames.firstWhere((frame) => frame['type'] == 'workflow_status_changed');
+      expect(statusChanged['errorMessage'], isNull);
+    });
+
     test('does not forward WorkflowRunStatusChangedEvent for different run', () async {
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
 

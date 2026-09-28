@@ -231,15 +231,16 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--sp-2);
-  padding: var(--sp-2) 0 var(--sp-1);
+  padding: var(--sp-2) 0 0;
 }
 .pop-foot-link { margin-right: auto; font-size: var(--text-xs); color: var(--fg-sub0); }
 .pop-validation { color: var(--error); font-size: var(--text-xs); }
 
 /* Ordinary canon fields inside the card: the popover is an edit surface, so a
-   control looks like a control at rest. */
+   control looks like a control at rest. The bottom inset matches the sides and
+   leaves room for the last field's focus ring. */
 .pop-project form,
-.pop-model form { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-2); }
+.pop-model form { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-2) var(--sp-2); }
 .pop-model .banner { margin: 0; }
 
 /* Find bar: slim, pinned above the transcript. */
@@ -2204,8 +2205,10 @@ select.form-select.channel-mode-select-hidden {
 }
 
 /* Canon ships no panel primitive, so the bare `.tab-panel.active { display: block }`
-   would collapse the dialog's field stack. */
-#new-task-dialog .dialog-body .tab-panel.active {
+   would collapse the dialog's field stack. The single-task fields sit one level
+   down, inside their swappable <form>, so it stacks the same way. */
+#new-task-dialog .dialog-body .tab-panel.active,
+#new-task-panel {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);

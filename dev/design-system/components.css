@@ -2851,13 +2851,21 @@ button.chip[aria-pressed="true"] {
    .menu-* are .palette-item modifiers and must stay after it — the tick column
    re-templates the row's grid at equal specificity. */
 .pop { position: absolute; z-index: var(--z-dropdown); padding: var(--sp-1); }
+/* .card's --border is --bg-surface0, the elevated card's own fill, so a
+   floating menu had no edge where it met another surface0 plane — an enhanced
+   select opened inside a popover merged into it. A foreground hairline draws
+   the edge on every ground in both themes; the top edge keeps its highlight. */
+.pop.card-elevated {
+  border-color: color-mix(in srgb, var(--fg) 9%, transparent);
+  border-top-color: color-mix(in srgb, var(--fg) 14%, transparent);
+}
 /* A floating menu is an overlay, like .card-glass: pointing at it must not
    tint, glow or lift it. .card-elevated:hover and .card:hover would otherwise
    apply, so the resting values are restated here (glass has its own). */
 .pop.card-elevated:hover, .pop.card-elevated.card-hover {
   background: var(--bg-surface0);
-  border: var(--border);
-  border-top-color: color-mix(in srgb, var(--fg) 10%, transparent);
+  border-color: color-mix(in srgb, var(--fg) 9%, transparent);
+  border-top-color: color-mix(in srgb, var(--fg) 14%, transparent);
   box-shadow: var(--shadow-md);
   translate: none;
 }

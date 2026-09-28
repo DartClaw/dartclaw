@@ -53,13 +53,19 @@ void main() {
   test('floating surfaces rest under hover and their rows fill off the surface', () async {
     final css = File(await resolveDesignSystemCss('components.css')).readAsStringSync();
     final elevated = _declarations(css, '.card-elevated');
+    final popRest = _declarations(css, '.pop.card-elevated');
     final popHover = _declarations(css, '.pop.card-elevated:hover, .pop.card-elevated.card-hover');
     expect(popHover['translate'], 'none');
-    for (final property in ['background', 'box-shadow', 'border-top-color']) {
+    for (final property in ['background', 'box-shadow']) {
       expect(popHover[property], elevated[property], reason: '$property must restate the resting value');
     }
     // .card:hover resets all four edges through the border-color shorthand.
-    expect(popHover['border'], _declarations(css, '.card')['border']);
+    for (final property in ['border-color', 'border-top-color']) {
+      expect(popHover[property], popRest[property], reason: '$property must restate the resting edge');
+    }
+    // The card border is the menu's own fill, so without its own edge a menu
+    // disappears into any surface0 plane it opens over — a popover included.
+    expect(popRest['border-color'], isNot(contains(elevated['background']!)));
 
     final rowFill = _declarations(
       css,

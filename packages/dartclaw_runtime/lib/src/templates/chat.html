@@ -297,39 +297,39 @@
       <button type="button" class="btn btn-primary" data-action="dc-chat#confirmMove">Move chat</button>
     </div>
   </dialog>
-  <dialog id="temporary-create-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-create-title" aria-describedby="temporary-create-detail">
-    <div class="dialog-header"><h2 id="temporary-create-title">Start temporary conversation?</h2></div>
+  <dialog id="temporary-create-dialog" class="dialog dialog--sm card card-glass temporary-dialog" aria-labelledby="temporary-create-title" aria-describedby="temporary-create-detail">
+    <div class="dialog-header"><h2 id="temporary-create-title" class="t-heading">Start temporary conversation?</h2></div>
     <div class="dialog-body">
       <p id="temporary-create-detail">Messages, attachments, and provider state stay in this server process. Drafts stay only in this page and are lost on reload. Provider processing and external tool effects may persist. Export creates a durable copy.</p>
     </div>
     <div class="dialog-footer">
       <div class="dialog-actions">
-        <button type="button" class="btn btn-sm" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
-        <button type="button" class="btn btn-sm btn-primary" data-action="dc-chat#createTemporary">Accept and start</button>
+        <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+        <button type="button" class="btn btn-primary" data-action="dc-chat#createTemporary">Accept and start</button>
       </div>
     </div>
   </dialog>
-  <dialog id="temporary-export-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-export-title" aria-describedby="temporary-export-detail">
-    <div class="dialog-header"><h2 id="temporary-export-title">Create durable Markdown copy?</h2></div>
+  <dialog id="temporary-export-dialog" class="dialog dialog--sm card card-glass temporary-dialog" aria-labelledby="temporary-export-title" aria-describedby="temporary-export-detail">
+    <div class="dialog-header"><h2 id="temporary-export-title" class="t-heading">Create durable Markdown copy?</h2></div>
     <div class="dialog-body">
       <p id="temporary-export-detail">The export is a durable copy containing visible redacted history and an attachment manifest. It contains no attachment bytes or provider state.</p>
     </div>
     <div class="dialog-footer">
       <div class="dialog-actions">
-        <button type="button" class="btn btn-sm" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
-        <button type="button" class="btn btn-sm btn-primary" data-action="dc-chat#exportTemporary">Create durable copy</button>
+        <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+        <button type="button" class="btn btn-primary" data-action="dc-chat#exportTemporary">Create durable copy</button>
       </div>
     </div>
   </dialog>
-  <dialog id="temporary-end-dialog" class="dialog temporary-dialog" aria-labelledby="temporary-end-title" aria-describedby="temporary-end-detail">
-    <div class="dialog-header"><h2 id="temporary-end-title">End temporary chat?</h2></div>
+  <dialog id="temporary-end-dialog" class="dialog dialog--sm card card-glass temporary-dialog" aria-labelledby="temporary-end-title" aria-describedby="temporary-end-detail">
+    <div class="dialog-header"><h2 id="temporary-end-title" class="t-heading">End temporary chat?</h2></div>
     <div class="dialog-body">
       <p id="temporary-end-detail">This permanently closes the temporary conversation and discards its messages, attachments, provider state, and unsent page draft after the provider has stopped.</p>
     </div>
     <div class="dialog-footer">
       <div class="dialog-actions">
-        <button type="button" class="btn btn-sm" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
-        <button type="button" class="btn btn-sm btn-danger" data-action="dc-chat#endTemporary">End temporary chat</button>
+        <button type="button" class="btn btn-ghost" data-action="dc-chat#closeTemporaryDialog">Cancel</button>
+        <button type="button" class="btn btn-danger-fill" data-action="dc-chat#endTemporary">End temporary chat</button>
       </div>
     </div>
   </dialog>

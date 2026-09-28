@@ -151,6 +151,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - Dropdown menus and command palettes highlight exactly one row, moved by the pointer and the arrow keys alike, and
   popovers no longer tint or lift under the pointer. A dropdown without room below its trigger opens upward or shrinks
   and scrolls. Clicking inside the slash, `@` or Cmd+K palette keeps keyboard focus in its input.
+- Popovers and dropdown menus draw a visible edge, so a dropdown opened inside the composer's Provider and model
+  popover no longer merges into it, and both composer popovers keep an even bottom inset. The temporary-chat
+  confirmations use the standard dialog frame, and the New Task form spaces its fields again.
 - The 404 page's Back to Home button lost its arrow glyph and label centring to the empty-state hero rule.
 - Cancelling a turn while the Claude harness was inside a tool call never settled that turn: the stop path tore the
   process down without completing the in-flight turn, so the session lock stayed held for the life of the server and

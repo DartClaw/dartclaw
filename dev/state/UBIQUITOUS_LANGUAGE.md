@@ -94,6 +94,8 @@
 | Managed Workspace Binding | Agent id and derived `data_dir/agents/<id>/workspace` directory pinned to a conversation at creation; owns behavior and skills under the `agent:<id>` storage principal independently of project context | workspace selection, configured path, project workspace |
 | Conversation Attempt | One admitted unit of conversation work linking its submission, captured effective context, provider turn, terminal outcome, messages, tools, approvals, and branch lineage | turn (when persistence identity matters), retry |
 | Effective Context | Complete nullable project association, directory, reference root, provider, model, and effort snapshot captured by the next admitted attempt; never changes the Managed Workspace Binding | workspace, execution defaults |
+| General Chat | Owner web conversation without a project association, executing in the existing owner workspace; Agent and global New chat start here | General project, implicit local project |
+| Project Chat | Owner web conversation associated with an explicitly selected Project for subsequent work; association changes preserve owner, memory and past attempts | project workspace, project agent |
 | Attention Event | Durable completion, failure, or input-request record linked to exact conversation history and projected into the owner's attention feed | notification, alert |
 | Action Availability | Server projection that an exact live request and owning turn still permit an action; read or dismiss state does not confer it | button state, permission |
 | Temporary Conversation | Owner-authorized conversation with `process` retention whose DartClaw state, attachments, usage context, and provider home remain in process, page, or volatile container storage until confirmed end | incognito chat, automatically private chat |
@@ -281,6 +283,7 @@
 
 ## Changelog
 - 2026-09-26: Clarified that Effective Context permits a null project association for general chats.
+- 2026-09-25: Added General Chat and Project Chat and nullable Effective Context from ADR-017 §9.
 - 2026-09-22: Replaced configurable Workspace Binding with Managed Workspace Binding and added Personal Memory and Shared Knowledge Surface.
 - 2026-09-14: Added Workspace Binding, Conversation Attempt, Effective Context, Attention Event, Action Availability, and Temporary Conversation.
 - 2026-09-09: Aligned database and schema-compatibility terms and added Instance-Local Store.
@@ -295,10 +298,3 @@
 - 2026-08-14: Regrouped the whole glossary onto the 15 bounded contexts registered in `dev/architecture/context-map.md` (closes D-4): the `##` section *is* the context, so the ~50 ad-hoc "Bounded Context" labels and their column are gone. Added the missing Scheduling vocabulary under `task-review` (closes D-5) and first-time coverage for `project-registry`, `tool-surface`, `operator-interface`, and `observability-alerting`. New terms elsewhere: Security Profile, Worker Capacity Gate, Session Lock, Context Monitor, Prompt Scope, Memory Role/Provenance/Observation, Temporal Knowledge Graph, Knowledge Inbox, Knowledge Hub, QMD, Platform Capabilities. Added overloads for Message, Event, Audit, Runner, Context, Budget, Merge, Project, Tool, and the channel-task Bridge. Dropped "Dependency Reversal" and "Outpost Pattern" (generic jargon; "outpost" is already an Avoid synonym for the outbound MCP client) and the degenerate Worker/Guard/Verification overload rows.
 - 2026-08-12: Retired the pre-0.24 Credential Proxy entry (redirect to Host Gateway / Container Bridge) and updated Container Isolation to the shipped 0.24 model (per-authority single-use container, `no-new-privileges`, framed bridge as the only egress path).
 - 2026-08-12: Added 0.24 execution-isolation terms – Execution Policy, Principal, Container Authority, Host Gateway, Container Bridge (`dartclaw_bridge`); extended the Bridge overloaded-term row with the container-bridge sense.
-- 2026-08-09: Replaced legacy pool terminology with Execution Coordinator, Execution Lease, and Execution Fingerprint; capacity is lease-based and independent from optional worker reuse.
-- 2026-06-12: Added 0.19 Context Engine, Turn Context Assembler, outbound MCP client, `context_research`, egress guard, and citation packet terms.
-- 2026-08-23: Retired the task-category meaning from the overloaded Type row; workflow step and scheduled-job types remain distinct.
-- 2026-04-25: Added 0.16.4 agent-resolved-merge terms (workflow git) and the Agent Skills terms Bang Operator and Env-var Injection.
-- 2026-08-23: Clarified that workflow-authored step types remain workflow execution metadata while task dispatch uses explicit `readOnly` and `needsWorktree` declarations.
-- 2026-04-11: Added 0.16 terms for alert routing, compaction observability, and reconfigurable service; updated workflow ownership to `dartclaw_workflow`; added fitness function as a 0.16.3 architecture-governance term.
-- 2026-03-24: Reassigned thread binding, sender attribution, review commands, and runtime governance to concrete capability areas after removing the former shared bounded context.

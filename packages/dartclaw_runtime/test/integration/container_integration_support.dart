@@ -695,16 +695,31 @@ Future<Directory> createImageOwnedWorkspace(String path) async {
 Map<String, String> readAllFiles(Directory directory) {
   if (!directory.existsSync()) return const {};
   final contents = <String, String>{};
-  for (final entity in directory.listSync(recursive: true, followLinks: false)) {
-    if (entity is! File) continue;
+
+  void visit(Directory current) {
+    final List<FileSystemEntity> entries;
     try {
-      contents[p.relative(entity.path, from: directory.path)] = entity.readAsStringSync();
-    } on FileSystemException {
-      // A file the host cannot open cannot be asserted on either way.
-    } on FormatException {
-      // Non-UTF-8 content cannot carry an ASCII sentinel as text.
+      entries = current.listSync(followLinks: false);
+    } on PathNotFoundException {
+      if (!current.existsSync()) return;
+      rethrow;
+    }
+    for (final entity in entries) {
+      if (entity is Directory) {
+        visit(entity);
+      } else if (entity is File) {
+        try {
+          contents[p.relative(entity.path, from: directory.path)] = entity.readAsStringSync();
+        } on FileSystemException {
+          // A file the host cannot open cannot be asserted on either way.
+        } on FormatException {
+          // Non-UTF-8 content cannot carry an ASCII sentinel as text.
+        }
+      }
     }
   }
+
+  visit(directory);
   return contents;
 }
 

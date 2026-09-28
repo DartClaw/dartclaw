@@ -8,7 +8,7 @@ See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and s
 deeper visual/UX validation lives in feature-specific test plans. Channel pairing flows are out of
 scope (separate channel-E2E test suite).
 
-**Last refreshed for**: DartClaw 0.24
+**Last refreshed for**: DartClaw 0.27
 
 ---
 
@@ -25,7 +25,7 @@ bash dev/testing/profiles/plain/run.sh
 | URL | `http://localhost:3335` (profile sets `port: 3335`) |
 | Token | `devtoken0` (`dev/testing/profiles/plain/data/gateway_token`) |
 | Auto-auth URL | `http://localhost:3335/?token=devtoken0` |
-| Pre-seeded | 1 main session (Workspace/Agent), 2 scheduled jobs, workspace memory files, guards on |
+| Pre-seeded | 1 pinned main session (Agent), 2 scheduled jobs, workspace memory files, guards on |
 | Not seeded | tasks, workflow runs, projects — empty-state versions of those pages are testable; deeper TCs note when seeding is required |
 | Channels | all disabled |
 
@@ -90,19 +90,21 @@ seeded profile can't represent (e.g., truly empty initial state — see TC-04 no
 1. Authenticate; observe the sidebar at desktop 1280px
 
 **Pass — sections appear in this order, with sections silently omitted when empty:**
-1. **Workspace** (`Workspace` label) — single `Agent` entry linking to the main session
+1. **Pinned** (`Pinned` label) — single `Agent` entry linking to the main session
 2. **Channels** (only if any channel is enabled) — `DMs` and/or `Groups` subsections
 3. **Running** (only if at least one task is active) — task rows with live elapsed badge
 4. **Workflows** (only if a workflow run is live) — run rows with `N/M` step progress
-5. **Chats** (always) — `New Chat` button, then chat rows; "No chats yet" placeholder when empty
-6. **Archived** (collapsible — only if any archived chats exist)
-7. **System** disclosure (always — fixed at the rail bottom; see TC-17 for full enumeration)
+5. **Chats** — general chat rows or "No chats yet" placeholder when empty; a `New chat` icon button is in the rail controls above the sections
+6. **Archived** (collapsible within Chats — only if any archived chats exist)
+7. **Projects** (only if a registered project or a conversation bound to one exists) — project entries and their conversations, after Chats
+8. **System** disclosure (always — fixed at the rail bottom; see TC-17 for full enumeration)
 
-**Fail:** sections render in wrong order; `New Chat` button labeled `+ New Session` (legacy);
-`Workspace` section missing when a main session exists; System disclosure absent or permanently expanded
+**Fail:** sections render in wrong order; rail new-chat control lacks the `New chat` accessible name;
+`Pinned` section missing when a main session exists; project controls appear without registered projects;
+System disclosure absent or permanently expanded
 
 **Note:** The sidebar's exact content depends on configuration — Channels needs an enabled channel;
-Workspace needs a main session. The plain profile shows: Workspace + Chats + System.
+Pinned needs a main session. The plain profile shows: Pinned + Chats + System.
 
 ---
 
@@ -110,12 +112,12 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 
 ### TC-05: Empty Chat Initial State
 **Steps:**
-1. Plain profile: navigate to `/` and click `Agent` in Workspace (main session has no exchanges yet),
+1. Plain profile: navigate to `/` and click `Agent` in Pinned (main session has no exchanges yet),
    OR start with a fresh data dir for a true zero-session state
 
 **Pass:**
 - Sidebar visible at desktop with sections per TC-04
-- Chat area: centered prompt hero with mascot, "Welcome back" heading, and start-conversation subtext
+- Chat area: centered prompt hero with mascot, "Ready when you are" heading, and current chat/provider subtext
 - Input fixed at bottom; Send button disabled while textarea is empty
 - Mobile (375px): hamburger visible, sidebar hidden behind it
 
@@ -125,16 +127,15 @@ Workspace needs a main session. The plain profile shows: Workspace + Chats + Sys
 
 ### TC-06: Chat Page — Layout & Topbar
 **Steps:**
-1. Open Agent in Workspace, then open a user-created chat at `/sessions/<id>`
+1. Open Agent in Pinned, then open a user-created chat at `/sessions/<id>`
 
 **Pass:**
-- Agent keeps the fixed Workspace identity; the user-created chat has an editable title input
-- **ℹ button** in topbar links to `/sessions/<id>/info`
-- Theme toggle and (desktop) Reset button in topbar
-- Sidebar shows the active session with accent left-border (Workspace/Agent stays highlighted for the main session)
+- Agent keeps its fixed general identity and static title; the user-created chat has an editable title input
+- **More actions** in the conversation topbar opens a menu with **Session info** linking to `/sessions/<id>/info`, **Reset conversation**, and **Toggle theme**
+- Sidebar marks the active conversation (Pinned/Agent stays highlighted for the main session)
 - No console errors
 
-**Fail:** ℹ button missing; no active state on the session; broken topbar
+**Fail:** More actions or its session actions missing; no active state on the session; broken topbar
 
 ---
 
@@ -240,17 +241,17 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 
 ### TC-11: Session Info Page
 **Steps:**
-1. Open a session, click the **ℹ button** in the topbar (verify discoverability — do NOT type the URL)
+1. Open a session, click **More actions** in the topbar, then **Session info** (verify discoverability — do NOT type the URL)
 
 **Pass:**
 - Lands on `/sessions/<id>/info`
 - Title and UUID shown; UUID truncated with ellipsis when long
 - Token grid: Input / Output / Total (or "—" for sessions with no completed turns)
-- Session details: Messages, Created, Session ID
+- Session details show the owner, context, execution directory, provider and next-turn settings
 - "← Back to Chat" link in topbar
 - No console errors
 
-**Fail:** ℹ button missing; UUID overflows; page unstyled
+**Fail:** Session info missing from More actions; UUID overflows; page unstyled
 
 ---
 
@@ -274,9 +275,9 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 
 ### TC-13: Theme Toggle
 **Steps:**
-1. Click the theme toggle (top right of topbar)
+1. On a conversation, open **More actions** and click **Toggle theme**
 2. Reload the page
-3. Toggle back
+3. Reopen **More actions** and toggle back
 
 **Pass:**
 - Switches between Catppuccin Mocha (dark) and Latte (light) immediately
@@ -321,10 +322,10 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 
 ### TC-16: New Chat
 **Steps:**
-1. From an established chat, activate **`New Chat`** and note the new chat ID and Chats count
-2. After navigation settles, activate **`New Chat`** again
-3. Return to the established chat, activate **`New Chat`**, and confirm the noted draft reopens
-4. Send a message in that draft; after it becomes an established chat, activate **`New Chat`** again
+1. From an established chat, activate the rail or topbar **New chat** control and note the new chat ID and Chats count
+2. After navigation settles, activate **New chat** again
+3. Return to the established chat, activate **New chat**, and confirm the noted draft reopens
+4. Send a message in that draft; after it becomes an established chat, activate **New chat** again
 5. Confirm the new draft composer has focus without clicking it; established-chat composers do not autofocus
 
 **Pass:**
@@ -335,9 +336,9 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 - New session at top of `Chats` list
 - Empty chat state in main area; topbar input and chat row show "Untitled draft"
 - New-chat composer receives focus; established-chat composer does not
-- ℹ button present in topbar
+- **More actions** menu includes **Session info** for the new session
 
-**Fail:** Blank chats accumulate; current draft reloads; wrong draft reopens; session missing from sidebar; focus behavior wrong; ℹ button missing on a new session
+**Fail:** Blank chats accumulate; current draft reloads; wrong draft reopens; session missing from sidebar; focus behavior wrong; Session info missing on a new session
 
 ---
 
@@ -594,12 +595,12 @@ Previously fixed issues. Flag immediately if any regress.
 | R-03 | 404 plain text | `/nonexistent` shows the styled page |
 | R-04 | Token URL shows login form | `/?token=<valid>` auto-authenticates |
 | R-05 | No SYSTEM nav in chat sidebar | Chat-page sidebar carries the SYSTEM nav (TC-17) |
-| R-06 | Missing ℹ button | Chat topbar carries the session-info link |
+| R-06 | Missing session-info action | Chat topbar's More actions menu carries the Session info link |
 | R-07 | Tab title stale after rename | `document.title` updates immediately on rename |
 | R-08 | SYSTEM nav incomplete | Every configured system page appears in nav (TC-17) |
 | R-09 | Scheduling table fade missing at mobile | Right-edge fade gradient visually present at 375px |
-| R-10 | Sidebar new-chat button mislabelled | Button reads `New Chat`, not legacy `+ New Session` |
-| R-11 | Workspace section missing | Main session always rendered under Workspace, not buried in Chats |
+| R-10 | Sidebar new-chat control mislabelled | Rail icon button has accessible name `New chat` |
+| R-11 | Pinned section missing | Main Agent session always rendered under Pinned, not buried in Chats |
 | R-12 | Workflow step expansion full-page reload | Step row expansion is HTMX-driven, no full reload |
 | R-13 | External runtime dependency returns | Embedded fallback serves fully offline — run § R-13 protocol below |
 | R-14 | Workflow run identity truncates | At 320px, a real UUID wraps and remains fully readable without horizontal overflow |

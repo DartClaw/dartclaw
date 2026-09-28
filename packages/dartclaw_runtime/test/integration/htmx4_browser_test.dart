@@ -228,7 +228,7 @@ final class _Chrome {
     } catch (_) {
       process.kill(ProcessSignal.sigterm);
       await process.exitCode;
-      if (profile.existsSync()) profile.deleteSync(recursive: true);
+      await _deleteProfile(profile);
       rethrow;
     } finally {
       client.close(force: true);
@@ -236,17 +236,38 @@ final class _Chrome {
   }
 
   Future<void> close() async {
-    await page.close();
-    process.kill(ProcessSignal.sigterm);
-    await process.exitCode.timeout(
-      const Duration(seconds: 5),
-      onTimeout: () {
-        process.kill(ProcessSignal.sigkill);
-        return -1;
-      },
-    );
-    if (profile.existsSync()) profile.deleteSync(recursive: true);
+    try {
+      await page.send('Browser.close');
+    } on TimeoutException {
+      process.kill(ProcessSignal.sigterm);
+    } on StateError {
+      process.kill(ProcessSignal.sigterm);
+    } finally {
+      try {
+        await page.close();
+      } finally {
+        process.kill(ProcessSignal.sigterm);
+        try {
+          await process.exitCode.timeout(const Duration(seconds: 5));
+        } on TimeoutException {
+          process.kill(ProcessSignal.sigkill);
+          await process.exitCode;
+        }
+        await _deleteProfile(profile);
+      }
+    }
   }
+
+  static Future<void> _deleteProfile(Directory profile) => _eventually(() {
+    if (!profile.existsSync()) return true;
+    try {
+      profile.deleteSync(recursive: true);
+      return !profile.existsSync();
+    } on FileSystemException {
+      // Snap's launcher can exit while Chromium is still writing its profile.
+      return false;
+    }
+  }, reason: 'Chromium did not release its test profile: ${profile.path}');
 }
 
 void main() {

@@ -1,15 +1,16 @@
-@Tags(['integration'])
+@Tags(['integration', 'live-e2e'])
 library;
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitWorktreeMode, WorkflowTaskType;
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, Task, WorkflowStepCompletedEvent;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show HarnessFactory, PostgresBackend, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         MergeResolveConfig,
@@ -38,7 +39,8 @@ import '_support/workflow_test_paths.dart';
 ///
 /// Gating preconditions: `codex --version` succeeds and provider auth is
 /// available through Codex OAuth/auth-file state, `CODEX_API_KEY`, or
-/// `OPENAI_API_KEY`. When the package-level `dart_test.yaml` marks integration
+/// `OPENAI_API_KEY`, and `DARTCLAW_TEST_POSTGRES_URL` points to a disposable
+/// PostgreSQL 14+ database. When the package-level `dart_test.yaml` marks integration
 /// tests skipped, run locally with:
 ///
 ///     dart test --run-skipped packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart -t integration
@@ -196,6 +198,12 @@ bool _isRecognizedTransient(Object error) {
 Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
   final definition = _mergeResolveIntegrationDefinition();
   _assertDefinitionContract(definition);
+  final postgresDsn = Platform.environment['DARTCLAW_TEST_POSTGRES_URL'];
+  if (postgresDsn == null || postgresDsn.isEmpty) {
+    throw StateError(
+      'Live merge-resolve E2E requires DARTCLAW_TEST_POSTGRES_URL (a disposable PostgreSQL 14+ database)',
+    );
+  }
 
   final artifactDir = _createPreservedArtifactDir('merge-resolve-integration-e2e-attempt-$attempt');
   final log = Logger('E2E.Diagnostics');
@@ -207,11 +215,16 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
       .build();
 
   DartclawRuntime? runtime;
+  PostgresBackend? postgresAdmin;
+  String? postgresNamespace;
   final diagnosticSubs = <StreamSubscription<Object>>[];
   String? runId;
   var lastStepId = '<none>';
   try {
-    runtime = await _wireUp(fixture);
+    postgresAdmin = await PostgresBackend.open(dsn: postgresDsn, poolSize: 1);
+    postgresNamespace = 'dc_merge_resolve_e2e_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 20)}';
+    await postgresAdmin.execute('CREATE SCHEMA "$postgresNamespace"');
+    runtime = await _wireUp(fixture, postgresDsn: postgresDsn, postgresNamespace: postgresNamespace);
     diagnosticSubs.add(
       runtime.eventBus.on<WorkflowStepCompletedEvent>().listen((event) {
         lastStepId = event.stepId;
@@ -307,19 +320,37 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
     for (final sub in diagnosticSubs) {
       await sub.cancel();
     }
-    if (runtime != null) {
-      await runtime.shutdown();
+    try {
+      if (runtime != null) {
+        await runtime.shutdown();
+      }
+    } finally {
+      try {
+        await fixture.dispose();
+      } finally {
+        try {
+          if (postgresNamespace != null) {
+            await postgresAdmin!.execute('DROP SCHEMA IF EXISTS "$postgresNamespace" CASCADE');
+          }
+        } finally {
+          await postgresAdmin?.close();
+        }
+      }
     }
-    await fixture.dispose();
   }
 }
 
-Future<DartclawRuntime> _wireUp(E2EFixtureInstance fixture) async {
+Future<DartclawRuntime> _wireUp(
+  E2EFixtureInstance fixture, {
+  required String postgresDsn,
+  required String postgresNamespace,
+}) async {
   final staging = await DartclawRuntime.stageHeadless(
     fixture.config,
     dataDir: fixture.config.server.dataDir,
+    runtimeCwd: fixture.runtimeCwd,
     harnessFactory: HarnessFactory(),
-    taskBackendFactory: (_) => openPreparedTaskBackend(),
+    taskBackendFactory: (_) => PostgresBackend.open(dsn: postgresDsn, poolSize: 3, namespace: postgresNamespace),
     stderrLine: (_) {},
     exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
   );

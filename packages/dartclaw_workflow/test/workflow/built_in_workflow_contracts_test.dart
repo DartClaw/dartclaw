@@ -374,7 +374,7 @@ void main() {
       for (final file in _builtInWorkflows) {
         final def = _load(file);
         for (final step in _flattenedSteps(def)) {
-          if (step.id != 'implement' && step.id != 'remediate') continue;
+          if (step.id != 'implement' && step.id != 'remediate' && step.id != 'remediate-story') continue;
           if (step.allowedTools == null) continue; // default tool policy inherits from skill
           expect(
             step.allowedTools,
@@ -391,11 +391,11 @@ void main() {
     // file_write but not file_edit can create files yet silently fails to edit
     // existing ones. So every project-mutating step that grants file_write must
     // also grant file_edit. A step mutates the project when it runs a known
-    // mutator skill (exec-spec/remediate-findings/triage) or invokes a review
+    // mutator skill (exec-spec/implement-fix/triage) or invokes a review
     // with --fix. Re-review steps are read-only re-runs of the original review
     // (no --fix), so they are NOT mutating and hold review-only grants.
     test('mutation steps that grant file_write also grant file_edit', () {
-      const mutatorSkills = {'andthen:exec-spec', 'andthen:remediate-findings', 'andthen:triage'};
+      const mutatorSkills = {'andthen:exec-spec', 'andthen:implement-fix', 'andthen:triage'};
       var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);
@@ -470,34 +470,42 @@ void main() {
       );
     });
 
-    test('remediation steps pass at least one report path source in the prompt', () {
+    test('remediation steps use the installed fix skill with a report path', () {
       // The report path is interpolated inline ({{context.review_report_path}}),
       // which the remediate skill executes as its argument. Because it is
       // template-referenced, declaring it as an input would be a redundant no-op
       // (the no-op-inputs rule forbids it) – so this only asserts the prompt
       // reference, not an inputs declaration.
-      final reportKeys = {'review_report_path', 'architecture_review_findings'};
       final referencePattern = RegExp(r'\{\{\s*context\.([A-Za-z0-9_.-]+)\s*\}\}');
-      var checked = 0;
+      const expectedStepIds = <String, Set<String>>{
+        'spec-and-implement.yaml': {'remediate'},
+        'plan-and-implement.yaml': {'remediate-story', 'remediate'},
+        'code-review.yaml': {'remediate'},
+        'spec-and-implement-inline.yaml': {'remediate'},
+        'plan-and-implement-inline.yaml': {'remediate-story', 'remediate'},
+        'multi-agent-review-inline.yaml': {'remediate'},
+        'review-and-remediate-inline.yaml': {'remediate'},
+      };
 
-      for (final file in _builtInWorkflows) {
-        final def = _load(file);
-        for (final step in _flattenedSteps(def)) {
-          if (step.skill != 'andthen:remediate-findings') continue;
-          checked++;
+      for (final entry in expectedStepIds.entries) {
+        final def = _builtInWorkflows.contains(entry.key) ? _load(entry.key) : _loadInline(entry.key);
+        final steps = _flattenedSteps(def).where((step) => entry.value.contains(step.id)).toList();
+        expect(steps.map((step) => step.id).toSet(), entry.value, reason: '${entry.key} remediation steps');
+        for (final step in steps) {
+          expect(step.skill, 'andthen:implement-fix', reason: '${entry.key} → "${step.id}" skill');
           final references = referencePattern
               .allMatches(_allPromptText(step))
               .map((match) => match.group(1)!)
-              .where(reportKeys.contains)
+              .where((key) => key == 'review_report_path')
               .toList();
           expect(
             references,
             isNotEmpty,
-            reason: '$file → "${step.id}" must pass at least one report path to andthen:remediate-findings',
+            reason: '${entry.key} → "${step.id}" must pass a report path to andthen:implement-fix',
           );
+          expect(_allPromptText(step).trim(), '--auto {{context.review_report_path}}');
         }
       }
-      expect(checked, greaterThan(0), reason: 'built-ins must include remediation steps');
     });
 
     test('remediation steps fail loudly instead of retrying mutating work', () {
@@ -506,6 +514,7 @@ void main() {
         for (final file in const [
           'spec-and-implement-inline.yaml',
           'plan-and-implement-inline.yaml',
+          'multi-agent-review-inline.yaml',
           'review-and-remediate-inline.yaml',
         ])
           (file: file, definition: _loadInline(file)),
@@ -514,7 +523,7 @@ void main() {
 
       for (final entry in files) {
         for (final step in _flattenedSteps(entry.definition)) {
-          if (step.skill != 'andthen:remediate-findings') continue;
+          if (step.skill != 'andthen:implement-fix') continue;
           checked++;
           expect(step.onFailure, OnFailurePolicy.fail, reason: '${entry.file} → "${step.id}" retry policy');
           expect(step.maxRetries, isNull, reason: '${entry.file} → "${step.id}" retry budget');
@@ -702,7 +711,7 @@ void main() {
       for (final file in _builtInWorkflows) {
         final resolved = resolver.resolve(_load(file));
         for (final step in _flattenedSteps(resolved)) {
-          if (step.skill != 'andthen:remediate-findings') continue;
+          if (step.skill != 'andthen:implement-fix') continue;
           checked++;
           expect(step.provider, '@executor', reason: '$file → "${step.id}" should run on @executor');
           expect(step.model, '@executor', reason: '$file → "${step.id}" should use the @executor model');

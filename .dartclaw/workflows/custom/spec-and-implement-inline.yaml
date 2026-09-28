@@ -177,7 +177,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
+        skill: andthen:implement-fix
         entryGate: "gating_findings_count > 0"
         inputs: [spec_path]
         prompt: "--auto {{context.review_report_path}}"

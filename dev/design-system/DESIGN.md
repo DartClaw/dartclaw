@@ -1110,6 +1110,8 @@ The frame carries **no `z-index`**. `showModal()` promotes the element into the 
 
 **The thread bottom-anchors.** `.messages` is a column flex container and its first child takes `margin-top: auto`, so a short conversation sits against the composer instead of stranding the last message most of a viewport above it; the last child drops its bottom margin so the gap is exactly one `sp-4`. Use this idiom, **not** `justify-content: flex-end` – once the thread overflows, `flex-end` pushes content above the scroll origin where it can never be reached.
 
+**Conversation controls keep a 44px target at every width.** The message action lane reserves that height even on desktop; copy, edit, fork and retry keep their small glyphs inside 44px buttons. Tool disclosures and live approval/recovery actions use the same minimum. This is a conversation-specific exception to the compact desktop control tier.
+
 **Thinking slot** (`.msg-thinking`) — the sanctioned pre-stream composition state, and *the* claw moment of the chat view: an assistant message showing the `.claw-loader` plus a muted "thinking" label with an animated ellipsis (reusing the `.tool-indicator.pending` blink, not a new keyframe). It is replaced entirely by streamed content on the first token, so there is at most one per view — this is where users stare longest, which is exactly why the brand lives here. Under reduced motion it degrades to the static claw-mark + text.
 
 ### Tool indicators

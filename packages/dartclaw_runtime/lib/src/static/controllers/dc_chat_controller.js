@@ -70,6 +70,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.handleChatAction = this.handleChatAction.bind(this);
     this.handleViewportChange = this.handleViewportChange.bind(this);
     this.handleVisibleReadBoundary = this.handleVisibleReadBoundary.bind(this);
+    this.handleHistoryPageHide = this.storeHistoryViewState.bind(this);
     this.handleTemporaryBeforeUnload = this.handleTemporaryBeforeUnload.bind(this);
     this.handleTemporaryPageHide = this.handleTemporaryPageHide.bind(this);
     this.handleTemporaryDialogKeydown = this.handleTemporaryDialogKeydown.bind(this);
@@ -91,6 +92,7 @@ export default class DcChatController extends Stimulus.Controller {
     window.addEventListener('resize', this.handleViewportChange);
     document.addEventListener('visibilitychange', this.handleVisibleReadBoundary);
     this.element.querySelector('.messages')?.addEventListener('scroll', this.handleVisibleReadBoundary, { passive: true });
+    if (!this.isTemporary) window.addEventListener('pagehide', this.handleHistoryPageHide);
     if (this.isTemporary) {
       window.addEventListener('beforeunload', this.handleTemporaryBeforeUnload);
       window.addEventListener('pagehide', this.handleTemporaryPageHide);
@@ -134,6 +136,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.stackObserver?.disconnect();
     document.removeEventListener('visibilitychange', this.handleVisibleReadBoundary);
     this.element.querySelector('.messages')?.removeEventListener('scroll', this.handleVisibleReadBoundary);
+    window.removeEventListener('pagehide', this.handleHistoryPageHide);
     window.removeEventListener('beforeunload', this.handleTemporaryBeforeUnload);
     window.removeEventListener('pagehide', this.handleTemporaryPageHide);
     this._stopTurnStatusPolling();
@@ -1345,26 +1348,42 @@ export default class DcChatController extends Stimulus.Controller {
     const selection = window.getSelection?.();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
     const range = selection.getRangeAt(0);
-    const content = range.commonAncestorContainer.parentElement?.closest?.('[data-message-id] .msg-content') ||
-      range.commonAncestorContainer.closest?.('[data-message-id] .msg-content');
+    const selector = '[data-message-id] .msg-content, [data-message-id] .tool-call-io';
+    const content = range.commonAncestorContainer.parentElement?.closest?.(selector) ||
+      range.commonAncestorContainer.closest?.(selector);
     const message = content?.closest('[data-message-id]');
     if (!content || !message || !content.contains(range.startContainer) || !content.contains(range.endContainer)) {
       return null;
     }
+    const tool = content.closest('[data-tool-id]');
+    const ioIndex = tool ? Array.from(tool.querySelectorAll('.tool-call-io')).indexOf(content) : null;
+    if (tool && (!tool.dataset.toolId || ioIndex < 0)) return null;
     const prefix = document.createRange();
     prefix.selectNodeContents(content);
     prefix.setEnd(range.startContainer, range.startOffset);
     const selected = document.createRange();
     selected.selectNodeContents(content);
     selected.setEnd(range.endContainer, range.endOffset);
-    return { messageId: message.dataset.messageId, start: prefix.toString().length, end: selected.toString().length };
+    return {
+      messageId: message.dataset.messageId,
+      ...(tool ? { toolId: tool.dataset.toolId, ioIndex } : {}),
+      start: prefix.toString().length,
+      end: selected.toString().length,
+    };
   }
 
   restoreHistorySelection(saved) {
     if (!saved) return;
     const message = Array.from(this.element.querySelectorAll('[data-message-id]'))
       .find((item) => item.dataset.messageId === saved.messageId);
-    const content = message?.querySelector('.msg-content');
+    let content = null;
+    if (saved.toolId) {
+      const tool = Array.from(message?.querySelectorAll('[data-tool-id]') || [])
+        .find((item) => item.dataset.toolId === saved.toolId);
+      content = Number.isInteger(saved.ioIndex) ? tool?.querySelectorAll('.tool-call-io')[saved.ioIndex] : null;
+    } else {
+      content = message?.querySelector('.msg-content');
+    }
     if (!content) return;
     const positions = [];
     const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);

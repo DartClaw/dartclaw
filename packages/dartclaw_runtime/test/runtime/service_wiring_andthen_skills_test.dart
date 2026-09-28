@@ -141,7 +141,7 @@ const _shippedDartclawSkillRefs = <String>[
   'andthen:exec-spec',
   'andthen:review',
   'andthen:quick-review',
-  'andthen:remediate-findings',
+  'andthen:implement-fix',
 ];
 
 Never _unexpectedExit(int code) {

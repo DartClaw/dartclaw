@@ -342,7 +342,7 @@ const shippedDartclawSkillRefs = <String>[
   'andthen:exec-spec',
   'andthen:review',
   'andthen:quick-review',
-  'andthen:remediate-findings',
+  'andthen:implement-fix',
 ];
 
 void seedProviderAndThenSkills(String home) {

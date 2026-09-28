@@ -96,7 +96,7 @@ steps:
         schema: non_negative_integer
         description: "Self-rated 1-10 readiness of a synthesized specification authored by the spec skill. Emit 0 in every other case: at the detection step and when an existing specification is reused without synthesis."
 
-  # `--fix` delegates remediation to andthen:remediate-findings in one
+  # `--fix` delegates remediation to andthen:implement-fix in one
   # invocation. Skipped when spec was reused (confidence == 0) or already
   # >= 7. Modifies the FIS in place at {{context.spec_path}} – no new context
   # value produced; downstream steps re-read the revised file.
@@ -166,7 +166,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
+        skill: andthen:implement-fix
         entryGate: "gating_findings_count > 0"
         allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
         inputs: [spec_path]

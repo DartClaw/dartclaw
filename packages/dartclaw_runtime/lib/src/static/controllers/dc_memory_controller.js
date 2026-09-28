@@ -1,11 +1,17 @@
 export default class DcMemoryController extends Stimulus.Controller {
   connect() {
+    this.beforeSwapHandler = (event) => this.beforeSwap(event);
     this.afterSwapHandler = (event) => this.afterSwap(event);
+    document.addEventListener('htmx:before:swap', this.beforeSwapHandler);
     this.element.addEventListener('htmx:after:swap', this.afterSwapHandler);
     this.initializeView();
   }
 
   disconnect() {
+    if (this.beforeSwapHandler) {
+      document.removeEventListener('htmx:before:swap', this.beforeSwapHandler);
+      this.beforeSwapHandler = null;
+    }
     if (this.afterSwapHandler) {
       this.element.removeEventListener('htmx:after:swap', this.afterSwapHandler);
       this.afterSwapHandler = null;
@@ -14,6 +20,12 @@ export default class DcMemoryController extends Stimulus.Controller {
 
   get apiQs() {
     return window.dartclaw?.shell?.apiQs?.() || '';
+  }
+
+  beforeSwap(event) {
+    if (event.detail?.ctx?.target?.id === 'memory-content' && document.querySelector('dialog:modal')) {
+      event.preventDefault();
+    }
   }
 
   afterSwap(event) {

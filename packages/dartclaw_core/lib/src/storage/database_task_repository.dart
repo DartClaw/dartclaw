@@ -303,17 +303,15 @@ class DatabaseTaskRepository implements TaskRepository {
     if (patch.isEmpty) {
       return true;
     }
-    final stmt = await _backend.prepare('''
-      UPDATE tasks
-      SET config_json = json_patch(COALESCE(config_json, '{}'), ?)
-      WHERE id = ? AND status = ?
-    ''');
-    try {
-      final changed = await stmt.execute([_encodeJson(patch), taskId, expectedStatus.name]);
-      return changed > 0;
-    } finally {
-      await stmt.close();
-    }
+    return _backend.transaction((tx) async {
+      final rows = await tx.query('SELECT config_json FROM tasks WHERE id = ? AND status = ? FOR UPDATE', [
+        taskId,
+        expectedStatus.name,
+      ]);
+      if (rows.isEmpty) return false;
+      final merged = TaskRepository.mergeConfigJsonPatch(_decodeJson(rows.single['config_json'] as String), patch);
+      return await tx.execute('UPDATE tasks SET config_json = ? WHERE id = ?', [_encodeJson(merged), taskId]) == 1;
+    });
   }
 
   @override

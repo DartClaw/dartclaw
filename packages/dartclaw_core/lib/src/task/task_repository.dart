@@ -4,6 +4,26 @@ import 'task_status.dart';
 
 /// Storage-agnostic contract for task persistence.
 abstract class TaskRepository {
+  /// Applies RFC 7396 object merge semantics without changing [target].
+  static Map<String, dynamic> mergeConfigJsonPatch(Map<String, dynamic> target, Map<String, dynamic> patch) {
+    final merged = {...target};
+    for (final entry in patch.entries) {
+      final value = entry.value;
+      if (value == null) {
+        merged.remove(entry.key);
+      } else if (value is Map) {
+        final previous = merged[entry.key];
+        merged[entry.key] = mergeConfigJsonPatch(
+          previous is Map ? Map<String, dynamic>.from(previous) : <String, dynamic>{},
+          Map<String, dynamic>.from(value),
+        );
+      } else {
+        merged[entry.key] = value;
+      }
+    }
+    return merged;
+  }
+
   /// Inserts a new task.
   Future<void> insert(Task task);
 
@@ -38,9 +58,8 @@ abstract class TaskRepository {
   /// status matches [expectedStatus].
   ///
   /// Merge semantics follow RFC 7396 JSON Merge Patch: keys in [patch] replace
-  /// matching keys in `configJson`; null values remove keys. Because the merge
-  /// happens as a single storage-level update (not a read-modify-write), this
-  /// is safe against concurrent writers that only touch disjoint config keys.
+  /// matching keys in `configJson`; null values remove keys. Implementations
+  /// preserve concurrent updates to disjoint config keys.
   ///
   /// Returns `true` when the patch was applied, or `false` when the row is
   /// missing or its status changed before the write.

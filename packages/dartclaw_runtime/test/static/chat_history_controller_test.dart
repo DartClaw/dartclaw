@@ -180,4 +180,62 @@ const forkBody = JSON.parse(request.options.body);
 assert(forkBody.kind === 'fork' && !('message' in forkBody), 'fork did not preserve its completed boundary');
 assert(forkBody.conversation_revision === 17, 'fork omitted the rendered conversation revision');
 assert(dialogState.confirmOptions.title === 'Fork from here?' && dialogState.confirmOptions.confirmLabel === 'Fork', 'fork confirmation was not explicit');
+
+// Tool output is selected while reading it; a history swap must restore the
+// same span inside the same tool call, not a similarly positioned message span.
+const toolResultText = { data: 'retained tool result' };
+const toolResult = {
+  contains: (node) => node === toolResultText,
+  closest(selector) {
+    if (selector === '[data-message-id]') return message2;
+    if (selector === '[data-tool-id]') return tool;
+    return null;
+  },
+};
+toolResultText.parentElement = {
+  closest: (selector) => selector.includes('.tool-call-io') ? toolResult : null,
+};
+tool.querySelectorAll = (selector) => selector === '.tool-call-io' ? [{}, toolResult] : [];
+let restoredToolRange = null;
+const selectedToolRange = {
+  commonAncestorContainer: toolResultText,
+  startContainer: toolResultText,
+  endContainer: toolResultText,
+  startOffset: 2,
+  endOffset: 11,
+};
+const toolSelection = {
+  rangeCount: 1,
+  isCollapsed: false,
+  getRangeAt: () => selectedToolRange,
+  removeAllRanges() {},
+  addRange(range) { restoredToolRange = range; },
+};
+window.getSelection = () => toolSelection;
+document.createRange = () => ({
+  selectNodeContents() {},
+  setStart(node, offset) { this.startNode = node; this.startOffset = offset; },
+  setEnd(node, offset) { this.endNode = node; this.endOffset = offset; },
+  toString() { return toolResultText.data.slice(0, this.endOffset); },
+});
+document.createTreeWalker = () => ({
+  visited: false,
+  currentNode: null,
+  nextNode() {
+    if (this.visited) return false;
+    this.visited = true;
+    this.currentNode = toolResultText;
+    return true;
+  },
+});
+controller.captureHistorySelection = module.default.prototype.captureHistorySelection.bind(controller);
+controller.restoreHistorySelection = module.default.prototype.restoreHistorySelection.bind(controller);
+const savedToolSelection = controller.captureHistorySelection();
+assert(savedToolSelection?.messageId === 'message-2' && savedToolSelection?.toolId === 'tool-1' &&
+  savedToolSelection?.ioIndex === 1 && savedToolSelection?.start === 2 && savedToolSelection?.end === 11,
+  'retained tool result selection was not captured with its tool identity');
+controller.restoreHistorySelection(savedToolSelection);
+assert(restoredToolRange?.startNode === toolResultText && restoredToolRange?.endNode === toolResultText &&
+  restoredToolRange?.startOffset === 2 && restoredToolRange?.endOffset === 11,
+  'retained tool result selection did not return to the same text span');
 ''';

@@ -336,8 +336,8 @@ class TaskService implements WorkflowTaskService {
   ///
   /// Use this for additive metadata writes (e.g. workflow token breakdown
   /// mirroring) where concurrent updates to disjoint config keys must not
-  /// overwrite each other. The merge is performed as a single storage-level
-  /// update — no read-modify-write round trip.
+  /// overwrite each other. The repository holds a row lock through the merge
+  /// and write in one transaction.
   ///
   /// Returns the refreshed task, or the original if the task is missing or
   /// its status changed before the write. Terminal tasks are treated as a

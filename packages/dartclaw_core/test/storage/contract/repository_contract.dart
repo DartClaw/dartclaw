@@ -27,6 +27,45 @@ void repositoryContractGroups(ContractBackend Function() current) {
       expect((await repository.getArtifactById(artifact.id))?.toJson(), artifact.toJson());
       await repository.dispose();
     });
+
+    test('merges task config atomically while preserving disjoint and nested keys', () async {
+      final repository = DatabaseTaskRepository(current().backend);
+      final task = _task(
+        id: 'task-merge',
+        configJson: const {
+          'first': 1,
+          'nested': {'keep': true, 'replace': 'old'},
+          'remove': 'old',
+        },
+      );
+      await repository.insert(task);
+
+      expect(
+        await repository.mergeConfigJsonIfStatus(task.id, const {
+          'nested': {'replace': 'new', 'added': 2},
+          'remove': null,
+        }, expectedStatus: TaskStatus.queued),
+        isTrue,
+      );
+      expect(
+        await Future.wait([
+          repository.mergeConfigJsonIfStatus(task.id, const {'second': 2}, expectedStatus: TaskStatus.queued),
+          repository.mergeConfigJsonIfStatus(task.id, const {'third': 3}, expectedStatus: TaskStatus.queued),
+        ]),
+        everyElement(isTrue),
+      );
+      expect((await repository.getById(task.id))!.configJson, {
+        'first': 1,
+        'nested': {'keep': true, 'replace': 'new', 'added': 2},
+        'second': 2,
+        'third': 3,
+      });
+      expect(
+        await repository.mergeConfigJsonIfStatus(task.id, const {'blocked': true}, expectedStatus: TaskStatus.running),
+        isFalse,
+      );
+      expect((await repository.getById(task.id))!.configJson.containsKey('blocked'), isFalse);
+    });
   });
 
   group('[contract:repository.goal] production repository', () {
@@ -216,15 +255,16 @@ void repositoryContractGroups(ContractBackend Function() current) {
   });
 }
 
-Task _task({String id = 'task-1', String? agentExecutionId}) => Task(
-  id: id,
-  title: 'Portable task',
-  description: 'Round-trip through the selected backend',
-  status: TaskStatus.queued,
-  acceptanceCriteria: 'Stored and loaded',
-  configJson: const {'tokens': 100},
-  createdAt: _instant,
-  createdBy: 'contract',
-  agentExecutionId: agentExecutionId,
-  projectId: 'project-1',
-);
+Task _task({String id = 'task-1', String? agentExecutionId, Map<String, dynamic> configJson = const {'tokens': 100}}) =>
+    Task(
+      id: id,
+      title: 'Portable task',
+      description: 'Round-trip through the selected backend',
+      status: TaskStatus.queued,
+      acceptanceCriteria: 'Stored and loaded',
+      configJson: configJson,
+      createdAt: _instant,
+      createdBy: 'contract',
+      agentExecutionId: agentExecutionId,
+      projectId: 'project-1',
+    );

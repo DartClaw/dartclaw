@@ -110,6 +110,40 @@ void main() {
       expect(stored?.sessionId, 'session-1');
       expect(stored?.retryCount, 1);
     });
+
+    test('config merge recursively preserves nested keys and removes null keys', () async {
+      final repo = InMemoryTaskRepository();
+      final task = _task().copyWith(
+        configJson: const {
+          'first': 1,
+          'nested': {'keep': true, 'replace': 'old'},
+          'remove': 'old',
+        },
+      );
+      await repo.insert(task);
+
+      expect(
+        await repo.mergeConfigJsonIfStatus(task.id, const {
+          'nested': {'replace': 'new', 'added': 2},
+          'remove': null,
+        }, expectedStatus: TaskStatus.draft),
+        isTrue,
+      );
+      expect((await repo.getById(task.id))!.configJson, {
+        'first': 1,
+        'nested': {'keep': true, 'replace': 'new', 'added': 2},
+      });
+      expect(await repo.mergeConfigJsonIfStatus(task.id, const {}, expectedStatus: TaskStatus.draft), isTrue);
+      expect(
+        await repo.mergeConfigJsonIfStatus(task.id, const {'blocked': true}, expectedStatus: TaskStatus.running),
+        isFalse,
+      );
+      expect(
+        await repo.mergeConfigJsonIfStatus('missing', const {'blocked': true}, expectedStatus: TaskStatus.draft),
+        isFalse,
+      );
+      expect((await repo.getById(task.id))!.configJson.containsKey('blocked'), isFalse);
+    });
   });
 }
 

@@ -41,6 +41,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - Claude workflow skill preflight now uses the provider's native settings, so plugins configured through
   `providers.<name>.settings` are visible before a step runs.
+- Bundled workflow remediation now invokes `andthen:implement-fix`, matching the current AndThen skill contract.
+- Workflow task metadata now merges through PostgreSQL without failing on SQLite-only JSON syntax.
 
 - The 0.27 LOC ceilings now reflect the joined tree: core ratchets to 32,367 lines and CLI rebaselines to 14,480.
 
@@ -64,7 +66,12 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - Conversation search now spans authorized owner and configured-agent history, including exact matches outside the
   loaded transcript, with current/global, lifecycle and project scopes and exact-message navigation. One typed catalog
   supplies the Cmd-K and slash palettes with nine built-ins plus authorized provider-native skills; unknown slash text
-  remains ordinary provider input, unchanged.
+  remains ordinary provider input, unchanged. Global search controls retain 44px touch targets on mobile.
+
+- Memory dashboard refreshes leave the page in place while a confirmation dialog is open, so a pending prune action
+  keeps its trigger.
+- Chat history preserves selected tool output across conversation switches and selected message or tool text on reload.
+  Message, tool, approval, and recovery controls keep 44px targets at desktop and mobile widths.
 
 - Owner-authorized temporary conversations are implemented for the mediated Codex container row; end-to-end
   real-provider conformance remains a release hold. Their session, messages, history, attachments, usage context,

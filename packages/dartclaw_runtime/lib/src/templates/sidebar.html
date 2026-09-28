@@ -179,8 +179,8 @@
     <hr class="sidebar-divider sidebar-workflows-divider">
   </div>
 
-  <section class="sidebar-chat-section" aria-labelledby="sidebar-chats-label">
-  <div tl:if="${hasRailSections}" class="sidebar-section-label" id="sidebar-chats-label">Chats</div>
+  <section class="sidebar-chat-section" aria-label="Chats">
+  <div tl:if="${hasRailSections}" class="sidebar-section-label">Chats</div>
 
   <div class="rail-rows" data-inbox-list>
     <!-- Group headers are inserted here by the shell controller and ordered into
@@ -241,10 +241,10 @@
     <button type="button" class="btn btn-ghost btn-sm" data-inbox-clear-filter hidden>Clear filter</button>
   </div>
 
-  <div data-device-drafts hidden aria-labelledby="device-drafts-label">
+  <section data-device-drafts hidden aria-labelledby="device-drafts-label">
     <div class="sidebar-section-label" id="device-drafts-label">Drafts on this device</div>
     <div class="rail-rows" data-device-draft-list></div>
-  </div>
+  </section>
 
   <div tl:if="${hasArchivedEntries}" class="sidebar-archive-section"
     tl:classappend="${archiveContainsActive} ? 'force-expanded' : ''">

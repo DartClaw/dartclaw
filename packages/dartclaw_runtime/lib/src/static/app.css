@@ -566,6 +566,9 @@
   color: var(--fg-overlay);
   text-decoration: none;
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: color var(--transition);
 }
 .topbar-back:hover { color: var(--fg); }
@@ -753,7 +756,7 @@
 .msg-turn-failed-label { color: var(--warning); }
 .msg-turn-failed-icon { font-size: var(--text-base); }
 
-/* A reserved 24px lane under every message. The timestamp holds the column
+/* A reserved action lane under every message. The timestamp holds the column
    edge; the icon lane grows to its right, revealed on hover/focus so nothing
    shifts when it appears. */
 .msg-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
@@ -762,7 +765,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  height: 24px;
+  min-height: 44px;
   margin-top: var(--sp-1);
 }
 .msg-time { color: var(--fg-overlay); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
@@ -774,6 +777,7 @@
 }
 .msg:hover .msg-actions,
 .msg:focus-within .msg-actions { opacity: 1; }
+.msg-actions .btn-icon-sm { min-width: 44px; min-height: 44px; }
 
 /* Find marks each occurrence rather than outlining the message that holds it —
    a message-wide ring says "somewhere in here" for a word the reader can see. */
@@ -786,9 +790,10 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 
 /* One disclosure per turn. Canon `.tool-call` is the per-call object; this
    wraps a run of them so a completed turn costs one row, not four. */
-.tool-group > summary { min-height: 24px; }
+.history-records .tool-call > summary { min-height: 44px; }
 .tool-group-body { display: grid; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2) var(--sp-2); }
 .tool-group-body .tool-call { background: var(--bg-crust); }
+.chat-area :is(.approval-card-actions, .composer-recovery-actions, .strip-actions) .btn { min-height: 44px; }
 
 /* The attempt's work with no reply to sit in — an assistant block carrying only
    its tool run, so a turn that failed before output still shows what it did. */
@@ -805,16 +810,9 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 }
 .message-lineage > .icon { width: 11px; height: 11px; }
 
-/* Touch tier. These live beside the rules they raise rather than in the
-   composer block's media query: the base declarations are later in the file
-   and would win at equal specificity. */
+/* Touch tier keeps the action lane visible without hover. */
 @media (max-width: 768px) {
-  /* No hover at this tier, so the action lane is always visible. It is its own
-     row under the content, so a 44px target never covers the message. */
-  .msg-foot { height: auto; min-height: 44px; }
   .msg-actions { opacity: 1; }
-  .msg-actions .btn-icon-sm { min-width: 44px; min-height: 44px; }
-  .tool-group > summary { min-height: 44px; }
 }
 
 /* === SETTINGS === */
@@ -3908,15 +3906,22 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
   padding: var(--sp-2) var(--sp-3); border-bottom: var(--border);
 }
 .palette-input-row > .icon { color: var(--fg-overlay); flex: 0 0 auto; }
-/* 36px: the palette's field is the one place a 28px control reads as an afterthought. */
+/* The palette field reads as an afterthought at the desktop control tier. */
 .palette-input-row input.form-input {
   min-height: 36px; border: none; background: transparent; box-shadow: none; padding: 0;
   font-size: var(--text-base);
+}
+@media (max-width: 768px), (pointer: coarse) {
+  .palette-input-row input.form-input { min-height: 44px; }
 }
 /* The field is the palette: it opens focused and the caret is the indicator, so
    a ring here only draws a second box inside the row's own border. */
 .palette-input-row input.form-input:focus { box-shadow: none; border: none; outline: none; }
 .palette-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: var(--sp-2) var(--sp-3) 0; }
+@media (max-width: 768px), (pointer: coarse) {
+  .palette-filters > .chip { min-width: 44px; }
+  .palette-project { min-height: 44px; font-size: 16px; }
+}
 .palette-project { flex: 0 1 180px; min-width: 0; }
 .command-results { max-height: 46vh; overflow-y: auto; padding: var(--sp-1) var(--sp-2) var(--sp-2); }
 .palette-item .kbd, .palette-item kbd { justify-self: end; }

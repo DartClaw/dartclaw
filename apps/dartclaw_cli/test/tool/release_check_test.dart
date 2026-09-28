@@ -162,7 +162,8 @@ fi
 
   test('source changes during a successful command invalidate the attempt', () {
     file('.agent_temp/drift', 'drift');
-    expect(run(['--gate', 'versions']).exitCode, 1);
+    final result = run(['--gate', 'versions']);
+    expect(result.exitCode, 1, reason: '${result.stdout}\n${result.stderr}');
     final receipt = jsonDecode(receipts('versions').single.readAsStringSync()) as Map<String, dynamic>;
     expect(receipt['status'], 'failed');
     expect(receipt['exitCode'], isNot(0));

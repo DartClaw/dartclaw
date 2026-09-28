@@ -304,8 +304,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
-        inputs: [review_report_path]
+        skill: andthen:implement-fix
         prompt: "--auto {{context.review_report_path}}"
         outputs:
           remediation_summary: remediation_summary
@@ -1043,7 +1042,7 @@ DartClaw ships four DC-native skills and resolves all other workflow steps throu
 - `andthen:spec`, `andthen:plan` – specification and planning
 - `andthen:exec-spec` – spec execution / implementation driver
 - `andthen:review` – code and doc review
-- `andthen:remediate-findings` – remediation loop driver
+- `andthen:implement-fix` – remediation loop driver
 - `andthen:triage` – failure investigation
 
 Install AndThen for the provider you run – the built-in workflows reference only core `andthen` plugin skills. DartClaw uses the exact authored name when visible, with a `<plugin>-<name>` fallback for legacy Codex skill installations. User-scope plugins are supported on host execution; see [AndThen Skills](andthen-skills.md#user-scope-plugins) for settings inheritance and isolation.

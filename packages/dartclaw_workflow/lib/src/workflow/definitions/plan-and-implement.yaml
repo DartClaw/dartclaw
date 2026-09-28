@@ -188,7 +188,7 @@ steps:
         steps:
           - id: remediate-story
             name: Remediate Story Findings
-            skill: andthen:remediate-findings
+            skill: andthen:implement-fix
             allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
             prompt: "--auto {{context.review_report_path}}"
             outputs:
@@ -253,7 +253,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
+        skill: andthen:implement-fix
         entryGate: "gating_findings_count > 0"
         allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
         inputs: [story_results]

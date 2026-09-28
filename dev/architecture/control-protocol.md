@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.27 Claude host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.27 Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -563,7 +563,7 @@ schema) and, when validation never succeeded, `subtype: "error_max_structured_ou
 
 Claude submits that payload through its native `StructuredOutput` protocol call. For a turn with an active provider-enforced schema, `TurnRunner` enables a session-local `TaskToolFilterGuard` exception requiring both raw `StructuredOutput` and canonical `claude:StructuredOutput`. This keeps an explicit empty workflow tool policy compatible with finalization; ordinary tools and the knowledge-inbox no-tools sentinel remain denied, and the exception is cleared after the turn.
 
-Parsed into the wire message `TerminalResult(stopReason, subtype, structuredOutput, costUsd, durationMs, inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens)`, which the harness converts into the provider-independent `TurnResult` it completes the pending `_turnCompleter` with, ending the `turn()` call. The retry-exhaustion subtype ends the turn as an error — a terminal result is an outcome, not a success, and a successful turn with a null payload would be indistinguishable from a model that chose to return nothing.
+The parser retains valid `modelUsage` counters for every model, `total_cost_usd`, and the native `session_id` as a typed cumulative snapshot. The harness returns that snapshot beside root-session `usage` counters. Direct `AgentHarness.turn` callers receive only those known root-session token contributions, marked incomplete, and null additive `costUsd`. `TurnRunner` subtracts the matching native-session baseline before any ledger or usage observer consumes the result. A root `usage.output_tokens` value of 88 can accompany 721 output tokens across root and delegated models; the additive turn uses 721. Consecutive snapshots with 41 then 81 output tokens and cost 0.0760910 then 0.0808288 USD produce a second-turn increment of 40 tokens and 0.0047378 USD. The retry-exhaustion subtype still ends the turn as an error.
 
 #### Background tasks at the turn boundary
 
@@ -576,7 +576,7 @@ The CLI runs the `Agent` tool in the background by default (2.1.x) and may backg
 
 beside per-task `task_started` / `task_progress` / `task_updated` / `task_notification` system messages, which DartClaw ignores. The model's turn ends with an ordinary `result` while those tasks are still running; when a task reports, the CLI runs a notification turn on its own – a new `system`/`init`, the model's reaction, and a second `result` carrying `origin: {"kind": "task-notification"}` – with no stdin input.
 
-`ClaudeCodeHarness` keeps the last inventory (`BackgroundTasksChanged`) and, on a successful `result` while it lists a task whose `task_type` is not `local_bash`, does **not** complete the turn: it logs `Turn boundary held`, emits `ProviderProgressBridgeEvent(kind: background_tasks)` so the runner's stall monitor sees activity, and folds that result's token usage into the result that finally completes the turn – the first `result` with nothing outstanding (its `total_cost_usd` is session-cumulative and already includes the subagents). The turn timeout bounds the wait and tears the process down as for any stuck turn. An error `result` completes the turn at once. A backgrounded shell command never holds the turn: the CLI's own `--print` exit policy waits for subagents and workflows but kills a background shell a few seconds after the final result, and a step that left a dev server running must still end. Without the hold, the next turn's process restart (a finalizer's `--json-schema`, a session switch) kills every running subagent. Verified on 2.1.263 (2026-09-07). The CLI offers no spawn flag, setting or environment variable that makes `Agent` foreground by default or disables background tasks; `CLAUDE_AUTO_BACKGROUND_TASKS` and the subagent frontmatter `background: true` only force the opposite.
+`ClaudeCodeHarness` keeps the last inventory (`BackgroundTasksChanged`) and, on a successful `result` while it lists a task whose `task_type` is not `local_bash`, does **not** complete the turn: it logs `Turn boundary held`, emits `ProviderProgressBridgeEvent(kind: background_tasks)` so the runner's stall monitor sees activity, and folds only root-session per-result `usage` into the direct harness lower bound. The final `result` supplies one cumulative `modelUsage` and cost snapshot for the whole held caller turn; repeated snapshots are never added. The turn timeout bounds the wait and tears the process down as for any stuck turn. An error `result` completes the turn at once. A backgrounded shell command never holds the turn: the CLI's own `--print` exit policy waits for subagents and workflows but kills a background shell a few seconds after the final result, and a step that left a dev server running must still end. Without the hold, the next turn's process restart (a finalizer's `--json-schema`, a session switch) kills every running subagent. Verified on 2.1.263 (2026-09-07). The CLI offers no spawn flag, setting or environment variable that makes `Agent` foreground by default or disables background tasks; `CLAUDE_AUTO_BACKGROUND_TASKS` and the subagent frontmatter `background: true` only force the opposite.
 
 ---
 
@@ -765,6 +765,8 @@ ToolCallRecord
 
 `ProtocolAdapter` normalizes provider-specific cache token field names to a canonical two-field model before they reach `TurnOutcome`. Consumers never need to know the underlying wire format:
 
+For Claude, `TurnRunner` subsequently derives an additive delta from the native-session-scoped cumulative `modelUsage` snapshot. A result with 721 output tokens across models and 88 root-session output tokens charges 721 output tokens; the direct harness reports only root-session `usage`, marks it incomplete, and leaves additive cost null. A later cumulative snapshot charges only its increment, such as 40 output tokens and 0.0047378 cost, rather than charging the cumulative total again. A durable logical session writes `pending_accounting_turn_id` before dispatch and atomically records the additive ledger, next native baseline, `last_accounted_turn_id`, and sticky `token_usage_complete` in its `session_cost:<id>` value at settlement. An older record without a baseline, an uncleared pending marker, or malformed/decreasing counters yields only valid root `usage` as a lower bound and null cost for that turn. A later valid snapshot can establish a new baseline, but cannot make a prior gap complete. Cost availability is independent of token completeness: `estimated_cost_usd` adds only known increments and `cost_reported_turn_count` counts those increments. `total_tokens` remains input plus output, and effective-token cache weights do not change. Context-window monitoring uses root-session input, not the cross-model billable sum.
+
 | Provider | Wire field(s) | Canonical mapping |
 |----------|--------------|-------------------|
 | Anthropic (Claude) | `cache_read_input_tokens`, `cache_creation_input_tokens` | `cacheReadTokens`, `cacheWriteTokens` |
@@ -781,6 +783,7 @@ TurnOutcome
 ├── turnDuration: Duration        – wall-clock elapsed via Stopwatch
 ├── cacheReadTokens: int          – normalized by ProtocolAdapter
 ├── cacheWriteTokens: int         – normalized by ProtocolAdapter
+├── tokenUsageComplete: bool      – true only for a fully measured turn
 ├── toolCalls: List<ToolCallRecord> – correlated from stream events
 ├── structuredOutput: Map<String, dynamic>? – completed provider payload after output guards pass
 └── providerSessionId: String?    – provider-reported identity; absent when unreported or guard-blocked
@@ -888,7 +891,7 @@ abstract class AgentHarness {
 }
 ```
 
-`turn()` returns a typed `TurnResult` (`stopReason`, `error`, `costUsd`, `sessionTitle`, `providerSessionId`, `structuredOutput`, and
+`turn()` returns a typed `TurnResult` (`stopReason`, `error`, additive nullable `costUsd`, `tokenUsageComplete`, `sessionTitle`, `providerSessionId`, `structuredOutput`, and
 non-nullable `inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`, plus `isError`/`isCancelled`
 predicates). The field set is the union every consumer reads, so a provider that cannot supply a value must still name
 it — a key one harness never emits is a compile error rather than a silent zero.

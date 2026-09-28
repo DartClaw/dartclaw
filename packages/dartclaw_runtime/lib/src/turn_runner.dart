@@ -115,6 +115,8 @@ class TurnRunner implements core.TurnRunner {
   Future<void> _toolHistoryWrites = Future<void>.value();
   final Map<String, BehaviorPromptProvenance> _promptProvenance = {};
   final Map<String, int> _turnContextWindows = {};
+  final Map<String, ClaudeUsageSnapshot> _processUsageBaselines = {};
+  final Set<String> _processUsageSeen = {};
 
   /// Installs the coordinator-owned observer for terminal turn outcomes.
   @internal

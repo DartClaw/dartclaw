@@ -55,6 +55,7 @@ void main() {
       expect(json['agent_name'], 'main');
       expect(json['input_tokens'], 100);
       expect(json['output_tokens'], 50);
+      expect(json['token_usage_complete'], isFalse);
       expect(json['duration_ms'], 1200);
       // Pinned key set: a field no harness can populate would serialize as a
       // permanent null or vanish, so it must not be on the record at all.
@@ -66,6 +67,7 @@ void main() {
           'agent_name',
           'input_tokens',
           'output_tokens',
+          'token_usage_complete',
           'duration_ms',
         ]),
       );

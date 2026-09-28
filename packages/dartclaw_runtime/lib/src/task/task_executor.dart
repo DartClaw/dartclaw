@@ -769,6 +769,7 @@ class TaskExecutor {
           task.id,
           inputTokens: outcome.inputTokens,
           outputTokens: outcome.outputTokens,
+          tokenUsageComplete: outcome.tokenUsageComplete,
           cacheReadTokens: outcome.cacheReadTokens,
           cacheWriteTokens: outcome.cacheWriteTokens,
         );

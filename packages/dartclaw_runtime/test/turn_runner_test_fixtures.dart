@@ -68,3 +68,19 @@ class _TurnMonitorFakeTime {
     await pumpEventQueue();
   }
 }
+
+final class _FailingAccountingKv extends KvService {
+  new({required super.filePath});
+
+  int writeCount = 0;
+  int? failWriteNumber;
+
+  @override
+  Future<void> set(String key, String value) {
+    if (key.startsWith('session_cost:')) {
+      writeCount++;
+      if (writeCount == failWriteNumber) throw StateError('injected pending write failure');
+    }
+    return super.set(key, value);
+  }
+}

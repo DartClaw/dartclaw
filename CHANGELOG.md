@@ -18,6 +18,8 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Claude token and cost accounting now includes delegated model usage once per turn, including resumed sessions and workflow follow-ups. Incomplete measurements retain known tokens and expose unavailable cost instead of charging cumulative totals again.
+
 - Host Claude `dontAsk` launches now request native prompts `none` while retaining subprocess credential scrub and
   `PreToolUse` guards. An incompatible CLI is refused before a turn, and workflow records expose the effective posture.
 

@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.27 PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.27 Claude turn accounting, PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -360,6 +360,8 @@ A step with `prompt:` as a list of strings (rather than a single string) is a mu
 
 Per-step budget enforcement applies across all prompts: `maxTokens` — host-set only, not an authoring key — is checked before each follow-up prompt. Exhausting the budget marks the step as failed; the run's terminal status then follows the step's `onFailure` policy (`fail` by default — see Section 17).
 
+Each prompt and finalizer turn contributes its normalized additive token reading to the one-shot total. The runner writes the existing `WorkflowStepExecution.stepTokenBreakdownJson` receipt after each turn and before another follow-up. It carries known contributions, the latest expected `turnId`, and sticky `tokenUsageComplete`. A failed receipt write stops the prompt chain. A failed final `session_cost` write leaves the pre-dispatch pending marker; the returned turn is incomplete, but its known token increment is retained in the step receipt. For example, a clean native snapshot at output 100, a failed final write after a 130 snapshot, and a restarted 170 snapshot with root usage 25 leave session-ledger known output 125 and workflow receipt known output 55 for the latter two turns. A later complete 180 snapshot adds 10, leaving the ledger at 135 without healing that gap. The workflow accounting reader's treatment of incomplete receipts and continuation baselines is specified separately; this section describes the producer record.
+
 Multi-prompt steps require a continuity-capable provider; the validator rejects multi-prompt steps targeting providers without session continuity (with role-alias awareness — see Section 19).
 
 ### 4.4a One-Shot Workflow Execution
@@ -397,7 +399,7 @@ The `continueSession` field accepts:
 
 Resolution is chain-aware: if step C continues step B, which continues step A, the executor traces back to the root (step A) and reuses that session. The root session ID is resolved from context as `<rootStepId>.sessionId`.
 
-When executing a continuation step, the executor snapshots the session's current token count as a baseline so step-level budget accounting reflects only the tokens consumed by this step, not the entire session history.
+When executing a continuation step, the executor snapshots the session's current known token count as a baseline so step-level budget accounting reflects only the tokens consumed by this step, not the entire session history. Claude's native cumulative baseline stays scoped to that same logical session in its `session_cost` record; resuming the native identity under another logical session has no matching baseline and starts with an incomplete root-session lower bound.
 
 Validation constraints (enforced by the validator, Section 19):
 

@@ -359,6 +359,71 @@ void main() {
     });
 
     group('turn results', () {
+      test('retains complete cumulative model counters separately from root usage', () {
+        final result = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'total_cost_usd': 0.5,
+            'usage': {'output_tokens': 88},
+            'modelUsage': {
+              'root': {'inputTokens': 1, 'outputTokens': 88, 'cacheReadInputTokens': 2, 'cacheCreationInputTokens': 3},
+              'delegate': {
+                'inputTokens': 4,
+                'outputTokens': 633,
+                'cacheReadInputTokens': 5,
+                'cacheCreationInputTokens': 6,
+              },
+            },
+          }),
+        ) as TerminalResult;
+        expect(result.outputTokens, 88);
+        expect(result.usageSnapshot!.models.values.fold<int>(0, (sum, model) => sum + model.output), 721);
+        expect(result.usageSnapshot!.totalCostUsd, 0.5);
+      });
+
+      test('rejects malformed snapshots while preserving explicit root zero', () {
+        final zero = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'usage': {'output_tokens': 0},
+            'modelUsage': {
+              'root': {'inputTokens': 0, 'outputTokens': 0, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0},
+            },
+          }),
+        ) as TerminalResult;
+        expect(zero.outputTokens, 0);
+        expect(zero.usageSnapshot, isNotNull);
+        final malformed = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'modelUsage': {
+              'root': {'inputTokens': 0, 'outputTokens': -1, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0},
+            },
+          }),
+        ) as TerminalResult;
+        expect(malformed.usageSnapshot, isNull);
+      });
+
+      test('keeps valid token counters when cumulative cost is malformed', () {
+        final result = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'total_cost_usd': 'invalid',
+            'usage': {'output_tokens': 7},
+            'modelUsage': {
+              'root': {'inputTokens': 0, 'outputTokens': 7, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0},
+            },
+          }),
+        ) as TerminalResult;
+        expect(result.outputTokens, 7);
+        expect(result.costUsd, isNull);
+        expect(result.usageSnapshot?.totalCostUsd, isNull);
+      });
+
       final cases = <({String name, Map<String, dynamic> json, _MessageExpectation expectMessage})>[
         (
           name: 'all fields',

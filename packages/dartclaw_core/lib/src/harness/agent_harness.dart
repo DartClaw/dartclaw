@@ -129,6 +129,9 @@ final class TurnResult {
     this.outputTokens = 0,
     this.cacheReadTokens = 0,
     this.cacheWriteTokens = 0,
+    this.tokenUsageComplete = false,
+    this.claudeUsageSnapshot,
+    this.mainSessionInputTokens,
   });
 
   final String? stopReason;
@@ -157,6 +160,15 @@ final class TurnResult {
   final int cacheReadTokens;
   final int cacheWriteTokens;
 
+  /// Whether the scalar token counters cover all work in this turn.
+  final bool tokenUsageComplete;
+
+  /// Claude's cumulative native-session reading; the runtime derives a turn delta.
+  final ClaudeUsageSnapshot? claudeUsageSnapshot;
+
+  /// The root conversation's input measure for context-window monitoring.
+  final int? mainSessionInputTokens;
+
   bool get isError => stopReason == 'error';
 
   bool get isCancelled => stopReason == 'cancelled';
@@ -167,6 +179,76 @@ final class TurnResult {
       'providerSessionId: $providerSessionId, structuredOutput: $structuredOutput, '
       'inputTokens: $inputTokens, outputTokens: $outputTokens, '
       'cacheReadTokens: $cacheReadTokens, cacheWriteTokens: $cacheWriteTokens)';
+}
+
+/// One model's cumulative counters in a Claude native session.
+final class ClaudeModelUsage {
+  const new({required this.input, required this.output, required this.cacheRead, required this.cacheWrite});
+
+  final int input;
+  final int output;
+  final int cacheRead;
+  final int cacheWrite;
+
+  Map<String, Object> toJson() => {
+    'input': input,
+    'output': output,
+    'cache_read': cacheRead,
+    'cache_write': cacheWrite,
+  };
+
+  static ClaudeModelUsage? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final input = value['input'];
+    final output = value['output'];
+    final cacheRead = value['cache_read'];
+    final cacheWrite = value['cache_write'];
+    if (input is! int ||
+        input < 0 ||
+        output is! int ||
+        output < 0 ||
+        cacheRead is! int ||
+        cacheRead < 0 ||
+        cacheWrite is! int ||
+        cacheWrite < 0) {
+      return null;
+    }
+    return ClaudeModelUsage(input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite);
+  }
+}
+
+/// Claude's full cumulative snapshot, scoped to its native session identity.
+final class ClaudeUsageSnapshot {
+  const new({required this.nativeSessionId, required this.models, this.totalCostUsd});
+
+  final String nativeSessionId;
+  final Map<String, ClaudeModelUsage> models;
+  final double? totalCostUsd;
+
+  Map<String, Object?> toJson() => {
+    'native_session_id': nativeSessionId,
+    'models': {for (final entry in models.entries) entry.key: entry.value.toJson()},
+    'total_cost_usd': totalCostUsd,
+  };
+
+  static ClaudeUsageSnapshot? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final id = value['native_session_id'];
+    final rawModels = value['models'];
+    final rawCost = value['total_cost_usd'];
+    if (id is! String || id.isEmpty || rawModels is! Map || rawModels.isEmpty) {
+      return null;
+    }
+    final models = <String, ClaudeModelUsage>{};
+    for (final entry in rawModels.entries) {
+      if (entry.key is! String || (entry.key as String).isEmpty) return null;
+      final usage = ClaudeModelUsage.fromJson(entry.value);
+      if (usage == null) return null;
+      models[entry.key as String] = usage;
+    }
+    final cost = rawCost is num && rawCost.isFinite && rawCost >= 0 ? rawCost.toDouble() : null;
+    return ClaudeUsageSnapshot(nativeSessionId: id, models: models, totalCostUsd: cost);
+  }
 }
 
 /// Thrown when a turn carries an input the target harness cannot honour.

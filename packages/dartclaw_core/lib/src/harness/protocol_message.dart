@@ -1,3 +1,5 @@
+import 'agent_harness.dart' show ClaudeUsageSnapshot;
+
 /// Provider-agnostic protocol message returned by a [ProtocolAdapter].
 sealed class ProtocolMessage {
   const new();
@@ -106,6 +108,7 @@ final class TurnComplete extends ProtocolMessage {
   final int? outputTokens;
   final int? cacheReadTokens;
   final int? cacheWriteTokens;
+  final ClaudeUsageSnapshot? claudeUsageSnapshot;
 
   const new({
     this.stopReason,
@@ -118,6 +121,7 @@ final class TurnComplete extends ProtocolMessage {
     this.outputTokens,
     this.cacheReadTokens,
     this.cacheWriteTokens,
+    this.claudeUsageSnapshot,
   });
 
   @override

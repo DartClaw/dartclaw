@@ -420,6 +420,7 @@ void main() {
           expect(result.inputTokens, 5);
           expect(result.outputTokens, 34);
           expect(result.cacheReadTokens, 7);
+          expect(result.tokenUsageComplete, isTrue);
           expect(events.length, 6);
           expect(events[0], isA<DeltaEvent>());
           expect(
@@ -448,6 +449,38 @@ void main() {
           );
         },
       );
+
+      test('explicit zero usage is complete while missing usage is incomplete', () async {
+        final (:harness, :fake) = await _startedHarness();
+        Future<TurnResult> run({required bool includeUsage}) async {
+          final turn = harness.turn(
+            sessionId: 'usage-presence',
+            messages: const [
+              {'role': 'user', 'content': 'measure'},
+            ],
+            systemPrompt: '',
+          );
+          await pumpEventLoop();
+          if (fake.sentMessages.any((message) => message['method'] == 'thread/start' && message['id'] != null)) {
+            await respondToLatestThreadStart(fake);
+          }
+          fake.emitTurnStarted();
+          if (includeUsage) {
+            fake.emitTurnCompleted(inputTokens: 0, outputTokens: 0);
+          } else {
+            fake.emitLine({'method': 'turn/completed', 'params': {}});
+          }
+          return turn;
+        }
+
+        final zero = await run(includeUsage: true);
+        expect(zero.tokenUsageComplete, isTrue);
+        expect(zero.inputTokens, 0);
+        expect(zero.costUsd, isNull);
+        final missing = await run(includeUsage: false);
+        expect(missing.tokenUsageComplete, isFalse);
+        expect(missing.inputTokens, 0);
+      });
 
       test('does not emit approval resolved when approval response write fails', () async {
         final fake = _FailingWriteCodexProcess();

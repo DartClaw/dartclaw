@@ -8,12 +8,20 @@ part of 'turn_runner.dart';
 /// remedy is a budget, not a retry, and reading the generic message left a live
 /// investigation reconstructing the cause from raw harness logs.
 String _turnFailureMessage(Object error) => switch (error) {
+  AccountingPersistenceException() => error.toString(),
   UnsupportedHarnessCapabilityException() => error.toString(),
   ProcessOutputLimitException() => error.message,
   ProcessStreamException() => error.message,
   TimeoutException() => error.message ?? 'Turn timed out',
   _ => 'Turn execution failed',
 };
+
+final class AccountingPersistenceException implements Exception {
+  const new();
+
+  @override
+  String toString() => 'Accounting persistence failed before provider dispatch';
+}
 
 extension _TurnRunnerExecutionLoop on TurnRunner {
   Future<void> _runTurnInner({
@@ -179,6 +187,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         }
         late final TurnResult result;
         try {
+          final accountingBefore = await _beginSessionAccounting(sessionId, turnId);
           if (_worker case final HarnessTurnContextSink sink) {
             final session = await _sessions?.getSession(sessionId);
             final allowOperatorApproval =
@@ -198,7 +207,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
               ),
             );
           }
-          result = await _worker.turn(
+          final providerResult = await _worker.turn(
             sessionId: sessionId,
             agentId: TurnRunner._harnessAgentId(turnCtx?.agentName),
             messages: messages,
@@ -211,6 +220,19 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             providerSessionId: turnCtx?.providerSessionId,
             requestProviderSessionResume: turnCtx?.requestProviderSessionResume ?? false,
           );
+          var measuredResult = _normalizeTurnUsage(
+            sessionId,
+            providerResult,
+            accountingBefore,
+            resumed: turnCtx?.providerSessionId != null,
+          );
+          try {
+            await _trackSessionUsage(sessionId, turnId, measuredResult, providerId, accountingBefore);
+          } catch (e) {
+            TurnRunner._log.warning('Failed to persist turn usage', e);
+            measuredResult = _withTokenCompleteness(measuredResult, false);
+          }
+          result = measuredResult;
         } finally {
           if (_worker case final HarnessTurnContextSink sink) sink.setTurnContext(null);
           _postProviderTurns.add(turnId);
@@ -239,14 +261,10 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         final cacheReadTokens = _worker.supportsCachedTokens ? result.cacheReadTokens : 0;
         final cacheWriteTokens = _worker.supportsCachedTokens ? result.cacheWriteTokens : 0;
 
-        try {
-          await _trackSessionUsage(sessionId, turnId, result, providerId);
-          // Zero reads as "no usage reported" here: a turn that reports none must not
-          // zero the last known context size, and no provider measures a real context at 0.
-          _contextMonitor.update(contextTokens: result.inputTokens > 0 ? result.inputTokens : null);
-        } catch (e) {
-          TurnRunner._log.warning('Failed to track usage', e);
-        }
+        // Context size is scoped to the root conversation, even when billable
+        // input includes delegated models.
+        final contextInput = result.mainSessionInputTokens ?? result.inputTokens;
+        _contextMonitor.update(contextTokens: contextInput > 0 ? contextInput : null);
 
         final tracker = _usageTracker;
         if (tracker != null) {
@@ -263,6 +281,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
                     agentName: turnCtx?.agentName ?? 'main',
                     inputTokens: inputTokens,
                     outputTokens: outputTokens,
+                    tokenUsageComplete: result.tokenUsageComplete,
                     durationMs: durationMs,
                   ),
                 )
@@ -324,6 +343,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             errorMessage: redactedProviderError,
             providerSessionId: result.providerSessionId,
             inputTokens: result.inputTokens,
+            tokenUsageComplete: result.tokenUsageComplete,
             outputTokens: result.outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
@@ -365,6 +385,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             status: TurnStatus.cancelled,
             providerSessionId: result.providerSessionId,
             inputTokens: result.inputTokens,
+            tokenUsageComplete: result.tokenUsageComplete,
             outputTokens: result.outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
@@ -388,6 +409,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
           structuredOutput: result.structuredOutput,
           providerSessionId: result.providerSessionId,
           inputTokens: result.inputTokens,
+          tokenUsageComplete: result.tokenUsageComplete,
           outputTokens: result.outputTokens,
           cacheReadTokens: cacheReadTokens,
           cacheWriteTokens: cacheWriteTokens,

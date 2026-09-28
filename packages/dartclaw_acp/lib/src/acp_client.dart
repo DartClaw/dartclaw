@@ -272,8 +272,7 @@ final class AcpClient {
   static int? _intField(Map<String, dynamic> map, List<String> keys) {
     for (final key in keys) {
       final value = map[key];
-      if (value is int) return value;
-      if (value is num) return value.toInt();
+      if (value is int && value >= 0) return value;
     }
     return null;
   }

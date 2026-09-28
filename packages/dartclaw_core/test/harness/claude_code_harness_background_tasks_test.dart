@@ -156,6 +156,28 @@ void main() {
     expect(heldLogs(), isEmpty);
   });
 
+  test('held and final cumulative snapshots remain one raw reading', () async {
+    final h = harnessWith();
+    await h.start();
+    final turn = startTurn(h);
+    await pumpEventQueue();
+    final models = {
+      'root': {'inputTokens': 1, 'outputTokens': 88, 'cacheReadInputTokens': 2, 'cacheCreationInputTokens': 3},
+      'delegate': {'inputTokens': 4, 'outputTokens': 633, 'cacheReadInputTokens': 5, 'cacheCreationInputTokens': 6},
+    };
+    emit(_tasksChanged([(id: 'agent-a', type: 'local_agent')]));
+    emit({..._result('held', output: 88), 'modelUsage': models});
+    await pumpEventQueue();
+    emit(_tasksChanged(const []));
+    emit({..._result('final', output: 10), 'modelUsage': models});
+    final result = await turn;
+    expect(result.tokenUsageComplete, isFalse);
+    expect(result.costUsd, isNull);
+    expect(result.outputTokens, 98, reason: 'direct scalars are only root-session known contributions');
+    expect(result.claudeUsageSnapshot!.models.values.fold<int>(0, (sum, model) => sum + model.output), 721);
+    expect(result.claudeUsageSnapshot!.totalCostUsd, 0.01);
+  });
+
   test('an error result ends the turn even with background agents listed', () async {
     final h = harnessWith();
     await h.start();

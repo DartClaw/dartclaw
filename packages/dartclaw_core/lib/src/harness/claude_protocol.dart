@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 
-import 'agent_harness.dart' show ModelCatalogue, ModelCatalogueEntry;
+import 'agent_harness.dart' show ClaudeModelUsage, ClaudeUsageSnapshot, ModelCatalogue, ModelCatalogueEntry;
 
 final _log = Logger('ClaudeProtocol');
 
@@ -185,6 +185,7 @@ final class TerminalResult extends ClaudeMessage {
   final int? outputTokens;
   final int? cacheReadInputTokens;
   final int? cacheCreationInputTokens;
+  final ClaudeUsageSnapshot? usageSnapshot;
 
   new({
     this.stopReason,
@@ -197,6 +198,7 @@ final class TerminalResult extends ClaudeMessage {
     this.outputTokens,
     this.cacheReadInputTokens,
     this.cacheCreationInputTokens,
+    this.usageSnapshot,
   });
   @override
   String toString() =>
@@ -366,13 +368,53 @@ ClaudeMessage _parseResult(Map<String, dynamic> json) {
         ? json['structured_output'] as Map<String, dynamic>
         : null,
     finalText: !isError && resultText is String && resultText.isNotEmpty ? resultText : null,
-    costUsd: (json['total_cost_usd'] as num?)?.toDouble(),
+    costUsd: switch (json['total_cost_usd']) {
+      final num value when value.isFinite && value >= 0 => value.toDouble(),
+      _ => null,
+    },
     durationMs: json['duration_ms'] as int?,
-    inputTokens: usage?['input_tokens'] as int?,
-    outputTokens: usage?['output_tokens'] as int?,
-    cacheReadInputTokens: usage?['cache_read_input_tokens'] as int?,
-    cacheCreationInputTokens: usage?['cache_creation_input_tokens'] as int?,
+    inputTokens: _nonNegativeToken(usage?['input_tokens']),
+    outputTokens: _nonNegativeToken(usage?['output_tokens']),
+    cacheReadInputTokens: _nonNegativeToken(usage?['cache_read_input_tokens']),
+    cacheCreationInputTokens: _nonNegativeToken(usage?['cache_creation_input_tokens']),
+    usageSnapshot: _parseUsageSnapshot(json),
   );
+}
+
+int? _nonNegativeToken(Object? value) => value is int && value >= 0 ? value : null;
+
+ClaudeUsageSnapshot? _parseUsageSnapshot(Map<String, dynamic> json) {
+  final id = json['session_id'];
+  final rawModels = json['modelUsage'];
+  if (id is! String || id.isEmpty || rawModels is! Map || rawModels.isEmpty) return null;
+  final models = <String, ClaudeModelUsage>{};
+  for (final entry in rawModels.entries) {
+    if (entry.key is! String || (entry.key as String).isEmpty || entry.value is! Map) return null;
+    final model = entry.value as Map;
+    final input = model['inputTokens'];
+    final output = model['outputTokens'];
+    final cacheRead = model['cacheReadInputTokens'];
+    final cacheWrite = model['cacheCreationInputTokens'];
+    if (input is! int ||
+        input < 0 ||
+        output is! int ||
+        output < 0 ||
+        cacheRead is! int ||
+        cacheRead < 0 ||
+        cacheWrite is! int ||
+        cacheWrite < 0) {
+      return null;
+    }
+    models[entry.key as String] = ClaudeModelUsage(
+      input: input,
+      output: output,
+      cacheRead: cacheRead,
+      cacheWrite: cacheWrite,
+    );
+  }
+  final rawCost = json['total_cost_usd'];
+  final cost = rawCost is num && rawCost.isFinite && rawCost >= 0 ? rawCost.toDouble() : null;
+  return ClaudeUsageSnapshot(nativeSessionId: id, models: models, totalCostUsd: cost);
 }
 
 // ---------------------------------------------------------------------------

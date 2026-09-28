@@ -859,6 +859,7 @@ class CodexHarness extends BaseHarness
                     outputTokens: outputTokens ?? 0,
                     cacheReadTokens: cacheReadTokens ?? 0,
                     cacheWriteTokens: cacheWriteTokens ?? 0,
+                    tokenUsageComplete: inputTokens != null && outputTokens != null,
                   ),
           );
         }

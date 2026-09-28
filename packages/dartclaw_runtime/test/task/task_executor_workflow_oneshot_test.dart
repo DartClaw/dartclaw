@@ -8,7 +8,8 @@ import 'package:dartclaw_runtime/src/task/task_budget_policy.dart' show lastFail
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;
 import 'package:dartclaw_runtime/src/turn_wait_status.dart' show TurnCancelReason;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, InMemoryTaskEventService;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeAgentHarness, InMemoryTaskEventService, InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowTaskConfig, executionEnvelopeMarkerKey, executionEnvelopeVersion;
 import 'package:fake_async/fake_async.dart';
@@ -283,7 +284,10 @@ void main() {
     expect(transcript.last.content, jsonEncode(_finalizerEnvelopeOutput));
     final execution = await context.workflowStepExecutions.getByTaskId('prompt-chain');
     expect(execution?.providerSessionId, 'provider-session');
-    expect(execution?.stepTokenBreakdown, {'inputTokensNew': 1000, 'cacheReadTokens': 0, 'outputTokens': 100});
+    expect(execution?.stepTokenBreakdown, containsPair('outputTokens', 100));
+    expect(execution?.stepTokenBreakdown, containsPair('inputTokensNew', 1000));
+    expect(execution?.stepTokenBreakdown, containsPair('tokenUsageComplete', false));
+    expect(execution?.stepTokenBreakdown?['turnId'], isNotEmpty);
     expect(execution?.structuredOutput?[executionEnvelopeMarkerKey], executionEnvelopeVersion);
     expect(progress.map((event) => event.turnIndex), [1, 2, 3, 4]);
     expect(progress.map((event) => event.cumulativeTokens), [110, 330, 660, 1100]);
@@ -292,6 +296,83 @@ void main() {
     expect(sessionCost['turn_count'], 4);
     expect(sessionCost['input_tokens'], 1000);
     expect(sessionCost['output_tokens'], 100);
+  });
+
+  test('failed final ledger write leaves a sticky workflow receipt before the next follow-up', () async {
+    final kvPath = context.kvService.filePath;
+    await context.kvService.dispose();
+    context.kvService = _FailingAccountingKv(filePath: kvPath);
+    final failingKv = context.kvService as _FailingAccountingKv;
+    await createStep('accounting-gap', followUps: ['T3'], providerSessionId: 'native-1');
+    workerAcquisitionEntered = Completer<void>();
+    releaseWorkerAcquisition = Completer<void>();
+
+    final poll = executor.pollOnce();
+    await workerAcquisitionEntered!.future;
+    final task = (await context.tasks.get('accounting-gap'))!;
+    expect(task.sessionId, isNotNull);
+    await context.kvService.set(
+      'session_cost:${task.sessionId}',
+      jsonEncode({
+        'output_tokens': 100,
+        'total_tokens': 100,
+        'turn_count': 1,
+        'token_usage_complete': true,
+        'last_accounted_turn_id': 'T1',
+        'claude_native_snapshot': ClaudeUsageSnapshot(
+          nativeSessionId: 'native-1',
+          models: {'model': const ClaudeModelUsage(input: 0, output: 100, cacheRead: 0, cacheWrite: 0)},
+          totalCostUsd: 0.1,
+        ).toJson(),
+      }),
+    );
+    failingKv.failWriteNumber = 3;
+    releaseWorkerAcquisition!.complete();
+    await poll;
+
+    TurnResult snapshot(int output, int rootOutput) => TurnResult(
+      providerSessionId: 'native-1',
+      outputTokens: rootOutput,
+      claudeUsageSnapshot: ClaudeUsageSnapshot(
+        nativeSessionId: 'native-1',
+        models: {'model': ClaudeModelUsage(input: 0, output: output, cacheRead: 0, cacheWrite: 0)},
+        totalCostUsd: output / 1000,
+      ),
+    );
+    await harness.turnInvoked;
+    harness.completeSuccess(snapshot(130, 20));
+    await harness.turnInvoked;
+    var receipt = (await context.workflowStepExecutions.getByTaskId('accounting-gap'))!.stepTokenBreakdown!;
+    expect(receipt['outputTokens'], 30);
+    expect(receipt['tokenUsageComplete'], isFalse);
+    expect(receipt['turnId'], isNotNull);
+    harness.completeSuccess(snapshot(170, 25));
+    await executor.drain();
+
+    receipt = (await context.workflowStepExecutions.getByTaskId('accounting-gap'))!.stepTokenBreakdown!;
+    expect(receipt['outputTokens'], 55);
+    expect(receipt['tokenUsageComplete'], isFalse);
+    final ledger = jsonDecode((await context.kvService.get('session_cost:${task.sessionId}'))!) as Map;
+    expect(ledger['output_tokens'], 125);
+    expect(ledger['token_usage_complete'], isFalse);
+  });
+
+  test('failed workflow receipt write prevents the next follow-up', () async {
+    await executor.stop();
+    context.workflowStepExecutions = _FailingReceiptRepository();
+    executor = context.buildExecutor(
+      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
+      eventBus: eventBus,
+    );
+    await createStep('receipt-fail', followUps: ['Must not run']);
+    await executor.pollOnce();
+    await harness.turnInvoked;
+    harness.completeSuccess(const TurnResult(outputTokens: 30));
+    await executor.drain();
+
+    expect(harness.turnCallCount, 1);
+    expect((await context.tasks.get('receipt-fail'))?.status, TaskStatus.failed);
+    expect((await context.workflowStepExecutions.getByTaskId('receipt-fail'))?.stepTokenBreakdown, isNull);
   });
 
   test('schema-free multi-turn step leaves exactly one row per prompt and reply', () async {
@@ -937,5 +1018,29 @@ final class _PausingUserMessageService extends MessageService {
       }
     }
     return super.insertMessage(sessionId: sessionId, role: role, content: content, metadata: metadata);
+  }
+}
+
+final class _FailingAccountingKv extends KvService {
+  new({required super.filePath});
+
+  int writeCount = 0;
+  int? failWriteNumber;
+
+  @override
+  Future<void> set(String key, String value) {
+    if (key.startsWith('session_cost:')) {
+      writeCount++;
+      if (writeCount == failWriteNumber) throw StateError('injected final accounting failure');
+    }
+    return super.set(key, value);
+  }
+}
+
+final class _FailingReceiptRepository extends InMemoryWorkflowStepExecutionRepository {
+  @override
+  Future<void> update(WorkflowStepExecution execution) {
+    if (execution.stepTokenBreakdownJson != null) throw StateError('injected receipt write failure');
+    return super.update(execution);
   }
 }

@@ -100,19 +100,24 @@ TurnComplete codexBuildTurnComplete(Map<String, dynamic> usage, {required String
   // reports it as FRESH-only with cache_read_input_tokens as a separate bucket.
   // Normalize to the Anthropic convention so downstream sums mean the same thing
   // across harnesses.
-  final rawInput = intValue(usage['input_tokens']);
-  final rawCached = intValue(usage['cached_input_tokens']);
+  final inputValue = intValue(usage['input_tokens']);
+  final cachedValue = intValue(usage['cached_input_tokens']);
+  final rawInput = inputValue != null && inputValue >= 0 ? inputValue : null;
+  final rawCached = cachedValue != null && cachedValue >= 0 ? cachedValue : null;
   final int? freshInput;
   if (rawInput == null) {
     freshInput = null;
   } else {
     final diff = rawInput - (rawCached ?? 0);
-    freshInput = diff < 0 ? 0 : diff;
+    freshInput = diff < 0 ? null : diff;
   }
   return TurnComplete(
     stopReason: stopReason,
     inputTokens: freshInput,
-    outputTokens: intValue(usage['output_tokens']),
+    outputTokens: switch (intValue(usage['output_tokens'])) {
+      final int value when value >= 0 => value,
+      _ => null,
+    },
     cacheReadTokens: rawCached,
     cacheWriteTokens: 0,
   );

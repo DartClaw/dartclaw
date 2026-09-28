@@ -106,12 +106,14 @@ class TaskEventRecorder {
     String taskId, {
     required int inputTokens,
     required int outputTokens,
+    bool tokenUsageComplete = false,
     int cacheReadTokens = 0,
     int cacheWriteTokens = 0,
   }) async {
     await _record(taskId, TaskEventKind.tokenUpdate, {
       'inputTokens': inputTokens,
       'outputTokens': outputTokens,
+      'tokenUsageComplete': tokenUsageComplete,
       if (cacheReadTokens > 0) 'cacheReadTokens': cacheReadTokens,
       if (cacheWriteTokens > 0) 'cacheWriteTokens': cacheWriteTokens,
     });

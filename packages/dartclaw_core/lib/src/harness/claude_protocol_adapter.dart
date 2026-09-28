@@ -46,6 +46,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
         :final outputTokens,
         :final cacheReadInputTokens,
         :final cacheCreationInputTokens,
+        :final usageSnapshot,
       ) =>
         TurnComplete(
           stopReason: stopReason,
@@ -58,6 +59,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
           outputTokens: outputTokens,
           cacheReadTokens: cacheReadInputTokens,
           cacheWriteTokens: cacheCreationInputTokens,
+          claudeUsageSnapshot: usageSnapshot,
         ),
       claude_protocol.SystemInit(:final sessionId, :final toolCount, :final contextWindow) => SystemInit(
         sessionId: sessionId,

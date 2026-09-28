@@ -149,6 +149,8 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 export 'src/harness/agent_harness.dart'
     show
         AgentHarness,
+        ClaudeModelUsage,
+        ClaudeUsageSnapshot,
         EffectiveContextCapabilities,
         EffectiveContextCapabilityProvider,
         ModelCatalogue,

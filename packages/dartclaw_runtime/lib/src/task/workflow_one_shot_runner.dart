@@ -100,6 +100,8 @@ final class WorkflowOneShotRunner {
     var outputTokens = 0;
     var cacheReadTokens = 0;
     var cacheWriteTokens = 0;
+    var tokenUsageComplete = true;
+    String? latestTurnId;
     var turnIndex = 0;
     final stepRunner = StepTurnRunner(runner);
 
@@ -109,6 +111,8 @@ final class WorkflowOneShotRunner {
       outputTokens += outcome.outputTokens;
       cacheReadTokens += outcome.cacheReadTokens;
       cacheWriteTokens += outcome.cacheWriteTokens;
+      tokenUsageComplete = tokenUsageComplete && outcome.tokenUsageComplete;
+      latestTurnId = outcome.turnId;
       if (outcome.status != TurnStatus.completed) return;
       turnIndex++;
       _eventBus?.fire(
@@ -122,6 +126,7 @@ final class WorkflowOneShotRunner {
           outputTokens: outputTokens,
           cacheReadTokens: cacheReadTokens,
           cacheWriteTokens: cacheWriteTokens,
+          tokenUsageComplete: tokenUsageComplete,
           timestamp: DateTime.now(),
         ),
       );
@@ -140,6 +145,7 @@ final class WorkflowOneShotRunner {
       outputTokens: outputTokens,
       cacheReadTokens: cacheReadTokens,
       cacheWriteTokens: cacheWriteTokens,
+      tokenUsageComplete: tokenUsageComplete,
       turnDuration: DateTime.now().difference(startedAt),
       completedAt: DateTime.now(),
     );
@@ -177,6 +183,18 @@ final class WorkflowOneShotRunner {
         turnTimeout: stepTimeout,
       );
       accumulateUsage(outcome);
+      if (repo == null) {
+        throw StateError('Workflow one-shot execution requires a WorkflowStepExecutionRepository');
+      }
+      await WorkflowTaskConfig.writeTokenBreakdown(
+        task,
+        repo,
+        inputTokensNew: cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
+        cacheReadTokens: cacheReadTokens,
+        outputTokens: outputTokens,
+        turnId: latestTurnId,
+        tokenUsageComplete: tokenUsageComplete,
+      );
       return outcome;
     }
 
@@ -279,13 +297,6 @@ final class WorkflowOneShotRunner {
     if (finalProviderSessionId != null && finalProviderSessionId.isNotEmpty) {
       await WorkflowTaskConfig.writeProviderSessionId(task, repo, finalProviderSessionId);
     }
-    await WorkflowTaskConfig.writeTokenBreakdown(
-      task,
-      repo,
-      inputTokensNew: cacheReadTokens > inputTokens ? 0 : inputTokens - cacheReadTokens,
-      cacheReadTokens: cacheReadTokens,
-      outputTokens: outputTokens,
-    );
     await _writeWorkflowTokenBreakdownToTaskConfig(
       task,
       inputTokens: inputTokens,
@@ -306,6 +317,7 @@ final class WorkflowOneShotRunner {
         outputTokens: outputTokens,
         cacheReadTokens: cacheReadTokens,
         cacheWriteTokens: cacheWriteTokens,
+        tokenUsageComplete: tokenUsageComplete,
         turnDuration: DateTime.now().difference(startedAt),
         completedAt: DateTime.now(),
       );
@@ -320,6 +332,7 @@ final class WorkflowOneShotRunner {
       outputTokens: outputTokens,
       cacheReadTokens: cacheReadTokens,
       cacheWriteTokens: cacheWriteTokens,
+      tokenUsageComplete: tokenUsageComplete,
       turnDuration: DateTime.now().difference(startedAt),
       completedAt: DateTime.now(),
     );

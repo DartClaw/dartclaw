@@ -309,6 +309,9 @@ final class AcpHarness extends AgentHarness
           outputTokens: result.outputTokens ?? _activeOutputTokens ?? 0,
           cacheReadTokens: result.cacheReadTokens ?? _activeCacheReadTokens ?? 0,
           cacheWriteTokens: result.cacheWriteTokens ?? _activeCacheWriteTokens ?? 0,
+          tokenUsageComplete:
+              (result.inputTokens ?? _activeInputTokens ?? -1) >= 0 &&
+              (result.outputTokens ?? _activeOutputTokens ?? -1) >= 0,
         );
       } on AcpHarnessException catch (error) {
         promptError = error;

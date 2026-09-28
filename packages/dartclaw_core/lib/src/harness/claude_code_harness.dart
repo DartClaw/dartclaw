@@ -1194,11 +1194,11 @@ class ClaudeCodeHarness extends BaseHarness
         :final subtype,
         :final structuredOutput,
         :final finalText,
-        :final costUsd,
         :final inputTokens,
         :final outputTokens,
         :final cacheReadTokens,
         :final cacheWriteTokens,
+        :final claudeUsageSnapshot,
       ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
           final isError = stopReason == 'error';
@@ -1254,8 +1254,10 @@ class ClaudeCodeHarness extends BaseHarness
               stopReason: stopReason,
               error: error,
               finalText: finalText,
-              costUsd: costUsd,
+              costUsd: null,
               providerSessionId: _processProviderSession.persists ? _sessionId : null,
+              claudeUsageSnapshot: claudeUsageSnapshot,
+              mainSessionInputTokens: _heldUsage.input + (inputTokens ?? 0),
               structuredOutput: structuredOutput,
               inputTokens: _heldUsage.input + (inputTokens ?? 0),
               outputTokens: _heldUsage.output + (outputTokens ?? 0),

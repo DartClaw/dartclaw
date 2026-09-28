@@ -15,6 +15,7 @@ class UsageEvent {
   final String agentName; // 'main' | 'search' | 'cron:<jobId>'
   final int inputTokens;
   final int outputTokens;
+  final bool tokenUsageComplete;
   final int durationMs;
 
   const new({
@@ -23,6 +24,7 @@ class UsageEvent {
     required this.agentName,
     required this.inputTokens,
     required this.outputTokens,
+    this.tokenUsageComplete = false,
     required this.durationMs,
   });
 
@@ -32,6 +34,7 @@ class UsageEvent {
     'agent_name': agentName,
     'input_tokens': inputTokens,
     'output_tokens': outputTokens,
+    'token_usage_complete': tokenUsageComplete,
     'duration_ms': durationMs,
   };
 }
@@ -158,11 +161,17 @@ class UsageTracker {
     if (existing != null) {
       aggregate = jsonDecode(existing) as Map<String, dynamic>;
     } else {
-      aggregate = {'total_input_tokens': 0, 'total_output_tokens': 0, 'by_agent': <String, dynamic>{}};
+      aggregate = {
+        'total_input_tokens': 0,
+        'total_output_tokens': 0,
+        'token_usage_complete': true,
+        'by_agent': <String, dynamic>{},
+      };
     }
 
     aggregate['total_input_tokens'] = (aggregate['total_input_tokens'] as int) + event.inputTokens;
     aggregate['total_output_tokens'] = (aggregate['total_output_tokens'] as int) + event.outputTokens;
+    aggregate['token_usage_complete'] = aggregate['token_usage_complete'] == true && event.tokenUsageComplete;
 
     final byAgent = aggregate['by_agent'] as Map<String, dynamic>;
     final agentData = byAgent[event.agentName] as Map<String, dynamic>? ?? {'input': 0, 'output': 0, 'turns': 0};

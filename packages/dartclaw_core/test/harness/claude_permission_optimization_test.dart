@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ClaudeCodeHarness;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show GuardChain;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -35,6 +37,147 @@ void main() {
 
       expect(spawn!.args, containsAllInOrder(['--permission-mode', 'bypassPermissions']));
       expect(spawn!.environment!['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], '0');
+    });
+
+    for (final declaredTools in <List<String>>[
+      const ['shell'],
+      const [],
+    ]) {
+      test('host dontAsk argv and scrub with ${declaredTools.isEmpty ? 'no' : 'shell'} grants', () async {
+        ProcessSpawn? spawn;
+        final harness = buildClaudeHarness(
+          providerOptions: const {'permissionMode': 'dontAsk'},
+          declaredCanonicalTools: declaredTools,
+          processFactory: capturingInitFactory(onSpawn: (value) => spawn = value),
+        );
+        addTearDown(harness.dispose);
+
+        await harness.start();
+
+        expect(spawn!.args, containsAllInOrder(['--permission-mode', 'dontAsk', '--permission-prompts', 'none']));
+        expect(spawn!.args, isNot(contains('--dangerously-skip-permissions')));
+        expect(spawn!.args, isNot(contains('--permission-prompt-tool')));
+        expect(spawn!.environment!['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], '1');
+      });
+    }
+
+    test('unsupported no-prompt flag refuses before turn', () async {
+      final probes = <List<String>>[];
+      var spawns = 0;
+      final harness = buildClaudeHarness(
+        providerOptions: const {'permissionMode': 'dontAsk'},
+        commandProbe: (exe, args) async {
+          probes.add(args);
+          if (args.contains('--help')) return processResult(stdout: 'Usage: claude [options]');
+          return processResult(stdout: '1.0.0');
+        },
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+          spawns++;
+          return makeClaudeFakeProcess();
+        },
+      );
+      addTearDown(harness.dispose);
+
+      await expectLater(
+        harness.start(),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'diagnosis',
+            allOf(contains('claude'), contains('--permission-prompts none'), contains('compatible Claude CLI')),
+          ),
+        ),
+      );
+      expect(probes, anyElement(equals(['--help'])));
+      expect(spawns, 0);
+    });
+
+    test('unsupported no-prompt flag refuses before turn on restart', () async {
+      var noPromptProbes = 0;
+      var spawns = 0;
+      final harness = buildClaudeHarness(
+        providerOptions: const {'permissionMode': 'dontAsk'},
+        commandProbe: (exe, args) async {
+          if (args.contains('--help')) {
+            if (++noPromptProbes == 2) return processResult(stdout: 'Usage: claude [options]');
+            return processResult(stdout: '--permission-prompts <target> "none"');
+          }
+          return processResult(stdout: '1.0.0');
+        },
+        processFactory: capturingInitFactory(onSpawn: (_) => spawns++),
+      );
+      addTearDown(harness.dispose);
+      await harness.start();
+
+      await expectLater(
+        harness.turn(
+          sessionId: 'new-session',
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+          systemPrompt: '',
+          directory: '/tmp/another-directory',
+        ),
+        throwsA(isA<Exception>().having((error) => error.toString(), 'diagnosis', contains('compatible Claude CLI'))),
+      );
+      expect(noPromptProbes, 2);
+      expect(spawns, 1);
+    });
+
+    test('unsupported no-prompt flag does not relabel version or auth failures', () async {
+      final versionHarness = buildClaudeHarness(
+        providerOptions: const {'permissionMode': 'dontAsk'},
+        commandProbe: (exe, args) async => processResult(exitCode: 1),
+      );
+      addTearDown(versionHarness.dispose);
+      await expectLater(
+        versionHarness.start(),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'diagnosis',
+            allOf(contains('--version'), isNot(contains('permission-prompts'))),
+          ),
+        ),
+      );
+
+      final authHarness = buildClaudeHarness(
+        providerOptions: const {'permissionMode': 'dontAsk'},
+        environment: const {},
+        commandProbe: (exe, args) async =>
+            args.first == '--version' ? processResult(stdout: '1.0.0') : processResult(exitCode: 1),
+      );
+      addTearDown(authHarness.dispose);
+      await expectLater(
+        authHarness.start(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.toString(),
+            'diagnosis',
+            allOf(contains('No authentication configured'), isNot(contains('permission-prompts'))),
+          ),
+        ),
+      );
+    });
+
+    test('reports effective host permission posture without a credential value', () async {
+      final messages = <String>[];
+      final subscription = Logger.root.onRecord.listen((record) {
+        if (record.loggerName == 'ClaudeCodeHarness') messages.add(record.message);
+      });
+      addTearDown(subscription.cancel);
+      final harness = buildClaudeHarness(
+        providerOptions: const {'permissionMode': 'dontAsk'},
+        environment: const {'ANTHROPIC_API_KEY': 'synthetic-secret'},
+        guardChain: GuardChain(guards: [RecordingGuard()]),
+      );
+      addTearDown(harness.dispose);
+
+      await harness.start();
+
+      expect(messages, contains(contains('requested=dontAsk, native=default, prompts=none')));
+      expect(messages.join(' '), contains('subprocess env scrub=1, PreToolUse guards=active'));
+      expect(messages.join(' '), isNot(contains('synthetic-secret')));
     });
 
     for (final inheritUserSettings in [null, true]) {
@@ -183,6 +326,42 @@ void main() {
       addTearDown(restrictedHarness.dispose);
 
       await expectLater(restrictedHarness.start(), completes);
+    });
+
+    test('interactive and omitted modes have no host-only no-prompt flag', () async {
+      for (final options in <Map<String, dynamic>>[
+        const {'permissionMode': 'default'},
+        const {'permissionMode': 'plan'},
+        const {'approval': 'never'},
+        const {},
+      ]) {
+        ProcessSpawn? spawn;
+        final harness = buildClaudeHarness(
+          providerOptions: options,
+          processFactory: capturingInitFactory(onSpawn: (value) => spawn = value),
+        );
+        addTearDown(harness.dispose);
+        await harness.start();
+        expect(spawn!.args, isNot(contains('--permission-prompts')));
+        if (options['approval'] != 'never') {
+          expect(spawn!.environment!['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], '1');
+        }
+      }
+    });
+
+    test('container dontAsk keeps its separate scrub and prompt policy', () async {
+      final hostRoot = await Directory.systemTemp.createTemp('dartclaw-claude-container-permission-');
+      addTearDown(() => hostRoot.delete(recursive: true));
+      final container = FakeClaudeContainerExecutor(hostRoot: hostRoot.path, containerRoot: '/workspace');
+      final harness = buildClaudeHarness(
+        providerOptions: const {'permissionMode': 'dontAsk'},
+        containerManager: container,
+      );
+      addTearDown(harness.dispose);
+      await harness.start();
+      expect(container.lastCommand, isNot(contains('--permission-prompts')));
+      expect(container.lastEnv!['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'], '0');
+      expect(container.lastEnv!['ANTHROPIC_API_KEY'], 'dartclaw-host-mediated-no-credential');
     });
 
     for (final approval in ['on-request', 'unless-allow-listed']) {

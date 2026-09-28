@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.27 Claude host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -143,10 +143,13 @@ Claude's native permission UX assumes an interactive TTY, so DartClaw normally d
 |---|---|
 | No `permissionMode`, non-`restricted` profile (**default**) | `--dangerously-skip-permissions` (no prompt tool; `can_use_tool` is suppressed) |
 | No `permissionMode`, `restricted` container profile | `--permission-prompt-tool stdio` (native prompts kept; tool requests flow through the JSONL `can_use_tool` channel) |
-| `permissionMode: bypassPermissions` or `dontAsk` | `--permission-mode <mode>` only |
+| Host `permissionMode: dontAsk` | `--permission-mode dontAsk --permission-prompts none`; subprocess env scrub stays `1`, so effective native mode is `default` with prompts disabled |
+| Container `permissionMode: dontAsk` | `--permission-mode dontAsk` only; container scrub remains `0`, and the host no-prompt mapping is not claimed for this lane |
+| `permissionMode: bypassPermissions` | `--permission-mode bypassPermissions` only; host scrub is `0` for this explicit bypass |
 | `permissionMode: acceptEdits` / `auto` / `default` / `plan` | `--permission-mode <mode>` + `--permission-prompt-tool stdio` |
 
 Regardless of which row applies, the registered `PreToolUse` hook still fires and runs the guard chain – disabling the native gate does not disable DartClaw's enforcement.
+For host `dontAsk`, startup checks the resolved Claude executable's help for `--permission-prompts` and its `none` target before sending a turn. A binary without that support is refused with a remedy to install a compatible Claude CLI or select a different permission mode. Workflow task records carry the requested host policy and its effective native mode, prompt policy, scrub, and guard status.
 
 ### Environment stripping
 

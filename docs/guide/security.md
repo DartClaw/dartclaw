@@ -544,7 +544,11 @@ a scoped API key. Read this before making subscription the credential your deplo
 
 - **Host-mode exposure.** The container boundary protects container mode only. In host mode the credential is present to
   the agent's own subprocess – Claude as `CLAUDE_CODE_OAUTH_TOKEN` in its environment, Codex as the dedicated
-  `CODEX_HOME` on disk – so a host-mode agent with shell access can read and exfiltrate it. **Use an API key for
+  `CODEX_HOME` on disk. Non-bypass host Claude runs retain subprocess environment scrub, including `dontAsk`: the
+  requested mode uses native `default` with prompts `none` while `PreToolUse` guards still run. A child tool does not
+  inherit the provider key through the CLI environment, but host execution is not an OS isolation boundary. A CLI
+  rejecting `--permission-prompts none` refuses the turn; install a compatible CLI or select another mode. Container
+  workers instead carry only a placeholder key with scrub `0`, under their separate host-mediated boundary. **Use an API key for
   host-mode deployments running less-trusted agents**: losing a scoped, individually revocable key is a far smaller
   event than losing a year-long full-account token.
 - **Blast radius.** A subscription Bearer authenticates as your whole account, is long-lived (~1 year for Claude), and

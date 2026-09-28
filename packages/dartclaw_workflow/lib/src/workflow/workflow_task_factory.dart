@@ -2,7 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus, TaskStatusChangedEvent;
+import 'package:dartclaw_core/dartclaw_core.dart' show ClaudeSettingsBuilder, Task, TaskStatus, TaskStatusChangedEvent;
 
 import 'workflow_definition.dart' show OutputConfig, WorkflowDefinition, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
@@ -12,6 +12,7 @@ import 'map_context.dart';
 import 'skill_prompt_builder.dart';
 import 'step_config_policy.dart' as step_config_policy;
 import 'step_config_resolver.dart';
+import 'skill_introspector.dart' show WorkflowSkillPreflightConfig;
 import 'workflow_context.dart';
 import 'workflow_run_paths.dart';
 import 'workflow_runner_types.dart';
@@ -128,9 +129,30 @@ Map<String, dynamic> buildStepConfig(
   required String resolvedWorktreeMode,
   required String effectivePromotion,
   required String workflowWorkspaceDir,
+  String? taskProvider,
+  WorkflowSkillPreflightConfig providerConfig = const WorkflowSkillPreflightConfig(),
   Map<String, OutputConfig>? effectiveOutputs,
 }) {
   final config = <String, dynamic>{};
+  final provider = taskProvider ?? resolved.provider ?? providerConfig.defaultProvider;
+  if (provider != null) {
+    final executable = providerConfig.executableFor(provider) ?? provider;
+    final options = providerConfig.optionsFor(provider);
+    if (ProviderIdentity.resolveFamily(provider, executable: executable, options: options) == ProviderIdentity.claude) {
+      final mode =
+          ClaudeSettingsBuilder.buildPermissionMode(options) ?? ClaudeProviderOptions.approvalPermissionMode(options);
+      if (mode == 'dontAsk') {
+        config['claudeHostPermissionPosture'] = {
+          'requested': 'dontAsk',
+          'native': 'default',
+          'prompts': 'none',
+          'subprocessEnvScrub': true,
+          'preToolUseGuards': true,
+          'appliesWhen': 'host',
+        };
+      }
+    }
+  }
   if (resolved.model != null) config['model'] = resolved.model;
   if (resolved.effort != null) config['effort'] = resolved.effort;
   if (resolved.maxTokens != null) config['tokenBudget'] = resolved.maxTokens;

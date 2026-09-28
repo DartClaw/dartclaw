@@ -680,6 +680,8 @@ Use a qualified POSIX host or WSL when provider sandboxing is a required boundar
 
 The axes never cross: setting `sandbox: danger-full-access` disables OS isolation but does **not** relax prompt gating, and `approval: never` does **not** change the sandbox block. Invalid values warn and fall back to the default. The raw `permissionMode`/`sandbox`/`permissions` passthrough remains available as the advanced escape hatch.
 
+On a host Claude worker, raw `permissionMode: dontAsk` requests no operator prompts. DartClaw launches the resolved CLI with `--permission-mode dontAsk --permission-prompts none` and keeps subprocess environment scrub (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`) and `PreToolUse` guards. Scrub makes the effective native mode `default`; native prompts are explicitly `none`. A CLI that rejects the flag is refused before a turn: install a compatible Claude CLI or choose another permission mode. Workflow task configuration records identify this host posture. Containerized Claude keeps its separate placeholder-key environment and scrub `0`; this host mapping does not claim container behavior. See [Security § Choosing Between Subscription and API Key](security.md#choosing-between-subscription-and-api-key).
+
 Ordinary web approval cards follow actual native requests rather than the coarse provider label. For Codex they require
 `approval: on-request`. For Claude they require an explicit raw `permissionMode` of `default`, `acceptEdits`, or `plan`;
 the coarse `approval: on-request` and `unless-allow-listed` settings keep the guarded `dontAsk` host default and do not

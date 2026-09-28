@@ -24,10 +24,9 @@ const claudeOauthTokenEnvVar = 'CLAUDE_CODE_OAUTH_TOKEN';
 /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` makes the claude CLI scrub the env it
 /// hands to child processes, so an allowlisted child cannot read the host
 /// `ANTHROPIC_API_KEY`. The CLI also treats it as a broader hardening signal:
-/// it forces `--permission-mode default`, printing a benign stderr notice
-/// ("Permission mode forced to default"). That is compatible with every host
-/// spawn path because the harness fields permission requests over the control
-/// protocol. Full-access (`approval: never`) harness spawns opt out with an
+/// it forces native `default`, printing a benign stderr notice. Host `dontAsk`
+/// pairs this with explicit `--permission-prompts none` so the requested
+/// no-prompt behavior survives. Full-access (`approval: never`) spawns opt out with an
 /// explicit `=0`, because the forced default mode would neutralize their
 /// bypass posture.
 const claudeHardeningEnvVars = <String, String>{

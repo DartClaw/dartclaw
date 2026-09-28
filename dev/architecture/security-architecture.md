@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.27 PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
+**Current through**: 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
 temporary conversation sink exclusion and confirmed cleanup, exact-request approval actions, principal-scoped search,
 the restricted-role connection posture, and owner Memory administration.
 
@@ -295,12 +295,13 @@ Different providers expose different interception points. DartClaw keeps the gua
 
 | Provider / mode | Mechanism | DartClaw integration point | Security boundary |
 |-----------------|------------|-----------------------------|-------------------|
-| Claude Code | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback; permission handler is a no-op because native permission prompts are skipped | Guard chain is the active interception point before tool execution |
+| Claude Code host default | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback | Guard chain is the active interception point before tool execution |
+| Claude Code host `dontAsk` | `--permission-mode dontAsk --permission-prompts none`, scrub `1` + hooks | Effective native `default` with prompts disabled; `PreToolUse` still runs the guard chain | Native grants and host guards can each refuse a tool without asking the operator |
 | Codex (app-server) | Command, file-change, and MCP approval requests | `approval` handler in `CodexHarness`; `on-request` is broadest, granular is partial, `never` disables host interception | Approval response path is the only interception point |
 | ACP direct-provider, verified | Host-advertised ACP `fs` capabilities | `AcpReverseCallHandlers` bind reverse-calls to the active session and map them to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
 | ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Rejected at startup; the container boundary they require has no ACP credential or host-capability mediation | Unavailable — the only boundary they could claim cannot be provided |
 
-For Claude Code, DartClaw starts the binary with `--dangerously-skip-permissions`, then intercepts tool use through hooks. The native permission handler is effectively a no-op in this mode, so guard enforcement must happen in Dart before the provider tool runs.
+For host Claude Code without an explicit mode, DartClaw starts the binary with `--dangerously-skip-permissions` and intercepts tool use through hooks. Host `dontAsk` instead keeps subprocess environment scrubbing, requests no native prompts explicitly, and refuses a resolved CLI that rejects the flag before a provider turn. Containerized Claude retains its separate minimal environment, placeholder key, scrub `0`, and guard chain; the host `dontAsk` mapping is not applied there.
 
 For Codex app-server, the approval request is the only interception point. DartClaw handles the current
 `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, and MCP approval-elicitation shapes. It does

@@ -20,6 +20,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowSkillPreflightConfig,
         WorkflowStep;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -283,6 +284,45 @@ void main() {
       expect(step2TaskId, isNotEmpty);
       final step2Task = await h.taskService.get(step2TaskId);
       expect(step2Task?.configJson['_continueSessionId'], equals(sessionStep1));
+    });
+
+    test('continued step records the permission posture of its root provider', () async {
+      createSessionDir(sessionStep1);
+      h.executor = h.makeExecutor(
+        skillPreflightConfig: const WorkflowSkillPreflightConfig(
+          defaultProvider: 'codex',
+          providerExecutables: {'claude': 'claude', 'codex': 'codex'},
+          providerOptions: {
+            'claude': {'permissionMode': 'dontAsk'},
+          },
+        ),
+      );
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Investigate', prompts: ['Investigate'], provider: 'claude'),
+          const WorkflowStep(id: 'step2', name: 'Fix', prompts: ['Fix'], continueSession: 'step1'),
+        ],
+      );
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var queued = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        event,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        if (queued++ == 0) {
+          await h.taskService.updateFields(event.taskId, sessionId: sessionStep1);
+        }
+        await h.completeTask(event.taskId);
+      });
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final tasks = await h.taskService.list();
+      final continued = tasks.singleWhere((task) => task.configJson['_continueSessionId'] == sessionStep1);
+      expect(continued.provider, 'claude');
+      expect(continued.configJson['claudeHostPermissionPosture'], isNotNull);
     });
 
     test('continued step resolves root session from an explicit earlier step reference', () async {

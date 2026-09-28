@@ -329,6 +329,7 @@ Future<Process> defaultClaudeProcessFactory(
 }
 
 Future<ProcessResult> defaultClaudeCommandProbe(String exe, List<String> args) async {
+  if (args.contains('--help')) return processResult(exitCode: 0, stdout: '--permission-prompts <target> "none"');
   return processResult(exitCode: 0, stdout: '1.0.0');
 }
 

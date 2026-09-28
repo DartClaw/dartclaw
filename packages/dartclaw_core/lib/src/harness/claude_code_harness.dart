@@ -37,6 +37,7 @@ List<String> _buildClaudeArgs({
   String? appendSystemPrompt,
   String? mcpConfigPath,
   String? permissionMode,
+  bool noPermissionPrompts = false,
   String? settings,
   String? outputSchemaJson,
   String? providerSessionId,
@@ -57,6 +58,7 @@ List<String> _buildClaudeArgs({
   if (!persistSession) '--no-session-persistence',
   if (providerSessionId != null) ...['--resume', providerSessionId],
   if (permissionMode != null) ...['--permission-mode', permissionMode],
+  if (noPermissionPrompts) ...['--permission-prompts', 'none'],
   if (permissionMode == null && skipNativePermissions) '--dangerously-skip-permissions',
   if (permissionMode != 'bypassPermissions' && permissionMode != 'dontAsk' && !skipNativePermissions) ...[
     '--permission-prompt-tool',
@@ -553,6 +555,24 @@ class ClaudeCodeHarness extends BaseHarness
       }
 
       await _verifyAuth();
+      if (_nativePermissionMode == 'dontAsk') {
+        final result = await commandProbe(claudeExecutable, const ['--help']);
+        if (result.exitCode != 0) {
+          final diagnostic = '${result.stderr}\n${result.stdout}'.trim();
+          throw StateError(
+            'Claude no-prompt compatibility probe failed for "$claudeExecutable": '
+            '$diagnostic',
+          );
+        }
+        final help = '${result.stdout}';
+        if (!help.contains('--permission-prompts') || !help.contains('"none"')) {
+          throw UnsupportedCapabilityError(
+            capability: 'Claude no-prompt permission policy',
+            attemptedContext: '$claudeExecutable --permission-prompts none',
+            remediation: 'Install a compatible Claude CLI or configure a different permissionMode.',
+          );
+        }
+      }
     } else {
       await cm.start();
       if (!await containerExecutableRuns(cm, _containerExecutable)) {
@@ -565,6 +585,7 @@ class ClaudeCodeHarness extends BaseHarness
     }
 
     final env = Map<String, String>.from(_environment);
+    if (cm == null) env.addAll(claudeHardeningEnvVars);
     for (final key in claudeNestingEnvVars) {
       env.remove(key);
     }
@@ -618,6 +639,7 @@ class ClaudeCodeHarness extends BaseHarness
     }
 
     final nativePermissionMode = _nativePermissionMode;
+    final hostDontAsk = cm == null && nativePermissionMode == 'dontAsk';
     final skipsPermissionPrompts = nativePermissionMode == 'bypassPermissions';
     if (skipsPermissionPrompts && cm?.profileId == 'restricted') {
       throw StateError(
@@ -669,6 +691,7 @@ class ClaudeCodeHarness extends BaseHarness
       appendSystemPrompt: _processAppendSystemPrompt,
       mcpConfigPath: mcpConfigArgPath,
       permissionMode: nativePermissionMode,
+      noPermissionPrompts: hostDontAsk,
       settings: nativeSettings,
       outputSchemaJson: _processOutputSchemaJson,
       providerSessionId: _processProviderSession.id,
@@ -683,6 +706,12 @@ class ClaudeCodeHarness extends BaseHarness
     );
     final Process process;
     _sessionId = null;
+    if (hostDontAsk) {
+      _log.info(
+        'Claude permission posture: requested=dontAsk, native=default, prompts=none, '
+        'subprocess env scrub=1, PreToolUse guards=${guardChain == null ? 'unconfigured' : 'active'}',
+      );
+    }
     if (cm != null) {
       final containerEnv = <String, String>{
         ..._containerEnvironment,

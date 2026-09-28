@@ -18,6 +18,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- Host Claude `dontAsk` launches now request native prompts `none` while retaining subprocess credential scrub and
+  `PreToolUse` guards. An incompatible CLI is refused before a turn, and workflow records expose the effective posture.
+
 - Agent and global New chat now use the owner workspace without a project. Named projects have explicit chat entry
   points and separate navigation. Eligible idle owner chats can move between general and project context with a
   revision check; history and drafts remain, while the new context applies to future turns. This pre-release change

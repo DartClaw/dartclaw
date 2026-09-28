@@ -96,6 +96,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       step,
       resolved,
       context,
+      taskProvider: taskProvider,
       resolvedWorktreeMode: resolvedWorktreeMode,
       effectivePromotion: effectivePromotion,
       effectiveOutputs: effectiveOutputs,

@@ -361,6 +361,28 @@ void main() {
 
       expect(target.family, 'claude');
     });
+
+    test('Claude default and alias retain the executable and no-prompt options they spawn', () {
+      final config = configWith(
+        providers: ProvidersConfig(
+          entries: {
+            'claude': ProviderEntry(executable: '/opt/claude-current', options: const {'permissionMode': 'dontAsk'}),
+            'claude_alias': ProviderEntry(
+              executable: '/opt/claude-alias',
+              options: const {'permissionMode': 'dontAsk'},
+            ),
+          },
+        ),
+      );
+
+      final direct = resolveProviderTarget(config, 'claude');
+      final alias = resolveProviderTarget(config, 'claude_alias');
+      expect(direct.executable, '/opt/claude-current');
+      expect(direct.options['permissionMode'], 'dontAsk');
+      expect(alias.executable, '/opt/claude-alias');
+      expect(alias.options['permissionMode'], 'dontAsk');
+      expect(alias.family, 'claude');
+    });
   });
 
   group('spawn environment hardening and ownership', () {

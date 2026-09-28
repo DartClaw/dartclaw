@@ -18,6 +18,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowRun,
         WorkflowStep,
+        WorkflowSkillPreflightConfig,
         WorkflowTaskConfig,
         WorkflowTaskType;
 import 'package:test/test.dart';
@@ -109,6 +110,40 @@ void main() {
           .single;
 
       expect(task.provider, equals('explicit-provider'));
+    });
+
+    test('reports effective host permission posture for a resolved Claude alias', () async {
+      h.executor = h.makeExecutor(
+        skillPreflightConfig: const WorkflowSkillPreflightConfig(
+          defaultProvider: 'claude-alias',
+          providerExecutables: {'claude-alias': 'claude'},
+          providerOptions: {
+            'claude-alias': {'permissionMode': 'dontAsk'},
+          },
+        ),
+      );
+      final definition = WorkflowDefinition(
+        name: 'wf',
+        description: 'desc',
+        steps: const [
+          WorkflowStep(id: 'write', name: 'Write', prompts: ['p']),
+        ],
+      );
+      final run = makeDefaultsRun(definition);
+      await h.repository.insert(run);
+
+      final task = (await executeAndCompleteQueuedTasks(() => h.executor.execute(run, definition, WorkflowContext())))
+          .single;
+
+      expect(task.provider, 'claude-alias');
+      expect(task.configJson['claudeHostPermissionPosture'], {
+        'requested': 'dontAsk',
+        'native': 'default',
+        'prompts': 'none',
+        'subprocessEnvScrub': true,
+        'preToolUseGuards': true,
+        'appliesWhen': 'host',
+      });
     });
 
     test('first-match-wins: review-code matches review* not catch-all *', () async {

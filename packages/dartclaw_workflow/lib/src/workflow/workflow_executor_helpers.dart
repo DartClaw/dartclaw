@@ -114,6 +114,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowStep step,
     ResolvedStepConfig resolved,
     WorkflowContext context, {
+    required String? taskProvider,
     required String resolvedWorktreeMode,
     required String effectivePromotion,
     Map<String, OutputConfig>? effectiveOutputs,
@@ -123,9 +124,11 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     step,
     resolved,
     context,
+    taskProvider: taskProvider,
     resolvedWorktreeMode: resolvedWorktreeMode,
     effectivePromotion: effectivePromotion,
     workflowWorkspaceDir: _resolveWorkflowWorkspaceDir(),
+    providerConfig: _skillPreflightConfig,
     effectiveOutputs: effectiveOutputs,
   );
 

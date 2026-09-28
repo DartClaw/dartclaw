@@ -119,6 +119,6 @@ TurnComplete codexBuildTurnComplete(Map<String, dynamic> usage, {required String
       _ => null,
     },
     cacheReadTokens: rawCached,
-    cacheWriteTokens: 0,
+    cacheWriteTokens: intValue(usage['cache_write_input_tokens']) ?? 0,
   );
 }

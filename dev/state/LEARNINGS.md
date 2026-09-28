@@ -56,6 +56,7 @@
 - **Exec-mode shutdown must not await a pending `Process.start`.** One-shot harness `stop()` must complete the turn completer immediately and defer cleanup until spawn settles.
 - **One-shot codex spawns without `--model` inherit the operator's `~/.codex/config.toml`.** A user-level model override there can break every live run. Live codex spawn paths must pin `--model` or run under a controlled `CODEX_HOME`; `workflow-live/run.sh` exports a hermetic, model-pinned one.
 - **A stored Codex subscription runs in a DartClaw-generated home, not `~/.codex`.** Anything expected there – plugins, skills, MCP stanzas – must be mirrored in by DartClaw (`completeDedicatedCodexHome`), never assumed; the symptom was `Missing skills for provider codex: andthen:*` at workflow preflight.
+- **`thread/tokenUsage/updated.last` is the last model request, not the turn.** Credit turns from per-thread `total` deltas; spawned subagents report under their own `threadId` from zero (0.154.0).
 
 ### Structured Output
 - **Enforcement and readback are separate capabilities.** `supportsStructuredOutput` is typed readback on `TurnResult.structuredOutput`; `supportsOutputSchemaConstraint` is the provider constraining the reply text with nothing typed coming back. Both default to `false`, and a schema is forwarded under the second only for a caller that validates host-side (`outputSchemaWhenSupported`) – a caller needing the payload is refused by name at reservation.

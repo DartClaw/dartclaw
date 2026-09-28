@@ -55,6 +55,7 @@ export default class DcChatController extends Stimulus.Controller {
     this.historyViewState = null;
     this.handleBeforeRequest = this.handleBeforeRequest.bind(this);
     this.handleFinallyRequest = this.handleFinallyRequest.bind(this);
+    this.handleBeforeSwap = this.handleBeforeSwap.bind(this);
     this.handleSseBeforeMessage = this.handleSseBeforeMessage.bind(this);
     this.handleSseClose = this.handleSseClose.bind(this);
     this.handleLoadEarlierClick = this.handleLoadEarlierClick.bind(this);
@@ -77,6 +78,7 @@ export default class DcChatController extends Stimulus.Controller {
 
     document.body.addEventListener('htmx:before:request', this.handleBeforeRequest);
     document.body.addEventListener('htmx:finally:request', this.handleFinallyRequest);
+    document.body.addEventListener('htmx:before:swap', this.handleBeforeSwap);
     document.body.addEventListener('htmx:sse:before:message', this.handleSseBeforeMessage);
     document.body.addEventListener('htmx:sse:close', this.handleSseClose);
     this.element.addEventListener('click', this.handleLoadEarlierClick);
@@ -115,9 +117,10 @@ export default class DcChatController extends Stimulus.Controller {
   }
 
   disconnect() {
-    this.storeHistoryViewState();
+    if (this.element.isConnected) this.storeHistoryViewState();
     document.body.removeEventListener('htmx:before:request', this.handleBeforeRequest);
     document.body.removeEventListener('htmx:finally:request', this.handleFinallyRequest);
+    document.body.removeEventListener('htmx:before:swap', this.handleBeforeSwap);
     document.body.removeEventListener('htmx:sse:before:message', this.handleSseBeforeMessage);
     document.body.removeEventListener('htmx:sse:close', this.handleSseClose);
     this.element.removeEventListener('click', this.handleLoadEarlierClick);
@@ -1016,7 +1019,10 @@ export default class DcChatController extends Stimulus.Controller {
       const anchorTop = this.paginationAnchorTop;
       requestAnimationFrame(() => {
         if (messages?.isConnected && anchor.isConnected) {
-          messages.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
+          messages.scrollTo({
+            top: messages.scrollTop + anchor.getBoundingClientRect().top - anchorTop,
+            behavior: 'instant',
+          });
         }
       });
     }
@@ -1288,8 +1294,10 @@ export default class DcChatController extends Stimulus.Controller {
     const messages = this.element.querySelector('#messages');
     const anchor = Array.from(messages?.querySelectorAll('[data-message-id]') || [])
       .find((item) => item.dataset.messageId === state.anchorId);
-    if (messages && anchor) messages.scrollTop += anchor.getBoundingClientRect().top -
-      messages.getBoundingClientRect().top - state.anchorOffset;
+    if (messages && anchor) messages.scrollTo({
+      top: messages.scrollTop + anchor.getBoundingClientRect().top - messages.getBoundingClientRect().top - state.anchorOffset,
+      behavior: 'instant',
+    });
     this.restoreHistoryFocus(state.focus);
     this.restoreHistorySelection(state.selection);
   }
@@ -1382,6 +1390,11 @@ export default class DcChatController extends Stimulus.Controller {
     this.captureHistoryViewState();
     if (!this.historyViewState || !this.sessionId) return;
     sessionStorage.setItem('dartclaw:history:' + this.sessionId, JSON.stringify(this.historyViewState));
+  }
+
+  handleBeforeSwap(event) {
+    const target = event.detail?.ctx?.target;
+    if (target instanceof Element && target.contains(this.element)) this.storeHistoryViewState();
   }
 
   restoreStoredHistoryViewState() {
@@ -1797,7 +1810,7 @@ export default class DcChatController extends Stimulus.Controller {
           this.streaming = true;
           this.canCancel = Boolean(projectedTurn?.can_cancel) && active?.workState !== 'stopping';
           this.activeTurnId = active?.turnId || projectedTurn?.turn_id || null;
-        } else if (!document.getElementById('streaming-msg')) {
+        } else if (!document.getElementById('streaming-msg') && !this.streamRecoveryTurnId) {
           this.streaming = false;
           this.canCancel = false;
           this.activeTurnId = null;

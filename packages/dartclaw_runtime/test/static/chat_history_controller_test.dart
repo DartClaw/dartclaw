@@ -71,6 +71,7 @@ const message2 = {
 };
 const messages = {
   scrollTop: 20,
+  scrollTo({ top }) { this.scrollTop = top; },
   getBoundingClientRect: () => ({ top: 100 }),
   querySelectorAll(selector) {
     if (selector === '[data-message-id]') return [message1, message2];

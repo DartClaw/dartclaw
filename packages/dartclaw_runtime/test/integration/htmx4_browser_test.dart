@@ -304,6 +304,7 @@ void main() {
       );
     final configDataDir = p.join(tempDir.path, 'config-data');
     Directory(configDataDir).createSync(recursive: true);
+    Directory(p.join(configDataDir, 'workspace')).createSync(recursive: true);
     final configPath = p.join(tempDir.path, 'dartclaw.yaml');
     File(configPath).writeAsStringSync('''
 port: 8181
@@ -422,7 +423,7 @@ agent:
       final paginationRequests = page.requestCount(paginationPath);
       await page.evaluate('''(() => {
         const messages = document.querySelector('#messages');
-        messages.scrollTop = 0;
+        messages.scrollTo({top: 0, behavior: 'instant'});
         window.__paginationAnchor = messages.querySelector('.msg');
         window.__paginationAnchorTop = window.__paginationAnchor.getBoundingClientRect().top;
         document.querySelector('[data-load-earlier]').click();
@@ -536,7 +537,7 @@ agent:
       await worker.turnInvoked.timeout(const Duration(seconds: 10));
       expect(jsonEncode(worker.lastMessages), contains('browser-proof.txt'));
       await page.waitFor(
-        "document.querySelector('#streaming-msg') && document.querySelector('#message-input').disabled",
+        "document.querySelector('#streaming-msg') && document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled",
       );
       await page.waitFor('window.__sseConnections > 0', reason: 'The real SSE response was never accepted');
       await Future<void>.delayed(const Duration(milliseconds: 1600));
@@ -600,15 +601,20 @@ agent:
       })()''');
       await worker.turnInvoked.timeout(const Duration(seconds: 10));
       await page.waitFor(
-        "document.querySelector('#streaming-msg') && document.querySelector('#message-input').disabled",
+        "document.querySelector('#streaming-msg') && document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled",
       );
+      await page.evaluate('''(() => {
+        const input = document.querySelector('#message-input');
+        input.value = 'unsent cancellation draft';
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+      })()''');
       worker.emit(DeltaEvent('Partial cancellation output'));
       await page.waitFor(
         "document.querySelector('#streaming-content')?.textContent.includes('Partial cancellation output')",
       );
       final cancellationReloadsBeforeCompletion = page.requestCount('/sessions/${session.id}/messages-html');
       await page.waitFor(
-        "document.querySelector('#send-btn.btn-stop:not(:disabled)')",
+        "document.querySelector('#send-btn[data-icon=stop]:not(:disabled)')",
         reason: 'A stalled provider turn never exposed its authoritative Stop action',
       );
       await page.evaluate("document.querySelector('#send-btn').click()");
@@ -622,7 +628,7 @@ agent:
         reason: 'The cancelled turn did not refresh its persisted transcript',
       );
       expect(worker.cancelCalled, isTrue);
-      expect(await page.evaluate("document.querySelector('#message-input').value"), 'preserve cancellation input');
+      expect(await page.evaluate("document.querySelector('#message-input').value"), 'unsent cancellation draft');
       expect(
         await page.evaluate("document.querySelector('#messages').textContent"),
         allOf(contains('preserve cancellation input'), isNot(contains('Partial cancellation output'))),
@@ -637,8 +643,13 @@ agent:
       })()''');
       await worker.turnInvoked.timeout(const Duration(seconds: 10));
       await page.waitFor(
-        "document.querySelector('#streaming-msg') && document.querySelector('#message-input').disabled",
+        "document.querySelector('#streaming-msg') && document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled",
       );
+      await page.evaluate('''(() => {
+        const input = document.querySelector('#message-input');
+        input.value = 'unsent failure draft';
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+      })()''');
       await Future<void>.delayed(const Duration(milliseconds: 150));
       worker.emit(DeltaEvent('Partial failure output'));
       await page.waitFor(
@@ -659,7 +670,7 @@ agent:
         await page.evaluate("document.querySelector('#messages').textContent"),
         contains('Partial failure output'),
       );
-      expect(await page.evaluate("document.querySelector('#message-input').value"), 'preserve failed input');
+      expect(await page.evaluate("document.querySelector('#message-input').value"), 'unsent failure draft');
       await page.evaluate('document.fonts.ready');
       await Future<void>.delayed(const Duration(milliseconds: 350));
       await page.screenshot(File(p.join(artifactDir.path, 'htmx4-stream-error-desktop.png')));
@@ -672,8 +683,13 @@ agent:
       })()''');
       await worker.turnInvoked.timeout(const Duration(seconds: 10));
       await page.waitFor(
-        "document.querySelector('#streaming-msg') && document.querySelector('#message-input').disabled",
+        "document.querySelector('#streaming-msg') && document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled",
       );
+      await page.evaluate('''(() => {
+        const input = document.querySelector('#message-input');
+        input.value = 'unsent provider-error draft';
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+      })()''');
       final providerErrorReloadsBeforeCompletion = page.requestCount('/sessions/${session.id}/messages-html');
       worker.completeSuccess(const TurnResult(stopReason: 'error', error: 'Browser provider error'));
       await page.waitFor(
@@ -689,7 +705,7 @@ agent:
         await page.evaluate("document.querySelector('#messages').textContent"),
         contains('Browser provider error'),
       );
-      expect(await page.evaluate("document.querySelector('#message-input').value"), 'preserve provider error input');
+      expect(await page.evaluate("document.querySelector('#message-input').value"), 'unsent provider-error draft');
 
       final failedUrlsBeforeBlockedStream = page.failedUrls.length;
       final sendsBeforeBlockedStream = page.requestCount(sendPath);
@@ -709,7 +725,7 @@ agent:
         reason: 'Chrome did not block the initial SSE request',
       );
       await page.waitFor(
-        "document.body.classList.contains('streaming') && document.querySelector('#message-input').disabled && document.querySelector('[data-dc-chat-target=recovery]')?.textContent.includes('Waiting for the active turn')",
+        "document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled && document.querySelector('[data-dc-chat-target=recovery]')?.textContent.includes('Waiting for the active turn')",
         reason: 'A network-refused initial SSE request did not retain authoritative turn observation',
       );
       await _eventually(() => page.consoleErrors.isNotEmpty, reason: 'HTMX did not report the blocked stream fetch');
@@ -725,28 +741,22 @@ agent:
         isTrue,
         reason: 'Chrome did not record the blocked initial SSE request as a transport failure',
       );
-      expect(
-        await page.evaluate("document.querySelector('#message-input').value"),
-        'preserve network-refused stream input',
-      );
+      expect(await page.evaluate("document.querySelector('#message-input').value"), isEmpty);
       expect(await page.evaluate("document.querySelectorAll('#streaming-msg').length"), 0);
-      await page.evaluate("document.querySelector('#chat-form').requestSubmit()");
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      expect(
-        page.requestCount(sendPath),
-        sendsBeforeBlockedStream + 1,
-        reason: 'A disconnected stream admitted a second send before its turn reached terminal state',
-      );
+      expect(await page.evaluate("document.querySelector('#send-btn').type"), 'button');
+      expect(page.requestCount(sendPath), sendsBeforeBlockedStream + 1);
+      await page.evaluate('''(() => {
+        const input = document.querySelector('#message-input');
+        input.value = 'retry after network refusal';
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+      })()''');
       worker.completeSuccess(const TurnResult(stopReason: 'error', error: 'Injected network refusal'));
       await page.waitFor(
         "!document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled && document.querySelector('[data-dc-chat-target=recovery]')?.textContent.includes('Turn failed')",
         reason: 'The network-refused stream did not reconcile its terminal server state',
       );
       await page.waitFor("document.querySelector('#messages').textContent.includes('Injected network refusal')");
-      expect(
-        await page.evaluate("document.querySelector('#message-input').value"),
-        'preserve network-refused stream input',
-      );
+      expect(await page.evaluate("document.querySelector('#message-input').value"), 'retry after network refusal');
 
       final networkRetryReloads = page.requestCount('/sessions/${session.id}/messages-html');
       await page.evaluate("document.querySelector('#chat-form').requestSubmit()");
@@ -773,23 +783,23 @@ agent:
       })()''');
       await worker.turnInvoked.timeout(const Duration(seconds: 10));
       await page.waitFor(
-        "document.body.classList.contains('streaming') && document.querySelector('#message-input').disabled && document.querySelector('[data-dc-chat-target=recovery]')?.textContent.includes('Waiting for the active turn')",
+        "document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled && document.querySelector('[data-dc-chat-target=recovery]')?.textContent.includes('Waiting for the active turn')",
         reason: 'Rejected initial SSE request did not retain authoritative turn observation',
       );
-      expect(await page.evaluate("document.querySelector('#message-input').value"), 'preserve refused stream input');
+      expect(await page.evaluate("document.querySelector('#message-input').value"), isEmpty);
       expect(await page.evaluate("document.querySelectorAll('#streaming-msg').length"), 0);
-      await page.evaluate("document.querySelector('#chat-form').requestSubmit()");
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      expect(
-        page.requestCount(sendPath),
-        sendsBeforeRejectedStream + 1,
-        reason: 'An HTTP-refused stream admitted a second send before its turn reached terminal state',
-      );
+      expect(await page.evaluate("document.querySelector('#send-btn').type"), 'button');
+      await page.evaluate('''(() => {
+        const input = document.querySelector('#message-input');
+        input.value = 'retry after refused stream';
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+      })()''');
       await page.waitFor(
-        "document.querySelector('#send-btn.btn-stop:not(:disabled)')",
+        "document.querySelector('#send-btn[data-icon=stop]:not(:disabled)')",
         reason: 'The disconnected stream stopped observing when its turn became cancellable',
       );
       await page.evaluate("document.querySelector('#send-btn').click()");
+      expect(page.requestCount(sendPath), sendsBeforeRejectedStream + 1);
       await page.waitFor(
         "!document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled && document.querySelector('[data-dc-chat-target=recovery]')?.textContent.includes('Turn stopped')",
         reason: 'Stop did not reconcile the disconnected stream with the authoritative cancelled transcript',
@@ -820,6 +830,18 @@ agent:
         reason: 'A successful retry retained the initial-stream recovery state',
       );
       await page.screenshot(File(p.join(artifactDir.path, 'htmx4-chat-desktop.png')));
+
+      await page.evaluate('''(() => {
+        const messages = document.querySelector('#messages');
+        messages.scrollTo({top: messages.scrollHeight / 2, behavior: 'instant'});
+      })()''');
+      await page.evaluate('''(() => {
+        const messages = document.querySelector('#messages');
+        const anchor = Array.from(messages.querySelectorAll('[data-message-id]'))
+          .find((item) => item.getBoundingClientRect().bottom >= messages.getBoundingClientRect().top);
+        window.__historyAnchorId = anchor.dataset.messageId;
+        window.__historyAnchorOffset = anchor.getBoundingClientRect().top - messages.getBoundingClientRect().top;
+      })()''');
 
       await page.evaluate("document.querySelector('.sidebar-nav-item[href=\"/health-dashboard\"]').click()");
       await page.waitFor("location.pathname === '/health-dashboard' && document.querySelector('#health-live')");
@@ -884,15 +906,15 @@ agent:
       await page.evaluate('history.back()');
       await page.waitFor("location.pathname === '/sessions/${session.id}' && window.__historyRestores > 0");
       await page.waitFor(
-        "document.querySelector('#messages') && Math.abs(document.querySelector('#messages').scrollHeight - document.querySelector('#messages').clientHeight - document.querySelector('#messages').scrollTop) < 8",
-        reason: 'History restore did not reapply the transcript bottom position',
+        "document.querySelector('#messages') && Math.abs(Array.from(document.querySelectorAll('#messages [data-message-id]')).find((item) => item.dataset.messageId === window.__historyAnchorId)?.getBoundingClientRect().top - document.querySelector('#messages').getBoundingClientRect().top - window.__historyAnchorOffset) < 8",
+        reason: 'History restore did not reapply the visible message anchor',
       );
       expect(await page.evaluate("document.querySelectorAll('#main-content').length"), 1);
       expect(await page.evaluate('document.activeElement.id'), 'main-content');
       expect(await page.evaluate("document.querySelector('.topbar').textContent.includes('Health')"), isFalse);
       expect(
         await page.evaluate(
-          '''document.querySelector('.session-item a[href="/sessions/${session.id}"]').closest('.session-item').classList.contains('active')''',
+          '''document.querySelector('.row[data-inbox-session-id="${session.id}"]')?.classList.contains('row--selected')''',
         ),
         isTrue,
       );
@@ -920,7 +942,7 @@ agent:
 
       await page.evaluate("document.querySelector('.sidebar-nav-item[href=\"/health-dashboard\"]').click()");
       await page.waitFor("location.pathname === '/health-dashboard' && document.querySelector('#health-live')");
-      await page.evaluate("document.querySelector('.session-item a[href=\"/sessions/${session.id}\"]').click()");
+      await page.evaluate("document.querySelector('.row[data-inbox-session-id=\"${session.id}\"] a').click()");
       await page.waitFor("location.pathname === '/sessions/${session.id}' && document.querySelector('#messages')");
       final restoreEventsBeforeFailure = await page.evaluate('window.__historyRestores') as int;
       rejectNextHistoryRestore = true;
@@ -997,7 +1019,7 @@ agent:
       })()''');
       await worker.turnInvoked.timeout(const Duration(seconds: 10));
       await page.waitFor(
-        "document.querySelector('#streaming-msg') && document.querySelector('#message-input').disabled",
+        "document.querySelector('#streaming-msg') && document.body.classList.contains('streaming') && !document.querySelector('#message-input').disabled",
       );
       worker.emit(DeltaEvent('Delta before navigation teardown'));
       await page.waitFor(
@@ -1165,7 +1187,7 @@ agent:
       );
       await Future<void>.delayed(const Duration(milliseconds: 400));
       await page.screenshot(File(p.join(artifactDir.path, 'htmx4-settings-mobile.png')));
-      await page.evaluate("document.querySelector('.session-item a[href=\"/sessions/${session.id}\"]').click()");
+      await page.evaluate("document.querySelector('.row[data-inbox-session-id=\"${session.id}\"] a').click()");
       await page.waitFor("location.pathname === '/sessions/${session.id}' && document.querySelector('#chat-form')");
       expect(await page.evaluate("document.querySelector('#sidebar').classList.contains('open')"), isFalse);
       expect(await page.evaluate("document.querySelector('.shell-main').hasAttribute('inert')"), isFalse);
@@ -1181,16 +1203,16 @@ agent:
       await Future<void>.delayed(const Duration(milliseconds: 350));
       await page.screenshot(File(p.join(artifactDir.path, 'htmx4-reset-confirm-mobile.png')));
       await page.evaluate(
-        "[...document.querySelectorAll('dialog button')].find((button) => button.textContent === 'Cancel').click()",
+        "[...document.querySelectorAll('dialog[open] button')].find((button) => button.textContent === 'Cancel').click()",
       );
-      await page.waitFor("!document.querySelector('dialog')");
+      await page.waitFor("!document.querySelector('dialog[open]')");
       await Future<void>.delayed(const Duration(milliseconds: 150));
       expect(page.requestCount(resetPath), beforeCancel, reason: 'Cancel must drop the pending HTMX request');
 
       await page.evaluate("document.querySelector('.btn-reset').click()");
       await page.waitFor("document.querySelector('dialog[open]')");
       await page.evaluate(
-        "[...document.querySelectorAll('dialog button')].find((button) => button.textContent === 'Confirm').click()",
+        "[...document.querySelectorAll('dialog[open] button')].find((button) => button.textContent === 'Reset').click()",
       );
       await _eventually(
         () => page.requestCount(resetPath) == beforeCancel + 1,

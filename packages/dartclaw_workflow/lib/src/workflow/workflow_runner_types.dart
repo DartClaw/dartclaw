@@ -64,6 +64,7 @@ class StepOutcome {
   final bool accountingStop;
   final int accountingKnownBeforeReadError;
   final bool success;
+  final bool executionError;
   final String? error;
   final String? outcome;
   final String? outcomeReason;
@@ -91,6 +92,7 @@ class StepOutcome {
     this.accountingStop = false,
     this.accountingKnownBeforeReadError = 0,
     required this.success,
+    this.executionError = false,
     this.error,
     this.outcome,
     this.outcomeReason,

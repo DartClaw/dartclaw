@@ -860,7 +860,11 @@ void main() {
       expect(WorkflowStep.fromJson(json).onError, isNull);
     });
 
-    for (final (policy, wire) in const [(OnErrorPolicy.continueWorkflow, 'continue'), (OnErrorPolicy.pause, 'pause')]) {
+    for (final (policy, wire) in const [
+      (OnErrorPolicy.fail, 'fail'),
+      (OnErrorPolicy.continueWorkflow, 'continue'),
+      (OnErrorPolicy.pause, 'pause'),
+    ]) {
       test('onError: $wire round-trips', () {
         final step = WorkflowStep(id: 's', name: 'S', taskType: WorkflowTaskType.bash, onError: policy);
         final json = step.toJson();
@@ -869,9 +873,9 @@ void main() {
       });
     }
 
-    test('legacy onError "fail" in json deserializes to pause', () {
+    test('onError "fail" in json remains terminal fail', () {
       final json = {'id': 's', 'name': 'S', 'type': 'bash', 'onError': 'fail'};
-      expect(WorkflowStep.fromJson(json).onError, OnErrorPolicy.pause);
+      expect(WorkflowStep.fromJson(json).onError, OnErrorPolicy.fail);
     });
 
     test('unknown persisted onError value deserializes to null (resume-safe, not a throw)', () {

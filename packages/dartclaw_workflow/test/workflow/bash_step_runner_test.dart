@@ -1120,7 +1120,7 @@ void main() {
     setUp(h.setUp);
     tearDown(h.tearDown);
 
-    test('agent step with onError: continue proceeds past failure', () async {
+    test('agent terminal failure ignores onError: continue', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(
@@ -1154,12 +1154,13 @@ void main() {
       await sub.cancel();
 
       final finalRun = await h.repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.completed));
-      expect(taskCount, equals(2));
+      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      expect(taskCount, equals(1));
       expect(context['step1.status'], equals('failed'));
+      expect(context['step2.status'], isNull);
     });
 
-    test('agent step without onError pauses on failure (backward compat)', () async {
+    test('agent step without onError fails on terminal task failure', () async {
       final definition = h.makeDefinition(
         steps: [
           const WorkflowStep(id: 'step1', name: 'Step 1', prompts: ['Do step 1']),

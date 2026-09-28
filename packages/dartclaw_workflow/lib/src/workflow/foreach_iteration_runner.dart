@@ -126,6 +126,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     );
 
     var totalTokens = 0;
+    var policyFailed = false;
     WorkflowSerializeRemainingSettleTimeout? serializeFailure;
     // Controller-level failure (budget exhaustion, unexpected exceptions).
     WorkflowForeachControllerFailure? controllerFailure;
@@ -193,6 +194,21 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
         emitCancelledIterationEvents(cancelledByBudget);
         break;
       }
+      if (policyFailed) {
+        final cancelledByPolicy = engine.cancelPending(
+          const WorkflowIterationCancelled('Cancelled: error policy fail'),
+        );
+        await _persistForeachProgress(
+          run,
+          controllerStep,
+          context,
+          mapCtx,
+          stepIndex: stepIndex,
+          promotedIds: promotedIds,
+        );
+        emitCancelledIterationEvents(cancelledByPolicy);
+        break;
+      }
       // An aborted item stops all further dispatch; in-flight siblings settle
       // on their own paths before the run pauses.
       if (mapCtx.aborted) break;
@@ -251,6 +267,10 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
               projectId: effectiveProjectId,
               controllerMaxParallel: maxParallel,
               firstTaskIds: firstTaskIds,
+              recordControllerFailure: (failure) {
+                controllerFailure ??= failure;
+                policyFailed = true;
+              },
               activeWorkspaceRoot: activeWorkspaceRoot,
               // A serialize-exhausted iteration removes itself from `inFlight`
               // when it returns the sentinel. Re-queue it so the serialize
@@ -611,6 +631,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     required String? projectId,
     required int? controllerMaxParallel,
     required Map<int, String> firstTaskIds,
+    required void Function(WorkflowForeachControllerFailure) recordControllerFailure,
     required String? activeWorkspaceRoot,
     required void Function(int iterIndex) requeueSerializeExhausted,
     bool Function()? isCancelled,
@@ -864,6 +885,30 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           context['_accounting.pendingIterationIndex'] = iterIndex;
           context['_accounting.pendingTaskSucceeded'] = result.outcome == 'succeeded';
         }
+        if (result.executionError && _errorPolicyFor(result) == OnErrorPolicy.pause) {
+          mapCtx.aborted = true;
+          mapCtx.abortReason ??= result.error ?? "Foreach child step '${childStep.id}' failed";
+          await persistProgress();
+          mapCtx.inFlightCount--;
+          _fireStepCompletedEvent(
+            run: run,
+            step: childStep,
+            stepIndex: childStepIndex,
+            totalSteps: definition.steps.length,
+            taskId: result.task?.id ?? '',
+            success: false,
+            reason: result.error,
+            tokenCount: tokenCount,
+            tokenUsageComplete: result.tokenUsageComplete,
+            displayScope: _mapItemDisplayScope(mapContext),
+          );
+          return;
+        }
+        if (result.executionError && _errorPolicyFor(result) == OnErrorPolicy.fail) {
+          recordControllerFailure(
+            WorkflowForeachControllerFailure(result.error ?? "Foreach child step '${childStep.id}' failed"),
+          );
+        }
         await failAndReturn(WorkflowIterationFailure("Foreach child step '${childStep.id}' failed"), result.task?.id);
         _fireStepCompletedEvent(
           run: run,
@@ -873,7 +918,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
           taskId: result.task?.id ?? '',
           success: false,
           outcome: result.outcome,
-          reason: result.outcomeReason,
+          reason: result.outcomeReason ?? result.error,
           tokenCount: tokenCount,
           tokenUsageComplete: result.tokenUsageComplete,
           displayScope: _mapItemDisplayScope(mapContext),

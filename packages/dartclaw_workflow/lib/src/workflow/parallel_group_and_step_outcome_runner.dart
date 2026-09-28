@@ -34,7 +34,14 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
         return result;
       } catch (e, st) {
         WorkflowExecutor._log.severe("Parallel step '${step.name}' failed: $e", e, st);
-        return StepOutcome(step: step, outputs: {}, tokenCount: 0, success: false, error: e.toString());
+        return StepOutcome(
+          step: step,
+          outputs: {},
+          tokenCount: 0,
+          success: false,
+          executionError: true,
+          error: e.toString(),
+        );
       }
     }).toList();
 
@@ -84,6 +91,9 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
     }
     if (result.outcomeReason != null && result.outcomeReason!.isNotEmpty) {
       context['step.$stepId.outcome.reason'] = result.outcomeReason!;
+    }
+    if (!result.success && result.error != null) {
+      context['$stepId.error'] = result.error!;
     }
     final stepSessionId = result.task?.sessionId;
     if (stepSessionId != null) {

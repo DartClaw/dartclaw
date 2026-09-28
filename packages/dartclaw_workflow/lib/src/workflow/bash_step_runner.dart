@@ -440,6 +440,7 @@ StepOutcome bashFailure(WorkflowStep step, String reason, {String? stderr}) {
     },
     tokenCount: 0,
     success: false,
+    executionError: true,
     error: reason,
   );
 }

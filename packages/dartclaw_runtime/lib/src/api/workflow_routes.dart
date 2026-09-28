@@ -508,6 +508,8 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
       'status': stepStatusFromTask(run, i, task, stepId: step.id),
       'taskId': task?.id,
       'tokenCount': workflowContextValue(run, '${step.id}.tokenCount'),
+      'reason':
+          workflowContextValue(run, 'step.${step.id}.outcome.reason') ?? workflowContextValue(run, '${step.id}.error'),
     };
     // Attach approval metadata for approval-type steps.
     if (step.taskType == WorkflowTaskType.approval) {
@@ -670,6 +672,9 @@ Future<Response> _workflowRunSseHandler(
         'id': definition.steps[i].id,
         'name': definition.steps[i].name,
         'status': stepStatusFromTask(snapshotRun, i, tasksByStepIndex[i], stepId: definition.steps[i].id),
+        'reason':
+            workflowContextValue(snapshotRun, 'step.${definition.steps[i].id}.outcome.reason') ??
+            workflowContextValue(snapshotRun, '${definition.steps[i].id}.error'),
         'taskId': tasksByStepIndex[i]?.id,
         'tokenCount': workflowContextValue(snapshotRun, '${definition.steps[i].id}.tokenCount'),
       },

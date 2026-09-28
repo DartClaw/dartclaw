@@ -19,6 +19,12 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     void Function(String taskId)? onFirstTaskCreated,
     _NestedLoopScope? nestedLoopScope,
   }) async {
+    if (context['${step.id}.status'] == 'failed') {
+      context.remove('${step.id}.status');
+      context.remove('${step.id}.error');
+      context.remove('step.${step.id}.outcome');
+      context.remove('step.${step.id}.outcome.reason');
+    }
     if (step.taskType == WorkflowTaskType.bash) {
       return _executeBashStep(run, step, context);
     }
@@ -274,8 +280,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           await sub.cancel();
           final msg = "Failed to create task for step '${step.name}': $e";
           WorkflowExecutor._log.severe("Workflow '${run.id}': $msg", e, st);
-          await _failRun(run, msg);
-          return null;
+          return StepOutcome(step: step, success: false, executionError: true, error: msg);
         }
 
         onFirstTaskCreated?.call(taskId);
@@ -290,8 +295,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         } catch (e, st) {
           final msg = "Step '${step.name}' wait failed: $e";
           WorkflowExecutor._log.severe("Workflow '${run.id}': $msg", e, st);
-          await _failRun(run, msg);
-          return null;
+          return StepOutcome(step: step, success: false, executionError: true, error: msg);
         }
 
         final tokenUsage = await _readStepTokenCount(finalTask);

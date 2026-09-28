@@ -162,6 +162,9 @@ class WorkflowExecutor {
     _log.log(level, "Workflow '${run.id}': $msg");
   }
 
+  OnErrorPolicy _errorPolicyFor(StepOutcome result) =>
+      result.executionError ? (result.step.onError ?? OnErrorPolicy.fail) : OnErrorPolicy.fail;
+
   Future<void> execute(
     WorkflowRun run,
     WorkflowDefinition definition,
@@ -341,6 +344,15 @@ class WorkflowExecutor {
             _mergeParallelResults(results, context);
             run = _updateParallelBudget(run, results);
             final failedSteps = results.where((result) => !result.success).toList();
+            final blockingFailures = failedSteps
+                .where(
+                  (result) =>
+                      result.accountingStop ||
+                      result.outcome == 'cancelled' ||
+                      result.awaitingApproval ||
+                      _errorPolicyFor(result) != OnErrorPolicy.continueWorkflow,
+                )
+                .toList();
             // These closures capture `run` and `group` by reference; `run` is reassigned
             // later in this scope. Read only invariant fields (run.id, group's identity)
             // — anything else will see whichever value happens to be live at fire time.
@@ -355,7 +367,7 @@ class WorkflowExecutor {
                   taskId: result.task?.id ?? '',
                   success: result.success,
                   outcome: result.outcome,
-                  reason: result.outcomeReason,
+                  reason: result.outcomeReason ?? result.error,
                   tokenCount: result.tokenCount,
                   tokenUsageComplete: result.tokenUsageComplete,
                 );
@@ -394,7 +406,7 @@ class WorkflowExecutor {
                   ...refreshedRun.contextJson,
                   ...context.toJson(),
                   '_parallel.current.stepIds': fullGroupStepIds,
-                  '_parallel.failed.stepIds': failedSteps.map((result) => result.step.id).toList(),
+                  '_parallel.failed.stepIds': blockingFailures.map((result) => result.step.id).toList(),
                   if (pendingRead != null) ...{
                     '_accounting.pendingTaskId': pendingRead.task!.id,
                     '_accounting.pendingStepId': pendingRead.step.id,
@@ -444,11 +456,20 @@ class WorkflowExecutor {
                 );
                 return;
               }
-              final failedNames = failedSteps.map((result) => "'${result.step.name}'").join(', ');
-              final msg = 'Parallel step(s) failed: $failedNames';
-              _logRun(run, msg, level: Level.INFO);
-              await _failRun(run, msg);
-              return;
+              if (blockingFailures.isNotEmpty) {
+                final firstFailure = blockingFailures.first;
+                final failedNames = blockingFailures.map((result) => "'${result.step.name}'").join(', ');
+                final msg =
+                    'Parallel step(s) failed: $failedNames'
+                    '${firstFailure.error == null ? '' : ': ${firstFailure.error}'}';
+                _logRun(run, msg, level: Level.INFO);
+                if (blockingFailures.any((result) => _errorPolicyFor(result) == OnErrorPolicy.fail)) {
+                  await _failRun(run, msg);
+                } else {
+                  await _pauseRun(run, msg);
+                }
+                return;
+              }
             }
 
             for (final result in results) {
@@ -514,8 +535,10 @@ class WorkflowExecutor {
             await _repository.update(run);
             // Events are intentionally emitted after the run row has the same
             // context that sequential step consumers observe.
-            fireParallelStepCompletedEvents(results);
-            fireParallelGroupCompletedEvent(results);
+            if (failedSteps.isEmpty) {
+              fireParallelStepCompletedEvents(results);
+              fireParallelGroupCompletedEvent(results);
+            }
             nodeIndex++;
           case ForeachNode(stepId: final foreachStepId, childStepIds: final childStepIds):
             final foreachStep = stepById[foreachStepId];
@@ -792,7 +815,7 @@ class WorkflowExecutor {
                 await _failRun(run, result.error ?? 'Workflow accounting unavailable');
                 return;
               }
-              if (step.onError == OnErrorPolicy.continueWorkflow) {
+              if (_errorPolicyFor(result) == OnErrorPolicy.continueWorkflow) {
                 _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
                 run = run.copyWith(
                   totalTokens: run.totalTokens + result.tokenCount,
@@ -814,6 +837,7 @@ class WorkflowExecutor {
               run = run.copyWith(
                 totalTokens: run.totalTokens + result.tokenCount,
                 tokenUsageComplete: run.tokenUsageComplete && result.tokenUsageComplete,
+                currentStepIndex: stepIndex,
                 contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
                 updatedAt: DateTime.now(),
               );
@@ -831,6 +855,10 @@ class WorkflowExecutor {
                   stepIndex: stepIndex,
                   reason: result.outcomeReason ?? reason ?? msg,
                 );
+                return;
+              }
+              if (_errorPolicyFor(result) == OnErrorPolicy.pause) {
+                await _pauseRun(run, msg);
                 return;
               }
               await _failRun(run, msg);

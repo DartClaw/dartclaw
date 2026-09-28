@@ -23,6 +23,41 @@ void main() {
     });
 
     group('connected-mode table output', () {
+      test('error policy status shows cause, failed step, and matching recovery command', () async {
+        for (final status in ['failed', 'paused', 'completed']) {
+          final transport = FakeApiTransport(
+            sendResponses: [
+              jsonResponse(200, {
+                'id': 'run-error',
+                'definitionName': 'demo-wf',
+                'status': status,
+                'startedAt': '2026-06-01T10:00:00Z',
+                'totalTokens': 0,
+                'errorMessage': status == 'completed' ? null : 'shell exited 7',
+                'steps': [
+                  {'id': 'shell', 'name': 'Shell', 'status': 'failed', 'reason': 'shell exited 7'},
+                ],
+              }),
+            ],
+          );
+          final output = <String>[];
+          final command = WorkflowStatusCommand(
+            connection: ApiWorkflowConnection(
+              apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+            ),
+            writeLine: output.add,
+            exitFn: fakeExit,
+          );
+          await (CommandRunner<void>('dartclaw', 'test')..addCommand(command)).run(['status', 'run-error']);
+          final text = output.join('\n');
+          expect(text, contains('failed'));
+          expect(text, contains('shell exited 7'));
+          expect(text, isNot(contains('Approval:')));
+          if (status == 'failed') expect(text, contains('retry run-error'));
+          if (status == 'paused') expect(text, contains('resume run-error'));
+        }
+      });
+
       test('API table scrubs errorMessage of ANSI and control characters', () async {
         final transport = FakeApiTransport(
           sendResponses: [

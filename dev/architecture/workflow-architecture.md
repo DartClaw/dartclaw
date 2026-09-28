@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.27 workflow accounting availability, Claude turn accounting, PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.27 workflow error policy and resume, workflow accounting availability, Claude turn accounting, PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -190,7 +190,7 @@ The definition model encodes 0.16-era capabilities directly on the step object:
 | `maxParallel` | per-map concurrency cap |
 | `continueSession` | session continuity target |
 | `onFailure` | `fail` (default), `continue`, `retry`, or `pause` — modern step failure policy (drives workflow-owned retry budget handling for any step type) |
-| `onError` | `pause` (default) / `continue`; legacy `fail` parses as `pause`. The only path past an engine-level step error (non-zero bash exit, harness/task error) — those carry no modeled outcome, so `onFailure` never sees them |
+| `onError` | `fail` (default), `pause`, or `continue` for execution errors before a modeled outcome, including non-zero/unstartable bash and task creation/wait errors |
 | `provider` / `model` / `effort` | explicit provider, model, or reasoning-effort override |
 | `auto_frame_context` | bool, default `true` — opt out of auto-XML-framing of `inputs:` / `workflow_variables:` |
 | `emitsOwnOutcome` | bool, default `false` — skip the `<step-outcome>` framing append |
@@ -257,7 +257,7 @@ Execution semantics:
 | Timeout | `step.timeoutSeconds` (default 60s). POSIX terminates the observed tree with SIGTERM then SIGKILL after 2s. Windows hard-terminates a still-running direct root and never retargets an exited PID; uncontained descendants may continue. If cleanup cannot be confirmed, later Bash steps stay blocked until DartClaw restarts |
 | Stdout capture | Truncated at 64 KB with `[truncated]` marker |
 | Output extraction | Respects `outputs` config: `format: json` parses JSON from stdout, `format: lines` splits lines, `format: text` passes raw stdout |
-| Error handling | Non-zero exit code → failure. `onError: continue` records failure metadata and advances; `onError: pause` (default) pauses the run |
+| Error handling | Non-zero exit code → execution error. Omitted/`fail` fails the run; `pause` holds at the failed step for resume; `continue` records failure and advances without satisfying success gates |
 
 Bash steps store automatic metadata in context:
 
@@ -307,7 +307,7 @@ No current built-in workflow requires an `approval` step. `spec-and-implement` n
 
 `WorkflowRunStatus` distinguishes operator holds from failure states:
 
-- `paused` means an operator deliberately paused the run.
+- `paused` means an operator paused the run or a step's `onError: pause` held at its failed unit.
 - `awaitingApproval` means the run is blocked on an approval gate or a step-reported `needsInput` outcome that did not opt into `onFailure: continue`.
 - `failed` means the run hit a runtime, gate, or step failure and is eligible for explicit retry.
 
@@ -331,6 +331,8 @@ Runtime handling:
 - `failed` records the semantic outcome and applies `onFailure` (`fail`, `continue`, `retry`, `pause`).
 - `needsInput` transitions the run to `awaitingApproval` by default, reusing the same `_approval.*` metadata shape as an explicit approval step. `onFailure: continue` is the explicit best-effort policy for advisory/cleanup steps that should record the `needsInput` reason and advance.
 - Lifecycle status supplies the outcome when an `emitsOwnOutcome` step has no valid inline outcome, or when a step does not require a finalizer. Terminal `failed`/`rejected` status forces `failed`, and `cancelled` forces `cancelled`; these overrides return without fallback telemetry. An accepted task with no supplied outcome resolves to `succeeded`, emits a warning, and increments `workflow.outcome.fallback`. A finalizer-required step instead fails validation when its envelope is missing or malformed.
+
+Execution errors before a valid outcome use `onError`: omitted/`fail` ends `failed`, `pause` records the cause and holds the failed cursor, and `continue` advances with a failed step record. A completed task's failed outcome and post-task output/artifact validation remain under `onFailure` and its bounded retry. Cancellation, approval, promotion conflict, budget/security stops and unavailable required token accounting keep their own authority ahead of step continuation.
 
 The older `<stepId>.status` keys remain as lifecycle metadata. Outcome is additive rather than a replacement, so existing gates keep working while authors can now write semantic gates such as `step.review.outcome != failed`.
 
@@ -742,6 +744,8 @@ On server restart, `WorkflowService.recoverIncompleteRuns()` handles two categor
 - **Awaiting-approval runs with approval timeouts**: Timeout timers are rehydrated. If the deadline has already passed, the approval is expired immediately.
 
 Parallel group resume uses `_parallel.failed.stepIds` in contextJson: when a group had failures, the next resume re-runs only the failed steps (not the entire group), then merges their results with the previously successful steps.
+
+An `onError: pause` hold is resumed explicitly; a terminal `failed` run uses explicit retry. Linear and loop cursors retry the failed step, parallel groups retain settled successful members, and foreach retains settled items and completed child steps. In-flight siblings settle before a parallel or foreach hold becomes stable. Their outputs and accounted usage remain persisted; effects from the failed attempt are not rolled back.
 
 `WorkflowSerializationEnactedEvent` is fire-exactly-once across crash + resume for any given `(runId, foreachStepId)` pair (S78). The merge-resolve serialize-remaining path persists the typed `_merge_resolve.serializeRemaining` state with `eventEmitted: true` immediately after the event fires, before in-flight siblings finish settling, so a server crash mid-settle cannot re-fire the event on resume. The terminal `phase: 'drained'` marker on the same typed object remains the serial-retry-consumed persistence point.
 

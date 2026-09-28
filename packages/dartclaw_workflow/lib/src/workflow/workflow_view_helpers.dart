@@ -20,6 +20,9 @@ String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepI
   if (outcome == 'skipped') {
     return 'skipped';
   }
+  if (outcome == 'failed') {
+    return 'failed';
+  }
   if (task == null) {
     final approvalStatus = stepId == null ? null : workflowContextValue(run, '$stepId.approval.status');
     final projectedApprovalStatus = switch (approvalStatus) {

@@ -327,11 +327,13 @@ The aggregator's own `outputs:` keys must be exactly `review_report_path`, `find
 
 Workflow runs now distinguish three operator-visible non-success states:
 
-- `Paused`: deliberately paused by an operator.
+- `Paused`: paused by an operator or held at a failed execution unit by `onError: pause`.
 - `Awaiting approval`: blocked on an explicit approval step or a step that emitted `needsInput` without `onFailure: continue`. A `foreach`-nested remediation loop that exhausts with `onMaxIterations: escalate` also lands here – always, regardless of whether any story depends on the blocked one (a leaf or single-story plan pauses too), so an escalated residual is never shipped in a completed run.
 - `Failed`: a step, gate, or runtime failure stopped execution.
 
-Only `Failed` shows the **Retry** action in the workflow detail UI and via `dartclaw workflow retry <runId>`. Retry clears the failing step's lifecycle/outcome markers and restarts from the stored resume cursor. `Awaiting approval` uses `resume`, not `retry`, because the run is waiting on a human decision rather than a broken execution.
+Only `Failed` shows the **Retry** action in the workflow detail UI and via `dartclaw workflow retry <runId>`. An error-policy `Paused` run uses `dartclaw workflow resume <runId>`; it keeps the error reason and retries the failed unit. `Awaiting approval` also uses `resume`, which resolves its pending decision. A step with `onError: continue` stays failed in the step list even if independent work completes the run; a success-gated dependent step does not treat it as success.
+
+`onFailure` handles model-declared failure, failed/rejected tasks and post-task validation, including its bounded retry. `onError` handles non-zero/unstartable bash and task creation/wait errors: omission/`fail` stops the run, `pause` holds it for resume, and `continue` advances the owning unit with a failed record. Resume retains earlier successful linear/loop steps and settled parallel/foreach work, including outputs and accounted usage. It cannot undo side effects from the failed attempt.
 
 Two resume semantics to know before reaching for `resume`:
 

@@ -272,7 +272,7 @@ steps:
         "[workflow] Failed at step 2/2: Step 'bad-step' (Bad Step) failed: exited with code 3",
         '[digest] Run <run-id> – failed',
         '  1. ok-step: completed (0 tokens)',
-        '  2. bad-step: failed (0 tokens)',
+        '  2. bad-step: failed – exited with code 3 (0 tokens)',
         '[digest] Next:',
         '  dartclaw retry <run-id> --standalone',
       ]);

@@ -98,7 +98,7 @@ relevant declarations directly. The table below presents that declaration for au
 | `exitGate` | string | required for loops | Loop early-exit condition |
 | `onMaxIterations` | string | `fail` | Loop exhaustion policy: `fail`, top-level-only `continue`, or foreach/map-nested-only `escalate` |
 | `onFailure` / `on_failure` | string | `fail` | Step outcome policy: `fail`, `continue`, `retry`, or `pause` |
-| `onError` / `on_error` | string | `pause` | Engine-level error policy: `pause` or `continue`; legacy `fail` parses as `pause` |
+| `onError` / `on_error` | string | `fail` | Execution error policy: `fail`, `pause`, or `continue` |
 | `workdir` | string | workspace root | Working directory for `bash` steps |
 | `auto_frame_context` / `autoFrameContext` | bool | `true` | Disable XML auto-framing of declared inputs and workflow variables when false |
 | `emitsOwnOutcome` / `emits_own_outcome` | bool | `false` | Skip automatic step-outcome framing; the skill emits its own marker |
@@ -229,7 +229,9 @@ restarts. Commands that require process-tree containment belong on POSIX.
 | `retry` | Re-attempts the workflow step up to `maxRetries` times, then fails |
 | `pause` | Transitions the run to `awaitingApproval` |
 
-`onError` covers **engine-level** errors – a non-zero bash exit, a harness or task error – which carry no modeled outcome at all, so no `onFailure` branch ever sees them. `onError: continue` is therefore the only way to advance a run past a step that errored; it accepts `pause` (default) and `continue`, and the legacy `fail` spelling parses as `pause`. The two fields are complementary, not alternatives: author `onFailure` for outcomes the step reports and `onError` for errors it cannot.
+`onError` covers execution errors before a modeled outcome: a non-zero or unstartable bash command, or task creation/wait failure. Omission or `fail` terminally fails the run and offers explicit `retry`; `pause` records the cause and holds the failed unit for explicit `resume`; `continue` records a failed step and advances without satisfying success gates. A completed task's failed/rejected status, a model-declared failure, and output/artifact validation use `onFailure` and its retry budget even when `onError: continue` is set. `needsInput` retains its approval path.
+
+Resume restarts the failed step, loop body position, parallel member, or foreach child. Settled successful siblings and items keep their outputs and accounted usage. A failed attempt can have external side effects; resume does not undo them.
 
 A cancelled step pauses at its cursor ahead of either policy – cancellation is an interruption, never a failure.
 

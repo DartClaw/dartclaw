@@ -49,7 +49,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         executionEnvelopeOutputsKey,
         executionEnvelopeVersion;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService, WorkflowGitPortProcess;
-import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService;
+import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, WorkflowTaskService;
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show
         InMemoryAgentExecutionRepository,
@@ -175,6 +175,8 @@ final class WorkflowExecutorHarness {
   }
 
   WorkflowExecutor makeExecutor({
+    WorkflowTaskService? workflowTaskService,
+    ExecutionRepositoryTransactor? executionTransactor,
     WorkflowTurnAdapter? turnAdapter,
     ProjectService? projectService,
     ContextExtractor? contextExtractor,
@@ -196,7 +198,7 @@ final class WorkflowExecutorHarness {
     final effectiveDataDir = dataDir ?? tempDir.path;
     return WorkflowExecutor(
       executionContext: StepExecutionContext(
-        taskService: taskService,
+        taskService: workflowTaskService ?? taskService,
         eventBus: eventBus,
         kvService: kvService,
         repository: repository,
@@ -217,7 +219,7 @@ final class WorkflowExecutorHarness {
         taskRepository: wirePersistence ? taskRepository : null,
         agentExecutionRepository: wirePersistence ? agentExecutionRepository : null,
         workflowStepExecutionRepository: wirePersistence ? workflowStepExecutionRepository : null,
-        executionTransactor: wirePersistence ? executionRepositoryTransactor : null,
+        executionTransactor: wirePersistence ? (executionTransactor ?? executionRepositoryTransactor) : null,
         projectService: projectService,
         defaultWorkspaceRoot: defaultWorkspaceRoot,
         platformCapabilities: platformCapabilities,

@@ -11,7 +11,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskRepository, for
 import 'package:dartclaw_core/dartclaw_core.dart'
     show DatabaseTaskRepository, PostgresSchemaGate, postgresBackendFactory;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show DatabaseWorkflowRunRepository, WorkflowDefinition, WorkflowRun, workflowContextValue;
+    show DatabaseWorkflowRunRepository, WorkflowDefinition, WorkflowRun, WorkflowStep, workflowContextValue;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn, scrubAgentReportedText;
 
@@ -191,6 +191,10 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
             };
       final taskId = step['taskId']?.toString() ?? '—';
       writeLine('  $label  $name  $status  ${tokens.padRight(11)}  $taskId');
+      final reason = step['reason']?.toString();
+      if (reason != null && reason.isNotEmpty) {
+        writeLine('          Reason: ${scrubAgentReportedText(reason)}');
+      }
     }
   }
 
@@ -251,6 +255,17 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       writeLine('  Error:       ${scrubAgentReportedText(run.errorMessage!)}');
     }
 
+    WorkflowDefinition? definition;
+    try {
+      definition = WorkflowDefinition.fromJson(run.definitionJson);
+    } catch (_) {}
+    for (final step in definition?.steps ?? const <WorkflowStep>[]) {
+      if (workflowContextValue(run, '${step.id}.status') != 'failed') continue;
+      final reason =
+          workflowContextValue(run, 'step.${step.id}.outcome.reason') ?? workflowContextValue(run, '${step.id}.error');
+      writeLine('  Step error:  ${step.name}${reason == null ? '' : ': ${scrubAgentReportedText('$reason')}'}');
+    }
+
     if (childTasks.isEmpty) {
       return;
     }
@@ -258,10 +273,6 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     writeLine(
       '  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(10)}  ${'TOKENS'.padRight(8)}  DURATION',
     );
-    WorkflowDefinition? definition;
-    try {
-      definition = WorkflowDefinition.fromJson(run.definitionJson);
-    } catch (_) {}
     for (final task in childTasks) {
       final stepNum = task.stepIndex != null ? '${task.stepIndex! + 1}' : '?';
       final totalStr = _totalSteps(run).toString();

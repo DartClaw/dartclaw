@@ -240,6 +240,21 @@ void main() {
       expect((connected['steps'] as List), hasLength(2));
     });
 
+    test('connected payload retains a continued execution error as a failed step', () async {
+      workflows.getResult = _makeRun(
+        status: WorkflowRunStatus.completed,
+        contextJson: const {
+          'data': {'research.status': 'failed', 'research.error': 'shell exited 7'},
+        },
+      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+      final frames = await collectSseFrames(response);
+      final connected = frames.firstWhere((frame) => frame['type'] == 'connected');
+      expect(connected['run']['status'], 'completed');
+      expect((connected['steps'] as List).first['status'], 'failed');
+      expect((connected['steps'] as List).first['reason'], 'shell exited 7');
+    });
+
     test('connected payload matches approval-aware server rendering', () async {
       final definition = WorkflowDefinition(
         name: 'approval-test',

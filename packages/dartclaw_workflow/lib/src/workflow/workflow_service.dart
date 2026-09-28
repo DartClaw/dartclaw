@@ -360,8 +360,32 @@ class WorkflowService {
     _logResumeCursor(run, executionCursor, action: 'Resuming');
     await _rehydrateWorkflowWorktreeBinding(run);
 
+    final failingStepId = _stepIdForRetry(run, definition, executionCursor);
+    final clearFailedStep = failingStepId != null && context['$failingStepId.status'] == 'failed';
+    if (clearFailedStep) {
+      context.remove('$failingStepId.status');
+      context.remove('$failingStepId.error');
+      context.remove('step.$failingStepId.outcome');
+      context.remove('step.$failingStepId.outcome.reason');
+      await persistWorkflowContext(dataDir: _dataDir, runId: runId, context: context);
+    }
+
     // Transition to running.
-    final running = run.copyWith(status: WorkflowRunStatus.running, errorMessage: null, updatedAt: DateTime.now());
+    final running = run.copyWith(
+      status: WorkflowRunStatus.running,
+      errorMessage: null,
+      contextJson: _snapshotContextJson(
+        run.contextJson,
+        context,
+        removeFlatKeys: {
+          if (clearFailedStep) '$failingStepId.status',
+          if (clearFailedStep) '$failingStepId.error',
+          if (clearFailedStep) 'step.$failingStepId.outcome',
+          if (clearFailedStep) 'step.$failingStepId.outcome.reason',
+        },
+      ),
+      updatedAt: DateTime.now(),
+    );
     await _repository.update(running);
     _cancelFlags.remove(runId);
 
@@ -395,6 +419,7 @@ class WorkflowService {
     final failingStepId = _stepIdForRetry(run, definition, executionCursor);
     if (failingStepId != null) {
       context.remove('$failingStepId.status');
+      context.remove('$failingStepId.error');
       context.remove('step.$failingStepId.outcome');
       context.remove('step.$failingStepId.outcome.reason');
     }
@@ -409,6 +434,7 @@ class WorkflowService {
         context,
         removeFlatKeys: {
           if (failingStepId != null) '$failingStepId.status',
+          if (failingStepId != null) '$failingStepId.error',
           if (failingStepId != null) 'step.$failingStepId.outcome',
           if (failingStepId != null) 'step.$failingStepId.outcome.reason',
         },
@@ -820,6 +846,9 @@ class WorkflowService {
   String? _stepIdForRetry(WorkflowRun run, WorkflowDefinition definition, WorkflowExecutionCursor? executionCursor) {
     if (executionCursor?.stepId case final String stepId?) {
       return stepId;
+    }
+    if (run.contextJson['_parallel.failed.stepIds'] case final List<dynamic> failedIds when failedIds.isNotEmpty) {
+      return failedIds.first as String;
     }
     final stepIndex = executionCursor?.stepIndex ?? run.currentStepIndex;
     if (stepIndex < 0 || stepIndex >= definition.steps.length) return null;

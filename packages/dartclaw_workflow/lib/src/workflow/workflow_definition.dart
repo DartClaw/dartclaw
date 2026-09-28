@@ -161,7 +161,10 @@ enum OnFailurePolicy {
 /// Policy applied when a workflow step errors, as opposed to reporting a modeled
 /// failed outcome (which uses [OnFailurePolicy]).
 enum OnErrorPolicy {
-  /// Pauses the workflow for operator intervention (default when unset).
+  /// Fails the workflow (default when unset).
+  fail('fail'),
+
+  /// Pauses the workflow so the failed step can be resumed.
   pause('pause'),
 
   /// Logs the error and skips to the next step.
@@ -172,11 +175,12 @@ enum OnErrorPolicy {
 
   new(this.yamlName);
 
-  static const yamlValues = ['pause', 'continue', 'fail'];
+  static const yamlValues = ['fail', 'pause', 'continue'];
 
-  /// Parses an [OnErrorPolicy]; the legacy `fail` spelling maps to [pause].
+  /// Parses an [OnErrorPolicy] from its YAML string representation.
   static OnErrorPolicy? fromYaml(String value) => switch (value) {
-    'pause' || 'fail' => pause,
+    'fail' => fail,
+    'pause' => pause,
     'continue' => continueWorkflow,
     _ => null,
   };

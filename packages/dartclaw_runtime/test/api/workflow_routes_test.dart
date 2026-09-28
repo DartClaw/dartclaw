@@ -519,6 +519,40 @@ void main() {
       final steps = body['steps'] as List;
       expect(steps[0]['status'], 'skipped');
     });
+
+    test('error policy states expose the failed step and cause without approval', () async {
+      for (final status in [WorkflowRunStatus.failed, WorkflowRunStatus.paused, WorkflowRunStatus.completed]) {
+        workflows.getResult = _makeRun(
+          status: status,
+          currentStepIndex: status == WorkflowRunStatus.completed ? 3 : 0,
+          contextJson: const {
+            'data': {'research.status': 'failed', 'research.error': 'shell exited 7'},
+          },
+        );
+        final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+        final body = decodeObject(await response.readAsString());
+        expect(body['status'], status.name);
+        expect(body['isApprovalPaused'], isFalse);
+        final steps = body['steps'] as List;
+        expect(steps.first['status'], 'failed');
+        expect(steps.first['reason'], 'shell exited 7');
+      }
+    });
+
+    test('a modeled failed outcome beats an accepted task status', () async {
+      workflows.getResult = _makeRun(
+        status: WorkflowRunStatus.completed,
+        currentStepIndex: 3,
+        contextJson: const {
+          'data': {'step.research.outcome': 'failed', 'step.research.outcome.reason': 'review failed'},
+        },
+      );
+      await taskRepo.insert(_makeTask(id: 't-0', workflowRunId: 'run-001', stepIndex: 0));
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+      final steps = decodeObject(await response.readAsString())['steps'] as List;
+      expect(steps.first['status'], 'failed');
+      expect(steps.first['reason'], 'review failed');
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────

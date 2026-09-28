@@ -528,7 +528,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               taskId: result.task?.id ?? '',
               success: false,
               outcome: result.outcome,
-              reason: result.outcomeReason,
+              reason: result.outcomeReason ?? result.error,
               tokenCount: result.tokenCount,
               tokenUsageComplete: result.tokenUsageComplete,
             );
@@ -543,7 +543,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             );
           }
 
-          if (step.onError == OnErrorPolicy.continueWorkflow) {
+          if (_errorPolicyFor(result) == OnErrorPolicy.continueWorkflow) {
             _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
             run = await _persistLoopStepProgress(
               run,
@@ -566,6 +566,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               totalSteps: definition.steps.length,
               taskId: result.task?.id ?? '',
               success: false,
+              reason: result.outcomeReason ?? result.error,
               tokenCount: result.tokenCount,
               tokenUsageComplete: result.tokenUsageComplete,
             );
@@ -583,6 +584,29 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             continue;
           }
 
+          _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
+          if (nested == null) {
+            run = run.copyWith(
+              contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
+              updatedAt: DateTime.now(),
+            );
+            await _persistContextThenRun(run, context);
+            onRunUpdated(run);
+          } else {
+            await nested.persist();
+          }
+          _fireStepCompletedEvent(
+            run: run,
+            step: step,
+            stepIndex: stepIndex,
+            totalSteps: definition.steps.length,
+            taskId: result.task?.id ?? '',
+            success: false,
+            reason: result.outcomeReason ?? result.error,
+            tokenCount: result.tokenCount,
+            tokenUsageComplete: result.tokenUsageComplete,
+          );
+
           if (result.awaitingApproval) {
             pendingLoopExit = () async {
               run = await _transitionStepAwaitingApproval(
@@ -592,6 +616,15 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
                 stepIndex: stepIndex,
                 reason: result.outcomeReason ?? failMsg,
               );
+              return WorkflowLoopExecutionResult(
+                halted: true,
+                tokensConsumed: loopTokens,
+                tokenUsageComplete: loopUsageComplete,
+              );
+            };
+          } else if (_errorPolicyFor(result) == OnErrorPolicy.pause) {
+            pendingLoopExit = () async {
+              await _pauseRun(run, result.error ?? failMsg);
               return WorkflowLoopExecutionResult(
                 halted: true,
                 tokensConsumed: loopTokens,
@@ -801,7 +834,12 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     required int stepIndex,
     required void Function(WorkflowRun) onRunUpdated,
   }) async {
-    final nextStepId = loopStepIndex + 1 < loop.steps.length ? loop.steps[loopStepIndex + 1] : null;
+    final nextStepId =
+        !outcome.success && outcome.executionError && _errorPolicyFor(outcome) != OnErrorPolicy.continueWorkflow
+        ? outcome.step.id
+        : loopStepIndex + 1 < loop.steps.length
+        ? loop.steps[loopStepIndex + 1]
+        : null;
     final resumeStepId = outcome.accountingReadError && nextStepId == null ? '' : nextStepId;
     if (nested != null) {
       _writeNestedLoopCheckpoint(

@@ -142,7 +142,7 @@ WorkflowRunDigest buildWorkflowRunDigest({
     }
     // Scrubbed at the builder so both the human and JSON renderers emit clean
     // values – the persisted reason is agent-authored and untrusted.
-    final rawReason = contextData['step.${step.id}.outcome.reason'] as String?;
+    final rawReason = (contextData['step.${step.id}.outcome.reason'] ?? contextData['${step.id}.error']) as String?;
     final reason = rawReason == null ? null : scrubAgentReportedText(rawReason);
     final tokens = (contextData['${step.id}.tokenCount'] as num?)?.toInt();
     final duration = task?.startedAt != null ? humanizeSpan(task!.startedAt!, task.completedAt, false, false) : null;

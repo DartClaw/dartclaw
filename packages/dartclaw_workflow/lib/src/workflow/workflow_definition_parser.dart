@@ -511,7 +511,7 @@ class WorkflowDefinitionParser {
     final policy = OnErrorPolicy.fromYaml(raw);
     if (policy == null) {
       throw FormatException(
-        'Step "$stepId": unknown onError value "$raw" (expected pause, continue)${_at(sourcePath)}.',
+        'Step "$stepId": unknown onError value "$raw" (expected ${OnErrorPolicy.yamlValues.join(', ')})${_at(sourcePath)}.',
       );
     }
     return policy;

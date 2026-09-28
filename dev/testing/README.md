@@ -24,7 +24,7 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 | `workflows` | 3333 | `bash dev/testing/profiles/workflows/run.sh` | Codex-first workflow execution against the `DartClaw/workflow-test-todo-app` fixture repo. Publish runs need a GitHub token; `run.sh` takes `GITHUB_TOKEN`, else the fixture askpass file, else `gh auth token`. |
 | `workflow-contract` | n/a | `bash dev/testing/profiles/workflow-contract/run.sh` | Fast deterministic workflow contract checks. Use while iterating on workflow YAML, gates, output contracts, and resolver behavior. |
 | `workflow-live` | n/a | `bash dev/testing/profiles/workflow-live/run.sh --canary <name>` | Explicit live workflow integration canaries and full sweep. Codex requires the installed AndThen plugin; the runner copies and enables it in a hermetic `CODEX_HOME`, then runs fail-fast provider/model preflight (`--skip-preflight` to skip). Captures logs and summarizes warning patterns. |
-| `conversation-loop` | n/a | `bash dev/testing/profiles/conversation-loop/run.sh --case <name>` | Browser and process-boundary conversation journeys. `run.sh --help` lists the cases; milestone-specific protocols live with the active plan bundle. `visual_checks.sh`'s `assert_layout_canon` measures the live app against the layout canon (desktop control heights, 40px topbar, composer anchoring, 44px touch targets, overflow, alignment, placeholder leaks); the screenshots it retains are reviewed by eye against `dev/bundle/docs/wireframes/chat-shell-target.html`. |
+| `conversation-loop` | n/a | `bash dev/testing/profiles/conversation-loop/run.sh --case <name>` | Browser and process-boundary conversation journeys. `run.sh --help` lists the cases. `visual_checks.sh`'s `assert_layout_canon` measures the live app against the layout canon (desktop control heights, 40px topbar, composer anchoring, 44px touch targets, overflow, alignment, placeholder leaks); review its retained screenshots against the accepted design reference. |
 | `container` | 3341 | `bash dev/testing/profiles/container/run.sh` | Real container isolation end to end: a turn runs inside a container, the container holds no provider credential, and a task tool is served over the MCP bridge. SIGKILL leaves the turn container running; restart reclaims it and its generated state. Reports a stated skip when no container runtime answers. |
 | `container --ci` | 3342 | `bash dev/testing/profiles/container/run.sh --ci` | What CI runs. Boots a config declaring **no** `container:` section and asserts the posture resolved to container isolation, so an advisory downgrade fails instead of passing. An absent runtime is a failure, not a skip. Injects SIGKILL and three decoys, then proves restart reclaims only the owned labelled decoy. Issues no model turn and needs no credential, so it runs on a fork PR. |
 | `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders` | Native Windows x64 release smoke: server, Web UI, PostgreSQL lexical storage/search, and file-watch reload. Claude and Codex turns are optional compatibility layers. Writes the layered report to `.agent_temp/windows-runtime-smoke.md`. |
@@ -33,9 +33,9 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 
 Keep reusable runners and test instructions under `dev/testing/`. The single 0.27 result authority is
 [`0.27-qualification.md`](0.27-qualification.md); producer runs append actual candidate/environment-bound evidence or
-explicit holds there. Keep milestone-specific scenario mappings,
-qualification protocols, result ledgers and outstanding checks beside the plan in `dev/bundle/docs/specs/<version>/`.
-They follow the [spec lifecycle](../state/SPEC-LIFECYCLE.md), not the lifetime of permanent testing documentation.
+explicit holds there. During implementation, keep scenario mappings and working ledgers beside the exported plan in
+`dev/bundle/docs/specs/<version>/`. Remove that bundle before release under the
+[spec lifecycle](../state/SPEC-LIFECYCLE.md); this 0.27 ledger retains its release holds and results.
 
 Store run artifacts under `.agent_temp/`. Record the command, environment, tested revision and working-tree changes,
 exit status, and artifact paths. Distinguish focused evidence from full-suite results, working-tree results from

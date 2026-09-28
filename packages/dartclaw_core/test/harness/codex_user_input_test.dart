@@ -6,6 +6,7 @@ import 'package:dartclaw_core/src/bridge/bridge_events.dart';
 import 'package:dartclaw_core/src/harness/codex_harness.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 CodexHarness _harness(FakeCodexProcess process) => CodexHarness(
@@ -165,7 +166,8 @@ void main() {
         'turn': {'id': '01a0e69f-ae54-7e82-accb-557fbeca3643'},
       }),
     );
-    final file = File('packages/dartclaw_core/test/harness/fixtures/codex_user_input_disabled_frames.jsonl');
+    final relative = p.join('test', 'harness', 'fixtures', 'codex_user_input_disabled_frames.jsonl');
+    final file = File(relative).existsSync() ? File(relative) : File(p.join('packages', 'dartclaw_core', relative));
     for (final line in file.readAsLinesSync()) {
       harness.handleProcessStdoutLine(line);
     }

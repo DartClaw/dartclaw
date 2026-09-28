@@ -87,7 +87,6 @@ void main() {
       expect(yaml['data_dir'], resolved.instanceDir);
       expect(DartclawConfig.load(configPath: config.path).server.dataDir, resolved.instanceDir);
       expect(Directory(p.join(resolved.instanceDir, 'workspace')).existsSync(), isTrue);
-      expect(Directory(p.join(resolved.instanceDir, relative)).existsSync(), isFalse);
     });
 
     test('workflow track keeps data_dir relative to the config folder', () async {

@@ -78,8 +78,8 @@ void main() {
         navItems: const [],
       );
 
-      expect(html, contains('<section class="sidebar-chat-section" aria-labelledby="sidebar-chats-label">'));
-      expect(html, contains('<div class="sidebar-section-label" id="sidebar-chats-label">Chats</div>'));
+      expect(html, contains('<section class="sidebar-chat-section" aria-label="Chats">'));
+      expect(html, contains('<div class="sidebar-section-label">Chats</div>'));
       // New Chat is an icon button in the rail's control row, not a full-width
       // text command under the label (DESIGN.md § New Chat).
       expect(html, contains('class="btn btn-icon rail-new" data-session-create="true"'));

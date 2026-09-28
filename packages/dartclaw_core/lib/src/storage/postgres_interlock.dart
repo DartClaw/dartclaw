@@ -401,5 +401,19 @@ final class _DriverInterlockConnection implements PostgresInterlockConnection {
   }
 
   @override
-  Future<void> close() => _connection.close();
+  Future<void> close() async {
+    var force = false;
+    if (_connection.isOpen) {
+      try {
+        // Driver close has no server acknowledgement; release the lock before returning.
+        await _connection
+            .execute('SELECT pg_advisory_unlock_all()', queryMode: pg.QueryMode.simple)
+            .timeout(PostgresInterlock._connectTimeout);
+      } on Object {
+        // A lost or unresponsive session still needs its socket closed.
+        force = true;
+      }
+    }
+    await _connection.close(force: force).timeout(PostgresInterlock._connectTimeout);
+  }
 }

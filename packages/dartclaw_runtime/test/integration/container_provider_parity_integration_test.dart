@@ -179,8 +179,11 @@ void main() {
 
     test('production acquisition pins each workspace and Codex discovers only its agent skill', () async {
       final ownerDir = await createImageOwnedWorkspace(p.join(dataDir.path, 'workspace'));
-      final agentADir = await createImageOwnedWorkspace(p.join(dataDir.path, 'agents', 'a'));
-      final agentBDir = await createImageOwnedWorkspace(p.join(dataDir.path, 'agents', 'b'));
+      final workspaceA = AgentWorkspace.managed(agentId: 'a', dataDir: dataDir.path, ownerWorkspaceDir: ownerDir.path);
+      final workspaceB = AgentWorkspace.managed(agentId: 'b', dataDir: dataDir.path, ownerWorkspaceDir: ownerDir.path);
+      await WorkspaceService(dataDir: dataDir.path).prepareManagedAgents([workspaceA, workspaceB]);
+      final agentADir = await createImageOwnedWorkspace(workspaceA.directory);
+      final agentBDir = await createImageOwnedWorkspace(workspaceB.directory);
       final authorizedProject = Directory(p.join(dataDir.path, 'projects', 'authorized'))..createSync(recursive: true);
       final unrelatedProject = Directory(p.join(dataDir.path, 'projects', 'unrelated'))..createSync();
       File(p.join(authorizedProject.path, 'authority-marker.txt')).writeAsStringSync('AUTHORIZED-PROJECT-ONLY');
@@ -191,8 +194,6 @@ void main() {
       _writeSkill(agentADir, '.agents', 'agent-a-native-skill');
       _writeSkill(agentBDir, '.agents', 'agent-b-native-skill');
 
-      final workspaceA = AgentWorkspace(agentId: 'a', directory: agentADir.path);
-      final workspaceB = AgentWorkspace(agentId: 'b', directory: agentBDir.path);
       Never unexpectedExit(int code) => throw StateError('Unexpected exit($code) in container composition proof');
       final config = DartclawConfig(
         server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),

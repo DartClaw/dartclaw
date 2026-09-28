@@ -314,7 +314,7 @@ class CodexHarness extends BaseHarness
     if (!await containerExecutableRuns(container, _containerExecutable)) {
       _throwMissingCodexExecutable('$_containerExecutable (container ${container.profileId})');
     }
-    if (container case final VolatileContainerGeneratedState volatile) {
+    if (container case final VolatileContainerGeneratedState volatile when volatile.volatileGeneratedState) {
       final home = p.posix.join(volatile.generatedStateContainerPath, 'codex-home');
       await volatile.writeGeneratedStateFile(
         'codex-home/config.toml',

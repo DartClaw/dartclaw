@@ -92,6 +92,7 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
 
   @override
   final String generatedStateDir;
+  @override
   final bool volatileGeneratedState;
   Process? _lifetimeProcess;
 

@@ -471,12 +471,6 @@ void main() {
     });
 
     test('remediation steps use the installed fix skill with a report path', () {
-      // The report path is interpolated inline ({{context.review_report_path}}),
-      // which the remediate skill executes as its argument. Because it is
-      // template-referenced, declaring it as an input would be a redundant no-op
-      // (the no-op-inputs rule forbids it) – so this only asserts the prompt
-      // reference, not an inputs declaration.
-      final referencePattern = RegExp(r'\{\{\s*context\.([A-Za-z0-9_.-]+)\s*\}\}');
       const expectedStepIds = <String, Set<String>>{
         'spec-and-implement.yaml': {'remediate'},
         'plan-and-implement.yaml': {'remediate-story', 'remediate'},
@@ -493,16 +487,6 @@ void main() {
         expect(steps.map((step) => step.id).toSet(), entry.value, reason: '${entry.key} remediation steps');
         for (final step in steps) {
           expect(step.skill, 'andthen:implement-fix', reason: '${entry.key} → "${step.id}" skill');
-          final references = referencePattern
-              .allMatches(_allPromptText(step))
-              .map((match) => match.group(1)!)
-              .where((key) => key == 'review_report_path')
-              .toList();
-          expect(
-            references,
-            isNotEmpty,
-            reason: '${entry.key} → "${step.id}" must pass a report path to andthen:implement-fix',
-          );
           expect(_allPromptText(step).trim(), '--auto {{context.review_report_path}}');
         }
       }

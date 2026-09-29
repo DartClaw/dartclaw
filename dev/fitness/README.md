@@ -82,17 +82,18 @@ The rationale is mandatory and will be reviewed at code-review time.
 
 ## `max_file_loc_test.dart`
 
-**What it enforces**: Every `.dart` file under `packages/<X>/lib/src/**` must have ≤ 1,500 lines.
+**What it enforces**: Every `.dart` file under `packages/<X>/lib/src/**` has a 1,500-line target. The gate fails at
+1,650 lines (110% of the target) unless the file is allowlisted.
 
-**Why**: Files over 1,500 LOC reliably signal insufficient decomposition. The ceiling forces the conversation about splitting at design time rather than after the file has grown organically to 3,000 lines.
+**Why**: Files at 1,650 LOC signal that decomposition needs review before they grow further.
 
 ### How to resolve a failure
 
-**Option A (preferred)**: Decompose the file into smaller focused modules so each stays under 1,500 lines.
+**Option A (preferred)**: Decompose the file into smaller focused modules below the failure margin.
 
 **Option B (intentional exception with shrink target)**: Add an entry to `test/allowlist/max_file_loc.txt`:
 ```
-packages/dartclaw_foo/lib/src/big_module.dart  # 1620 LOC; shrink to ≤1200 by S99 (extract FooStrategy)
+packages/dartclaw_foo/lib/src/big_module.dart  # 1680 LOC; shrink to ≤1200 by S99 (extract FooStrategy)
 ```
 The current LOC count, target, and a named remediation story or deadline are mandatory.
 
@@ -100,9 +101,11 @@ The current LOC count, target, and a named remediation story or deadline are man
 
 ## `max_test_file_loc_test.dart`
 
-**What it enforces**: Every `*_test.dart` file under `packages/`, `apps/` and this suite's own `test/` tree must have <= 1300 lines unless it is explicitly allowlisted.
+**What it enforces**: Every `*_test.dart` file under `packages/`, `apps/` and this suite's own `test/` tree has a
+1,300-line target. The gate fails at 1,430 lines (110%) unless the file is allowlisted. An allowlisted file fails
+if it reaches 110% of its recorded baseline; missing files and entries for files now below 1,430 remain stale.
 
-**Why**: Mega-tests hide duplicated setup and weak assertions. This ceiling prevents new large test files while existing over-limit suites are reduced through table-driving and shared fixtures.
+**Why**: Large tests hide duplicated setup and weak assertions. The target prompts review before further growth.
 
 ### How to resolve a failure
 
@@ -110,7 +113,7 @@ The current LOC count, target, and a named remediation story or deadline are man
 
 **Option B (baseline exception with shrink target)**: Add an entry to `test/allowlist/max_test_file_loc.txt`:
 ```
-packages/dartclaw_foo/test/big_suite_test.dart  # 1420 LOC; shrink under 1300 via <plan/spec>
+packages/dartclaw_foo/test/big_suite_test.dart  # 1460 LOC; shrink under 1300 via <plan/spec>
 ```
 
 The current LOC count and shrink target are mandatory.

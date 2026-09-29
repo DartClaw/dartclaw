@@ -20,6 +20,19 @@ Encode architectural invariants as **executable fitness functions** — plain Da
 
 ## Consequences
 
+## Amendment (2026-09-29) – LOC values are targets with a ten-percent margin
+
+The owner accepted a uniform size policy: package `lib/`, production `lib/src/` files, test files, and recorded
+test-file exception baselines fail only when measured lines reach at least 110% of their target. The check compares
+`measured * 10 >= target * 11`, so an exact ten-percent overage fails without rounding ambiguity. Existing target
+numbers remain recorded; the workflow package's 25,891 lines are below 110% of its 25,631-line target.
+
+Package shrinkage no longer fails for unused headroom, and routine size changes below the margin need no target edit
+or maintainer acceptance. Missing and orphaned package targets, malformed and stale exception entries, and all
+non-LOC fitness gates still fail as before. A future growth that reaches the margin should prompt decomposition or a
+deliberate target change with its measured rationale. This amendment supersedes the earlier downward ratchet,
+proportional-band, and reviewed-necessity requirements for LOC targets below the ten-percent boundary.
+
 ## Amendment (2026-08-25) – reviewed numeric-ceiling raises remain possible
 
 Per-package LOC ceilings ratchet down routinely, but the ratchet is not permission to distort code or reject required

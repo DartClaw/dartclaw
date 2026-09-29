@@ -1,6 +1,7 @@
 # PostgreSQL
 
-PostgreSQL 14 or newer is DartClaw's sole runtime database. A normal installation uses PostgreSQL's built-in
+PostgreSQL 14 or newer is DartClaw's server database. Standalone workflows use local files and do not require it.
+A server installation uses PostgreSQL's built-in
 full-text search and needs neither pgvector nor an embedding provider. Hybrid search is an explicit opt-in that adds
 both prerequisites.
 
@@ -178,7 +179,7 @@ foreign, or incompatible schema refuses.
 
 Help, version, init, configuration validation, and other database-independent commands remain available when
 PostgreSQL is absent. Database-backed commands fail closed without a SQLite fallback. Stop the server before running
-one-shot clients such as `dartclaw rebuild-index`, `dartclaw cleanup`, or standalone workflow maintenance.
+one-shot database clients such as `dartclaw rebuild-index` or `dartclaw cleanup`.
 
 ## Search and Language
 

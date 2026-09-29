@@ -3,18 +3,31 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart' show TurnTrace, TurnTraceSummary, ToolCallRecord;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 
-/// Database-backed persistence for turn traces.
-///
-/// Shares the prepared task backend with the other task-domain services.
+import 'file_execution_store.dart';
+
+/// Persistence for turn traces.
 class TurnTraceService {
-  final DatabaseBackend _backend;
+  final DatabaseBackend? _backend;
+  final FileExecutionStore? _fileStore;
 
   /// Creates the service against a prepared task [backend].
-  new(this._backend);
+  new(this._backend) : _fileStore = null;
+
+  /// Creates the service against a standalone execution checkpoint.
+  new file(FileExecutionStore store) : _backend = null, _fileStore = store;
 
   /// Inserts a single trace record.
   Future<void> insert(TurnTrace trace) async {
-    final stmt = await _backend.prepare('''
+    final fileStore = _fileStore;
+    if (fileStore != null) {
+      await fileStore.update((state) {
+        final traces = state['traces'] as Map<String, dynamic>;
+        if (traces.containsKey(trace.id)) throw StateError('TurnTrace already exists: ${trace.id}');
+        traces[trace.id] = trace.toJson();
+      });
+      return;
+    }
+    final stmt = await _backend!.prepare('''
       INSERT INTO turns (
         id, session_id, task_id, runner_id, model, provider,
         started_at, ended_at,
@@ -65,6 +78,35 @@ class TurnTraceService {
     int limit = 50,
     int offset = 0,
   }) async {
+    final fileStore = _fileStore;
+    if (fileStore != null) {
+      return fileStore.read((state) {
+        final filtered = (state['traces'] as Map<String, dynamic>).values
+            .map((row) => TurnTrace.fromJson(Map<String, dynamic>.from(row as Map)))
+            .where(
+              (trace) =>
+                  (taskId == null || trace.taskId == taskId) &&
+                  (sessionId == null || trace.sessionId == sessionId) &&
+                  (runnerId == null || trace.runnerId == runnerId) &&
+                  (model == null || trace.model == model) &&
+                  (provider == null || trace.provider == provider) &&
+                  (since == null || !trace.startedAt.isBefore(since)) &&
+                  (until == null || !trace.startedAt.isAfter(until)),
+            )
+            .toList();
+        filtered.sort((a, b) => b.startedAt.compareTo(a.startedAt));
+        final summary = TurnTraceSummary(
+          totalInputTokens: filtered.fold(0, (total, trace) => total + trace.inputTokens),
+          totalOutputTokens: filtered.fold(0, (total, trace) => total + trace.outputTokens),
+          totalCacheReadTokens: filtered.fold(0, (total, trace) => total + trace.cacheReadTokens),
+          totalCacheWriteTokens: filtered.fold(0, (total, trace) => total + trace.cacheWriteTokens),
+          totalDurationMs: filtered.fold(0, (total, trace) => total + trace.durationMs),
+          totalToolCalls: filtered.fold(0, (total, trace) => total + trace.toolCallCount),
+          traceCount: filtered.length,
+        );
+        return TraceQueryResult(traces: filtered.skip(offset).take(limit.clamp(0, 500)).toList(), summary: summary);
+      });
+    }
     final effectiveLimit = limit.clamp(0, 500);
     final where = <String>[];
     final params = <Object?>[];
@@ -101,7 +143,7 @@ class TurnTraceService {
     final whereClause = where.isEmpty ? '' : ' WHERE ${where.join(' AND ')}';
 
     // Aggregate query (full result set, no pagination).
-    final aggStmt = await _backend.prepare(
+    final aggStmt = await _backend!.prepare(
       'SELECT COUNT(*) as cnt, '
       'SUM(input_tokens) as total_input, SUM(output_tokens) as total_output, '
       'SUM(cache_read_tokens) as total_cache_read, SUM(cache_write_tokens) as total_cache_write, '
@@ -166,7 +208,14 @@ class TurnTraceService {
 
   /// Returns a single trace by ID, or null when it does not exist.
   Future<TurnTrace?> getById(String id) async {
-    final stmt = await _backend.prepare('SELECT * FROM turns WHERE id = ? LIMIT 1');
+    final fileStore = _fileStore;
+    if (fileStore != null) {
+      return fileStore.read((state) {
+        final row = (state['traces'] as Map<String, dynamic>)[id];
+        return row == null ? null : TurnTrace.fromJson(Map<String, dynamic>.from(row as Map));
+      });
+    }
+    final stmt = await _backend!.prepare('SELECT * FROM turns WHERE id = ? LIMIT 1');
     try {
       final rows = await stmt.query([id]);
       final row = rows.firstOrNull;

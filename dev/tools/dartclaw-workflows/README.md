@@ -2,7 +2,7 @@
 
 Run the built-in `spec-and-implement`, `plan-and-implement`, and `code-review` workflows directly against this `dartclaw-public` checkout.
 
-This is maintainer tooling, not an end-user example profile. It is for day-to-day DartClaw development when you want DartClaw to implement public-repo specs and plans without launching it from the private testing profile. Workflows run **server-less** via the standalone CLI path, operating on this checkout (the cwd repo) and keeping runtime state under `.dartclaw/` (config committed, local DB + worktrees gitignored). AndThen skills are resolved from your existing per-provider AndThen install (ADR-040) — this profile does not clone or cache AndThen.
+This is maintainer tooling, not an end-user example profile. It is for day-to-day DartClaw development when you want DartClaw to implement public-repo specs and plans without launching it from the private testing profile. Workflows run **server-less** via the standalone CLI path, operating on this checkout (the cwd repo) and keeping runtime state under `.dartclaw/` (config committed, execution files and worktrees gitignored). AndThen skills are resolved from your existing per-provider AndThen install (ADR-040) — this profile does not clone or cache AndThen.
 
 ## What you can run
 
@@ -121,7 +121,7 @@ Set `-v MAX_PARALLEL=1` to make story execution inline and sequential when you w
 
 ## Host Selection and Isolation
 
-By default `run.sh` AOT-builds the host CLI with `dart build cli` (which runs the sqlite3 native build hooks and bundles the library) into a content-addressed directory under `.cache/bin/dartclaw-<key>/` (`bin/dartclaw` + a sibling `lib/`), and execs the inner binary instead of `dart run`. The running process holds its binary by inode, so a workflow rewriting `dartclaw_runtime` / `dartclaw_workflow` / etc. in this checkout cannot disturb the host process – and a concurrent `run.sh` that triggers a rebuild writes a *new* content-addressed artifact rather than overwriting the running one.
+By default `run.sh` AOT-builds the host CLI with `dart build cli` into a content-addressed directory under `.cache/bin/dartclaw-<key>/` (`bin/dartclaw` + a sibling `lib/`), and execs the inner binary instead of `dart run`. The running process holds its binary by inode, so a workflow rewriting `dartclaw_runtime` / `dartclaw_workflow` / etc. in this checkout cannot disturb the host process – and a concurrent `run.sh` that triggers a rebuild writes a *new* content-addressed artifact rather than overwriting the running one.
 
 The cache key combines: HEAD sha, `pubspec.lock` hash, the diff hash of `apps/`+`packages/`+`pubspec.{yaml,lock}`, the contents of any untracked files in that scope, and the local `dart --version` output. Edits outside that scope (docs, CI, this script itself) do not trigger a rebuild; edits inside it – including untracked-file additions and dart SDK upgrades – do. A stable `.cache/bin/dartclaw` symlink points at `dartclaw-<key>/bin/dartclaw` for the most recently produced version, for operator convenience.
 
@@ -157,8 +157,9 @@ Standalone runtime state lives under `.dartclaw/` (the data dir):
 - `.dartclaw/workflows/custom/` – committed inline variants + `scripts/verify-gate.sh`.
 - `.dartclaw/workflows/built-in/` – built-in YAMLs materialized from the checkout in local-source modes or from embedded content otherwise (gitignored; marker-tracked by `WorkflowMaterializer`).
 - `.dartclaw/workflows/runs/` – per-run execution state and context (gitignored).
-- local DB + `.dartclaw/worktrees/` – gitignored runtime state.
+- `.dartclaw/standalone/execution.json` – atomic workflow, task, and execution checkpoint (gitignored). Sessions, messages, turn recovery, and KV state also live under `.dartclaw/standalone/`.
+- `.dartclaw/worktrees/` – gitignored workflow worktrees.
 
-`.dartclaw/.gitignore` is an allowlist: it commits the config and `workflows/` definitions while ignoring the DB, worktrees, and regenerated `built-in/`. To reset runtime state without touching the committed config or custom workflows, remove the gitignored contents: `git clean -fdx .dartclaw`. The AOT binary cache is separate, under `dev/tools/dartclaw-workflows/.cache/` (`rm -rf` to wipe).
+`.dartclaw/.gitignore` is an allowlist: it commits the config and `workflows/` definitions while ignoring execution state, worktrees, and regenerated `built-in/`. Standalone file history starts separately from any PostgreSQL workflow runs created by older versions; those runs are not imported or changed. The AOT binary cache is separate, under `dev/tools/dartclaw-workflows/.cache/`.
 
 If you have a leftover `.data/` tree from the pre-`.dartclaw/` layout, it is now inert and can be removed: `rm -rf dev/tools/dartclaw-workflows/.data`.

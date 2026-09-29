@@ -4,20 +4,35 @@ import 'package:dartclaw_core/dartclaw_core.dart' show TaskEvent, TaskEventKind;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 import 'package:logging/logging.dart';
 
-/// Database-backed persistence for task timeline events.
+import 'file_execution_store.dart';
+
+/// Persistence for task timeline events.
 ///
 /// Writes complete before the returned future completes.
 class TaskEventService {
   static final _log = Logger('TaskEventService');
 
-  final DatabaseBackend _backend;
+  final DatabaseBackend? _backend;
+  final FileExecutionStore? _fileStore;
 
   /// Creates the service against a prepared task [backend].
-  new(this._backend);
+  new(this._backend) : _fileStore = null;
+
+  /// Creates the service against a standalone execution checkpoint.
+  new file(FileExecutionStore store) : _backend = null, _fileStore = store;
 
   /// Inserts a single event before the returned future completes.
   Future<void> insert(TaskEvent event) async {
-    final stmt = await _backend.prepare(
+    final fileStore = _fileStore;
+    if (fileStore != null) {
+      await fileStore.update((state) {
+        final events = state['events'] as Map<String, dynamic>;
+        if (events.containsKey(event.id)) throw StateError('TaskEvent already exists: ${event.id}');
+        events[event.id] = event.toJson();
+      });
+      return;
+    }
+    final stmt = await _backend!.prepare(
       'INSERT INTO task_events (id, task_id, timestamp, kind, details) VALUES (?, ?, ?, ?, ?)',
     );
     try {
@@ -37,10 +52,21 @@ class TaskEventService {
   ///
   /// Optionally filtered by [kind] and limited to [limit] results.
   Future<List<TaskEvent>> listForTask(String taskId, {TaskEventKind? kind, int? limit}) async {
+    final fileStore = _fileStore;
+    if (fileStore != null) {
+      return fileStore.read((state) {
+        final events = (state['events'] as Map<String, dynamic>).values
+            .map((row) => TaskEvent.fromJson(Map<String, dynamic>.from(row as Map)))
+            .where((event) => event.taskId == taskId && (kind == null || event.kind == kind))
+            .toList();
+        events.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        return limit == null ? events : events.take(limit).toList();
+      });
+    }
     final filter = _taskFilter(taskId, kind);
     final limitClause = limit != null ? ' LIMIT $limit' : '';
 
-    final stmt = await _backend.prepare(
+    final stmt = await _backend!.prepare(
       'SELECT id, task_id, timestamp, kind, details FROM task_events '
       'WHERE ${filter.whereClause} ORDER BY timestamp ASC$limitClause',
     );
@@ -53,8 +79,17 @@ class TaskEventService {
 
   /// Returns the count of events for a task, optionally filtered by kind.
   Future<int> countForTask(String taskId, {TaskEventKind? kind}) async {
+    final fileStore = _fileStore;
+    if (fileStore != null) {
+      return fileStore.read(
+        (state) => (state['events'] as Map<String, dynamic>).values
+            .map((row) => TaskEvent.fromJson(Map<String, dynamic>.from(row as Map)))
+            .where((event) => event.taskId == taskId && (kind == null || event.kind == kind))
+            .length,
+      );
+    }
     final filter = _taskFilter(taskId, kind);
-    final stmt = await _backend.prepare('SELECT COUNT(*) as cnt FROM task_events WHERE ${filter.whereClause}');
+    final stmt = await _backend!.prepare('SELECT COUNT(*) as cnt FROM task_events WHERE ${filter.whereClause}');
     try {
       final rows = await stmt.query(filter.params);
       return (rows.firstOrNull?['cnt'] as num?)?.toInt() ?? 0;

@@ -94,6 +94,7 @@ void main() {
 
       final yaml = loadYaml(File(p.join(tempDir.path, 'dartclaw.yaml')).readAsStringSync()) as Map;
       expect(yaml['data_dir'], '.');
+      expect(yaml['database'], isNull);
       expect(File(p.join(tempDir.path, '.dartclaw-workflow-config')).existsSync(), isFalse);
     });
 

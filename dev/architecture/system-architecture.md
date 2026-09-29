@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.27 PostgreSQL-only storage, conversation snapshot and attempt authority, managed workspace
+**Current through**: 0.27.1 PostgreSQL server storage and standalone workflow files, conversation snapshot and attempt authority, managed workspace
 principals and caller-scoped research, temporary retention, product search, inbox and attention projections, plus the
 Trellis and HTMX upgrade.
 
@@ -18,7 +18,7 @@ Five principles shape every architectural decision:
 | **Dart as host** | AOT-compiled native binary, complete built-in toolchain (formatter, analyzer, linter, test runner), capable stdlib. No external toolchain dependencies |
 | **Direct control protocol** | Dart spawns native provider binaries directly (`claude`, `codex`, or ACP agents such as Goose/Vibe), no intermediate runtime. All state/storage/security lives in Dart |
 | **Outpost pattern** | Purpose-built CLI tools in the best language for the job (Go for WhatsApp, Python for ML/NLP), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination |
-| **Auditable** | Dependencies stay minimal and every subsystem has one owner. 156,183 production LOC across 858 `lib/` Dart files at the 0.25 close, excluding generated Dart, tests and tooling — no longer one context window, which is what the per-package LOC ceilings and the context map exist to keep navigable |
+| **Auditable** | Dependencies stay minimal and every subsystem has one owner. 156,183 production LOC across 858 `lib/` Dart files at the 0.25 close, excluding generated Dart, tests and tooling — no longer one context window, which is what the per-package LOC targets and the context map exist to keep navigable |
 
 See also: [Product – Core Philosophy](../state/PRODUCT.md#core-philosophy)
 
@@ -1052,7 +1052,7 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 
 `DartclawRuntime.build(config, {headless, harnessRegistrars, …})` (in `dartclaw_runtime`, `lib/src/runtime/`) is the dependency injection root. It constructs all services, wires them together, and returns a `DartclawRuntime` carrying everything `ServeCommand.run` needs plus the `shutdown()` that tears them down. `headless: true` composes the same guarded execution, task and workflow stacks while constructing none of the inbound or scheduled surfaces — no `DartclawServer`, channel manager, heartbeat, schedule service or token service — so a caller that is not `serve` boots a runtime without copying application code. `harnessRegistrars` lets the composer contribute provider families `dartclaw_runtime` does not name.
 
-Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available; `selfImprovement` is absent and storage connections remain private to wiring. The construction order below describes the connected runtime.
+Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available through a file checkpoint and standalone session/recovery files under `<data_dir>/standalone/`; no PostgreSQL connection is opened. `selfImprovement` is absent and storage handles remain private to wiring. The construction order below describes the connected runtime.
 
 The search gate uses a short-lived connection that closes before reconciliation can swap index files. A refusal logs
 the store and rebuild remedy, preserves the original store and health evidence, skips reconciliation, and boots with

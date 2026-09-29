@@ -28,6 +28,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         DartclawRuntime,
         LogRedactor,
         LogService,
+        StandaloneExecutionLeaseException,
         workflowRoleDefaultsFromConfig;
 
 import '../config_loader.dart';
@@ -232,7 +233,12 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
           stderrLine(error.message);
           exitFn(1);
         }
-        runtime = await staging.completeForExecution(executionProviders);
+        try {
+          runtime = await staging.completeForExecution(executionProviders);
+        } on StandaloneExecutionLeaseException catch (error) {
+          stderrLine(error.message);
+          exitFn(1);
+        }
       } else {
         runtime = await staging.completeForLifecycle();
       }

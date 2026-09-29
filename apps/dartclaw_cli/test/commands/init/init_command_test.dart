@@ -114,6 +114,7 @@ class _RecordingChecks extends SetupChecks {
   final List<List<String>> preflightCalls = [];
   final List<bool> preflightWorkflowTrack = [];
   final List<bool> verifySkipPortCheck = [];
+  final List<bool> verifyWorkflowTrack = [];
   final List<List<String>> providerCalls = [];
   final List<String> configCalls = [];
 
@@ -147,10 +148,12 @@ class _RecordingChecks extends SetupChecks {
     required int port,
     bool skipNetwork = false,
     bool skipPortCheck = false,
+    bool workflowTrack = false,
   }) {
     configCalls.add(configPath);
     providerCalls.add(providerIds);
     verifySkipPortCheck.add(skipPortCheck);
+    verifyWorkflowTrack.add(workflowTrack);
     return super.verify(
       configPath: configPath,
       providerIds: providerIds,
@@ -158,6 +161,7 @@ class _RecordingChecks extends SetupChecks {
       port: port,
       skipNetwork: skipNetwork,
       skipPortCheck: skipPortCheck,
+      workflowTrack: workflowTrack,
     );
   }
 }
@@ -308,6 +312,7 @@ void main() {
       expect(state.authMethod, 'oauth');
       expect(state.model, 'sonnet');
       expect(checks.preflightWorkflowTrack.single, isTrue);
+      expect(checks.verifyWorkflowTrack.single, isTrue);
       expect(
         checks.verifySkipPortCheck.single,
         isTrue,
@@ -434,8 +439,9 @@ void main() {
       expect(File(configPath).existsSync(), isTrue);
       final config = DartclawConfig.load(configPath: configPath, env: {'HOME': tempDir.path});
       expect(config.server.dataDir, p.join(tempDir.path, '.dartclaw'));
-      expect(config.dartclawDbPath, p.join(tempDir.path, '.dartclaw', 'dartclaw.db'));
+      expect(config.standaloneExecutionPath, p.join(tempDir.path, '.dartclaw', 'standalone', 'execution.json'));
       expect(config.searchDbPath, p.join(tempDir.path, '.dartclaw', 'search.db'));
+      expect(File(configPath).readAsStringSync(), isNot(contains('database:')));
       expect(Directory(p.join(tempDir.path, 'dartclaw')).existsSync(), isFalse);
       expect(
         File(p.join(tempDir.path, '.dartclaw', '.gitignore')).readAsStringSync(),

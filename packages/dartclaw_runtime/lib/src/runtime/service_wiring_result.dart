@@ -33,10 +33,17 @@ DartclawRuntime _assembleRuntime(
   GroupSessionInitializer? groupSessionInit,
   OutboundMcpPool? outboundMcpPool, {
   Future<void> Function()? trackedWorkflowGitCleanup,
+  StandaloneExecutionLease? standaloneExecutionLease,
 }) {
   return DartclawRuntime(
     server: server,
-    closeStorage: storage.closeBackends,
+    closeStorage: () async {
+      try {
+        await storage.closeBackends();
+      } finally {
+        await standaloneExecutionLease?.release();
+      }
+    },
     agentExecutionRepository: storage.agentExecutionRepository,
     taskService: storage.taskService,
     harness: harness?.harness,
@@ -85,7 +92,7 @@ DartclawRuntime _assembleRuntime(
         await security?.dispose();
         groupSessionInit?.dispose();
         await scopeReconciler.cancel();
-        await storage.turnStateStore.dispose();
+        await storage.disposeTurnStateStore();
         await scheduling?.dispose();
         await project.dispose();
       } finally {

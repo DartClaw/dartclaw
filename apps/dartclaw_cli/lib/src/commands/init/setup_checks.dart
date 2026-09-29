@@ -256,6 +256,7 @@ class SetupChecks {
     required int port,
     bool skipNetwork = false,
     bool skipPortCheck = false,
+    bool workflowTrack = false,
   }) async {
     final config = _loadConfig(configPath);
     final localCheck = await _runLocal(
@@ -266,7 +267,9 @@ class SetupChecks {
       skipPortCheck: skipPortCheck,
       loadedConfig: config,
     );
-    final databaseRows = await _databaseReadiness(config, bootstrap: false, environment: Platform.environment);
+    final databaseRows = workflowTrack
+        ? const <DiagnosticRow>[]
+        : await _databaseReadiness(config, bootstrap: false, environment: Platform.environment);
     final localRows = [...localCheck.rows, ...databaseRows];
     final pendingBootstrap = databaseRows.any(
       (row) => row.id == 'database.schema' && row.status == DiagnosticStatus.fail && row.fixable,

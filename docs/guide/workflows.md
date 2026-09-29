@@ -869,6 +869,24 @@ runs the engine in-process for local and CI use.
 
 You can run a workflow from the command line without standing up the full server. This is the lowest-friction path for trying workflows, local iteration, and CI.
 
+Standalone execution requires no PostgreSQL service, SQLite library, or database connection settings. Both
+`dartclaw-workflow` and `dartclaw workflow --standalone` keep execution records in
+`<data_dir>/standalone/execution.json`, with sessions, turn recovery and KV state beside it. Related task and
+execution changes commit together through a locked, atomic checkpoint replacement. Invalid checkpoints refuse to
+open and are never replaced with empty state.
+
+Run, status, pause, resume, retry and cancel use that same file store. A running standalone owner observes persisted
+pause/cancel status from a separate CLI process. Controls are cooperative: observation runs every 250 ms, and work
+already dispatched may settle before the owner stops. Connected commands continue to use the server's PostgreSQL state;
+they do not list standalone runs. Existing SQLite or PostgreSQL histories are left untouched and are not imported.
+Workflow definitions and run artifacts keep their existing `<data_dir>/workflows/` locations. Back up the whole
+data directory with the standalone processes stopped.
+
+Only one standalone execution process may own a data directory at a time. Parallel steps within its workflow remain
+supported, and separate CLI processes can still inspect, pause or cancel it. A second execution command refuses
+while the owner is active. Standalone startup never recovers other runs automatically. After a killed process,
+confirm it has stopped, then pause the stale run and resume it explicitly.
+
 ```bash
 dartclaw init --workflow      # write a minimal standalone config (data dir: ./.dartclaw)
 dartclaw workflow run --standalone spec-and-implement --var FEATURE="Add search"

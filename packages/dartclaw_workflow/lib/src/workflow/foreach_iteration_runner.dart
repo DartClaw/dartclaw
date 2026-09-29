@@ -1169,7 +1169,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
     // crash-recovery-safe: resume rehydrates from the same run cursor + context
     // snapshot regardless of which write lands first.
     await _persistContext(run.id, context);
-    await _repository.update(updatedRun);
+    await _repository.updateOwned(updatedRun);
   }
 }
 

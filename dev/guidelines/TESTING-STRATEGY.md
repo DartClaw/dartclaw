@@ -642,7 +642,7 @@ The L1 checks (plus a separate `dart format --line-length=120 --set-exit-if-chan
 | Test file | What it enforces |
 |-----------|-----------------|
 | `barrel_show_clauses_test.dart` | Every `export 'src/...'` in a package barrel has an explicit `show` clause |
-| `max_file_loc_test.dart` | No `lib/src/**/*.dart` file exceeds 1,500 LOC |
+| `max_file_loc_test.dart` | `lib/src/**/*.dart` files fail at 110% of the 1,500-line target (1,650 LOC) |
 | `package_cycles_test.dart` | Zero cycles in the workspace package dependency graph |
 | `constructor_param_count_test.dart` | No public constructor has more than 12 parameters |
 | `no_cross_package_env_plan_duplicates_test.dart` | `ProcessEnvironmentPlan` implementations live only in `dartclaw_kernel` |

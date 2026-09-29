@@ -38,15 +38,15 @@ Use standalone mode when:
 
 - no server is running
 - you want a one-off local workflow execution
-- you intentionally want direct local-database inspection
+- you want workflow state in local files without a database
 
 `workflow run --standalone` performs a safety check. If the server is already running on the resolved loopback port, the CLI aborts unless you add `--force`.
 
 ### Standalone lifecycle control
 
-`resume`, `cancel`, `pause`, and `retry` also accept `--standalone`, driving a run's lifecycle in-process against the local task DB — no `dartclaw serve` required. The headline flow takes an approval-paused `workflow run --standalone` to completion server-less: when the run pauses at an `approval` step (exit `2`), `dartclaw workflow resume <run-id> --standalone` records the approval and drives the run to its next settle point (completed / failed / next pause), rendering the same step-progress output as the original run. `cancel --standalone` records the optional `--feedback` as an approval rejection and transitions the run to `cancelled`.
+`resume`, `cancel`, `pause`, and `retry` also accept `--standalone`, using `<data_dir>/standalone/execution.json` without a database or server. When a run pauses at an `approval` step (exit `2`), `dartclaw workflow resume <run-id> --standalone` records the approval and drives the run to its next settle point (completed / failed / next pause), rendering the same step-progress output as the original run. `cancel --standalone` records the optional `--feedback` as an approval rejection and transitions the run to `cancelled`.
 
-These commands reuse `workflow run --standalone`'s safety guard: they abort against a reachable server unless `--force` is added. The engine's state-transition guards apply — resuming a `running` run or retrying a non-`failed` run prints a clean one-line reason and exits non-zero, never a Dart stack trace. A stale `running` run (left by an abruptly killed standalone process) is **not** auto-reconciled; the guard surfaces it and you re-run once it is back in a resumable state.
+These commands reuse `workflow run --standalone`'s safety guard: they abort against a reachable server unless `--force` is added. The engine's state-transition guards apply: resuming a `running` run or retrying a non-`failed` run prints a reason and exits non-zero. Commands execute only the requested run, so a new command never recovers another process's active run. For a stale `running` run left by an abruptly killed process, confirm that process has stopped, then `pause <run-id> --standalone` and `resume <run-id> --standalone`.
 
 ### Settle-time digest and step outcomes
 

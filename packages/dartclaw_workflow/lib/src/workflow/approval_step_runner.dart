@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 
 import 'workflow_definition.dart' show ActionNode, WorkflowStep, WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowRun;
+import 'workflow_run_repository.dart';
 
 import 'workflow_approval_policy.dart';
 import 'workflow_context.dart';
@@ -58,7 +59,7 @@ Future<StepOutcome> approvalStepRun(ActionNode node, StepExecutionContext ctx) a
 /// Dependencies needed by approval step execution.
 final class ApprovalStepDependencies {
   final EventBus eventBus;
-  final dynamic repository;
+  final WorkflowRunRepository repository;
   final Future<void> Function(String runId, WorkflowContext context) persistContext;
   final Future<void> Function(WorkflowRun run, String reason) cancelRun;
   final Map<String, Timer> approvalTimers;
@@ -129,7 +130,7 @@ Future<bool> executeApprovalStep({
       'with approval policy ${policy.yamlValue}: $reason',
     );
     await dependencies.persistContext(run.id, context);
-    await dependencies.repository.update(
+    await dependencies.repository.updateOwned(
       run.copyWith(
         currentStepIndex: stepIndex + 1,
         contextJson: {
@@ -172,7 +173,7 @@ Future<bool> executeApprovalStep({
     updatedAt: DateTime.now(),
   );
   await dependencies.persistContext(run.id, context);
-  await dependencies.repository.update(awaitingApprovalRun);
+  await dependencies.repository.updateOwned(awaitingApprovalRun);
 
   dependencies.eventBus.fire(
     WorkflowRunStatusChangedEvent(
@@ -189,14 +190,14 @@ Future<bool> executeApprovalStep({
     final timerKey = '${run.id}:${step.id}';
     dependencies.approvalTimers[timerKey] = Timer(Duration(seconds: timeoutSeconds), () async {
       dependencies.approvalTimers.remove(timerKey);
-      final current = await dependencies.repository.getById(run.id) as WorkflowRun?;
+      final current = await dependencies.repository.getById(run.id);
       if (current == null || current.status != WorkflowRunStatus.awaitingApproval) return;
       final updatedContext = Map<String, dynamic>.from(current.contextJson)
         ..['${step.id}.status'] = 'cancelled'
         ..['${step.id}.approval.status'] = 'timed_out'
         ..['${step.id}.approval.cancel_reason'] = 'timeout';
       final withReason = current.copyWith(contextJson: updatedContext, updatedAt: DateTime.now());
-      await dependencies.repository.update(withReason);
+      if (!await dependencies.repository.update(withReason, expectedStatus: WorkflowRunStatus.awaitingApproval)) return;
       await dependencies.cancelRun(withReason, 'approval timeout: ${step.id}');
     });
   }

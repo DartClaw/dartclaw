@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.27 workflow error policy and resume, workflow accounting availability, Claude turn accounting, PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.27.1 workflow error policy and resume, workflow accounting availability, Claude turn accounting, standalone file storage and PostgreSQL server storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -579,12 +579,15 @@ The engine is intentionally simple. It does not attempt to be a general-purpose 
 
 Context is persisted atomically after each step, so a crash can resume from the last committed state instead of replaying from scratch.
 
-The workflow-run repository takes a prepared `PostgresBackend`; it performs no schema initialization or legacy status
-repair. Wiring validates the store before construction. Cursor JSON, worktree bindings and list ordering retain their
-stored contracts.
+The server's workflow-run repository takes a prepared `PostgresBackend`; it performs no schema initialization or
+legacy status repair. Standalone composition selects `FileWorkflowRunRepository` over the shared `FileExecutionStore`
+checkpoint and needs no database. Wiring validates the store before construction. Cursor JSON, worktree bindings
+and list ordering retain their stored contracts. The file adapter exposes status observations so a separate CLI
+process's pause/cancel reaches the active executor's existing cancellation flag and event handling.
 
-Task, agent-execution and workflow-step writes share the same backend through the execution repository transactor. The
-backend owns transaction serialization and rollback; the transactor adds no queue or transaction SQL.
+Task, agent-execution and workflow-step writes share one execution repository transactor. PostgreSQL owns server
+transaction serialization and rollback. The standalone file store holds a process mutex and OS lock while reloading
+and modifying its draft, then publishes one atomic JSON replacement. No SQL emulator or database fallback is used.
 
 `stepStatusFromTask` is the single run-presentation projection shared by the workflow API, web detail page, SSE snapshot, and sidebar. Task-backed steps use their task lifecycle; taskless bash, aggregate, and approval steps use the step-owned status values inside the persisted `WorkflowContext.data` map. It also reads older flat run snapshots for compatibility.
 

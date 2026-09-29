@@ -132,6 +132,47 @@ void repositoryContractGroups(ContractBackend Function() current) {
   });
 
   group('[contract:repository.workflow_run] production repository', () {
+    test('control transitions preserve progress and reject stale executor completion', () async {
+      final repository = DatabaseWorkflowRunRepository(current().backend);
+      final run = WorkflowRun(
+        id: 'controlled-run',
+        definitionName: 'contract',
+        status: WorkflowRunStatus.running,
+        startedAt: _instant,
+        updatedAt: _instant,
+        currentStepIndex: 4,
+        totalTokens: 321,
+      );
+      await repository.insert(run);
+      final paused = await repository.transitionStatus(
+        run.id,
+        expectedStatus: WorkflowRunStatus.running,
+        status: WorkflowRunStatus.paused,
+      );
+      expect(paused?.currentStepIndex, 4);
+      expect(paused?.totalTokens, 321);
+      expect(
+        await repository.update(
+          run.copyWith(status: WorkflowRunStatus.completed),
+          expectedStatus: WorkflowRunStatus.running,
+        ),
+        isFalse,
+      );
+      expect((await repository.getById(run.id))?.status, WorkflowRunStatus.paused);
+      final resolved = paused!.copyWith(
+        contextJson: const {'approval': 'approved'},
+        updatedAt: paused.updatedAt.add(const Duration(microseconds: 1)),
+      );
+      expect(
+        await repository.update(resolved, expectedStatus: paused.status, expectedUpdatedAt: paused.updatedAt),
+        isTrue,
+      );
+      expect(
+        await repository.update(paused, expectedStatus: paused.status, expectedUpdatedAt: paused.updatedAt),
+        isFalse,
+      );
+    });
+
     test('round-trips workflow state from the workflow package', () async {
       final repository = DatabaseWorkflowRunRepository(current().backend);
       final run = WorkflowRun(

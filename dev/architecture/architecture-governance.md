@@ -3,7 +3,7 @@
 Canonical reference for how DartClaw keeps package boundaries and structural
 constraints from drifting after a milestone ships.
 
-**Current through**: 0.26 search-package boundary and package-count ceiling.
+**Current through**: 0.27.1 LOC target amendment.
 
 ---
 
@@ -49,7 +49,7 @@ Architecture governance is intentionally layered:
 
 2. `dart run dev/tools/arch_check.dart`
    Enforces structural rules that the analyzer does not know about: per-package
-   LOC ceilings, the package-count ceiling, the core barrel's shape, and Claude
+   LOC targets, the package-count ceiling, the core barrel's shape, and Claude
    provider option ownership. Dependency direction is not here — it belongs to
    the tier order and its fitness gate.
 
@@ -87,11 +87,10 @@ exceptions are recorded in.
 
 ### L2: Shape Constraints
 
-3. Per-package `lib/` LOC ceilings
-   One recorded ceiling per workspace member with a `lib/`, checked in both
-   directions: growth past the ceiling fails, and so does slack of more than the
-   ceiling's **band**, so a package that shrinks cannot bank the space it freed.
-   A member with no recorded ceiling fails rather than going unmeasured.
+3. Per-package `lib/` LOC targets
+   One recorded target per workspace member with a `lib/`. Growth fails when
+   measured lines reach at least 110% of that target. Shrinkage never fails the
+   size check. A member with no recorded target fails rather than going unmeasured.
 
 4. Workspace package-count ceiling
    Prevents premature decomposition and pubspec sprawl. It counts directories
@@ -143,17 +142,14 @@ intent should remain documented here:
 
 | Constraint | Current value | Why it exists |
 |---|---:|---|
-| Per-package `lib/` LOC ceiling | one recorded number per member, in `_libLocCeilings`, re-baselined against the measured value the check reports | A downward ratchet by default; a reviewed raise requires measured necessity, exhausted safe reductions, the proportional-band ceiling, and a CHANGELOG rationale |
-| LOC band | `min(400, ceiling ~/ 4)` | The slack a ceiling may carry above actual. Proportional under the constant, capped by it above: a flat `400` is inert in the shrink direction for any package smaller than itself — the 45-line umbrella could shrink to zero and pass. The band is what makes "a ceiling only goes down" checkable from a single snapshot rather than from history |
+| Per-package `lib/` LOC target | one recorded number per member in `_libLocCeilings` | Fail at measured LOC ≥ 110% of the target; smaller growth and shrinkage pass |
+| Production and test file LOC targets | 1,500 and 1,300 respectively | Fail at 1,650 and 1,430; allowlisted test files use 110% of their recorded baseline |
 | Workspace package count | `<= 13` | Keep the count under `packages/` exact, including `dartclaw_search` and `dartclaw_bridge` |
 
-Ceilings are recorded in code because they are executable policy; the intent
-belongs here. Lowering one is routine and belongs in the change that shrank the
-package. Raising one is exceptional: first exhaust safe behavior-preserving
-reduction, then record the measured actual, use `_maxCeilingFor(actual)`, and add
-a CHANGELOG note saying what justified the growth. If a threshold or the
-headroom constant changes, update both this document and the script in the same
-change.
+Targets are recorded in code because they are executable policy. A size change
+below the ten-percent margin needs no target edit. When growth reaches the margin,
+review decomposition or record a deliberate target change with measured rationale.
+If the margin changes, update this document and the gates together.
 
 ## What Is Explicitly In Scope
 
@@ -193,22 +189,18 @@ that should remain true after the milestone closes.
 Good candidates:
 
 - a new package is added with an agreed package-count ceiling impact
-- a package's `lib/` shrinks, so its recorded ceiling has to come down
+- a package reaches 110% of its recorded `lib/` target and the target is deliberately changed
 - a milestone introduces a boundary that would be easy to regress mechanically
 
 Do not update the script just because a one-off cleanup happened. Fitness
 functions should encode enduring constraints, not temporary implementation
 details.
 
-**Raising a per-package LOC ceiling is the one change that never happens
-routinely.** Lowering one is ordinary — a package that shrank keeps a ceiling it
-no longer earns, and the proportional band fails it until it comes down. Raising
-one requires, in order: safe behaviour-preserving reduction exhausted and stated;
-maintainer acceptance of a reviewed-necessity exception under
-[ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md); and the
-record written in the same change — a justification comment in `arch_check.dart`
-naming the measured value and what could not be removed, and a `CHANGELOG.md`
-line. An implementing agent reports a breach and never raises a ceiling itself.
+**A package LOC target changes only when its recorded number is intentionally
+revised.** The size gate fails at exactly 110% of the target. A change below that
+margin needs no rebaseline. A target change that admits growth beyond the margin
+records the measured value and rationale in `arch_check.dart` and `CHANGELOG.md`,
+as described in [ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md).
 
 ## Change Process
 

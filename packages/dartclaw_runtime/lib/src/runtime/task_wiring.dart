@@ -190,7 +190,7 @@ class TaskWiring {
     _diffGenerator = DiffGenerator(projectDir: _runtimeCwd);
     _artifactCollector = ArtifactCollector(
       tasks: _storage.taskService,
-      sessionsDir: config.sessionsDir,
+      sessionsDir: _storage.sessions.baseDir,
       dataDir: _dataDir,
       diffGenerator: _diffGenerator,
       projectService: _project?.projectService,

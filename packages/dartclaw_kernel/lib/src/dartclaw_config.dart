@@ -179,6 +179,12 @@ class DartclawConfig {
   /// sessionsDir.
   String get sessionsDir => p.join(server.dataDir, 'sessions');
 
+  /// Execution state owned by standalone workflows, separate from server state.
+  String get standaloneDir => p.join(server.dataDir, 'standalone');
+
+  /// Atomic checkpoint shared by standalone task and workflow repositories.
+  String get standaloneExecutionPath => p.join(standaloneDir, 'execution.json');
+
   /// logsDir.
   String get logsDir => p.join(server.dataDir, 'logs');
 

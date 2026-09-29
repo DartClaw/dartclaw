@@ -33,12 +33,12 @@ Evaluate architecture using [CUPID](https://cupid.dev/):
 - Write tests for critical paths; prefer TDD. If you introduce non-trivial branching logic, put a test on it – even when no scenario covers it (Beyonce Rule). Temporary tests during implementation are fine if removed after
 - Document only the "why" – never the obvious "what"
 
-### Numeric architecture ceilings
+### Numeric architecture targets
 
-Per-package LOC ceilings ratchet downward when code shrinks. Raising one requires the reviewed-necessity process in
-[ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md): maintainer acceptance, measured LOC after
-safe reduction, the proportional-band ceiling, and matching records in the LOC baseline and CHANGELOG. A package move
-rebalances both owners in one change; it does not bank slack in the source package or duplicate the moved code.
+Package and file LOC checks fail when measured lines reach at least 110% of their recorded target. Below that margin,
+size changes need no target edit. Keep one recorded package target per `lib/` owner, and review a change that reaches
+the margin for decomposition or a deliberate target change with its measured rationale. See
+[ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md).
 
 
 ## Review Defect Classes

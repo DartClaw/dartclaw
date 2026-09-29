@@ -28,7 +28,7 @@
 
 ## Architecture
 
-An AOT-compiled Dart host owns state, APIs, security enforcement, and execution coordination. It drives Claude Code, Codex, and ACP agents through provider-specific adapters. DartClaw itself requires no npm or Node.js runtime; external harnesses and optional integrations have their own prerequisites.
+An AOT-compiled Dart host owns state, APIs, security enforcement, and execution coordination. It drives Claude Code, Codex, and ACP agents through provider-specific adapters. Standalone workflows persist execution state in local files and require no database service. The server uses PostgreSQL. DartClaw itself requires no npm or Node.js runtime; external harnesses and optional integrations have their own prerequisites.
 
 ## Development Stage
 
@@ -37,5 +37,5 @@ DartClaw remains early, experimental software. Breaking changes to APIs, configu
 ## Proportionality
 
 - **Stage:** prototype. Experimental, soft-published; breaking changes to APIs, configuration, protocols and storage are acceptable.
-- **Scale:** one owner per instance and a handful of instances in use (personal deployments plus development); one process on one host; PostgreSQL per instance with data in the megabytes; one maintainer.
+- **Scale:** one owner per instance and a handful of instances in use (personal deployments plus development); one process on one host; server PostgreSQL or standalone execution files with data in the megabytes; one maintainer.
 - **Standing technical non-goals:** multi-tenant or multi-user administration; horizontal scaling or a distributed runtime; isolates or worker pools without a profiled bottleneck; an ORM or a second storage authority beside the existing backends; a plugin or extension system beyond harness providers, skills and workflow definitions; backward-compatibility layers; full accessibility conformance — keyboard reach, focus order, labels and touch targets are held, but a gate is not blocked on an audit finding no measurement reproduces.

@@ -6,7 +6,8 @@ DartClaw is configured via `dartclaw.yaml`, behavior files, environment variable
 
 Use `dartclaw init` to create an instance. It runs preflight checks, generates `dartclaw.yaml`, scaffolds the workspace, and seeds `ONBOARDING.md`.
 
-PostgreSQL 14+ is required for database-backed operation. `init` records one URL or named-credential reference and
+PostgreSQL 14+ is required for server operation. Standalone workflows use local files and need no database settings.
+Server `init` records one URL or named-credential reference and
 remains usable while the service is unavailable; after administrator provisioning, `dartclaw doctor --fix` may
 bootstrap only an empty application schema. See [PostgreSQL](postgresql.md).
 

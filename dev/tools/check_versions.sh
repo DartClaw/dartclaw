@@ -95,10 +95,9 @@ for manifest in "$REPO_ROOT/package/scoop/dartclaw.json" "$REPO_ROOT/package/sco
   fi
 done
 
-# The CHANGELOG's top section is named in the version-pin commit, not at the
-# cut: `## [<version>] - Unreleased` from the pin on, and the release cut only
-# replaces `Unreleased` with the date (dev/state/DECISIONS.md § Still Current).
-# A `[Unreleased]` heading outliving the pin is the drift this catches.
+# The CHANGELOG's top section names the pinned version and actual date from
+# the version-pin commit onward (dev/state/DECISIONS.md § Still Current).
+# This gate checks the version portion of that heading.
 changelog="$REPO_ROOT/CHANGELOG.md"
 top_section="$(grep -m1 '^## \[' "$changelog" | sed -n 's/^## \[\([^]]*\)\].*/\1/p')"
 if [[ "$top_section" != "$expected" ]]; then

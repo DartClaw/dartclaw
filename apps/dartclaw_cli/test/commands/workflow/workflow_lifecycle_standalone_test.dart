@@ -9,6 +9,7 @@ import 'package:dartclaw_cli/src/commands/workflow/workflow_retry_command.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime;
+import 'package:dartclaw_runtime/src/runtime/standalone_execution_lease.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -59,6 +60,27 @@ void main() {
       expect(output.any((line) => line.contains('post') && line.contains('completed')), isTrue, reason: '$output');
       expect(output.any((line) => line.contains('[workflow] Completed')), isTrue, reason: '$output');
       expect(await statusOf(config, runId), WorkflowRunStatus.completed);
+    });
+
+    test('resume reports another active standalone owner without changing the run', () async {
+      final seed = await seedRun(config, WorkflowRunStatus.paused);
+      final lease = await StandaloneExecutionLease.acquire(config.standaloneDir);
+      try {
+        final output = <String>[];
+        final command = resumeCommand(config, output);
+        final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+        await expectLater(
+          () => runner.run(['resume', seed.runId, '--standalone']),
+          throwsA(isA<FakeExit>().having((error) => error.code, 'code', 1)),
+        );
+
+        expect(output, hasLength(1));
+        expect(output.single, contains('A standalone workflow execution is already active'));
+        expect(await statusOf(config, seed.runId), WorkflowRunStatus.paused);
+      } finally {
+        await lease.release();
+      }
     });
 
     test('S02 resume --standalone re-pauses at the next approval gate (exit 2)', () async {

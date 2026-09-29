@@ -1,40 +1,10 @@
 import 'dart:io';
 
-// Per-package `lib/` LOC ceilings. One recorded number per workspace member
-// with a `lib/`. They ratchet down routinely; a raise is a recorded rebaseline
-// (milestone close-out or reviewed necessity) with a CHANGELOG note.
-//
-// The check fails two ways. Growth past the ceiling fails. So does slack: a
-// package whose ceiling sits further above its actual size than its band allows
-// fails until the ceiling is lowered, so a package that shrinks cannot bank the
-// space it freed as future allowance. That is the ratchet ADR-033 asks for,
-// checkable from one snapshot rather than from history.
-//
-// The band is `min(_locHeadroom, ceiling ~/ 4)`, not a flat `_locHeadroom`. A
-// flat constant is inert in the shrink direction for anything smaller than
-// itself: the client-tier umbrella is 45 lines, so under a flat 400 it could
-// shrink to zero and still pass. Proportional below the constant, capped by it
-// above, so the ratchet holds at every package size.
-//
-// Raising a ceiling is a deliberate, reviewable act with a CHANGELOG note.
-// Lowering one is routine and belongs in the change that shrank the package.
-const _locHeadroom = 1500;
+import 'loc_target.dart';
 
-/// How far above [ceiling]'s own package the ceiling may sit before the slack
-/// itself fails. Proportional under [_locHeadroom], capped by it above.
-int _locBand(int ceiling) {
-  final proportional = ceiling ~/ 4;
-  return proportional < _locHeadroom ? proportional : _locHeadroom;
-}
-
-/// The highest ceiling [loc] may carry — what a slack failure must be lowered to.
-int _maxCeilingFor(int loc) {
-  var ceiling = loc + _locHeadroom;
-  while (ceiling > loc && ceiling - loc > _locBand(ceiling)) {
-    ceiling -= 1;
-  }
-  return ceiling;
-}
+// Historical rebaseline notes below describe the old slack ratchet. Since
+// 2026-09-29, recorded package LOC values are targets; only growth of at least
+// 10% above a target fails. Shrinkage does not require a target change.
 
 // Re-baselined 2026-08-22 against the finished 0.25 tree, measured with
 // _countDartLoc and no other filter. Each entry is `min(previous ceiling,
@@ -279,43 +249,33 @@ List<_CheckResult> _checkLibLocCeilings(String repoRoot) {
     final libDir = Directory('${member.path}${Platform.pathSeparator}lib');
     if (!libDir.existsSync()) continue;
     measured.add(member.name);
-    final ceiling = _libLocCeilings[member.name];
-    if (ceiling == null) {
+    final target = _libLocCeilings[member.name];
+    if (target == null) {
       results.add(
         _CheckResult(
-          name: 'L2 ${member.name} LOC ceiling',
+          name: 'L2 ${member.name} LOC target',
           passed: false,
-          detail: 'No ceiling recorded for ${member.name}; add one to _libLocCeilings in dev/tools/arch_check.dart.',
+          detail: 'No target recorded for ${member.name}; add one to _libLocCeilings in dev/tools/arch_check.dart.',
         ),
       );
       continue;
     }
     final loc = _countDartLoc(libDir);
     final path = '${_relativePath(member.path, repoRoot)}/lib';
-    if (loc > ceiling) {
+    if (locExceedsTarget(loc, target)) {
       results.add(
         _CheckResult(
-          name: 'L2 ${member.name} LOC ceiling',
+          name: 'L2 ${member.name} LOC target',
           passed: false,
-          detail: '$loc lines in $path exceeds the ceiling of $ceiling.',
-        ),
-      );
-    } else if (ceiling - loc > _locBand(ceiling)) {
-      results.add(
-        _CheckResult(
-          name: 'L2 ${member.name} LOC ceiling',
-          passed: false,
-          detail:
-              '$loc lines in $path leaves ${ceiling - loc} lines of slack under the ceiling of $ceiling '
-              '(band ${_locBand(ceiling)}); lower the ceiling to ${_maxCeilingFor(loc)}.',
+          detail: '$loc lines in $path reaches at least 110% of the $target-line target.',
         ),
       );
     } else {
       results.add(
         _CheckResult(
-          name: 'L2 ${member.name} LOC ceiling',
+          name: 'L2 ${member.name} LOC target',
           passed: true,
-          detail: '$loc lines in $path (ceiling <= $ceiling, band ${_locBand(ceiling)}).',
+          detail: '$loc lines in $path (target $target; fails at 110%).',
         ),
       );
     }
@@ -325,9 +285,9 @@ List<_CheckResult> _checkLibLocCeilings(String repoRoot) {
   if (orphaned.isNotEmpty) {
     results.add(
       _CheckResult(
-        name: 'L2 LOC ceiling coverage',
+        name: 'L2 LOC target coverage',
         passed: false,
-        detail: 'Recorded ceilings for packages with no lib/: ${orphaned.join(', ')}.',
+        detail: 'Recorded targets for packages with no lib/: ${orphaned.join(', ')}.',
       ),
     );
   }

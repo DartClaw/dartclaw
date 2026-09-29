@@ -1,10 +1,14 @@
-# ADR-060: PostgreSQL-only database storage
+# ADR-060: PostgreSQL server storage and standalone workflow files
 
 ## Status
 
 Accepted – 2026-09-20, for implementation in 0.27. The owner approved PostgreSQL-only storage, native local setup,
 optional pgvector and a separate temporary migration tool as one additional story before final qualification.
 The 0.27 working tree implements this decision; released 0.26.1 and 0.26.2 support both databases.
+
+Amended 2026-09-29: standalone workflow execution must remain self-contained. Its execution records use plain
+files, with no database installation or connection configuration. The original removal incorrectly extended the
+server's PostgreSQL requirement to this separate launch mode.
 
 For 0.27, this supersedes ADR-045's SQLite-default/dual-backend policy, ADR-048's requirement to bundle SQLite,
 and ADR-050's SQLite vector-storage branch. Their other contracts remain unless explicitly changed below.
@@ -22,7 +26,7 @@ ordinary lexical search does not require the vector extension or embeddings.
 
 ## Decision
 
-1. **One database engine.** PostgreSQL is the sole supported engine for DartClaw-owned authoritative relational records
+1. **One database engine.** PostgreSQL is the sole supported engine for server-owned authoritative relational records
    and derived database indexes. Remove runtime SQLite paths, dependencies and assets, including legacy-store probes.
    Database-dependent commands fail clearly when PostgreSQL is unavailable; there is no SQLite fallback.
 2. **Native default setup.** Document and qualify native PostgreSQL on supported operating systems. The OS service
@@ -40,6 +44,16 @@ ordinary lexical search does not require the vector extension or embeddings.
 6. **Bounded removal.** Reuse the PostgreSQL implementation and useful domain/transaction/search interfaces. Remove
    abstractions or branches that only serve engine selection when their callers can be simplified together. Do not
    introduce an ORM, generic migration framework or a permanent SQLite compatibility mode.
+7. **Standalone workflow files.** `dartclaw-workflow` and `dartclaw workflow --standalone` select a versioned JSON
+   execution checkpoint at `<data_dir>/standalone/execution.json`. The same task, execution and workflow repository
+   contracts share one file transaction owner. A process mutex and stable OS lock serialize reload, mutation and
+   atomic replacement; failures before publication leave the previous checkpoint intact. No SQL emulation or
+   database fallback is involved. Standalone sessions, turn recovery and KV are also isolated under `standalone/`.
+   A separate process ownership lock permits one executing runtime per data directory; parallel workflow steps
+   remain supported. Read/control commands can coexist with the owner. New standalone execution commands do not
+   automatically recover other runs.
+   Provider credentials, definitions and workflow artifacts keep their existing locations. Connected commands use
+   server state; standalone commands use file state. Existing database-backed histories are not migrated or mutated.
 
 ## Consequences
 
@@ -52,6 +66,10 @@ ordinary lexical search does not require the vector extension or embeddings.
 - Optional pgvector remains an installation/upgrade consideration only for operators enabling hybrid search. It adds
   an extension inside PostgreSQL, not a second database service.
 - File-backed records still require separate preservation and backup. Removing SQLite is not a single-backup-target claim.
+- Standalone execution rewrites its checkpoint on each commit. This trades whole-document I/O for no database or
+  native storage dependency at the project's one-host scale. Preserve atomic task/execution creation, conditional
+  updates, restart state and cross-process controls in file contract tests. Atomic replacement alone makes no
+  promise about survival of a power failure.
 
 ## Alternatives Considered
 
@@ -89,10 +107,12 @@ process arguments. Retain backups and document rollback before accepting new Pos
 lossless rollback after new writes or introduce ongoing synchronization.
 
 Remove SQLite-specific configuration/defaults, wiring, schema/search/vector implementations, dependencies, build hooks
-and release assets together. Include standalone workflow and maintenance entry points, examples, test fixtures,
+and release assets together. Standalone workflows use the file adapters; maintenance entry points, examples, test fixtures,
 generated configuration schema and the existing SQLite-specific lexical-search name in the scope inventory.
 
-Acceptance must demonstrate fresh native setup without a container engine or pgvector, ordinary lexical search,
+Acceptance must demonstrate both packaged standalone CLI paths without PostgreSQL or a database URL, including
+execution, reopened status, pause/resume and transaction rollback. Server acceptance demonstrates fresh native setup
+without a container engine or pgvector, ordinary lexical search,
 optional hybrid behavior with pgvector, database failure diagnostics, serve/standalone/rebuild paths and restoration
 of both database and file-backed state. Verify runtime dependency and release-asset absence of SQLite. Do not claim
 unexecuted tests/platform checks or use SQLite to obtain a green storage test result.

@@ -83,7 +83,7 @@ class ProjectServiceImpl implements ProjectService {
   final Map<String, Completer<void>> _fetchInFlight = {};
 
   /// The implicit _local project (ephemeral, not persisted).
-  late final Project _localProject;
+  late Project _localProject;
 
   /// Temporary askpass script paths to clean up on dispose.
   final List<String> _tempFiles = [];
@@ -113,7 +113,8 @@ class ProjectServiceImpl implements ProjectService {
        _log = Logger('ProjectService');
 
   @override
-  Future<void> initialize() async {
+  Future<void> initialize({bool readOnly = false}) async {
+    _projects.clear();
     // 1. Create implicit _local project.
     _localProject = _createLocalProject();
 
@@ -121,10 +122,10 @@ class ProjectServiceImpl implements ProjectService {
     await _loadRuntimeProjects();
 
     // 3. Seed config-defined projects (config wins on collision).
-    await _seedConfigProjects();
+    await _seedConfigProjects(readOnly: readOnly);
 
     // 4. Recover any stale cloning states from previous run.
-    _recoverStaleCloning();
+    if (!readOnly) _recoverStaleCloning();
 
     final configCount = _projects.values.where((p) => p.configDefined).length;
     final runtimeCount = _projects.values.where((p) => !p.configDefined).length;
@@ -489,7 +490,7 @@ class ProjectServiceImpl implements ProjectService {
     }
   }
 
-  Future<void> _seedConfigProjects() async {
+  Future<void> _seedConfigProjects({required bool readOnly}) async {
     for (final def in _projectConfig.definitions.values) {
       final id = def.id;
       final localPath = def.localPath ?? p.join(_dataDir, 'projects', id);
@@ -534,21 +535,23 @@ class ProjectServiceImpl implements ProjectService {
         configDefined: true,
         createdAt: DateTime.now(),
       );
-      final auth = await probeProjectAuth(
-        project,
-        _credentials,
-        httpClientFactory: _httpClientFactory,
-        probeRunner: _gitHubProbeRunner,
-      );
-      project = project.copyWith(
-        auth: auth,
-        status: auth != null && !auth.compatible ? ProjectStatus.error : project.status,
-        errorMessage: auth != null && !auth.compatible ? auth.errorMessage : null,
-      );
+      if (!readOnly) {
+        final auth = await probeProjectAuth(
+          project,
+          _credentials,
+          httpClientFactory: _httpClientFactory,
+          probeRunner: _gitHubProbeRunner,
+        );
+        project = project.copyWith(
+          auth: auth,
+          status: auth != null && !auth.compatible ? ProjectStatus.error : project.status,
+          errorMessage: auth != null && !auth.compatible ? auth.errorMessage : null,
+        );
+      }
 
       _projects[id] = project;
 
-      if (!cloneExists && (project.auth == null || project.auth!.compatible)) {
+      if (!readOnly && !cloneExists && (project.auth == null || project.auth!.compatible)) {
         unawaited(_cloneInIsolate(project));
       }
     }

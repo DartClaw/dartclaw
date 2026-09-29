@@ -282,7 +282,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           },
           updatedAt: DateTime.now(),
         );
-        await _repository.update(run);
+        await _repository.updateOwned(run);
         onRunUpdated(run);
       } else {
         _writeNestedLoopCheckpoint(
@@ -400,7 +400,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             },
             updatedAt: DateTime.now(),
           );
-          await _repository.update(run);
+          await _repository.updateOwned(run);
           onRunUpdated(run);
         } else {
           _writeNestedLoopCheckpoint(
@@ -477,7 +477,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
                 },
                 updatedAt: DateTime.now(),
               );
-              await _repository.update(run);
+              await _repository.updateOwned(run);
             }
             return failLoop(result.error ?? 'Workflow accounting unavailable');
           }
@@ -653,7 +653,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       if (nested == null) {
         await _persistContext(run.id, context);
         run = run.copyWith(contextJson: context.toJson(), updatedAt: DateTime.now());
-        await _repository.update(run);
+        await _repository.updateOwned(run);
         onRunUpdated(run);
       } else {
         // Advance the checkpoint to the next iteration's first step; the
@@ -690,7 +690,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           updatedAt: DateTime.now(),
         );
         if (fallThroughOnExhaustion) await _persistContext(run.id, context);
-        await _repository.update(run);
+        await _repository.updateOwned(run);
         onRunUpdated(run);
       }
 
@@ -731,7 +731,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         },
         updatedAt: DateTime.now(),
       );
-      await _repository.update(run);
+      await _repository.updateOwned(run);
       onRunUpdated(run);
     } else {
       // Converged: drop the per-iteration resume coordinates + snapshot so no
@@ -768,7 +768,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       updatedAt: DateTime.now(),
     );
     await _persistContext(run.id, context);
-    await _repository.update(updatedRun);
+    await _repository.updateOwned(updatedRun);
     return updatedRun;
   }
 

@@ -23,7 +23,7 @@
   authority. `SessionService` also resolves persisted conversation principals and owner/workspace visibility. A
   configured resolver fails closed for unknown or ended IDs. Standalone durable fixtures may omit it.
 - **Logical-agent conversations** — `LogicalAgentSessionService` separates creation (`sessions_spawn`: agent + initial message) from continuation (`sessions_send`: returned session handle + follow-up), while enforcing the content-guard boundary around each result. Provider/profile worker acquisition and bounded lease capacity are host-owned in `dartclaw_runtime`; core owns no pool or concurrency policy.
-- **Persistence** – repository contracts and their database implementations share this package so aggregate hydration and the execution row mapper have one authority. `WorkflowRunRepository` and its database adapter remain in `dartclaw_workflow`; the small `WorkflowStepExecutionRepository` port is kernel-owned while its database adapter remains here (ADR-034).
+- **Persistence** – repository contracts and their PostgreSQL and standalone file implementations share this package. The file adapters hydrate task aggregates from the keyed execution and step maps in one checkpoint. `WorkflowRunRepository` and its adapters remain in `dartclaw_workflow`; the small `WorkflowStepExecutionRepository` port is kernel-owned while its adapters remain here (ADR-034).
 - **Cross-cutting** — `RepoLock` (per-path process mutex for shared mutations), `atomicWriteJson` (the only sanctioned JSON write path). The one-shot `httpRequest` seam and its `HttpClientFactory` are **kernel-owned** (`dartclaw_kernel/lib/src/http_request.dart`) so the tier below core can use them too; `src/util/util.dart` re-exports both under their old names, which is why core's own callers and the packages above still reach them through this barrel.
 
 ## Shape
@@ -45,7 +45,10 @@
 - Memory safety ceilings live in `MemoryResourceLimits`: 64 MiB per source, 8 MiB per observation partition, and
   1,000 files/64 MiB body bytes per recursive request. Partition overflow rejects without trimming existing records.
 - Atomic JSON writes go through `src/storage/atomic_write.dart::atomicWriteJson` — temp file + rename with random suffix. Writers to shared `.git/` or `.session_keys.json` must hold `RepoLock` first. `chmodOwnerOnlySync` is `0600` (files); directories need `chmodOwnerOnlyDirSync` (`0700`) or they become untraversable.
-- `dartclaw.db` is authoritative for tasks, goals, executions, turns, and events; `search.db` is rebuildable from the
+- PostgreSQL is authoritative for server tasks, goals, executions, turns, and events. Standalone workflows use one
+  versioned `<dataDir>/standalone/execution.json` checkpoint through `FileExecutionStore`; its stable sidecar lock
+  serializes cross-process updates and a transaction commits related repository records with one atomic replacement.
+  PostgreSQL search projections are rebuildable from the
   owner and configured workspace canonical memory corpora and session NDJSON. Memory and conversation rows use the
   pinned session workspace principal. Repositories sharing an aggregate use the same prepared `DatabaseBackend`;
   `DatabaseExecutionRepositoryTransactor` delegates to its transaction. Wiring owns backend closure.
@@ -120,6 +123,7 @@
   Display records project provider-owned tool/approval state and never own a second approval decision path.
 - `lib/src/storage/postgres_backend.dart` – pooled PostgreSQL implementation; `postgres_schema_gate.dart` prepares and validates the application schema before repository use.
 - `lib/src/storage/database_task_repository.dart` and sibling repositories – relational persistence against PostgreSQL.
+- `lib/src/storage/file_execution_store.dart` and sibling file repositories – standalone checkpoint authority and adapters. All execution collections share the store's read/update/transaction boundary.
 - `lib/src/search/` – PostgreSQL lexical, optional vector, wiki, and composed search implementations. `ConversationSearchService.search` is
   principal-local even when the service has an administrative principal set; only `searchAdministrative` may aggregate,
   and callers narrow that set with authorized session identities before its total and limit are applied.

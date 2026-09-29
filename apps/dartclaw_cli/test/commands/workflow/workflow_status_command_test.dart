@@ -1,8 +1,15 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:dartclaw_cli/src/commands/workflow/api_workflow_connection.dart';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_status_command.dart';
 import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' show FileExecutionStore;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DartclawConfig, ServerConfig, WorkflowRunStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show FileWorkflowRunRepository, WorkflowDefinition, WorkflowRun, WorkflowStep;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
@@ -20,6 +27,62 @@ void main() {
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
 
       expect(() => runner.run(['status']), throwsA(isA<UsageException>()));
+    });
+
+    test('standalone status reads a persisted run with no database connection configured', () async {
+      final directory = Directory.systemTemp.createTempSync('workflow_status_file_');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final config = DartclawConfig(server: ServerConfig(dataDir: directory.path));
+      final definition = WorkflowDefinition(
+        name: 'local-review',
+        description: 'Review a local change',
+        steps: const [
+          WorkflowStep(id: 'review', name: 'Review', prompts: ['Review the change']),
+        ],
+      );
+      final now = DateTime.utc(2026, 6, 1);
+      final store = await FileExecutionStore.open(config.standaloneExecutionPath);
+      await FileWorkflowRunRepository(store).insert(
+        WorkflowRun(
+          id: 'local-1',
+          definitionName: definition.name,
+          status: WorkflowRunStatus.completed,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 1,
+          definitionJson: definition.toJson(),
+        ),
+      );
+      await store.close();
+
+      final output = <String>[];
+      final command = WorkflowStatusCommand(config: config, writeLine: output.add, exitFn: fakeExit);
+      await (CommandRunner<void>(
+        'dartclaw',
+        'test',
+      )..addCommand(command)).run(['status', '--standalone', '--json', 'local-1']);
+
+      final result = jsonDecode(output.single) as Map<String, dynamic>;
+      expect(result['id'], 'local-1');
+      expect(result['status'], 'completed');
+      expect(result['steps'], isEmpty);
+      expect(config.database.url, isNull);
+    });
+
+    test('standalone status reports absent local state without opening PostgreSQL', () async {
+      final directory = Directory.systemTemp.createTempSync('workflow_status_absent_');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final config = DartclawConfig(server: ServerConfig(dataDir: directory.path));
+      final output = <String>[];
+      final command = WorkflowStatusCommand(config: config, writeLine: output.add, exitFn: fakeExit);
+
+      await expectLater(
+        (CommandRunner<void>('dartclaw', 'test')..addCommand(command)).run(['status', '--standalone', 'old-1']),
+        throwsA(isA<FakeExit>().having((error) => error.code, 'code', 1)),
+      );
+
+      expect(output.single, contains('Existing PostgreSQL runs are not imported'));
+      expect(File(config.standaloneExecutionPath).existsSync(), isFalse);
     });
 
     group('connected-mode table output', () {

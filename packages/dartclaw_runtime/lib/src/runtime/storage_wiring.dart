@@ -6,7 +6,11 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_search/dartclaw_search.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show DatabaseWorkflowRunRepository, WorkflowRunRepository, WorkflowStepExecutionRepository;
+    show
+        DatabaseWorkflowRunRepository,
+        FileWorkflowRunRepository,
+        WorkflowRunRepository,
+        WorkflowStepExecutionRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -102,6 +106,7 @@ class StorageWiring {
   final ExitFn _exitFn;
   final bool personalMemoryEnabled;
   final bool serving;
+  bool get _standaloneMode => !serving && !personalMemoryEnabled;
   final PostgresInterlock Function()? postgresInterlockFactory;
   PostgresInterlock? _interlock;
   final CanonicalIndexReconciler? _injectedIndexReconciler;
@@ -113,6 +118,7 @@ class StorageWiring {
   late SessionService _sessions;
   late MessageService _messages;
   DatabaseBackend? _taskBackend;
+  FileExecutionStore? _fileExecutionStore;
   EmbeddingProvider? _embeddingProvider;
   late TaskRepository _taskRepository;
   late AgentExecutionRepository _agentExecutionRepository;
@@ -124,6 +130,7 @@ class StorageWiring {
   late TaskEventService _taskEventService;
   late TaskEventRecorder _taskEventRecorder;
   late TurnStateStore _turnStateStore;
+  bool _turnStateOpened = false;
   MemoryCorpusService? _memoryCorpus;
   IndexHealthStore? _indexHealth;
   MemoryFileService? _memoryFile;
@@ -227,25 +234,17 @@ class StorageWiring {
       throw StateError('StorageWiring.$service is not composed without personal memory');
 
   Future<void> wire() async {
-    Directory(config.sessionsDir).createSync(recursive: true);
+    final sessionsDir = _standaloneMode ? p.join(config.standaloneDir, 'sessions') : config.sessionsDir;
+    Directory(sessionsDir).createSync(recursive: true);
 
-    _sessions = SessionService(baseDir: config.sessionsDir, eventBus: _eventBus);
-    _messages = MessageService(baseDir: config.sessionsDir, retentionForSession: _sessions.retentionFor);
+    _sessions = SessionService(baseDir: sessionsDir, eventBus: _eventBus);
+    _messages = MessageService(baseDir: sessionsDir, retentionForSession: _sessions.retentionFor);
 
     if (personalMemoryEnabled) {
       await _wirePersonalMemoryBeforeTaskStorage();
-    } else {
-      await _sessions.getOrCreateMainSession();
     }
-
-    final turnStatePath = p.join(config.server.dataDir, 'turn_state.json');
-    try {
-      Directory(config.server.dataDir).createSync(recursive: true);
-      _turnStateStore = openTurnStateStore(turnStatePath);
-    } catch (e, st) {
-      await closeBackends();
-      _log.severe('Cannot open turn state store at $turnStatePath', e, st);
-      _exitFn(1);
+    if (!_standaloneMode) {
+      await _openTurnStateStore();
     }
 
     if (serving) {
@@ -263,68 +262,72 @@ class StorageWiring {
     }
 
     try {
-      final factory =
-          _taskBackendFactory ??
-          postgresBackendFactory(
-            config.database,
-            resolveDsn: (database) => resolveDatabaseDsn(database, credentials: _credentialRegistry),
-            auditLogger: _auditLogger,
+      if (_standaloneMode && _taskBackendFactory == null) {
+        await _wireFileExecutionStorage();
+      } else {
+        final factory =
+            _taskBackendFactory ??
+            postgresBackendFactory(
+              config.database,
+              resolveDsn: (database) => resolveDatabaseDsn(database, credentials: _credentialRegistry),
+              auditLogger: _auditLogger,
+            );
+        final backend = _taskBackend = await factory(config.dartclawDbPath);
+        if (serving && backend is PostgresBackend) {
+          final interlock = _interlock = postgresInterlockFactory?.call() ?? PostgresInterlock();
+          await interlock.acquire(
+            backend: backend,
+            onFatalLoss: (error) {
+              _log.severe(error.message);
+              _exitFn(1);
+            },
           );
-      final backend = _taskBackend = await factory(config.dartclawDbPath);
-      if (serving && backend is PostgresBackend) {
-        final interlock = _interlock = postgresInterlockFactory?.call() ?? PostgresInterlock();
-        await interlock.acquire(
-          backend: backend,
-          onFatalLoss: (error) {
-            _log.severe(error.message);
-            _exitFn(1);
-          },
-        );
-      }
-      if (personalMemoryEnabled && _hybridEnabled) {
-        if (!_taskBackendIsPrepared) {
-          await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: _postgresDatabaseIdentity);
         }
-        _ensureEmbeddingProvider();
+        if (personalMemoryEnabled && _hybridEnabled) {
+          if (!_taskBackendIsPrepared) {
+            await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: _postgresDatabaseIdentity);
+          }
+          _ensureEmbeddingProvider();
+        }
+        if (!_taskBackendIsPrepared) {
+          await PostgresSchemaGate.prepare(backend, databaseIdentity: _postgresDatabaseIdentity);
+        }
+        if (!_taskBackendIsPrepared && personalMemoryEnabled && _hybridEnabled) {
+          await PostgresSchemaGate.prepareVectorProjection(backend, databaseIdentity: _postgresDatabaseIdentity);
+        }
+        if (!_taskBackendIsPrepared && personalMemoryEnabled) {
+          await validatePostgresFtsLanguage(backend, config.database.ftsLanguage);
+        }
+        if (personalMemoryEnabled) {
+          await _wirePostgresIndex(backend);
+        }
+        _agentExecutionRepository =
+            _agentExecutionRepositoryFactory?.call(backend) ??
+            DatabaseAgentExecutionRepository(backend, eventBus: _eventBus);
+        _workflowStepExecutionRepository =
+            _workflowStepExecutionRepositoryFactory?.call(backend) ?? DatabaseWorkflowStepExecutionRepository(backend);
+        _executionRepositoryTransactor =
+            _executionRepositoryTransactorFactory?.call(backend) ?? DatabaseExecutionRepositoryTransactor(backend);
+        _taskRepository = _taskRepositoryFactory?.call(backend) ?? DatabaseTaskRepository(backend);
+        if (personalMemoryEnabled) {
+          _kg =
+              _knowledgeGraphFactory?.call(backend) ??
+              TemporalKnowledgeGraphService(backend, factSearch: PostgresFactSearch(config.database.ftsLanguage));
+        }
+        final goalRepository = DatabaseGoalRepository(backend);
+        _goalService = GoalService(goalRepository);
+        _traceService = TurnTraceService(backend);
+        _taskEventService = TaskEventService(backend);
+        _taskEventRecorder = TaskEventRecorder(eventService: _taskEventService, eventBus: _eventBus);
+        _taskService = TaskService(
+          _taskRepository,
+          agentExecutionRepository: _agentExecutionRepository,
+          executionTransactor: _executionRepositoryTransactor,
+          eventBus: _eventBus,
+          eventRecorder: _taskEventRecorder,
+        );
+        _workflowRunRepository = _workflowRunRepositoryFactory?.call(backend) ?? DatabaseWorkflowRunRepository(backend);
       }
-      if (!_taskBackendIsPrepared) {
-        await PostgresSchemaGate.prepare(backend, databaseIdentity: _postgresDatabaseIdentity);
-      }
-      if (!_taskBackendIsPrepared && personalMemoryEnabled && _hybridEnabled) {
-        await PostgresSchemaGate.prepareVectorProjection(backend, databaseIdentity: _postgresDatabaseIdentity);
-      }
-      if (!_taskBackendIsPrepared && personalMemoryEnabled) {
-        await validatePostgresFtsLanguage(backend, config.database.ftsLanguage);
-      }
-      if (personalMemoryEnabled) {
-        await _wirePostgresIndex(backend);
-      }
-      _agentExecutionRepository =
-          _agentExecutionRepositoryFactory?.call(backend) ??
-          DatabaseAgentExecutionRepository(backend, eventBus: _eventBus);
-      _workflowStepExecutionRepository =
-          _workflowStepExecutionRepositoryFactory?.call(backend) ?? DatabaseWorkflowStepExecutionRepository(backend);
-      _executionRepositoryTransactor =
-          _executionRepositoryTransactorFactory?.call(backend) ?? DatabaseExecutionRepositoryTransactor(backend);
-      _taskRepository = _taskRepositoryFactory?.call(backend) ?? DatabaseTaskRepository(backend);
-      if (personalMemoryEnabled) {
-        _kg =
-            _knowledgeGraphFactory?.call(backend) ??
-            TemporalKnowledgeGraphService(backend, factSearch: PostgresFactSearch(config.database.ftsLanguage));
-      }
-      final goalRepository = DatabaseGoalRepository(backend);
-      _goalService = GoalService(goalRepository);
-      _traceService = TurnTraceService(backend);
-      _taskEventService = TaskEventService(backend);
-      _taskEventRecorder = TaskEventRecorder(eventService: _taskEventService, eventBus: _eventBus);
-      _taskService = TaskService(
-        _taskRepository,
-        agentExecutionRepository: _agentExecutionRepository,
-        executionTransactor: _executionRepositoryTransactor,
-        eventBus: _eventBus,
-        eventRecorder: _taskEventRecorder,
-      );
-      _workflowRunRepository = _workflowRunRepositoryFactory?.call(backend) ?? DatabaseWorkflowRunRepository(backend);
     } catch (e, st) {
       try {
         await closeBackends();
@@ -332,11 +335,17 @@ class StorageWiring {
         _log.warning('Storage cleanup failed after task database startup failure');
       }
       try {
-        await _turnStateStore.dispose();
+        if (_turnStateOpened) await _turnStateStore.dispose();
       } on Object {
         _log.warning('Turn state cleanup failed after task database startup failure');
       }
-      _log.severe('Cannot open task database at ${config.dartclawDbPath}', e, st);
+      _log.severe(
+        !_standaloneMode || _taskBackendFactory != null
+            ? 'Cannot open task database at ${config.dartclawDbPath}'
+            : 'Cannot open standalone execution store at ${config.standaloneExecutionPath}',
+        e,
+        st,
+      );
       _exitFn(1);
     }
 
@@ -345,19 +354,60 @@ class StorageWiring {
       await _sessions.getOrCreateMainSession();
     }
 
-    _kvService = KvService(filePath: config.kvPath);
+    _kvService = KvService(filePath: _standaloneMode ? p.join(config.standaloneDir, 'kv.json') : config.kvPath);
 
-    try {
-      final legacyTurnState = await _kvService.getByPrefix('turn:');
-      if (legacyTurnState.isNotEmpty) {
-        for (final key in legacyTurnState.keys) {
-          await _kvService.delete(key);
+    if (personalMemoryEnabled) {
+      try {
+        final legacyTurnState = await _kvService.getByPrefix('turn:');
+        if (legacyTurnState.isNotEmpty) {
+          for (final key in legacyTurnState.keys) {
+            await _kvService.delete(key);
+          }
+          _log.info('Removed ${legacyTurnState.length} legacy turn-state KV key(s)');
         }
-        _log.info('Removed ${legacyTurnState.length} legacy turn-state KV key(s)');
+      } catch (e, st) {
+        _log.warning('Failed to remove legacy turn-state KV keys', e, st);
       }
-    } catch (e, st) {
-      _log.warning('Failed to remove legacy turn-state KV keys', e, st);
     }
+  }
+
+  Future<void> wireHeadlessExecutionFiles() async {
+    if (!_standaloneMode) throw StateError('Headless execution files requested for server storage');
+    await _sessions.getOrCreateMainSession();
+    await _openTurnStateStore();
+  }
+
+  Future<void> _openTurnStateStore() async {
+    final turnStatePath = p.join(_standaloneMode ? config.standaloneDir : config.server.dataDir, 'turn_state.json');
+    try {
+      Directory(p.dirname(turnStatePath)).createSync(recursive: true);
+      _turnStateStore = openTurnStateStore(turnStatePath);
+      _turnStateOpened = true;
+    } catch (e, st) {
+      await closeBackends();
+      _log.severe('Cannot open turn state store at $turnStatePath', e, st);
+      _exitFn(1);
+    }
+  }
+
+  Future<void> _wireFileExecutionStorage() async {
+    final store = _fileExecutionStore = await FileExecutionStore.open(config.standaloneExecutionPath);
+    _agentExecutionRepository = FileAgentExecutionRepository(store, eventBus: _eventBus);
+    _workflowStepExecutionRepository = FileWorkflowStepExecutionRepository(store);
+    _executionRepositoryTransactor = store;
+    _taskRepository = FileTaskRepository(store);
+    _goalService = GoalService(FileGoalRepository(store));
+    _traceService = TurnTraceService.file(store);
+    _taskEventService = TaskEventService.file(store);
+    _taskEventRecorder = TaskEventRecorder(eventService: _taskEventService, eventBus: _eventBus);
+    _taskService = TaskService(
+      _taskRepository,
+      agentExecutionRepository: _agentExecutionRepository,
+      executionTransactor: _executionRepositoryTransactor,
+      eventBus: _eventBus,
+      eventRecorder: _taskEventRecorder,
+    );
+    _workflowRunRepository = FileWorkflowRunRepository(store);
   }
 
   Future<void> _wirePersonalMemoryBeforeTaskStorage() async {
@@ -820,12 +870,16 @@ class StorageWiring {
 
   Future<void> dispose() async {
     await _taskService.dispose();
-    await _turnStateStore.dispose();
+    await disposeTurnStateStore();
     for (final context in adminMemoryContexts) {
       await context.file.dispose();
       await context.corpus.close();
     }
     await closeBackends();
+  }
+
+  Future<void> disposeTurnStateStore() async {
+    if (_turnStateOpened) await _turnStateStore.dispose();
   }
 
   Future<void> closeBackends() async {
@@ -850,6 +904,7 @@ class StorageWiring {
       failureStack ??= stackTrace;
     }
     await close(() async => _taskBackend?.close());
+    await close(() async => _fileExecutionStore?.close());
     await close(() async => _interlock?.release());
     if (failure case final error?) Error.throwWithStackTrace(error, failureStack!);
   }

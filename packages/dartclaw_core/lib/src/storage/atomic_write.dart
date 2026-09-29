@@ -5,7 +5,8 @@ import 'dart:math';
 final _tempSuffixRand = Random.secure();
 
 /// Atomically writes [value]; last writer wins without caller locking.
-Future<void> atomicWriteJson(File f, Object value) => secureWriteFile(f, jsonEncode(value), restrictPermissions: false);
+Future<void> atomicWriteJson(File f, Object value, {bool restrictPermissions = false}) =>
+    secureWriteFile(f, jsonEncode(value), restrictPermissions: restrictPermissions);
 
 /// Atomically writes binary [contents], preserving an existing regular target's POSIX permissions.
 Future<void> atomicWriteBytes(File target, List<int> contents, {bool restrictPermissions = false}) async {

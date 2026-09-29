@@ -5,14 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Every section is a version. The top section is named in the same commit that pins the version – `## [<version>] -
-Unreleased` – and the release cut only replaces `Unreleased` with the date; a bare `[Unreleased]` heading exists only
-between a tag and that pin, and `dev/tools/check_versions.sh` holds the heading to the pinned version. Nothing rolls
+Every section names a version and the actual date from `date +%Y-%m-%d`: `## [<version>] - YYYY-MM-DD`.
+Date the section when the version is pinned; never use `Unreleased`. `dev/tools/check_versions.sh` holds the heading
+to the pinned version. Nothing rolls
 forward from release to release: a deprecation is recorded once, under the version that deprecated the key. What the
 loader *currently* tolerates is a live inventory, not history, and lives in *Deprecated Keys* in
 `docs/guide/configuration.md`.
 
 ---
+
+## [0.27.1] - 2026-09-29
+
+### Fixed
+
+- Standalone workflows no longer require PostgreSQL. Both CLI entry points persist execution records in a locked JSON checkpoint under `<data_dir>/standalone/`; workflow initialization needs no database URL. Sessions and recovery state are separate from server state, and existing database histories remain untouched.
+- Standalone pause, cancel, and approval decisions preserve the latest workflow progress across processes. One active execution runtime per data directory prevents duplicate execution while allowing status and lifecycle commands.
+
+### Changed
+
+- LOC checks now fail only at 10% or more above their recorded targets. Package shrinkage no longer requires rebaselining.
 
 ## [0.27.0] - 2026-09-29
 

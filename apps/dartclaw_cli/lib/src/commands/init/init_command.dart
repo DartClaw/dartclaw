@@ -246,6 +246,7 @@ abstract class _InitImpl extends Command<void> {
       port: state.port,
       skipNetwork: argResults!['skip-verify'] as bool,
       skipPortCheck: state.workflowTrack,
+      workflowTrack: state.workflowTrack,
     );
     verifyProgress?.complete('Done');
 

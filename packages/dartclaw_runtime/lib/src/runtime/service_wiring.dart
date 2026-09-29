@@ -59,6 +59,7 @@ import 'harness_wiring.dart';
 import 'scheduling_wiring.dart';
 import 'security_wiring.dart';
 import 'storage_wiring.dart';
+import 'standalone_execution_lease.dart';
 import 'task_wiring.dart';
 import 'project_wiring.dart';
 
@@ -603,6 +604,7 @@ class _RuntimeAssembly {
   late final StorageWiring _storage;
   late final WorkflowRegistry _workflowRegistry;
   StorageWiring? _ownedStorage;
+  StandaloneExecutionLease? _ownedExecutionLease;
   bool _baseWired = false;
 
   void _requireBaseWired() {
@@ -708,6 +710,7 @@ class _RuntimeAssembly {
 
   Future<DartclawRuntime> completeWithExecution(Set<String>? workflowProviderScope) async {
     _requireBaseWired();
+    await _prepareHeadlessExecution(this);
     final ctx = _ctx;
     final project = _project;
     final storage = _storage;
@@ -820,8 +823,10 @@ class _RuntimeAssembly {
       groupSessionInit,
       outboundMcpPool,
       trackedWorkflowGitCleanup: _trackedWorkflowGitCleanup(storage, project, workflowService),
+      standaloneExecutionLease: _ownedExecutionLease,
     );
     _ownedStorage = null;
+    _ownedExecutionLease = null;
     try {
       await harness.startPrimary();
       if (server != null) harness.startModelCatalogueDiscovery();
@@ -886,7 +891,7 @@ class _RuntimeAssembly {
 
   Future<ProjectWiring> _wireProjects(_WiringContext ctx) async {
     final project = ProjectWiring(config: config, dataDir: ctx.dataDir, eventBus: ctx.eventBus);
-    await project.wire();
+    await project.wire(readOnly: headless);
     return project;
   }
 
@@ -923,7 +928,7 @@ class _RuntimeAssembly {
     );
     await storage.wire();
     _ownedStorage = storage;
-    await _dropLegacySessionCostEntries(storage.kvService);
+    if (!headless) await _dropLegacySessionCostEntries(storage.kvService);
     return storage;
   }
 
@@ -1233,7 +1238,7 @@ class _RuntimeAssembly {
       kvService: storage.kvService,
       dataDir: ctx.dataDir,
     );
-    await workflowService.recoverIncompleteRuns();
+    if (!headless) await workflowService.recoverIncompleteRuns();
     return workflowService;
   }
 
@@ -1427,13 +1432,16 @@ class _RuntimeAssembly {
   Future<void> disposeBase() => _disposeOwnedBase();
   Future<void> _disposeOwnedBase() async {
     final storage = _ownedStorage;
-    if (storage == null) return;
-    _ownedStorage = null;
-    _baseWired = false;
-    await _attemptBaseCleanup('project services', _project.dispose);
-    await _attemptBaseCleanup('key-value service', storage.kvService.dispose);
-    await _attemptBaseCleanup('storage', storage.dispose);
-    await _attemptBaseCleanup('event bus', _ctx.eventBus.dispose);
+    if (storage != null) {
+      _ownedStorage = null;
+      _baseWired = false;
+      await _attemptBaseCleanup('project services', _project.dispose);
+      await _attemptBaseCleanup('key-value service', storage.kvService.dispose);
+      await _attemptBaseCleanup('storage', storage.dispose);
+      await _attemptBaseCleanup('event bus', _ctx.eventBus.dispose);
+    }
+    await _ownedExecutionLease?.release();
+    _ownedExecutionLease = null;
   }
 
   Future<void> _attemptBaseCleanup(String component, Future<void> Function() cleanup) async {

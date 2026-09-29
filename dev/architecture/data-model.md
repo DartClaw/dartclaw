@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.27 PostgreSQL-only storage, managed-workspace identity and principal-scoped memory/conversation
+**Current through**: 0.27.1 PostgreSQL server storage, standalone workflow file checkpoints, managed-workspace identity and principal-scoped memory/conversation
 projections, embedding-fingerprint lifecycle, serving interlock, language-aware search, bounded turn-source provenance,
 and filesystem-backed instance-local state.
 
@@ -10,13 +10,15 @@ and filesystem-backed instance-local state.
 
 ## Architecture Principle
 
-**Files hold canonical documents; PostgreSQL holds authoritative relational data and derived indexes.**
+**Files hold canonical documents and standalone execution state; PostgreSQL holds server relational data and indexes.**
 
 - Sessions, messages, memory, config → file-based (human-inspectable, portable)
 - Search indexes → PostgreSQL `content_tsv` plus optional pgvector tables (separate memory and conversation
   projections, rebuildable from canonical memory and session NDJSON via `dartclaw rebuild-index`)
 - Tasks, goals, artifacts, executions, workflow runs, turn traces, task events and knowledge facts → PostgreSQL
-  (authoritative relational records)
+  (server-owned authoritative relational records)
+- Standalone tasks, goals, artifacts, executions, workflow runs, traces and events → one versioned JSON checkpoint
+  at `<data_dir>/standalone/execution.json`; standalone composes no knowledge graph or search service.
 - Projects → file-based JSON (atomic writes, human-inspectable)
 
 Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
@@ -26,7 +28,7 @@ execution, workflow-run, trace, event and KG persistence use the `PostgresBacken
 `dartclaw_core`. The execution transactor delegates transaction ownership to the backend shared by its participating
 repositories.
 
-PostgreSQL 14 or newer is required. One pool serves authoritative repositories; `database.pool_size` defaults to
+Server operation requires PostgreSQL 14 or newer. One pool serves authoritative repositories; `database.pool_size` defaults to
 five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside
 the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but
 transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
@@ -52,6 +54,28 @@ The separate 0.27 transition utility imports the authoritative SQLite shape shar
 empty current schema while DartClaw is stopped. Its pinned manifest comes from v0.26.1; the v0.26.2 release did not
 change SQLite storage. It never imports derived indexes or canonical files and does not provide ongoing compatibility,
 merge, overwrite, synchronization, or reverse migration.
+
+### Standalone execution checkpoint
+
+`FileExecutionStore` owns schema version 1 and the `tasks`, `agentExecutions`, `workflowSteps`, `workflowRuns`,
+`artifacts`, `goals`, `events` and `traces` maps. File adapters implement the existing repository contracts. The store
+implements `ExecutionRepositoryTransactor`, joining task/execution/step writes into one draft and publishing once
+through `atomicWriteJson` after success. Every operation reloads inside a `RepoLock` plus a stable sidecar OS lock;
+parallel steps and separate CLI processes cannot publish stale whole-store snapshots. Failed actions leave the
+previous file unchanged. Malformed or unsupported checkpoints refuse without resetting data. This provides atomic
+replacement and process-crash recovery, not a promised power-loss durability guarantee.
+
+Sessions/messages, `turn_state.json` and `kv.json` are isolated under `<data_dir>/standalone/`. Provider credentials,
+workflow definitions and run artifact/context files retain their existing locations. The full per-run context file
+retains its artifact role. Resume prefers the run record when `WorkflowRun.contextJson` contains a full `data`
+snapshot, so an older sidecar cannot undo a committed approval. Legacy lightweight snapshots still read the sidecar.
+Standalone status and lifecycle commands use the file store; connected commands use server PostgreSQL. Database
+histories are never implicitly copied or opened. Back up standalone state and artifacts with its processes stopped.
+
+One standalone execution process owns a data directory at a time, enforced by a separate process lock. This protects
+the session and KV services' per-process caches while allowing parallel steps inside that owner. Status and lifecycle
+control commands can access the locked checkpoint independently. Standalone execution starts only the requested run;
+server startup retains automatic workflow recovery.
 
 **Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
 
@@ -669,7 +693,7 @@ first-return deduplication and a 50-locator cap. Legacy records default to `[]`;
 and adds no column or source replay store.
 
 **Multi-service co-location note**: One PostgreSQL namespace co-locates task, execution, workflow, trace, event, goal
-and KG tables. Runtime wiring, standalone workflow status and cleanup validate `PostgresSchemaGate` before constructing
+and KG tables. Server runtime wiring and database maintenance validate `PostgresSchemaGate` before constructing
 repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services,
 share one `PostgresBackend`; their constructors do not create or repair schema. Wiring owns backend closure;
 repositories do not close the shared pool.

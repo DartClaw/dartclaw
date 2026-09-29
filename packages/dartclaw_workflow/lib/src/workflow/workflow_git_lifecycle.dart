@@ -1,5 +1,6 @@
 import 'workflow_definition.dart' show WorkflowDefinition;
 import 'workflow_run.dart' show WorkflowRun;
+import 'workflow_run_repository.dart';
 
 import 'package:logging/logging.dart';
 
@@ -15,7 +16,7 @@ Future<String?> initializeWorkflowGit({
   required WorkflowDefinition definition,
   required WorkflowContext context,
   required WorkflowTurnAdapter? turnAdapter,
-  required dynamic repository,
+  required WorkflowRunRepository repository,
   required Future<void> Function(String runId, WorkflowContext context) persistContext,
   required String? Function(WorkflowRun run, WorkflowContext context) workflowProjectId,
   required bool Function(WorkflowDefinition definition, WorkflowContext context) requiresPerMapItemGitIsolation,
@@ -41,8 +42,8 @@ Future<String?> initializeWorkflowGit({
       context['_workflow.git.note'] = result.note!;
     }
     await persistContext(run.id, context);
-    final refreshedRun = (await repository.getById(run.id) as WorkflowRun?) ?? run;
-    await repository.update(
+    final refreshedRun = (await repository.getById(run.id)) ?? run;
+    await repository.updateOwned(
       refreshedRun.copyWith(
         contextJson: {...privateContextEntries(refreshedRun.contextJson), ...context.toJson()},
         updatedAt: DateTime.now(),
@@ -62,7 +63,7 @@ Future<String?> runDeterministicPublish({
   required WorkflowDefinition definition,
   required WorkflowContext context,
   required WorkflowTurnAdapter? turnAdapter,
-  required dynamic repository,
+  required WorkflowRunRepository repository,
   required Future<void> Function(String runId, WorkflowContext context) persistContext,
   required String? Function(WorkflowRun run, WorkflowContext context) workflowProjectId,
 }) async {
@@ -94,8 +95,8 @@ Future<String?> runDeterministicPublish({
       context['publish.error'] = result.error!;
     }
     await persistContext(run.id, context);
-    final refreshedRun = (await repository.getById(run.id) as WorkflowRun?) ?? run;
-    await repository.update(
+    final refreshedRun = (await repository.getById(run.id)) ?? run;
+    await repository.updateOwned(
       refreshedRun.copyWith(
         contextJson: {...privateContextEntries(refreshedRun.contextJson), ...context.toJson()},
         updatedAt: DateTime.now(),
@@ -110,6 +111,8 @@ Future<String?> runDeterministicPublish({
       '${result.prUrl.isNotEmpty ? ', PR: ${result.prUrl}' : ''}',
     );
     return null;
+  } on WorkflowRunOwnershipLost {
+    rethrow;
   } catch (e, st) {
     _log.severe("Workflow '${run.id}': publish threw exception for branch '$branch'", e, st);
     return 'publish failed: $e';

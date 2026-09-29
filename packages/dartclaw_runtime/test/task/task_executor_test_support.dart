@@ -20,7 +20,8 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowRun, WorkflowRunRepository, WorkflowStepExecutionRepository, WorkflowWorktreeBinding;
+    show WorkflowRun, WorkflowRunRepository, WorkflowStepExecutionRepository;
+import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:path/path.dart' as p;
 
 /// Blocks a step prompt carrying the `BLOCK_WORKFLOW_PROMPT` sentinel.
@@ -345,7 +346,7 @@ final class WorkflowTaskExecutorTestContext {
   }) async {
     await _harness.setUp(tempPrefix: tempPrefix, messageServiceFactory: messageServiceFactory);
     agentExecutions = InMemoryAgentExecutionRepository();
-    workflowRuns = _InMemoryWorkflowRunRepository();
+    workflowRuns = InMemoryWorkflowRunRepository();
     workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
     executionTransactor = const InMemoryExecutionRepositoryTransactor();
     _harness.tasks = TaskService(
@@ -882,61 +883,4 @@ class BusyOnceTurnManager extends TurnManager {
   Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async {
     return TurnOutcome(turnId: turnId, sessionId: sessionId, status: TurnStatus.completed, completedAt: DateTime.now());
   }
-}
-
-final class _InMemoryWorkflowRunRepository implements WorkflowRunRepository {
-  final Map<String, WorkflowRun> _runs = {};
-
-  @override
-  Future<void> insert(WorkflowRun run) async {
-    if (_runs.containsKey(run.id)) throw ArgumentError('WorkflowRun already exists: ${run.id}');
-    _runs[run.id] = run;
-  }
-
-  @override
-  Future<WorkflowRun?> getById(String id) async => _runs[id];
-
-  @override
-  Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) async {
-    final runs = _runs.values.where((run) {
-      if (status != null && run.status != status) return false;
-      return definitionName == null || run.definitionName == definitionName;
-    }).toList();
-    runs.sort((left, right) => right.startedAt.compareTo(left.startedAt));
-    return runs;
-  }
-
-  @override
-  Future<void> update(WorkflowRun run) async {
-    if (!_runs.containsKey(run.id)) throw ArgumentError('WorkflowRun not found: ${run.id}');
-    _runs[run.id] = run;
-  }
-
-  @override
-  Future<void> delete(String id) async {
-    _runs.remove(id);
-  }
-
-  @override
-  Future<void> setWorktreeBinding(String runId, WorkflowWorktreeBinding binding) async {
-    final run = _runs[runId];
-    if (run == null) throw ArgumentError('WorkflowRun not found: $runId');
-    _runs[runId] = run.copyWith(
-      workflowWorktrees: [
-        for (final current in run.workflowWorktrees)
-          if (current.key != binding.key) current,
-        binding,
-      ],
-    );
-  }
-
-  @override
-  Future<WorkflowWorktreeBinding?> getWorktreeBinding(String runId) async {
-    final bindings = _runs[runId]?.workflowWorktrees ?? const <WorkflowWorktreeBinding>[];
-    return bindings.isEmpty ? null : bindings.last;
-  }
-
-  @override
-  Future<List<WorkflowWorktreeBinding>> getWorktreeBindings(String runId) async =>
-      _runs[runId]?.workflowWorktrees ?? const <WorkflowWorktreeBinding>[];
 }

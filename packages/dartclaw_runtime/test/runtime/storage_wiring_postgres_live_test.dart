@@ -56,9 +56,9 @@ void main() {
         resolvedConfigPath: configFile.path,
         messageRedactor: MessageRedactor(),
         resolvedAssets: const ResolvedAssets.embedded(),
-        headless: true,
         runWorkflowSkillsBootstrap: false,
         providerAuthPreflight: FakeProviderAuthPreflight(),
+        headless: true,
       );
       final task = await runtime.taskService.create(id: 'pg-task', title: 'Postgres', description: 'round trip');
       expect((await runtime.taskService.get(task.id))?.title, 'Postgres');
@@ -186,7 +186,7 @@ Future<_FailedStartup> _captureFailedBuild({required String dsn, required Direct
         resolvedConfigPath: configFile.path,
         messageRedactor: MessageRedactor(),
         resolvedAssets: const ResolvedAssets.embedded(),
-        headless: true,
+        headless: false,
         runWorkflowSkillsBootstrap: false,
       );
     }, zoneSpecification: ZoneSpecification(print: (_, _, _, line) => stdoutLines.add(line)));

@@ -1,5 +1,12 @@
 part of 'service_wiring.dart';
 
+Future<void> _prepareHeadlessExecution(_RuntimeAssembly assembly) async {
+  if (!assembly.headless) return;
+  assembly._ownedExecutionLease = await StandaloneExecutionLease.acquire(assembly.config.standaloneDir);
+  await assembly._project.activate();
+  await assembly._storage.wireHeadlessExecutionFiles();
+}
+
 /// A headless composition paused after base-service assembly.
 ///
 /// The workflow registry and the persisted runs are already usable, so a caller

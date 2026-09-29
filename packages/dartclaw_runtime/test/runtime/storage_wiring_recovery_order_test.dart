@@ -120,9 +120,10 @@ void main() {
     }
   });
 
-  test('headless storage opens state without scanning or acknowledging orphans', () async {
+  test('headless staging defers its own turn state and preserves serving orphans', () async {
+    final config = DartclawConfig(server: ServerConfig(dataDir: directory.path));
     final wiring = StorageWiring(
-      config: DartclawConfig(server: ServerConfig(dataDir: directory.path)),
+      config: config,
       eventBus: EventBus(),
       personalMemoryEnabled: false,
       exitFn: (code) => throw _Exit(code),
@@ -132,7 +133,10 @@ void main() {
     await wiring.wire();
     try {
       expect(_orphanWarnings(logs), isEmpty);
-      expect((await wiring.turnStateStore.getAll()).keys, ['orphan-session']);
+      expect(File('${config.standaloneDir}/turn_state.json').existsSync(), isFalse);
+      await wiring.wireHeadlessExecutionFiles();
+      expect(await wiring.turnStateStore.getAll(), isEmpty);
+      expect((await openTurnStateStore('${directory.path}/turn_state.json').getAll()).keys, ['orphan-session']);
     } finally {
       await wiring.dispose();
     }

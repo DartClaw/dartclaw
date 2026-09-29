@@ -270,7 +270,7 @@
 - **A guard test must assert the value the guard suppresses, not the input.** Asserting the prompt job's *prompt* stayed unlogged left the `onExecute` guard unpinned – deleting it passed 49 tests.
 - **An ordering test must fail at the step *between* the two writes.** A payload rejected during extraction can't tell "wiki write last" from "wiki write first".
 - **A report category no test asserts on can ship inverted for its whole life.** Wiki `orphan` had zero assertions and read the wrong direction of the link graph.
-- **`dev/fitness` caps a `*_test.dart` at 1300 lines; the breach shows in the workspace gate only.** Put a new group in a sibling file with its own `setUp`.
+- **`dev/fitness` test files fail at 1430 lines, 110% of the 1300-line target; the breach shows in the workspace gate only.** Put a new group in a sibling file with its own `setUp`.
 - **The conversation-loop browser profile is outside CI.** Chat UI changes pass CI while its assertions drift – `q1-e11` had never run. Rerun it after touching chat markup.
 - **Stage an identity marker outside its fresh destination.** A crash that leaves the temporary file inside an otherwise empty home makes the retry correctly refuse that now-nonempty unmarked directory.
 

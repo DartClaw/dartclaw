@@ -200,7 +200,7 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
       updatedAt: DateTime.now(),
     );
     await _persistContext(run.id, context);
-    await _repository.update(awaitingApprovalRun);
+    await _repository.updateOwned(awaitingApprovalRun);
     _eventBus.fire(
       WorkflowApprovalRequestedEvent(
         runId: run.id,

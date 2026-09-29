@@ -86,7 +86,7 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
   }
 
   @override
-  Future<void> update(WorkflowRun run) async {
+  Future<bool> update(WorkflowRun run, {WorkflowRunStatus? expectedStatus, DateTime? expectedUpdatedAt}) async {
     final stmt = await _backend.prepare('''
       UPDATE workflow_runs
       SET
@@ -101,10 +101,10 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
         definition_json = ?,
         execution_cursor_json = ?,
         workflow_worktree_json = COALESCE(?, workflow_worktree_json)
-      WHERE id = ?
+      WHERE id = ?${expectedStatus == null ? '' : ' AND status = ?'}${expectedUpdatedAt == null ? '' : ' AND updated_at = ?'}
     ''');
     try {
-      await stmt.execute([
+      final changed = await stmt.execute([
         run.status.name,
         _encodeRunContext(run),
         _encodeJson(run.variablesJson),
@@ -117,9 +117,37 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
         _encodeJsonNullable(run.executionCursor?.toJson()),
         _encodeWorkflowWorktreeBindings(run.workflowWorktrees),
         run.id,
+        if (expectedStatus != null) expectedStatus.name,
+        if (expectedUpdatedAt != null) expectedUpdatedAt.toIso8601String(),
       ]);
+      return changed > 0;
     } finally {
       await stmt.close();
+    }
+  }
+
+  @override
+  Future<WorkflowRun?> transitionStatus(
+    String id, {
+    required WorkflowRunStatus expectedStatus,
+    required WorkflowRunStatus status,
+    DateTime? completedAt,
+  }) async {
+    final statement = await _backend.prepare('''
+      UPDATE workflow_runs SET status = ?, updated_at = ?, completed_at = ?, error_message = NULL
+      WHERE id = ? AND status = ? RETURNING *
+    ''');
+    try {
+      final rows = await statement.query([
+        status.name,
+        DateTime.now().toIso8601String(),
+        completedAt?.toIso8601String(),
+        id,
+        expectedStatus.name,
+      ]);
+      return rows.isEmpty ? null : _workflowRunFromRow(rows.single);
+    } finally {
+      await statement.close();
     }
   }
 

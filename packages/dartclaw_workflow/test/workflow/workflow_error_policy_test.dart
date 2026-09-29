@@ -197,7 +197,9 @@ void main() {
       expect(paused.currentStepIndex, 1);
       File(marker).writeAsStringSync('ready');
       final context = WorkflowContext.fromJson(paused.contextJson);
-      await h.executor.execute(paused, definition, context, startFromStepIndex: paused.currentStepIndex);
+      final resumed = paused.copyWith(status: WorkflowRunStatus.running);
+      await h.repository.update(resumed, expectedStatus: WorkflowRunStatus.paused);
+      await h.executor.execute(resumed, definition, context, startFromStepIndex: paused.currentStepIndex);
       final completed = (await h.repository.getById(run.id))!;
       expect(completed.status, WorkflowRunStatus.completed);
       final data = completed.contextJson['data'] as Map;

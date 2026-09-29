@@ -66,7 +66,7 @@ Ids are stable and are the canonical names for downstream models and glossary cl
 | `conversation-session` | Own conversation identity, retention, submissions, attempts, history, effective context, inbox state, and the rules deciding which conversation a message belongs to | Conversation & session routing | `dartclaw_core/lib/src/storage/`, `scoping/`, `dartclaw_runtime/lib/src/session/`, `conversation/`, `maintenance/`, conversation API and web routes | Distinct lifecycle and snapshot authority consumed by turn orchestration and projected into operator surfaces |
 | `channel-integration` | Normalize external messaging platforms into one inbound/outbound contract | Channel integration | `dartclaw_core/lib/src/channel/`, `dartclaw_whatsapp/`, `dartclaw_signal/`, `dartclaw_google_chat/`, webhook + pairing routes in `dartclaw_runtime` | ~10.8K LOC but naturally partitioned per platform behind one interface. Adding a platform adds an adapter, not context surface |
 | `task-review` | Run discrete reviewable units of work against a project checkout, with a git-backed review flow | Task & review lifecycle | `dartclaw_runtime/lib/src/task/`, `scheduling/`, `dartclaw_core/lib/src/task/`, task repos in `dartclaw_core` | ~13K LOC – the largest context inside `dartclaw_runtime`. Also absorbs Scheduling, which is too thin (~1.2K LOC) to stand alone |
-| `workflow-orchestration` | Execute declarative multi-step pipelines deterministically, including git branch topology and conflict resolution | Workflow orchestration | `dartclaw_workflow/`, workflow glue in `dartclaw_runtime`, workflow commands in `apps/dartclaw_cli` | ~25.9K LOC – the largest context in the repo, at a fitness ceiling of 30K. Sized by its own vocabulary (Run, Step, Promotion, Story Branch), which shares almost no terms with `task-review` |
+| `workflow-orchestration` | Execute declarative multi-step pipelines deterministically, including git branch topology and conflict resolution | Workflow orchestration | `dartclaw_workflow/`, workflow glue in `dartclaw_runtime`, workflow commands in `apps/dartclaw_cli` | ~25.9K package LOC against a 25,631-line target, below the 110% failure threshold. Sized by its own vocabulary (Run, Step, Promotion, Story Branch), which shares almost no terms with `task-review` |
 | `knowledge-memory` | Retain, curate, and synthesize durable knowledge; serve citation-backed context to agents | Durable knowledge & memory | `dartclaw_core/lib/src/{memory,search,knowledge,storage}/`, `dartclaw_runtime/lib/src/{memory,knowledge}/`, `memory_handlers.dart` | File and PostgreSQL persistence share one package; server owns curation and presentation |
 | `tool-surface` | Publish host-owned tools to provider binaries and consume external MCP servers under guard | (shared: guarding, knowledge) | `dartclaw_runtime/lib/src/mcp/` | ~4K LOC. Kept separate from `provider-mediation` because it is the mirror direction (host serves the provider) with its own trust boundary (ADR-039) |
 | `project-registry` | Manage the git checkouts that tasks and workflows execute against | Project & source control | `dartclaw_runtime/lib/src/project/`, `ProjectConfig`, `Project` in `dartclaw_kernel` | ~1K LOC. Small, but a shared upstream of two contexts – folding it into either would hide a cross-context dependency |
@@ -174,8 +174,8 @@ Packages are the observed modules; contexts are the linguistic boundaries. Where
 | `dartclaw_client` | none | Pure transport for the server's HTTP/SSE surface. Zero dependencies; owns no domain language, and deliberately mints no DTOs so the endpoint types keep one owner |
 | `dartclaw`, `dartclaw_testing` | none | Client-tier umbrella re-export and test doubles; no domain ownership |
 
-**Hard constraint on any restructuring**: package count and core LOC are ratchets set to the shipped tree, not spare
-capacity. Any later package addition or core growth requires an explicit owner decision (`dev/tools/arch_check.dart`, ADR-033).
+**Constraints on restructuring**: a package addition requires an explicit owner decision. Package LOC fails only at
+110% of its recorded target; smaller growth and shrinkage need no target change (`dev/tools/arch_check.dart`, ADR-033).
 
 ---
 
@@ -197,7 +197,7 @@ No drift against a previously registered Context Map – this is the first regis
 
 - **Context count vs. cognitive load.** 15 contexts against the "2–3 per team" heuristic looks alarming, but the
   heuristic bounds *team* hand-offs, and there is one maintainer and no team boundary to cut across. The real bound is
-  the auditability principle, already governed by LOC ceilings. No action.
+  the auditability principle, already governed by LOC targets. No action.
 - **Merging `tool-surface` into `provider-mediation`.** Superficially attractive (both are the host↔provider
   contract), but they run in opposite directions with different trust boundaries, and ADR-039 already settles the
   outbound one. Nothing is forcing the question. No action.
@@ -211,11 +211,11 @@ Ordered by value per unit of effort.
 1. **Close D-2 – both moves are renames.** `server/src/config/` vs. `dartclaw_kernel` is a live vocabulary collision,
    and a safety path (`emergency/`) depending on the route layer is an inversion that will resist testing. Near-zero
    cost, immediate clarity.
-2. **Settle H-1 before the next workflow investment.** It is the one decision here with a real forcing function
-   (a LOC ceiling already raised once) and it changes what the next raise means. Hand off:
+2. **Settle H-1 before the next workflow investment.** Its classification determines which workflow capabilities
+   belong in the product. The current LOC count does not trigger a size gate. Hand off:
    `andthen:architecture --mode decompose` scoped to `workflow-orchestration` vs. `task-review`.
 3. **Do not split `dartclaw_runtime`.** Eight contexts in one package is real, but the workspace package ceiling is
-   *at* 14, `dartclaw_core` is inside its warn band, and the philosophy is explicit about staying lean. This map is
+   *at* 13, and the philosophy is explicit about staying lean. This map is
    the boundary record; adding fitness machinery to police a map written today would be the ceremony the project
    rules out. Revisit only if a split is actually proposed.
 4. ~~**Regroup the glossary onto these ids** (D-4) and add the Scheduling cluster (D-5).~~ **Done 2026-08-14** – the
@@ -231,12 +231,12 @@ One unresolved call, recorded rather than forced. It needs an owner decision.
 _For core_: deterministic host-driven pipelines are a stated differentiator against prompt choreography; the git
 branch topology (integration/story branches, promotion, agent-resolved merge) has no off-the-shelf equivalent; it
 carries the richest vocabulary in the glossary.
-_For supporting_: it is the largest context in the repo (~25.9K LOC against a 30K ceiling, raised once already) inside
+_For supporting_: the workflow package is ~25.9K LOC inside
 a product whose stated philosophy is "minimal viable scope per milestone" and "when in doubt, leave it out"; a general
 agent runtime does not obviously need a workflow engine to be differentiated; and the workspace `CLAUDE.md` notes
 Workflow Studio may be built in the separate smiðia repo rather than here.
-_Why it matters_: a supporting classification caps further investment and makes the 30K ceiling a stop sign rather
-than a bump. A core classification justifies the next raise.
+_Why it matters_: a supporting classification limits workflow investment to what the agent runtime needs. A core
+classification supports broader workflow capability. LOC targets remain a separate structural check under ADR-033.
 
 ---
 

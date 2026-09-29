@@ -13,7 +13,7 @@ DartClaw is a security-conscious AI agent runtime. A Dart host coordinates state
 | `claude` CLI | Stable channel | Agent binary — default provider (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | `codex` CLI | Current release | Agent binary — optional, for OpenAI models (see [Deployment § Maintaining Agent Binaries](deployment.md#maintaining-agent-binaries) for update guidance) |
 | Goose or Vibe | Latest | Optional ACP agent binaries; install only when configured under `harness.acp.agents` |
-| PostgreSQL | 14+ | Native or managed relational service; ordinary lexical search needs no extension |
+| PostgreSQL | 14+ | Required for the server; standalone workflows use local files |
 
 Install DartClaw first, then install and verify provider CLIs separately. This example uses Homebrew on macOS/Linux;
 see [Windows](windows.md) for native Windows installation and support boundaries.
@@ -75,6 +75,9 @@ its `bin/` directory to `PATH`; keep the sibling `lib/` directory. Migrate a sta
 credentials are still required for agent steps. Use configured API-key environment variables, or provision the
 instance's subscription credentials with the full `dartclaw auth` command and the same config/data directory.
 The workflow binary has no `auth` command. See [CLI Operations](cli-operations.md#headless-ci-usage).
+
+Standalone workflows need no PostgreSQL installation or database URL. Execution records, sessions and recovery
+state live under `<data_dir>/standalone/`; definitions and workflow artifacts retain their `workflows/` paths.
 
 On Windows x64, run the PowerShell installer from a trusted release checkout:
 

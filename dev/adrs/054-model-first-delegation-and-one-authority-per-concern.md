@@ -114,7 +114,7 @@ Two consequences of the reaffirmation:
 
 ### Enforcement
 
-Grep-class fitness checks for both defect classes join the existing fitness-function governance level (ADR-033), together with per-package downward-only lib LOC ceilings. They land after the offending code is removed, so they can be written allowlist-free; until then the rule is enforced by review against this record.
+Grep-class fitness checks for both defect classes join the existing fitness-function governance level (ADR-033), together with per-package lib LOC checks (now targets under ADR-033's 2026-09-29 amendment). They land after the offending code is removed, so they can be written allowlist-free; until then the rule is enforced by review against this record.
 
 ## Alternatives considered
 

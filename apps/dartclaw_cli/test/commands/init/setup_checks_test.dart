@@ -501,6 +501,33 @@ mcp_servers:
       expect(result.local.failures, ['PostgreSQL authentication failed.']);
     });
 
+    test('workflow setup verifies without probing PostgreSQL', () async {
+      final checks = SetupChecks(
+        loadConfig: (_) => const DartclawConfig.defaults(),
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+        configParseable: (_) async => true,
+        writeProbeFile: (_) {},
+        portFree: (_) async => false,
+        databaseReadiness: (_, {required bootstrap, required environment}) async {
+          fail('Standalone workflow setup must not inspect PostgreSQL.');
+        },
+      );
+
+      final result = await checks.verify(
+        configPath: _params.configPath,
+        providerIds: _params.providerIds,
+        instanceDir: _params.instanceDir,
+        port: _params.port,
+        skipNetwork: true,
+        skipPortCheck: true,
+        workflowTrack: true,
+      );
+
+      expect(result.failed, isFalse);
+      expect(result.databaseBootstrapPending, isFalse);
+      expect(result.local.failures, isEmpty);
+    });
+
     test('empty schema defers verification until doctor can bootstrap it', () async {
       var providerChecks = 0;
       final checks = SetupChecks(

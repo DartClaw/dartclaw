@@ -192,7 +192,7 @@ class WorkflowRun {
   /// Current lifecycle status.
   final WorkflowRunStatus status;
 
-  /// Serialized context snapshot (lightweight — full context on disk).
+  /// Serialized context snapshot. A full `data` snapshot is authoritative on resume.
   final Map<String, dynamic> contextJson;
 
   /// Variable bindings provided at workflow start.

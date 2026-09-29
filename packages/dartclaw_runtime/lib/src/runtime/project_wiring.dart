@@ -21,10 +21,10 @@ class ProjectWiring {
 
   ProjectService get projectService => _projectService;
 
-  Future<void> wire() async {
+  Future<void> wire({bool readOnly = false}) async {
     // Ensure the clones directory exists.
     final clonesDir = Directory(config.projectsClonesDir);
-    if (!clonesDir.existsSync()) {
+    if (!readOnly && !clonesDir.existsSync()) {
       clonesDir.createSync(recursive: true);
       _log.fine('Created projects clones directory: ${config.projectsClonesDir}');
     }
@@ -36,6 +36,12 @@ class ProjectWiring {
       eventBus: _eventBus,
     );
 
+    await _projectService.initialize(readOnly: readOnly);
+  }
+
+  Future<void> activate() async {
+    final clonesDir = Directory(config.projectsClonesDir);
+    if (!clonesDir.existsSync()) clonesDir.createSync(recursive: true);
     await _projectService.initialize();
   }
 

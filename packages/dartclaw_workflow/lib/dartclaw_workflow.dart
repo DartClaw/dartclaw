@@ -57,8 +57,9 @@ export 'src/workflow/workflow_run.dart'
     show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
 export 'src/workflow/workflow_asset_source_resolver.dart' show WorkflowAssetSourceResolver;
 export 'src/workflow/workflow_materializer.dart' show WorkflowMaterializer;
-export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository;
+export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository, WorkflowRunChangeSource;
 export 'src/storage/database_workflow_run_repository.dart' show DatabaseWorkflowRunRepository;
+export 'src/storage/file_workflow_run_repository.dart' show FileWorkflowRunRepository;
 
 export 'package:dartclaw_kernel/dartclaw_kernel.dart' show WorkflowStepExecutionRepository;
 

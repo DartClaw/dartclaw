@@ -7,18 +7,18 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskRepository, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show DatabaseTaskRepository, PostgresSchemaGate, postgresBackendFactory;
+    show FileExecutionStore, FileTaskRepository, Task, TaskRepository, formatLocalDateTime, humanizeSpan;
+import 'package:dartclaw_core/dartclaw_core.dart' show DatabaseTaskRepository, PostgresSchemaGate;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show DatabaseWorkflowRunRepository, WorkflowDefinition, WorkflowRun, WorkflowStep, workflowContextValue;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn, scrubAgentReportedText;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show FileWorkflowRunRepository, WorkflowRunRepository;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
 
-/// Shows workflow run status from the server by default, with a standalone fallback.
+/// Shows workflow run status from the server or the standalone file store.
 class WorkflowStatusCommand extends WorkflowConnectedCommand {
   final DatabaseBackendFactory? _taskBackendFactory;
   final bool _taskBackendIsPrepared;
@@ -54,7 +54,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         negatable: false,
         help: standaloneOnly
             ? 'Always on; accepted for script compatibility.'
-            : 'Read workflow status directly from the local tasks database',
+            : 'Read workflow status from the local standalone execution file',
       );
   }
 
@@ -96,54 +96,63 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       env: _environment,
     );
     final config = injectedConfig ?? loadCliConfig(configPath: configPath, env: _environment);
-    final dataDir = config.server.dataDir;
-    if (!Directory(dataDir).existsSync()) {
-      writeLine('No data directory found at $dataDir');
+    if (_taskBackendFactory != null) {
+      await _runWithInjectedBackend(runId, config);
+      return;
+    }
+
+    final path = config.standaloneExecutionPath;
+    if (!File(path).existsSync()) {
+      writeLine('No standalone workflow data found at $path. Existing PostgreSQL runs are not imported.');
+      exitFn(1);
+    }
+    final FileExecutionStore store;
+    try {
+      store = await FileExecutionStore.open(path);
+    } on FormatException catch (error) {
+      writeLine(error.message);
+      exitFn(1);
+    }
+    try {
+      await _printStoredRun(runId, FileWorkflowRunRepository(store), FileTaskRepository(store));
+    } finally {
+      await store.close();
+    }
+  }
+
+  Future<void> _runWithInjectedBackend(String runId, DartclawConfig config) async {
+    final backend = await _taskBackendFactory!(config.dartclawDbPath);
+    try {
+      if (!_taskBackendIsPrepared) {
+        await PostgresSchemaGate.validateCurrent(backend, databaseIdentity: 'configured PostgreSQL database');
+      }
+      await _printStoredRun(
+        runId,
+        _workflowRunRepositoryFactory?.call(backend) ?? DatabaseWorkflowRunRepository(backend),
+        _taskRepositoryFactory?.call(backend) ?? DatabaseTaskRepository(backend),
+      );
+    } finally {
+      await backend.close();
+    }
+  }
+
+  Future<void> _printStoredRun(String runId, WorkflowRunRepository runs, TaskRepository tasks) async {
+    final run = await runs.getById(runId);
+    if (run == null) {
+      writeLine('Standalone workflow run not found: $runId');
       exitFn(1);
     }
 
-    final factory =
-        _taskBackendFactory ??
-        postgresBackendFactory(
-          config.database,
-          resolveDsn: (database) =>
-              resolveDatabaseDsn(database, credentials: CredentialRegistry(credentials: config.credentials)),
-          auditLogger: GuardAuditLogger(dataDir: config.server.dataDir),
-        );
-    final backend = await factory(config.dartclawDbPath);
-    try {
-      WorkflowRun? run;
-      try {
-        if (!_taskBackendIsPrepared) {
-          await PostgresSchemaGate.validateCurrent(backend, databaseIdentity: 'configured PostgreSQL database');
-        }
-        final repository = _workflowRunRepositoryFactory?.call(backend) ?? DatabaseWorkflowRunRepository(backend);
-        run = await repository.getById(runId);
-      } catch (_) {
-        // DB not initialised or schema mismatch — user-visible message is the diagnostic.
-        writeLine('No workflow data found (database may not be initialized).');
-        exitFn(1);
-      }
+    final childTasks = (await tasks.list()).where((task) => task.workflowRunId == runId).toList()
+      ..sort((a, b) => (a.stepIndex ?? 0).compareTo(b.stepIndex ?? 0));
 
-      if (run == null) {
-        writeLine('Workflow run not found: $runId');
-        exitFn(1);
-      }
-
-      final taskRepository = _taskRepositoryFactory?.call(backend) ?? DatabaseTaskRepository(backend);
-      final childTasks = (await taskRepository.list()).where((task) => task.workflowRunId == runId).toList()
-        ..sort((a, b) => (a.stepIndex ?? 0).compareTo(b.stepIndex ?? 0));
-
-      if (argResults!['json'] as bool) {
-        writeLine(
-          const JsonEncoder.withIndent('  ')
-              .convert({...run.toJson(), 'steps': childTasks.map((t) => t.toJson()).toList()}),
-        );
-      } else {
-        _printStandaloneTable(run, childTasks);
-      }
-    } finally {
-      await backend.close();
+    if (argResults!['json'] as bool) {
+      writeLine(
+        const JsonEncoder.withIndent('  ')
+            .convert({...run.toJson(), 'steps': childTasks.map((t) => t.toJson()).toList()}),
+      );
+    } else {
+      _printStandaloneTable(run, childTasks);
     }
   }
 

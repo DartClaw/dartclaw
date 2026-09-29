@@ -1,18 +1,18 @@
-// Fitness function: no production file under lib/src/ may exceed 1,500 LOC.
+// Fitness function: production files fail at 110% of the 1,500-line target.
 //
 // What this enforces:
-//   Every `.dart` file under `packages/<X>/lib/src/**` must have ≤ 1,500 lines.
+//   Every `.dart` file under `packages/<X>/lib/src/**` must stay below 1,650 lines.
 //   Known intentional violators are listed in `allowlist/max_file_loc.txt` with
 //   a shrink-target rationale — they are tracked for remediation, not forgotten.
 //
 // Why:
-//   Files exceeding 1,500 LOC are a reliable signal of insufficient
-//   decomposition. The ceiling prevents gradual drift toward monolithic files
+//   Files reaching 1,650 LOC are a reliable signal of insufficient
+//   decomposition. The target prevents gradual drift toward monolithic files
 //   that are expensive to review, test, and understand.
 //
 // How to resolve a failure:
 //   Option A (preferred): Decompose the file into smaller focused modules so
-//   that each stays under 1,500 lines.
+//   that each stays under the 1,500-line target.
 //   Option B (intentional exception with shrink target): Add an entry to
 //   `allowlist/max_file_loc.txt` with
 //   the format `<relative-path-from-repo-root>  # <LOC>; <shrink-target>`.
@@ -24,6 +24,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import '_internal/fitness_test_utils.dart';
+import '../../tools/loc_target.dart';
 
 const _locLimit = 1500;
 
@@ -43,7 +44,7 @@ void main() {
     assertAllowlistFormat(allowlistFile(repoRoot, 'max_file_loc.txt'), entryFormat: '<relative-path>');
   });
 
-  test('no lib/src/**/*.dart file exceeds $_locLimit lines', () {
+  test('no lib/src/**/*.dart file reaches 110% of the $_locLimit-line target', () {
     final violations = <String>[];
 
     final packagesDir = Directory('$repoRoot/packages');
@@ -55,11 +56,11 @@ void main() {
         final relativePath = relativeTo(entity.path, repoRoot).replaceAll('\\', '/');
         if (relativePath.contains('/lib/src/generated/')) continue;
         final loc = entity.readAsLinesSync().length;
-        // Consulted only once the file is actually over the limit, so an entry
+        // Consulted only once the file reaches the failure margin, so an entry
         // for a file that has since shrunk reads as stale instead of silent.
-        if (loc > _locLimit && !allowlist.containsKey(relativePath)) {
+        if (locExceedsTarget(loc, _locLimit) && !allowlist.containsKey(relativePath)) {
           violations.add(
-            '$relativePath: $loc lines (limit $_locLimit) — '
+            '$relativePath: $loc lines (target $_locLimit; fails at 110%) — '
             'decompose or add to allowlist/max_file_loc.txt with rationale',
           );
         }

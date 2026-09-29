@@ -18,7 +18,14 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStepExecutionRepository;
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
-    show CredentialPreflight, CredentialPreflightException, DartclawRuntime, ExitFn, HeadlessRuntimeStaging, WriteLine;
+    show
+        CredentialPreflight,
+        CredentialPreflightException,
+        DartclawRuntime,
+        ExitFn,
+        HeadlessRuntimeStaging,
+        StandaloneExecutionLeaseException,
+        WriteLine;
 
 import '../cli_global_options.dart';
 import '../config_loader.dart';
@@ -291,7 +298,12 @@ class WorkflowRunCommand extends Command<void> {
         _stderrLine(error.message);
         _exitFn(1);
       }
-      runtime = await staging.completeForExecution(referencedProviders);
+      try {
+        runtime = await staging.completeForExecution(referencedProviders);
+      } on StandaloneExecutionLeaseException catch (error) {
+        _stderrLine(error.message);
+        _exitFn(1);
+      }
 
       final printer = CliProgressPrinter(
         commandPrefix: commandPrefix(this),

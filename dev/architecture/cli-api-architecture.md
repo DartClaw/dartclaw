@@ -2,7 +2,7 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.27 PostgreSQL-only CLI readiness/maintenance, hybrid search inspection, connected search
+**Current through**: 0.27.1 standalone file persistence, PostgreSQL server readiness/maintenance, hybrid search inspection, connected search
 commands, HTMX 4 preparation, and selected-corpus Memory administration
 
 ---
@@ -153,8 +153,11 @@ Standalone mode is available for workflow commands with meaningful local semanti
 The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives
 `dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`,
 `cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing
-an accidental split writer beside the PostgreSQL serving interlock; `status --standalone` is a one-shot PostgreSQL
-read with no HTTP server.
+accidental concurrent use of shared project/workflow files. Standalone execution uses
+`<data_dir>/standalone/execution.json` through `FileExecutionStore`, and `status --standalone` reads that same
+checkpoint. No PostgreSQL connection or schema gate runs. Sessions, turn recovery and KV are isolated under
+`standalone/`; definitions, credentials and workflow artifacts keep their existing paths. Existing database histories
+remain separate. Workflow-only init neither writes a database reference nor probes database readiness.
 
 Headless composition retains task/session/turn persistence and guarded workflow execution. It omits personal-memory corpus preflight, search storage/backends, knowledge graph, self-improvement, memory MCP callbacks and memory prompt projection/retrieval hints. This boundary follows the existing headless mode; it is not a separate user configuration setting. Provider-native capabilities and project instructions are unaffected.
 

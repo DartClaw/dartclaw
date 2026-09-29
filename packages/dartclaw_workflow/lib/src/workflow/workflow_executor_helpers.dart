@@ -79,7 +79,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
 
   Future<void> _persistContextThenRun(WorkflowRun run, WorkflowContext context) async {
     await _persistContext(run.id, context);
-    await _repository.update(run);
+    await _repository.updateOwned(run);
   }
 
   Future<void> _createWorkflowTaskTriple({

@@ -4,21 +4,12 @@ library;
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import 'dart:async';
-
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, WorkflowBudgetWarningEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun, WorkflowStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_budget_monitor.dart'
     show checkWorkflowBudgetWarning, workflowBudgetExceeded;
+import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:test/test.dart';
-
-// Minimal fake repository that stores a single run and supports update.
-class _FakeRepo {
-  WorkflowRun? _stored;
-
-  Future<void> update(WorkflowRun run) async => _stored = run;
-  Future<WorkflowRun?> getById(String id) async => _stored?.id == id ? _stored : null;
-}
 
 WorkflowDefinition _def({required int maxTokens}) => WorkflowDefinition(
   name: 'test',
@@ -85,8 +76,13 @@ void main() {
 
   group('checkWorkflowBudgetWarning', () {
     late EventBus eventBus;
+    late InMemoryWorkflowRunRepository repository;
 
-    setUp(() => eventBus = EventBus());
+    setUp(() async {
+      eventBus = EventBus();
+      repository = InMemoryWorkflowRunRepository();
+      await repository.insert(_run(tokens: 0));
+    });
     tearDown(() async => eventBus.dispose());
 
     test('no warning when maxTokens is null', () async {
@@ -96,7 +92,7 @@ void main() {
         run: _run(tokens: 9999),
         definition: _defNoLimit(),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings, isEmpty);
@@ -109,7 +105,7 @@ void main() {
         run: _run(tokens: 7999),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings, isEmpty);
@@ -122,7 +118,7 @@ void main() {
         run: _run(tokens: 8000),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings, hasLength(1));
@@ -137,7 +133,7 @@ void main() {
         run: _run(tokens: 9500),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings, hasLength(1));
@@ -150,7 +146,7 @@ void main() {
         run: _run(tokens: 10000),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings, hasLength(1));
@@ -163,7 +159,7 @@ void main() {
         run: _run(tokens: 12000),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings, hasLength(1));
@@ -172,7 +168,7 @@ void main() {
     test('dedup: second call with warning already fired emits no new warning', () async {
       final warnings = <WorkflowBudgetWarningEvent>[];
       final sub = eventBus.on<WorkflowBudgetWarningEvent>().listen(warnings.add);
-      final repo = _FakeRepo();
+      final repo = repository;
       // Seed the already-warned run.
       final alreadyWarned = _run(tokens: 8500, contextJson: {'_budget.warningFired': true});
       await checkWorkflowBudgetWarning(
@@ -186,7 +182,7 @@ void main() {
     });
 
     test('dedup: warning flag set in returned run after first firing', () async {
-      final repo = _FakeRepo();
+      final repo = repository;
       final sub = eventBus.on<WorkflowBudgetWarningEvent>().listen((_) {});
       final updatedRun = await checkWorkflowBudgetWarning(
         run: _run(tokens: 8000),
@@ -201,7 +197,7 @@ void main() {
     test('uses additional tokens for the 80% boundary without inflating storage', () async {
       final warnings = <WorkflowBudgetWarningEvent>[];
       final sub = eventBus.on<WorkflowBudgetWarningEvent>().listen(warnings.add);
-      final repo = _FakeRepo();
+      final repo = repository;
 
       final updatedRun = await checkWorkflowBudgetWarning(
         run: _run(tokens: 5000),
@@ -214,7 +210,7 @@ void main() {
         run: _run(tokens: 5000),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
         additionalTokens: 2999,
       );
       await sub.cancel();
@@ -234,7 +230,7 @@ void main() {
         run: _run(tokens: 8000),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings.first.consumedPercent, closeTo(0.80, 0.001));
@@ -247,7 +243,7 @@ void main() {
         run: _run(tokens: 0),
         definition: _def(maxTokens: 10000),
         eventBus: eventBus,
-        repository: _FakeRepo(),
+        repository: repository,
       );
       await sub.cancel();
       expect(warnings, isEmpty);

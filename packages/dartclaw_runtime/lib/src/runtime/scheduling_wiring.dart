@@ -372,7 +372,7 @@ class SchedulingWiring {
                   for (final entry in _scheduleService?.entries ?? const <LoadedScheduleEntry>[]) entry.id,
                 },
                 isSessionActive: turns.isActive,
-                sessionsDir: config.sessionsDir,
+                sessionsDir: _storage.sessions.baseDir,
                 taskService: taskService,
                 artifactRetentionDays: config.tasks.artifactRetentionDays,
                 dataDir: config.server.dataDir,

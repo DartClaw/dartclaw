@@ -6,6 +6,7 @@ import 'package:dartclaw_cli/src/commands/workflow/standalone_lifecycle_support.
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, DartclawRuntimeExecutionStack;
+import 'package:dartclaw_runtime/src/runtime/standalone_execution_lease.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -177,6 +178,27 @@ steps:
       expect(output.last, contains('"type":"workflow_run_digest"'));
       expect(output.last, contains('"nextActions"'));
       expect(errors, isEmpty);
+    });
+
+    test('a second standalone run reports the active owner and exits 1', () async {
+      final lease = await StandaloneExecutionLease.acquire(config.standaloneDir);
+      try {
+        final output = <String>[];
+        final errors = <String>[];
+        final command = _standaloneCommand(config: config, stdoutOutput: output, stderrOutput: errors);
+        final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+        await expectLater(
+          () => runner.run(['run', 'ci-demo', '--standalone', '--json']),
+          throwsA(isA<FakeExit>().having((error) => error.code, 'code', 1)),
+        );
+
+        expect(output, isEmpty);
+        expect(errors, hasLength(1));
+        expect(errors.single, contains('A standalone workflow execution is already active'));
+      } finally {
+        await lease.release();
+      }
     });
 
     // TI01 parity pin: the standalone lane's --json stream, enumerated in order

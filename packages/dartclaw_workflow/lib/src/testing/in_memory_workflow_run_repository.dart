@@ -29,9 +29,32 @@ final class InMemoryWorkflowRunRepository implements WorkflowRunRepository {
   }
 
   @override
-  Future<void> update(WorkflowRun run) async {
-    if (!_runs.containsKey(run.id)) throw ArgumentError('WorkflowRun not found: ${run.id}');
+  Future<bool> update(WorkflowRun run, {WorkflowRunStatus? expectedStatus, DateTime? expectedUpdatedAt}) async {
+    final existing = _runs[run.id];
+    if (existing == null ||
+        (expectedStatus != null && existing.status != expectedStatus) ||
+        (expectedUpdatedAt != null && existing.updatedAt != expectedUpdatedAt)) {
+      return false;
+    }
     _runs[run.id] = run;
+    return true;
+  }
+
+  @override
+  Future<WorkflowRun?> transitionStatus(
+    String id, {
+    required WorkflowRunStatus expectedStatus,
+    required WorkflowRunStatus status,
+    DateTime? completedAt,
+  }) async {
+    final current = _runs[id];
+    if (current == null || current.status != expectedStatus) return null;
+    return _runs[id] = current.copyWith(
+      status: status,
+      updatedAt: DateTime.now(),
+      completedAt: completedAt,
+      errorMessage: null,
+    );
   }
 
   @override

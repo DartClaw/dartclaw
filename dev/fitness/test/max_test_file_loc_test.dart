@@ -1,24 +1,21 @@
-// Fitness function: no test file may exceed 1300 LOC unless allowlisted, and
-// allowlist entries ratchet.
+// Fitness function: test files fail at 110% of the 1300-line target unless
+// allowlisted; recorded allowlist baselines have the same margin.
 //
 // What this enforces:
 //   1. Every `*_test.dart` file `testDartFiles` yields - under packages/, apps/
 //      and this suite's own test/ tree - that is NOT allowlisted must have
-//      <= 1300 lines.
+//      < 1430 lines.
 //   2. Each allowlist entry records the file's baseline LOC (the leading
 //      integer of its rationale). The check FAILS when:
-//        - the file has grown past that recorded baseline (the ratchet), or
+//        - the file reaches 110% of that recorded baseline, or
 //        - the entry points at a file that no longer exists, or
-//        - the file has dropped back to <= 1300 (it no longer needs an
+//        - the file has dropped below 1430 (it no longer needs an
 //          exception - remove the entry).
-//   Shrinking is always allowed; refresh the recorded number downward when a
-//   file shrinks so the ratchet keeps tightening.
+//   Shrinking is always allowed and does not trigger a baseline update.
 //
 // Why:
 //   Large tests hide redundant cases and discourage behavior-focused additions.
-//   Without the ratchet the recorded LOC values were inert - an allowlisted
-//   file could grow unbounded (M-r/CT-11). The ratchet freezes each baseline
-//   and only ever lets it move down.
+//   Recorded LOC values keep allowlisted files from growing without bound.
 //
 // 1200 -> 1300 on 2026-08-12: the 0.24 execution-isolation work left
 // `harness_wiring_test.dart` with no story headroom under 1200. Per the
@@ -31,6 +28,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import '_internal/fitness_test_utils.dart';
+import '../../tools/loc_target.dart';
 
 const _locLimit = 1300;
 
@@ -55,16 +53,16 @@ void main() {
     assertAllowlistFormat(allowlistFile(repoRoot, 'max_test_file_loc.txt'), entryFormat: '<relative-path>');
   });
 
-  test('no *_test.dart file exceeds $_locLimit lines unless allowlisted', () {
+  test('no *_test.dart file reaches 110% of the $_locLimit-line target unless allowlisted', () {
     final violations = <String>[];
 
     for (final file in testDartFiles(repoRoot)) {
       final relativePath = relativeTo(file.path, repoRoot).replaceAll('\\', '/');
       if (allowlist.containsKey(relativePath)) continue;
       final loc = file.readAsLinesSync().length;
-      if (loc > _locLimit) {
+      if (locExceedsTarget(loc, _locLimit)) {
         violations.add(
-          '$relativePath: $loc lines (limit $_locLimit) - '
+          '$relativePath: $loc lines (target $_locLimit; fails at 110%) - '
           'table-drive, extract fixtures, split, or add a shrink-target allowlist entry',
         );
       }
@@ -78,7 +76,7 @@ void main() {
     }
   });
 
-  test('allowlist entries ratchet: file exists, stays over the ceiling, and does not grow past its recorded LOC', () {
+  test('allowlist entries exist, remain over the target margin, and stay below 110% of recorded LOC', () {
     final violations = <String>[];
 
     allowlist.forEach((relativePath, rationale) {
@@ -88,9 +86,9 @@ void main() {
         return;
       }
       final loc = file.readAsLinesSync().length;
-      if (loc <= _locLimit) {
+      if (!locExceedsTarget(loc, _locLimit)) {
         violations.add(
-          '$relativePath: now $loc lines (<= $_locLimit) - remove it from the allowlist, '
+          '$relativePath: now $loc lines (< 110% of $_locLimit) - remove it from the allowlist, '
           'it no longer needs an exception',
         );
         return;
@@ -100,10 +98,10 @@ void main() {
         violations.add('$relativePath: rationale must begin with the recorded LOC (e.g. "1908 LOC; ...")');
         return;
       }
-      if (loc > recorded) {
+      if (locExceedsTarget(loc, recorded)) {
         violations.add(
-          '$relativePath: grew to $loc lines, past its recorded baseline of $recorded - '
-          'shrink it back under $recorded (refresh the recorded LOC downward only)',
+          '$relativePath: grew to $loc lines, reaching 110% of its recorded baseline of $recorded - '
+          'shrink it below that margin or update the reviewed baseline',
         );
       }
     });

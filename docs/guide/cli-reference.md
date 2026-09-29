@@ -645,7 +645,9 @@ dartclaw workflow cancel <run-id> --feedback "Reject current review" --json
 dartclaw workflow cancel <run-id> --standalone --feedback "Reject current review"
 ```
 
-`resume`, `cancel`, `pause`, and `retry` accept `--standalone` (with `--force`), driving the run's lifecycle in-process against the local task DB instead of a server – so an approval-paused `workflow run --standalone` can be taken to completion without ever starting `dartclaw serve`. The engine's state-transition guards still apply: a guard violation (e.g. resuming a `running` run, or retrying a non-`failed` one) prints a one-line reason and exits non-zero, never a stack trace. Like `workflow run --standalone`, these abort if a server is reachable on the resolved loopback port unless `--force` is added. A stale `running` run (left by an abruptly killed standalone process) is **not** auto-reconciled – the guard surfaces it cleanly and you re-run once the run is in a resumable state.
+`resume`, `cancel`, `pause`, and `retry` accept `--standalone` (with `--force`), using `<data_dir>/standalone/execution.json`. No database or `dartclaw serve` process is required. The engine's state-transition guards still apply: resuming a `running` run or retrying a non-`failed` one prints a reason and exits non-zero. Like `workflow run --standalone`, these abort if a server is reachable on the resolved loopback port unless `--force` is added.
+
+Standalone commands execute only the requested run; starting another command does not recover other runs. After an abruptly killed process leaves a stale `running` run, confirm the original process has stopped, then use `pause <run-id> --standalone` followed by `resume <run-id> --standalone`.
 
 ### `workflow status`
 

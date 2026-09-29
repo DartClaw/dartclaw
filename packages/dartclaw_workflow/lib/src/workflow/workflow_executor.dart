@@ -8,7 +8,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 
 import 'workflow_definition.dart';
 import 'workflow_run.dart';
-import 'workflow_run_repository.dart' show WorkflowRunRepository;
+import 'workflow_run_repository.dart' show WorkflowRunRepository, WorkflowRunOwnershipLost, WorkflowRunOwnership;
 
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -276,7 +276,7 @@ class WorkflowExecutor {
                 ? _firstStepIndexForNode(nodes[nodeIndex + 1], stepIndexById)
                 : definition.steps.length;
             run = run.copyWith(currentStepIndex: nextStepIndex, updatedAt: DateTime.now());
-            await _repository.update(run);
+            await _repository.updateOwned(run);
             nodeIndex++;
           case ParallelGroupNode(stepIds: final fullGroupStepIds):
             final fullGroup = fullGroupStepIds.map((stepId) => stepById[stepId]).nonNulls.toList(growable: false);
@@ -327,7 +327,7 @@ class WorkflowExecutor {
               contextJson: {...run.contextJson, '_parallel.current.stepIds': fullGroupStepIds},
               updatedAt: DateTime.now(),
             );
-            await _repository.update(run);
+            await _repository.updateOwned(run);
             final results = await _executeParallelGroup(
               run,
               definition,
@@ -422,7 +422,7 @@ class WorkflowExecutor {
                 updatedAt: DateTime.now(),
               );
               await _persistContext(run.id, context);
-              await _repository.update(run);
+              await _repository.updateOwned(run);
               fireParallelStepCompletedEvents(results);
               fireParallelGroupCompletedEvent(results);
 
@@ -496,7 +496,7 @@ class WorkflowExecutor {
                   updatedAt: DateTime.now(),
                 );
                 await _persistContext(run.id, context);
-                await _repository.update(run);
+                await _repository.updateOwned(run);
                 final eventResults = [
                   for (final eventResult in results)
                     eventResult.step.id == result.step.id
@@ -532,7 +532,7 @@ class WorkflowExecutor {
               updatedAt: DateTime.now(),
             );
             await _persistContext(run.id, context);
-            await _repository.update(run);
+            await _repository.updateOwned(run);
             // Events are intentionally emitted after the run row has the same
             // context that sequential step consumers observe.
             if (failedSteps.isEmpty) {
@@ -651,7 +651,7 @@ class WorkflowExecutor {
                   updatedAt: DateTime.now(),
                 );
                 await _persistContext(run.id, context);
-                await _repository.update(run);
+                await _repository.updateOwned(run);
                 _fireStepCompletedEvent(
                   run: run,
                   step: foreachStep,
@@ -683,7 +683,7 @@ class WorkflowExecutor {
                 updatedAt: DateTime.now(),
               );
               await _persistContext(run.id, context);
-              await _repository.update(run);
+              await _repository.updateOwned(run);
               if (foreachFailure is WorkflowSerializeRemainingSettleTimeout) {
                 await _failRunAndCancelActiveTasks(run, msg, taskCancelTrigger: 'serialize-remaining-settle-timeout');
               } else {
@@ -709,7 +709,7 @@ class WorkflowExecutor {
               updatedAt: DateTime.now(),
             );
             await _persistContext(run.id, context);
-            await _repository.update(run);
+            await _repository.updateOwned(run);
             _fireStepCompletedEvent(
               run: run,
               step: foreachStep,
@@ -935,7 +935,7 @@ class WorkflowExecutor {
       errorMessage: null,
       updatedAt: DateTime.now(),
     );
-    await _repository.update(cancelled);
+    await _repository.updateOwned(cancelled, expectedStatus: run.status);
     _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.cancelled, errorMessage: reason);
     await _cancelActiveTasksForRun(run.id, trigger: 'approval-timeout');
     await _cleanupWorkflowGit(cancelled, preserveWorktrees: !workflowCleanupEnabledForRun(cancelled, _log));
@@ -960,13 +960,13 @@ class WorkflowExecutor {
     final latest = await _repository.getById(run.id) ?? run;
     if (latest.status != WorkflowRunStatus.running) return;
     final paused = latest.copyWith(status: WorkflowRunStatus.paused, errorMessage: reason, updatedAt: DateTime.now());
-    await _repository.update(paused);
+    await _repository.updateOwned(paused);
     _fireRunStatusChangedEvent(run: latest, newStatus: WorkflowRunStatus.paused, errorMessage: reason);
   }
 
   Future<void> _failRun(WorkflowRun run, String reason, {bool cleanupWorkflowGit = true}) async {
     final failed = run.copyWith(status: WorkflowRunStatus.failed, errorMessage: reason, updatedAt: DateTime.now());
-    await _repository.update(failed);
+    await _repository.updateOwned(failed);
     _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.failed, errorMessage: reason);
     if (cleanupWorkflowGit) {
       await _cleanupWorkflowGit(failed, preserveWorktrees: !workflowCleanupEnabledForRun(failed, _log));
@@ -980,7 +980,7 @@ class WorkflowExecutor {
     bool cleanupWorkflowGit = true,
   }) async {
     final failed = run.copyWith(status: WorkflowRunStatus.failed, errorMessage: reason, updatedAt: DateTime.now());
-    await _repository.update(failed);
+    await _repository.updateOwned(failed);
     _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.failed, errorMessage: reason);
     await _cancelActiveTasksForRun(run.id, trigger: taskCancelTrigger);
     if (cleanupWorkflowGit) {
@@ -990,6 +990,9 @@ class WorkflowExecutor {
 
   Future<void> _completeRun(WorkflowRun run, WorkflowDefinition definition, WorkflowContext context) async {
     if (definition.gitStrategy?.publish == true) {
+      if ((await _repository.getById(run.id))?.status != WorkflowRunStatus.running) {
+        throw WorkflowRunOwnershipLost(run.id);
+      }
       final publishError = await _runDeterministicPublish(run, definition, context);
       if (publishError != null) {
         await _failRun(run, publishError, cleanupWorkflowGit: false);
@@ -1006,7 +1009,7 @@ class WorkflowExecutor {
       completedAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
-    await _repository.update(completed);
+    await _repository.updateOwned(completed);
     _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.completed);
     await _cleanupWorkflowGit(completed, preserveWorktrees: !workflowCleanupEnabledForRun(completed, _log));
     _log.info("Workflow '${run.definitionName}' (${run.id}) completed successfully");

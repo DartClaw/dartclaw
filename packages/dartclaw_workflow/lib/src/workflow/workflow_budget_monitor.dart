@@ -5,6 +5,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart' show WorkflowStepExecution
 
 import 'workflow_definition.dart' show WorkflowDefinition;
 import 'workflow_run.dart' show WorkflowRun;
+import 'workflow_run_repository.dart';
 
 import 'package:logging/logging.dart';
 
@@ -61,7 +62,7 @@ Future<WorkflowRun> checkWorkflowBudgetWarning({
   required WorkflowRun run,
   required WorkflowDefinition definition,
   required EventBus eventBus,
-  required dynamic repository,
+  required WorkflowRunRepository repository,
   int additionalTokens = 0,
 }) async {
   if (definition.maxTokens == null) return run;
@@ -90,7 +91,7 @@ Future<WorkflowRun> checkWorkflowBudgetWarning({
     contextJson: {...run.contextJson, '_budget.warningFired': true},
     updatedAt: DateTime.now(),
   );
-  await repository.update(updated);
+  await repository.updateOwned(updated);
   return updated;
 }
 

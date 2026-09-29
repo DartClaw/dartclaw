@@ -25,6 +25,8 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 
 - `DartclawConfig` is composed from immutable section classes. A new section also needs parser wiring, `_knownKeys`, an
   explicit barrel export, a `ConfigReloadTier`, equality, and focused tests.
+- `standaloneDir` and `standaloneExecutionPath` derive the file-backed workflow namespace under `data_dir`; they are
+  paths, not operator settings. Server session/database paths remain separate.
 - `ConfigMeta.fields` is the only registry for accepted operator-facing fields. Each entry has a non-empty description,
   mutability, and any constraints or entry shape. `FieldConstraints.evaluate` is the single per-field constraint
   authority.

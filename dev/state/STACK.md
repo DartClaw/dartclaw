@@ -41,7 +41,7 @@
 
 | Package | Purpose |
 |---------|---------|
-| `postgres` | Sole runtime database driver and connection pool, owned by `dartclaw_core`; PostgreSQL 14+ required |
+| `postgres` | Server database driver and connection pool, owned by `dartclaw_core`; standalone workflow execution uses files |
 
 ### Search
 
@@ -109,7 +109,8 @@ DartClaw built-in workflows reference AndThen-owned skills by canonical names su
 |---------|---------|-------|
 | Docker | Agent container isolation | `debian:bookworm-slim`, `network:none`, `cap-drop=ALL`, non-root user |
 | Instance-local files | Turn recovery and webhook dedup | `turn_state.json` (synchronous atomic JSON), `webhook_deliveries/` (exclusive delivery markers) |
-| PostgreSQL | Sole runtime database | Version 14+, one pool; built-in lexical search, optional administrator-provisioned pgvector for hybrid |
+| PostgreSQL | Server database | Version 14+, one pool; built-in lexical search, optional administrator-provisioned pgvector for hybrid |
+| Standalone execution files | Workflow CLI persistence | Versioned atomic JSON checkpoint under `standalone/`, process and OS locking; no database driver |
 | Canonical files | Sessions, messages, memory/wiki, config, credentials, projects, logs | Separate authority and backup target from PostgreSQL |
 
 ## Analyzer Configuration

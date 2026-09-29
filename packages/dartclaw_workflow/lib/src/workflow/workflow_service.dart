@@ -22,7 +22,7 @@ import 'workflow_definition.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
-import 'workflow_run_repository.dart' show WorkflowRunRepository;
+import 'workflow_run_repository.dart' show WorkflowRunRepository, WorkflowRunChangeSource, WorkflowRunOwnershipLost;
 
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
@@ -290,7 +290,9 @@ class WorkflowService {
 
     // Transition to running.
     run = run.copyWith(status: WorkflowRunStatus.running, updatedAt: DateTime.now());
-    await _repository.update(run);
+    if (!await _repository.update(run, expectedStatus: WorkflowRunStatus.pending)) {
+      throw StateError('Workflow status changed before start: $runId');
+    }
 
     // Persist initial (empty) context.
     await persistWorkflowContext(dataDir: _dataDir, runId: runId, context: context);
@@ -316,10 +318,15 @@ class WorkflowService {
       throw StateError('Cannot pause workflow in ${run.status.name} state (only running workflows can be paused)');
     }
 
+    final paused = await _repository.transitionStatus(
+      runId,
+      expectedStatus: WorkflowRunStatus.running,
+      status: WorkflowRunStatus.paused,
+    );
+    if (paused == null) {
+      throw StateError('Workflow status changed before pause: $runId');
+    }
     _cancelFlags[runId] = true;
-
-    final paused = run.copyWith(status: WorkflowRunStatus.paused, updatedAt: DateTime.now());
-    await _repository.update(paused);
     _fireStatusChanged(
       runId: runId,
       definitionName: run.definitionName,
@@ -386,7 +393,9 @@ class WorkflowService {
       ),
       updatedAt: DateTime.now(),
     );
-    await _repository.update(running);
+    if (!await _repository.update(running, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
+      throw StateError('Workflow status changed before resume: $runId');
+    }
     _cancelFlags.remove(runId);
 
     _fireStatusChanged(
@@ -441,7 +450,13 @@ class WorkflowService {
       ),
       updatedAt: DateTime.now(),
     );
-    await _repository.update(running);
+    if (!await _repository.update(
+      running,
+      expectedStatus: WorkflowRunStatus.failed,
+      expectedUpdatedAt: run.updatedAt,
+    )) {
+      throw StateError('Workflow status changed before retry: $runId');
+    }
     _cancelFlags.remove(runId);
 
     _fireStatusChanged(
@@ -473,17 +488,19 @@ class WorkflowService {
       );
     }
 
-    // Signal executor to stop.
-    _cancelFlags[runId] = true;
-
     // Transition workflow to cancelled.
-    final cancelled = run.copyWith(
+    final cancelled = await _repository.transitionStatus(
+      runId,
+      expectedStatus: run.status,
       status: WorkflowRunStatus.cancelled,
       completedAt: DateTime.now(),
-      errorMessage: null,
-      updatedAt: DateTime.now(),
     );
-    await _repository.update(cancelled);
+    if (cancelled == null) {
+      final current = await _repository.getById(runId);
+      if (current == null || current.status.terminal) return;
+      throw StateError('Workflow status changed before cancel: $runId');
+    }
+    _cancelFlags[runId] = true;
     _fireStatusChanged(
       runId: runId,
       definitionName: run.definitionName,
@@ -770,6 +787,27 @@ class WorkflowService {
     );
 
     Future<void> executeFn() async {
+      final repository = _repository;
+      final externalStatus = repository is WorkflowRunChangeSource
+          ? (repository as WorkflowRunChangeSource)
+                .watchStatus(run.id)
+                .listen(
+                  (status) {
+                    if (status != WorkflowRunStatus.paused && status != WorkflowRunStatus.cancelled) return;
+                    _cancelFlags[run.id] = true;
+                    _fireStatusChanged(
+                      runId: run.id,
+                      definitionName: run.definitionName,
+                      oldStatus: WorkflowRunStatus.running,
+                      newStatus: status,
+                    );
+                  },
+                  onError: (Object error, StackTrace stackTrace) {
+                    _cancelFlags[run.id] = true;
+                    _log.severe('Cannot observe standalone workflow control for ${run.id}', error, stackTrace);
+                  },
+                )
+          : null;
       try {
         await executor.execute(
           run,
@@ -783,19 +821,21 @@ class WorkflowService {
         if (current != null && current.status == WorkflowRunStatus.awaitingApproval) {
           await _rehydrateApprovalTimeout(current);
         }
+      } on WorkflowRunOwnershipLost catch (conflict) {
+        _log.info('Workflow executor stopped after external control of ${conflict.runId}');
       } catch (e, st) {
         _log.severe("Workflow '${run.id}' executor failed unexpectedly", e, st);
         // Transition to failed so the run doesn't remain stuck in 'running'.
         try {
           final current = await _repository.getById(run.id);
-          if (current != null && !current.status.terminal) {
+          if (current != null && current.status == WorkflowRunStatus.running) {
             final failed = current.copyWith(
               status: WorkflowRunStatus.failed,
               errorMessage: 'Unexpected executor error: $e',
               completedAt: DateTime.now(),
               updatedAt: DateTime.now(),
             );
-            await _repository.update(failed);
+            if (!await _repository.update(failed, expectedStatus: WorkflowRunStatus.running)) return;
             await _invokeWorkflowGitCleanup(failed);
             _fireStatusChanged(
               runId: run.id,
@@ -809,6 +849,7 @@ class WorkflowService {
           _log.severe("Failed to persist failed status for '${run.id}'", persistError);
         }
       } finally {
+        await externalStatus?.cancel();
         executor.dispose();
         _activeExecutors.remove(run.id); // ignore: unawaited_futures
       }
@@ -865,14 +906,13 @@ class WorkflowService {
     final resolvedAt = DateTime.now().toIso8601String();
     final stepStatus = approved ? 'accepted' : 'rejected';
     final approvalStatus = approved ? 'approved' : 'rejected';
-    final context = await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
+    final context = await _loadResumeContext(run, null);
     context['$stepId.status'] = stepStatus;
     context['$stepId.approval.status'] = approvalStatus;
     context['$stepId.approval.resolved_at'] = resolvedAt;
     if (!approved && feedback != null) {
       context['$stepId.approval.feedback'] = feedback;
     }
-    await persistWorkflowContext(dataDir: _dataDir, runId: run.id, context: context);
     final updatedContext = _snapshotContextJson(
       run.contextJson,
       context,
@@ -884,8 +924,15 @@ class WorkflowService {
         if (!approved) '$stepId.approval.feedback': ?feedback,
       },
     );
-    final updatedRun = run.copyWith(contextJson: updatedContext, updatedAt: DateTime.now());
-    await _repository.update(updatedRun);
+    final now = DateTime.now();
+    final updatedRun = run.copyWith(
+      contextJson: updatedContext,
+      updatedAt: now.isAfter(run.updatedAt) ? now : run.updatedAt.add(const Duration(microseconds: 1)),
+    );
+    if (!await _repository.update(updatedRun, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
+      throw StateError('Workflow status changed before approval resolution: ${run.id}');
+    }
+    await persistWorkflowContext(dataDir: _dataDir, runId: run.id, context: context);
     _eventBus.fire(
       WorkflowApprovalResolvedEvent(
         runId: run.id,
@@ -938,7 +985,7 @@ class WorkflowService {
   }
 
   Future<WorkflowContext> _loadResumeContext(WorkflowRun run, WorkflowExecutionCursor? executionCursor) async {
-    if (executionCursor != null) {
+    if (executionCursor != null || run.contextJson['data'] is Map) {
       return WorkflowContext.fromJson(run.contextJson);
     }
     return await _loadContext(run.id) ?? WorkflowContext.fromJson(run.contextJson);
@@ -1038,7 +1085,7 @@ class WorkflowService {
         },
       ),
     );
-    await _repository.update(cancelled);
+    if (!await _repository.update(cancelled, expectedStatus: run.status)) return;
     await _invokeWorkflowGitCleanup(cancelled);
     _fireStatusChanged(
       runId: run.id,

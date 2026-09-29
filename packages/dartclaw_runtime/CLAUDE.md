@@ -54,8 +54,8 @@
 point that assembles a runtime — storage, security/guards, harness and provider execution, the execution coordinator,
 tasks, channels, scheduling, the workflow registry/service, and the `DartclawServer` itself. `headless: true` omits
 every inbound and scheduled surface (no server, channel manager, heartbeat, schedule service or token service) and
-keeps the rest identically; `runtime.server` is non-null exactly when `headless` is false. `runtime.shutdown()` owns
-the teardown, ending with the search database. `dartclaw_cli`'s `ServeCommand` is a caller, not the composition root:
+keeps the execution engine shared; `runtime.server` is non-null exactly when `headless` is false. `runtime.shutdown()` owns
+the teardown, ending with the active storage backend. `dartclaw_cli`'s `ServeCommand` is a caller, not the composition root:
 it parses flags, resolves config and assets, calls `build`, binds the listener, and calls `shutdown()`.
 
 `DartclawRuntime.stageHeadless(...)` is the **same** assembly, paused after its base phase (storage, projects and the
@@ -89,6 +89,18 @@ service graph, and the standalone-only behaviours are parameters of the one root
   continuity reset retain their named refusal. Task-feedback dispatch reads the shared turn manager directly;
   channels and the MCP handler alone resolve `composedServerGetter`. The SSE field is ordinary nullable, not `late`,
   so an absent broadcaster does not retain API type metadata in the workflow-only AOT binary.
+- `StorageWiring` uses the shared `FileExecutionStore` and file repositories for production headless execution, with
+  sessions, turn state and KV under `config.standaloneDir`; server composition uses PostgreSQL and its server paths.
+  Explicit backend injection remains available for tests. Base staging and lifecycle-only commands do not open the
+  turn-state store, create the main session, or migrate KV keys. `completeForExecution` acquires one exclusive
+  `StandaloneExecutionLease` per standalone directory before those mutations; another execution process fails fast,
+  while lifecycle-only control can read and update the execution store. Lease contention throws
+  `StandaloneExecutionLeaseException` for the CLI to report as exit 1, retaining filesystem failure details when
+  contention is uncertain; other composition failures still propagate.
+  Shutdown and failed staging release the lease.
+- Headless base staging loads project metadata without clone or stale-clone recovery writes. Execution completion
+  activates `ProjectWiring` after acquiring the standalone lease. Lifecycle-only controls retain project lookup
+  without running project initialization side effects.
 
 `HarnessRegistrar` / `HarnessRegistration` (core's `harness/harness_registrar.dart` — the contract sits below this
 package so an adapter can implement it without depending on the runtime) let whoever composes the runtime
@@ -196,7 +208,9 @@ tests construct sparse compositions through the same two functions.
 - **Container health is tri-state, and only a confirmed not-running is a crash.** `ContainerManager.health()` returns `running` / `notRunning` / `unknown`: a zero-exit `docker inspect` is authoritative, an explicit "no such object/container" is a confirmed absence, and any other non-zero exit (a daemon-connection blip) is `unknown`. `ContainerHealthMonitor` never fires `ContainerCrashedEvent` on `unknown` (it holds the last state), and `stop()` treats an unconfirmable removal as a throw — so one daemon hiccup neither fails every in-flight task nor silently leaks a still-live container while returning its capacity.
 - **`composeServerTurns`'s `taskToolFilterGuard` is host-supplied, never fabricated.** Its single-harness compatibility path (SDK hosts and tests) receives an already-constructed `worker`, so it cannot retrofit that harness's guard chain. The host must create the `TaskToolFilterGuard`, layer it over the base chain (`GuardChain.layered(base:, guards: [filter])`), hand *that* chain to the harness, and pass the same instance to `composeServerTurns` — otherwise `startTurn(allowedTools:)` / `readOnly` are silently inert. Never re-introduce a composer-created filter. Coordinator-managed runners carry their own filters (see `runtime/harness_wiring.dart`).
 - **`composeServerTurns`'s `agentDefinitions` is the live resolver, never a config snapshot.** The turn lane refuses a session pinned to an agent it cannot resolve, and `LogicalAgentSessionService.runOneShot` registers an internal agent only for the duration of its own turn (session titles use one). A snapshot of `config.agent.definitions` cannot see that agent, so its session's `reserveTurn` fails as "unknown agent" and the one-shot's provider call is burnt for nothing. `_composeTurns` passes `harness.logicalAgentSessions.agentDefinition`; the config-map fallback exists only for hosts that wire no logical-agent service.
-- PostgreSQL is an external service and no database native library is bundled. Release binaries build with `dart build cli` (`dev/tools/build.sh`) so the verified llamadart native libraries are retained beside each executable.
+- PostgreSQL is an external service for server mode and no database native library is bundled. Standalone workflow
+  execution uses files under `config.standaloneDir`. Release binaries build with `dart build cli` (`dev/tools/build.sh`)
+  so the verified llamadart native libraries are retained beside each executable.
 - Workflow-spawned tasks have `reviewMode: auto-accept` (set by the workflow package); the server's review surface won't park them — assume they advance on `accepted`.
 - Reserved route patterns in `page_registry.dart` are guarded — `/health`, `/static/`, `/whatsapp/`, `/signal/`, `/memory/content`, etc. Adding a page on a reserved prefix throws at startup, not at request time.
 - `TaskExecutor` reads workflow runtime state from the hydrated `WorkflowStepExecution` row, not from `Task.configJson` — workflow-private blobs no longer round-trip through tasks.
@@ -225,7 +239,10 @@ tests construct sparse compositions through the same two functions.
 - Workflow step execution has one default construction path: `buildWorkflowExecutor`'s `TurnManager`, an `ExecutionCoordinator` whose `createWorker` returns a real `TurnRunner` over the harness double, carrying the harness's `workflowGuardChain` (a real `GuardChain`) and `workflowToolFilterGuard` (a real `TaskToolFilterGuard`). Script the double's replies rather than adding a CLI runner or a process starter. Build a coordinator inline and pass it as `turnManager` only for a collaborator the shared path does not expose — `task_executor_guarded_workflow_test.dart` does it for a different guard chain (S02), a `kv` service (S01) and a worker-allocation counter (S05). Needing the *same* wiring the shared path already gives you is a duplicate, not an exception.
 - The task-executor suites are split by theme: core lifecycle/capacity/scope, guarded workflow prompt/finalizer orchestration and token/session-cost ownership, and project/worktree/git resolution. They share `WorkflowTaskExecutorTestContext`, a workflow-DB-backed topology wrapper that owns `kvService` and the workflow repositories. `FakeTaskWorker` is the configurable `AgentHarness` stub for executor, budget and loop-detection tests; it can also expose structured-output/session-resume support for workflow fixtures. Do not re-roll local `implements AgentHarness` stubs.
 - Don't real-time-wait: use `pumpEventQueue()` for microtask drainage and shared harness completion seams.
-- Prepared in-memory backends (`openPreparedTaskBackend()` for tasks) for storage-backed tests; injected `DatabaseBackendFactory` closures return a fresh backend per open. Use temp dirs for filesystem tests.
+- Prepared in-memory backends (`openPreparedTaskBackend()` for tasks) remain for explicitly injected storage tests;
+  injected `DatabaseBackendFactory` closures return a fresh backend per open. Standalone persistence tests use the real
+  file store and a temp data directory (`test/runtime/headless_file_storage_test.dart`); the lease test starts a second
+  Dart process to prove the cross-process refusal (`test/runtime/standalone_execution_lease_test.dart`).
 - Suites run in parallel; keep them that way. `dart test` runs suites as isolates in **one OS process**, so ports, the filesystem, and the working directory are shared. Bind port `0`, keep fixtures in per-test temp dirs, and never assign `Directory.current` — inject it (`DartclawRuntime.stageHeadless(runtimeCwd:)`, `WorktreeManager(currentDirectory:)`). `test/runtime/headless_runtime_test.dart` is the one exception: `HeadlessRuntimeFixture.withWiredCurrentDirectory` assigns it to pin the launch-cwd-vs-`runtimeCwd` distinction, and restores it in a `finally`. Do not copy that pattern elsewhere. Reading it is a hazard too: a test that runs a standalone task must pass `TaskExecutor(currentDirectory:)` or `DartclawRuntime.build(runtimeCwd:)`, or `ArtifactCollector` walks the whole checkout after the turn and stalls under full-suite load. Breaking this forces the package back to `-j 1` (≈5× wall time). See `dev/guidelines/TESTING-STRATEGY.md` Layer 2 note.
 - Template-rendering correctness (HTML structure, escaping) is asserted at Layer 2/3 against rendered output strings — visual layout is covered by manual UI smoke tests, not Dart tests.
 

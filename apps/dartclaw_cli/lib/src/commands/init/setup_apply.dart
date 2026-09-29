@@ -26,7 +26,7 @@ class SetupApply {
       '# Drop custom workflow YAMLs in ./.dartclaw/workflows/custom/ to run them by name.\n';
 
   // Commit the config and any custom workflow YAMLs; ignore runtime state
-  // (local DB, sessions, logs, worktrees) and materialized built-in workflows.
+  // (execution checkpoints, sessions, logs, worktrees) and materialized built-in workflows.
   // built-in/ is regenerated on every run and runs/ holds per-run execution
   // state, so both stay ignored even though the surrounding workflows/ tree is
   // allowlisted.
@@ -95,7 +95,7 @@ class SetupApply {
       _set(editor, ['gateway', 'auth_mode'], state.gatewayAuthMode);
     }
     _set(editor, ['data_dir'], state.workflowTrack ? '.' : state.instanceDir);
-    if (!configExists) {
+    if (!configExists && !state.workflowTrack) {
       _set(editor, ['database', 'url'], r'${DARTCLAW_DATABASE_URL}');
       _set(editor, ['search', 'backend'], 'lexical');
     }

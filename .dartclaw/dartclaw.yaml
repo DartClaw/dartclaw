@@ -9,7 +9,7 @@
 #
 # Discovery: a bare `dartclaw workflow run --standalone <name>` run from the
 # repo root auto-discovers this file (cwd-local .dartclaw/dartclaw.yaml).
-# `data_dir: .` keeps the local DB and worktrees inside this .dartclaw/ dir;
+# `data_dir: .` keeps standalone execution files and worktrees inside this .dartclaw/ dir;
 # .dartclaw/.gitignore commits the config + custom workflows and ignores
 # runtime state. Drop custom workflow YAMLs under .dartclaw/workflows/custom/.
 #

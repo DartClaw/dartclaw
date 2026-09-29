@@ -33,6 +33,11 @@ export 'src/storage/schema_identity.dart' show SchemaColumn, SchemaIdentity, Sch
 export 'src/storage/database_goal_repository.dart' show DatabaseGoalRepository;
 export 'src/storage/database_task_repository.dart' show DatabaseTaskRepository;
 export 'src/storage/database_workflow_step_execution_repository.dart' show DatabaseWorkflowStepExecutionRepository;
+export 'src/storage/file_execution_store.dart' show FileExecutionStore;
+export 'src/storage/file_task_repository.dart' show FileTaskRepository;
+export 'src/storage/file_goal_repository.dart' show FileGoalRepository;
+export 'src/storage/file_agent_execution_repository.dart' show FileAgentExecutionRepository;
+export 'src/storage/file_workflow_step_execution_repository.dart' show FileWorkflowStepExecutionRepository;
 export 'src/storage/turn_state_store.dart' show TurnStateStore, openTurnStateStore;
 export 'src/storage/webhook_delivery_store.dart'
     show WebhookDeliveryReservation, WebhookDeliveryStore, openWebhookDeliveryStore;

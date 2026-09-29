@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
+import 'package:dartclaw_runtime/src/workspace/workspace_service.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
@@ -47,6 +48,12 @@ const _orchestrationMcpTools = {
   'wiki_write',
 };
 
+/// The explicitly granted owner-knowledge read. It carries a canonical entry
+/// for the same reason the orchestration tools do: an agent's configured
+/// `context_research` grant would otherwise be unreachable in the default
+/// container posture.
+const _knowledgeMcpTools = {'context_research'};
+
 /// Own-MCP tools that are deliberately unreachable over the container bridge.
 const _unbridgedOwnMcpTools = {
   'kg_add',
@@ -54,7 +61,6 @@ const _unbridgedOwnMcpTools = {
   'kg_timeline',
   'kg_invalidate',
   'kg_contradictions',
-  'context_research',
   'onboarding_complete',
   'mcp__acme__lookup',
 };
@@ -73,7 +79,18 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
     required super.auditLogger,
   });
 
-  final grants = <({String sessionId, String? taskId, Set<String> allowedMcpTools, String? artifactsDir})>[];
+  final grants =
+      <
+        ({
+          String sessionId,
+          String? taskId,
+          Set<String> allowedMcpTools,
+          String? artifactsDir,
+          String? workspaceDir,
+          String? executionDir,
+          bool useOwnerWorkspace,
+        })
+      >[];
   final leases = <FakeContainerAuthorityLease>[];
 
   @override
@@ -84,12 +101,19 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
     GatewayPrincipal principal, {
     Set<String> allowedMcpTools = const {},
     String? artifactsDir,
+    String? workspaceDir,
+    String? executionDir,
+    bool useOwnerWorkspace = true,
+    bool volatileGeneratedState = false,
   }) async {
     grants.add((
       sessionId: principal.sessionId,
       taskId: principal.taskId,
       allowedMcpTools: allowedMcpTools,
       artifactsDir: artifactsDir,
+      workspaceDir: workspaceDir,
+      executionDir: executionDir,
+      useOwnerWorkspace: useOwnerWorkspace,
     ));
     final lease = FakeContainerAuthorityLease(
       mcpBridgeUrl: 'http://127.0.0.1:8081/mcp',
@@ -179,6 +203,32 @@ void main() {
       await subscription.cancel();
     }
   }
+
+  test('composed model guidance keeps routine capture private and requires deliberate publication intent', () async {
+    await wireAll();
+
+    final prompt = recordedConfigs.first.harnessConfig.appendSystemPrompt!;
+    expect(prompt, contains('Capture routine observations and preferences in personal memory'));
+    expect(prompt, contains('Use wiki_write or kg_add only when the user deliberately asks to share or publish'));
+    expect(prompt, contains('If publication intent is ambiguous, ask which audience they intend'));
+    expect(prompt, contains('Temporary conversations cannot write personal memory or shared durable knowledge'));
+  });
+
+  test('temporary conversations cannot reach contextual personal-memory writes', () async {
+    await wireAll();
+    final temporary = await storage!.sessions.createSession(retention: ConversationRetention.process);
+    final callback = recordedConfigs.first.onContextualMemoryObserve!;
+    final before = File('${config.workspaceDir}/MEMORY.md').readAsBytesSync();
+
+    await expectLater(
+      callback({
+        'text': 'temporary durable marker',
+        'role': 'observation',
+      }, HarnessTurnContext(sessionId: temporary.id, turnId: 'temporary-turn', source: 'api', agentName: 'main')),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('cannot write memory'))),
+    );
+    expect(File('${config.workspaceDir}/MEMORY.md').readAsBytesSync(), before);
+  });
 
   test('a restricted task in a container is granted the host tools its own policy allows', () async {
     await wireAll();
@@ -325,6 +375,7 @@ void main() {
       ..._memoryMcpTools,
       ..._taskMcpTools,
       ..._orchestrationMcpTools,
+      ..._knowledgeMcpTools,
     });
     expect(
       grant.allowedMcpTools,
@@ -358,6 +409,7 @@ void main() {
       ..._memoryMcpTools,
       ..._taskMcpTools,
       ..._orchestrationMcpTools,
+      ..._knowledgeMcpTools,
     }, reason: 'a native-spelled global deny of WebSearch must remove the canonical web_search grant');
   });
 
@@ -393,7 +445,13 @@ void main() {
     await wireAll();
 
     final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
-    expect(grant.allowedMcpTools, {'web_fetch', ..._memoryMcpTools, ..._taskMcpTools, ..._orchestrationMcpTools});
+    expect(grant.allowedMcpTools, {
+      'web_fetch',
+      ..._memoryMcpTools,
+      ..._taskMcpTools,
+      ..._orchestrationMcpTools,
+      ..._knowledgeMcpTools,
+    });
     expect(
       recordedConfigs.first.harnessConfig.disallowedTools,
       containsAll(['WebFetch', 'WebSearch']),
@@ -435,6 +493,47 @@ void main() {
       isNot(contains(contains('no host MCP tools'))),
       reason: 'a workspace-profile task with no tool policy is the intended default, not a capability loss to warn on',
     );
+  });
+
+  test('a configured agent authority receives only its pinned workspace and admitted execution directory', () async {
+    final workspace = Directory('${tempDir.path}/agents/search/workspace');
+    final project = Directory('${tempDir.path}/authorized-project')..createSync();
+    await WorkspaceService(dataDir: tempDir.path)
+        .prepareManagedAgents([AgentWorkspace.pinned(agentId: 'search', directory: workspace.path)]);
+    await writeWorkspacePromptFiles(workspace.path);
+    config = config.copyWith(
+      agent: AgentConfig(
+        provider: 'claude',
+        definitions: [
+          AgentDefinition(
+            id: 'search',
+            description: 'Search',
+            prompt: 'Search',
+            workspace: AgentWorkspace(agentId: 'search', directory: workspace.path),
+          ),
+        ],
+      ),
+    );
+    await wireAll();
+
+    final lease = await harnessWiring!.executions.acquire(
+      ExecutionRequest(
+        surface: ExecutionSurface.logicalAgent,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.container('workspace'),
+        sessionId: 'configured-agent-session',
+        admission: ExecutionAdmission.failFast,
+        logicalAgentId: 'search',
+        workspace: AgentWorkspace(agentId: 'search', directory: workspace.path),
+        directory: project.path,
+      ),
+    );
+    addTearDown(() async => lease?.release());
+
+    final authority = security!.grants.singleWhere((entry) => entry.sessionId == 'configured-agent-session');
+    expect(authority.workspaceDir, workspace.path);
+    expect(authority.executionDir, project.path);
+    expect(authority.useOwnerWorkspace, isFalse);
   });
 
   test('an agent allowed a tool this deployment cannot serve is reported at startup, not at its first turn', () async {
@@ -493,6 +592,7 @@ void main() {
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
         ..._memoryMcpTools,
+        ..._knowledgeMcpTools,
         ..._unbridgedOwnMcpTools,
         'web_fetch',
       }) {
@@ -509,7 +609,12 @@ void main() {
         allowedCanonicalTools: grant,
         toolCanonicals: canonicals,
       );
-      for (final name in {..._taskMcpTools, ..._orchestrationMcpTools, ..._unbridgedOwnMcpTools}) {
+      for (final name in {
+        ..._taskMcpTools,
+        ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
+        ..._unbridgedOwnMcpTools,
+      }) {
         await surface.handle(
           GatewayRequest(
             principal: GatewayPrincipal(
@@ -551,6 +656,7 @@ void main() {
         ..._memoryMcpTools,
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       });
       expect(
         grant.allowedMcpTools,
@@ -562,6 +668,7 @@ void main() {
       expect(served, {
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       }, reason: 'the dispatch-time re-check must serve exactly what it granted');
     });
 
@@ -581,6 +688,7 @@ void main() {
         ..._memoryMcpTools,
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       });
       expect(grant.allowedMcpTools, isNot(anyOf(contains('sessions_spawn'), contains('sessions_send'))));
       expect(grant.allowedMcpTools.intersection(_unbridgedOwnMcpTools), isEmpty);
@@ -621,7 +729,7 @@ void main() {
 
       for (final MapEntry(key: lane, value: granted) in lanes.entries) {
         expect(
-          granted.intersection({..._taskMcpTools, ..._orchestrationMcpTools}),
+          granted.intersection({..._taskMcpTools, ..._orchestrationMcpTools, ..._knowledgeMcpTools}),
           isEmpty,
           reason: '$lane is capability-free today and must stay so — mcp_call grants no mapped tool',
         );
@@ -641,7 +749,7 @@ void main() {
       expect(
         served.intersection(_unbridgedOwnMcpTools),
         isEmpty,
-        reason: 'kg_*, context_research, onboarding_complete and outbound adapters have no canonical entry',
+        reason: 'kg_*, onboarding_complete and outbound adapters have no canonical entry',
       );
       expect(harnessWiring!.ownMcpToolCanonicals.keys.toSet(), {
         'sessions_spawn',
@@ -651,7 +759,46 @@ void main() {
         ..._memoryMcpTools,
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
+        ..._knowledgeMcpTools,
       }, reason: 'the servable map holds exactly the mapped tools, and nothing else becomes bridgeable');
+    });
+
+    test('an agent granted context_research reaches it over the bridge', () async {
+      config = config.copyWith(
+        agent: const AgentConfig(
+          provider: 'claude',
+          definitions: [
+            AgentDefinition(
+              id: 'researcher',
+              description: 'Researcher',
+              prompt: 'Research',
+              allowedTools: {'context_research', 'memory_search'},
+            ),
+          ],
+        ),
+      );
+
+      await wireAll();
+
+      final lease = await harnessWiring!.executions.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.logicalAgent,
+          providerId: 'claude',
+          policy: const ExecutionPolicy.container('workspace'),
+          sessionId: 'researcher-session',
+          admission: ExecutionAdmission.failFast,
+          logicalAgentId: 'researcher',
+        ),
+      );
+      addTearDown(() async => lease?.release());
+
+      final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'researcher-session');
+      expect(grant.allowedMcpTools, {'context_research', 'memory_search'});
+      expect(
+        await servedOverBridge(grant.allowedMcpTools, canonicals: harnessWiring!.ownMcpToolCanonicals),
+        contains('context_research'),
+        reason: 'the owner-knowledge read is unreachable in the default posture unless both halves admit it',
+      );
     });
   });
 

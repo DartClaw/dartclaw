@@ -17,25 +17,22 @@ import 'package:test/test.dart';
 
 import '../../../dartclaw_core/test/storage/postgres_live_support.dart';
 
-const _injectedDsn = 'postgresql://runtime:SqliteFreeProbeSecretX9@injected.invalid/dartclaw';
+const _injectedDsn = 'postgresql://runtime:PostgresProbeSecretX9@injected.invalid/dartclaw';
 const _webhookSecret = 'signed-webhook-probe-secret';
 
 void main() {
   setUpAll(initEmbeddedTemplates);
   tearDownAll(resetTemplates);
 
-  test('PostgreSQL serve build, turn, signed webhook, and shutdown perform zero SQLite opens', () async {
+  test('PostgreSQL serve build, turn, signed webhook, and shutdown create no local database artifacts', () async {
     await withPostgresBackend((backend, _) async {
       final dataDir = Directory.systemTemp.createTempSync('postgres_serve_probe_');
-      final observedSqliteOpens = <String?>[];
-      final previousObserver = SqliteBackend.openObserver;
-      SqliteBackend.openObserver = observedSqliteOpens.add;
       DartclawRuntime? runtime;
       try {
         final harness = FakeAgentHarness();
         final config = _config(dataDir);
         await seedCanonicalMemory(config.workspaceDir);
-        final configFile = File(p.join(dataDir.path, 'dartclaw.yaml'))..writeAsStringSync('# SQLite-free probe\n');
+        final configFile = File(p.join(dataDir.path, 'dartclaw.yaml'))..writeAsStringSync('# PostgreSQL probe\n');
         final key = 1000000 + Random.secure().nextInt(1000000000);
 
         runtime = await DartclawRuntime.build(
@@ -44,7 +41,6 @@ void main() {
           port: 0,
           harnessFactory: HarnessFactory()..register('claude', (_) => harness),
           taskBackendFactory: (_) async => backend,
-          searchBackendFactory: (_) async => throw StateError('PostgreSQL must not open a SQLite search backend'),
           stderrLine: (_) {},
           exitFn: (code) => throw StateError('Unexpected serve exit($code)'),
           resolvedConfigPath: configFile.path,
@@ -99,11 +95,9 @@ void main() {
 
         await runtime.shutdown();
         runtime = null;
-        expect(observedSqliteOpens, isEmpty);
         expect(_databaseArtifacts(dataDir), isEmpty);
       } finally {
         await runtime?.shutdown();
-        SqliteBackend.openObserver = previousObserver;
         if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
       }
     });
@@ -116,12 +110,7 @@ DartclawConfig _config(Directory dataDir) => DartclawConfig(
   providers: ProvidersConfig(entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)}),
   gateway: const GatewayConfig(authMode: 'none'),
   extensions: const {'github': GitHubWebhookConfig(enabled: true, webhookSecret: _webhookSecret)},
-  database: const DatabaseConfig(
-    backend: DatabaseBackendKind.postgres,
-    url: _injectedDsn,
-    urlEnvVars: ['DARTCLAW_TEST_POSTGRES_URL'],
-    poolSize: 3,
-  ),
+  database: const DatabaseConfig(url: _injectedDsn, urlEnvVars: ['DARTCLAW_TEST_POSTGRES_URL'], poolSize: 3),
   server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
 );
 

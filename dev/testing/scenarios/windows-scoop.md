@@ -24,22 +24,20 @@ Qualify the rendered-manifest path used by the release workflow on Windows x64.
    ```
 
 4. Require both version commands to report the version being qualified. Resolve each versioned app directory rather
-   than Scoop's `current` junction, then use the same bundled SQLite/FTS5 check as the Windows release build:
+   than Scoop's `current` junction, verify the archive has no SQLite asset, and run the full binary's PostgreSQL
+   lexical smoke against the separately provisioned restricted role. Follow the exact entry point named by the
+   Windows runtime profile; do not substitute the workflow-only binary for a storage proof.
 
    ```powershell
-   . ./dev/tools/build_windows.ps1
    $version = '<version>'
    foreach ($name in @('dartclaw', 'dartclaw-workflow')) {
      $current = (scoop prefix $name).Trim()
      if ($LASTEXITCODE -ne 0) { throw "Cannot resolve Scoop prefix for $name" }
      $appRoot = Join-Path (Split-Path $current -Parent) $version
-     Invoke-WindowsBundledSqliteCheck -Executable (Join-Path $appRoot "bin/$name.exe") -BinaryName $name
+     if (Test-Path (Join-Path $appRoot 'lib/sqlite3.dll')) { throw "SQLite asset present in $name" }
    }
+   ./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <full-archive-path> -SkipProviders
    ```
-
-   Dot-sourcing loads the helper without running a build. It creates an empty temporary workspace, runs
-   `rebuild-index`, checks the result, and cleans up. Creating the FTS5 table proves that the bundled SQLite loaded;
-   no memory fixture is needed. This keeps corpus-format and Git line-ending handling out of the packaging audit.
 
 5. Run `scoop update dartclaw dartclaw-workflow`, then `scoop uninstall dartclaw dartclaw-workflow` and remove the
    temporary bucket. Confirm both shims are gone. Clean up installed packages and the bucket even if a check fails.
@@ -50,7 +48,7 @@ Qualify the rendered-manifest path used by the release workflow on Windows x64.
 
 ## Pass Criteria
 
-- For both packages: bucket add, download, SHA256 validation, extraction, shim creation, exact version check, bundled
-  SQLite/FTS5 check, update, uninstall, and cleanup all pass.
+- For both packages: bucket add, download, SHA256 validation, extraction, shim creation, exact version check, absence
+  of SQLite assets, update, uninstall, and cleanup all pass. The full package also passes the PostgreSQL lexical smoke.
 - The hosted path is release-ready only when the public bucket contains both rendered manifests, each pointing to its
   matching public Windows release asset and checksum.

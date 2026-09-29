@@ -236,6 +236,24 @@ class FailingCancelCleanupHarness extends FakeAgentHarness {
   }
 }
 
+/// Claude's teardown shape: killing the process settles nothing, because the
+/// exit handler declines an intentional teardown, and `stop()` alone fails the
+/// in-flight turn.
+class StopSettlesTurnHarness extends FakeAgentHarness {
+  new() : super(promptStrategy: PromptStrategy.append);
+
+  @override
+  Future<void> cancel() async {
+    cancelCalled = true;
+  }
+
+  @override
+  Future<void> stop() async {
+    await super.stop();
+    completeError(StateError('ClaudeCodeHarness stopped'));
+  }
+}
+
 class FailingStartAfterCancelHarness extends FakeAgentHarness {
   new() : super(promptStrategy: PromptStrategy.append);
 

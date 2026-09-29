@@ -31,4 +31,14 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test('search scope retains an immutable accepted-value snapshot', () {
+    final values = {'session-a'};
+    final scope = FullTextSearchScope(metadataKey: 'session_id', acceptedValues: values);
+
+    values.add('session-b');
+
+    expect(scope.acceptedValues, {'session-a'});
+    expect(() => scope.acceptedValues.add('session-c'), throwsUnsupportedError);
+  });
 }

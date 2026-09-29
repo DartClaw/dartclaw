@@ -503,9 +503,8 @@ Future<List<File>> _nativeLibraryFiles(Directory package) async {
       .where((entry) => entry is File)
       .cast<File>()
       .toList();
-  final native = files.where((file) => !file.uri.pathSegments.last.toLowerCase().contains('sqlite')).toList();
-  if (native.isEmpty) throw StateError('Release archive omitted llamadart native libraries');
-  return native;
+  if (files.isEmpty) throw StateError('Release archive omitted llamadart native libraries');
+  return files;
 }
 
 Future<void> prepareNativeLibraryFailure(Directory package, {required bool corrupt, String? operatingSystem}) async {

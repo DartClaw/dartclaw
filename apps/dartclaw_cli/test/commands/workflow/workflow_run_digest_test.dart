@@ -98,7 +98,11 @@ void main() {
     test('deterministic steps (persisted status, no task, no outcome) render as completed/failed', () {
       // Engine gates and aggregators settle with `<step>.status` only — no task
       // row and no `step.<id>.outcome` — and must not be mislabelled "pending".
-      final run = _run(WorkflowRunStatus.completed, {'s01.status': 'success', 's02.status': 'failed'});
+      final run = _run(WorkflowRunStatus.completed, {
+        's01.status': 'success',
+        's02.status': 'failed',
+        's02.error': 'shell exited 7',
+      });
       final digest = buildWorkflowRunDigest(
         commandPrefix: 'dartclaw workflow',
         run: run,
@@ -108,6 +112,7 @@ void main() {
 
       expect(digest.rows[0].status, equals('completed'));
       expect(digest.rows[1].status, equals('failed'));
+      expect(digest.rows[1].reason, 'shell exited 7');
       final lines = renderWorkflowRunDigestLines(digest);
       expect(lines.any((l) => l.contains('1. s01: completed')), isTrue);
       expect(lines.any((l) => l.contains('1. s01: pending')), isFalse);

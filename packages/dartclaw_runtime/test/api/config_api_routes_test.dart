@@ -107,13 +107,13 @@ channels:
   }
 
   Future<String> nextSseFrame(StreamIterator<String> iterator) async {
-    final hasFrame = await iterator.moveNext().timeout(const Duration(seconds: 1));
-    expect(hasFrame, isTrue);
-    return iterator.current;
+    while (true) {
+      final hasFrame = await iterator.moveNext().timeout(const Duration(seconds: 1));
+      expect(hasFrame, isTrue);
+      if (iterator.current != ': connected\n\n') return iterator.current;
+    }
   }
 
-  /// Writes jobs to the YAML config file so [ConfigWriter.readSchedulingJobs]
-  /// returns them (tests that need pre-existing jobs must call this).
   void writeJobsToYaml(List<Map<String, dynamic>> jobs) {
     final jobsYaml = jobs
         .map((j) {
@@ -207,13 +207,7 @@ database:
 
       final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
 
-      expect(json['database'], {
-        'backend': 'postgres',
-        'url': '***',
-        'credential': null,
-        'poolSize': 7,
-        'ftsLanguage': 'swedish',
-      });
+      expect(json['database'], {'url': '***', 'credential': null, 'poolSize': 7, 'ftsLanguage': 'swedish'});
       expect(jsonEncode(json), isNot(contains(databaseUrl)));
     });
 
@@ -226,13 +220,7 @@ database:
 
       final json = await api(createRouter()).expectJsonObject('GET', '/api/config');
 
-      expect(json['database'], {
-        'backend': 'postgres',
-        'url': null,
-        'credential': 'database-main',
-        'poolSize': 7,
-        'ftsLanguage': 'english',
-      });
+      expect(json['database'], {'url': null, 'credential': 'database-main', 'poolSize': 7, 'ftsLanguage': 'english'});
     });
 
     test('google chat inline service account is redacted in API response', () async {

@@ -3,16 +3,15 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 void main() {
   late Directory root;
   late SessionService sessions;
   late MessageService messages;
-  late SqliteBackend backend;
-  late FullTextIndex index;
+  late _ControllableFullTextIndex index;
   late ConversationIndexer indexer;
   late List<_VectorSynchronization> vectorSynchronizations;
   late Future<void> Function(Iterable<String> documentIds, {required String userId}) vectorCallback;
@@ -21,9 +20,7 @@ void main() {
     root = Directory.systemTemp.createTempSync('conversation_indexer_');
     sessions = SessionService(baseDir: root.path);
     messages = MessageService(baseDir: root.path);
-    backend = SqliteBackend(sqlite3.openInMemory());
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
+    index = _ControllableFullTextIndex();
     vectorSynchronizations = [];
     vectorCallback = (documentIds, {required userId}) async {
       final ids = documentIds.toList(growable: false);
@@ -46,7 +43,6 @@ void main() {
   tearDown(() async {
     await indexer.idle;
     await messages.dispose();
-    await backend.close();
     root.deleteSync(recursive: true);
   });
 
@@ -67,6 +63,25 @@ void main() {
     expect(hits.map((hit) => hit.messageId).toSet(), {user.id, assistant.id});
     expect(hits.every((hit) => hit.sessionId == chat.id), isTrue);
     expect(hits.map((hit) => hit.score).toList(), orderedEquals([...hits.map((hit) => hit.score)]..sort()));
+  });
+
+  test('append and delete use the workspace principal pinned in session metadata', () async {
+    final owner = await sessions.createSession();
+    final agent = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: '${root.path}/agent-a'),
+    );
+    await messages.insertMessage(sessionId: owner.id, role: 'user', content: 'owner same marker');
+    final agentMessage = await messages.insertMessage(sessionId: agent.id, role: 'user', content: 'agent same marker');
+    await indexer.idle;
+
+    expect((await index.search('same marker', userId: 'owner')).single.chunk, 'owner same marker');
+    expect((await index.search('same marker', userId: 'agent:a')).single.id, agentMessage.id);
+    expect(vectorSynchronizations.map((entry) => entry.userId).toSet(), {'owner', 'agent:a'});
+
+    await sessions.deleteSession(agent.id);
+    await indexer.idle;
+    expect(await index.search('same marker', userId: 'agent:a'), isEmpty);
+    expect((await index.search('same marker', userId: 'owner')).single.chunk, 'owner same marker');
   });
 
   test('queued append followed by delete removes only the deletable session', () async {
@@ -99,29 +114,53 @@ void main() {
     expect(vectorSynchronizations.last, _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: []));
   });
 
-  test('archive, resume, and delete synchronize IDs without needing deleted NDJSON', () async {
+  test('archive and resume retain searchable IDs while delete synchronizes without NDJSON', () async {
     final session = await sessions.createSession();
     final message = await messages.insertMessage(
       sessionId: session.id,
       role: 'assistant',
       content: 'retained transcript',
     );
+    final queuedAt = DateTime.utc(2026, 9, 14);
+    await messages.insertMessageWithIdentity(
+      sessionId: session.id,
+      messageId: '33333333-3333-4333-8333-333333333333',
+      role: 'user',
+      content: 'queued transcript must remain hidden',
+      createdAt: queuedAt,
+      notifyObserver: false,
+    );
+    await sessions.updateConversationState(
+      session.id,
+      ConversationState().put(
+        ConversationSubmissionClaim(
+          submissionId: 'queued-submission',
+          revisionId: 'queued-revision',
+          messageId: '33333333-3333-4333-8333-333333333333',
+          queueId: 'queued-work',
+          payloadDigest: 'sha256:queued',
+          message: 'queued transcript must remain hidden',
+          commitState: SubmissionCommitState.committed,
+          workState: ConversationWorkState.queued,
+          createdAt: queuedAt,
+          updatedAt: queuedAt,
+        ),
+      ),
+    );
     await indexer.idle;
     vectorSynchronizations.clear();
 
     await sessions.updateSessionType(session.id, SessionType.archive);
     await indexer.idle;
-    expect(vectorSynchronizations.single, _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: []));
+    expect(vectorSynchronizations, isEmpty);
+    expect((await index.search('retained transcript', userId: 'owner')).single.id, message.id);
 
-    vectorSynchronizations.clear();
     await sessions.updateSessionType(session.id, SessionType.user);
     await indexer.idle;
-    expect(
-      vectorSynchronizations.single,
-      _VectorSynchronization(ids: [message.id], userId: 'owner', presentIds: [message.id]),
-    );
+    expect(vectorSynchronizations, isEmpty);
+    expect((await index.search('retained transcript', userId: 'owner')).single.id, message.id);
+    expect(await index.search('queued transcript', userId: 'owner'), isEmpty);
 
-    vectorSynchronizations.clear();
     await sessions.deleteSession(session.id);
     await indexer.idle;
     expect(Directory('${root.path}/${session.id}').existsSync(), isFalse);
@@ -170,7 +209,7 @@ void main() {
         timestamp: DateTime.utc(2026),
       ),
     ], userId: 'other');
-    final memory = SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks);
+    final memory = InMemoryFullTextIndex();
     await memory.upsert([
       SearchDocument(
         id: 'memory',
@@ -220,7 +259,7 @@ void main() {
 
   test('lexical failure skips vector synchronization and leaves persistence intact', () async {
     final session = await sessions.createSession();
-    await backend.close();
+    index.unavailable = true;
 
     final message = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'lexical unavailable');
     await indexer.idle;
@@ -241,7 +280,7 @@ void main() {
       expect(hit.role, 'assistant');
       expect(hit.createdAt, message.createdAt.toUtc());
       expect(hit.text, message.content);
-      await backend.close();
+      index.unavailable = true;
       expect(await ConversationSearchService(index: index).search('anything'), isEmpty);
     });
 
@@ -276,7 +315,7 @@ void main() {
       final service = ConversationSearchService(
         index: index,
         userId: 'tenant-a',
-        query: (query, {required userId, required limit, diagnostics}) async {
+        query: (query, {required userId, required limit, scope, diagnostics}) async {
           receivedQuery = query;
           receivedUserId = userId;
           receivedLimit = limit;
@@ -301,6 +340,90 @@ void main() {
       expect(hits.map((hit) => hit.score), [7, -3]);
     });
   });
+}
+
+final class _ControllableFullTextIndex implements ScopedFullTextIndex {
+  final InMemoryFullTextIndex _delegate = InMemoryFullTextIndex();
+  var unavailable = false;
+
+  void _check() {
+    if (unavailable) throw StateError('lexical index unavailable');
+  }
+
+  @override
+  Future<int> count({required String userId, Map<String, String> metadata = const {}}) {
+    _check();
+    return _delegate.count(userId: userId, metadata: metadata);
+  }
+
+  @override
+  Future<void> delete(Iterable<String> ids, {required String userId}) {
+    _check();
+    return _delegate.delete(ids, userId: userId);
+  }
+
+  @override
+  Future<List<SearchDocument>> fetch(Iterable<String> ids, {required String userId}) {
+    _check();
+    return _delegate.fetch(ids, userId: userId);
+  }
+
+  @override
+  Future<List<SearchResult>> listRecent({required String userId, int limit = 20}) {
+    _check();
+    return _delegate.listRecent(userId: userId, limit: limit);
+  }
+
+  @override
+  Future<void> replaceAll(Iterable<SearchDocument> documents, {required String userId}) {
+    _check();
+    return _delegate.replaceAll(documents, userId: userId);
+  }
+
+  @override
+  Future<List<SearchResult>> search(String naturalLanguageQuery, {required String userId, int limit = 20}) {
+    _check();
+    return _delegate.search(naturalLanguageQuery, userId: userId, limit: limit);
+  }
+
+  @override
+  Future<int> countMatches(String naturalLanguageQuery, {required String userId, FullTextSearchScope? scope}) {
+    _check();
+    return _delegate.countMatches(naturalLanguageQuery, userId: userId, scope: scope);
+  }
+
+  @override
+  Future<List<SearchDocument>> fetchScoped(
+    Iterable<String> ids, {
+    required String userId,
+    required FullTextSearchScope scope,
+  }) {
+    _check();
+    return _delegate.fetchScoped(ids, userId: userId, scope: scope);
+  }
+
+  @override
+  Future<List<SearchResult>> searchScoped(
+    String naturalLanguageQuery, {
+    required String userId,
+    required FullTextSearchScope scope,
+    int limit = 20,
+  }) {
+    _check();
+    return _delegate.searchScoped(naturalLanguageQuery, userId: userId, scope: scope, limit: limit);
+  }
+
+  @override
+  Future<void> upsert(Iterable<SearchDocument> documents, {required String userId, Set<String> retire = const {}}) {
+    _check();
+    return _delegate.upsert(documents, userId: userId, retire: retire);
+  }
+
+  @override
+  Future<void> verifyIntegrity() {
+    _check();
+    return _delegate.verifyIntegrity();
+  }
 }
 
 final class _VectorSynchronization {

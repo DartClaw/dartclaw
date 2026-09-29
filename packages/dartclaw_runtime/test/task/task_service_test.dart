@@ -4,8 +4,6 @@ import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
-import '../helpers/in_memory_agent_execution_repository.dart';
-
 void main() {
   late InMemoryTaskRepository repo;
   late InMemoryAgentExecutionRepository agentExecutions;

@@ -10,7 +10,7 @@ DartClaw offers two tiers. Which one you need is the first decision, and it is n
 | What you get | The server's HTTP API and SSE streams, plus the DTO types they carry | The harness, guard chain, sessions, storage, and channels in your own process |
 | What you run | A `dartclaw serve` you already operate | Your own composition of the runtime |
 | Publication intent | Planned, first wave ([ADR-008](../../dev/adrs/008-sdk-publishing-strategy.md)) | Deferred — no publication, no compatibility promise |
-| Native `sqlite3` | No | Yes, through `dartclaw_core` |
+| PostgreSQL driver/service | No | Driver through `dartclaw_core`; PostgreSQL 14+ service operated separately |
 
 Start with tier 1. Reach for tier 2 only when you genuinely need the runtime in your own process, and accept that you are forking: clone the repository, depend by path, and expect breaking changes between milestones.
 
@@ -28,9 +28,9 @@ The client tier never opens a DartClaw data directory, reads a config file, or s
 
 ## Tier 2: Fork The Runtime
 
-| Package | Description | Key Types | When to Use | `sqlite3` | Publication intent |
+| Package | Description | Key Types | When to Use | Database driver | Publication intent |
 | --- | --- | --- | --- | --- | --- |
-| `dartclaw_core` | Runtime primitives, SQLite persistence, and search | `AgentHarness`, `Channel`, `MemoryService`, `Fts5SearchBackend`, `SqliteTaskRepository` | The base of any in-process runtime | Yes | Deferred |
+| `dartclaw_core` | Runtime primitives, PostgreSQL persistence, and search | `AgentHarness`, `Channel`, `MemoryService`, `PostgresFtsIndex`, `PostgresBackend` | The base of any in-process runtime | PostgreSQL | Deferred |
 | `dartclaw_whatsapp` | WhatsApp channel integration via GOWA | `WhatsAppChannel`, `WhatsAppConfig`, `GowaManager` | WhatsApp ingress/egress in your own runtime | No | Deferred |
 | `dartclaw_signal` | Signal channel integration via `signal-cli` | `SignalChannel`, `SignalConfig`, `SignalCliManager` | Signal support in your own runtime | No | Deferred |
 | `dartclaw_google_chat` | Google Chat channel integration | `GoogleChatChannel`, `GoogleChatConfig`, `GoogleChatRestClient` | Google Chat support in your own runtime | No | Deferred |
@@ -95,7 +95,7 @@ dartclaw_cli
 | Deploy the reference server as-is | [User Guide](../guide/getting-started.md) |
 | Embed the harness in my own process | Fork the repo; `dartclaw_core` |
 | Write a custom guard | Fork the repo; `dartclaw_kernel` |
-| Add SQLite-backed memory and search to my own runtime | Fork the repo; `dartclaw_core` |
+| Add PostgreSQL-backed memory and search to my own runtime | Fork the repo; `dartclaw_core` |
 | Add WhatsApp, Signal, or Google Chat to my own runtime | Fork the repo; `dartclaw_core` + the channel package |
 | Fork the reference server as a starting point | Clone the repo and modify `dartclaw_runtime` / `dartclaw_cli` |
 
@@ -117,6 +117,9 @@ The client-tier example is the umbrella package's own [`example/example.dart`](.
 
 ## Why Only The Client Tier Ships
 
-Embedding an agent runtime in a foreign process is a large surface to support: harness lifecycle, guard policy, storage layout, channel adapters, and a native `sqlite3` dependency. Talking to a runtime you already operate is a small one — a URL, a token, JSON, and SSE frames — and it is the surface that real consumers have actually asked for.
+Embedding an agent runtime in a foreign process is a large surface to support: harness lifecycle, guard policy,
+PostgreSQL storage composition, channel adapters, and native embedding integration. Talking to a runtime you already
+operate is a small one — a URL, a token, JSON, and SSE frames — and it is the surface that real consumers have
+actually asked for.
 
 So the client tier gets a publication promise and the runtime tier gets a repository. There is deliberately no middle "embeddable runtime" product; if you need one, fork, and open an issue describing what you needed. See [ADR-008](../../dev/adrs/008-sdk-publishing-strategy.md#client-tier-first-publication-2026-08-20).

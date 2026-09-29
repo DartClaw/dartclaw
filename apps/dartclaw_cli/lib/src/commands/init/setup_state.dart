@@ -118,7 +118,7 @@ class SetupState {
 
   new({
     required this.instanceName,
-    required this.instanceDir,
+    required String instanceDir,
     String? configPath,
     required this.provider,
     required this.authMethod,
@@ -143,7 +143,8 @@ class SetupState {
     this.containerEnabled,
     this.containerImage,
     this.contentGuardEnabled,
-  }) : configPath = configPath ?? p.join(instanceDir, 'dartclaw.yaml'),
+  }) : instanceDir = p.normalize(p.absolute(instanceDir)),
+       configPath = p.normalize(p.absolute(configPath ?? p.join(instanceDir, 'dartclaw.yaml'))),
        providers = List.unmodifiable(_normalizeProviders(provider, providers)),
        providerAuthMethods = Map.unmodifiable(_normalizeAuthMethods(provider, authMethod, providerAuthMethods)),
        providerModels = Map.unmodifiable(_normalizeProviderModels(provider, model, providerModels));

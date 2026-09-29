@@ -186,7 +186,11 @@ import { updateRunningTasksSection, updateRunningWorkflowsSection } from './side
     } else {
       panel.setAttribute('data-turn-status-turn-id', data.turn_id);
     }
-    const reason = (data.wait_reason || '').replace(/_/g, ' ');
+    // `unknown` is the enum's "nothing observed yet" member, not a reason. The
+    // server projection drops it too; writing it here would make the live poll
+    // disagree with the first paint.
+    const rawReason = data.wait_reason === 'unknown' ? '' : (data.wait_reason || '');
+    const reason = rawReason.replace(/_/g, ' ');
     const stateEl = panel.querySelector('[data-turn-status-state]');
     if (stateEl) stateEl.textContent = state.charAt(0).toUpperCase() + state.slice(1);
     const reasonEl = panel.querySelector('[data-turn-status-reason]');

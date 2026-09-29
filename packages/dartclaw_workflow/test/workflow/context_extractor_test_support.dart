@@ -4,8 +4,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryWorkflowStepExecutionRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show
+        InMemoryAgentExecutionRepository,
+        InMemoryExecutionRepositoryTransactor,
+        InMemoryTaskRepository,
+        InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         ArtifactKind,
@@ -21,7 +25,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStep,
         WorkflowTaskType;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 typedef ReviewProducer = ({String name, String stepId, String? summaryKey, String totalKey, String gatingKey});
 
@@ -53,8 +56,7 @@ final class ContextExtractorTestHarness {
   late Directory tempDir;
   late String sessionsDir;
   late TaskService taskService;
-  late SqliteBackend taskBackend;
-  late SqliteAgentExecutionRepository agentExecutions;
+  late InMemoryAgentExecutionRepository agentExecutions;
   late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
   late MessageService messageService;
   late SessionService sessionService;
@@ -65,14 +67,11 @@ final class ContextExtractorTestHarness {
     sessionsDir = p.join(tempDir.path, 'sessions');
     Directory(sessionsDir).createSync(recursive: true);
 
-    final db = sqlite3.openInMemory();
-    taskBackend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
+    agentExecutions = InMemoryAgentExecutionRepository();
     taskService = TaskService(
-      SqliteTaskRepository(taskBackend),
+      InMemoryTaskRepository(),
       agentExecutionRepository: agentExecutions,
-      executionTransactor: SqliteExecutionRepositoryTransactor(taskBackend),
+      executionTransactor: const InMemoryExecutionRepositoryTransactor(),
     );
     workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
     sessionService = SessionService(baseDir: sessionsDir);
@@ -88,7 +87,6 @@ final class ContextExtractorTestHarness {
   Future<void> tearDown() async {
     await taskService.dispose();
     await messageService.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   }
 

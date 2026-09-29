@@ -9,8 +9,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show dartclawVersion;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
-
 String _repoRoot() {
   final start =
       Platform.environment['DARTCLAW_REPO_ROOT'] ??
@@ -41,8 +39,6 @@ String _hostArchName() => switch ((Process.runSync('uname', ['-m']).stdout as St
   final value => value.toLowerCase(),
 };
 
-String _hostLibraryName() => _hostOsName() == 'macos' ? 'libsqlite3.dylib' : 'libsqlite3.so';
-
 String _hashFile(String path) {
   for (final command in [
     ('sha256sum', [path]),
@@ -70,13 +66,112 @@ void main() {
   final buildDir = Directory(p.join(repoRoot, 'build'));
   final version = dartclawVersion;
 
-  tearDown(() {
-    if (buildDir.existsSync()) buildDir.deleteSync(recursive: true);
+  test('native archive failures preserve existing build output and precede asset generation', () {
+    final fixtureParent = Directory(p.join(repoRoot, '.agent_temp'))..createSync(recursive: true);
+    final fixture = fixtureParent.createTempSync('native-build-prerequisite-');
+    addTearDown(() => fixture.deleteSync(recursive: true));
+    final fixtureBuildDir = Directory(p.join(fixture.path, 'build'))..createSync(recursive: true);
+    final sentinel = File(p.join(fixtureBuildDir.path, 'previous-build.txt'))..writeAsStringSync('preserve me');
+    final fixtureBuildScript = File(p.join(fixture.path, 'dev', 'tools', 'build.sh'));
+    fixtureBuildScript.parent.createSync(recursive: true);
+    File(buildScript).copySync(fixtureBuildScript.path);
+    File(p.join(repoRoot, 'dev', 'tools', 'sync_version.dart'))
+        .copySync(p.join(fixture.path, 'dev', 'tools', 'sync_version.dart'));
+    final fixtureRuntime = Directory(p.join(fixture.path, 'packages', 'dartclaw_runtime'))..createSync(recursive: true);
+    File(p.join(fixtureRuntime.path, 'pubspec.yaml')).writeAsStringSync('name: dartclaw_runtime\nversion: $version\n');
+    final fixtureVersion = File(p.join(fixtureRuntime.path, 'lib', 'src', 'version.dart'));
+    fixtureVersion.parent.createSync(recursive: true);
+    fixtureVersion.writeAsStringSync("const dartclawVersion = '$version';\n");
+
+    final fixtureBin = Directory(p.join(fixture.path, 'bin'))..createSync();
+    final dartWrapper = File(p.join(fixtureBin.path, 'dart'))
+      ..writeAsStringSync('''#!/bin/sh
+if [ "\$1" = "run" ] && [ "\$2" = "apps/dartclaw_cli/tool/native_artifact_preparation.dart" ]; then
+  shift 2
+  exec "\$DARTCLAW_TEST_REAL_DART" "--packages=\$DARTCLAW_TEST_PACKAGE_CONFIG" "\$DARTCLAW_TEST_NATIVE_PREPARER" "\$@"
+fi
+exec "\$DARTCLAW_TEST_REAL_DART" "\$@"
+''');
+    Process.runSync('chmod', ['755', dartWrapper.path]);
+    final target = '${_hostOsName()}-${_hostArchName()}';
+    final release = 'v999.$pid.${DateTime.now().microsecondsSinceEpoch}';
+    final bundle = target == 'macos-x64' ? 'macos-x86_64' : target;
+    final archive = 'llamadart-native-$bundle-$release.tar.gz';
+    final expectedBytes = utf8.encode('expected archive');
+    final manifest = File(p.join(fixture.path, 'manifest.json'))
+      ..writeAsStringSync(
+        jsonEncode({
+          'release': release,
+          'repository': 'https://example.test/native',
+          'model': {
+            'basename': 'tiny-model.gguf',
+            'url': 'https://example.test/tiny-model.gguf',
+            'size': expectedBytes.length,
+            'sha256': sha256.convert(expectedBytes).toString(),
+          },
+          'artifacts': {
+            target: {
+              'bundle': bundle,
+              'archive': archive,
+              'url': 'https://example.test/$archive',
+              'size': expectedBytes.length,
+              'sha256': sha256.convert(expectedBytes).toString(),
+            },
+          },
+        }),
+      );
+
+    final defaultCache = p.join(fixture.path, '.agent_temp', 'native-cache');
+    final cases = <({String name, String cache, String expectedFailure})>[
+      (name: 'missing default archive', cache: '', expectedFailure: 'Missing native archive $archive'),
+      (
+        name: 'invalid explicit archive',
+        cache: (Directory(p.join(fixture.path, 'invalid-cache'))..createSync()).path,
+        expectedFailure: 'Cached native archive $archive has the wrong size',
+      ),
+    ];
+    File(p.join(cases.last.cache, archive)).writeAsStringSync('invalid');
+
+    for (final testCase in cases) {
+      final result = Process.runSync(
+        'bash',
+        [fixtureBuildScript.path],
+        workingDirectory: fixture.path,
+        environment: {
+          'DARTCLAW_BUILD_SKIP_COMPILE': '1',
+          'DARTCLAW_NATIVE_ALLOW_DOWNLOAD': '',
+          'DARTCLAW_NATIVE_ARCHIVE_CACHE': testCase.cache,
+          'DARTCLAW_NATIVE_MANIFEST': manifest.path,
+          'DARTCLAW_RELEASE_TARGET': target,
+          'DARTCLAW_TEST_NATIVE_PREPARER': p.join(
+            repoRoot,
+            'apps',
+            'dartclaw_cli',
+            'tool',
+            'native_artifact_preparation.dart',
+          ),
+          'DARTCLAW_TEST_PACKAGE_CONFIG': p.join(repoRoot, '.dart_tool', 'package_config.json'),
+          'DARTCLAW_TEST_REAL_DART': Platform.resolvedExecutable,
+          'PATH': '${fixtureBin.path}:${Platform.environment['PATH'] ?? ''}',
+        },
+      );
+      expect(result.exitCode, isNot(0), reason: testCase.name);
+      expect(result.stderr, contains(testCase.expectedFailure), reason: testCase.name);
+      if (testCase.cache.isEmpty) {
+        expect(result.stderr, contains(defaultCache), reason: 'An empty override must select the repo-local default.');
+      }
+      expect(result.stdout, isNot(contains('==> Cross-compiling container bridge')), reason: testCase.name);
+      expect(result.stdout, isNot(contains('==> Generating embedded assets')), reason: testCase.name);
+      expect(sentinel.readAsStringSync(), 'preserve me', reason: testCase.name);
+    }
   });
 
   test(
     'workflow-only: produces both archives with the excluded libraries absent',
     () async {
+      addTearDown(() {
+        if (buildDir.existsSync()) buildDir.deleteSync(recursive: true);
+      });
       final result = await Process.run('bash', [buildScript], workingDirectory: repoRoot);
       expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
 
@@ -132,7 +227,17 @@ void main() {
         expect(retiredCommand.stderr, contains('Could not find a command named "assets".'));
 
         final entries = _tarEntries(archive);
-        expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName', 'lib/', 'lib/${_hostLibraryName()}']));
+        expect(entries, containsAll(['VERSION', 'bin/', 'bin/$binaryName', 'lib/']));
+        expect(
+          entries.any((entry) => entry.startsWith('lib/') && entry != 'lib/'),
+          isTrue,
+          reason: 'The verified native embedding libraries must remain packaged.',
+        );
+        expect(
+          entries.where((entry) => p.basename(entry).toLowerCase().contains('sqlite')),
+          isEmpty,
+          reason: 'Release archives must not carry a SQLite native library.',
+        );
         expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
 
         final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
@@ -142,27 +247,6 @@ void main() {
         final versionResult = Process.runSync(binaryPath, ['--version']);
         expect(versionResult.exitCode, 0);
         expect((versionResult.stdout as String).trim(), dartclawVersion);
-
-        // Regression guard for the bundled-SQLite migration: a binary built without
-        // the native sqlite asset resolves no `sqlite3_*` symbols and crashes at the
-        // first SQLite call. rebuild-index opens the FTS5 search DB, so a clean
-        // `Rebuilt index:` proves the bundled libsqlite3 loaded and initialized.
-        final smokeDir = Directory.systemTemp.createTempSync('dartclaw-build-smoke');
-        addTearDown(() => smokeDir.deleteSync(recursive: true));
-        final smokeWorkspace = p.join(smokeDir.path, 'workspace');
-        Directory(smokeWorkspace).createSync(recursive: true);
-        await seedCanonicalMemory(
-          smokeWorkspace,
-          topics: const {
-            'general': ['Bundled sqlite smoke entry'],
-          },
-        );
-        final configPath = p.join(smokeDir.path, 'dartclaw.yaml');
-        File(configPath).writeAsStringSync('data_dir: ${smokeDir.path}\n');
-
-        final rebuild = Process.runSync(binaryPath, ['--config', configPath, 'rebuild-index']);
-        expect(rebuild.exitCode, 0, reason: '${rebuild.stdout}\n${rebuild.stderr}');
-        expect(rebuild.stdout, contains('Rebuilt index:'));
       }
     },
     skip: Platform.environment['DARTCLAW_NATIVE_ARCHIVE_CACHE'] == null
@@ -172,6 +256,9 @@ void main() {
   );
 
   test('produces target-stamped stub archives without a bundled library', () {
+    addTearDown(() {
+      if (buildDir.existsSync()) buildDir.deleteSync(recursive: true);
+    });
     final fixture = Directory.systemTemp.createTempSync('dartclaw-native-build-stub');
     addTearDown(() => fixture.deleteSync(recursive: true));
     final cache = Directory(p.join(fixture.path, 'cache'))..createSync();

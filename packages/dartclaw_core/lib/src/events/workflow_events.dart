@@ -120,8 +120,8 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
   /// explanation surfaced inline in the console.
   final String? reason;
 
-  /// Tokens consumed by this step.
-  final int tokenCount;
+  /// Tokens consumed by this step, or null when accounting is unavailable.
+  final int? tokenCount;
 
   @override
   final DateTime timestamp;
@@ -154,7 +154,7 @@ final class WorkflowStepCompletedEvent extends WorkflowLifecycleEvent {
       success: _requiredBool(json, 'success'),
       outcome: _optionalString(json, 'outcome'),
       reason: _optionalString(json, 'reason'),
-      tokenCount: _requiredInt(json, 'tokenCount'),
+      tokenCount: _optionalInt(json, 'tokenCount'),
       timestamp: _timestampFromJson(json),
     );
   }
@@ -199,20 +199,23 @@ final class WorkflowCliTurnProgressEvent extends DartclawEvent {
   /// 1-based turn index within the workflow prompt chain.
   final int turnIndex;
 
-  /// Cumulative provider-reported tokens after this turn completed.
+  /// Additive known tokens accumulated by this workflow step.
   final int cumulativeTokens;
 
-  /// Raw provider-reported cumulative input tokens.
+  /// Known input tokens accumulated by this workflow step.
   final int inputTokens;
 
-  /// Raw provider-reported cumulative output tokens.
+  /// Known output tokens accumulated by this workflow step.
   final int outputTokens;
 
-  /// Raw provider-reported cumulative cache-read tokens.
+  /// Known cache-read tokens accumulated by this workflow step.
   final int cacheReadTokens;
 
-  /// Raw provider-reported cumulative cache-write tokens.
+  /// Known cache-write tokens accumulated by this workflow step.
   final int cacheWriteTokens;
+
+  /// Whether every turn included in these counters was fully measured.
+  final bool tokenUsageComplete;
 
   @override
   final DateTime timestamp;
@@ -227,6 +230,7 @@ final class WorkflowCliTurnProgressEvent extends DartclawEvent {
     required this.outputTokens,
     required this.cacheReadTokens,
     required this.cacheWriteTokens,
+    this.tokenUsageComplete = false,
     required this.timestamp,
   });
 
@@ -456,8 +460,8 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
   /// when none was recorded. Surfaced inline for failed/blocked iterations.
   final String? reason;
 
-  /// Tokens consumed by this iteration.
-  final int tokenCount;
+  /// Tokens consumed by this iteration, or null when accounting is unavailable.
+  final int? tokenCount;
 
   @override
   final DateTime timestamp;
@@ -486,7 +490,7 @@ final class MapIterationCompletedEvent extends WorkflowLifecycleEvent {
     success: _requiredBool(json, 'success'),
     outcome: _optionalString(json, 'outcome'),
     reason: _optionalString(json, 'reason'),
-    tokenCount: _requiredInt(json, 'tokenCount'),
+    tokenCount: _optionalInt(json, 'tokenCount'),
     timestamp: _timestampFromJson(json),
   );
 

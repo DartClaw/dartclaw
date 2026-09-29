@@ -127,6 +127,9 @@ class ScheduledJob {
   /// Optional session-local tool allowlist for built-in prompt jobs.
   final List<String>? allowedTools;
 
+  /// Pinned workspace for a built-in job owned by one configured agent.
+  final AgentWorkspace? workspace;
+
   /// When [jobType] is [ScheduledJobType.task], the task definition to create.
   final ScheduledTaskDefinition? taskDefinition;
 
@@ -169,6 +172,7 @@ class ScheduledJob {
     this.model,
     this.effort,
     this.allowedTools,
+    this.workspace,
     this.taskDefinition,
     this.shellDefinition,
     this.onExecute,

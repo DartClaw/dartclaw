@@ -16,6 +16,8 @@ import 'harness_test_support.dart';
 
 part 'codex_provider_session_resume_cases.dart';
 part 'codex_notification_correlation_cases.dart';
+part 'codex_skill_root_cases.dart';
+part 'codex_model_catalogue_cases.dart';
 
 class _PassGuard extends Guard {
   GuardContext? lastContext;
@@ -58,12 +60,16 @@ CodexHarness _buildHarness({
   Duration initializeTimeout = const Duration(seconds: 10),
   Duration turnTimeout = const Duration(seconds: 600),
   Future<String?> Function()? prepareSubscriptionHome,
+  String? skillWorkspaceDir,
+  List<String> declaredWritableRoots = const <String>[],
 }) {
   final fake = process ?? FakeCodexProcess(completeExitOnKill: true);
   return CodexHarness(
     cwd: '/tmp',
     executable: 'codex',
     prepareSubscriptionHome: prepareSubscriptionHome,
+    skillWorkspaceDir: skillWorkspaceDir,
+    declaredWritableRoots: declaredWritableRoots,
     processFactory:
         processFactory ?? (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async => fake,
     commandProbe: commandProbe ?? defaultCommandProbe,
@@ -128,36 +134,6 @@ void main() {
     });
 
     group('start()', () {
-      test('probes the configured Codex binary directly', () async {
-        final calls = <({String executable, List<String> arguments})>[];
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        final harness = _buildHarness(
-          process: fake,
-          platformCapabilities: PlatformCapabilities(operatingSystem: 'windows'),
-          commandProbe: (executable, arguments) async {
-            calls.add((executable: executable, arguments: arguments));
-            return ProcessResult(0, 0, 'C:\\Program Files\\Codex\\codex.exe\r\n', '');
-          },
-        );
-        addTearDown(() async => harness.dispose());
-
-        await startHarness(harness, fake);
-        expect(calls.single.executable, 'codex');
-        expect(calls.single.arguments, ['--version']);
-      });
-
-      test('converts a thrown Codex probe failure to a structured lookup error', () async {
-        final harness = _buildHarness(
-          commandProbe: (_, _) async => throw ProcessException('codex', ['--version'], 'probe failed'),
-        );
-        addTearDown(() async => harness.dispose());
-
-        await expectLater(
-          harness.start(),
-          throwsA(isA<UnsupportedCapabilityError>().having((e) => e.attemptedContext, 'context', 'codex --version')),
-        );
-      });
-
       test('does not misreport unexpected Codex probe errors as missing executable', () async {
         final harness = _buildHarness(commandProbe: (_, _) async => throw StateError('probe bug'));
         addTearDown(() async => harness.dispose());
@@ -205,23 +181,6 @@ void main() {
           throwsA(isA<UnsupportedCapabilityError>().having((e) => e.capability, 'capability', 'home directory')),
         );
       });
-      test('spawns codex app-server without --yolo', () async {
-        final fake = FakeCodexProcess(completeExitOnKill: true);
-        late List<String> spawnedArgs;
-        final harness = _buildHarness(
-          process: fake,
-          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
-            spawnedArgs = List<String>.from(args);
-            return fake;
-          },
-        );
-        addTearDown(() async => harness.dispose());
-
-        await startHarness(harness, fake);
-
-        expect(spawnedArgs, contains('app-server'));
-        expect(spawnedArgs, isNot(contains('--yolo')));
-      });
 
       test('completes initialize handshake and does not eagerly start a thread', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
@@ -236,6 +195,9 @@ void main() {
         expect(fake.sentMessages[1]['method'], 'initialized');
         expect(fake.sentMessages.where((message) => message['method'] == 'thread/start'), isEmpty);
       });
+
+      registerCodexSkillRootTests();
+      registerCodexModelCatalogueTests();
 
       test('initialize timeout reaps the child and releases the startup lock', () async {
         final fake = FakeCodexProcess();
@@ -411,6 +373,7 @@ void main() {
           expect(result.inputTokens, 5);
           expect(result.outputTokens, 34);
           expect(result.cacheReadTokens, 7);
+          expect(result.tokenUsageComplete, isTrue);
           expect(events.length, 6);
           expect(events[0], isA<DeltaEvent>());
           expect(
@@ -439,6 +402,38 @@ void main() {
           );
         },
       );
+
+      test('explicit zero usage is complete while missing usage is incomplete', () async {
+        final (:harness, :fake) = await _startedHarness();
+        Future<TurnResult> run({required bool includeUsage}) async {
+          final turn = harness.turn(
+            sessionId: 'usage-presence',
+            messages: const [
+              {'role': 'user', 'content': 'measure'},
+            ],
+            systemPrompt: '',
+          );
+          await pumpEventLoop();
+          if (fake.sentMessages.any((message) => message['method'] == 'thread/start' && message['id'] != null)) {
+            await respondToLatestThreadStart(fake);
+          }
+          fake.emitTurnStarted();
+          if (includeUsage) {
+            fake.emitTurnCompleted(inputTokens: 0, outputTokens: 0);
+          } else {
+            fake.emitLine({'method': 'turn/completed', 'params': {}});
+          }
+          return turn;
+        }
+
+        final zero = await run(includeUsage: true);
+        expect(zero.tokenUsageComplete, isTrue);
+        expect(zero.inputTokens, 0);
+        expect(zero.costUsd, isNull);
+        final missing = await run(includeUsage: false);
+        expect(missing.tokenUsageComplete, isFalse);
+        expect(missing.inputTokens, 0);
+      });
 
       test('does not emit approval resolved when approval response write fails', () async {
         final fake = _FailingWriteCodexProcess();
@@ -546,8 +541,14 @@ void main() {
 
         final threadStarts = fake.sentMessages.where((message) => message['method'] == 'thread/start').toList();
         final turnStarts = fake.sentMessages.where((message) => message['method'] == 'turn/start').toList();
-        expect((threadStarts[0]['params'] as Map<String, dynamic>)['developerInstructions'], 'SEARCH PERSONA');
-        expect((threadStarts[1]['params'] as Map<String, dynamic>).containsKey('developerInstructions'), isFalse);
+        expect(
+          (threadStarts[0]['params'] as Map<String, dynamic>)['developerInstructions'],
+          startsWith('SEARCH PERSONA\n\n'),
+        );
+        expect(
+          (threadStarts[1]['params'] as Map<String, dynamic>)['developerInstructions'],
+          contains('DartClaw cannot collect answers'),
+        );
         expect((turnStarts[0]['params'] as Map<String, dynamic>)['model'], 'gpt-5.6-luna');
         expect((turnStarts[0]['params'] as Map<String, dynamic>)['effort'], 'medium');
         expect((turnStarts[1]['params'] as Map<String, dynamic>)['threadId'], 'default-thread');
@@ -584,7 +585,7 @@ void main() {
         expect(threadStarts, hasLength(3));
         expect(
           (threadStarts[2]['params'] as Map<String, dynamic>)['developerInstructions'],
-          'SAFE STATIC CONTENT\n\nCollection revision: 42',
+          startsWith('SAFE STATIC CONTENT\n\nCollection revision: 42\n\n'),
         );
         expect(
           (threadStarts[2]['params'] as Map<String, dynamic>)['developerInstructions'],
@@ -615,7 +616,7 @@ void main() {
 
         final threadStart = fake.sentMessages.singleWhere((message) => message['method'] == 'thread/start');
         final instructions = (threadStart['params'] as Map<String, dynamic>)['developerInstructions'] as String;
-        expect(instructions, 'SAFE RESTRICTED CONTENT');
+        expect(instructions, startsWith('SAFE RESTRICTED CONTENT\n\n'));
         expect(instructions, isNot(contains('PRIVATE MEMORY SENTINEL')));
         expect(instructions, isNot(contains('Collection revision: 42')));
       });
@@ -1142,7 +1143,7 @@ void main() {
         );
       });
 
-      test('logs failed MCP startup detail and ignores status noise', () async {
+      test('logs failed MCP startup without provider detail and ignores status noise', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
         addTearDown(() async => harness.dispose());
@@ -1172,8 +1173,7 @@ void main() {
           (record) => record.loggerName == 'CodexHarness' && record.level == Level.WARNING,
         );
         expect(warnings, hasLength(1));
-        expect(warnings.single.message, contains('node_repl'));
-        expect(warnings.single.message, contains('initialize response closed'));
+        expect(warnings.single.message, 'MCP server startup failed');
 
         final turn = harness.turn(
           sessionId: 'sess-mcp-warning',

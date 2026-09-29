@@ -42,9 +42,6 @@ stepDefaults:
   - match: "plan"
     provider: "@planner"
     model: "@planner"
-  - match: "revise*"
-    provider: "@reviewer"
-    model: "@reviewer"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
@@ -93,7 +90,7 @@ steps:
   # plan.json + per-story FIS files; emits file paths, not inline bodies.
   - id: plan
     name: Plan Stories and Specs
-    skill: andthen:plan
+    skill: andthen:spec
     entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
     # `prd` is interpolated inline as the skill argument; only `plan` needs
     # auto-framing (reuse-vs-synthesize signal, not referenced in the prompt).
@@ -132,17 +129,6 @@ steps:
       story_results:
         format: json
     steps:
-      - id: revise-story-spec
-        name: Revise Story Spec (low confidence)
-        skill: andthen:review
-        entryGate: "map.item.spec_source == synthesized && map.item.spec_confidence > 0 && map.item.spec_confidence < 7"
-        allowedTools: [shell, file_read, file_write, file_edit]
-        # TD-104: shared reviews dir until revise gates become parallel.
-        prompt: >-
-          --mode doc --fix --auto
-          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-          {{map.item.spec_path}}
-
       - id: implement
         name: Implement Story
         skill: andthen:exec-spec
@@ -188,7 +174,7 @@ steps:
         steps:
           - id: remediate-story
             name: Remediate Story Findings
-            skill: andthen:remediate-findings
+            skill: andthen:implement-fix
             allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
             prompt: "--auto {{context.review_report_path}}"
             outputs:
@@ -253,7 +239,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
+        skill: andthen:implement-fix
         entryGate: "gating_findings_count > 0"
         allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
         inputs: [story_results]

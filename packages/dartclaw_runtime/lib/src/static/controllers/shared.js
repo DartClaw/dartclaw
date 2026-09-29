@@ -90,12 +90,23 @@ function toastContainer() {
 
 function removeToast(toast) {
   if (!toast || !toast.parentNode || toast.classList.contains('removing')) return;
+  if (toast.dataset.sourceRef) persistentToasts.delete(toast.dataset.sourceRef);
   toast.classList.add('removing');
   toast.addEventListener('animationend', () => toast.remove(), { once: true });
 }
 
-export function showToast(type, message) {
+const persistentToasts = new Map();
+
+export function showToast(type, message, options = {}) {
   const container = toastContainer();
+  const sourceRef = typeof options.sourceRef === 'string' ? options.sourceRef : null;
+  if (options.recovered && sourceRef) {
+    const existing = persistentToasts.get(sourceRef);
+    if (existing) removeToast(existing);
+    persistentToasts.delete(sourceRef);
+    return;
+  }
+  if (sourceRef && persistentToasts.has(sourceRef)) return;
   const toast = document.createElement('div');
   toast.className = 'toast toast-' + sanitizeClassToken(type, 'info');
   toast.innerHTML =
@@ -103,14 +114,18 @@ export function showToast(type, message) {
     '<button class="toast-dismiss" aria-label="Dismiss" data-icon="x"></button>';
   toast.querySelector('.toast-dismiss')?.addEventListener('click', () => removeToast(toast));
   container.appendChild(toast);
+  if (sourceRef) {
+    toast.dataset.sourceRef = sourceRef;
+    persistentToasts.set(sourceRef, toast);
+  }
   while (container.children.length > TOAST_MAX) {
     removeToast(container.firstElementChild);
   }
-  setTimeout(() => removeToast(toast), TOAST_DURATION);
+  if (!options.persistent) setTimeout(() => removeToast(toast), TOAST_DURATION);
 }
 
-export function dispatchToast(type, message) {
-  document.body.dispatchEvent(new CustomEvent('dc:toast', { detail: { type, message } }));
+export function dispatchToast(type, message, options = {}) {
+  document.body.dispatchEvent(new CustomEvent('dc:toast', { detail: { type, message, ...options } }));
 }
 
 export const TOAST_QUEUE_KEY = 'dartclaw-queued-toast';
@@ -125,15 +140,24 @@ export function queueToast(type, message) {
   } catch (_) {}
 }
 
-let activeConfirmDialog = null;
+let activeDialog = null;
 
-export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false } = {}) {
+function openCustomDialog({
+  title,
+  body,
+  confirmLabel,
+  danger = false,
+  inputLabel = null,
+  inputValue = '',
+} = {}) {
   // Fail closed rather than stack dialogs: a second confirmation raised while one
   // is open would ask about an action the user can no longer see the context for.
-  if (activeConfirmDialog) return Promise.resolve(false);
+  if (activeDialog) return Promise.resolve(inputLabel == null ? false : null);
 
   const dialog = document.createElement('dialog');
-  dialog.className = 'dialog dialog--confirm card card-glass';
+  dialog.className = inputLabel == null
+    ? 'dialog dialog--confirm card card-glass'
+    : 'dialog dialog--sm card card-glass';
 
   if (title) {
     const header = document.createElement('div');
@@ -157,6 +181,20 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
   const message = document.createElement('p');
   message.textContent = body == null ? '' : String(body);
   bodyElement.appendChild(message);
+
+  let input = null;
+  if (inputLabel != null) {
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.htmlFor = 'custom-dialog-input';
+    label.textContent = inputLabel;
+    input = document.createElement('textarea');
+    input.id = 'custom-dialog-input';
+    input.className = 'form-textarea';
+    input.rows = 5;
+    input.value = String(inputValue ?? '');
+    bodyElement.append(label, input);
+  }
   dialog.appendChild(bodyElement);
   dialog.setAttribute('aria-label', title || message.textContent);
 
@@ -178,8 +216,9 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
   footer.appendChild(actions);
   dialog.appendChild(footer);
 
+  const returnFocus = document.activeElement;
   document.body.appendChild(dialog);
-  activeConfirmDialog = dialog;
+  activeDialog = dialog;
 
   return new Promise((resolve) => {
     let confirmed = false;
@@ -188,8 +227,9 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
     // top layer this dialog occupies.
     dialog.addEventListener('close', () => {
       dialog.remove();
-      activeConfirmDialog = null;
-      resolve(confirmed);
+      activeDialog = null;
+      if (returnFocus?.isConnected) returnFocus.focus();
+      resolve(confirmed ? (input == null ? true : input.value) : input == null ? false : null);
     }, { once: true });
     confirmButton.addEventListener('click', () => {
       confirmed = true;
@@ -207,9 +247,28 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = 
     dialog.addEventListener('click', (event) => {
       if (event.target === dialog && pressStartedOnBackdrop) dialog.close();
     });
+    input?.addEventListener('keydown', (event) => {
+      if (event.isComposing || event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return;
+      event.preventDefault();
+      confirmed = true;
+      dialog.close();
+    });
     dialog.showModal();
-    if (danger) cancelButton.focus();
+    if (input) {
+      input.focus();
+      input.select();
+    } else if (danger) {
+      cancelButton.focus();
+    }
   });
+}
+
+export function confirmDialog({ title, body, confirmLabel = 'Confirm', danger = false } = {}) {
+  return openCustomDialog({ title, body, confirmLabel, danger });
+}
+
+export function inputDialog({ title, body, inputLabel = 'Message', value = '', confirmLabel = 'Continue' } = {}) {
+  return openCustomDialog({ title, body, confirmLabel, inputLabel, inputValue: value });
 }
 
 export function closeAllCustomSelects(except) {
@@ -220,14 +279,38 @@ export function closeAllCustomSelects(except) {
   });
 }
 
+// Re-reads a wrapped select: rebuilds the menu when its option set has changed,
+// then re-labels and re-ticks. Call it after rewriting `select.options`.
 export function syncCustomSelect(select) {
   if (!select || typeof select._customSelectSync !== 'function') return;
   select._customSelectSync();
 }
 
+let customSelectSeq = 0;
+let customSelectOutsideBound = false;
+
+// pointerdown, not click: a click on another control lands after that control
+// has already reacted, so a menu left open until then overlaps the thing the
+// pointer went to.
+function bindCustomSelectOutsideClose() {
+  if (customSelectOutsideBound) return;
+  customSelectOutsideBound = true;
+  document.addEventListener('pointerdown', (event) => {
+    if (!event.target?.closest?.('.custom-select')) closeAllCustomSelects();
+  });
+}
+
 function enhanceCustomSelect(select) {
   if (!select || select.dataset.customSelectInit) return;
+  // The markup's opt-out, read before the enhancer sets aria-hidden itself:
+  // a select already outside the a11y tree is a value holder behind a
+  // purpose-built control, not a control. `data-custom-select-init` alone
+  // answers "already enhanced", so the two questions never share an answer.
+  if (select.getAttribute('aria-hidden') === 'true') return;
   select.dataset.customSelectInit = '1';
+  bindCustomSelectOutsideClose();
+
+  const menuId = `custom-select-menu-${(customSelectSeq += 1)}`;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'custom-select';
@@ -236,81 +319,171 @@ function enhanceCustomSelect(select) {
   wrapper.appendChild(select);
   select.classList.add('native-select-hidden');
   select.tabIndex = -1;
+  // The trigger is the control now; leaving the select in the a11y tree would
+  // announce the same field twice.
+  select.setAttribute('aria-hidden', 'true');
 
   const trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'custom-select-trigger';
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-controls', menuId);
   const label = document.createElement('span');
   label.className = 'custom-select-label';
-  const caret = document.createElement('span');
-  caret.className = 'custom-select-caret';
-  caret.setAttribute('aria-hidden', 'true');
-  trigger.append(label, caret);
+  trigger.append(label);
+  nameTriggerAfterSelect(select, trigger);
 
   const menu = document.createElement('div');
-  menu.className = 'custom-select-menu';
+  menu.id = menuId;
+  menu.className = 'pop card card-elevated custom-select-menu';
   menu.setAttribute('role', 'listbox');
   wrapper.append(trigger, menu);
+
+  const enabledOptions = () =>
+    Array.from(menu.children).filter((row) => !row.disabled);
 
   function syncFromSelect() {
     const selectedOption = select.options[select.selectedIndex] || select.options[0];
     label.textContent = selectedOption ? (selectedOption.textContent || selectedOption.label || '') : '';
-    menu.querySelectorAll('.custom-select-option').forEach((optionButton) => {
-      optionButton.setAttribute('aria-selected', optionButton.dataset.value === select.value ? 'true' : 'false');
-    });
+    trigger.disabled = select.disabled;
+    for (const row of menu.children) {
+      const on = row.dataset.value === select.value;
+      row.classList.toggle('menu-item--on', on);
+      row.setAttribute('aria-selected', on ? 'true' : 'false');
+      const tick = row.firstChild;
+      tick.className = on ? 'menu-tick icon-control' : 'menu-tick';
+      if (on) tick.dataset.icon = 'check';
+      else delete tick.dataset.icon;
+    }
+  }
+
+  // The rows mirror the option list, so anything that rewrites `select.options`
+  // has to be able to reach them. Comparing is cheaper than rebuilding, and a
+  // rebuild would drop keyboard focus mid-menu for an unchanged list.
+  function menuMatchesOptions() {
+    if (select.options.length !== menu.children.length) return false;
+    for (let index = 0; index < select.options.length; index += 1) {
+      const option = select.options[index];
+      const row = menu.children[index];
+      if (row.dataset.value !== option.value) return false;
+      if (row.disabled !== option.disabled) return false;
+      if (row.lastChild.textContent !== (option.textContent || option.label || '')) return false;
+    }
+    return true;
+  }
+
+  function refresh() {
+    if (!menuMatchesOptions()) buildOptions();
+    syncFromSelect();
   }
 
   function buildOptions() {
-    menu.innerHTML = '';
+    menu.replaceChildren();
     Array.from(select.options).forEach((option, index) => {
-      const optionButton = document.createElement('button');
-      optionButton.type = 'button';
-      optionButton.className = 'custom-select-option';
-      optionButton.setAttribute('role', 'option');
-      optionButton.dataset.value = option.value;
-      optionButton.dataset.index = String(index);
-      optionButton.disabled = option.disabled;
-      optionButton.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.id = `${menuId}-option-${index}`;
+      row.className = 'palette-item menu-item custom-select-option';
+      row.setAttribute('role', 'option');
+      row.tabIndex = -1;
+      row.dataset.value = option.value;
+      row.disabled = option.disabled;
 
-      const check = document.createElement('span');
-      check.className = 'custom-select-check';
-      check.setAttribute('aria-hidden', 'true');
-      check.textContent = '✓';
+      const tick = document.createElement('span');
+      tick.className = 'menu-tick';
+      tick.setAttribute('aria-hidden', 'true');
       const text = document.createElement('span');
+      text.className = 'palette-item-label';
       text.textContent = option.textContent || option.label || '';
-      optionButton.append(check, text);
-      optionButton.addEventListener('click', () => {
+      row.append(tick, text);
+      // Focus is the menu's one cursor, so the pointer moves it too. A move, not
+      // an enter: the list scrolling under a resting pointer must not take the
+      // cursor back from the keyboard.
+      row.addEventListener('pointermove', () => {
+        if (row.disabled || document.activeElement === row) return;
+        row.focus({ preventScroll: true });
+      });
+      row.addEventListener('click', () => {
         if (option.disabled) return;
         select.value = option.value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
         syncFromSelect();
-        closeAllCustomSelects();
+        setOpen(false);
         trigger.focus();
       });
-      menu.appendChild(optionButton);
+      menu.appendChild(row);
     });
   }
 
-  trigger.addEventListener('click', () => {
-    const isOpen = wrapper.dataset.open === 'true';
-    closeAllCustomSelects(isOpen ? null : wrapper);
-    wrapper.dataset.open = isOpen ? 'false' : 'true';
-    trigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
-  });
-  trigger.addEventListener('keydown', (event) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'Enter' && event.key !== ' ') return;
+  // Below the trigger whenever the whole menu fits there. Otherwise the side
+  // with more room, with the height capped to that room so every row is still
+  // reachable by scrolling. Measured on each open: the trigger moves with the
+  // page, and a menu clipped by the viewport or a scrolling dialog body hides
+  // rows the keyboard can still land on.
+  function placeMenu() {
+    menu.classList.remove('custom-select-menu--up');
+    menu.style.maxHeight = '';
+    const anchor = trigger.getBoundingClientRect();
+    const box = menu.getBoundingClientRect();
+    const gap = box.top - anchor.bottom;
+    const bounds = visibleBounds(wrapper);
+    const below = bounds.bottom - anchor.bottom - gap;
+    if (box.height <= below) return;
+    const above = anchor.top - bounds.top - gap;
+    const up = above > below;
+    menu.classList.toggle('custom-select-menu--up', up);
+    const room = Math.max(0, up ? above : below);
+    if (box.height > room) menu.style.maxHeight = room + 'px';
+  }
+
+  function setOpen(open, { focusOption = false } = {}) {
+    if (open && select.disabled) return;
+    closeAllCustomSelects(open ? wrapper : null);
+    wrapper.dataset.open = open ? 'true' : 'false';
+    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) placeMenu();
+    if (!open || !focusOption) return;
+    const current = Array.from(menu.children).find((row) => row.dataset.value === select.value && !row.disabled);
+    (current || enabledOptions()[0])?.focus();
+  }
+
+  let typeBuffer = '';
+  let typeTimer = null;
+  function typeAhead(key) {
+    typeBuffer += key.toLowerCase();
+    clearTimeout(typeTimer);
+    typeTimer = setTimeout(() => { typeBuffer = ''; }, 700);
+    const match = enabledOptions().find((row) => row.textContent.trim().toLowerCase().startsWith(typeBuffer));
+    if (!match) return;
+    setOpen(true);
+    match.focus();
+  }
+
+  const isTypeAheadKey = (event) =>
+    event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && event.key !== ' ';
+
+  // WebKit does not focus a pressed button, so pressing the trigger of an open
+  // menu blurs the focused row to nowhere and the focusout below closes it; the
+  // click then reads it closed and reopens it. Taking focus here keeps it inside
+  // the wrapper in every engine, so the click toggles.
+  trigger.addEventListener('mousedown', (event) => {
     event.preventDefault();
-    closeAllCustomSelects(wrapper);
-    wrapper.dataset.open = 'true';
-    trigger.setAttribute('aria-expanded', 'true');
-    const selected = menu.querySelector('.custom-select-option[aria-selected="true"]') ||
-      menu.querySelector('.custom-select-option:not([disabled])');
-    selected?.focus();
+    trigger.focus();
   });
+  trigger.addEventListener('click', () => setOpen(wrapper.dataset.open !== 'true', { focusOption: true }));
+  trigger.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setOpen(true, { focusOption: true });
+    } else if (isTypeAheadKey(event)) {
+      event.preventDefault();
+      typeAhead(event.key);
+    }
+  });
+
   menu.addEventListener('keydown', (event) => {
-    const options = Array.from(menu.querySelectorAll('.custom-select-option:not([disabled])'));
+    const options = enabledOptions();
     const currentIndex = options.indexOf(document.activeElement);
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -318,21 +491,89 @@ function enhanceCustomSelect(select) {
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       (options[Math.max(currentIndex - 1, 0)] || options[options.length - 1])?.focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      options[0]?.focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      options[options.length - 1]?.focus();
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      closeAllCustomSelects();
+      setOpen(false);
       trigger.focus();
+    } else if (isTypeAheadKey(event)) {
+      event.preventDefault();
+      typeAhead(event.key);
     }
   });
 
-  select.addEventListener('change', syncFromSelect);
-  select._customSelectSync = syncFromSelect;
+  wrapper.addEventListener('focusout', (event) => {
+    if (!wrapper.contains(event.relatedTarget)) setOpen(false);
+  });
+
+  select.addEventListener('change', refresh);
+  bindFormReset(select, refresh);
+  select._customSelectSync = refresh;
   buildOptions();
   syncFromSelect();
 }
 
+// The part of the viewport an element's overflow can show: every ancestor that
+// clips (any overflow but `visible`) narrows it.
+function visibleBounds(element) {
+  let top = 0;
+  let bottom = window.innerHeight;
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflowY === 'visible') continue;
+    const rect = node.getBoundingClientRect();
+    top = Math.max(top, rect.top);
+    bottom = Math.min(bottom, rect.bottom);
+  }
+  return { top, bottom };
+}
+
+// A form reset restores the native select silently — no `change` fires — so the
+// trigger would keep the label of the value the user just discarded. The reset
+// event itself arrives *before* the browser has restored the control values, so
+// the resync has to wait a task for the values it is about to read.
+//
+// The listener sits on the form, which outlives the select under an inner
+// swap, so it retires itself once the select it speaks for is detached.
+function bindFormReset(select, refresh) {
+  const form = select.form;
+  if (!form) return;
+  const onReset = () => {
+    setTimeout(() => {
+      if (!select.isConnected) {
+        form.removeEventListener('reset', onReset);
+        return;
+      }
+      refresh();
+    }, 0);
+  };
+  form.addEventListener('reset', onReset);
+}
+
+// The trigger replaces the select as the control, so it has to inherit the
+// select's accessible name — a `<label for>` points at an element no one can
+// reach any more.
+function nameTriggerAfterSelect(select, trigger) {
+  const ariaLabel = select.getAttribute('aria-label');
+  if (ariaLabel) {
+    trigger.setAttribute('aria-label', ariaLabel);
+    return;
+  }
+  if (!select.id) return;
+  const labelElement = document.querySelector(`label[for="${CSS.escape(select.id)}"]`);
+  if (!labelElement) return;
+  if (!labelElement.id) labelElement.id = `${select.id}-label`;
+  trigger.setAttribute('aria-labelledby', labelElement.id);
+}
+
+// Every select that is a control, with no opt-in attribute. The selector asks
+// only "not enhanced yet"; the markup's opt-out is `enhanceCustomSelect`'s.
 export function initCustomSelects(root = document) {
-  root.querySelectorAll('select[data-enhance="custom-select"]').forEach(enhanceCustomSelect);
+  root.querySelectorAll('select.form-select:not([data-custom-select-init])').forEach(enhanceCustomSelect);
 }
 
 export function renderMarkdown(root = document) {
@@ -434,22 +675,51 @@ export function showBanner(type, message) {
   banner.querySelector('.dismiss')?.addEventListener('click', () => banner.remove());
 }
 
-export function readHtmxErrorMessage(xhr, fallbackMessage = 'Request failed') {
-  if (!xhr) return fallbackMessage;
-  const contentType = xhr.getResponseHeader('content-type') || '';
+export function readHtmxErrorMessage(ctx, fallbackMessage = 'Request failed') {
+  if (!ctx) return fallbackMessage;
+  const contentType = ctx.response?.headers?.get('content-type') || '';
   if (contentType.includes('application/json')) {
     try {
-      const parsed = JSON.parse(xhr.responseText || '{}');
+      const parsed = JSON.parse(ctx.text || '{}');
       return parsed.error?.message || fallbackMessage;
     } catch (_) {
       return fallbackMessage;
     }
   }
-  return xhr.statusText || fallbackMessage;
+  return ctx.response?.raw?.statusText || fallbackMessage;
 }
 
 export function getApiToken() {
   return new URLSearchParams(window.location.search).get('token');
+}
+
+export function openConversationDraftDb() {
+  if (!globalThis.indexedDB) return Promise.reject(new Error('IndexedDB unavailable'));
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('dartclaw-conversation-drafts', 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('drafts')) {
+        request.result.createObjectStore('drafts', { keyPath: 'key' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function conversationDraftSessionIds(limit = 200) {
+  const db = await openConversationDraftDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction('drafts', 'readonly').objectStore('drafts').getAll();
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const ids = request.result
+        .filter((draft) => (draft.text || '').trim() || draft.references?.length || draft.attachments?.length)
+        .map((draft) => String(draft.key || '').split(':').slice(1).join(':'))
+        .filter((id) => id && id !== 'provisional');
+      resolve([...new Set(ids)].slice(0, limit));
+    };
+  });
 }
 
 export function apiQs() {

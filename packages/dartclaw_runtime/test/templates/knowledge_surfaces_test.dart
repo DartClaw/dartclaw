@@ -149,13 +149,14 @@ void main() {
 
     test('timeline filters compose canonical form controls', () {
       final html = renderTimeline();
+      final main = html.substring(html.indexOf('<main'), html.indexOf('</main>'));
 
-      expect(RegExp(r'class="form-field"').allMatches(html), hasLength(2));
-      expect(RegExp(r'class="form-label t-caption tracking-caps"').allMatches(html), hasLength(2));
-      expect(RegExp(r'class="form-input"').allMatches(html), hasLength(2));
-      expect(html, isNot(contains('class="field"')));
-      expect(html, isNot(contains('class="field-label"')));
-      expect(html, isNot(contains('class="input"')));
+      expect(RegExp(r'class="form-field"').allMatches(main), hasLength(2));
+      expect(RegExp(r'class="form-label t-caption tracking-caps"').allMatches(main), hasLength(2));
+      expect(RegExp(r'class="form-input"').allMatches(main), hasLength(2));
+      expect(main, isNot(contains('class="field"')));
+      expect(main, isNot(contains('class="field-label"')));
+      expect(main, isNot(contains('class="input"')));
     });
 
     test('both knowledge surfaces share one tab component', () {
@@ -189,18 +190,23 @@ void main() {
     });
   });
 
-  group('knowledge hub filter chips', () {
-    test('layer filters are canonical anchor chips carrying aria-current', () {
+  group('knowledge hub layer tabs', () {
+    test('layer filters are canonical tabs carrying one aria-current', () {
       final html = renderHub(layer: KnowledgeHubLayer.memory);
 
-      expect(html, contains('class="chip-row"'));
-      expect(html, contains('class="chip"'));
-      expect(html, isNot(contains('filter-chip')));
-      // Anchors take aria-current, never aria-pressed — canon's pressed rule is
-      // button-qualified, so aria-pressed here would be invalid and inert.
-      expect(html, isNot(contains('aria-pressed')));
-      expect(_chipFor(html, 'Memory'), contains('aria-current="page"'));
-      expect(_chipFor(html, 'Wiki'), isNot(contains('aria-current')));
+      expect(html, contains('class="tabs" aria-label="Knowledge layers"'));
+      expect(html, contains('class="tab t-label'));
+      expect(_tabFor(html, 'Memory'), contains('aria-current="page"'));
+      expect(_tabFor(html, 'Wiki'), isNot(contains('aria-current')));
+      // Scoped to the strip: the page also carries the shell's command palette,
+      // whose lifecycle filters are legitimately pressed chips.
+      final layerTabs = html.substring(
+        html.indexOf('aria-label="Knowledge layers"'),
+        html.indexOf('</nav>', html.indexOf('aria-label="Knowledge layers"')),
+      );
+      expect(layerTabs, isNot(contains('chip')));
+      expect(layerTabs, isNot(contains('aria-pressed')));
+      expect(RegExp('aria-current="page"').allMatches(layerTabs), hasLength(1));
     });
   });
 }
@@ -217,11 +223,11 @@ String _metricCardContaining(String html, String label) {
   fail('no .card-metric cell labelled "$label" in rendered hub');
 }
 
-/// Returns the `a.chip` element whose text is [label].
-String _chipFor(String html, String label) {
-  for (final match in RegExp(r'<a class="chip"[^>]*>[^<]*</a>').allMatches(html)) {
+/// Returns the knowledge-layer `a.tab` element whose text is [label].
+String _tabFor(String html, String label) {
+  for (final match in RegExp(r'<a class="tab t-label[^>]*>[^<]*</a>').allMatches(html)) {
     final text = match.group(0)!;
     if (text.contains('>$label<')) return text;
   }
-  fail('no a.chip labelled "$label" in rendered hub');
+  fail('no knowledge-layer tab labelled "$label" in rendered hub');
 }

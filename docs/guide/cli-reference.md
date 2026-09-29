@@ -93,19 +93,21 @@ Exit code is `1` if any row fails, otherwise `0`.
 | `config.parse`, `config.valid` | Readable YAML and the loader's validation messages; one validity row per warning |
 | `provider.<id>.binary`, `provider.<id>.credential` | Configured executable, version and the same credential check as `init` |
 | `data_dir.writable`, `data_dir.layout` | Writable instance and required workspace, sessions and logs directories |
+| `database.connection`, `database.schema`, `database.vector` | PostgreSQL reference/reachability/TLS/auth/version/role readiness, current or empty schema state, and pgvector readiness only when hybrid is explicit |
 | `server.port` or `server.health` | Free port, or a running server's version and uptime; mismatched CLI/server versions warn |
 | `secrets.literals`, `secrets.unresolvable`, `secrets.shadowed`, `secrets.orphans`, `secrets.permissions` | The same value-free findings as [`secrets audit`](#secrets-audit) |
 | `container.runtime`, `container.image`, `container.engine` | Runtime, existing image and supported engine architecture; unavailable checks warn for inferred isolation and fail when explicitly enabled |
 | `container.orphans` | Leftover owned containers, reclaimed at the next `dartclaw serve` start; skipped for a running server, absent without a runtime |
-| `windows.reload_mode`, `windows.git_bash`, `windows.sqlite_dll` | Windows-only checks for reload mode, Git Bash and the bundled release DLL; permissions are skipped there |
+| `windows.reload_mode`, `windows.git_bash` | Windows-only checks for reload mode and Git Bash; POSIX permission checks are skipped there |
 
 `--server` probes that address instead of the local port. Health probes send no token. A missing or malformed
 config skips dependent checks; a fatal loader rejection, including unknown fields, also prevents directory repairs.
 Loadable validation failures remain visible while other checks run.
 
-`--fix` creates only missing `workspace/`, `sessions/` and `logs/` directories at their configured paths, then re-runs
-the checks. A repaired layout is shown as `fixed`; each created directory is listed. It does not write YAML, change
-permissions, build images, or remove containers. Fixing directories does not clear other failures.
+`--fix` creates missing `workspace/`, `sessions/` and `logs/` directories and may bootstrap DartClaw's current schema
+through the configured restricted PostgreSQL role when the application namespace is empty. It does not create or
+start PostgreSQL, create a database, role, namespace or extension, reset a populated schema, write YAML, change
+permissions, build images, or remove containers. Fixing one row does not clear other failures.
 
 `--json` writes one document and uses the same exit code:
 
@@ -533,21 +535,20 @@ dartclaw rebuild-index
 dartclaw rebuild-index --json
 ```
 
-Rebuilds memory from the canonical corpus and conversations from session NDJSON. On SQLite, the command builds and
-completely validates a fresh sibling lexical index before replacing `search.db`; on PostgreSQL, it publishes the rebuilt
-lexical projection in one transaction. Active topics, archive, observations, and learnings retain stable role-aware
+Rebuilds memory from the canonical corpus and conversations from session NDJSON, publishing the PostgreSQL lexical
+projection in one transaction. Active topics, archive, observations, and learnings retain stable role-aware
 locators and canonical entry identities. Source entry timestamps determine recent ordering; undated entries sort
 oldest. The result reports the canonical revision, memory row count and health, plus conversation message and session
 counts. If there are no chat-facing sessions, the command produces an empty conversation index and clears stale rows.
 
-With `search.backend: hybrid`, the command then reconciles memory and conversation vectors in the separate SQLite
-`vectors.db` or PostgreSQL `memory_vectors` and `conversation_vectors` tables. Human output reports both unembedded
+With `search.backend: hybrid`, the command then reconciles the PostgreSQL `memory_vectors` and
+`conversation_vectors` tables. Human output reports both unembedded
 counts. JSON output adds `conversationMessages`, `conversationSessions`, `memoryUnembeddedCount`,
 `conversationUnembeddedCount`, and `vectorDegradedCorpora` when vector recovery is incomplete. A vector failure leaves
 the rebuilt lexical indexes current: repair the managed local model with `dartclaw search download-model`, or correct
 the explicit HTTP endpoint, then retry the rebuild.
 
-A lexical rebuild failure preserves the prior index on either backend and records degraded health with a retry action.
+A lexical rebuild failure preserves the prior projection and records degraded health with a retry action.
 Stop DartClaw before running the command and leave it stopped until rebuilding completes; the command does not
 coordinate with a live server.
 

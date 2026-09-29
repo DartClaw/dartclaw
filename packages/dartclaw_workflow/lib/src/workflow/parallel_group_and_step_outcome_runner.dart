@@ -34,7 +34,14 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
         return result;
       } catch (e, st) {
         WorkflowExecutor._log.severe("Parallel step '${step.name}' failed: $e", e, st);
-        return StepOutcome(step: step, outputs: {}, tokenCount: 0, success: false, error: e.toString());
+        return StepOutcome(
+          step: step,
+          outputs: {},
+          tokenCount: 0,
+          success: false,
+          executionError: true,
+          error: e.toString(),
+        );
       }
     }).toList();
 
@@ -57,8 +64,17 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
     // Interrupted members' partial attempts stay uncharged: the pause path
     // re-runs them on resume, so charging here would double-count – consistent
     // with the plain-step, loop, and map interruption seams.
-    final total = results.fold(0, (sum, r) => sum + (r.outcome == 'cancelled' ? 0 : r.tokenCount));
-    return run.copyWith(totalTokens: run.totalTokens + total, updatedAt: DateTime.now());
+    final total = results.fold(
+      0,
+      (sum, r) =>
+          sum +
+          (r.outcome == 'cancelled' ? 0 : (r.accountingReadError ? r.accountingKnownBeforeReadError : r.tokenCount)),
+    );
+    return run.copyWith(
+      totalTokens: run.totalTokens + total,
+      tokenUsageComplete: run.tokenUsageComplete && results.every((result) => result.tokenUsageComplete),
+      updatedAt: DateTime.now(),
+    );
   }
 
   void _mergeStepResultIntoContext(WorkflowContext context, StepOutcome result, {String? fallbackStatus}) {
@@ -68,13 +84,16 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
       context['$stepId.status'] = fallbackStatus;
     }
     if (!result.outputs.containsKey('$stepId.tokenCount')) {
-      context['$stepId.tokenCount'] = result.tokenCount;
+      context['$stepId.tokenCount'] = result.tokenUsageComplete ? result.tokenCount : null;
     }
     if (result.outcome != null) {
       context['step.$stepId.outcome'] = result.outcome!;
     }
     if (result.outcomeReason != null && result.outcomeReason!.isNotEmpty) {
       context['step.$stepId.outcome.reason'] = result.outcomeReason!;
+    }
+    if (!result.success && result.error != null) {
+      context['$stepId.error'] = result.error!;
     }
     final stepSessionId = result.task?.sessionId;
     if (stepSessionId != null) {

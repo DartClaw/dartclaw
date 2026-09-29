@@ -30,9 +30,11 @@ import 'api/search_inspection_routes.dart';
 import 'api/project_routes.dart';
 import 'api/provider_routes.dart';
 import 'api/session_routes.dart';
+import 'api/session_routes_support.dart' show ModelCatalogueLookup, noModelCatalogues;
 import 'api/sse_broadcast.dart';
 import 'api/task_routes.dart';
 import 'api/task_sse_routes.dart';
+import 'temporary_conversation_capability.dart';
 import 'api/trace_routes.dart';
 import 'api/webhook_routes.dart';
 import 'audit/audit_log_reader.dart';
@@ -44,10 +46,15 @@ import 'auth/security_headers.dart';
 import 'auth/token_service.dart';
 import 'asset_resolver.dart';
 import 'context/result_trimmer.dart';
+import 'conversation/inbox_service.dart';
+import 'conversation/conversation_service.dart';
+import 'conversation/human_command_catalog.dart';
+import 'conversation/product_conversation_search.dart';
 import 'health/health_service.dart';
 import 'generated/embedded_assets.g.dart';
 import 'memory/memory_status_service.dart';
 import 'memory/memory_prune_service.dart';
+import 'memory/memory_admin_service.dart';
 import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
 import 'project/project_mutation_service.dart';
@@ -103,6 +110,7 @@ class DartclawServer {
   Handler? _builtHandler;
   Handler? _requestHandler;
   bool _registrationLocked = false;
+  ConversationService? _conversation;
 
   late final MemoryPruneService _memoryPruneService = MemoryPruneService(
     pruner: _observability.memoryPruner,
@@ -295,12 +303,15 @@ class DartclawServer {
   }
 
   Future<void> shutdown() async {
+    await _conversation?.beginShutdown();
     _tasks.progressTracker?.dispose();
     for (final sessionId in _turn.turns.activeSessionIds.toList()) {
       await _turn.turns.cancelTurn(sessionId);
     }
+    await _conversation?.drain();
     await _tasks.executionDrainer?.call();
     await _channels.spaceEventsWiring?.dispose();
+    await _web.inboxService?.dispose();
     await _observability.eventBusSseBridge?.cancel();
     await _observability.sseBroadcast?.dispose();
     await _channels.channelManager?.dispose();
@@ -562,7 +573,12 @@ class DartclawServer {
     final memStatus = _observability.memoryStatusService;
     final wp = _core.config?.workspaceDir;
     if (memStatus != null && wp != null) {
-      final memRouter = memoryRoutes(statusService: memStatus, workspaceDir: wp, pruneService: _memoryPruneService);
+      final memRouter = memoryRoutes(
+        statusService: memStatus,
+        workspaceDir: wp,
+        pruneService: _memoryPruneService,
+        adminService: _observability.memoryAdminService,
+      );
       router.mount('/', memRouter.call);
     }
   }
@@ -727,6 +743,7 @@ class DartclawServer {
       defaultProvider: defaultProvider,
       showChannels: showChannels,
       tasksEnabled: tasksEnabled,
+      inbox: _web.inboxService,
     );
     String buildSidebarHtml({required SidebarData sidebarData, List<NavItem> navItems = const []}) {
       final resolvedNavItems = navItems.isEmpty ? _pageRegistry.navItems(activePage: '') : navItems;
@@ -741,8 +758,19 @@ class DartclawServer {
       resetService: _core.resetService,
       redactor: _core.redactor,
       projectService: _tasks.projectService,
+      ownerWorkspaceDir: _core.config?.workspaceDir ?? _core.sessions.baseDir,
+      contextCapabilities: _core.effectiveContextCapabilities,
+      modelCatalogues: _core.modelCatalogues,
+      defaultProvider: defaultProvider,
+      temporaryConversationCapability: _core.temporaryConversationCapability,
+      logicalAgentSessions: _core.logicalAgentSessions,
       sidebarData: sidebarBuilder.build,
       buildSidebarHtml: buildSidebarHtml,
+      sseBroadcast: _observability.sseBroadcast,
+      inboxService: _web.inboxService,
+      conversationSearch: _web.conversationSearch,
+      commandCatalog: _web.commandCatalog,
+      onConversationCreated: (conversation) => _conversation = conversation,
     );
     router.mount('/', sessionRouter.call);
   }
@@ -762,6 +790,7 @@ class DartclawServer {
       turns: _turn.turns,
       runtimeConfig: _core.runtimeConfig,
       memoryStatusService: _observability.memoryStatusService,
+      memoryAdminService: _observability.memoryAdminService,
       memoryPruneService: _memoryPruneService,
       memoryIndex: _observability.memoryIndex,
       kgService: _web.kgService,
@@ -789,6 +818,8 @@ class DartclawServer {
       threadBindingStore: _channels.threadBindingStore,
       workflowService: _web.workflowService,
       workflowDefinitionSource: _web.workflowDefinitionSource,
+      contextCapabilities: _core.effectiveContextCapabilities,
+      modelCatalogues: _core.modelCatalogues,
     );
     router.mount('/', webRouter.call);
   }

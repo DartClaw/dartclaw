@@ -7,9 +7,15 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, TaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show ProviderAuthPreflight, WorkflowExclusion, WorkflowPreflightException, SkillIntrospector;
+    show
+        ProviderAuthPreflight,
+        SkillIntrospector,
+        WorkflowExclusion,
+        WorkflowPreflightException,
+        WorkflowRunRepository,
+        WorkflowStepExecutionRepository;
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show CredentialPreflight, CredentialPreflightException, DartclawRuntime, ExitFn, HeadlessRuntimeStaging, WriteLine;
@@ -25,8 +31,13 @@ import 'standalone_run_harness.dart';
 /// Runs a workflow either against a live server or in standalone mode.
 class WorkflowRunCommand extends Command<void> {
   final DartclawConfig? _config;
-  final DatabaseBackendFactory? _searchBackendFactory;
   final DatabaseBackendFactory? _taskBackendFactory;
+  final bool _taskBackendIsPrepared;
+  final TaskRepository Function(DatabaseBackend)? _taskRepositoryFactory;
+  final WorkflowRunRepository Function(DatabaseBackend)? _workflowRunRepositoryFactory;
+  final AgentExecutionRepository Function(DatabaseBackend)? _agentExecutionRepositoryFactory;
+  final WorkflowStepExecutionRepository Function(DatabaseBackend)? _workflowStepExecutionRepositoryFactory;
+  final ExecutionRepositoryTransactor Function(DatabaseBackend)? _executionRepositoryTransactorFactory;
   final HarnessFactory? _harnessFactory;
   final WorkflowConnection? connection;
   final Map<String, String>? _environment;
@@ -45,8 +56,13 @@ class WorkflowRunCommand extends Command<void> {
     this.standaloneOnly = false,
     this.reachabilityProbe = serverReachable,
     DartclawConfig? config,
-    DatabaseBackendFactory? searchBackendFactory,
     DatabaseBackendFactory? taskBackendFactory,
+    bool taskBackendIsPrepared = false,
+    TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory,
+    AgentExecutionRepository Function(DatabaseBackend)? agentExecutionRepositoryFactory,
+    WorkflowStepExecutionRepository Function(DatabaseBackend)? workflowStepExecutionRepositoryFactory,
+    ExecutionRepositoryTransactor Function(DatabaseBackend)? executionRepositoryTransactorFactory,
     HarnessFactory? harnessFactory,
     this.connection,
     Map<String, String>? environment,
@@ -58,8 +74,13 @@ class WorkflowRunCommand extends Command<void> {
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
   }) : _config = config,
-       _searchBackendFactory = searchBackendFactory,
        _taskBackendFactory = taskBackendFactory,
+       _taskBackendIsPrepared = taskBackendIsPrepared,
+       _taskRepositoryFactory = taskRepositoryFactory,
+       _workflowRunRepositoryFactory = workflowRunRepositoryFactory,
+       _agentExecutionRepositoryFactory = agentExecutionRepositoryFactory,
+       _workflowStepExecutionRepositoryFactory = workflowStepExecutionRepositoryFactory,
+       _executionRepositoryTransactorFactory = executionRepositoryTransactorFactory,
        _harnessFactory = harnessFactory,
        _environment = environment,
        _stdoutLine = stdoutLine ?? stdout.writeln,
@@ -238,8 +259,13 @@ class WorkflowRunCommand extends Command<void> {
       environment: environment,
       skillProvisionerEnvironment: environment,
       harnessFactory: _harnessFactory ?? HarnessFactory(),
-      searchBackendFactory: _searchBackendFactory,
       taskBackendFactory: _taskBackendFactory,
+      taskBackendIsPrepared: _taskBackendIsPrepared,
+      taskRepositoryFactory: _taskRepositoryFactory,
+      workflowRunRepositoryFactory: _workflowRunRepositoryFactory,
+      agentExecutionRepositoryFactory: _agentExecutionRepositoryFactory,
+      workflowStepExecutionRepositoryFactory: _workflowStepExecutionRepositoryFactory,
+      executionRepositoryTransactorFactory: _executionRepositoryTransactorFactory,
       stderrLine: _stderrLine,
       exitFn: _exitFn,
       runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,

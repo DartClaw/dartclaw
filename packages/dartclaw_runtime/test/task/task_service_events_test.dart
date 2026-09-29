@@ -180,18 +180,16 @@ void main() {
   });
 
   group('TaskEventRecorder integration', () {
-    late SqliteBackend eventBackend;
-    late TaskEventService eventService;
+    late InMemoryTaskEventService eventService;
     late TaskEventRecorder recorder;
 
     setUp(() async {
-      eventBackend = await openPreparedTaskBackend();
-      eventService = TaskEventService(eventBackend);
+      eventService = InMemoryTaskEventService();
       recorder = TaskEventRecorder(eventService: eventService);
     });
 
     tearDown(() async {
-      await eventBackend.close();
+      await eventService.close();
     });
 
     test('transition() records statusChanged event via eventRecorder', () async {
@@ -214,7 +212,7 @@ void main() {
       addTearDown(serviceWithRecorder.dispose);
 
       await repo.insert(makeTask(status: TaskStatus.queued));
-      await eventBackend.close();
+      await eventService.close();
 
       await expectLater(
         serviceWithRecorder.transition('task-1', TaskStatus.running, trigger: 'system'),
@@ -229,7 +227,7 @@ void main() {
       final serviceWithRecorder = TaskService(repo, eventBus: eventBus, eventRecorder: recorder);
       addTearDown(serviceWithRecorder.dispose);
 
-      await eventBackend.close();
+      await eventService.close();
 
       await expectLater(
         serviceWithRecorder.create(

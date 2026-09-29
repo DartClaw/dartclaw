@@ -4,9 +4,11 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SqliteBackend, Task, WorkflowStepCompletedEvent;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show HarnessFactory, PostgresBackend, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
@@ -563,6 +565,9 @@ void main() {
 
   DartclawRuntime? runtime;
   LogService? logService;
+  PostgresBackend? postgresAdmin;
+  String? postgresNamespace;
+  late String postgresDsn;
 
   final diagnosticSubs = <StreamSubscription<Object>>[];
 
@@ -619,21 +624,33 @@ void main() {
   });
 
   tearDown(() async {
-    if (runtime != null) {
-      await runtime!.shutdown();
-      runtime = null;
-    }
+    try {
+      if (runtime != null) {
+        await runtime!.shutdown();
+        runtime = null;
+      }
 
-    for (final url in createdPrUrls) {
-      await _closePr(url);
-    }
-    for (final branch in createdBranches) {
-      await _closePrByBranch(branch, 'DartClaw/workflow-test-todo-app', projectDir: fixtureDir);
-    }
+      for (final url in createdPrUrls) {
+        await _closePr(url);
+      }
+      for (final branch in createdBranches) {
+        await _closePrByBranch(branch, 'DartClaw/workflow-test-todo-app', projectDir: fixtureDir);
+      }
 
-    if (fixture != null) {
-      await fixture!.dispose();
-      fixture = null;
+      if (fixture != null) {
+        await fixture!.dispose();
+        fixture = null;
+      }
+    } finally {
+      try {
+        if (postgresNamespace != null) {
+          await postgresAdmin!.execute('DROP SCHEMA IF EXISTS "$postgresNamespace" CASCADE');
+        }
+      } finally {
+        await postgresAdmin?.close();
+        postgresAdmin = null;
+        postgresNamespace = null;
+      }
     }
   });
 
@@ -663,14 +680,22 @@ void main() {
   }
 
   Future<DartclawRuntime> wireUp({String? prTitle}) async {
+    final configured = Platform.environment['DARTCLAW_TEST_POSTGRES_URL'];
+    if (configured == null || configured.isEmpty) {
+      throw StateError('Live workflow E2E requires DARTCLAW_TEST_POSTGRES_URL (a disposable PostgreSQL 14+ database)');
+    }
+    postgresDsn = configured;
+    postgresAdmin = await PostgresBackend.open(dsn: postgresDsn, poolSize: 1);
+    postgresNamespace = 'dc_workflow_e2e_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(1 << 20)}';
+    await postgresAdmin!.execute('CREATE SCHEMA "$postgresNamespace"');
+
     final resolvedTitle = prTitle ?? 'E2E workflow run ${DateTime.now().millisecondsSinceEpoch}';
     final staging = await DartclawRuntime.stageHeadless(
       config,
       dataDir: config.server.dataDir,
       runtimeCwd: fixture!.runtimeCwd,
       harnessFactory: HarnessFactory(),
-      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) => PostgresBackend.open(dsn: postgresDsn, poolSize: 3, namespace: postgresNamespace!),
       stderrLine: (_) {},
       exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
       prCreator: canCreateGitHubPr

@@ -1,14 +1,13 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTurnTraceService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -24,9 +23,9 @@ void main() {
   late SessionService sessions;
   late MessageService messages;
   late TaskService tasks;
-  late SqliteAgentExecutionRepository agentExecutions;
-  late SqliteWorkflowRunRepository workflowRuns;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
+  late AgentExecutionRepository agentExecutions;
+  late WorkflowRunRepository workflowRuns;
+  late WorkflowStepExecutionRepository workflowStepExecutions;
   late TaskExecutor executor;
 
   setUp(() async {
@@ -1046,12 +1045,8 @@ void main() {
   });
 
   test('inserts trace record when traceService is provided', () async {
-    final backend = await openPreparedTaskBackend();
-    final traceService = TurnTraceService(backend);
-    addTearDown(() async {
-      await traceService.dispose();
-      await backend.close();
-    });
+    final traceService = InMemoryTurnTraceService();
+    addTearDown(traceService.dispose);
 
     worker.responseText = 'Done.';
     worker.inputTokens = 100;
@@ -1210,14 +1205,6 @@ void main() {
       );
       addTearDown(projectExecutor.stop);
 
-      await tasks.create(
-        id: 'task-scope-project',
-        title: 'Workflow project task',
-        description: 'Should inspect the target project, not the host workspace.',
-        agentExecutionId: 'ae-task-scope-project',
-        projectId: 'my-app',
-        autoStart: true,
-      );
       final existingExecution = await agentExecutions.get('ae-task-scope-project');
       if (existingExecution == null) {
         await agentExecutions.create(
@@ -1226,6 +1213,14 @@ void main() {
       } else {
         await agentExecutions.update(existingExecution.copyWith(workspaceDir: workflowWorkspaceDir));
       }
+      await tasks.create(
+        id: 'task-scope-project',
+        title: 'Workflow project task',
+        description: 'Should inspect the target project, not the host workspace.',
+        agentExecutionId: 'ae-task-scope-project',
+        projectId: 'my-app',
+        autoStart: true,
+      );
       await projectExecutor.pollOnce();
       await projectExecutor.drain();
       await pumpEventQueue();

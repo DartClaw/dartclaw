@@ -47,7 +47,22 @@ Future<OutboundMcpPool?> _registerMcpTools(
   server.registerTool(
     AttachMediaTool(workspace: WorkspacePathGuard(config.workspaceDir), delivery: scheduling.deliveryService),
   );
-  server.registerTool(WikiWriteTool(wiki: WikiPageStore(workspaceDir: config.workspaceDir)));
+  Future<ToolResult?> refuseTemporaryDurableWrite(McpCallerContext caller) async {
+    final sessionId = caller.sessionId;
+    if (sessionId == null) return null;
+    final session = await storage.sessions.getSession(sessionId);
+    if (session?.retention == ConversationRetention.process) {
+      return const ToolResult.error('Temporary conversations cannot write durable knowledge');
+    }
+    return null;
+  }
+
+  server.registerTool(
+    WikiWriteTool(
+      wiki: WikiPageStore(workspaceDir: config.workspaceDir),
+      contextualWriteGuard: refuseTemporaryDurableWrite,
+    ),
+  );
   for (final tool in harness.semanticMcpTools) {
     server.registerTool(tool);
   }
@@ -66,21 +81,38 @@ Future<OutboundMcpPool?> _registerMcpTools(
   // deployment rather than a person, so an owner write has no narrower principal
   // to carry. A named MCP client does carry one, but no write tool is in its
   // profile, so it can never reach these.
-  server.registerTool(KgAddTool(kg: storage.kg, auditLogger: auditLogger));
+  server.registerTool(
+    KgAddTool(kg: storage.kg, auditLogger: auditLogger, contextualWriteGuard: refuseTemporaryDurableWrite),
+  );
   server.registerTool(KgQueryTool(kg: storage.kg));
   server.registerTool(KgTimelineTool(kg: storage.kg));
-  server.registerTool(KgInvalidateTool(kg: storage.kg, auditLogger: auditLogger));
+  server.registerTool(
+    KgInvalidateTool(kg: storage.kg, auditLogger: auditLogger, contextualWriteGuard: refuseTemporaryDurableWrite),
+  );
   server.registerTool(KgContradictionsTool(kg: storage.kg));
+  final sharedWiki = WikiSearchSource(workspaceDir: config.workspaceDir);
   server.registerTool(
     ContextResearchTool(
-      memorySearch: storage.searchBackend,
+      scopeResolver: (caller) async {
+        final clientPrincipal = caller.authorityId.startsWith('mcp-client:');
+        if (caller.knowledgeScope == McpKnowledgeScope.sharedOnly) {
+          if (!clientPrincipal || caller.sessionId != null || caller.agentId != null || caller.taskId != null) {
+            throw StateError('Shared-only research requires a named client identity');
+          }
+          return const ContextResearchScope.sharedOnly();
+        }
+        if (clientPrincipal) throw StateError('Named clients cannot acquire private research scope');
+        final memory = await storage.memoryContextForCaller(sessionId: caller.sessionId, agentId: caller.agentId);
+        return ContextResearchScope.private(
+          principal: memory.principal,
+          memorySearch: storage.searchBackendFor(memory.principal),
+          memoryCorpus: memory.corpus,
+        );
+      },
+      wiki: sharedWiki,
       kg: storage.kg,
-      sourceResolver: LiveCitationSourceResolver(
-        corpus: storage.memoryCorpus,
-        wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
-        kg: storage.kg,
-        inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
-      ),
+      sourceResolverFactory: (scope) =>
+          LiveCitationSourceResolver(corpus: scope.memoryCorpus, wiki: sharedWiki, kg: storage.kg),
       synthesizer: ContextResearchTool.logicalAgentSynthesizer(harness.logicalAgentSessions),
       metricsSink: (metrics) async {
         ctx.eventBus.fire(

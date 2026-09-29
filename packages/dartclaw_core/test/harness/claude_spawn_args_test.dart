@@ -68,5 +68,20 @@ void main() {
       expect(capturedArgs, isNotNull);
       expect(capturedArgs, isNot(contains('--append-system-prompt')));
     });
+
+    test('spawn args add the pinned skill workspace independently of cwd', () async {
+      List<String>? capturedArgs;
+      final h = buildClaudeHarness(
+        skillWorkspaceDir: '/tmp/agents/a',
+        processFactory: capturingInitFactory(onSpawn: (spawn) => capturedArgs = spawn.args),
+      );
+      addTeardownAsync(() => h.dispose());
+
+      await h.start();
+
+      final flag = capturedArgs!.indexOf('--add-dir');
+      expect(flag, greaterThanOrEqualTo(0));
+      expect(capturedArgs![flag + 1], '/tmp/agents/a');
+    });
   });
 }

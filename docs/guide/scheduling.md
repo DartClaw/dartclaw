@@ -148,7 +148,7 @@ scheduling:
         expression: "0 18 * * *"
       prompt: "Summarize today's activity"
       delivery: announce
-      model: claude-haiku-3   # override model for cost savings
+      model: claude-haiku-4-5 # override model for cost savings
       effort: low             # override effort level — passed verbatim to provider (Claude: low|medium|high|xhigh|max; Codex: low|medium|high|xhigh)
 ```
 

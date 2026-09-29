@@ -154,6 +154,15 @@ void main() {
     }
   });
 
+  test('native disclosures expose truthful keyboard and ARIA state', () {
+    final source = templateLoader.source('workflow_detail');
+    expect(source, contains('<button type="button" class="pipeline-step-name t-heading" data-step-toggle=""'));
+    expect(source, contains('aria-expanded="false"'));
+    expect(source, contains("tl:attr=\"aria-controls='step-detail-' + \${step.index}\""));
+    expect(source, contains("tl:attr=\"id='step-detail-' + \${step.index}\" hidden"));
+    expect(source, isNot(contains('role="button"')));
+  });
+
   Map<String, dynamic> makeRun({
     String id = 'run-001',
     String definitionName = 'spec-and-implement',
@@ -660,8 +669,8 @@ void main() {
         loopInfo: const [],
       );
 
-      expect(html, contains('htmx:responseError->dc-workflows#showStepDetailError'));
-      expect(html, contains('htmx:sendError->dc-workflows#showStepDetailError'));
+      expect(html, contains('htmx:response:error->dc-workflows#showStepDetailError'));
+      expect(html, contains('htmx:error->dc-workflows#showStepDetailError'));
       expect(html, contains('intersect once, workflow-step-detail-retry'));
       expect(html, contains('data-step-detail-loading'));
       expect(html, contains('data-step-detail-error'));

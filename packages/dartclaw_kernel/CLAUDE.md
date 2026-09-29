@@ -8,7 +8,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 
 - This package depends on no other `dartclaw_*` package. Runtime dependencies are limited to `collection`, `logging`,
   `meta`, `path`, `yaml`, and `yaml_edit`.
-- Do not add server, channel, workflow, storage, SQLite, or Shelf concerns. Channel-specific config classes stay in
+- Do not add server, channel, workflow, database-engine-specific storage, or Shelf concerns. Channel-specific config classes stay in
   their channel packages; server serializers and live subscribers stay in the runtime package.
 - Outbound HTTP is limited to the shared one-shot seam in `http_request.dart` (`HttpClientFactory`, `httpRequest`) and
   the classifiers that call it. It sits at this tier because every tier above needs it and none may be imported from
@@ -30,6 +30,9 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   authority.
 - Unknown YAML paths fail at load through the acceptance sweep. Evidence-based migration-only keys belong in
   `ConfigMeta.toleratedLegacyKeys` and remain disjoint from fields.
+- `AgentWorkspace` is the canonical named-agent workspace binding. It resolves an explicit path once, rejects unsafe
+  aliases and overlaps, and derives storage identity only as `agent:<agent-id>`. Invalid entries remain configured but
+  unavailable so one bad binding cannot disable unrelated agents or become an unconfigured fallback.
 - **`ContainerConfig.enabled` is tri-state at parse time and settled once at startup.** `declaredEnabled` is the
   operator's literal (`null` when the section declares no posture); `enabled` is the posture in force, which the
   runtime's `resolveContainerPosture` replaces with a probed answer through `resolved(...)` before anything wires
@@ -67,6 +70,10 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   package's own value type, so it lives here; the enforcement site is core's `LogicalAgentSessionService`.
   `dartclaw_workflow`'s soft `SchemaValidator` is a separate, warn-only validator – do not import or rebase it from here.
 - JSON shapes use stable string enum names, omit nullable fields when null, and round-trip in tests.
+- `Session.workspace` pins the named-agent id and canonical directory for the conversation lifetime. Legacy metadata
+  omits both workspace fields; a partial pair is malformed. `Session.titleRevision`, `titleProvenance`, and
+  `automaticTitleAttempted` are the persisted title race authority; manual and newer revisions beat automatic
+  generation.
 - `SessionKey` factories encode components. Callers never construct encoded session identifiers by hand.
 - Domain-specific models stay with their owning package. A type sinks here only when independent packages need one and
   no lower owner exists.

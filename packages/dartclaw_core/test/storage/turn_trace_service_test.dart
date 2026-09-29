@@ -1,7 +1,5 @@
-import 'dart:convert';
-
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 TurnTrace _makeTrace({
@@ -47,33 +45,14 @@ TurnTrace _makeTrace({
 }
 
 void main() {
-  late Database db;
-  late SqliteBackend backend;
-  late TurnTraceService service;
+  late InMemoryTurnTraceService service;
 
-  setUp(() async {
-    db = sqlite3.openInMemory();
-    backend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareTasks(backend, storeName: 'tasks.db');
-    service = TurnTraceService(backend);
+  setUp(() {
+    service = InMemoryTurnTraceService();
   });
 
   tearDown(() async {
     await service.dispose();
-    await backend.close();
-  });
-
-  test('creates turns table and indexes', () {
-    final names = db
-        .select("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') ORDER BY name")
-        .map((row) => row['name'])
-        .toList();
-    expect(names, contains('turns'));
-    expect(names, contains('idx_turns_session'));
-    expect(names, contains('idx_turns_task'));
-    expect(names, contains('idx_turns_started'));
-    expect(names, contains('idx_turns_model'));
-    expect(names, contains('idx_turns_provider'));
   });
 
   test('insert and retrieve by taskId', () async {
@@ -158,14 +137,6 @@ void main() {
     final record = ToolCallRecord(name: 'memory_search', success: true, durationMs: 1, sourceLocators: ['one', 'two']);
     await service.insert(_makeTrace(id: 'sources', toolCalls: [record]));
     expect((await service.query()).traces.single.toolCalls.single, record);
-    final stored = jsonDecode(
-      db.select("SELECT tool_calls FROM turns WHERE id = 'sources'").single['tool_calls'] as String,
-    ) as Map<String, dynamic>;
-    final records = stored['records'] as List;
-    expect((records.single as Map)['sourceLocators'], ['one', 'two']);
-    (records.single as Map).remove('sourceLocators');
-    db.execute("UPDATE turns SET tool_calls = ? WHERE id = 'sources'", [jsonEncode(stored)]);
-    expect((await service.query()).traces.single.toolCalls.single.sourceLocators, isEmpty);
   });
 
   test('summary aggregates token sums, duration, tool call count, trace count', () async {
@@ -283,25 +254,6 @@ void main() {
     expect(restored.toolCalls[62].name, 'tool-62');
     expect(restored.toolCalls.last.name, 'tool-69');
     expect(restored.toolCallsTruncated, isTrue);
-  });
-
-  test('legacy tool_calls list rows retain list-derived counts', () async {
-    final legacyRecords = [
-      ToolCallRecord(name: 'read', success: true, durationMs: 1),
-      ToolCallRecord(name: 'write', success: false, durationMs: 2, errorType: 'tool_error'),
-    ];
-    await service.insert(_makeTrace(id: 'trace-legacy', taskId: 'task-legacy'));
-    db.execute('UPDATE turns SET tool_calls = ? WHERE id = ?', [
-      jsonEncode(legacyRecords.map((record) => record.toJson()).toList()),
-      'trace-legacy',
-    ]);
-
-    final result = await service.query(taskId: 'task-legacy');
-    final restored = result.traces.single;
-    expect(result.summary.totalToolCalls, 2);
-    expect(restored.toolCallCount, 2);
-    expect(restored.failedToolCallCount, 1);
-    expect(restored.toolCallsTruncated, isFalse);
   });
 
   test('summaryForTask with no traces returns zero-initialized summary', () async {

@@ -60,7 +60,8 @@ The runtime tier is the host/worker split. Your Dart code is the host; the nativ
 
 ### Storage Seam
 
-`dartclaw_core` owns both file-backed session services and the default SQLite-backed memory search, pruning, and repository implementations. Keeping their shared aggregate hydration and row mapping together gives persistence one authority.
+`dartclaw_core` owns both file-backed session services and PostgreSQL-backed memory search, pruning, and repository
+implementations. Keeping their shared aggregate hydration and row mapping together gives persistence one authority.
 
 ### Event Seam
 

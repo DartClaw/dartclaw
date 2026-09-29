@@ -34,14 +34,14 @@ const storySpecsSchemaBody = {
             'type': 'string',
             'description':
                 'How the story spec was obtained; conventionally "existing" (reused from disk) or "synthesized" '
-                '(produced by the plan step).',
+                '(produced by the authoring step).',
           },
           'spec_confidence': {
             'type': 'integer',
             'minimum': 0,
             'maximum': 10,
             'description':
-                'Planner confidence for synthesized story-spec content. Meaningful only when spec_source is '
+                'Optional authoring confidence for synthesized story-spec content. Meaningful only when spec_source is '
                 'synthesized.',
           },
         },

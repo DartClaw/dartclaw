@@ -54,6 +54,12 @@ HarnessFactory _harnessFactory() {
   return factory;
 }
 
+FullTextIndex _inMemorySearchIndex(
+  DatabaseBackend backend,
+  PostgresFtsTable table, {
+  required bool withinTransaction,
+}) => InMemoryFullTextIndex();
+
 DartclawConfig _config(
   String dataDir, {
   required String templatesDir,
@@ -81,7 +87,9 @@ Future<({Handler handler, List<LogRecord> logs})> _startUntilBindFailure(
   late Handler handler;
   final command = ServeCommand(
     config: config,
-    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    searchIndexFactory: _inMemorySearchIndex,
     harnessFactory: _harnessFactory(),
     serverFactory: (server) => server,
     serveFn: (candidate, address, port) async {

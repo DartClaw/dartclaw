@@ -12,6 +12,24 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request;
 import 'package:test/test.dart';
 
+final class _AuthTool implements McpTool {
+  const new(this.name, this.access);
+
+  @override
+  final String name;
+  @override
+  final McpToolAccess access;
+
+  @override
+  String get description => name;
+
+  @override
+  Map<String, dynamic> get inputSchema => const {'type': 'object', 'properties': <String, dynamic>{}};
+
+  @override
+  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text(name);
+}
+
 /// A client token authenticates `/mcp` and nothing else: it must never satisfy
 /// the gateway bearer, mint a session cookie, or pass the `?token=` bootstrap,
 /// because those are the whole web UI and REST API.
@@ -61,6 +79,15 @@ void main() {
         ),
       ),
     );
+    for (final tool in const [
+      _AuthTool('context_research', McpToolAccess.read),
+      _AuthTool('kg_query', McpToolAccess.read),
+      _AuthTool('kg_timeline', McpToolAccess.read),
+      _AuthTool('memory_search', McpToolAccess.read),
+      _AuthTool('kg_add', McpToolAccess.write),
+    ]) {
+      server.registerTool(tool);
+    }
   });
 
   tearDown(() async {
@@ -79,6 +106,27 @@ void main() {
     expect((await server.handler(mcpPost(clientToken))).statusCode, 200);
     expect((await server.handler(mcpPost(gatewayToken))).statusCode, 200);
     expect((await server.handler(mcpPost('neither-token'))).statusCode, 401);
+  });
+
+  test('the client token discovers exactly the shared research profile', () async {
+    Future<Set<String>> names(String bearer) async {
+      final response = await server.handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/mcp'),
+          body: jsonEncode({'jsonrpc': '2.0', 'method': 'tools/list', 'id': 1}),
+          headers: {'host': 'localhost', 'authorization': 'Bearer $bearer', 'content-type': 'application/json'},
+        ),
+      );
+      final payload = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      return (((payload['result'] as Map<String, dynamic>)['tools'] as List)
+          .cast<Map<String, dynamic>>()
+          .map((tool) => tool['name'] as String)
+          .toSet());
+    }
+
+    expect(await names(clientToken), {'context_research', 'kg_query', 'kg_timeline'});
+    expect(await names(gatewayToken), {'context_research', 'kg_query', 'kg_timeline', 'memory_search', 'kg_add'});
   });
 
   test('the client token is rejected on a REST API route exactly as an invalid token is', () async {

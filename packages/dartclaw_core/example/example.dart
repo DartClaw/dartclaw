@@ -4,7 +4,6 @@
 /// for security policy enforcement.
 library;
 
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 void main() async {
@@ -32,20 +31,4 @@ void main() async {
   } else {
     print('Message allowed');
   }
-
-  final databaseBackend = SqliteBackend.openInMemory();
-  await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'example search.db');
-  final index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
-  final backend = Fts5SearchBackend(index: index);
-  await index.replaceAll([
-    SearchDocument(
-      id: 'README.md',
-      chunks: const ['DartClaw uses a Dart runtime for agent orchestration.'],
-      metadata: const {'source': 'README.md', 'category': 'architecture', 'role': 'memory', 'provenance': 'unknown'},
-      timestamp: DateTime.now(),
-    ),
-  ], userId: 'owner');
-  final hits = await backend.search('agent orchestration');
-  print('Memory hits: ${hits.length}');
-  await databaseBackend.close();
 }

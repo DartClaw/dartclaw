@@ -100,7 +100,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
+        skill: andthen:implement-fix
         entryGate: "gating_findings_count > 0"
         provider: codex
         model: gpt-5.6-sol

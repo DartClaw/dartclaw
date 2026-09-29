@@ -148,6 +148,16 @@ const Map<String, FieldMeta> _agentFields = {
     description: 'Minutes of silence before an eligible session resets. 0 turns the timeout off.',
     min: 0,
   ),
+  'sessions.auto_settle_idle_days': FieldMeta(
+    yamlPath: 'sessions.auto_settle_idle_days',
+    jsonKey: 'sessions.autoSettleIdleDays',
+    type: ConfigFieldType.int_,
+    mutability: ConfigMutability.restart,
+    description:
+        'Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off.',
+    min: 0,
+    max: 3650,
+  ),
   'sessions.dm_scope': FieldMeta(
     yamlPath: 'sessions.dm_scope',
     jsonKey: 'sessions.dmScope',
@@ -510,7 +520,9 @@ const Map<String, FieldMeta> _agentFields = {
     jsonKey: 'agent.agents',
     type: ConfigFieldType.objectMap,
     mutability: ConfigMutability.restart,
-    description: 'Logical agents keyed by the id the session tools address them with. The built-in search agent is defined here too.',
+    description:
+        'Logical agents keyed by the id the session tools address them with. Each configured id receives the managed '
+        'workspace data_dir/agents/<id>/workspace; the built-in search agent is defined here too.',
     entry: ObjectEntry(
       fields: {
         'description': EntryFieldMeta(
@@ -519,7 +531,7 @@ const Map<String, FieldMeta> _agentFields = {
         ),
         'prompt': EntryFieldMeta(
           type: ConfigFieldType.string,
-          description: 'System prompt used for this agent turns. Empty leaves the agent unguided.',
+          description: 'Explicit SOUL prompt for this agent. Empty reads SOUL.md from its managed workspace.',
         ),
         'provider': EntryFieldMeta(
           type: ConfigFieldType.string,
@@ -748,6 +760,11 @@ const Map<String, FieldMeta> _agentFields = {
         'flag. Read-only for the same reason: widening it through the API would lift its own bound.',
     entry: ObjectEntry(
       fields: {
+        'name': EntryFieldMeta(
+          type: ConfigFieldType.string,
+          description: 'Optional display name. Surfaces fall back to the project ID when absent.',
+          nullable: true,
+        ),
         'remote': EntryFieldMeta(
           type: ConfigFieldType.string,
           description: 'Git URL cloned for this project. Exactly one of it and localPath must be supplied.',

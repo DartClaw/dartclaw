@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -11,6 +12,8 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../session/session_display_title.dart';
+import '../concurrency/session_mutation_coordinator.dart';
+import '../conversation/conversation_service.dart';
 import 'api_helpers.dart';
 import 'reference_suggestions.dart';
 import 'session_routes_support.dart';
@@ -18,17 +21,61 @@ import 'session_routes_support.dart';
 final _log = Logger('SessionAttachmentRoutes');
 const _maxAttachmentBytes = 10 * 1024 * 1024;
 const _maxAttachmentJsonBytes = 15 * 1024 * 1024;
+typedef AttachmentWriteFailpoint = FutureOr<void> Function(String boundary, String attachmentId);
+
+/// Owns the bounded, process-only attachment bytes for temporary sessions.
+final class ProcessAttachmentOwner {
+  final Map<String, Map<String, ({Map<String, dynamic> metadata, List<int> bytes})>> _sessions = {};
+
+  void put(String sessionId, Map<String, dynamic> metadata, List<int> bytes) {
+    final entries = _sessions.putIfAbsent(sessionId, () => {});
+    if (entries.length >= 20) throw StateError('Temporary attachment capacity reached');
+    entries[metadata['id'] as String] = (metadata: Map.unmodifiable(metadata), bytes: List.unmodifiable(bytes));
+  }
+
+  bool remove(String sessionId, String attachmentId) => _sessions[sessionId]?.remove(attachmentId) != null;
+
+  void clearSession(String sessionId) => _sessions.remove(sessionId);
+
+  bool contains(String sessionId, String attachmentId) => _sessions[sessionId]?.containsKey(attachmentId) ?? false;
+
+  Map<String, dynamic>? resolve(String sessionId, String attachmentId) {
+    final entry = _sessions[sessionId]?[attachmentId];
+    if (entry == null) return null;
+    return {...entry.metadata, 'bytes': entry.bytes};
+  }
+
+  void copy(String sourceSessionId, String destinationSessionId, List<String> ids) {
+    final source = _sessions[sourceSessionId];
+    final entries = [
+      for (final id in ids) source?[id] ?? (throw StateError('Temporary attachment $id is unavailable')),
+    ];
+    final destination = _sessions.putIfAbsent(destinationSessionId, () => {});
+    if ({...destination.keys, ...ids}.length > 20) throw StateError('Temporary attachment capacity reached');
+    for (var index = 0; index < ids.length; index++) {
+      final entry = entries[index];
+      destination[ids[index]] = (metadata: Map.unmodifiable({...entry.metadata, 'owner': 'draft'}), bytes: entry.bytes);
+    }
+  }
+}
 
 /// Registers session attachment-upload and reference-lookup endpoints.
 ///
 /// Routes registered:
 /// - `POST /api/sessions/<id>/attachments` — upload an attachment.
+/// - `GET  /api/sessions/<id>/attachments/limits` — return the authoritative upload limits.
+/// - `DELETE /api/sessions/<id>/attachments/<attachmentId>` — remove an unaccepted attachment.
 /// - `GET  /api/sessions/<id>/references` — reference autocomplete suggestions.
 void registerSessionAttachmentRoutes(
   Router router, {
   required SessionService sessions,
   required MessageService messages,
+  required SessionMutationCoordinator sessionMutations,
+  required ConversationService conversation,
   ProjectService? projectService,
+  AttachmentWriteFailpoint? failpoint,
+  String Function()? attachmentIdFactory,
+  required ProcessAttachmentOwner processAttachments,
 }) {
   // POST /api/sessions/<id>/attachments
   router.post('/api/sessions/<id>/attachments', (Request request, String id) async {
@@ -37,23 +84,84 @@ void registerSessionAttachmentRoutes(
       if (session == null) {
         return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
+      if (session.retention == ConversationRetention.process && sessions.temporaryEndState(id) != 'active') {
+        return errorResponse(409, 'TEMPORARY_ENDING', 'Temporary conversation is ending');
+      }
       final parsed = await parseJsonObjectBody(request, maxBytes: _maxAttachmentJsonBytes);
       if (parsed.error != null) return parsed.error!;
-      final metadata = _validateAttachmentPayload(parsed.json);
+      final metadata = _validateAttachmentPayload(parsed.json, attachmentIdFactory: attachmentIdFactory);
       if (metadata.error != null) return metadata.error!;
 
       final attachment = metadata.attachment!;
+      final bytes = metadata.bytes!;
+      attachment['digest'] = 'sha256:${sha256.convert(bytes)}';
+      attachment['owner'] = 'draft';
+      if (session.retention == ConversationRetention.process) {
+        processAttachments.put(id, attachment, bytes);
+        return jsonResponse(201, attachment);
+      }
       final attachmentDir = Directory(p.join(messages.baseDir, id, 'attachments'));
       await attachmentDir.create(recursive: true);
-      final bytes = metadata.bytes!;
       final contentFile = File(p.join(attachmentDir.path, '${attachment['id']}.data'));
-      await contentFile.writeAsBytes(bytes);
+      await atomicWriteBytes(contentFile, bytes);
+      await failpoint?.call('attachment_data', attachment['id'] as String);
       final file = File(p.join(attachmentDir.path, '${attachment['id']}.json'));
-      await file.writeAsString(jsonEncode(attachment));
+      await atomicWriteJson(file, attachment);
+      await failpoint?.call('attachment_metadata', attachment['id'] as String);
       return jsonResponse(201, attachment);
     } catch (e) {
       _log.warning('Failed to add attachment for $id: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to add attachment');
+    }
+  });
+
+  router.get('/api/sessions/<id>/attachments/limits', (Request request, String id) async {
+    if (await sessions.getSession(id) == null) {
+      return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+    }
+    return jsonResponse(200, {'max_attachment_bytes': _maxAttachmentBytes});
+  });
+
+  router.delete('/api/sessions/<id>/attachments/<attachmentId>', (
+    Request request,
+    String id,
+    String attachmentId,
+  ) async {
+    if (!isValidUuid(attachmentId)) {
+      return errorResponse(400, 'INVALID_ATTACHMENT_ID', 'Attachment ID must be a lowercase UUID');
+    }
+    try {
+      return await sessionMutations.run(id, () async {
+        final session = await sessions.getSession(id);
+        if (session == null) {
+          return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+        }
+        final state = await sessions.getConversationState(id);
+        final claimed = state.submissions.any(
+          (submission) => submission.attachments.any((attachment) => attachment.id == attachmentId),
+        );
+        if (claimed) {
+          return errorResponse(409, 'ATTACHMENT_ACCEPTED', 'Accepted attachment cannot be removed from a draft');
+        }
+        if (session.retention == ConversationRetention.process) {
+          if (!processAttachments.remove(id, attachmentId)) {
+            return errorResponse(404, 'ATTACHMENT_NOT_FOUND', 'Attachment not found');
+          }
+          return jsonResponse(200, {'status': 'removed', 'id': attachmentId});
+        }
+        final directory = p.join(messages.baseDir, id, 'attachments');
+        final metadata = File(p.join(directory, '$attachmentId.json'));
+        final data = File(p.join(directory, '$attachmentId.data'));
+        if (!metadata.existsSync() && !data.existsSync()) {
+          return errorResponse(404, 'ATTACHMENT_NOT_FOUND', 'Attachment not found');
+        }
+        if (metadata.existsSync()) await metadata.delete();
+        if (data.existsSync()) await data.delete();
+        return jsonResponse(200, {'status': 'removed', 'id': attachmentId});
+      });
+    } catch (e) {
+      _log.warning('Failed to remove attachment $attachmentId for $id: $e', e);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to remove attachment');
     }
   });
 
@@ -65,7 +173,14 @@ void registerSessionAttachmentRoutes(
         return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
       final query = request.url.queryParameters['q']?.trim() ?? '';
-      final references = await _referenceSuggestions(sessions, projectService, query);
+      final context = await conversation.snapshot(id);
+      final references = await _referenceSuggestions(
+        sessions,
+        projectService,
+        query,
+        referenceRoot: context.nextContext?.referenceRoot,
+        projectId: context.nextContext?.projectId,
+      );
       return jsonResponse(200, {'references': references});
     } catch (e) {
       _log.warning('Failed to lookup references for $id: $e', e);
@@ -75,8 +190,9 @@ void registerSessionAttachmentRoutes(
 }
 
 ({Map<String, dynamic>? attachment, List<int>? bytes, Response? error}) _validateAttachmentPayload(
-  Map<String, dynamic> json,
-) {
+  Map<String, dynamic> json, {
+  String Function()? attachmentIdFactory,
+}) {
   final filename = trimmedOrNull(json['filename'] as String?);
   final mediaType = trimmedOrNull(json['mediaType'] as String?);
   final size = json['size'];
@@ -113,7 +229,7 @@ void registerSessionAttachmentRoutes(
   final now = DateTime.now().toUtc().toIso8601String();
   return (
     attachment: {
-      'id': const Uuid().v4(),
+      'id': attachmentIdFactory?.call() ?? const Uuid().v4(),
       'filename': filename,
       'mediaType': mediaType,
       'size': size,
@@ -136,8 +252,10 @@ List<int>? _decodeAttachmentBytes(String value) {
 Future<List<Map<String, dynamic>>> _referenceSuggestions(
   SessionService sessions,
   ProjectService? projectService,
-  String query,
-) async {
+  String query, {
+  String? referenceRoot,
+  String? projectId,
+}) async {
   final normalizedQuery = query.toLowerCase();
   bool matches(String value) => normalizedQuery.isEmpty || value.toLowerCase().contains(normalizedQuery);
 
@@ -151,13 +269,13 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
   }
 
   final projects = projectService == null ? const <Project>[] : await projectService.getAll();
-  for (final project in projects.take(20)) {
+  for (final project in projects.where((project) => project.id == projectId && project.id != '_local').take(20)) {
     if (matches(project.name) || matches(project.id)) {
       references.add({'type': 'project', 'id': project.id, 'label': project.name});
     }
   }
 
-  final root = Directory(await referenceRoot(projectService));
+  final root = Directory(referenceRoot ?? await sessionReferenceRoot(projectService));
   if (await root.exists()) {
     references.addAll(await collectFileReferenceSuggestions(root, normalizedQuery));
   }

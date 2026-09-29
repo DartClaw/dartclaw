@@ -8,41 +8,11 @@ $ErrorActionPreference = 'Stop'
 
 $script:RootDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
-function Assert-NoSystemSqliteOverride {
-  $previousErrorActionPreference = $ErrorActionPreference
-  try {
-    $ErrorActionPreference = 'Continue'
-    $pubspecs = @(& git -C $script:RootDir ls-files -- '*pubspec.yaml' 2>$null)
-    $gitExitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-  }
-  if ($gitExitCode -ne 0) {
-    throw "Windows artifact validation failed: unable to inspect pubspecs for SQLite source overrides."
-  }
-
-  $checker = Join-Path $script:RootDir 'apps/dartclaw_cli/tool/check_system_sqlite_override.dart'
-  $paths = @($pubspecs | ForEach-Object { Join-Path $script:RootDir $_ })
-  try {
-    $ErrorActionPreference = 'Continue'
-    $output = @(& dart run $checker @paths 2>&1)
-    $exitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-  }
-  if ($exitCode -eq 1) {
-    throw "Windows artifact validation failed: committed SQLite source: system override found:`n$($output -join "`n")"
-  }
-  if ($exitCode -ne 0) {
-    throw "Windows artifact validation failed: unable to parse pubspecs for SQLite source overrides:`n$($output -join "`n")"
-  }
-}
-
-# llamadart discovers backend modules beside the executable; SQLite and wrapper helpers do not belong there.
+# llamadart discovers backend modules beside the executable; the wrapper helper does not belong there.
 function Get-WindowsRuntimeLibraryFiles {
   param([Parameter(Mandatory)][string]$Root)
 
-  return @(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.Name -notin @('sqlite3.dll', 'llamadart.dll') })
+  return @(Get-ChildItem -LiteralPath $Root -Recurse -File | Where-Object { $_.Name -ne 'llamadart.dll' })
 }
 
 function Assert-WindowsReleaseLayout {
@@ -61,11 +31,6 @@ function Assert-WindowsReleaseLayout {
     $expected += @(Get-WindowsRuntimeLibraryFiles -Root $NativeLibraryRoot | ForEach-Object {
         'bin/' + $_.Name
       })
-  } else {
-    $expected += 'lib/sqlite3.dll'
-  }
-  if ('lib/sqlite3.dll' -notin $expected) {
-    throw 'Windows artifact validation failed: native library set omitted lib/sqlite3.dll.'
   }
   foreach ($relativePath in $expected) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $relativePath) -PathType Leaf)) {
@@ -92,10 +57,18 @@ function Assert-WindowsBuildBundle {
     [string]$BinaryName = 'dartclaw'
   )
 
-  foreach ($relativePath in @("bin/$BinaryName.exe", 'lib/sqlite3.dll')) {
+  foreach ($relativePath in @("bin/$BinaryName.exe")) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $relativePath) -PathType Leaf)) {
       throw "Windows build validation failed: missing $relativePath."
     }
+  }
+  $libraryRoot = Join-Path $Root 'lib'
+  if (-not (Test-Path -LiteralPath $libraryRoot -PathType Container)) {
+    throw 'Windows build validation failed: missing native libraries.'
+  }
+  $nativeLibraries = @(Get-ChildItem -LiteralPath $libraryRoot -Recurse -File)
+  if ($nativeLibraries.Count -eq 0) {
+    throw 'Windows build validation failed: missing native libraries.'
   }
 }
 
@@ -112,48 +85,6 @@ function Invoke-WindowsExecutableSmoke {
     }
   } catch {
     throw "Windows artifact validation failed: $BinaryName.exe --help smoke failed ($($_.Exception.Message))."
-  }
-}
-
-function Invoke-WindowsBundledSqliteCheck {
-  param(
-    [Parameter(Mandatory)][string]$Executable,
-    [string]$BinaryName = 'dartclaw'
-  )
-
-  # Drives FTS5 through the artifact's own binary: rebuild-index issues
-  # CREATE VIRTUAL TABLE ... USING fts5 on every run, and Windows' system
-  # winsqlite3.dll ships no fts5 module (ADR-048), so reaching a rebuilt index
-  # proves the bundled lib/sqlite3.dll was loaded. The workspace stays empty on
-  # purpose: the canonical corpus dialect belongs to dartclaw_core, and a copy
-  # of it here rots into a preflight refusal the moment that dialect moves.
-  # The probe writes only into a temp instance, never the artifact.
-  $probeRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-sqlite-probe-$([guid]::NewGuid())"
-  New-Item -ItemType Directory -Path (Join-Path $probeRoot 'workspace') -Force | Out-Null
-  try {
-    $quotedDataDir = "'" + ($probeRoot -replace "'", "''") + "'"
-    $configPath = Join-Path $probeRoot 'dartclaw.yaml'
-    Set-Content -LiteralPath $configPath -Value "data_dir: $quotedDataDir"
-
-    $previousErrorActionPreference = $ErrorActionPreference
-    try {
-      $ErrorActionPreference = 'Continue'
-      $output = @(& $Executable --config $configPath rebuild-index 2>&1)
-      $exitCode = $LASTEXITCODE
-    } finally {
-      $ErrorActionPreference = $previousErrorActionPreference
-    }
-
-    if ($exitCode -ne 0) {
-      throw "Windows artifact validation failed: $BinaryName bundled SQLite FTS5 check failed with exit code ${exitCode}:`n$($output -join "`n")"
-    }
-    if (-not ($output -match 'Rebuilt index:')) {
-      throw "Windows artifact validation failed: $BinaryName bundled SQLite FTS5 check did not rebuild the index:`n$($output -join "`n")"
-    }
-  } finally {
-    if (Test-Path -LiteralPath $probeRoot) {
-      Remove-Item -LiteralPath $probeRoot -Recurse -Force
-    }
   }
 }
 
@@ -174,8 +105,6 @@ if ($MyInvocation.InvocationName -ne '.') {
     throw "Windows artifacts support only windows-x64, got $ReleaseTarget."
   }
 
-  Assert-NoSystemSqliteOverride
-
   $versionFile = Join-Path $script:RootDir 'packages/dartclaw_runtime/lib/src/version.dart'
   $versionMatch = Select-String -LiteralPath $versionFile -Pattern "dartclawVersion = '([^']+)'" | Select-Object -First 1
   if ($null -eq $versionMatch) {
@@ -185,17 +114,14 @@ if ($MyInvocation.InvocationName -ne '.') {
 
   $cliDir = Join-Path $script:RootDir 'apps/dartclaw_cli'
   $buildDir = Join-Path $script:RootDir 'build'
-  if (Test-Path -LiteralPath $buildDir) {
-    Remove-Item -LiteralPath $buildDir -Recurse -Force
-  }
-  New-Item -ItemType Directory -Path $buildDir | Out-Null
 
   $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-windows-build-$([guid]::NewGuid())"
   try {
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
-    $cacheDirectory = $env:DARTCLAW_NATIVE_ARCHIVE_CACHE
-    if (-not $cacheDirectory) {
-      throw 'DARTCLAW_NATIVE_ARCHIVE_CACHE must name the verified native archive cache.'
+    $cacheDirectory = if ($env:DARTCLAW_NATIVE_ARCHIVE_CACHE) {
+      $env:DARTCLAW_NATIVE_ARCHIVE_CACHE
+    } else {
+      Join-Path $script:RootDir '.agent_temp/native-cache'
     }
     $manifestPath = if ($env:DARTCLAW_NATIVE_MANIFEST) {
       $env:DARTCLAW_NATIVE_MANIFEST
@@ -240,6 +166,11 @@ if ($MyInvocation.InvocationName -ne '.') {
     $cliDir = Join-Path $releaseWorkspace 'apps/dartclaw_cli'
     $nativeLibraryRoot = Join-Path $tempRoot 'native-libraries'
 
+    if (Test-Path -LiteralPath $buildDir) {
+      Remove-Item -LiteralPath $buildDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $buildDir | Out-Null
+
     foreach ($binary in @(
         @{ Name = 'dartclaw'; Entry = 'dartclaw' },
         @{ Name = 'dartclaw-workflow'; Entry = 'dartclaw_workflow' }
@@ -264,7 +195,6 @@ if ($MyInvocation.InvocationName -ne '.') {
         Copy-Item -LiteralPath (Join-Path $bundle 'lib') -Destination $nativeLibraryRoot -Recurse
       }
       Invoke-WindowsExecutableSmoke -Executable $compiledExecutable -BinaryName $binaryName
-      Invoke-WindowsBundledSqliteCheck -Executable $compiledExecutable -BinaryName $binaryName
 
       $stage = Join-Path $tempRoot "$binaryName-stage"
       $extracted = Join-Path $tempRoot "$binaryName-extracted"
@@ -285,7 +215,6 @@ if ($MyInvocation.InvocationName -ne '.') {
       Assert-WindowsReleaseLayout -Root $extracted -BinaryName $binaryName -NativeLibraryRoot $nativeLibraryRoot
       $extractedExecutable = Join-Path $extracted "bin/$binaryName.exe"
       Invoke-WindowsExecutableSmoke -Executable $extractedExecutable -BinaryName $binaryName
-      Invoke-WindowsBundledSqliteCheck -Executable $extractedExecutable -BinaryName $binaryName
       Write-ChecksumSidecar -Artifact $archive
     }
   } finally {

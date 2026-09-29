@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -145,6 +148,109 @@ void main() {
         expect(agent.allowedTools, equals({'Bash', 'Read'}));
         expect(warns, isEmpty);
       });
+
+      group('workspace binding', () {
+        late Directory dataDir;
+        late String ownerDir;
+
+        setUp(() {
+          dataDir = Directory.systemTemp.createTempSync('agent_workspace_config_');
+          dataDir = Directory(dataDir.resolveSymbolicLinksSync());
+          ownerDir = p.join(dataDir.path, 'workspace');
+          Directory(ownerDir).createSync();
+        });
+
+        tearDown(() {
+          if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
+        });
+
+        test('omitted paths derive distinct managed bindings without touching disk', () {
+          final yaml =
+              '''
+data_dir: "${dataDir.path}"
+agent:
+  agents:
+    a:
+      tools: [Read]
+    b:
+      tools: [Read]
+''';
+
+          final config = DartclawConfig.load(
+            configPath: 'dartclaw.yaml',
+            fileReader: (path) => path == 'dartclaw.yaml' ? yaml : null,
+            env: const {'HOME': '/home/user'},
+            resolveStoredCredentials: false,
+          );
+          final definitions = {for (final definition in config.agent.definitions) definition.id: definition};
+
+          expect(definitions['a']!.workspace?.directory, p.join(dataDir.path, 'agents', 'a', 'workspace'));
+          expect(definitions['a']!.workspace?.storagePrincipal, 'agent:a');
+          expect(definitions['b']!.workspace?.directory, p.join(dataDir.path, 'agents', 'b', 'workspace'));
+          expect(definitions.values.every((definition) => definition.workspaceConfigurationError == null), isTrue);
+          expect(Directory(p.join(dataDir.path, 'agents')).existsSync(), isFalse);
+        });
+
+        test('every obsolete workspace value refuses without adopting its path', () {
+          for (final value in <Object?>[null, '', 'legacy', p.join(dataDir.path, 'legacy')]) {
+            final warnings = <String>[];
+            final definition = AgentDefinition.fromYaml(
+              'a',
+              {
+                'workspace': value,
+                'tools': ['Read'],
+              },
+              warnings,
+              dataDir: dataDir.path,
+              ownerWorkspaceDir: ownerDir,
+            );
+
+            expect(definition.workspace, isNull, reason: 'value=$value');
+            expect(
+              definition.workspaceConfigurationError,
+              allOf(contains('agent.agents.a.workspace'), contains('no longer')),
+            );
+            expect(definition.requireWorkspaceAvailable, throwsStateError);
+            expect(warnings, contains(definition.workspaceConfigurationError));
+          }
+          expect(Directory(p.join(dataDir.path, 'agents')).existsSync(), isFalse);
+        });
+
+        test('reserved and unsafe ids cannot collide with owner or peer homes', () {
+          for (final id in ['main', '../peer', 'Peer', '.hidden', 'a/b', '']) {
+            final definition = AgentDefinition.fromYaml(
+              id,
+              const {
+                'tools': ['Read'],
+              },
+              <String>[],
+              dataDir: dataDir.path,
+              ownerWorkspaceDir: ownerDir,
+            );
+
+            expect(definition.workspace, isNull, reason: 'id=$id');
+            expect(definition.workspaceConfigurationError, isNotNull, reason: 'id=$id');
+            expect(definition.requireWorkspaceAvailable, throwsStateError, reason: 'id=$id');
+          }
+
+          final safe = AgentWorkspace.managed(agentId: 'peer_2', dataDir: dataDir.path, ownerWorkspaceDir: ownerDir);
+          expect(safe.directory, p.join(dataDir.path, 'agents', 'peer_2', 'workspace'));
+          expect(p.isWithin(dataDir.path, safe.directory), isTrue);
+          expect(p.isWithin(ownerDir, safe.directory), isFalse);
+        });
+      });
+    });
+
+    test('workspace path equality is preserved in hashed collections', () {
+      final canonical = p.join(p.separator, 'srv', 'agents', 'researcher');
+      final equivalent = '$canonical${p.separator}';
+      final first = AgentWorkspace(agentId: 'researcher', directory: canonical);
+      final second = AgentWorkspace(agentId: 'researcher', directory: equivalent);
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+      expect({first, second}, hasLength(1));
+      expect({first: 'first', second: 'second'}, {first: 'second'});
     });
 
     test('uses value equality for configuration change detection', () {

@@ -122,13 +122,15 @@ void main() {
       // The first agent reports; the CLI's notification turn ends while the
       // second is still running, so the boundary is held again.
       emit(_tasksChanged([(id: 'agent-b', type: 'local_agent')]));
+      emit({'type': 'system', 'subtype': 'init', 'session_id': 'sess', 'tools': []});
       emit(_result('agent-a done', input: 100, output: 200, cacheRead: 300, cacheWrite: 400));
       await pumpEventQueue();
       expect(settled, isFalse);
       expect(heldLogs(), hasLength(2));
-      expect(heldLogs().first, contains('2 background task(s) still running (agent-a, agent-b)'));
+      expect(heldLogs().first, contains('2 background task(s) outstanding (agent-a, agent-b)'));
 
       emit(_tasksChanged(const []));
+      emit({'type': 'system', 'subtype': 'init', 'session_id': 'sess', 'tools': []});
       emit(_result('all done', input: 1, output: 2, cacheRead: 3, cacheWrite: 4));
       final result = await turn;
       expect(result.finalText, 'all done');
@@ -142,6 +144,32 @@ void main() {
     },
   );
 
+  test('waits for the last agent notification after its task leaves the background list', () async {
+    final h = harnessWith();
+    await h.start();
+    final turn = startTurn(h);
+    var settled = false;
+    unawaited(turn.whenComplete(() => settled = true));
+    await pumpEventQueue();
+
+    emit(_tasksChanged([(id: 'agent-a', type: 'local_agent'), (id: 'agent-b', type: 'local_agent')]));
+    emit(_result('launched'));
+    await pumpEventQueue();
+    expect(settled, isFalse);
+
+    emit(_tasksChanged([(id: 'agent-b', type: 'local_agent')]));
+    emit({'type': 'system', 'subtype': 'init', 'session_id': 'sess', 'tools': []});
+    emit(_tasksChanged(const []));
+    emit(_result('agent-a done'));
+    await pumpEventQueue();
+    expect(settled, isFalse, reason: 'agent-b still needs a notification turn after it leaves the task list');
+
+    emit({'type': 'system', 'subtype': 'init', 'session_id': 'sess', 'tools': []});
+    emit(_result('both agents done'));
+    final result = await turn;
+    expect(result.finalText, 'both agents done');
+  });
+
   test('a backgrounded shell command does not hold the turn', () async {
     final h = harnessWith();
     await h.start();
@@ -154,6 +182,29 @@ void main() {
     expect(result.finalText, 'LAUNCHED');
     expect(result.inputTokens, 10);
     expect(heldLogs(), isEmpty);
+  });
+
+  test('held and final cumulative snapshots remain one raw reading', () async {
+    final h = harnessWith();
+    await h.start();
+    final turn = startTurn(h);
+    await pumpEventQueue();
+    final models = {
+      'root': {'inputTokens': 1, 'outputTokens': 88, 'cacheReadInputTokens': 2, 'cacheCreationInputTokens': 3},
+      'delegate': {'inputTokens': 4, 'outputTokens': 633, 'cacheReadInputTokens': 5, 'cacheCreationInputTokens': 6},
+    };
+    emit(_tasksChanged([(id: 'agent-a', type: 'local_agent')]));
+    emit({..._result('held', output: 88), 'modelUsage': models});
+    await pumpEventQueue();
+    emit(_tasksChanged(const []));
+    emit({'type': 'system', 'subtype': 'init', 'session_id': 'sess', 'tools': []});
+    emit({..._result('final', output: 10), 'modelUsage': models});
+    final result = await turn;
+    expect(result.tokenUsageComplete, isFalse);
+    expect(result.costUsd, isNull);
+    expect(result.outputTokens, 98, reason: 'direct scalars are only root-session known contributions');
+    expect(result.claudeUsageSnapshot!.models.values.fold<int>(0, (sum, model) => sum + model.output), 721);
+    expect(result.claudeUsageSnapshot!.totalCostUsd, 0.01);
   });
 
   test('an error result ends the turn even with background agents listed', () async {

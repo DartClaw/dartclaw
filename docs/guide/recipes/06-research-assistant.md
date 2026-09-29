@@ -9,7 +9,7 @@ An interactive research workflow powered by the search agent and memory system. 
 - **[Search agent](../search.md)** -- performs web searches with `WebSearch` and `WebFetch` via the tool policy cascade
 - **[Content-guard](../security.md)** -- scans search results at the agent boundary for safety
 - **[Canonical memory](../workspace.md)** -- stores detailed curated findings in `memory/topics/*`; use `memory_apply` to change them
-- **[Memory search](../search.md#memory-search)** -- retrieves previous research via FTS5 (or QMD hybrid search)
+- **[Memory search](../search.md#memory-search)** -- retrieves previous research via PostgreSQL lexical or explicit hybrid search
 - **[Web UI](../web-ui-and-api.md)** -- interactive chat interface for research sessions
 
 ## Configuration
@@ -122,7 +122,8 @@ scheduling:
 - **Choose the search model explicitly**: Set `agent.agents.search.model` when you need a fixed model instead of the selected provider's default
 - **Increase logical-agent concurrency**: Raise the selected provider's `pool_size`; provider worker capacity is the single execution boundary
 - **Add topic focus**: Edit SOUL.md's "Research Process" to prioritize certain source types (e.g., "prefer peer-reviewed papers" or "focus on official documentation")
-- **Enable QMD hybrid search**: Add `search.backend: qmd` for semantic memory retrieval -- better for finding conceptually related previous research
+- **Enable hybrid search**: Add `search.backend: hybrid`, configure an embedding provider, and provision pgvector for
+  semantic memory retrieval
 - **Add research templates**: Include structured templates in TOOLS.md for common research formats (comparison tables, literature reviews, technical evaluations)
 - **Connect a messaging channel**: Add WhatsApp, Signal, or Google Chat so you can ask research questions on the go --
   the agent uses the same search agent and memory. For a restricted background task, use the authenticated task API

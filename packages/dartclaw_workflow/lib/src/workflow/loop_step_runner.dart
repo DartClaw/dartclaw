@@ -28,6 +28,7 @@ class WorkflowLoopExecutionResult {
 
   /// Tokens consumed by the loop body, for per-iteration attribution.
   final int tokensConsumed;
+  final bool tokenUsageComplete;
 
   const new({
     this.halted = false,
@@ -36,6 +37,7 @@ class WorkflowLoopExecutionResult {
     this.needsReviewReason,
     this.interrupted = false,
     this.tokensConsumed = 0,
+    this.tokenUsageComplete = true,
   });
 }
 
@@ -128,57 +130,53 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       nested: scope,
     );
 
-    if (result.halted) return null;
-    if (result.converged) {
-      return StepOutcome(
-        step: loopStep,
-        task: null,
-        outputs: const {},
-        tokenCount: result.tokensConsumed,
-        success: true,
-        outcome: 'completed',
-      );
+    if (result.halted) {
+      if (!result.tokenUsageComplete) {
+        scope.runContext['${loopStep.id}[${scope.iterIndex}].tokenCount'] = null;
+        await scope.persist();
+      }
+      return null;
     }
-    if (result.interrupted) {
-      return StepOutcome(
-        step: loopStep,
-        task: null,
-        outputs: const {},
-        tokenCount: result.tokensConsumed,
-        success: false,
-        outcome: 'cancelled',
-        outcomeReason: 'Nested loop interrupted by cancelled body task; resume re-runs the cancelled step.',
-      );
-    }
-    if (result.needsReviewReason != null) {
-      _clearNestedLoopCheckpoint(scope, loop);
-      await scope.persist();
-      return StepOutcome(
-        step: loopStep,
-        task: null,
-        outputs: const {},
-        tokenCount: result.tokensConsumed,
-        success: false,
-        error: result.needsReviewReason,
-        outcome: 'needsInput',
-        outcomeReason: result.needsReviewReason,
-        requiresDependencyHold: true,
-      );
-    }
-    // Non-converged: drop the per-iteration resume snapshot so no nested-loop
-    // state survives the (failed) iteration.
-    _clearNestedLoopCheckpoint(scope, loop);
-    await scope.persist();
-    return StepOutcome(
+    StepOutcome nestedOutcome({
+      required bool success,
+      required String outcome,
+      String? reason,
+      bool requiresDependencyHold = false,
+    }) => StepOutcome(
       step: loopStep,
       task: null,
       outputs: const {},
       tokenCount: result.tokensConsumed,
-      success: false,
-      error: result.failureMessage,
-      outcome: 'failed',
-      outcomeReason: result.failureMessage,
+      tokenUsageComplete: result.tokenUsageComplete,
+      success: success,
+      error: outcome == 'needsInput' || outcome == 'failed' ? reason : null,
+      outcome: outcome,
+      outcomeReason: reason,
+      requiresDependencyHold: requiresDependencyHold,
     );
+    if (result.converged) {
+      return nestedOutcome(success: true, outcome: 'completed');
+    }
+    if (result.interrupted) {
+      return nestedOutcome(
+        success: false,
+        outcome: 'cancelled',
+        reason: 'Nested loop interrupted by cancelled body task; resume re-runs the cancelled step.',
+      );
+    }
+    // Non-converged: drop the per-iteration resume snapshot so no nested-loop
+    // state survives the iteration.
+    _clearNestedLoopCheckpoint(scope, loop);
+    await scope.persist();
+    if (result.needsReviewReason != null) {
+      return nestedOutcome(
+        success: false,
+        outcome: 'needsInput',
+        reason: result.needsReviewReason,
+        requiresDependencyHold: true,
+      );
+    }
+    return nestedOutcome(success: false, outcome: 'failed', reason: result.failureMessage);
   }
 
   void _writeNestedLoopCheckpoint(
@@ -218,19 +216,44 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     _NestedLoopScope? nested,
   }) async {
     var loopTokens = startFromTokens;
+    var loopUsageComplete = !context.data.entries.any(
+      (entry) => entry.key.endsWith('.tokenCount') && entry.value == null,
+    );
     var gatePassed = false;
     var resumeStepId = startFromStepId;
     final loopStartStepId = loop.steps.first;
     final loopStartStepIndex = definition.steps.indexWhere((step) => step.id == loopStartStepId);
+    WorkflowLoopExecutionResult loopResult({
+      bool halted = false,
+      bool converged = false,
+      bool interrupted = false,
+      String? failureMessage,
+      String? needsReviewReason,
+    }) => WorkflowLoopExecutionResult(
+      halted: halted,
+      converged: converged,
+      interrupted: interrupted,
+      failureMessage: failureMessage,
+      needsReviewReason: needsReviewReason,
+      tokensConsumed: loopTokens,
+      tokenUsageComplete: loopUsageComplete,
+    );
+    WorkflowLoopExecutionResult? cancellationAfterStep(WorkflowStep step, int iteration) {
+      if (isCancelled?.call() != true) return null;
+      WorkflowExecutor._log.info(
+        "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
+      );
+      return loopResult(halted: true);
+    }
 
     // Top-level loops fail the whole run; a nested loop reports the failure up
     // so the enclosing foreach iteration records it without failing the run.
     Future<WorkflowLoopExecutionResult> failLoop(String message) async {
       if (nested == null) {
         await _failRun(run, message);
-        return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+        return loopResult(halted: true);
       }
-      return WorkflowLoopExecutionResult(failureMessage: message, tokensConsumed: loopTokens);
+      return loopResult(failureMessage: message);
     }
 
     Future<WorkflowLoopExecutionResult> Function()? pendingLoopExit;
@@ -239,7 +262,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     for (var iteration = startFromIteration; iteration <= loop.maxIterations; iteration++) {
       if (isCancelled?.call() ?? false) {
         WorkflowExecutor._log.info("Workflow '${run.id}' cancelled during loop '${loop.id}'");
-        return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+        return loopResult(halted: true);
       }
 
       context.setLoopIteration(loop.id, iteration);
@@ -290,6 +313,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           for (final bodyStepId in loop.steps) {
             context['step.$bodyStepId.outcome'] = 'skipped';
             context['step.$bodyStepId.outcome.reason'] = entryGate;
+            context['$bodyStepId.tokenCount'] = 0;
           }
         }
         _fireLoopIterationCompletedEvent(run, loop, iteration: iteration, gateResult: false);
@@ -309,7 +333,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
 
         if (isCancelled?.call() ?? false) {
           WorkflowExecutor._log.info("Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration");
-          return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+          return loopResult(halted: true);
         }
 
         final step = definition.steps.firstWhere((s) => s.id == stepId);
@@ -332,6 +356,9 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         final refreshedRun = await _repository.getById(run.id) ?? run;
         run = refreshedRun;
         onRunUpdated(run);
+        if (definition.maxTokens != null && !run.tokenUsageComplete) {
+          return failLoop("Workflow accounting unavailable during loop '${loop.id}'");
+        }
         // A nested loop's body tokens – and all other foreach-scope tokens
         // (settled iterations, sibling in-flight children, this iteration's
         // pre-loop children) – reach run.totalTokens only when the enclosing
@@ -411,12 +438,49 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
                       .map((id) => definition.steps.firstWhere((candidate) => candidate.id == id)),
                 ),
         );
-        if (result == null) return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
-        loopTokens += result.tokenCount;
+        if (result == null) {
+          return loopResult(halted: true);
+        }
+        final previousUsageComplete = loopUsageComplete;
+        loopTokens += result.accountingReadError ? result.accountingKnownBeforeReadError : result.tokenCount;
+        loopUsageComplete = loopUsageComplete && result.tokenUsageComplete;
 
         if (!result.success) {
           final failMsg = "Loop '${loop.id}' step '${step.name}' failed in iteration $iteration";
           WorkflowExecutor._log.info("Workflow '${run.id}': $failMsg");
+
+          if (result.accountingStop) {
+            _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
+            run = await _persistLoopStepProgress(
+              run,
+              definition,
+              loop,
+              context,
+              nested,
+              iteration: iteration,
+              loopStepIndex: loopStepIndex,
+              outcome: result,
+              loopTokens: loopTokens,
+              loopStartStepIndex: loopStartStepIndex,
+              stepIndex: stepIndex,
+              onRunUpdated: onRunUpdated,
+            );
+            if (result.accountingReadError && result.task != null && nested == null) {
+              run = run.copyWith(
+                contextJson: {
+                  ...run.contextJson,
+                  '_accounting.pendingTaskId': result.task!.id,
+                  '_accounting.pendingStepId': step.id,
+                  '_accounting.pendingKnownTokens': result.accountingKnownBeforeReadError,
+                  '_accounting.baseComplete': previousUsageComplete,
+                  '_accounting.pendingScope': 'loop',
+                },
+                updatedAt: DateTime.now(),
+              );
+              await _repository.update(run);
+            }
+            return failLoop(result.error ?? 'Workflow accounting unavailable');
+          }
 
           // Teardown interruption is checked before `onError: continue` (and
           // every other policy branch): continuing would dispatch the next
@@ -434,7 +498,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               // The foreach cancelled branch drops the per-child tokenCount
               // key, so the checkpoint stays the single budget source
               // (never-overlap invariant).
-              return WorkflowLoopExecutionResult(interrupted: true, tokensConsumed: loopTokens);
+              return loopResult(interrupted: true);
             }
             // Persist the outcome and fire the step event before pausing so
             // observers (digest, live console) classify the step interrupted,
@@ -454,17 +518,18 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               taskId: result.task?.id ?? '',
               success: false,
               outcome: result.outcome,
-              reason: result.outcomeReason,
+              reason: result.outcomeReason ?? result.error,
               tokenCount: result.tokenCount,
+              tokenUsageComplete: result.tokenUsageComplete,
             );
             await _pauseRun(
               run,
               "Step '${step.id}' was interrupted by task cancellation; resume re-runs it from its checkpoint.",
             );
-            return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+            return loopResult(halted: true);
           }
 
-          if (step.onError == OnErrorPolicy.continueWorkflow) {
+          if (_errorPolicyFor(result) == OnErrorPolicy.continueWorkflow) {
             _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
             run = await _persistLoopStepProgress(
               run,
@@ -487,21 +552,39 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
               totalSteps: definition.steps.length,
               taskId: result.task?.id ?? '',
               success: false,
+              reason: result.outcomeReason ?? result.error,
               tokenCount: result.tokenCount,
+              tokenUsageComplete: result.tokenUsageComplete,
             );
-            final cancelledResult = _loopCancellationResult(
-              run,
-              loop,
-              step,
-              iteration: iteration,
-              loopTokens: loopTokens,
-              isCancelled: isCancelled?.call() ?? false,
-            );
+            final cancelledResult = cancellationAfterStep(step, iteration);
             if (cancelledResult != null) {
               return cancelledResult;
             }
             continue;
           }
+
+          _mergeStepResultIntoContext(context, result, fallbackStatus: 'failed');
+          if (nested == null) {
+            run = run.copyWith(
+              contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
+              updatedAt: DateTime.now(),
+            );
+            await _persistContextThenRun(run, context);
+            onRunUpdated(run);
+          } else {
+            await nested.persist();
+          }
+          _fireStepCompletedEvent(
+            run: run,
+            step: step,
+            stepIndex: stepIndex,
+            totalSteps: definition.steps.length,
+            taskId: result.task?.id ?? '',
+            success: false,
+            reason: result.outcomeReason ?? result.error,
+            tokenCount: result.tokenCount,
+            tokenUsageComplete: result.tokenUsageComplete,
+          );
 
           if (result.awaitingApproval) {
             pendingLoopExit = () async {
@@ -512,7 +595,12 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
                 stepIndex: stepIndex,
                 reason: result.outcomeReason ?? failMsg,
               );
-              return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
+              return loopResult(halted: true);
+            };
+          } else if (_errorPolicyFor(result) == OnErrorPolicy.pause) {
+            pendingLoopExit = () async {
+              await _pauseRun(run, result.error ?? failMsg);
+              return loopResult(halted: true);
             };
           } else {
             pendingLoopExit = () => failLoop(failMsg);
@@ -544,16 +632,10 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           taskId: result.task?.id ?? '',
           success: result.success,
           tokenCount: result.tokenCount,
+          tokenUsageComplete: result.tokenUsageComplete,
         );
 
-        final cancelledResult = _loopCancellationResult(
-          run,
-          loop,
-          step,
-          iteration: iteration,
-          loopTokens: loopTokens,
-          isCancelled: isCancelled?.call() ?? false,
-        );
+        final cancelledResult = cancellationAfterStep(step, iteration);
         if (cancelledResult != null) {
           return cancelledResult;
         }
@@ -586,6 +668,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
         );
         await nested.persist();
       }
+      resumeStepId = null;
     }
 
     if (!gatePassed && pendingLoopExit == null) {
@@ -617,7 +700,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
             "Workflow '${run.id}': loop '${loop.id}' reached max iterations (${loop.maxIterations}); "
             'onMaxIterations=continue – advancing to the next step.',
           );
-          return WorkflowLoopExecutionResult(converged: true, tokensConsumed: loopTokens);
+          return loopResult(converged: true);
         }
 
         final baseMsg =
@@ -629,7 +712,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
           WorkflowExecutor._log.info(
             "Workflow '${run.id}': $msg; onMaxIterations=escalate – recording needsInput for review.",
           );
-          return WorkflowLoopExecutionResult(needsReviewReason: msg, tokensConsumed: loopTokens);
+          return loopResult(needsReviewReason: msg);
         }
         WorkflowExecutor._log.info("Workflow '${run.id}': $baseMsg");
         return failLoop(baseMsg);
@@ -657,7 +740,7 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       await nested.persist();
     }
 
-    return WorkflowLoopExecutionResult(converged: true, tokensConsumed: loopTokens);
+    return loopResult(converged: true);
   }
 
   Future<WorkflowRun> _persistLoopStepCheckpoint(
@@ -703,21 +786,32 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
     required int stepIndex,
     required void Function(WorkflowRun) onRunUpdated,
   }) async {
-    final nextStepId = loopStepIndex + 1 < loop.steps.length ? loop.steps[loopStepIndex + 1] : null;
+    final nextStepId =
+        !outcome.success && outcome.executionError && _errorPolicyFor(outcome) != OnErrorPolicy.continueWorkflow
+        ? outcome.step.id
+        : loopStepIndex + 1 < loop.steps.length
+        ? loop.steps[loopStepIndex + 1]
+        : null;
+    final resumeStepId = outcome.accountingReadError && nextStepId == null ? '' : nextStepId;
     if (nested != null) {
       _writeNestedLoopCheckpoint(
         nested,
         loop,
         context,
         iteration: iteration,
-        nextStepId: nextStepId,
+        nextStepId: resumeStepId,
         tokens: loopTokens,
       );
       await nested.persist();
       return run;
     }
 
-    final updatedRun = run.copyWith(totalTokens: run.totalTokens + outcome.tokenCount, updatedAt: DateTime.now());
+    final updatedRun = run.copyWith(
+      totalTokens:
+          run.totalTokens + (outcome.accountingReadError ? outcome.accountingKnownBeforeReadError : outcome.tokenCount),
+      tokenUsageComplete: run.tokenUsageComplete && outcome.tokenUsageComplete,
+      updatedAt: DateTime.now(),
+    );
     final nextStepIndex = nextStepId == null
         ? (loopStartStepIndex >= 0 ? loopStartStepIndex : stepIndex)
         : definition.steps.indexWhere((candidate) => candidate.id == nextStepId);
@@ -726,28 +820,11 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
       context,
       loopId: loop.id,
       iteration: iteration,
-      nextStepId: nextStepId,
+      nextStepId: resumeStepId,
       nextStepIndex: nextStepIndex >= 0 ? nextStepIndex : stepIndex,
     );
     onRunUpdated(persistedRun);
     return persistedRun;
-  }
-
-  WorkflowLoopExecutionResult? _loopCancellationResult(
-    WorkflowRun run,
-    WorkflowLoop loop,
-    WorkflowStep step, {
-    required int iteration,
-    required int loopTokens,
-    required bool isCancelled,
-  }) {
-    if (!isCancelled) {
-      return null;
-    }
-    WorkflowExecutor._log.info(
-      "Workflow '${run.id}' cancelled in loop '${loop.id}' iter $iteration after step '${step.id}'",
-    );
-    return WorkflowLoopExecutionResult(halted: true, tokensConsumed: loopTokens);
   }
 
   void _fireLoopIterationCompletedEvent(

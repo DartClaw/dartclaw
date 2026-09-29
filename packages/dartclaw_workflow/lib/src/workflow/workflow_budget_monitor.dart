@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, KvService, Task, WorkflowBudgetWarningEvent;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show WorkflowStepExecutionRepository;
 
 import 'workflow_definition.dart' show WorkflowDefinition;
 import 'workflow_run.dart' show WorkflowRun;
@@ -93,26 +94,81 @@ Future<WorkflowRun> checkWorkflowBudgetWarning({
   return updated;
 }
 
-/// Reads the step's cumulative token count from session KV or task metadata.
-Future<int> readStepTokenCount(Task task, KvService kvService) async {
-  if (task.sessionId == null) return 0;
+/// A workflow task's known usage and whether its full usage was measured.
+final class WorkflowTokenUsage {
+  final int knownTokens;
+  final bool complete;
+  final bool readError;
+
+  const new(this.knownTokens, {required this.complete, this.readError = false});
+}
+
+/// Reconciles the task's durable receipt with the current session ledger.
+Future<WorkflowTokenUsage> readStepTokenCount(
+  Task task,
+  KvService kvService,
+  WorkflowStepExecutionRepository? receiptRepository,
+) async {
+  Map<String, dynamic>? breakdown;
   try {
-    final total = await readSessionTokens(kvService, task.sessionId!);
-    final baseline = (task.configJson['_sessionBaselineTokens'] as num?)?.toInt() ?? 0;
-    return (total - baseline).clamp(0, double.maxFinite).toInt();
+    final receipt = receiptRepository == null ? null : await receiptRepository.getByTaskId(task.id);
+    breakdown = receipt?.stepTokenBreakdown;
+  } on FormatException {
+    return const WorkflowTokenUsage(0, complete: false);
   } catch (_) {
-    return 0; // KV read failure or malformed value — return 0 so budget logic isn't blocked.
+    return const WorkflowTokenUsage(0, complete: false, readError: true);
+  }
+  final input = breakdown?['inputTokensNew'];
+  final cacheRead = breakdown?['cacheReadTokens'];
+  final output = breakdown?['outputTokens'];
+  final knownTokens = input is int && input >= 0 && cacheRead is int && cacheRead >= 0 && output is int && output >= 0
+      ? input + cacheRead + output
+      : 0;
+  final expectedTurnId = breakdown?['turnId'];
+  if (task.sessionId == null ||
+      expectedTurnId is! String ||
+      expectedTurnId.isEmpty ||
+      breakdown?['tokenUsageComplete'] != true ||
+      task.configJson['_sessionBaselineValid'] == false) {
+    return WorkflowTokenUsage(knownTokens, complete: false);
+  }
+  try {
+    final ledger = await readSessionTokenRecord(kvService, task.sessionId!);
+    final baseline = task.configJson['_sessionBaselineTokens'];
+    if (ledger == null || ledger.turnId != expectedTurnId || (baseline != null && (baseline is! int || baseline < 0))) {
+      return WorkflowTokenUsage(knownTokens, complete: false);
+    }
+    final delta = ledger.totalTokens - (baseline as int? ?? 0);
+    if (delta < 0) return WorkflowTokenUsage(knownTokens, complete: false);
+    return WorkflowTokenUsage(delta, complete: true);
+  } catch (_) {
+    return WorkflowTokenUsage(knownTokens, complete: false, readError: true);
   }
 }
 
-/// Reads the raw cumulative token total for [sessionId] from KV store.
-Future<int> readSessionTokens(KvService kvService, String sessionId) async {
+/// Reads a complete session ledger. A missing or invalid ledger is unavailable.
+Future<int?> readSessionTokens(KvService kvService, String sessionId) async {
+  final record = await readSessionTokenRecord(kvService, sessionId);
+  return record?.totalTokens;
+}
+
+Future<({int totalTokens, String turnId})?> readSessionTokenRecord(KvService kvService, String sessionId) async {
+  final raw = await kvService.get('session_cost:$sessionId');
+  if (raw == null) return null;
   try {
-    final raw = await kvService.get('session_cost:$sessionId');
-    if (raw == null) return 0;
-    final json = jsonDecode(raw) as Map<String, dynamic>;
-    return (json['total_tokens'] as num?)?.toInt() ?? 0;
-  } catch (_) {
-    return 0; // KV read or JSON parse failure — return 0 to avoid blocking callers.
+    final json = jsonDecode(raw);
+    if (json is! Map<String, dynamic> ||
+        json['token_usage_complete'] != true ||
+        json['pending_accounting_turn_id'] != null) {
+      return null;
+    }
+    final total = json['total_tokens'];
+    final turnId = json['last_accounted_turn_id'];
+    if (total is! int || total < 0 || turnId is! String || turnId.isEmpty) return null;
+    return (totalTokens: total, turnId: turnId);
+  } on FormatException {
+    return null;
+  } on TypeError {
+    return null;
   }
 }

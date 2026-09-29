@@ -26,6 +26,8 @@ extension _ClaudeCodeHarnessMcp on ClaudeCodeHarness {
     final contextualHandler = switch (name) {
       'memory_apply' => onContextualMemoryApply,
       'memory_observe' => onContextualMemoryObserve,
+      'memory_search' => onContextualMemorySearch,
+      'memory_read' => onContextualMemoryRead,
       _ => null,
     };
     final handler = switch (name) {

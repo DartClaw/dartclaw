@@ -25,6 +25,7 @@ void main() {
         'ANDTHEN_REPORT_PATH': '/workspace/artifacts/report.md',
       },
       containerManager: container,
+      skillWorkspaceDir: hostRoot.path,
     );
     addTearDown(harness.dispose);
 
@@ -34,6 +35,9 @@ void main() {
     expect(container.lastEnv?['ANDTHEN_REPORT_PATH'], '/workspace/artifacts/report.md');
     expect(container.lastEnv?['ANTHROPIC_API_KEY'], containerClaudePlaceholderApiKey);
     expect(container.lastEnv?.values, isNot(contains('host-secret')));
+    final addDir = container.lastCommand.indexOf('--add-dir');
+    expect(addDir, greaterThanOrEqualTo(0));
+    expect(container.lastCommand[addDir + 1], '/workspace');
   });
 
   test('the container-mode MCP config is readable by the image user and carries no bearer', () async {

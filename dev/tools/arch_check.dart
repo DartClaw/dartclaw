@@ -116,17 +116,6 @@ int _maxCeilingFor(int loc) {
 //   session key, the hand-rolled config-change row extraction) already came out.
 //
 // Reviewed necessity, 2026-09-08 (ADR-045):
-//   dartclaw_core 27705 -> 27812 (measured 27812, no headroom). The SQLite
-//   compatibility gate adds required-object manifests, transactional bootstrap,
-//   marker-only adoption and derived-index rebuild/refusal while retiring the
-//   temporal-KG and memory-index additive repairs.
-//
-// Reviewed necessity, 2026-09-08 (ADR-045):
-//   dartclaw_core 27812 -> 27943 (measured 27943, no headroom). The generic
-//   full-text port moves SQLite search behind DatabaseBackend, retains exact
-//   canonical document validation in the reconciler and deletes MemoryService.
-//
-// Reviewed necessity, 2026-09-08 (ADR-045):
 //   dartclaw_core 27943 -> 29759 (measured 28475). The PostgreSQL implementation
 //   adds the bounded pool backend, dispatch classifier and exact schema gate.
 // Reviewed necessity, 2026-09-09 (ADR-045):
@@ -146,22 +135,32 @@ int _maxCeilingFor(int loc) {
 // judgment reduces runtime to 67166 and search to 1496. Ratchet their ceilings
 // down to _maxCeilingFor; retain shared schema decoding and tool enforcement.
 // 2026-09-10: shared endpoint validation reduces search to 1490 lines; ratchet to 1986.
-// Reviewed necessity, 2026-09-14 (ADR-033):
-//   dartclaw_core 31254 -> 31356 (measured 31356, no headroom). Per-session
-//   token accounting adds the subagent-usage frame to the Claude parser, its
-//   crediting in the Claude adapter, and per-thread cumulative crediting in the
-//   Codex adapter – a net 151 lines over a tree 0.26.1 left 49 lines under the
-//   ceiling. Both adapters already own usage folding; no second seam was added.
+//
+// Milestone rebaseline, 2026-09-19 (0.27):
+//   dartclaw_core    31254 -> 34710 (measured 33210)
+//   dartclaw_runtime 68649 -> 75596 (measured 74096)
+//   The milestone's backend scope (FR1-FR9: agent workspaces, scoped workspace
+//   memory, effective session context, the submission/queue/steer loop, durable
+//   display records, branch recovery, inbox and attention, conversation search
+//   and human commands, temporary conversations and export) landed against
+//   ceilings last cut before it opened. Both are cut to _maxCeilingFor(measured),
+//   so neither banks headroom beyond the band.
+// 2026-09-25 (0.27): ratchet core 34710 -> 32367 (measured 30867) after
+// PostgreSQL-only storage; rebaseline CLI 12719 -> 14480 (measured 12980) on
+// the joined milestone tree. Both ceilings equal _maxCeilingFor(measured).
+// Reviewed necessity, 2026-09-26 (ADR-033): runtime 75596 -> 77328
+// (measured 75828 after S13 general/project context). The context authority,
+// API and projection growth remains after reducing oversized service and test files.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
-  'dartclaw_cli': 12719,
+  'dartclaw_cli': 14480,
   'dartclaw_client': 625,
-  'dartclaw_core': 31356,
+  'dartclaw_core': 32367,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 68649,
+  'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
   'dartclaw_testing': 5026,

@@ -31,4 +31,6 @@ typedef ContainerAuthorityProvider = Future<ContainerAuthorityLease> Function(
   GatewayPrincipal principal, {
   Set<String> allowedMcpTools,
   String? artifactsDir,
+  String? workspaceDir,
+  bool useOwnerWorkspace,
 });

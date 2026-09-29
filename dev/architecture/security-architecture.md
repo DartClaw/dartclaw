@@ -2,7 +2,9 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.26 PostgreSQL connection security posture and literal-loopback unification; 0.25.2 dedicated Codex capability mirror and workflow tool-policy corrections; 0.25.1 labelled container reclamation (2026-09-04); 0.25 workflow worker leasing and capacity-only lane retirement; security posture corrections; single git-runner seam; guarded MCP dispatch seam; 0.25 kernel package formation; context-engine mode (named `/mcp` clients); 0.24.3 logical-agent output schema validation and the one content-scan authority (`ContentScan`).
+**Current through**: 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
+temporary conversation sink exclusion and confirmed cleanup, exact-request approval actions, principal-scoped search,
+the restricted-role connection posture, and owner Memory administration.
 
 ---
 
@@ -266,7 +268,7 @@ Provider adapters normalize tool requests into a DartClaw-canonical taxonomy bef
 | `memory_apply` | own MCP `mcp__dartclaw__memory_apply` | own MCP `{server: dartclaw, tool: memory_apply}` | Curated personal-memory writes |
 | `memory_observe` | own MCP `mcp__dartclaw__memory_observe` | own MCP `{server: dartclaw, tool: memory_observe}` | Observation and learning writes |
 | `memory_search` | own MCP `mcp__dartclaw__memory_search` | own MCP `{server: dartclaw, tool: memory_search}` | Read-only memory search |
-| `memory_read` | own MCP `mcp__dartclaw__memory_read` | own MCP `{server: dartclaw, tool: memory_read}` | Bounded read-only canonical or source-owner-routed wiki/KG/inbox/QMD access |
+| `memory_read` | own MCP `mcp__dartclaw__memory_read` | own MCP `{server: dartclaw, tool: memory_read}` | Bounded read-only canonical or source-owner-routed wiki/KG/inbox access |
 | `mcp_call` | MCP tool call | `mcp_tool_call` | Tool calls routed through an MCP server |
 
 ACP reverse-calls map at the handler level, not in the one-way provider event parser: `fs/read_text_file` -> `file_read`
@@ -293,12 +295,13 @@ Different providers expose different interception points. DartClaw keeps the gua
 
 | Provider / mode | Mechanism | DartClaw integration point | Security boundary |
 |-----------------|------------|-----------------------------|-------------------|
-| Claude Code | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback; permission handler is a no-op because native permission prompts are skipped | Guard chain is the active interception point before tool execution |
+| Claude Code host default | `--dangerously-skip-permissions` + hooks | `PreToolUse` hook callback | Guard chain is the active interception point before tool execution |
+| Claude Code host `dontAsk` | `--permission-mode dontAsk --permission-prompts none`, scrub `1` + hooks | Effective native `default` with prompts disabled; `PreToolUse` still runs the guard chain | Native grants and host guards can each refuse a tool without asking the operator |
 | Codex (app-server) | Command, file-change, and MCP approval requests | `approval` handler in `CodexHarness`; `on-request` is broadest, granular is partial, `never` disables host interception | Approval response path is the only interception point |
 | ACP direct-provider, verified | Host-advertised ACP `fs` capabilities | `AcpReverseCallHandlers` bind reverse-calls to the active session and map them to canonical tools before host action | Guard-mediated only after verification proves the agent honors host reverse-call mediation |
 | ACP relay-provider or unverified | No trustworthy reverse-call mediation claim | Rejected at startup; the container boundary they require has no ACP credential or host-capability mediation | Unavailable — the only boundary they could claim cannot be provided |
 
-For Claude Code, DartClaw starts the binary with `--dangerously-skip-permissions`, then intercepts tool use through hooks. The native permission handler is effectively a no-op in this mode, so guard enforcement must happen in Dart before the provider tool runs.
+For host Claude Code without an explicit mode, DartClaw starts the binary with `--dangerously-skip-permissions` and intercepts tool use through hooks. Host `dontAsk` instead keeps subprocess environment scrubbing, requests no native prompts explicitly, and refuses a resolved CLI that rejects the flag before a provider turn. Containerized Claude retains its separate minimal environment, placeholder key, scrub `0`, and guard chain; the host `dontAsk` mapping is not applied there.
 
 For Codex app-server, the approval request is the only interception point. DartClaw handles the current
 `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, and MCP approval-elicitation shapes. It does
@@ -518,7 +521,7 @@ A security profile defines one container's mounts, network, and capabilities. It
 
 | Profile | Container Name | Mounts | Used By |
 |---------|---------------|--------|---------|
-| **workspace** | `dartclaw-<hash>-workspace` | `/workspace:rw`, `/projects:ro`, `/project:ro` (legacy alias) | Main chat, default tasks, cron jobs |
+| **workspace** | `dartclaw-<hash>-workspace` | Configured agents: `/workspace:rw` plus admitted directory at `/project:ro`; legacy owner/unconfigured grants retain `/projects:ro` and `/project:ro` | Owner and configured named-agent chats, default tasks, cron jobs |
 | **restricted** | `dartclaw-<hash>-restricted` | No workspace or project mounts | Search agent, explicitly declared tasks |
 
 **Container naming**: `dartclaw-<fnv1a8(dataDir)>-<profileId>-<epoch><authorityId>` uses a deterministic
@@ -551,9 +554,38 @@ ADR-016 makes provider selection first-class, so sandbox settings need to reflec
 |-----------|--------------|---------------|----------|---------------|
 | Docker container | `app-server` | `danger-full-access` | On | Docker is the primary boundary; Codex permissions stay active for tool approvals. |
 | Bare metal | `app-server` | `workspace-write` | On | Codex sandbox provides defense-in-depth when Docker is absent. |
-| Task worktree | `app-server` | `workspace-write` + `--cd <worktree>` + `--add-dir <data-dir>` | On | Anchor Codex to the task worktree and let it manage approvals. |
+| Task worktree | `app-server` | `workspace-write` + writable roots | On | Anchor Codex to the task worktree while retaining the configured agent workspace grant. |
 
 The worktree rows are intentionally narrower than the Docker rows: they assume a trusted host-side task workspace and preserve Codex's own sandboxing instead of widening to `danger-full-access`. That keeps task execution deterministic while still respecting the per-provider boundary described in ADR-016.
+
+A named agent's managed workspace is a separate execution-principal input derived as
+`data_dir/agents/<id>/workspace`. The host validates the exact id-only `identity.json` in its parent home before wiring
+storage or execution. Workspace-profile containers mount only the workspace child at `/workspace`; the parent home and
+marker are absent, and only the admitted execution directory is added at `/project`, with no checkout, clones-root, or
+unrelated local-project mounts. Cached workers must match that directory. The same pinned directory supplies Claude's
+additional-directory skill root and Codex's process-scoped `.agents/skills` root.
+
+In an enforced container, writing `/workspace/../identity.json` cannot reach the host marker because its parent is not
+mounted. Required container confinement refuses execution when that profile is unavailable. Codex host
+`workspaceWrite` includes the workspace in `sandboxPolicy.writableRoots`, while read-only and restricted workers do not;
+the marker and managed-home parent are excluded from declared writable roots. On unrestricted host execution those
+declarations and tool grants are not OS isolation, so the same-user provider process may still access neighboring host
+paths. Tool grants remain the authority for mediated operations, not a claim of host filesystem containment.
+
+A process-retained conversation receives a dedicated temporary execution authority only when the capability inventory
+matches the mediated container provider and workspace policy. Its session, messages, attachments, conversation state,
+usage context, generated provider home, browser draft, and replay state stay out of durable DartClaw stores. Projection
+observers exclude it from conversation and memory lexical/vector indexes; contextual memory, wiki and KG write tools
+refuse it; daily-log capture and knowledge-inbox intake omit it. Audit and process logs retain only opaque operation or
+process metadata, never its prompt/tool/result marker. Ending first marks the session ending, then confirms turn and
+root-process termination, destroys the container, clears process state, and only then revokes the link. Failed
+confirmation leaves an auditable retryable state. Provider-side processing and authorized external or unmediated tool
+effects remain outside this retention guarantee.
+
+Research source scope is authenticated independently of execution placement. Owner calls get owner personal memory;
+named agents get only their pinned personal-memory principal when `context_research` is tool-policy allowed; named MCP
+clients are shared-only. All receive the published wiki and temporal KG, while the knowledge inbox and other personal
+principals are excluded. The same contextual dispatch seam refuses durable wiki/KG writes from temporary conversations.
 
 These provider-sandbox rows describe qualified POSIX hosts. Claude's native sandbox is unavailable on native Windows,
 and restrictive Codex sandbox modes remain unverified there; use POSIX or WSL when this isolation boundary is required.
@@ -838,7 +870,7 @@ An authentication-disabled deployment mounts the route without a bearer only whe
 **Security response headers** (global):
 
 ```
-Referrer-Policy: no-referrer       # Prevent token leakage via referrer
+Referrer-Policy: same-origin       # Withhold referrers from other origins
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
 Cache-Control: no-store            # Auth-gated pages not cached
@@ -1015,7 +1047,7 @@ DartClaw defends against cross-site request forgery in depth rather than relying
 
 - **`SameSite=Strict` session cookies** (primary). The session cookie is not sent on cross-site requests, so a forged cross-origin request arrives unauthenticated. This blocks the common CSRF vector at the browser level without CSRF tokens. It is strong but not absolute — older browsers, some same-site navigation edge cases, and misconfigured intermediaries can weaken the guarantee — so it is backed by an explicit server-side check.
 - **Same-origin Origin/Host guard** (`origin_host_guard.dart`, wired in `server.dart` via `originHostGuardMiddleware`). For unsafe methods (POST/PUT/PATCH/DELETE) on cookie-authenticated requests, the middleware compares the request's `Origin` authority – scheme, host, effective port – against the request's own `Host` authority (falling back to `Referer` when `Origin` is absent) and returns **403** on mismatch or when neither header is present. No-auth local-admin writes require the configured server host and request `Host` to be literal loopback hosts before the same authority comparison; this rejects DNS-rebinding requests whose attacker-controlled `Origin` and `Host` match. Origin-less loopback API clients remain supported. Safe methods and Bearer-token requests are exempt.
-- **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, same-origin-only sources — `script-src 'self'` plus the inline-script hash, `style-src 'self'`, `font-src 'self'`, no external origin — `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
+- **Security headers / CSP** (`security_headers.dart`, outermost middleware). Every response carries a strict `Content-Security-Policy` (`default-src 'none'`, same-origin-only sources — `script-src 'self'` plus the inline-script hash, `style-src 'self'`, `font-src 'self'`, no external origin — `form-action 'self'`, `frame-ancestors 'none'`), plus `Referrer-Policy: same-origin`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and (when `gateway.hsts` is enabled) HSTS. Same-origin referrers allow native browser forms to provide a usable write origin while cross-origin destinations receive no referrer. `form-action 'self'` and `frame-ancestors 'none'` further constrain cross-origin form posting and framing.
 
 ---
 
@@ -1040,7 +1072,8 @@ TaskFileGuard (multi-project)
 - Registration is removed on task completion (accept, reject, cancel) but preserved on failure for debugging
 - In multi-project mode, worktrees are nested under `<dataDir>/projects/<projectId>/`, so each task is scoped to its assigned project's directory
 
-**Multi-project scoping note**: The parent-directory mount (`/projects:ro`) gives the agent OS-level read access to all project clones. `TaskFileGuard` provides the application-layer write scoping — the agent is constrained to its assigned task's worktree directory and cannot write to other project directories. This application-layer boundary is acceptable for DartClaw's single-user product scope, where the primary security boundary remains Docker container isolation.
+**Multi-project scoping note**: Legacy owner profiles retain a parent-directory mount (`/projects:ro`) that gives the agent OS-level read access to all project clones. `TaskFileGuard` provides the application-layer write scoping — the agent is constrained to its assigned task's worktree directory and cannot write to other project directories. This application-layer boundary is acceptable for DartClaw's single-user product scope, where the primary security boundary remains Docker container isolation. Managed-workspace agents instead receive
+only their workspace and admitted execution directory, as described above.
 
 This is distinct from `FileGuard` (which protects sensitive system paths globally). `TaskFileGuard` provides path
 containment for a task after its declared git worktree has been registered.

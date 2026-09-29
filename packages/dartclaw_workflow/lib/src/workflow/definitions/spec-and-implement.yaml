@@ -5,7 +5,7 @@ description: >-
 variables:
   FEATURE:
     required: true
-    description: "Feature description – free text or path to an existing FIS file"
+    description: "Inline feature description or path to an AndThen FIS with plan/story provenance"
   PROJECT:
     required: false
     description: Target project for coding steps (omit for default project)
@@ -32,9 +32,6 @@ stepDefaults:
   - match: "spec"
     provider: "@planner"
     model: "@planner"
-  - match: "revise*"
-    provider: "@reviewer"
-    model: "@reviewer"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
@@ -69,10 +66,7 @@ steps:
         description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
       spec_source:
         schema: narrative_text
-        description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."
-      spec_confidence:
-        schema: non_negative_integer
-        description: "Self-rated 1-10 readiness of a synthesized specification authored by the spec skill. Emit 0 in every other case: at the detection step and when an existing specification is reused without synthesis."
+        description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
 
   - id: spec
     name: Generate Specification
@@ -81,7 +75,7 @@ steps:
     # FEATURE is interpolated inline by design – the spec skill is meant to act
     # on the feature description, so it is a direct argument, not auto-framed
     # (unlike the read-only detect-spec-input classifier).
-    prompt: "--auto {{FEATURE}}"
+    prompt: "--auto {{FEATURE}} Write one FIS for a single story."
     outputs:
       spec_path:
         format: path
@@ -91,28 +85,7 @@ steps:
         description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
       spec_source:
         schema: narrative_text
-        description: "'existing' when input resolves to a reusable implementation specification, 'synthesized' when the spec skill authored a new one."
-      spec_confidence:
-        schema: non_negative_integer
-        description: "Self-rated 1-10 readiness of a synthesized specification authored by the spec skill. Emit 0 in every other case: at the detection step and when an existing specification is reused without synthesis."
-
-  # `--fix` delegates remediation to andthen:remediate-findings in one
-  # invocation. Skipped when spec was reused (confidence == 0) or already
-  # >= 7. Modifies the FIS in place at {{context.spec_path}} – no new context
-  # value produced; downstream steps re-read the revised file.
-  - id: revise-spec
-    name: Revise Spec (low confidence)
-    skill: andthen:review
-    entryGate: "spec_confidence > 0 && spec_confidence < 7"
-    allowedTools: [shell, file_read, file_write, file_edit]
-    inputs: [spec_confidence]
-    # --fix runs remediation over the spec; the retry is for transient harness
-    # failures (provider/CLI exits), not semantic re-runs. Mirrors implement.
-    maxRetries: 1
-    prompt: >-
-      --mode doc --fix --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      {{context.spec_path}}
+        description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
 
   - id: implement
     name: Implement
@@ -166,7 +139,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
+        skill: andthen:implement-fix
         entryGate: "gating_findings_count > 0"
         allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
         inputs: [spec_path]

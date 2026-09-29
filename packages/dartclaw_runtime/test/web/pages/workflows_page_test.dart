@@ -1,7 +1,6 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:io';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
@@ -9,16 +8,9 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/workflows_page.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show
-        SqliteWorkflowRunRepository,
-        WorkflowDefinition,
-        WorkflowDefinitionSource,
-        WorkflowRun,
-        WorkflowService,
-        WorkflowStep,
-        WorkflowVariable;
+    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowService, WorkflowStep, WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -84,8 +76,7 @@ Request _get(String path) => Request('GET', Uri.parse('http://localhost$path'));
 
 void main() {
   late WorkflowsPage page;
-  late SqliteBackend taskBackend;
-  late SqliteWorkflowRunRepository workflowRepo;
+  late InMemoryWorkflowRunRepository workflowRepo;
   late TaskService tasks;
   late WorkflowService workflows;
   late Directory tempDir;
@@ -95,14 +86,13 @@ void main() {
 
   setUp(() async {
     page = WorkflowsPage();
-    taskBackend = await openPreparedTaskBackend();
     tempDir = Directory.systemTemp.createTempSync('wf_page_test_');
 
-    final taskRepo = SqliteTaskRepository(taskBackend);
+    final taskRepo = InMemoryTaskRepository();
     final eventBus = EventBus();
     tasks = TaskService(taskRepo, eventBus: eventBus);
 
-    workflowRepo = SqliteWorkflowRunRepository(taskBackend);
+    workflowRepo = InMemoryWorkflowRunRepository();
     final messages = MessageService(baseDir: p.join(tempDir.path, 'sessions'));
     final kv = KvService(filePath: p.join(tempDir.path, 'kv.json'));
     workflows = WorkflowService.lifecycleOnly(
@@ -118,7 +108,6 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -433,6 +422,67 @@ void main() {
   });
 
   group('WorkflowsPage /workflows/<runId>/steps/<stepIndex>', () {
+    test('shows incomplete run totals and distinguishes unavailable step tokens from zero', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      final definition = _makeDefinition();
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-accounting',
+          definitionName: definition.name,
+          status: WorkflowRunStatus.completed,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 2,
+          totalTokens: 0,
+          tokenUsageComplete: false,
+          definitionJson: definition.toJson(),
+          contextJson: const {
+            'data': {
+              'research.status': 'success',
+              'research.tokenCount': null,
+              'implement.status': 'success',
+              'implement.tokenCount': 0,
+            },
+          },
+        ),
+      );
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final list = await page.handler(_get('/workflows'), context);
+      final detail = await page.handler(_get('/workflows/run-accounting'), context);
+      final unknown = await page.handler(_get('/workflows/run-accounting/steps/0'), context);
+      final zero = await page.handler(_get('/workflows/run-accounting/steps/1'), context);
+
+      expect(await list.readAsString(), contains('0 tokens (incomplete lower bound)'));
+      expect(await detail.readAsString(), contains('Tokens (incomplete lower bound)'));
+      expect(
+        await unknown.readAsString(),
+        contains('Tokens: <span class="workflow-step-metric-value">unavailable</span>'),
+      );
+      expect(await zero.readAsString(), contains('Tokens: <span class="workflow-step-metric-value">0</span>'));
+    });
+
+    test('shows skipped zero-work step as zero without an accounting value', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      final definition = _makeDefinition();
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-skipped-accounting',
+          definitionName: definition.name,
+          status: WorkflowRunStatus.completed,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 2,
+          definitionJson: definition.toJson(),
+          contextJson: const {
+            'data': {'step.research.outcome': 'skipped'},
+          },
+        ),
+      );
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final skipped = await page.handler(_get('/workflows/run-skipped-accounting/steps/0'), context);
+      expect(await skipped.readAsString(), contains('Tokens: <span class="workflow-step-metric-value">0</span>'));
+    });
+
     test('returns 400 for invalid step index', () async {
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows/run-001/steps/notanumber'), context);

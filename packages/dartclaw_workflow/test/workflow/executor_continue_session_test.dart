@@ -20,6 +20,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatusChangedEvent,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowSkillPreflightConfig,
         WorkflowStep;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -143,27 +144,18 @@ void main() {
       await h.executor.execute(run, definition, WorkflowContext());
       await sub.cancel();
 
-      final taskCount = (h.db.select('SELECT COUNT(*) AS c FROM tasks').first['c'] as int?) ?? 0;
-      final tasksWithoutAe =
-          (h.db.select('SELECT COUNT(*) AS c FROM tasks WHERE agent_execution_id IS NULL').first['c'] as int?) ?? 0;
-      final workflowStepCount =
-          (h.db.select('SELECT COUNT(*) AS c FROM workflow_step_executions').first['c'] as int?) ?? 0;
-      final joinedWorkflowStepCount =
-          (h.db
-                  .select(
-                    'SELECT COUNT(*) AS c FROM tasks t '
-                    'JOIN workflow_step_executions wse ON wse.task_id = t.id',
-                  )
-                  .first['c']
-              as int?) ??
-          0;
-      final agentExecutionCount = (h.db.select('SELECT COUNT(*) AS c FROM agent_executions').first['c'] as int?) ?? 0;
+      final tasks = await h.taskRepository.list();
+      final workflowSteps = await h.workflowStepExecutionRepository.listByRunId(run.id);
+      final taskIds = tasks.map((task) => task.id).toSet();
+      final agentExecutions = await h.agentExecutionRepository.list();
+      final tasksWithoutAe = tasks.where((task) => task.agentExecutionId == null).length;
+      final joinedWorkflowStepCount = workflowSteps.where((step) => taskIds.contains(step.taskId)).length;
 
-      expect(taskCount, 1);
+      expect(tasks, hasLength(1));
       expect(tasksWithoutAe, 0);
-      expect(workflowStepCount, taskCount);
-      expect(joinedWorkflowStepCount, taskCount);
-      expect(agentExecutionCount, greaterThanOrEqualTo(taskCount));
+      expect(workflowSteps, hasLength(tasks.length));
+      expect(joinedWorkflowStepCount, tasks.length);
+      expect(agentExecutions.length, greaterThanOrEqualTo(tasks.length));
     });
 
     test('model-derived inline output joins the finalizer envelope schema', () async {
@@ -252,8 +244,15 @@ void main() {
       Directory(p.join(h.sessionsDir, sessionId)).createSync(recursive: true);
     }
 
-    Future<void> seedSessionCost(String sessionId, int totalTokens) async {
-      await h.kvService.set('session_cost:$sessionId', jsonEncode({'total_tokens': totalTokens}));
+    Future<void> seedSessionCost(String sessionId, int totalTokens, {String? taskId}) async {
+      if (taskId != null) {
+        await h.seedTaskUsage(taskId, sessionId, totalTokens);
+        return;
+      }
+      await h.kvService.set(
+        'session_cost:$sessionId',
+        jsonEncode({'total_tokens': totalTokens, 'token_usage_complete': true, 'last_accounted_turn_id': 'seeded'}),
+      );
     }
 
     test('continued step receives _continueSessionId from preceding step', () async {
@@ -279,7 +278,7 @@ void main() {
         if (step1TaskId.isEmpty) {
           step1TaskId = e.taskId;
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 100);
+          await seedSessionCost(sessionStep1, 100, taskId: e.taskId);
         } else {
           step2TaskId = e.taskId;
         }
@@ -292,6 +291,45 @@ void main() {
       expect(step2TaskId, isNotEmpty);
       final step2Task = await h.taskService.get(step2TaskId);
       expect(step2Task?.configJson['_continueSessionId'], equals(sessionStep1));
+    });
+
+    test('continued step records the permission posture of its root provider', () async {
+      createSessionDir(sessionStep1);
+      h.executor = h.makeExecutor(
+        skillPreflightConfig: const WorkflowSkillPreflightConfig(
+          defaultProvider: 'codex',
+          providerExecutables: {'claude': 'claude', 'codex': 'codex'},
+          providerOptions: {
+            'claude': {'permissionMode': 'dontAsk'},
+          },
+        ),
+      );
+      final definition = h.makeDefinition(
+        steps: [
+          const WorkflowStep(id: 'step1', name: 'Investigate', prompts: ['Investigate'], provider: 'claude'),
+          const WorkflowStep(id: 'step2', name: 'Fix', prompts: ['Fix'], continueSession: 'step1'),
+        ],
+      );
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      var queued = 0;
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+        event,
+      ) async {
+        await Future<void>.delayed(Duration.zero);
+        if (queued++ == 0) {
+          await h.taskService.updateFields(event.taskId, sessionId: sessionStep1);
+        }
+        await h.completeTask(event.taskId);
+      });
+      await h.executor.execute(run, definition, WorkflowContext());
+      await sub.cancel();
+
+      final tasks = await h.taskService.list();
+      final continued = tasks.singleWhere((task) => task.configJson['_continueSessionId'] == sessionStep1);
+      expect(continued.provider, 'claude');
+      expect(continued.configJson['claudeHostPermissionPosture'], isNotNull);
     });
 
     test('continued step resolves root session from an explicit earlier step reference', () async {
@@ -316,7 +354,7 @@ void main() {
         createdCount++;
         if (createdCount == 1) {
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 100);
+          await seedSessionCost(sessionStep1, 100, taskId: e.taskId);
         }
         await h.completeTask(e.taskId);
       });
@@ -386,10 +424,10 @@ void main() {
         if (!step1Done) {
           step1Done = true;
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 150);
+          await seedSessionCost(sessionStep1, 150, taskId: e.taskId);
         } else {
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 300);
+          await seedSessionCost(sessionStep1, 300, taskId: e.taskId);
         }
         await h.completeTask(e.taskId);
       });
@@ -449,7 +487,7 @@ void main() {
         stepCount++;
         if (stepCount == 1) {
           await h.taskService.updateFields(e.taskId, sessionId: sessionStep1);
-          await seedSessionCost(sessionStep1, 100);
+          await seedSessionCost(sessionStep1, 100, taskId: e.taskId);
         }
         await h.completeTask(e.taskId);
       });

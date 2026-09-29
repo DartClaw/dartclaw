@@ -1166,8 +1166,14 @@ steps:
         expected: OnErrorPolicy.continueWorkflow,
       ),
       (
-        name: 'on_error snake_case alias with legacy fail',
+        name: 'on_error snake_case alias with fail',
         yaml: 'type: bash\non_error: fail',
+        field: 'onError',
+        expected: OnErrorPolicy.fail,
+      ),
+      (
+        name: 'onError explicit pause',
+        yaml: 'type: bash\nonError: pause',
         field: 'onError',
         expected: OnErrorPolicy.pause,
       ),
@@ -1222,7 +1228,14 @@ maxRetries: 2''',
     });
 
     test('rejects unknown onError value listing valid values (S03)', () {
-      expectParseFormatError(stepYaml('type: bash\nonError: retry'), messageContains: const ['pause, continue']);
+      expectParseFormatError(stepYaml('type: bash\nonError: retry'), messageContains: const ['fail, pause, continue']);
+    });
+
+    test('typed onError policies survive a definition snapshot', () {
+      for (final policy in OnErrorPolicy.values) {
+        final definition = parser.parse(stepYaml('type: bash\nonError: ${policy.yamlName}'));
+        expect(WorkflowDefinition.fromJson(definition.toJson()).steps.single.onError, policy);
+      }
     });
 
     test('legacy research/coding step values are rejected with valid type list', () {

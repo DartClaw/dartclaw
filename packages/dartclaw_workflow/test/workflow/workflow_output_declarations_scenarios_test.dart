@@ -69,32 +69,6 @@ steps:
     });
   });
 
-  group('S02 – spec_confidence reuses non_negative_integer', () {
-    final def = _load('spec-and-implement.yaml');
-    final detect = def.steps.singleWhere((s) => s.id == 'detect-spec-input');
-    final config = detect.outputs!['spec_confidence']!;
-
-    test('carries the non_negative_integer preset association (the dropped registry link)', () {
-      expect(config.presetName, 'non_negative_integer');
-    });
-
-    test('structured envelope schema preserves the prior inline field type', () {
-      final envelope = buildExecutionEnvelopeSchema(detect, detect.outputs)!;
-      final field = _envelopeOutputs(envelope)['spec_confidence'] as Map;
-      expect(field, containsPair('type', 'integer'));
-      expect(field, containsPair('minimum', 0));
-    });
-
-    test('the finalizer prompt renders the inline description', () {
-      final envelope = buildExecutionEnvelopeSchema(detect, detect.outputs)!;
-      expect(buildFinalizerPrompt(envelope), contains('Self-rated 1-10 readiness'));
-    });
-
-    test('resolves InlineOutput via the preset defaultResolver', () {
-      expect(outputResolverFor('spec_confidence', config), isA<InlineOutput>());
-    });
-  });
-
   group('S03 – prd/plan resolve byte-identical globs after relocation', () {
     final def = _load('plan-and-implement.yaml');
     final discover = def.steps.singleWhere((s) => s.id == 'discover-plan-state');

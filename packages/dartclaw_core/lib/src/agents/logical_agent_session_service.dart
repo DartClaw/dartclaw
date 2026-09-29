@@ -15,6 +15,15 @@ typedef LogicalAgentTurnDispatch = Future<String> Function({
 /// Callback that makes a failed newly-created logical-agent session inactive.
 typedef LogicalAgentSessionDiscard = Future<void> Function(String sessionId);
 
+/// Resolves an agent id to its definition for the duration of a turn.
+///
+/// Every surface that must decide whether an agent-pinned session names a live
+/// agent resolves through one of these, bound to
+/// [LogicalAgentSessionService.agentDefinition]. A configured-only snapshot is
+/// not a substitute: it cannot see a one-shot agent, so a turn reserved for one
+/// would be rejected as belonging to an unknown agent.
+typedef AgentDefinitionResolver = AgentDefinition? Function(String agentId);
+
 /// Creates and continues logical-agent sessions.
 class LogicalAgentSessionService {
   static final _log = Logger('LogicalAgentSessionService');
@@ -25,6 +34,7 @@ class LogicalAgentSessionService {
   final Map<String, AgentDefinition> _agents;
   final ContentGuard? _contentGuard;
   final GuardAuditLogger? _auditLogger;
+  final Map<String, AgentDefinition> _oneShotAgents = {};
 
   new({
     required LogicalAgentTurnDispatch dispatch,
@@ -41,6 +51,23 @@ class LogicalAgentSessionService {
   /// Configured logical agents keyed by their stable IDs.
   Map<String, AgentDefinition> get agents => _agents;
 
+  /// Resolves configured and currently executing internal one-shot agents.
+  AgentDefinition? agentDefinition(String id) => _agents[id] ?? _oneShotAgents[id];
+
+  /// Runs one schema-bound internal agent without publishing it as configured.
+  Future<Map<String, dynamic>> runOneShot({required AgentDefinition agent, required String message}) async {
+    if (_agents.containsKey(agent.id) || _oneShotAgents.containsKey(agent.id)) {
+      return _error('Agent is already active: ${agent.id}');
+    }
+    _oneShotAgents[agent.id] = agent;
+    final sessionId = SessionKey.logicalAgentSession(agentId: agent.id, conversationId: _uuid.v4());
+    try {
+      return await _run(sessionId: sessionId, message: message, agent: agent, createSession: true);
+    } finally {
+      _oneShotAgents.remove(agent.id);
+    }
+  }
+
   /// Creates a logical-agent session and waits for its first turn to complete.
   Future<Map<String, dynamic>> handleSessionsSpawn(Map<String, dynamic> params) async {
     final agentId = params['agent'] as String?;
@@ -54,6 +81,8 @@ class LogicalAgentSessionService {
     if (agent == null) {
       return _error('Unknown agent: $agentId');
     }
+    final workspaceError = agent.workspaceConfigurationError;
+    if (workspaceError != null) return _error('$workspaceError. Fix this binding before using agent "$agentId".');
 
     final sessionId = SessionKey.logicalAgentSession(agentId: agentId, conversationId: _uuid.v4());
     return _run(sessionId: sessionId, message: message, agent: agent, createSession: true, includeSessionId: true);
@@ -75,6 +104,8 @@ class LogicalAgentSessionService {
     if (agent == null) {
       return _error('Unknown agent for logical-agent session: $agentId');
     }
+    final workspaceError = agent.workspaceConfigurationError;
+    if (workspaceError != null) return _error('$workspaceError. Fix this binding before using agent "$agentId".');
 
     return _run(sessionId: sessionId, message: message, agent: agent, createSession: false);
   }

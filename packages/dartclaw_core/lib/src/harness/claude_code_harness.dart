@@ -29,6 +29,7 @@ import '../agents/tool_policy_cascade.dart';
 import 'tool_policy.dart';
 
 part 'claude_code_harness_mcp.dart';
+part 'claude_code_harness_control.dart';
 
 List<String> _buildClaudeArgs({
   String? model,
@@ -36,6 +37,7 @@ List<String> _buildClaudeArgs({
   String? appendSystemPrompt,
   String? mcpConfigPath,
   String? permissionMode,
+  bool noPermissionPrompts = false,
   String? settings,
   String? outputSchemaJson,
   String? providerSessionId,
@@ -44,6 +46,7 @@ List<String> _buildClaudeArgs({
   bool persistSession = false,
   bool settingSourcesProject = false,
   bool skipNativePermissions = true,
+  String? additionalDirectory,
 }) => [
   '--print',
   '--input-format',
@@ -55,12 +58,14 @@ List<String> _buildClaudeArgs({
   if (!persistSession) '--no-session-persistence',
   if (providerSessionId != null) ...['--resume', providerSessionId],
   if (permissionMode != null) ...['--permission-mode', permissionMode],
+  if (noPermissionPrompts) ...['--permission-prompts', 'none'],
   if (permissionMode == null && skipNativePermissions) '--dangerously-skip-permissions',
   if (permissionMode != 'bypassPermissions' && permissionMode != 'dontAsk' && !skipNativePermissions) ...[
     '--permission-prompt-tool',
     'stdio',
   ],
   if (settingSourcesProject) ...['--setting-sources', 'project'],
+  if (additionalDirectory != null) ...['--add-dir', additionalDirectory],
   '--model',
   model ?? 'opus[1m]',
   if (effort != null) ...['--effort', effort],
@@ -82,7 +87,12 @@ const _zeroUsage = (input: 0, output: 0, cacheRead: 0, cacheWrite: 0);
 
 /// Concrete [AgentHarness] that spawns the `claude` binary directly and speaks
 /// its JSONL control protocol — no Deno/TypeScript layer required.
-class ClaudeCodeHarness extends BaseHarness {
+class ClaudeCodeHarness extends BaseHarness
+    implements
+        HarnessToolApprovalResponder,
+        EffectiveContextCapabilityProvider,
+        ModelCatalogueProvider,
+        NativeSkillCapabilityProvider {
   final String claudeExecutable;
   final Map<String, String> _environment;
   final Map<String, String> _containerEnvironment;
@@ -98,6 +108,9 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Roots the step's file-mutating tools may write — its worktree and its
   /// artifacts directory.
   final List<String> declaredWritableRoots;
+
+  /// Pinned configured-agent workspace added to Claude's native skill roots.
+  final String? skillWorkspaceDir;
   final ToolApprovalPolicy toolPolicy;
   final GuardChain? guardChain;
   final GuardAuditLogger? auditLogger;
@@ -115,6 +128,8 @@ class ClaudeCodeHarness extends BaseHarness {
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryObserve;
   final ContextualMemoryToolHandler? onContextualMemoryApply;
   final ContextualMemoryToolHandler? onContextualMemoryObserve;
+  final ContextualMemoryToolHandler? onContextualMemorySearch;
+  final ContextualMemoryToolHandler? onContextualMemoryRead;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
 
@@ -139,6 +154,7 @@ class ClaudeCodeHarness extends BaseHarness {
   String? _activeTurnSessionId;
   String? _activeAgentId;
   Completer<TurnResult>? _turnCompleter;
+  final Map<String, ({String turnId, String? toolUseId, Timer timer})> _pendingOperatorApprovals = {};
   late String _processWorkingDirectory;
   late String _hostProcessWorkingDirectory;
 
@@ -154,9 +170,9 @@ class ClaudeCodeHarness extends BaseHarness {
   /// Wire form, because that is exactly what a reused process keeps.
   String? _processOutputSchemaJson;
 
-  /// Background tasks the running process last listed; a new process starts
-  /// with none. The turn boundary waits for [_awaitedBackgroundTasks].
+  /// A task can leave the process inventory before its notification turn starts.
   List<proto.BackgroundTaskRef> _backgroundTasks = const [];
+  final Set<String> _owedBackgroundNotifications = {};
 
   /// Usage of the `result` lines the current turn held open, folded into the
   /// result that finally completes it.
@@ -164,6 +180,10 @@ class ClaudeCodeHarness extends BaseHarness {
   int _heldResultCount = 0;
 
   Completer<Map<String, dynamic>>? _initCompleter;
+
+  /// The running process's `initialize` control response, for the catalogue.
+  Map<String, dynamic>? _initResponse;
+  ({String id, Completer<Map<String, dynamic>> completer})? _settingsRequest;
 
   new({
     this.claudeExecutable = 'claude',
@@ -179,6 +199,7 @@ class ClaudeCodeHarness extends BaseHarness {
     Map<String, dynamic>? providerOptions,
     this.declaredCanonicalTools,
     this.declaredWritableRoots = const <String>[],
+    this.skillWorkspaceDir,
     this.toolPolicy = ToolApprovalPolicy.allowAll,
     this.guardChain,
     this.auditLogger,
@@ -186,6 +207,8 @@ class ClaudeCodeHarness extends BaseHarness {
     this.onMemoryObserve,
     this.onContextualMemoryApply,
     this.onContextualMemoryObserve,
+    this.onContextualMemorySearch,
+    this.onContextualMemoryRead,
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
@@ -228,6 +251,14 @@ class ClaudeCodeHarness extends BaseHarness {
   PromptStrategy get promptStrategy => PromptStrategy.append;
 
   @override
+  EffectiveContextCapabilities get effectiveContextCapabilities =>
+      const EffectiveContextCapabilities(model: true, effort: true);
+
+  /// Sends only `initialize` (on start) and `get_settings`; no user turn.
+  @override
+  Future<ModelCatalogue> discoverModelCatalogue() => _discoverModelCatalogue();
+
+  @override
   bool get supportsCachedTokens => true;
 
   @override
@@ -246,6 +277,9 @@ class ClaudeCodeHarness extends BaseHarness {
 
   @override
   String skillActivationLine(String skill) => '/$skill';
+
+  @override
+  bool get supportsNativeSkillInvocation => true;
 
   @override
   bool get supportsPreCompactHook => true;
@@ -339,6 +373,14 @@ class ClaudeCodeHarness extends BaseHarness {
       await delayFactory(const Duration(milliseconds: 500));
     }
     currentState = WorkerState.stopped;
+    // `handleUnexpectedProcessExit` is the only other completion path and it
+    // declines an intentional teardown, so without this the killed process's
+    // exit settles nothing and `turn()` awaits a completer forever. That holds
+    // the caller's session lock and worker lease for the life of the process.
+    final turnCompleter = _turnCompleter;
+    if (turnCompleter != null && !turnCompleter.isCompleted) {
+      turnCompleter.completeError(StateError('ClaudeCodeHarness stopped'));
+    }
     await shutdownCurrentProcess(
       label: 'Claude',
       gracePeriod: _killGracePeriod,
@@ -390,17 +432,6 @@ class ClaudeCodeHarness extends BaseHarness {
     final desiredPersistsSession = providerSessionId != null || requestProviderSessionResume;
     // `--json-schema` is a spawn flag, not a per-turn field.
     final desiredOutputSchemaJson = outputSchema == null ? null : jsonEncode(outputSchema);
-
-    // First-use adoption: when the process was spawned with null effort/model
-    // and the first ordinary turn supplies a non-null value, adopt it without restarting.
-    // This prevents unnecessary restarts when governance.crowd_coding.effort
-    // is set but agent.effort is not.
-    if (agentId == null && _processEffort == null && desiredEffort != null) {
-      _processEffort = desiredEffort;
-    }
-    if (agentId == null && _processModel == null && desiredModel != null) {
-      _processModel = desiredModel;
-    }
 
     final sessionChanged = _conversationSessionId != null && _conversationSessionId != sessionId;
     if (sessionChanged ||
@@ -494,6 +525,9 @@ class ClaudeCodeHarness extends BaseHarness {
       }
       rethrow;
     } finally {
+      for (final requestId in _pendingOperatorApprovals.keys.toList(growable: false)) {
+        _declineOperatorApproval(requestId, expired: false);
+      }
       _turnCompleter = null;
       _activeTurnSessionId = null;
       _activeAgentId = null;
@@ -504,6 +538,7 @@ class ClaudeCodeHarness extends BaseHarness {
     _turnsSinceStart = 0;
     _conversationSessionId = null;
     _backgroundTasks = const [];
+    _owedBackgroundNotifications.clear();
     final cm = containerManager;
     if (cm == null) {
       ProcessResult? claudeResult;
@@ -521,6 +556,24 @@ class ClaudeCodeHarness extends BaseHarness {
       }
 
       await _verifyAuth();
+      if (_nativePermissionMode == 'dontAsk') {
+        final result = await commandProbe(claudeExecutable, const ['--help']);
+        if (result.exitCode != 0) {
+          final diagnostic = '${result.stderr}\n${result.stdout}'.trim();
+          throw StateError(
+            'Claude no-prompt compatibility probe failed for "$claudeExecutable": '
+            '$diagnostic',
+          );
+        }
+        final help = '${result.stdout}';
+        if (!help.contains('--permission-prompts') || !help.contains('"none"')) {
+          throw UnsupportedCapabilityError(
+            capability: 'Claude no-prompt permission policy',
+            attemptedContext: '$claudeExecutable --permission-prompts none',
+            remediation: 'Install a compatible Claude CLI or configure a different permissionMode.',
+          );
+        }
+      }
     } else {
       await cm.start();
       if (!await containerExecutableRuns(cm, _containerExecutable)) {
@@ -533,6 +586,7 @@ class ClaudeCodeHarness extends BaseHarness {
     }
 
     final env = Map<String, String>.from(_environment);
+    if (cm == null) env.addAll(claudeHardeningEnvVars);
     for (final key in claudeNestingEnvVars) {
       env.remove(key);
     }
@@ -586,6 +640,7 @@ class ClaudeCodeHarness extends BaseHarness {
     }
 
     final nativePermissionMode = _nativePermissionMode;
+    final hostDontAsk = cm == null && nativePermissionMode == 'dontAsk';
     final skipsPermissionPrompts = nativePermissionMode == 'bypassPermissions';
     if (skipsPermissionPrompts && cm?.profileId == 'restricted') {
       throw StateError(
@@ -637,6 +692,7 @@ class ClaudeCodeHarness extends BaseHarness {
       appendSystemPrompt: _processAppendSystemPrompt,
       mcpConfigPath: mcpConfigArgPath,
       permissionMode: nativePermissionMode,
+      noPermissionPrompts: hostDontAsk,
       settings: nativeSettings,
       outputSchemaJson: _processOutputSchemaJson,
       providerSessionId: _processProviderSession.id,
@@ -647,9 +703,16 @@ class ClaudeCodeHarness extends BaseHarness {
       // Restricted containers keep native permission prompts enabled so tool
       // requests still flow through the provider permission channel.
       skipNativePermissions: nativePermissionMode == null && cm?.profileId != 'restricted',
+      additionalDirectory: _skillWorkspaceForSpawn(),
     );
     final Process process;
     _sessionId = null;
+    if (hostDontAsk) {
+      _log.info(
+        'Claude permission posture: requested=dontAsk, native=default, prompts=none, '
+        'subprocess env scrub=1, PreToolUse guards=${guardChain == null ? 'unconfigured' : 'active'}',
+      );
+    }
     if (cm != null) {
       final containerEnv = <String, String>{
         ..._containerEnvironment,
@@ -705,6 +768,15 @@ class ClaudeCodeHarness extends BaseHarness {
 
   String _resolveHostWorkingDirectory(String? directory) =>
       directory == null || directory.trim().isEmpty ? cwd : directory;
+
+  String? _skillWorkspaceForSpawn() {
+    final workspace = skillWorkspaceDir;
+    if (workspace == null) return null;
+    final container = containerManager;
+    if (container == null) return workspace;
+    return container.containerPathForHostPath(workspace) ??
+        (throw StateError('Configured agent skill workspace is not mounted in the container: $workspace'));
+  }
 
   /// The binary the container image ships, unless an absolute path was pinned.
   String get _containerExecutable => claudeExecutable.contains('/') ? claudeExecutable : containerClaudeExecutable;
@@ -955,7 +1027,7 @@ class ClaudeCodeHarness extends BaseHarness {
     );
 
     try {
-      await _initCompleter!.future.timeout(_initializeTimeout);
+      _initResponse = await _initCompleter!.future.timeout(_initializeTimeout);
       _log.info('Initialize handshake complete');
     } on TimeoutException {
       _log.severe('Initialize handshake timed out');
@@ -1089,6 +1161,7 @@ class ClaudeCodeHarness extends BaseHarness {
         _log.fine('Non-JSON or non-control_response line during init');
       }
     }
+    if (_completeSettingsRequest(line)) return;
 
     final msg = _adapter.parseLine(line);
     if (msg == null) return;
@@ -1109,9 +1182,14 @@ class ClaudeCodeHarness extends BaseHarness {
         break;
 
       case proto.BackgroundTasksChanged(:final tasks):
+        final listedIds = tasks.map((task) => task.id).toSet();
+        for (final task in _awaitedBackgroundTasks) {
+          if (!listedIds.contains(task.id)) _owedBackgroundNotifications.add(task.id);
+        }
         _backgroundTasks = tasks;
         _log.info(
-          'Background tasks: ${tasks.length} listed, ${_awaitedBackgroundTasks.length} awaited at the turn boundary',
+          'Background tasks: ${tasks.length} listed, ${_awaitedBackgroundTasks.length} active and '
+          '${_owedBackgroundNotifications.length} notification(s) owed at the turn boundary',
         );
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
@@ -1122,22 +1200,22 @@ class ClaudeCodeHarness extends BaseHarness {
         :final subtype,
         :final structuredOutput,
         :final finalText,
-        :final costUsd,
         :final inputTokens,
         :final outputTokens,
         :final cacheReadTokens,
         :final cacheWriteTokens,
+        :final claudeUsageSnapshot,
       ):
         if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
           final isError = stopReason == 'error';
-          final awaited = _awaitedBackgroundTasks.toList();
-          if (!isError && awaited.isNotEmpty) {
+          final outstandingIds = {..._awaitedBackgroundTasks.map((task) => task.id), ..._owedBackgroundNotifications};
+          if (!isError && outstandingIds.isNotEmpty) {
             // The CLI ends the model's turn while its background subagents are
             // still running and, once they report, runs a notification turn
             // of its own that ends in a second `result`. Completing here would
             // let the caller's next turn restart the process and kill them, so
-            // the turn stays open until a result arrives with nothing
-            // outstanding; the turn timeout still bounds the wait.
+            // a task can leave the list before its notification turn begins,
+            // so the turn stays open until that notification's result arrives.
             _heldUsage = (
               input: _heldUsage.input + (inputTokens ?? 0),
               output: _heldUsage.output + (outputTokens ?? 0),
@@ -1145,15 +1223,15 @@ class ClaudeCodeHarness extends BaseHarness {
               cacheWrite: _heldUsage.cacheWrite + (cacheWriteTokens ?? 0),
             );
             _heldResultCount++;
-            final ids = awaited.map((task) => task.id).join(', ');
+            final ids = outstandingIds.join(', ');
             _log.info(
-              'Turn boundary held: ${awaited.length} background task(s) still running ($ids); '
+              'Turn boundary held: ${outstandingIds.length} background task(s) outstanding ($ids); '
               'the notification turn completes it',
             );
             emitEvent(
               ProviderProgressBridgeEvent(
                 kind: 'background_tasks',
-                text: 'Waiting for ${awaited.length} background task(s): $ids',
+                text: 'Waiting for ${outstandingIds.length} background task(s): $ids',
               ),
             );
             return;
@@ -1182,8 +1260,10 @@ class ClaudeCodeHarness extends BaseHarness {
               stopReason: stopReason,
               error: error,
               finalText: finalText,
-              costUsd: costUsd,
+              costUsd: null,
               providerSessionId: _processProviderSession.persists ? _sessionId : null,
+              claudeUsageSnapshot: claudeUsageSnapshot,
+              mainSessionInputTokens: _heldUsage.input + (inputTokens ?? 0),
               structuredOutput: structuredOutput,
               inputTokens: _heldUsage.input + (inputTokens ?? 0),
               outputTokens: _heldUsage.output + (outputTokens ?? 0),
@@ -1194,6 +1274,7 @@ class ClaudeCodeHarness extends BaseHarness {
         }
 
       case proto.SystemInit(:final sessionId, :final toolCount, :final contextWindow):
+        _owedBackgroundNotifications.clear();
         _sessionId = sessionId;
         _log.info('Session init: id=$sessionId, tools=$toolCount, contextWindow=$contextWindow');
         if (contextWindow != null) {
@@ -1239,36 +1320,37 @@ class ClaudeCodeHarness extends BaseHarness {
     platformCapabilities: platformCapabilities,
   ).whenComplete(_deleteMcpConfig);
 
-  Future<void> _handleControlRequest(String requestId, String subtype, Map<String, dynamic> data) async {
-    switch (subtype) {
-      case 'can_use_tool':
-        final skipNativePermissions = _nativePermissionsSkipped;
-        if (skipNativePermissions) {
-          // Defensive dead code: --dangerously-skip-permissions suppresses
-          // can_use_tool requests, and guard evaluation runs via PreToolUse hooks.
-          _log.warning('Unexpected can_use_tool request while permissions are skipped');
-          final toolUseId = data['tool_use_id'] as String?;
-          writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: false, toolUseId: toolUseId));
-          return;
-        }
+  void _writeControlLine(Map<String, dynamic> message) => writeJsonLine(message);
 
-        final allow = toolPolicy == ToolApprovalPolicy.allowAll;
-        final toolUseId = data['tool_use_id'] as String?;
-        writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: allow, toolUseId: toolUseId));
-        return;
+  void _emitControlEvent(BridgeEvent event) => emitEvent(event);
 
-      case 'hook_callback':
-        await _handleHookCallback(requestId, data);
-        return;
+  @override
+  bool canResolveToolApproval({required String turnId, required String requestId}) {
+    final pending = _pendingOperatorApprovals[requestId];
+    return pending?.turnId == turnId && activeTurnContext?.turnId == turnId;
+  }
 
-      case 'mcp_message':
-        await _handleMcpMessage(requestId, data);
-        return;
-
-      default:
-        writeJsonLine(_adapter.buildGenericResponse(requestId));
-        return;
+  @override
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved}) async {
+    final pending = _pendingOperatorApprovals[requestId];
+    if (pending == null || pending.turnId != turnId || activeTurnContext?.turnId != turnId) {
+      throw StateError('Approval request is not owned by the active Claude turn');
     }
+    _pendingOperatorApprovals.remove(requestId);
+    pending.timer.cancel();
+    writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: approved, toolUseId: pending.toolUseId));
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: approved));
+  }
+
+  void _declineOperatorApproval(String requestId, {required bool expired}) {
+    final pending = _pendingOperatorApprovals.remove(requestId);
+    if (pending == null) return;
+    try {
+      writeJsonLine(_adapter.buildApprovalResponse(requestId, allow: false, toolUseId: pending.toolUseId));
+    } catch (error, stackTrace) {
+      _log.warning('Failed to decline expired Claude approval $requestId', error, stackTrace);
+    }
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: false, expired: expired));
   }
 
   void _writeSdkMcpLine(Map<String, dynamic> message) => writeJsonLine(message);
@@ -1338,61 +1420,6 @@ class ClaudeCodeHarness extends BaseHarness {
       _log.warning('Claude PreCompact observer failed for $requestId: $error', error, stackTrace);
     }
     _tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true));
-  }
-
-  Future<void> _handlePreToolUseCallback(String requestId, Map<String, dynamic> hookInput) async {
-    final rawToolName = hookInput['tool_name'] as String;
-    emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
-    final toolInput = hookInput['tool_input'] as Map<String, dynamic>;
-    final canonicalTool = _adapter.mapToolName(rawToolName);
-    final guardToolName = canonicalTool?.stableName ?? 'claude:$rawToolName';
-
-    if (canonicalTool == null) {
-      _log.warning('Falling back to unmapped Claude tool name: $rawToolName -> $guardToolName');
-    }
-
-    try {
-      final chain = guardChain;
-      if (chain != null) {
-        final verdict = await chain.evaluateBeforeToolCall(
-          guardToolName,
-          toolInput,
-          sessionId: _activeTurnSessionId,
-          agentId: _activeAgentId,
-          rawProviderToolName: rawToolName,
-        );
-        if (verdict.isBlock) {
-          if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false))) {
-            emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-          }
-          return;
-        }
-      }
-    } catch (error, stackTrace) {
-      _log.severe('Claude hook guard evaluation failed for $requestId: $error', error, stackTrace);
-      if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false))) {
-        emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-      }
-      return;
-    }
-
-    final envMap = toolInput['env'] as Map<String, dynamic>?;
-    if (envMap != null) {
-      final strippedNames = _bashEnvCredentialNames.where(envMap.containsKey).toList();
-      if (strippedNames.isNotEmpty) {
-        final sanitizedEnv = Map<String, dynamic>.from(envMap)..removeWhere((name, _) => strippedNames.contains(name));
-        final updatedInput = Map<String, dynamic>.from(toolInput)..['env'] = sanitizedEnv;
-        _log.info('Stripped ${strippedNames.join(', ')} from bash env');
-        if (_tryWriteHookResponse(requestId, _adapter.buildCredentialStripResponse(requestId, updatedInput))) {
-          emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-        }
-        return;
-      }
-    }
-
-    if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: true))) {
-      emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
-    }
   }
 
   bool _tryWriteHookResponse(String requestId, Map<String, dynamic> response) {

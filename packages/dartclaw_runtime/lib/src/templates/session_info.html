@@ -1,8 +1,8 @@
-<div tl:fragment="sessionInfo" class="shell">
+<div tl:fragment="sessionInfo" class="shell" hx-history-elt>
   <div tl:utext="${sidebar}">sidebar</div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in" data-controller="dc-tasks">
+  <main id="main-content" tabindex="-1" class="content-area print-in" data-controller="dc-tasks">
     <div class="content-inner">
 
       <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
@@ -30,6 +30,19 @@
 
       <div>
         <h2 class="section-title">Session Details</h2>
+        <div tl:if="${hasEffectiveContext}" id="session-effective-context" class="well">
+          <div class="meta-row"><span class="meta-label">Workspace owner</span><span class="meta-value meta-value-mono" tl:text="${effectiveContext.workspace}">web</span></div>
+          <div class="meta-row"><span class="meta-label">Context</span><span tl:if="${effectiveContext.projectId}" class="identicon identicon--5" tl:attr="data-identicon-id=${effectiveContext.projectId}" aria-hidden="true"></span><span class="meta-value" tl:text="${effectiveContext.project}">General chat</span></div>
+          <div class="meta-row"><span class="meta-label">Execution directory</span><span class="meta-value meta-value-mono" tl:text="${effectiveContext.directory}">directory</span></div>
+          <div class="meta-row"><span class="meta-label">Current context</span><span class="meta-value" tl:text="${effectiveContext.current}">current</span></div>
+          <div class="meta-row"><span class="meta-label">Next turn</span><span class="meta-value" tl:text="${effectiveContext.next}">next</span></div>
+          <div class="meta-row"><span class="meta-label">Provider</span><span class="meta-value" tl:text="${effectiveContext.provider}">provider</span></div>
+          <div class="meta-row"><span class="meta-label">Model</span><span class="meta-value" tl:text="${effectiveContext.model}">unavailable</span></div>
+          <div class="meta-row"><span class="meta-label">Effort</span><span class="meta-value" tl:text="${effectiveContext.effort}">unavailable</span></div>
+          <div class="meta-row"><span class="meta-label">Context measurement</span><span class="meta-value" tl:text="${effectiveContext.telemetry}">unavailable</span></div>
+          <div class="meta-row"><span class="meta-label">Behavior files</span><span class="meta-value meta-value-mono" tl:text="${effectiveContext.behavior}">none recorded</span></div>
+          <div tl:if="${effectiveContext.memory}" id="session-memory-provenance" class="status-badge" tl:text="${effectiveContext.memory}">Memory contributed</div>
+        </div>
         <div tl:if="${hasTurnStatus}" class="turn-status-panel"
              tl:attr="hidden=${turnStatus.hidden},data-turn-status-session-id=${turnStatus.sessionId},data-turn-status-turn-id=${turnStatus.turnId}">
           <div class="turn-status-row">

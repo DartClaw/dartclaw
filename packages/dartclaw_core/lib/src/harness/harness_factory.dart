@@ -44,6 +44,11 @@ class HarnessFactoryConfig {
   final List<String>? declaredCanonicalTools;
   final List<String> declaredWritableRoots;
 
+  /// Pinned configured-agent workspace used for provider-native skill discovery.
+  ///
+  /// This stays separate from [cwd], which may be an authorized project.
+  final String? skillWorkspaceDir;
+
   /// Environment variables visible to the provider subprocess.
   final Map<String, String> environment;
 
@@ -80,6 +85,12 @@ class HarnessFactoryConfig {
   /// Context-aware memory observation callback for direct SDK MCP calls.
   final ContextualMemoryToolHandler? onContextualMemoryObserve;
 
+  /// Context-aware memory search callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemorySearch;
+
+  /// Context-aware memory read callback for direct SDK MCP calls.
+  final ContextualMemoryToolHandler? onContextualMemoryRead;
+
   /// Memory search callback used when the internal MCP server is not configured.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
 
@@ -110,6 +121,7 @@ class HarnessFactoryConfig {
     this.providerOptions = const <String, dynamic>{},
     this.declaredCanonicalTools,
     this.declaredWritableRoots = const <String>[],
+    this.skillWorkspaceDir,
     this.environment = const <String, String>{},
     this.containerEnvironment = const <String, String>{},
     this.processFactory,
@@ -122,6 +134,8 @@ class HarnessFactoryConfig {
     this.onMemoryObserve,
     this.onContextualMemoryApply,
     this.onContextualMemoryObserve,
+    this.onContextualMemorySearch,
+    this.onContextualMemoryRead,
     this.onMemorySearch,
     this.onMemoryRead,
     this.onPermissionDenied,
@@ -202,6 +216,12 @@ class HarnessFactory {
     return result;
   }
 
+  /// Returns adapter-declared context transport support without starting providers.
+  Map<String, EffectiveContextCapabilities> probeEffectiveContextCapabilities() => {
+    for (final entry in _factories.entries)
+      entry.key: EffectiveContextCapabilities.of(entry.value(const HarnessFactoryConfig(cwd: '/'))),
+  };
+
   /// Returns the skill-activation line for [providerId] via polymorphic
   /// dispatch — creates an unstarted lightweight harness instance and
   /// asks it. Falls back to the [AgentHarness] base-class default when the
@@ -227,6 +247,22 @@ class HarnessFactory {
     return created.skillActivationLine(skill);
   }
 
+  /// Returns verified provider-native skill capability for [providerId].
+  bool supportsNativeSkillInvocationFor(String? providerId) {
+    if (providerId == null) return false;
+    final probe = _activationProbes[providerId];
+    if (probe != null) {
+      return probe is NativeSkillCapabilityProvider &&
+          (probe as NativeSkillCapabilityProvider).supportsNativeSkillInvocation;
+    }
+    final factory = _factories[providerId];
+    if (factory == null) return false;
+    final created = factory(const HarnessFactoryConfig(cwd: '/'));
+    _activationProbes[providerId] = created;
+    return created is NativeSkillCapabilityProvider &&
+        (created as NativeSkillCapabilityProvider).supportsNativeSkillInvocation;
+  }
+
   /// Warns when the factory has no registered providers — indicates that
   /// a caller constructed us outside the normal wiring path, which
   /// silently breaks provider lookup and skill-activation dispatch.
@@ -250,6 +286,8 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     onMemoryObserve: config.onMemoryObserve,
     onContextualMemoryApply: config.onContextualMemoryApply,
     onContextualMemoryObserve: config.onContextualMemoryObserve,
+    onContextualMemorySearch: config.onContextualMemorySearch,
+    onContextualMemoryRead: config.onContextualMemoryRead,
     onMemorySearch: config.onMemorySearch,
     onMemoryRead: config.onMemoryRead,
     onPermissionDenied: config.onPermissionDenied,
@@ -265,6 +303,7 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     platformCapabilities: config.platformCapabilities,
     declaredCanonicalTools: config.declaredCanonicalTools,
     declaredWritableRoots: config.declaredWritableRoots,
+    skillWorkspaceDir: config.skillWorkspaceDir,
   );
 }
 
@@ -283,5 +322,7 @@ AgentHarness _createCodexHarness(HarnessFactoryConfig config) {
     platformCapabilities: config.platformCapabilities,
     containerManager: config.containerManager,
     prepareSubscriptionHome: config.prepareSubscriptionHome,
+    skillWorkspaceDir: config.skillWorkspaceDir,
+    declaredWritableRoots: config.declaredWritableRoots,
   );
 }

@@ -96,6 +96,12 @@ inbox/my-notes.md
 
 Each turn gets its own bounded cron session (visible in the web UI sidebar under the job id), so the merge turn never reads the extraction turn's context. Both run with no outbound tools – the agent synthesizes and merges from the documents in its prompt alone.
 
+The inbox is an owner-configured publication pipeline. Only the accepted synthesized observation, wiki page, and KG
+facts cross into durable knowledge after validation and merge settlement. The raw input remains an inbox/processed or
+quarantine artifact; it is not a `context_research` source and is never exposed to named agents or MCP clients through
+that tool. Published KG reads and citations report a fact as published rather than revealing its private source field.
+Personal-memory findings remain in the owner's corpus, while the wiki and KG outputs join the shared published surface.
+
 ### Extraction output
 
 The extraction turn produces a structured JSON payload with three sections:

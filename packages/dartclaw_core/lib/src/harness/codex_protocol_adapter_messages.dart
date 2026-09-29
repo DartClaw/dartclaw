@@ -230,6 +230,7 @@ extension _CodexProtocolMessages on CodexProtocolAdapter {
   TurnComplete _extractTurnComplete(Map<String, dynamic> params) {
     final turn = mapValue(params['turn']);
     if (stringValue(turn?['status']) == 'failed' || turn?['error'] != null) {
+      _takeUncreditedThreadUsage();
       return const TurnComplete(stopReason: 'error');
     }
     // `turn/completed` carries no usage at codex-cli 0.146.0 — its params are

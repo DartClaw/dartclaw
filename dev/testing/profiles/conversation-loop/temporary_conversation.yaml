@@ -1,0 +1,32 @@
+port: 3333
+name: ORDINARY_PROCESS_CONTROL
+
+agent:
+  provider: codex
+  execution: container
+
+providers:
+  codex:
+    executable: codex
+    pool_size: 2
+    approval: never
+    sandbox: danger-full-access
+
+container:
+  enabled: true
+
+gateway:
+  auth_mode: none
+
+guards:
+  enabled: true
+
+scheduling:
+  heartbeat:
+    enabled: false
+
+search:
+  backend: hybrid
+  embedding:
+    provider: local
+    model: embeddinggemma-300M-Q8_0.gguf

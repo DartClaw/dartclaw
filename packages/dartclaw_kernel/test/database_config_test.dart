@@ -4,17 +4,30 @@ import 'package:test/test.dart';
 import 'support/load_config.dart';
 
 void main() {
-  test('database defaults to inert SQLite configuration', () {
-    final omitted = loadNoFile();
-    final explicit = loadYaml('database:\n  backend: sqlite\n');
-
-    expect(omitted.database, const DatabaseConfig.defaults());
-    expect(explicit.database, const DatabaseConfig.defaults());
+  test('database defaults to PostgreSQL settings without an engine selector', () {
+    expect(loadNoFile().database, const DatabaseConfig.defaults());
   });
 
+  test('legacy postgres selector is accepted with removal guidance', () {
+    final config = loadYaml('database:\n  backend: postgres\n');
+
+    expect(config.database, const DatabaseConfig.defaults());
+    expect(config.reloadBlockingWarnings, isEmpty);
+    expect(config.warnings.join('\n'), contains('remove database.backend'));
+  });
+
+  for (final backend in const ['sqlite', 'mysql']) {
+    test('$backend selector is refused because PostgreSQL is authoritative', () {
+      final config = loadYaml('database:\n  backend: $backend\n');
+
+      expect(config.reloadBlockingWarnings.join('\n'), contains('Invalid database.backend: "$backend"'));
+      expect(config.reloadBlockingWarnings.join('\n'), contains('PostgreSQL is the only supported database'));
+    });
+  }
+
   test('database text-search language is normalized and defaults to english', () {
-    final omitted = loadYaml('database:\n  backend: sqlite\n');
-    final configured = loadYaml('database:\n  backend: sqlite\n  fts_language: " Swedish "\n');
+    final omitted = loadYaml('database: {}\n');
+    final configured = loadYaml('database:\n  fts_language: " Swedish "\n');
 
     expect(omitted.database.ftsLanguage, 'english');
     expect(configured.database.ftsLanguage, 'swedish');
@@ -22,32 +35,25 @@ void main() {
   });
 
   test('blank database text-search language is refused by key', () {
-    final config = loadYaml('database:\n  backend: sqlite\n  fts_language: "  "\n');
+    final config = loadYaml('database:\n  fts_language: "  "\n');
 
     expect(config.database.ftsLanguage, 'english');
     expect(config.reloadBlockingWarnings.join('\n'), contains('database.fts_language'));
   });
 
-  test('postgres accepts one environment-substituted URL and the default pool size', () {
+  test('accepts one environment-substituted URL and the default pool size', () {
     final config = loadYaml(
-      'database:\n  backend: postgres\n  url: postgresql://\${PG_HOST}/db\n',
+      'database:\n  url: postgresql://\${PG_HOST}/db\n',
       env: const {'HOME': defaultTestHome, 'PG_HOST': 'database.internal'},
     );
 
-    expect(
-      config.database,
-      const DatabaseConfig(
-        backend: DatabaseBackendKind.postgres,
-        url: 'postgresql://database.internal/db',
-        urlEnvVars: ['PG_HOST'],
-      ),
-    );
+    expect(config.database, const DatabaseConfig(url: 'postgresql://database.internal/db', urlEnvVars: ['PG_HOST']));
     expect(config.reloadBlockingWarnings, isEmpty);
   });
 
-  test('postgres allows a password supplied entirely by environment substitution', () {
+  test('allows a password supplied entirely by environment substitution', () {
     final config = loadYaml(
-      'database:\n  backend: postgres\n  url: postgresql://runtime:\${DATABASE_PASSWORD}@database.internal/db\n',
+      'database:\n  url: postgresql://runtime:\${DATABASE_PASSWORD}@database.internal/db\n',
       env: const {'HOME': defaultTestHome, 'DATABASE_PASSWORD': 'EnvOnlyPasswordX9'},
     );
 
@@ -56,40 +62,36 @@ void main() {
     expect(config.reloadBlockingWarnings, isEmpty);
   });
 
-  test('postgres treats an unresolved URL template as the configured reference', () {
-    final config = loadYaml(
-      'database:\n  backend: postgres\n  url: \${DARTCLAW_DATABASE_URL}\n',
-      env: const {'HOME': defaultTestHome},
-    );
+  test('treats an unresolved URL template as the configured reference', () {
+    final config = loadYaml('database:\n  url: \${DARTCLAW_DATABASE_URL}\n', env: const {'HOME': defaultTestHome});
 
     expect(config.database.url, isEmpty);
     expect(config.database.urlEnvVars, ['DARTCLAW_DATABASE_URL']);
     expect(config.reloadBlockingWarnings, isEmpty);
   });
 
-  test('postgres accepts one named credential and an explicit pool size', () {
+  test('accepts one named credential and an explicit pool size', () {
     final config = loadYaml('''
 database:
-  backend: postgres
   credential: production-db
   pool_size: 7
 ''');
 
-    expect(
-      config.database,
-      const DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'production-db', poolSize: 7),
-    );
+    expect(config.database, const DatabaseConfig(credential: 'production-db', poolSize: 7));
+  });
+
+  test('omitting a connection reference remains loadable for pre-database commands', () {
+    final config = loadYaml('database: {}\n');
+
+    expect(config.database.url, isNull);
+    expect(config.database.credential, isNull);
+    expect(config.reloadBlockingWarnings, isEmpty);
   });
 
   for (final invalid in const {
-    'missing reference': (
-      yaml: 'database:\n  backend: postgres\n',
-      warningFragments: ['database.url', 'database.credential', 'exactly one'],
-    ),
     'both references': (
       yaml: '''
 database:
-  backend: postgres
   url: postgresql://database/db
   credential: production-db
 ''',
@@ -98,14 +100,13 @@ database:
     'non-positive pool size': (
       yaml: '''
 database:
-  backend: postgres
   url: postgresql://database/db
   pool_size: 0
 ''',
       warningFragments: ['database.pool_size'],
     ),
   }.entries) {
-    test('postgres reports ${invalid.key} as a blocking database warning', () {
+    test('reports ${invalid.key} as a blocking database warning', () {
       final config = loadYaml(invalid.value.yaml);
       final warnings = config.reloadBlockingWarnings.join('\n');
 
@@ -143,8 +144,8 @@ database:
       secret: 'LiteralQueryPasswordY8',
     ),
   ]) {
-    test('postgres rejects a literal ${invalid.shape} without reproducing it', () {
-      final config = loadYaml("database:\n  backend: postgres\n  url: '${invalid.url}'\n");
+    test('rejects a literal ${invalid.shape} without reproducing it', () {
+      final config = loadYaml("database:\n  url: '${invalid.url}'\n");
       final warnings = config.reloadBlockingWarnings.join('\n');
 
       expect(warnings, contains('database.url'));
@@ -154,25 +155,9 @@ database:
     });
   }
 
-  test('SQLite retains inactive PostgreSQL references without warning', () {
-    final config = loadYaml('''
-database:
-  backend: sqlite
-  url: postgresql://inactive:InactivePasswordZ7@database.internal/db?password=InactiveQueryPasswordW6
-  credential: inactive-credential
-''');
-
-    expect(
-      config.database.url,
-      'postgresql://inactive:InactivePasswordZ7@database.internal/db?password=InactiveQueryPasswordW6',
-    );
-    expect(config.database.credential, 'inactive-credential');
-    expect(config.reloadBlockingWarnings, isEmpty);
-  });
-
   test('unknown database keys use the standard unknown-field refusal', () {
     expect(
-      () => loadYaml('database:\n  backend: sqlite\n  surprise: true\n'),
+      () => loadYaml('database:\n  surprise: true\n'),
       throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('database.surprise'))),
     );
   });

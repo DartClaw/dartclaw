@@ -6,7 +6,7 @@ HTTP and SSE client for a running DartClaw server.
 anything from pub. Hold a base URI and a bearer token and you can drive a
 server's API without the DartClaw runtime, a config file, or a DartClaw data
 directory. That is the whole point of the package: consumers that talk to a
-server should not have to carry the harness, the guard chain, or SQLite storage
+server should not have to carry the harness, the guard chain, or PostgreSQL storage
 to do it.
 
 > **Status: Pre-1.0**. The wire contract is stable; the Dart surface may still

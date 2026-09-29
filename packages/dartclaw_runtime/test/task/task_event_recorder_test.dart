@@ -1,23 +1,21 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/task/task_event_recorder.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskEventService;
 import 'package:test/test.dart';
 
 void main() {
-  late SqliteBackend backend;
-  late TaskEventService eventService;
+  late InMemoryTaskEventService eventService;
   late EventBus bus;
   late TaskEventRecorder recorder;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
-    eventService = TaskEventService(backend);
+    eventService = InMemoryTaskEventService();
     bus = EventBus();
     recorder = TaskEventRecorder(eventService: eventService, eventBus: bus);
   });
 
   tearDown(() async {
-    await backend.close();
+    await eventService.close();
     if (!bus.isDisposed) await bus.dispose();
   });
 
@@ -205,7 +203,7 @@ void main() {
     expect(fired[0].taskId, 'task-e');
   });
 
-  test('with null EventBus, recording still inserts to SQLite (no exception)', () async {
+  test('with null EventBus, recording still inserts without publishing an event', () async {
     final noEventBusRecorder = TaskEventRecorder(eventService: eventService);
     await expectLater(noEventBusRecorder.recordError('task-9', message: 'no bus'), completes);
     expect(await eventService.listForTask('task-9'), hasLength(1));

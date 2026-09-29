@@ -38,9 +38,6 @@ stepDefaults:
   - match: "plan"
     provider: "@planner"
     model: "@planner"
-  - match: "revise*"
-    provider: "@reviewer"
-    model: "@reviewer"
   - match: "implement*"
     provider: "@executor"
     model: "@executor"
@@ -78,7 +75,7 @@ steps:
 
   - id: plan
     name: Plan Stories and Specs
-    skill: andthen:plan
+    skill: andthen:spec
     entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
     # `prd` is interpolated inline as the skill argument; only `plan` needs
     # auto-framing (reuse-vs-synthesize signal, not referenced in the prompt).
@@ -104,17 +101,6 @@ steps:
       story_results:
         format: json
     steps:
-      # The shared runtime review dir is pre-created; story-specific dirs are
-      # not knowable before foreach iteration.
-      - id: revise-story-spec
-        name: Revise Story Spec (low confidence)
-        skill: andthen:review
-        entryGate: "map.item.spec_source == synthesized && map.item.spec_confidence > 0 && map.item.spec_confidence < 7"
-        prompt: >-
-          --mode doc --fix --auto
-          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-          {{map.item.spec_path}}
-
       - id: implement
         name: Implement Story
         skill: andthen:exec-spec
@@ -169,13 +155,8 @@ steps:
         steps:
           - id: remediate-story
             name: Remediate Story Findings
-            skill: andthen:remediate-findings
-            prompt: >-
-              --auto {{context.review_report_path}}
-              Verification scope: run fast tests for the packages this story
-              changed only, deferring the repo-wide suite, integration/e2e/slow
-              tiers, and arch/fitness gates to the deterministic verify-all
-              gate after all stories.
+            skill: andthen:implement-fix
+            prompt: "--auto {{context.review_report_path}}"
             outputs:
               remediation_summary:
                 schema: narrative_text
@@ -266,15 +247,10 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
+        skill: andthen:implement-fix
         entryGate: "gating_findings_count > 0"
         inputs: [story_results]
-        prompt: >-
-          --auto {{context.review_report_path}}
-          Verification scope: run fast tests for the packages this remediation
-          changed only, deferring the repo-wide suite, integration/e2e/slow
-          tiers, and arch/fitness gates to the deterministic verify-all gate
-          right after this loop.
+        prompt: "--auto {{context.review_report_path}}"
         outputs:
           remediation_summary:
             schema: narrative_text

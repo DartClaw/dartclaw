@@ -40,7 +40,7 @@ class WorkflowRunDigestRow {
     'stepId': stepId,
     'status': status,
     if (reason != null) 'reason': reason,
-    if (tokens != null) 'tokens': tokens,
+    'tokens': tokens,
     if (duration != null) 'duration': duration,
   };
 }
@@ -53,17 +53,28 @@ class WorkflowRunDigestRow {
 class WorkflowRunDigest {
   final String runId;
   final WorkflowRunStatus status;
+  final int totalTokens;
+  final bool tokenUsageComplete;
   final List<WorkflowRunDigestRow> rows;
 
   /// Concrete next-action commands for this run id and settle state.
   final List<String> nextActions;
 
-  const new({required this.runId, required this.status, required this.rows, required this.nextActions});
+  const new({
+    required this.runId,
+    required this.status,
+    required this.totalTokens,
+    required this.tokenUsageComplete,
+    required this.rows,
+    required this.nextActions,
+  });
 
   Map<String, dynamic> toJson() => {
     'type': 'workflow_run_digest',
     'runId': runId,
     'status': status.name,
+    'totalTokens': totalTokens,
+    'tokenUsageComplete': tokenUsageComplete,
     'steps': rows.map((row) => row.toJson()).toList(),
     'nextActions': nextActions,
   };
@@ -131,7 +142,7 @@ WorkflowRunDigest buildWorkflowRunDigest({
     }
     // Scrubbed at the builder so both the human and JSON renderers emit clean
     // values – the persisted reason is agent-authored and untrusted.
-    final rawReason = contextData['step.${step.id}.outcome.reason'] as String?;
+    final rawReason = (contextData['step.${step.id}.outcome.reason'] ?? contextData['${step.id}.error']) as String?;
     final reason = rawReason == null ? null : scrubAgentReportedText(rawReason);
     final tokens = (contextData['${step.id}.tokenCount'] as num?)?.toInt();
     final duration = task?.startedAt != null ? humanizeSpan(task!.startedAt!, task.completedAt, false, false) : null;
@@ -150,6 +161,8 @@ WorkflowRunDigest buildWorkflowRunDigest({
   return WorkflowRunDigest(
     runId: run.id,
     status: run.status,
+    totalTokens: run.totalTokens,
+    tokenUsageComplete: run.tokenUsageComplete,
     rows: rows,
     nextActions: _nextActions(commandPrefix, run.id, run.status),
   );
@@ -183,6 +196,9 @@ List<String> renderWorkflowRunDigestLines(WorkflowRunDigest digest, {bool color 
       StyledSpan(digest.status.name, _runStatusColor(digest.status)),
     ]),
   ];
+  if (!digest.tokenUsageComplete) {
+    lines.add(line([StyledSpan('  Tokens: ${digest.totalTokens} (incomplete lower bound)', ansiDim)]));
+  }
   for (final row in digest.rows) {
     final spans = <StyledSpan>[
       StyledSpan('  ${row.stepIndex + 1}.', ansiBrightWhite),
@@ -195,7 +211,11 @@ List<String> renderWorkflowRunDigestLines(WorkflowRunDigest digest, {bool color 
       spans.add(const StyledSpan(' – ', ansiDim));
       spans.add(StyledSpan(row.reason!, ansiDim));
     }
-    final metrics = <String>[if (row.tokens != null) '${row.tokens} tokens', if (row.duration != null) row.duration!];
+    final metrics = <String>[
+      if (row.status != 'not started' && row.status != 'running' && row.status != 'pending')
+        row.tokens == null ? 'tokens unavailable' : '${row.tokens} tokens',
+      if (row.duration != null) row.duration!,
+    ];
     if (metrics.isNotEmpty) spans.add(StyledSpan(' (${metrics.join(', ')})', ansiDim));
     lines.add(line(spans));
   }

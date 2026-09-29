@@ -7,11 +7,10 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/workflow_tools.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard, openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard, InMemoryTaskRepository;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowStep, WorkflowVariable;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'package:dartclaw_runtime/src/task/workflow_start_precondition_exception.dart';
@@ -61,27 +60,15 @@ final _nightlyReview = WorkflowDefinition(
 
 void main() {
   late Directory tempDir;
-  late SqliteBackend taskBackend;
-  late Database workflowDb;
-  late SqliteBackend workflowBackend;
   late TaskService tasks;
   late FakeWorkflowService workflows;
   late RecordingGuardAuditLogger audit;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_workflow_tools_');
-    taskBackend = await openPreparedTaskBackend();
-    workflowDb = sqlite3.openInMemory();
-    workflowBackend = SqliteBackend(workflowDb);
-    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     final eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
-    workflows = FakeWorkflowService(
-      backend: workflowBackend,
-      taskService: tasks,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
-    );
+    tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
+    workflows = FakeWorkflowService(taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     // The required-variable rule lives in WorkflowService.start, so the fake has
     // to keep it for the tool's refusal path to exist at all.
     workflows.validateRequiredVars = true;
@@ -98,8 +85,6 @@ void main() {
   tearDown(() async {
     await workflows.dispose();
     await tasks.dispose();
-    await taskBackend.close();
-    workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 

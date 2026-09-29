@@ -158,4 +158,22 @@ const preview = {
 controller.applyMemoryViewMode(preview);
 assert(replacements.map((node) => node.tagName).join(',') === 'H3,H6', 'rendered headings were not demoted: ' + replacements.map((node) => node.tagName));
 assert(preview.rendered === '<h1>Title</h1><h4>Nested</h4>', 'sanitized Markdown was not rendered');
+
+const dialog = {
+  open: false,
+  addEventListener(name, handler) { if (name === 'close') this.onclose = handler; },
+  showModal() { this.open = true; },
+  close() { this.open = false; this.onclose?.(); },
+};
+controller.element.querySelector = (selector) => selector === '#memory-edit-dialog' || selector === '#memory-remove-dialog' ? dialog : null;
+const trigger = { focused: false, focus() { this.focused = true; } };
+controller.openEditDialog({ currentTarget: trigger });
+assert(dialog.open, 'edit dialog did not open');
+controller.closeDialog({ currentTarget: { closest: () => dialog } });
+assert(!dialog.open && trigger.focused, 'cancel did not close and restore focus');
+trigger.focused = false;
+controller.openRemoveDialog({ currentTarget: trigger });
+assert(dialog.open, 'remove confirmation did not open');
+dialog.close();
+assert(trigger.focused, 'remove confirmation did not restore focus');
 ''';

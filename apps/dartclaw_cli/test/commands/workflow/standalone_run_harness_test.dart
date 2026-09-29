@@ -336,7 +336,7 @@ void main() {
 
     /// Fires the full progress vocabulary in a fixed order, then settles the
     /// run at an approval pause.
-    Future<void> driveFixture({required bool jsonOutput}) async {
+    Future<void> driveFixture({required bool jsonOutput, int? stepTokens = 7, int? iterationTokens = 5}) async {
       final driveFuture = driveStandaloneWorkflowRun(
         service: service,
         taskService: taskService,
@@ -385,7 +385,7 @@ void main() {
           success: false,
           outcome: 'needsInput',
           reason: 'waiting on operator',
-          tokenCount: 7,
+          tokenCount: stepTokens,
           timestamp: DateTime(2026, 7, 1, 12),
         ),
       );
@@ -400,7 +400,7 @@ void main() {
           taskId: 't2',
           success: true,
           outcome: 'succeeded',
-          tokenCount: 5,
+          tokenCount: iterationTokens,
           timestamp: DateTime(2026, 7, 1, 12),
         ),
       );
@@ -447,7 +447,7 @@ void main() {
             'tokenCount,durationMs',
         'workflow_approval_requested type,runId,stepId,message,timeoutSeconds',
         'workflow_status_changed type,runId,definitionName,oldStatus,newStatus,errorMessage',
-        'workflow_run_digest type,runId,status,steps,nextActions',
+        'workflow_run_digest type,runId,status,totalTokens,tokenUsageComplete,steps,nextActions',
       ]);
       expect(frames[1]['newStatus'], 'running');
       expect(frames[1]['stepId'], 'first');
@@ -458,6 +458,14 @@ void main() {
       expect(frames[4]['itemId'], 'S02');
       expect(frames[4]['displayScope'], 'S02');
       expect(frames[6]['definitionName'], 'parity');
+    });
+
+    test('JSON progress retains unavailable step usage and measured-zero iteration usage', () async {
+      await driveFixture(jsonOutput: true, stepTokens: null, iterationTokens: 0);
+
+      final frames = stdoutLines.map((line) => jsonDecode(line) as Map<String, dynamic>).toList();
+      expect(frames[3]['tokenCount'], isNull);
+      expect(frames[4]['tokenCount'], 0);
     });
 
     test('TI01 text mode renders task title and task provider on the running line', () async {

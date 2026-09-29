@@ -1,7 +1,7 @@
 # Windows
 
-DartClaw targets the core runtime on native Windows x64: the server, Web UI, worker execution, sessions, and FTS5-backed
-storage/search. The 0.21 support contract and validation path are described below. Unix-coupled security and sidecar
+DartClaw targets the core runtime on native Windows x64: the server, Web UI, worker execution, sessions, and
+PostgreSQL-backed storage/search. Unix-coupled security and sidecar
 features do not have full Windows parity; the matrix is the support contract.
 
 ## Install and Upgrade
@@ -12,8 +12,8 @@ Run the checksum-verifying PowerShell installer:
 irm https://raw.githubusercontent.com/DartClaw/dartclaw/main/install.ps1 | iex
 ```
 
-It downloads `dartclaw-v<version>-windows-x64.zip` and installs its `VERSION`, `bin/dartclaw.exe`, and
-`lib/sqlite3.dll` under `%LOCALAPPDATA%\Programs\DartClaw` by default. It persists
+It downloads `dartclaw-v<version>-windows-x64.zip` and installs its `VERSION`, `bin/dartclaw.exe`, and any selected
+native embedding libraries under `%LOCALAPPDATA%\Programs\DartClaw` by default. It persists
 `%LOCALAPPDATA%\Programs\DartClaw\bin` on your user `PATH`. Open a new terminal before checking the installation:
 
 ```powershell
@@ -86,13 +86,14 @@ Trust only projects whose local Codex configuration you have reviewed.
 
 ## Capability Matrix
 
-Run `dartclaw doctor` for the Windows-specific `windows.reload_mode`, `windows.git_bash` and `windows.sqlite_dll` checks.
+Run `dartclaw doctor` for the Windows-specific `windows.reload_mode` and `windows.git_bash` checks plus PostgreSQL
+connection, role, version, schema and optional-vector readiness.
 
 | Capability | State | Windows behavior | Remediation |
 |---|---|---|---|
 | Core server, Web UI, and sessions | supported | Each tagged Windows archive passes the deterministic runtime smoke on native Windows x64 before publication | Keep the release artifact's `bin/` and `lib/` directories together |
 | Claude and Codex harness turns | supported | Both live provider transports passed the 0.21 native-Windows compatibility check; repeat after relevant provider integration or protocol changes | Install and authenticate the provider CLIs |
-| FTS5 storage/search | supported | Uses the release's bundled `lib/sqlite3.dll`; it does not depend on `winsqlite3.dll` | Keep `bin/` and `lib/` as sibling directories |
+| PostgreSQL storage and lexical search | supported | Uses a separately installed native or managed PostgreSQL 14+ service; no container engine or pgvector is needed for lexical mode | Follow [PostgreSQL](postgresql.md#windows-x64), provision a restricted runtime role, then run `dartclaw doctor --fix` |
 | Config reload | supported | Use file watching with `gateway.reload.mode: auto`; SIGUSR1 is POSIX-only | Enable `auto` and save the config file atomically |
 | Bash workflow steps | degraded | Run through Git Bash when `bash.exe` is found; otherwise the step fails with `bash steps require Git Bash on Windows`. Timeout cleanup does not claim descendant-process containment; unconfirmed cleanup blocks later Bash steps until restart | Install Git for Windows; use POSIX for commands requiring process-tree containment |
 | Container isolation | unavailable | Native Windows fails closed because the per-authority bridge pipes and owner-only permissions require POSIX facilities | Run DartClaw on a POSIX host or in WSL |
@@ -112,7 +113,7 @@ POSIX-only and points back to file-watch `auto` mode.
 
 ## Runtime Smoke Validation
 
-The release-readiness profile checks server startup, Web UI load, FTS5 `MATCH` using the bundled DLL, and file-watch
+The release-readiness profile checks server startup, Web UI load, PostgreSQL lexical search, and file-watch
 config reload. Claude and Codex turns are optional compatibility layers.
 
 From a native Windows x64 checkout, run it against a release artifact:
@@ -127,5 +128,5 @@ Read `.agent_temp/windows-runtime-smoke.md`. Artifact mode is release-ready only
 Omit `-SkipProviders` to exercise authenticated Claude and Codex turns as well; an attempted provider failure fails that
 run. The report is local test output, not release metadata.
 
-Source-mode smoke is useful for diagnosis, but it does not replace native x64 artifact, bundled-SQLite, installer, or
+Source-mode smoke is useful for diagnosis, but it does not replace native x64 artifact, PostgreSQL service, installer, or
 process-lifecycle qualification.

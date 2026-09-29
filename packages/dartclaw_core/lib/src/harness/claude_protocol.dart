@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 
+import 'agent_harness.dart' show ClaudeModelUsage, ClaudeUsageSnapshot, ModelCatalogue, ModelCatalogueEntry;
+
 final _log = Logger('ClaudeProtocol');
 
 /// Env vars to clear to prevent claude nesting detection.
@@ -22,10 +24,9 @@ const claudeOauthTokenEnvVar = 'CLAUDE_CODE_OAUTH_TOKEN';
 /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` makes the claude CLI scrub the env it
 /// hands to child processes, so an allowlisted child cannot read the host
 /// `ANTHROPIC_API_KEY`. The CLI also treats it as a broader hardening signal:
-/// it forces `--permission-mode default`, printing a benign stderr notice
-/// ("Permission mode forced to default"). That is compatible with every host
-/// spawn path because the harness fields permission requests over the control
-/// protocol. Full-access (`approval: never`) harness spawns opt out with an
+/// it forces native `default`, printing a benign stderr notice. Host `dontAsk`
+/// pairs this with explicit `--permission-prompts none` so the requested
+/// no-prompt behavior survives. Full-access (`approval: never`) spawns opt out with an
 /// explicit `=0`, because the forced default mode would neutralize their
 /// bypass posture.
 const claudeHardeningEnvVars = <String, String>{
@@ -103,7 +104,8 @@ final class ToolUseBlock extends ClaudeMessage {
   String toString() => 'ToolUseBlock(name: $name, id: $id)';
 }
 
-/// Tool result block from an `assistant` message.
+/// Tool result block. The CLI reports these on a `user` message, not on the
+/// `assistant` message that requested the tool.
 final class ToolResultBlock extends ClaudeMessage {
   final String toolId;
   final String output;
@@ -113,40 +115,6 @@ final class ToolResultBlock extends ClaudeMessage {
 
   @override
   String toString() => 'ToolResultBlock(toolId: $toolId, isError: $isError)';
-}
-
-/// Token usage one `assistant` frame reports for its API message.
-///
-/// The CLI writes one frame per content block, and under
-/// `--include-partial-messages` a frame's `usage` is not final until the
-/// block that closes the message – so a consumer credits the *last* frame it
-/// saw per [messageId], never a sum over frames. [parentToolUseId] is set on
-/// frames produced inside a subagent (the `Agent` tool_use that spawned it);
-/// the turn's `result` usage covers the main conversation only.
-final class AssistantUsage extends ClaudeMessage {
-  final String messageId;
-  final String? parentToolUseId;
-  final int inputTokens;
-  final int outputTokens;
-  final int cacheReadInputTokens;
-  final int cacheCreationInputTokens;
-
-  new({
-    required this.messageId,
-    required this.parentToolUseId,
-    required this.inputTokens,
-    required this.outputTokens,
-    required this.cacheReadInputTokens,
-    required this.cacheCreationInputTokens,
-  });
-
-  bool get isSubagent => parentToolUseId != null;
-
-  @override
-  String toString() =>
-      'AssistantUsage(messageId: $messageId, parentToolUseId: $parentToolUseId, inputTokens: $inputTokens, '
-      'outputTokens: $outputTokens, cacheReadInputTokens: $cacheReadInputTokens, '
-      'cacheCreationInputTokens: $cacheCreationInputTokens)';
 }
 
 /// Control request from the claude binary (e.g. `can_use_tool`, `hook_callback`).
@@ -217,6 +185,7 @@ final class TerminalResult extends ClaudeMessage {
   final int? outputTokens;
   final int? cacheReadInputTokens;
   final int? cacheCreationInputTokens;
+  final ClaudeUsageSnapshot? usageSnapshot;
 
   new({
     this.stopReason,
@@ -229,6 +198,7 @@ final class TerminalResult extends ClaudeMessage {
     this.outputTokens,
     this.cacheReadInputTokens,
     this.cacheCreationInputTokens,
+    this.usageSnapshot,
   });
   @override
   String toString() =>
@@ -242,34 +212,31 @@ final class TerminalResult extends ClaudeMessage {
 // Parsing
 // ---------------------------------------------------------------------------
 
-/// Parse a single JSONL line from the claude binary into the [ClaudeMessage]s
-/// it carries.
+/// Parse a single JSONL line from the claude binary into a [ClaudeMessage].
 ///
-/// Empty for malformed JSON, unknown types, or irrelevant stream events
-/// (message lifecycle, input_json_delta, etc.). An `assistant` frame yields
-/// its [AssistantUsage] and, when the frame holds one, the tool block.
-List<ClaudeMessage> parseJsonlLine(String line) {
-  if (line.isEmpty) return const [];
+/// Returns `null` for malformed JSON, unknown types, or irrelevant stream
+/// events (message lifecycle, input_json_delta, etc.).
+ClaudeMessage? parseJsonlLine(String line) {
+  if (line.isEmpty) return null;
 
   Map<String, dynamic> json;
   try {
     json = jsonDecode(line) as Map<String, dynamic>;
   } catch (e) {
     _log.warning('Failed to parse JSONL: $e');
-    return const [];
+    return null;
   }
 
   final type = json['type'] as String?;
 
-  if (type == 'assistant') return _parseAssistant(json);
-  final message = switch (type) {
+  return switch (type) {
     'system' => _parseSystem(json),
     'stream_event' => _parseStreamEvent(json),
+    'assistant' || 'user' => _parseToolBlocks(json),
     'control_request' => _parseControlRequest(json),
     'result' => _parseResult(json),
     _ => null,
   };
-  return message == null ? const [] : [message];
 }
 
 // ---------------------------------------------------------------------------
@@ -326,63 +293,59 @@ ClaudeMessage? _parseStreamEvent(Map<String, dynamic> json) {
   return StreamTextDelta(text);
 }
 
-/// Parse `assistant` frames for their usage and for tool_use / tool_result
-/// blocks. Text is intentionally ignored here — it comes from stream_event to
-/// avoid double-counting.
-List<ClaudeMessage> _parseAssistant(Map<String, dynamic> json) {
+/// Parse `assistant` and `user` messages for tool_use and tool_result blocks.
+///
+/// Both types are scanned by one reader because the CLI splits the pair across
+/// them: the request rides the `assistant` message, the result comes back on a
+/// synthetic `user` message. Reading only `assistant` leaves every tool stuck
+/// in its running state for the whole conversation.
+///
+/// Text is intentionally ignored here — it comes from stream_event to avoid
+/// double-counting. Returns the first tool block found; multiple blocks per
+/// message are possible but rare.
+ClaudeMessage? _parseToolBlocks(Map<String, dynamic> json) {
   final message = json['message'] as Map<String, dynamic>?;
-  if (message == null) return const [];
-
-  final messages = <ClaudeMessage>[];
-  final messageId = message['id'];
-  final usage = message['usage'];
-  if (messageId is String && usage is Map<String, dynamic>) {
-    messages.add(
-      AssistantUsage(
-        messageId: messageId,
-        parentToolUseId: json['parent_tool_use_id'] as String?,
-        inputTokens: usage['input_tokens'] as int? ?? 0,
-        outputTokens: usage['output_tokens'] as int? ?? 0,
-        cacheReadInputTokens: usage['cache_read_input_tokens'] as int? ?? 0,
-        cacheCreationInputTokens: usage['cache_creation_input_tokens'] as int? ?? 0,
-      ),
-    );
-  }
+  if (message == null) return null;
 
   final content = message['content'];
-  if (content is! List) return messages;
+  if (content is! List) return null;
 
-  // The first tool_use or tool_result block found. Multiple blocks per frame
-  // are possible but rare.
   for (final block in content) {
     if (block is! Map<String, dynamic>) continue;
     final blockType = block['type'] as String?;
 
     if (blockType == 'tool_use') {
-      messages.add(
-        ToolUseBlock(
-          name: block['name'] as String? ?? 'unknown',
-          id: block['id'] as String? ?? '',
-          input: block['input'] as Map<String, dynamic>? ?? {},
-        ),
+      return ToolUseBlock(
+        name: block['name'] as String? ?? 'unknown',
+        id: block['id'] as String? ?? '',
+        input: block['input'] as Map<String, dynamic>? ?? {},
       );
-      break;
     }
 
     if (blockType == 'tool_result') {
-      messages.add(
-        ToolResultBlock(
-          toolId: block['tool_use_id'] as String? ?? '',
-          output: block['content'] as String? ?? '',
-          isError: block['is_error'] as bool? ?? false,
-        ),
+      return ToolResultBlock(
+        toolId: block['tool_use_id'] as String? ?? '',
+        output: _toolResultText(block['content']),
+        isError: block['is_error'] as bool? ?? false,
       );
-      break;
     }
   }
 
-  return messages;
+  return null;
 }
+
+/// A tool result's `content` is a bare string for some tools and a content-block
+/// list for others; both shapes reduce to the text the transcript shows.
+String _toolResultText(Object? content) => switch (content) {
+  String text => text,
+  List<dynamic> blocks =>
+    blocks
+        .whereType<Map<String, dynamic>>()
+        .map((block) => block['text'] as String? ?? '')
+        .where((text) => text.isNotEmpty)
+        .join('\n'),
+  _ => '',
+};
 
 ClaudeMessage _parseControlRequest(Map<String, dynamic> json) {
   final requestId = json['request_id'] as String? ?? '';
@@ -405,11 +368,109 @@ ClaudeMessage _parseResult(Map<String, dynamic> json) {
         ? json['structured_output'] as Map<String, dynamic>
         : null,
     finalText: !isError && resultText is String && resultText.isNotEmpty ? resultText : null,
-    costUsd: (json['total_cost_usd'] as num?)?.toDouble(),
+    costUsd: switch (json['total_cost_usd']) {
+      final num value when value.isFinite && value >= 0 => value.toDouble(),
+      _ => null,
+    },
     durationMs: json['duration_ms'] as int?,
-    inputTokens: usage?['input_tokens'] as int?,
-    outputTokens: usage?['output_tokens'] as int?,
-    cacheReadInputTokens: usage?['cache_read_input_tokens'] as int?,
-    cacheCreationInputTokens: usage?['cache_creation_input_tokens'] as int?,
+    inputTokens: _nonNegativeToken(usage?['input_tokens']),
+    outputTokens: _nonNegativeToken(usage?['output_tokens']),
+    cacheReadInputTokens: _nonNegativeToken(usage?['cache_read_input_tokens']),
+    cacheCreationInputTokens: _nonNegativeToken(usage?['cache_creation_input_tokens']),
+    usageSnapshot: _parseUsageSnapshot(json),
   );
+}
+
+int? _nonNegativeToken(Object? value) => value is int && value >= 0 ? value : null;
+
+ClaudeUsageSnapshot? _parseUsageSnapshot(Map<String, dynamic> json) {
+  final id = json['session_id'];
+  final rawModels = json['modelUsage'];
+  if (id is! String || id.isEmpty || rawModels is! Map || rawModels.isEmpty) return null;
+  final models = <String, ClaudeModelUsage>{};
+  for (final entry in rawModels.entries) {
+    if (entry.key is! String || (entry.key as String).isEmpty || entry.value is! Map) return null;
+    final model = entry.value as Map;
+    final input = model['inputTokens'];
+    final output = model['outputTokens'];
+    final cacheRead = model['cacheReadInputTokens'];
+    final cacheWrite = model['cacheCreationInputTokens'];
+    if (input is! int ||
+        input < 0 ||
+        output is! int ||
+        output < 0 ||
+        cacheRead is! int ||
+        cacheRead < 0 ||
+        cacheWrite is! int ||
+        cacheWrite < 0) {
+      return null;
+    }
+    models[entry.key as String] = ClaudeModelUsage(
+      input: input,
+      output: output,
+      cacheRead: cacheRead,
+      cacheWrite: cacheWrite,
+    );
+  }
+  final rawCost = json['total_cost_usd'];
+  final cost = rawCost is num && rawCost.isFinite && rawCost >= 0 ? rawCost.toDouble() : null;
+  return ClaudeUsageSnapshot(nativeSessionId: id, models: models, totalCostUsd: cost);
+}
+
+// ---------------------------------------------------------------------------
+// Model catalogue
+// ---------------------------------------------------------------------------
+
+/// Builds the account's model catalogue from the `initialize` and
+/// `get_settings` control responses, each passed as the whole stdout line.
+///
+/// Both surfaces are undocumented CLI output, so a missing or mistyped field
+/// this reads throws [FormatException] instead of yielding a partial list. The
+/// `default` row is the account default rather than a model, and a `disabled`
+/// row is not selectable; neither becomes an entry. The default resolves to the
+/// first entry whose `resolvedModel` or `value` equals `applied.model`.
+ModelCatalogue claudeModelCatalogue({
+  required Map<String, dynamic> initialize,
+  required Map<String, dynamic> settings,
+}) {
+  final rows = _controlPayload(initialize, 'initialize')['models'];
+  if (rows is! List) throw const FormatException('Claude initialize response carries no models list');
+  final applied = _controlPayload(settings, 'get_settings')['applied'];
+  final appliedModel = applied is Map<String, dynamic> ? applied['model'] : null;
+  if (appliedModel is! String) throw const FormatException('Claude get_settings response carries no applied.model');
+
+  final entries = <ModelCatalogueEntry>[];
+  String? defaultId;
+  for (final row in rows) {
+    if (row is! Map<String, dynamic>) throw const FormatException('Claude models row is not an object');
+    final value = row['value'];
+    final label = row['displayName'];
+    final resolved = row['resolvedModel'];
+    final efforts = row['supportedEffortLevels'];
+    final disabled = row['disabled'];
+    if (value is! String || label is! String || resolved is! String) {
+      throw FormatException('Claude models row lacks value, displayName or resolvedModel: $row');
+    }
+    if ((efforts != null && (efforts is! List || efforts.any((effort) => effort is! String))) ||
+        (disabled != null && disabled is! bool)) {
+      throw FormatException('Claude models row "$value" carries malformed supportedEffortLevels or disabled');
+    }
+    if (value == 'default' || disabled == true) continue;
+    entries.add(
+      ModelCatalogueEntry(
+        id: value,
+        label: label,
+        efforts: List<String>.unmodifiable(efforts == null ? const <String>[] : (efforts as List).cast<String>()),
+      ),
+    );
+    if (defaultId == null && (resolved == appliedModel || value == appliedModel)) defaultId = value;
+  }
+  return ModelCatalogue(entries: List.unmodifiable(entries), defaultId: defaultId);
+}
+
+Map<String, dynamic> _controlPayload(Map<String, dynamic> line, String request) {
+  final response = line['response'];
+  final payload = response is Map<String, dynamic> && response['subtype'] == 'success' ? response['response'] : null;
+  if (payload is! Map<String, dynamic>) throw FormatException('Claude $request control response is not a success');
+  return payload;
 }

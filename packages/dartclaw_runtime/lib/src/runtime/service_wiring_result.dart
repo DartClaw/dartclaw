@@ -45,7 +45,6 @@ DartclawRuntime _assembleRuntime(
     kvService: storage.kvService,
     resetService: harness?.resetService,
     selfImprovement: harness?.selfImprovement,
-    qmdManager: storage.qmdManager,
     channelManager: channel?.channelManager,
     authEnabled: harness?.authEnabled ?? false,
     containerIsolationActive: security?.containersEnabled ?? false,

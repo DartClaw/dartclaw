@@ -3,13 +3,102 @@
   <div class="sidebar-header">
     <span class="claw-mark" aria-hidden="true"></span>
     <span class="logo" tl:text="${appName}">DartClaw</span>
+    <button class="btn btn-icon-sm rail-collapse" type="button" aria-label="Collapse the rail"
+      data-rail-collapse data-icon="panel-left"></button>
     <button class="btn btn-icon btn-ghost sidebar-close" type="button" aria-label="Close sidebar"
       data-icon="x"></button>
   </div>
 
   <div class="sidebar-body">
+
+  <div class="rail-controls">
+    <button type="button" class="rail-search" data-command-open="global" aria-haspopup="dialog">
+      <span class="icon-lead"><span class="icon icon-search" aria-hidden="true"></span></span>
+      <span class="rail-search-label">Search</span>
+      <kbd>&#8984;K</kbd>
+    </button>
+    <button type="button" class="btn btn-icon rail-new" data-session-create="true"
+      data-icon="new-session" aria-label="New chat"></button>
+  </div>
+
+  <div class="rail-controls rail-scope-row">
+    <button type="button" class="rail-scope" data-inbox-scope data-project-controls hidden aria-haspopup="menu" aria-expanded="false">
+      <span class="icon-lead"><span class="icon icon-folder-kanban" aria-hidden="true"></span></span>
+      <span class="rail-scope-label" data-inbox-scope-label>All projects</span>
+      <span class="icon-slot"><span class="icon icon-chevron-down" aria-hidden="true"></span></span>
+    </button>
+    <button type="button" class="btn btn-icon-sm rail-view" data-inbox-view data-icon="sliders"
+      aria-haspopup="menu" aria-expanded="false" aria-label="View options"></button>
+
+    <div class="pop pop-scope card card-elevated" data-inbox-scope-menu role="menu" hidden></div>
+
+    <div class="pop pop-view card card-elevated" data-inbox-view-menu role="menu" hidden>
+      <div class="pop-head">Show</div>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-filter="all">
+        <span class="menu-tick"></span><span class="palette-item-label">All</span>
+        <span class="palette-item-context" data-inbox-count="all"></span>
+      </button>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-filter="unread">
+        <span class="menu-tick"></span><span class="palette-item-label">Unread</span>
+        <span class="palette-item-context" data-inbox-count="unread"></span>
+      </button>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-filter="waiting">
+        <span class="menu-tick"></span><span class="palette-item-label">Waiting on you</span>
+        <span class="palette-item-context" data-inbox-count="waiting"></span>
+      </button>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-filter="running">
+        <span class="menu-tick"></span><span class="palette-item-label">Running</span>
+        <span class="palette-item-context" data-inbox-count="running"></span>
+      </button>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-filter="failed">
+        <span class="menu-tick"></span><span class="palette-item-label">Failed</span>
+        <span class="palette-item-context" data-inbox-count="failed"></span>
+      </button>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-filter="drafts">
+        <span class="menu-tick"></span><span class="palette-item-label">Drafts on this device</span>
+        <span class="palette-item-context" data-inbox-count="drafts"></span>
+      </button>
+      <div class="pop-sep"></div>
+      <div class="pop-head">Group by</div>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-group="none">
+        <span class="menu-tick"></span><span class="palette-item-label">None</span>
+      </button>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-group="project" data-project-controls hidden>
+        <span class="menu-tick"></span><span class="palette-item-label">Project</span>
+      </button>
+      <button type="button" class="palette-item menu-item" role="menuitemradio" data-inbox-group="status">
+        <span class="menu-tick"></span><span class="palette-item-label">Status</span>
+      </button>
+      <div class="pop-sep"></div>
+      <!-- Select mode has no other entry point: the row checkbox it reveals is
+           hidden until the mode is on. This command hook must stay spelled
+           differently from the state attribute the controller writes on the
+           list, or every click inside the list matches it too. -->
+      <button type="button" class="palette-item menu-item" role="menuitem" data-inbox-select-toggle>
+        <span class="menu-tick"></span><span class="palette-item-label">Select conversations</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="rail-active-filter" data-inbox-active-filter hidden>
+    <span class="chip" data-inbox-active-chip>
+      <span class="chip-name" data-inbox-filter-label></span>
+      <button type="button" class="chip-remove" data-inbox-clear-filter aria-label="Remove filter"></button>
+    </span>
+    <button type="button" class="rail-clear" data-inbox-clear-filter>Clear</button>
+  </div>
+
+  <button type="button" class="rail-attention" data-next-attention hidden
+    title="Jump to the next conversation waiting on you">
+    <span class="status-dot status-dot--attention" aria-hidden="true"></span>
+    <span class="rail-attention-label"><span data-waiting-total>0</span> waiting on you</span>
+    <span class="icon-slot"><span class="icon icon-arrow-down" aria-hidden="true"></span></span>
+  </button>
+
+  <div role="status" aria-live="polite" aria-atomic="true" data-inbox-announcer></div>
+
   <div class="session-list">
-  <div tl:if="${mainSession}" class="sidebar-section-label">Workspace</div>
+  <div tl:if="${mainSession}" class="sidebar-section-label">Pinned</div>
   <div tl:if="${mainSession}" class="session-item session-item-main"
     tl:classappend="${mainActive} ? 'active' : ''">
     <a tl:attr="href=${mainHref},hx-get=${mainHref},data-icon=${'terminal'}" class="session-item-link"
@@ -90,28 +179,72 @@
     <hr class="sidebar-divider sidebar-workflows-divider">
   </div>
 
-  <section class="sidebar-chat-section" aria-labelledby="sidebar-chats-label">
-  <div class="sidebar-section-label" id="sidebar-chats-label">Chats</div>
-  <button type="button" class="btn-new-session" data-session-create="true">
-    <span class="btn-new-session-icon" data-icon="new-session" aria-hidden="true"></span>
-    <span class="btn-new-session-label">New Chat</span>
-  </button>
-  <hr class="sidebar-chat-divider">
-  <div tl:if="${noActiveEntries}" class="sidebar-placeholder text-muted t-caption">No chats yet</div>
+  <section class="sidebar-chat-section" aria-label="Chats">
+  <div tl:if="${hasRailSections}" class="sidebar-section-label">Chats</div>
 
-  <div tl:each="entry : ${activeEntries}" class="session-item"
-    tl:classappend="${entry.extraClass}">
-    <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="session-item-link"
-      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
-      <span class="identicon" aria-hidden="true" tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
-      <span class="session-item-title" tl:attr="data-session-title-id=${entry.id}" tl:text="${entry.title}">Session</span>
-      <span tl:if="${entry.showProvider}" class="provider-badge"
-        tl:classappend="'provider-badge-' + ${entry.provider}"
-        tl:text="${entry.providerLabel}">Claude</span></a>
-    <button class="session-action session-archive" data-session-archive="true"
-      tl:attr="data-session-id=${entry.id},data-icon=${'archive'}" aria-label="Archive chat"></button>
+  <div class="rail-rows" data-inbox-list>
+    <!-- Group headers are inserted here by the shell controller and ordered into
+         place with `order`; the DOM order stays the server's recency order. -->
+    <div tl:each="entry : ${activeEntries}" class="row" tl:classappend="${entry.extraClass}"
+      tl:attr="data-inbox-session-id=${entry.id}">
+      <!-- A label, so the whole 24px cell toggles the 14px box inside it. -->
+      <label class="row-check">
+        <input type="checkbox" class="form-checkbox" data-inbox-select
+          tl:attr="aria-label=${'Select ' + entry.title}"></label>
+      <a tl:attr="href=${entry.href},hx-get=${entry.href}" class="row-main"
+        hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+        hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
+        <span class="row-l1">
+          <span class="identicon row-ident" aria-hidden="true"
+            tl:attr="data-identicon-id=${entry.id},data-identicon-initials=${entry.title}"></span>
+          <span class="row-project" data-inbox-project></span>
+          <span class="row-model" data-inbox-model></span>
+          <span tl:if="${entry.showProvider}" class="provider-badge"
+            tl:classappend="'provider-badge-' + ${entry.provider}"
+            tl:text="${entry.providerLabel}">Claude</span>
+        </span>
+        <span class="row-l2">
+          <span class="row-title" tl:attr="data-session-title-id=${entry.id}"
+            tl:text="${entry.title}">Session</span>
+          <span class="row-state" data-inbox-state></span>
+        </span>
+        <span class="row-l3" data-inbox-reason hidden></span>
+      </a>
+      <span class="row-right">
+        <span class="row-time" data-inbox-time></span>
+        <span class="row-actions">
+          <button class="btn btn-icon-sm session-settle" type="button" data-inbox-settle
+            data-icon="check" aria-label="Settle chat"></button>
+          <button class="btn btn-icon-sm session-archive" type="button" data-session-archive="true"
+            tl:attr="data-session-id=${entry.id}" data-icon="archive" aria-label="Archive chat"></button>
+        </span>
+      </span>
+    </div>
+
+    <details class="rail-settled" data-settled-section hidden>
+      <summary>
+        <span class="rail-settled-label">Settled <span data-settled-total></span></span>
+        <span class="icon-slot"><span class="icon icon-chevron-down" aria-hidden="true"></span></span>
+      </summary>
+      <div class="rail-rows" data-settled-list></div>
+      <button type="button" class="btn btn-ghost btn-sm rail-settled-next" data-settled-next hidden>Next page</button>
+    </details>
   </div>
+
+  <!-- Rendered visible when the server knows there are no conversations at all,
+       so a zero-chat install reads as empty before any script runs; the
+       controller takes it over from there for the zero-matches-under-a-filter
+       case, which only it can know. One element either way. -->
+  <div class="sidebar-placeholder text-muted t-caption" data-inbox-empty
+    tl:attr="hidden=${anyActiveEntriesAttr}">
+    <span data-inbox-empty-label>No chats yet</span>
+    <button type="button" class="btn btn-ghost btn-sm" data-inbox-clear-filter hidden>Clear filter</button>
+  </div>
+
+  <section data-device-drafts hidden aria-labelledby="device-drafts-label">
+    <div class="sidebar-section-label" id="device-drafts-label">Drafts on this device</div>
+    <div class="rail-rows" data-device-draft-list></div>
+  </section>
 
   <div tl:if="${hasArchivedEntries}" class="sidebar-archive-section"
     tl:classappend="${archiveContainsActive} ? 'force-expanded' : ''">
@@ -138,6 +271,18 @@
     </div>
   </div>
   </section>
+  <section class="sidebar-project-section" aria-label="Projects" data-sidebar-projects hidden>
+    <div class="sidebar-section-label">Projects</div>
+    <div data-sidebar-project-list></div>
+  </section>
+  </div>
+
+  <div class="bulk-bar" data-inbox-bulk hidden>
+    <span class="bulk-count" data-inbox-selected-count>0 selected</span>
+    <span class="bulk-spacer"></span>
+    <button type="button" class="btn btn-icon-sm" data-inbox-clear-selection
+      data-icon="x" title="Clear selection" aria-label="Clear selection"></button>
+    <button type="button" class="btn btn-sm btn-primary bulk-settle" data-inbox-settle-selected>Settle</button>
   </div>
 
   <div tl:if="${hasNav}" class="sidebar-footer">
@@ -169,4 +314,12 @@
   </div>
   </div>
 </aside>
+<!-- Appended by sidebar.dart, not part of the `sidebar` fragment: the rail clips
+     (components.css § Sidebar), so a handle straddling its border and a scrim
+     covering the shell both have to be siblings of the rail. The handle is an
+     <hr> because `.shell > div { display: contents }` would otherwise strip its
+     box — see the comment in sidebar.dart. -->
+<hr class="sidebar-resize-handle" role="separator" aria-orientation="vertical" aria-label="Rail width"
+  aria-valuemin="240" aria-valuemax="420" aria-valuenow="280" tabindex="0"
+  title="Drag to resize · double-click to reset · arrow keys to nudge">
 <button class="sidebar-scrim" type="button" aria-label="Close sidebar" aria-hidden="true" tabindex="-1"></button>

@@ -64,6 +64,11 @@ class CodexEnvironment {
   /// Path of the DartClaw-owned dedicated store home, or `null` otherwise.
   final String? _dedicatedHome;
 
+  /// Whether [setup] writes the generated half into the dedicated home. A
+  /// probe lane writes nothing there: the home is shared by every host worker,
+  /// and Codex re-reads `config.toml` on each thread start.
+  final bool _writesDedicatedConfig;
+
   Directory? _tempDirectory;
   Directory? _containerDirectory;
 
@@ -79,6 +84,7 @@ class CodexEnvironment {
        _containerHomePath = null,
        _gatewayBaseUrl = null,
        _dedicatedHome = null,
+       _writesDedicatedConfig = false,
        _nativeWebSearch = true;
 
   /// The DartClaw-dedicated `CODEX_HOME` at [homePath], DartClaw-owned but not
@@ -86,12 +92,16 @@ class CodexEnvironment {
   /// lifecycle has no seeding step, no recreate and no cleanup. Seeding would
   /// both read the operator's own login and overwrite a rotated token with a
   /// stale copy.
+  ///
+  /// [writesConfig] `false` is the probe lane: the home is used as prepared,
+  /// and neither `config.toml` nor `AGENTS.md` is written.
   new dedicated({
     required this.developerInstructions,
     required String homePath,
     this.mcpServerUrl,
     this.mcpGatewayToken,
     this.agentsMdContent,
+    bool writesConfig = true,
     PlatformCapabilities? platformCapabilities,
   }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
        useSystemCodexHome = false,
@@ -99,6 +109,7 @@ class CodexEnvironment {
        _containerHomePath = null,
        _gatewayBaseUrl = null,
        _dedicatedHome = homePath,
+       _writesDedicatedConfig = writesConfig,
        _nativeWebSearch = true;
 
   /// A never-seeded home for one containerized execution.
@@ -123,9 +134,29 @@ class CodexEnvironment {
        _containerHomePath = containerHomePath,
        _gatewayBaseUrl = gatewayBaseUrl,
        _dedicatedHome = null,
+       _writesDedicatedConfig = false,
        _nativeWebSearch = nativeWebSearch;
 
-  bool get isContainerAuthClean => _containerHostHome != null;
+  /// An auth-clean home whose files were written through a container-owned tmpfs.
+  new containerAuthCleanPrepared({
+    required this.developerInstructions,
+    required String containerHomePath,
+    required String gatewayBaseUrl,
+    required bool nativeWebSearch,
+    this.mcpServerUrl,
+    this.agentsMdContent,
+    PlatformCapabilities? platformCapabilities,
+  }) : platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       useSystemCodexHome = false,
+       mcpGatewayToken = null,
+       _containerHostHome = null,
+       _containerHomePath = containerHomePath,
+       _gatewayBaseUrl = gatewayBaseUrl,
+       _dedicatedHome = null,
+       _writesDedicatedConfig = false,
+       _nativeWebSearch = nativeWebSearch;
+
+  bool get isContainerAuthClean => _containerHomePath != null;
 
   /// Resolves the configured system/isolated lifecycle from provider options.
   static bool useSystemHome(Map<String, dynamic> providerOptions) {
@@ -147,8 +178,9 @@ class CodexEnvironment {
   /// Whether this resolved home preserves rollout state beyond the worker lifetime.
   bool get supportsProviderSessionResume => isSetup && !isContainerAuthClean && (useSystemCodexHome || isDedicated);
 
-  bool get isSetup =>
-      isContainerAuthClean ? _containerDirectory != null : isDedicated || useSystemCodexHome || _tempDirectory != null;
+  bool get isSetup => isContainerAuthClean
+      ? _containerHostHome == null || _containerDirectory != null
+      : isDedicated || useSystemCodexHome || _tempDirectory != null;
 
   /// Prepares the Codex worker home for the configured lifecycle.
   ///
@@ -158,7 +190,7 @@ class CodexEnvironment {
     if (isContainerAuthClean) {
       return _setupContainerHome();
     }
-    if (isDedicated) return _setupDedicatedHome();
+    if (isDedicated) return _writesDedicatedConfig ? _setupDedicatedHome() : _dedicatedHome!;
     if (useSystemCodexHome) {
       final home = operatorCodexHome(platformCapabilities);
       if (home == null) {
@@ -247,6 +279,8 @@ class CodexEnvironment {
   /// No authentication seeding step exists on this path by construction – the
   /// home starts empty and receives nothing but `config.toml` and `AGENTS.md`.
   Future<String> _setupContainerHome() async {
+    final containerHomePath = _containerHomePath;
+    if (_containerHostHome == null && containerHomePath != null) return containerHomePath;
     final existing = _containerDirectory;
     if (existing != null) {
       return existing.path;
@@ -304,7 +338,7 @@ class CodexEnvironment {
   /// exports no bearer at all: the execution-scoped bridge is the authority.
   Map<String, String> environmentOverrides() {
     if (isContainerAuthClean) {
-      return _containerDirectory == null ? const {} : {'CODEX_HOME': _containerHomePath!};
+      return !isSetup ? const {} : {'CODEX_HOME': _containerHomePath!};
     }
 
     final mcpBearerEntry = (mcpGatewayToken != null && mcpGatewayToken!.trim().isNotEmpty)

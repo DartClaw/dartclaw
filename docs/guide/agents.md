@@ -1,6 +1,8 @@
 # Agents
 
 DartClaw has two broad execution models: lightweight logical-agent conversations and structured background tasks.
+Named agents are scoped execution identities of the one owner-controlled assistant, not separate users or separately
+administered personas.
 
 ## Logical Agent Conversations
 
@@ -95,7 +97,7 @@ Each entry under `agent.agents.<id>` supports:
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `description` | `"Agent: <id>"` | Human-readable description exposed in the `sessions_spawn` tool schema |
-| `prompt` | Search prompt for `search`; blank otherwise | Authoritative persona for the logical agent's turn. Blank means the worker's configured default — except with an `output_schema`, where a blank prompt makes the rendered output contract the whole persona |
+| `prompt` | Search prompt for `search`; blank otherwise | Authoritative persona for the logical agent's turn. An explicit prompt replaces workspace `SOUL.md`; a blank prompt inherits `SOUL.md` when the agent has a workspace. With an `output_schema`, the rendered output contract is appended to that persona |
 | `provider` | `agent.provider` | Harness provider for this agent's conversations; IDs are trimmed and lowercased |
 | `security_profile` | `restricted` for `search`; otherwise provider default or `workspace` | Worker isolation profile: `workspace` or `restricted` |
 | `tools` | `[]` | Optional closed allowlist; empty or absent means no sandbox allowlist |
@@ -112,6 +114,31 @@ Each entry under `agent.agents.<id>` supports:
 Prefer canonical names because they are portable across mapped providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `web_search`, `memory_apply`, `memory_observe`, `memory_search`, `memory_read`, `task_create`, `task_review`, `task_list`, `review_list`, `task_bind`, and `task_unbind`. Existing provider-native spellings such as `Bash`, `Read`, `WebFetch`, and `WebSearch` continue to work and are normalized at startup. Unmapped tools keep their exact provider-native spelling; for example Claude `Glob` evaluates under the `claude:Glob` canonical fallback. DartClaw's own MCP fetch, configured search, memory, and task tools map by exact server/tool identity to their semantic canonical. A deny for `mcp_call` also blocks these remapped own-MCP calls, while allowing `mcp_call` alone does not grant them.
 
 Each logical-agent conversation uses a worker matching its configured provider and security profile, never the caller's busy primary lane. An omitted provider inherits `agent.provider`; an omitted profile uses an ACP provider's declared `container_profile` when present, otherwise `workspace`. An ACP provider runs on the host only, so on a container-enabled deployment give the agent `execution: host` — a resolved container policy is refused before the turn starts rather than weakened. The built-in `search` agent explicitly requests `restricted`. If that profile is unavailable, the turn fails closed; select `workspace` explicitly only when host access is acceptable. Configure capacity with `providers.<id>.pool_size`. If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider/profile and capacity setting. User and assistant messages are persisted and replayed when a different worker continues the session. Successful logical-agent sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
+
+Every named agent has one host-managed home at `data_dir/agents/<id>/` and a workspace at
+`data_dir/agents/<id>/workspace`. Setup writes the exact identity marker `{"agentId":"<id>"}` plus a trailing newline
+before scaffolding behavior files. The id must be 1–64 lowercase letters, digits, hyphens, or underscores, start with a
+letter or digit, and cannot be `main`. `agent.agents.<id>.workspace` is retired: its presence is refused rather than
+treated as a path or sharing choice.
+
+That managed workspace is pinned to the agent id when a conversation is created. It supplies `SOUL.md`, `USER.md`,
+`TOOLS.md`, `AGENTS.md`, and provider-native skills even when a turn selects an authorized project as its working
+directory. The existing tool policy separately controls personal memory: `memory_search`, `memory_read`, or
+`context_research` makes the agent eligible for its own readable corpus; `memory_apply` or `memory_observe` grants
+writes and makes it eligible for journal and curation work. An empty `tools` list keeps its existing allow-all meaning.
+All personal memory and conversation projections use the `agent:<agent-id>` storage principal. Claude discovers
+`.claude/skills` through `--add-dir`; Codex receives `.agents/skills` through its app-server additional-roots protocol.
+
+For a workspace-profile container, `/workspace` mounts only the managed workspace and `/project` mounts only the
+admitted execution directory, when one was selected. The managed home containing `identity.json`, checkout,
+all-projects collection, and unrelated local projects are not added. Worker reuse also requires the same admitted
+directory. A `restricted` profile exposes no workspace. Host execution is not an OS isolation boundary; it relies on
+the provider posture and host guards.
+
+A project or task directory never changes the workspace binding or grants the owner's workspace.
+`context_research` is an explicitly granted read across the caller's private memory plus the owner's published wiki
+and knowledge graph. It excludes the knowledge inbox and every other agent's private memory. Retrieval does not copy
+shared knowledge into the agent's workspace.
 
 Caller cancellation does not currently propagate into an in-flight `sessions_spawn` or `sessions_send` turn. The MCP gateway's 120-second tool timeout also returns without cancelling the underlying child turn, so its worker remains occupied until that turn completes or its harness timeout fires. Causal parent-to-child cancellation is planned with the caller-aware MCP dispatch work (Knowledge Interop & Steward milestone).
 
@@ -145,13 +172,13 @@ A bound conversation executes as the agent. Its session is pinned to the agent's
 set for that conversation – and under a container policy the bridged MCP grant is the agent's. The agent's `model` and
 `effort` apply unless the row, the channel scope or the crowd-coding fallback set their own; the row's win.
 
-Its prompt is the persona over the task composition: the agent's `prompt` stands where the workspace `SOUL.md` stands for
-the owner (a blank `prompt` inherits `SOUL.md`), followed by `TOOLS.md`, `AGENTS.md`, the channel-origin section and the
-memory-retrieval hint. The owner's `USER.md`, recent errors and memory index are not composed in, and the persona's turns
-never write the owner's daily activity log, so the nightly journal never folds a persona's conversation into the owner's
-memory. Tool-mediated memory access (`memory_read`, `memory_search` and the write tools) is bounded only by the agent's
-`tools` – a persona has no vault of its own yet and reads and writes the owner's one workspace. An agent resolving to
-the `restricted` container profile composes tools only, with no identity, as a restricted task turn does.
+Its prompt is the persona over the task composition: the agent's `prompt` stands where its workspace `SOUL.md` stands
+(a blank `prompt` inherits `SOUL.md`), followed by its `USER.md`, `TOOLS.md`, `AGENTS.md` and the channel-origin section.
+The owner's behavior files, recent errors and memory index are not composed in. A persona with a managed workspace
+writes its own daily activity log and reads and writes only its own corpus through `memory_read`, `memory_search`, and
+the memory write tools, subject to its `tools` policy. An unconfigured persona writes no owner log and has no owner-memory
+fallback. An agent resolving to the `restricted` container profile retains its explicit prompt while omitting workspace
+behavior files and native skill roots.
 
 Each persona chatting concurrently consumes a `providers.<id>.pool_size` worker slot on its provider; a bound turn waits
 for a slot rather than failing fast the way a nested `sessions_spawn` does. Web sessions stay on the primary agent.
@@ -284,7 +311,7 @@ of the Windows qualification. See [Windows](windows.md#capability-matrix).
    ```yaml
    agent:
      provider: codex
-     model: gpt-4o                  # or: o3, gpt-5, etc.
+     model: gpt-5.6-sol             # or: gpt-5.6-luna, etc.
 
    credentials:
      openai:
@@ -326,7 +353,7 @@ Content-Type: application/json
   "title": "Analyze competitor pricing",
   "description": "Compare current public pricing tiers and summarize the differences.",
   "provider": "codex",
-  "configJson": { "model": "gpt-5" }
+  "configJson": { "model": "gpt-5.6-sol" }
 }
 ```
 

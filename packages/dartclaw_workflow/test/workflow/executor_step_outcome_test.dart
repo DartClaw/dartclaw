@@ -4,7 +4,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
@@ -50,7 +49,7 @@ void main() {
       final session = await SessionService(baseDir: h.sessionsDir).createSession(type: SessionType.task);
       await h.taskService.updateFields(taskId, sessionId: session.id);
       if (tokenCount != null) {
-        await h.kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': tokenCount}));
+        await h.seedTaskUsage(taskId, session.id, tokenCount);
       }
       if (outcomeContent != null) {
         await h.messageService.insertMessage(sessionId: session.id, role: 'assistant', content: outcomeContent);

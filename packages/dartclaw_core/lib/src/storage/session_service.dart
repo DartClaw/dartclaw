@@ -11,7 +11,19 @@ import '../concurrency/repo_lock.dart';
 import '../events/dartclaw_event.dart';
 import '../events/event_bus.dart';
 import 'atomic_write.dart';
+import 'conversation_state.dart';
 import 'uuid_validation.dart';
+
+/// Raised when a session metadata mutation targets an older conversation revision.
+final class ConversationRevisionMismatch implements Exception {
+  final int expected;
+  final int actual;
+
+  const new(this.expected, this.actual);
+
+  @override
+  String toString() => 'Conversation revision changed (expected $expected, actual $actual)';
+}
 
 /// Receives synchronous notifications around authoritative session mutations.
 abstract interface class SessionServiceObserver {
@@ -19,21 +31,41 @@ abstract interface class SessionServiceObserver {
   void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType);
 
   /// Called after delete protection passes and before the session directory is removed.
-  void onSessionDeleting(String sessionId);
+  void onSessionDeleting(String sessionId, Session? session);
 }
 
 /// Manages session CRUD operations backed by NDJSON file storage.
 class SessionService {
+  static const maxDismissedAttentionEventIds = 200;
+
+  /// Resolves the storage principal pinned in [session], or [fallbackUserId]
+  /// when the session has no configured workspace owner.
+  static String persistedPrincipal(Session session, {String fallbackUserId = 'owner'}) =>
+      session.workspace?.storagePrincipal ?? fallbackUserId;
+
+  /// Whether [principal] may access [session] through persisted conversation surfaces.
+  static bool isVisibleToPrincipal(Session session, String principal) =>
+      principal == 'owner' || persistedPrincipal(session) == principal;
+
   final String baseDir;
   final EventBus? eventBus;
   final RepoLock _repoLock;
   SessionServiceObserver? _observer;
+  final int maxProcessSessions;
+  final Map<String, Session> _processSessions = {};
+  final Map<String, ConversationState> _processConversationStates = {};
+  final Map<String, String> _processEndStates = {};
   static const _uuid = Uuid();
   static final _log = Logger('SessionService');
 
-  new({required this.baseDir, this.eventBus, RepoLock? repoLock, SessionServiceObserver? observer})
-    : _repoLock = repoLock ?? RepoLock(),
-      _observer = observer;
+  new({
+    required this.baseDir,
+    this.eventBus,
+    RepoLock? repoLock,
+    SessionServiceObserver? observer,
+    this.maxProcessSessions = 32,
+  }) : _repoLock = repoLock ?? RepoLock(),
+       _observer = observer;
 
   /// Registers the sole session mutation observer.
   void registerObserver(SessionServiceObserver observer) {
@@ -43,26 +75,75 @@ class SessionService {
 
   Future<Session> createSession({
     SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
     String? channelKey,
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
-  }) async {
-    final id = _uuid.v4();
-    final dir = Directory(p.join(baseDir, id));
-    await dir.create(recursive: true);
+    AgentWorkspace? workspace,
+  }) => createSessionWithIdentity(
+    id: _uuid.v4(),
+    type: type,
+    retention: retention,
+    channelKey: channelKey,
+    provider: provider,
+    securityProfile: securityProfile,
+    executionMode: executionMode,
+    workspace: workspace,
+  );
 
+  /// Creates a session with a caller-reserved stable identity, or returns the
+  /// identical session when recovery repeats the same creation.
+  Future<Session> createSessionWithIdentity({
+    required String id,
+    SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
+  }) async {
+    if (!isValidUuid(id)) throw ArgumentError.value(id, 'id', 'must be a UUID');
+    final existing = await getSession(id);
+    if (existing != null) {
+      if (existing.type != type ||
+          existing.retention != retention ||
+          existing.channelKey != channelKey ||
+          existing.provider != provider ||
+          existing.securityProfile != securityProfile ||
+          existing.executionMode != executionMode ||
+          existing.workspace != workspace) {
+        throw StateError('Session identity is already in use: $id');
+      }
+      return existing;
+    }
     final now = DateTime.now();
     final session = Session(
       id: id,
       type: type,
+      retention: retention,
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
       createdAt: now,
       updatedAt: now,
     );
+    if (retention == ConversationRetention.process) {
+      if (type != SessionType.user) throw ArgumentError('Process-retained sessions must be user sessions');
+      if (_processSessions.length >= maxProcessSessions) throw StateError('Temporary conversation capacity reached');
+      _processSessions[id] = session;
+      _processConversationStates[id] = ConversationState();
+      _processEndStates[id] = 'active';
+      eventBus?.fire(
+        SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
+      );
+      return session;
+    }
+    final dir = Directory(p.join(baseDir, id));
+    await dir.create(recursive: true);
     await atomicWriteJson(File(p.join(dir.path, 'meta.json')), session.toJson());
     eventBus?.fire(
       SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
@@ -77,6 +158,8 @@ class SessionService {
 
   Future<Session?> getSession(String id) async {
     if (!isValidUuid(id)) return null;
+    final process = _processSessions[id];
+    if (process != null) return process;
     final metaFile = File(p.join(baseDir, id, 'meta.json'));
     if (!metaFile.existsSync()) return null;
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
@@ -89,55 +172,117 @@ class SessionService {
     bool includeTaskSessions = false,
   }) async {
     final dir = Directory(baseDir);
-    if (!dir.existsSync()) return [];
-
     final taskRequested = type == SessionType.task || (types?.contains(SessionType.task) ?? false);
     final logicalAgentRequested =
         type == SessionType.logicalAgent || (types?.contains(SessionType.logicalAgent) ?? false);
     final sessions = <Session>[];
-    await for (final entity in dir.list()) {
-      if (entity is! Directory) continue;
-      final name = p.basename(entity.path);
-      if (!isValidUuid(name)) continue;
-      final metaFile = File(p.join(entity.path, 'meta.json'));
-      if (!metaFile.existsSync()) continue;
-      try {
-        final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-        final session = Session.fromJson(json);
-        if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) continue;
-        if (session.type == SessionType.logicalAgent && !logicalAgentRequested) continue;
-        if (type != null && session.type != type) continue;
-        if (types != null && !types.contains(session.type)) continue;
-        sessions.add(session);
-      } catch (e) {
-        _log.fine('Skipping malformed session dir: $e');
+    if (dir.existsSync()) {
+      await for (final entity in dir.list()) {
+        if (entity is! Directory) continue;
+        final name = p.basename(entity.path);
+        if (!isValidUuid(name)) continue;
+        final metaFile = File(p.join(entity.path, 'meta.json'));
+        if (!metaFile.existsSync()) continue;
+        try {
+          final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+          final session = Session.fromJson(json);
+          if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) continue;
+          if (session.type == SessionType.logicalAgent && !logicalAgentRequested) continue;
+          if (type != null && session.type != type) continue;
+          if (types != null && !types.contains(session.type)) continue;
+          sessions.add(session);
+        } catch (e) {
+          _log.fine('Skipping malformed session dir: $e');
+        }
       }
+    }
+    for (final session in _processSessions.values) {
+      if (session.type == SessionType.task && !includeTaskSessions && !taskRequested) continue;
+      if (session.type == SessionType.logicalAgent && !logicalAgentRequested) continue;
+      if (type != null && session.type != type) continue;
+      if (types != null && !types.contains(session.type)) continue;
+      sessions.add(session);
     }
     sessions.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return sessions;
   }
 
-  Future<int> updateTitle(String id, String title) async {
-    if (!isValidUuid(id)) return 0;
-    final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return 0;
+  Future<int> updateTitle(String id, String title) =>
+      updateTitleWithProvenance(id, title, provenance: SessionTitleProvenance.system);
 
-    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    final updated = session.copyWith(title: title, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
-    return 1;
+  Future<int> updateTitleWithProvenance(String id, String title, {required SessionTitleProvenance provenance}) async {
+    final updated = await _mutateSession(
+      id,
+      (session) => session.copyWith(
+        title: title,
+        titleRevision: session.titleRevision + 1,
+        titleProvenance: provenance,
+        updatedAt: DateTime.now(),
+      ),
+    );
+    return updated == null ? 0 : 1;
+  }
+
+  /// Installs the immediate first-message title only while the session is unnamed.
+  Future<Session?> setAutomaticTitleFallback(String id, String title) => _mutateSession(id, (session) {
+    if (session.title?.trim().isNotEmpty ?? false) return session;
+    return session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: SessionTitleProvenance.automaticFallback,
+      updatedAt: DateTime.now(),
+    );
+  });
+
+  /// Claims the single schema-title attempt and returns its compare-and-set revision.
+  Future<Session?> claimAutomaticTitle(String id) => _mutateSession(id, (session) {
+    if (session.automaticTitleAttempted || session.titleProvenance != SessionTitleProvenance.automaticFallback) {
+      return null;
+    }
+    return session.copyWith(automaticTitleAttempted: true, updatedAt: DateTime.now());
+  });
+
+  /// Applies a generated title only while the captured fallback is still current.
+  Future<bool> applyAutomaticTitle(String id, String title, {required int expectedRevision}) async {
+    var applied = false;
+    await _mutateSession(id, (session) {
+      if (session.titleRevision != expectedRevision ||
+          session.titleProvenance != SessionTitleProvenance.automaticFallback ||
+          !session.automaticTitleAttempted) {
+        return session;
+      }
+      applied = true;
+      return session.copyWith(
+        title: title,
+        titleRevision: session.titleRevision + 1,
+        titleProvenance: SessionTitleProvenance.automaticGenerated,
+        updatedAt: DateTime.now(),
+      );
+    });
+    return applied;
+  }
+
+  Future<Session?> _mutateSession(String id, Session? Function(Session session) mutate) async {
+    if (!isValidUuid(id)) return null;
+    final process = _processSessions[id];
+    if (process != null) {
+      final updated = mutate(process);
+      if (updated != null) _processSessions[id] = updated;
+      return updated;
+    }
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) return null;
+    return _repoLock.acquire(metaFile.path, () async {
+      final session = Session.fromJson(jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>);
+      final updated = mutate(session);
+      if (updated == null) return null;
+      if (!identical(updated, session)) await _writeSessionMeta(metaFile, updated);
+      return updated;
+    });
   }
 
   Future<void> touchUpdatedAt(String id) async {
-    if (!isValidUuid(id)) return;
-    final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return;
-
-    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    final updated = session.copyWith(updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
+    await _mutateSession(id, (session) => session.copyWith(updatedAt: DateTime.now()));
   }
 
   /// Creates or retrieves a session by deterministic external key.
@@ -153,6 +298,7 @@ class SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     return _repoLock.acquire(
       p.join(baseDir, '.session_keys.json'),
@@ -162,6 +308,7 @@ class SessionService {
         provider: provider,
         securityProfile: securityProfile,
         executionMode: executionMode,
+        workspace: workspace,
       ),
     );
   }
@@ -194,6 +341,7 @@ class SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     final indexFile = File(p.join(baseDir, '.session_keys.json'));
 
@@ -204,6 +352,13 @@ class SessionService {
     if (existingId != null) {
       final session = await getSession(existingId);
       if (session != null && session.type != SessionType.archive) {
+        final bindingAgentId = workspace?.agentId ?? session.workspace?.agentId ?? 'unconfigured';
+        AgentWorkspace.requireCurrent(
+          sessionId: session.id,
+          agentId: bindingAgentId,
+          pinned: session.workspace,
+          configured: workspace,
+        );
         // Lazy migration: update type/channelKey if needed (e.g. old sessions without type)
         // A null executionMode argument means "caller has no opinion" — never
         // clear a mode already pinned on disk.
@@ -236,6 +391,7 @@ class SessionService {
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
     );
     keyIndex[key] = session.id;
     await atomicWriteJson(indexFile, keyIndex);
@@ -257,13 +413,18 @@ class SessionService {
   /// Updates session type (e.g. archive→user for resume).
   Future<Session?> updateSessionType(String id, SessionType type) async {
     if (!isValidUuid(id)) return null;
+    final process = _processSessions[id];
+    if (process != null) {
+      if (type != SessionType.user) throw StateError('Temporary conversations cannot change type');
+      return process;
+    }
     final metaFile = File(p.join(baseDir, id, 'meta.json'));
     if (!metaFile.existsSync()) return null;
 
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
     final session = Session.fromJson(json);
     final updated = session.copyWith(type: type, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
+    await _writeSessionMeta(metaFile, updated);
     _notify(() => _observer?.onSessionTypeChanged(id, session.type, type));
     return updated;
   }
@@ -271,30 +432,112 @@ class SessionService {
   /// Persists the execution mode derived for a session that predates pinned
   /// execution modes, so later turns reuse the derived value rather than
   /// re-deriving it against a possibly changed deployment.
-  Future<Session?> updateExecutionMode(String id, ExecutionMode mode) async {
-    if (!isValidUuid(id)) return null;
-    final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return null;
-
-    final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    if (session.executionMode == mode) return session;
-    final updated = session.copyWith(executionMode: mode, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
-    return updated;
-  }
+  Future<Session?> updateExecutionMode(String id, ExecutionMode mode) => _mutateSession(id, (session) {
+    if (session.retention.isDurable && session.executionMode == mode) return session;
+    return session.copyWith(executionMode: mode, updatedAt: DateTime.now());
+  });
 
   /// Updates the persisted provider override for an existing session.
-  Future<Session?> updateProvider(String id, String? provider) async {
-    if (!isValidUuid(id)) return null;
-    final metaFile = File(p.join(baseDir, id, 'meta.json'));
-    if (!metaFile.existsSync()) return null;
+  Future<Session?> updateProvider(String id, String? provider) =>
+      _mutateSession(id, (session) => session.copyWith(provider: provider, updatedAt: DateTime.now()));
 
+  /// Reads the durable ordinary-conversation state stored with the session.
+  Future<ConversationState> getConversationState(String id) async {
+    if (!isValidUuid(id)) throw ArgumentError('Invalid session ID');
+    final process = _processConversationStates[id];
+    if (process != null) return process;
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) throw StateError('Session does not exist: $id');
     final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
-    final session = Session.fromJson(json);
-    final updated = session.copyWith(provider: provider, updatedAt: DateTime.now());
-    await atomicWriteJson(metaFile, updated.toJson());
-    return updated;
+    final value = json['conversationState'];
+    if (value == null) return ConversationState();
+    if (value is! Map) throw const FormatException('conversationState must be an object');
+    return ConversationState.fromJson(Map<String, dynamic>.from(value));
+  }
+
+  /// Atomically replaces the session's ordinary-conversation state.
+  Future<void> updateConversationState(String id, ConversationState state) async {
+    if (!isValidUuid(id)) throw ArgumentError('Invalid session ID');
+    if (_processSessions.containsKey(id)) {
+      _processConversationStates[id] = state;
+      await touchUpdatedAt(id);
+      return;
+    }
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    if (!metaFile.existsSync()) throw StateError('Session does not exist: $id');
+    await _repoLock.acquire(metaFile.path, () async {
+      final json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+      json['conversationState'] = state.toJson();
+      final session = Session.fromJson(json);
+      json.addAll(session.copyWith(updatedAt: DateTime.now()).toJson());
+      await atomicWriteJson(metaFile, json);
+    });
+  }
+
+  /// Atomically updates inbox metadata and advances the conversation revision.
+  Future<({Session session, ConversationState state})> updateInboxMetadata({
+    required String id,
+    required int expectedConversationRevision,
+    DateTime? settledAt,
+    bool clearSettledAt = false,
+    int? readMessageCursor,
+    String? attentionReadEventId,
+    List<String>? dismissedAttentionEventIds,
+  }) async {
+    if (!isValidUuid(id)) throw ArgumentError('Invalid session ID');
+    final metaFile = File(p.join(baseDir, id, 'meta.json'));
+    return _repoLock.acquire(metaFile.path, () async {
+      final processSession = _processSessions[id];
+      final processState = _processConversationStates[id];
+      final isProcess = processSession != null;
+
+      Map<String, dynamic>? json;
+      late final Session session;
+      late final ConversationState state;
+      if (processSession != null) {
+        if (_processEndStates[id] != 'active' || processState == null) {
+          throw StateError('Session is not active: $id');
+        }
+        session = processSession;
+        state = processState;
+      } else {
+        if (!metaFile.existsSync()) throw StateError('Session does not exist: $id');
+        json = jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>;
+        session = Session.fromJson(json);
+        final rawState = json['conversationState'];
+        state = rawState == null
+            ? ConversationState()
+            : ConversationState.fromJson(Map<String, dynamic>.from(rawState as Map));
+      }
+      if (state.revision != expectedConversationRevision) {
+        throw ConversationRevisionMismatch(expectedConversationRevision, state.revision);
+      }
+      final nextState = state.bumpRevision();
+      final boundedDismissed = dismissedAttentionEventIds == null
+          ? null
+          : dismissedAttentionEventIds.length <= maxDismissedAttentionEventIds
+          ? List<String>.of(dismissedAttentionEventIds, growable: false)
+          : dismissedAttentionEventIds.sublist(dismissedAttentionEventIds.length - maxDismissedAttentionEventIds);
+      final nextSession = session.copyWith(
+        settledAt: clearSettledAt ? null : settledAt ?? session.settledAt,
+        readMessageCursor: readMessageCursor == null
+            ? null
+            : readMessageCursor < session.readMessageCursor
+            ? session.readMessageCursor
+            : readMessageCursor,
+        attentionReadEventId: attentionReadEventId ?? session.attentionReadEventId,
+        dismissedAttentionEventIds: boundedDismissed,
+        updatedAt: DateTime.now(),
+      );
+      if (isProcess) {
+        _processSessions[id] = nextSession;
+        _processConversationStates[id] = nextState;
+      } else {
+        final next = nextSession.toJson()..['conversationState'] = nextState.toJson();
+        await atomicWriteJson(metaFile, next);
+      }
+      return (session: nextSession, state: nextState);
+    });
   }
 
   /// Types that cannot be deleted (system-managed sessions).
@@ -306,6 +549,21 @@ class SessionService {
   }
 
   Future<int> _deleteSessionLocked(String id) async {
+    final process = _processSessions.remove(id);
+    if (process != null) {
+      _processConversationStates.remove(id);
+      _processEndStates.remove(id);
+      _notify(() => _observer?.onSessionDeleting(id, process));
+      eventBus?.fire(
+        SessionEndedEvent(
+          sessionId: id,
+          sessionKey: process.channelKey,
+          sessionType: process.type.name,
+          timestamp: DateTime.now(),
+        ),
+      );
+      return 1;
+    }
     final metaFile = File(p.join(baseDir, id, 'meta.json'));
     if (!metaFile.existsSync()) {
       await _removeMappingsForSessionIdLocked(id);
@@ -323,7 +581,7 @@ class SessionService {
       if (e is StateError) rethrow;
       // Malformed meta — allow delete
     }
-    _notify(() => _observer?.onSessionDeleting(id));
+    _notify(() => _observer?.onSessionDeleting(id, sessionForEvent));
     final dir = Directory(p.join(baseDir, id));
     await dir.delete(recursive: true);
     await _removeMappingsForSessionIdLocked(id);
@@ -336,6 +594,20 @@ class SessionService {
       ),
     );
     return 1;
+  }
+
+  /// Resolves the authoritative persistence boundary for storage consumers.
+  Future<ConversationRetention?> retentionFor(String id) async => (await getSession(id))?.retention;
+
+  /// Current explicit-end state for a process-retained conversation.
+  String? temporaryEndState(String id) => _processEndStates[id];
+
+  void markTemporaryEnding(String id) {
+    if (_processSessions.containsKey(id)) _processEndStates[id] = 'ending';
+  }
+
+  void markTemporaryEndFailed(String id) {
+    if (_processSessions.containsKey(id)) _processEndStates[id] = 'end_failed';
   }
 
   void _notify(void Function() notification) {
@@ -359,6 +631,19 @@ class SessionService {
   /// Writes updated session metadata to disk.
   Future<void> _updateSession(Session session) async {
     final metaFile = File(p.join(baseDir, session.id, 'meta.json'));
-    await atomicWriteJson(metaFile, session.toJson());
+    await _writeSessionMeta(metaFile, session);
+  }
+
+  Future<void> _writeSessionMeta(File metaFile, Session session) async {
+    await _repoLock.acquire(metaFile.path, () async {
+      final existing = metaFile.existsSync()
+          ? jsonDecode(await metaFile.readAsString()) as Map<String, dynamic>
+          : <String, dynamic>{};
+      final next = session.toJson();
+      if (existing['conversationState'] case final conversationState?) {
+        next['conversationState'] = conversationState;
+      }
+      await atomicWriteJson(metaFile, next);
+    });
   }
 }

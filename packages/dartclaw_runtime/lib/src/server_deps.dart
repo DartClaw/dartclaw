@@ -39,6 +39,12 @@ class ServerCoreDeps {
   final String? webhookSecret;
 
   final ResultTrimmer? resultTrimmer;
+  final Map<String, EffectiveContextCapabilities> effectiveContextCapabilities;
+
+  /// Live model catalogues; read per render, never a startup snapshot.
+  final ModelCatalogueLookup modelCatalogues;
+  final LogicalAgentSessionService? logicalAgentSessions;
+  final TemporaryConversationCapability? temporaryConversationCapability;
 
   const new({
     required this.sessions,
@@ -64,6 +70,10 @@ class ServerCoreDeps {
     this.mcpToolCanonicals = const {},
     this.webhookSecret,
     this.resultTrimmer,
+    this.effectiveContextCapabilities = const {},
+    this.modelCatalogues = noModelCatalogues,
+    this.logicalAgentSessions,
+    this.temporaryConversationCapability,
   });
 }
 
@@ -148,6 +158,7 @@ class ServerObservabilityDeps {
   final ProviderStatusService? providerStatus;
   final MemoryFileService? memoryFile;
   final MemoryStatusService? memoryStatusService;
+  final MemoryAdminService? memoryAdminService;
   final MemoryInspectionQuery? inspectMemorySearch;
   final ConversationSearchService? conversationSearch;
   final MemoryPruner? memoryPruner;
@@ -176,6 +187,7 @@ class ServerObservabilityDeps {
     this.providerStatus,
     this.memoryFile,
     this.memoryStatusService,
+    this.memoryAdminService,
     this.inspectMemorySearch,
     this.conversationSearch,
     this.memoryPruner,
@@ -204,6 +216,9 @@ class ServerWebDeps {
   final bool contentGuardFailOpen;
   final List<Map<String, dynamic>> schedulingJobs;
   final List<String> systemJobNames;
+  final ConversationInboxService? inboxService;
+  final ProductConversationSearchService? conversationSearch;
+  final HumanCommandCatalog? commandCatalog;
 
   const new({
     this.workflowService,
@@ -213,6 +228,9 @@ class ServerWebDeps {
     this.contentGuardFailOpen = false,
     this.schedulingJobs = const [],
     this.systemJobNames = const [],
+    this.inboxService,
+    this.conversationSearch,
+    this.commandCatalog,
   });
 }
 
@@ -261,6 +279,7 @@ void registerServerSystemPages(
     runtimeConfigGetter: () => server._core.runtimeConfig,
     configWriter: configWriter,
     memoryStatusServiceGetter: () => server._observability.memoryStatusService,
+    memoryAdminServiceGetter: () => server._observability.memoryAdminService,
     memoryPruneServiceGetter: () => server._memoryPruneService,
     memoryIndexGetter: () => server._observability.memoryIndex,
     searchBackendGetter: () => server._observability.searchBackend,

@@ -31,37 +31,29 @@ void main() {
     directory.deleteSync(recursive: true);
   });
 
-  for (final postgres in [false, true]) {
-    test('${postgres ? 'unreachable PostgreSQL' : 'incompatible SQLite'} preserves pre-gate orphan evidence', () async {
-      final before = File('${directory.path}/turn_state.json').readAsBytesSync();
-      var opens = 0;
-      final config = DartclawConfig(
-        server: ServerConfig(dataDir: directory.path),
-        database: DatabaseConfig(backend: postgres ? DatabaseBackendKind.postgres : DatabaseBackendKind.sqlite),
-      );
-      final wiring = StorageWiring(
-        config: config,
-        eventBus: EventBus(),
-        serving: true,
-        personalMemoryEnabled: false,
-        exitFn: (code) => throw _Exit(code),
-        taskBackendFactory: (_) async {
-          opens++;
-          expect(_orphanWarnings(logs), hasLength(1));
-          expect(_orphanWarnings(logs).single.message, contains(started.toIso8601String()));
-          if (postgres) throw StorageConnectionException(operation: 'connect', guidance: 'unreachable fixture');
-          final backend = SqliteBackend.openInMemory();
-          await backend.execute('CREATE TABLE tasks (wrong_column TEXT)');
-          return backend;
-        },
-      );
-      await expectLater(wiring.wire(), throwsA(isA<_Exit>().having((e) => e.code, 'code', 1)));
-      expect(opens, 1);
-      expect(File('${directory.path}/turn_state.json').readAsBytesSync(), before);
-      expect(_orphanWarnings(logs), hasLength(1));
-      expect(logs.any((record) => record.message.contains('Cleaned up')), isFalse);
-    });
-  }
+  test('unreachable PostgreSQL preserves pre-gate orphan evidence', () async {
+    final before = File('${directory.path}/turn_state.json').readAsBytesSync();
+    var opens = 0;
+    final config = DartclawConfig(server: ServerConfig(dataDir: directory.path));
+    final wiring = StorageWiring(
+      config: config,
+      eventBus: EventBus(),
+      serving: true,
+      personalMemoryEnabled: false,
+      exitFn: (code) => throw _Exit(code),
+      taskBackendFactory: (_) async {
+        opens++;
+        expect(_orphanWarnings(logs), hasLength(1));
+        expect(_orphanWarnings(logs).single.message, contains(started.toIso8601String()));
+        throw StorageConnectionException(operation: 'connect', guidance: 'unreachable fixture');
+      },
+    );
+    await expectLater(wiring.wire(), throwsA(isA<_Exit>().having((e) => e.code, 'code', 1)));
+    expect(opens, 1);
+    expect(File('${directory.path}/turn_state.json').readAsBytesSync(), before);
+    expect(_orphanWarnings(logs), hasLength(1));
+    expect(logs.any((record) => record.message.contains('Cleaned up')), isFalse);
+  });
 
   test('a successful gate leaves acknowledgement to the runner and emits one notice', () async {
     final wiring = StorageWiring(
@@ -72,8 +64,9 @@ void main() {
       exitFn: (code) => throw _Exit(code),
       taskBackendFactory: (_) async {
         expect(_orphanWarnings(logs), hasLength(1));
-        return SqliteBackend.openInMemory();
+        return openPreparedTaskBackend();
       },
+      taskBackendIsPrepared: true,
     );
     await wiring.wire();
     try {
@@ -97,29 +90,6 @@ void main() {
     }
   });
 
-  test('SQLite without a PostgreSQL reference does not invoke the inactive-store probe', () async {
-    var probeCalls = 0;
-    final wiring = StorageWiring(
-      config: DartclawConfig(server: ServerConfig(dataDir: directory.path)),
-      eventBus: EventBus(),
-      serving: true,
-      personalMemoryEnabled: false,
-      inactivePostgresProbe: () async {
-        probeCalls++;
-        return const InactivePostgresStoreProbe(InactivePostgresStoreState.empty);
-      },
-      exitFn: (code) => throw _Exit(code),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-    );
-
-    await wiring.wire();
-    try {
-      expect(probeCalls, 0);
-    } finally {
-      await wiring.dispose();
-    }
-  });
-
   test('a scan read failure warns and still reaches the active-store gate', () async {
     var opens = 0;
     final wiring = StorageWiring(
@@ -130,8 +100,9 @@ void main() {
       exitFn: (code) => throw _Exit(code),
       taskBackendFactory: (_) async {
         opens++;
-        return SqliteBackend.openInMemory();
+        return openPreparedTaskBackend();
       },
+      taskBackendIsPrepared: true,
     );
     final outerZone = Zone.current;
     await IOOverrides.runZoned(
@@ -155,7 +126,8 @@ void main() {
       eventBus: EventBus(),
       personalMemoryEnabled: false,
       exitFn: (code) => throw _Exit(code),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
     );
     await wiring.wire();
     try {

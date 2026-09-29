@@ -106,12 +106,18 @@ class CliProgressPrinter {
     int stepIndex,
     String stepId,
     Duration? duration,
-    int tokens, {
+    int? tokens, {
     String? displayScope,
     String? progressKey,
   }) {
-    if (progressKey != null) _live?.completeStep(progressKey, tokens);
-    final tokenStr = formatWorkflowTokens(tokens);
+    if (progressKey != null) {
+      if (tokens == null) {
+        _live?.removeStep(progressKey);
+      } else {
+        _live?.completeStep(progressKey, tokens);
+      }
+    }
+    final tokenStr = tokens == null ? 'tokens unavailable' : formatWorkflowTokens(tokens);
     // A null duration means the step was never timed (deterministic engine
     // steps have no task row to clock); omit it rather than print a fabricated
     // `0s` for a gate that may have run for minutes.
@@ -161,10 +167,10 @@ class CliProgressPrinter {
     ]);
   }
 
-  void workflowCompleted(int completedSteps, int tokens) {
+  void workflowCompleted(int completedSteps, int tokens, {bool tokenUsageComplete = true}) {
     _live?.stop();
     final elapsed = humanizeDuration(_stopwatch.elapsed, dropZeroRemainder: false);
-    final tokenStr = formatWorkflowTokens(tokens);
+    final tokenStr = '${formatWorkflowTokens(tokens)}${tokenUsageComplete ? '' : ' (incomplete lower bound)'}';
     _emitSpans([
       const StyledSpan('[workflow]', _cTag),
       const StyledSpan(' '),

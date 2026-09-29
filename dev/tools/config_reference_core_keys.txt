@@ -58,7 +58,6 @@ memory.pruning.enabled  # Memory maintenance
 search.backend  # Search implementation
 
 # Database
-database.backend  # Authoritative database engine
 database.url  # PostgreSQL connection reference
 database.credential  # Named PostgreSQL connection reference
 database.pool_size  # PostgreSQL connection bound
@@ -73,6 +72,7 @@ mcp_servers.<name>.surface_tools  # Model-visible MCP tools
 scheduling.heartbeat.enabled  # Heartbeat scheduling
 scheduling.heartbeat.interval_minutes  # Heartbeat cadence
 sessions.idle_timeout_minutes  # Session expiry
+sessions.auto_settle_idle_days  # Conversation inbox maintenance
 sessions.reset_hour  # Daily reset
 sessions.dm_scope  # Direct-message session scope
 sessions.group_scope  # Group session scope

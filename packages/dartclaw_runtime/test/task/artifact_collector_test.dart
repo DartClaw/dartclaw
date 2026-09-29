@@ -16,7 +16,6 @@ void main() {
   late SessionService sessions;
   late TaskService tasks;
   late ArtifactCollector collector;
-  late SqliteBackend taskBackend;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_artifact_collector_test_');
@@ -24,14 +23,12 @@ void main() {
     workspaceDir = Directory.systemTemp.createTempSync('dartclaw_artifact_workspace_').path;
     Directory(sessionsDir).createSync(recursive: true);
     sessions = SessionService(baseDir: sessionsDir);
-    taskBackend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(taskBackend));
+    tasks = TaskService(InMemoryTaskRepository());
     collector = ArtifactCollector(tasks: tasks, sessionsDir: sessionsDir, dataDir: tempDir.path);
   });
 
   tearDown(() async {
     await tasks.dispose();
-    await taskBackend.close();
     final wsDir = Directory(workspaceDir);
     if (wsDir.existsSync()) wsDir.deleteSync(recursive: true);
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);

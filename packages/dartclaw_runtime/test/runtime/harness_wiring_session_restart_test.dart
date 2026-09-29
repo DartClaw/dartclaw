@@ -5,7 +5,7 @@ import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawServer;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawServer, WorkspaceService;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 import 'package:dartclaw_runtime/src/server.dart' show ServerCoreDeps, ServerTurnDeps;
@@ -18,6 +18,11 @@ Never _unexpectedExit(int code) => throw StateError('Unexpected exit($code) duri
 void main() {
   test('logical-agent session resumes persisted history after storage and worker reconstruction', () async {
     final tempDir = Directory.systemTemp.createTempSync('dartclaw_session_restart_');
+    final workspace = AgentWorkspace.managed(
+      agentId: 'search',
+      dataDir: tempDir.path,
+      ownerWorkspaceDir: '${tempDir.path}/workspace',
+    );
     final config = DartclawConfig(
       server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
       // No usable content classifier here (claudeExecutable is not claude), and
@@ -25,7 +30,7 @@ void main() {
       // old effective posture so a classifier error does not block every handoff;
       // the content-guard test below copyWiths this and still blocks on a verdict.
       security: const SecurityConfig(contentGuardFailOpen: true),
-      agent: const AgentConfig(
+      agent: AgentConfig(
         provider: 'claude',
         definitions: [
           AgentDefinition(
@@ -34,6 +39,8 @@ void main() {
             prompt: 'SEARCH PERSONA',
             model: 'sonnet',
             effort: 'low',
+            allowedTools: {'file_read', 'memory_read'},
+            workspace: workspace,
           ),
         ],
       ),
@@ -44,6 +51,7 @@ void main() {
       gateway: const GatewayConfig(authMode: 'none'),
     );
     await writeWorkspacePromptFiles(config.workspaceDir);
+    await WorkspaceService(dataDir: tempDir.path).prepareManagedAgents([workspace]);
     final eventBus = EventBus();
     final createdHarnesses = <FakeAgentHarness>[];
     StorageWiring? storage;
@@ -63,7 +71,7 @@ void main() {
     Future<void> wireRuntime() async {
       final factory = HarnessFactory()
         ..register('claude', (_) {
-          final harness = FakeAgentHarness(promptStrategy: PromptStrategy.append);
+          final harness = FakeAgentHarness(promptStrategy: PromptStrategy.append, supportsNoWorkTools: true);
           createdHarnesses.add(harness);
           return harness;
         });
@@ -117,13 +125,28 @@ void main() {
     await _waitForHarnessCount(createdHarnesses, 2);
     final firstWorker = createdHarnesses.last;
     await firstWorker.turnInvoked;
+    firstWorker.emit(ToolUseEvent(toolName: 'file_read', toolId: 'read-1', input: const {'path': 'TOOLS.md'}));
     firstWorker.emit(DeltaEvent('Amber remembered'));
+    await pumpEventQueue();
     firstWorker.completeSuccess();
     final handle = (await spawnFuture)['sessionId'] as String;
     final storedSession = await storage!.sessions.getByKey(handle);
     expect(storedSession?.provider, 'claude');
     expect(storedSession?.executionMode, ExecutionMode.host, reason: 'containers are disabled in this deployment');
     expect(storedSession?.securityProfile, isNull, reason: 'host execution pins no container profile');
+    expect(storedSession?.workspace, workspace);
+    final personalFiles = Directory(workspace.directory).listSync(recursive: true).whereType<File>();
+    expect(personalFiles.every((file) => !file.readAsStringSync().contains('Remember amber')), isTrue);
+
+    expect(
+      () => AgentWorkspace.requireCurrent(
+        sessionId: storedSession!.id,
+        agentId: 'search',
+        pinned: storedSession.workspace,
+        configured: null,
+      ),
+      throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Create a new conversation'))),
+    );
 
     await harnessWiring!.executions.dispose();
     harnessWiring = null;
@@ -162,6 +185,23 @@ void main() {
     reconstructedWorker.emit(DeltaEvent('Amber'));
     reconstructedWorker.completeSuccess();
     expect((await sendFuture)['content'], contains(containsPair('text', 'Amber')));
+
+    final failureFuture = harnessWiring!.logicalAgentSessions.handleSessionsSend({
+      'session_id': handle,
+      'message': 'Fail without capturing this turn',
+    });
+    await _waitForHarnessCount(createdHarnesses, 3);
+    final failingWorker = createdHarnesses.last;
+    await failingWorker.turnInvoked;
+    failingWorker.completeError(StateError('READ_ONLY_AGENT_FAILURE_MARKER'));
+    expect((await failureFuture)['isError'], isTrue);
+    await pumpEventQueue(times: 20);
+    expect(
+      [config.workspaceDir, workspace.directory]
+          .expand((directory) => Directory(directory).listSync(recursive: true).whereType<File>())
+          .every((file) => !file.readAsStringSync().contains('READ_ONLY_AGENT_FAILURE_MARKER')),
+      isTrue,
+    );
   });
 }
 

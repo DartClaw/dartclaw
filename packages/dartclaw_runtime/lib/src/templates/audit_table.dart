@@ -21,12 +21,9 @@ String auditTableFragment({required AuditPage auditPage, String? verdictFilter, 
     guard: guardFilter,
   );
 
-  // `hx-target` and `hx-select` are inheritable, and this fragment renders
-  // inside the health page's refresh wrapper (`hx-target="this"
-  // hx-select=".content-inner"`). Both are restated here, for the container and
-  // for every control inside it: inherited, the poll replaces the whole
-  // dashboard with a table, then selects a `.content-inner` the audit response
-  // does not contain – leaving the page blank every 30 seconds.
+  // The audit poll owns its local target and selection because its endpoint
+  // returns only this table. Reusing the health refresh wrapper's selection
+  // would find no `.content-inner` and blank the page.
   buf.write(
     '<div id="audit-table-container" '
     'hx-get="$pollUrl" hx-trigger="every 30s" '

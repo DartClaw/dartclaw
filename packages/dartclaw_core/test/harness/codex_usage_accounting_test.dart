@@ -113,4 +113,26 @@ void main() {
     final next = _replay(adapter, [frames[firstCompletion]]).single;
     expect(next.inputTokens, isNull);
   });
+
+  test('a failed turn/completed consumes its usage instead of charging the next turn', () {
+    final adapter = CodexProtocolAdapter();
+    final frames = _frames().where(_reachesAdapter).toList();
+    final firstCompletion = frames.indexWhere((f) => f['method'] == 'turn/completed');
+    _replay(adapter, frames.sublist(0, firstCompletion));
+
+    final failed = _replay(adapter, [
+      {
+        'method': 'turn/completed',
+        'params': {
+          'threadId': _mainThread,
+          'turn': {'status': 'failed'},
+        },
+      },
+    ]).single;
+    expect(failed.stopReason, 'error');
+
+    final next = _replay(adapter, [frames[firstCompletion]]).single;
+    expect(next.inputTokens, isNull);
+    expect(next.outputTokens, isNull);
+  });
 }

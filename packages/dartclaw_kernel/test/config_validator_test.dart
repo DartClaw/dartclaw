@@ -30,7 +30,7 @@ void main() {
         {'sessions.group_scope': 'per-member'},
         {'logging.level': 'INFO'},
         {'logging.format': 'human'},
-        {'search.backend': 'fts5'},
+        {'search.backend': 'lexical'},
         {'guards.content.classifier': 'claude_binary'},
         {'context.warning_threshold': 80},
         {'context.warning_threshold': 50},

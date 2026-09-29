@@ -8,12 +8,20 @@ part of 'turn_runner.dart';
 /// remedy is a budget, not a retry, and reading the generic message left a live
 /// investigation reconstructing the cause from raw harness logs.
 String _turnFailureMessage(Object error) => switch (error) {
+  AccountingPersistenceException() => error.toString(),
   UnsupportedHarnessCapabilityException() => error.toString(),
   ProcessOutputLimitException() => error.message,
   ProcessStreamException() => error.message,
   TimeoutException() => error.message ?? 'Turn timed out',
   _ => 'Turn execution failed',
 };
+
+final class AccountingPersistenceException implements Exception {
+  const new();
+
+  @override
+  String toString() => 'Accounting persistence failed before provider dispatch';
+}
 
 extension _TurnRunnerExecutionLoop on TurnRunner {
   Future<void> _runTurnInner({
@@ -58,6 +66,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       loopAction: _loopAction,
       buildSnapshot: buildSnapshot,
       emitProgressEvent: _progressController.add,
+      redactor: _redactor,
       onLoopAbort: (detection) {
         _loopDetectedTurns[turnId] = detection;
         unawaited(cancelTurnById(sessionId, turnId, TurnCancelReason.automationCancel, enforceCanCancel: false));
@@ -73,7 +82,6 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         userMessageFull = last['content'] as String?;
       }
     }
-    final userMessage = userMessageFull != null ? truncate(userMessageFull, 100, suffix: '...') : null;
 
     final eventSub = _worker.events.listen((event) {
       if (event is DeltaEvent) {
@@ -84,14 +92,25 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         _progressController.add(TextDeltaProgressEvent(snapshot: buildSnapshot(), text: event.text));
       } else if (event is ToolUseEvent) {
         toolHooks.handleToolUse(event);
+        _enqueueToolHistoryEvent(sessionId, turnId, event);
       } else if (event is ToolResultEvent) {
         toolHooks.handleToolResult(event);
+        _enqueueToolHistoryEvent(sessionId, turnId, event);
       } else if (event is ToolApprovalWaitEvent) {
         pendingApprovalIds.add(event.requestId);
         recordActivity(TurnWaitReason.toolApproval);
+        if (event.operatorActionable) {
+          unawaited(_publishToolApprovalRequest(sessionId: sessionId, turnId: turnId, event: event));
+        }
       } else if (event is ToolApprovalResolvedEvent) {
         pendingApprovalIds.remove(event.requestId);
         recordActivity(TurnWaitReason.unknown);
+        if (event.approved != null) {
+          unawaited(
+            _toolApprovalClosed?.call(sessionId, turnId, event.requestId, event.approved!, event.expired) ??
+                Future<void>.value(),
+          );
+        }
       } else if (event is ProviderProgressBridgeEvent) {
         recordActivity(TurnWaitReason.providerTurn);
         _resetService?.touchActivity(sessionId);
@@ -99,6 +118,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       } else if (event is SystemInitEvent) {
         recordActivity(TurnWaitReason.unknown);
         _contextMonitor.update(contextWindow: event.contextWindow);
+        _turnContextWindows[turnId] = event.contextWindow;
       } else if (event is CompactionStartingBridgeEvent) {
         _eventBus?.fire(CompactionStartingEvent(sessionId: sessionId, trigger: 'auto', timestamp: DateTime.now()));
       } else if (event is CompactionCompletedBridgeEvent) {
@@ -134,10 +154,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
           );
           return;
         }
-        TurnRunner._log.info(
-          'Turn start: session=$sessionId, turn=$turnId, '
-          'provider=$providerId${userMessage != null ? ', prompt=$userMessage' : ''}',
-        );
+        TurnRunner._log.info('Turn start: session=$sessionId, turn=$turnId, provider=$providerId');
         statusTickTimer = _statusTickInterval > Duration.zero
             ? Timer.periodic(_statusTickInterval, (_) {
                 _progressController.add(StatusTickProgressEvent(snapshot: buildSnapshot()));
@@ -166,7 +183,13 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         }
         late final TurnResult result;
         try {
+          final accountingBefore = await _beginSessionAccounting(sessionId, turnId);
           if (_worker case final HarnessTurnContextSink sink) {
+            final session = await _sessions?.getSession(sessionId);
+            final allowOperatorApproval =
+                turnCtx?.isHumanInput == true &&
+                source == 'web' &&
+                (session?.type == SessionType.user || session?.type == SessionType.main);
             sink.setTurnContext(
               HarnessTurnContext(
                 sessionId: sessionId,
@@ -176,10 +199,11 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
                 turnTimeout: effectiveTurnTimeout > Duration.zero
                     ? effectiveTurnTimeout + const Duration(seconds: 60)
                     : Duration.zero,
+                allowOperatorApproval: allowOperatorApproval,
               ),
             );
           }
-          result = await _worker.turn(
+          final providerResult = await _worker.turn(
             sessionId: sessionId,
             agentId: TurnRunner._harnessAgentId(turnCtx?.agentName),
             messages: messages,
@@ -192,6 +216,19 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             providerSessionId: turnCtx?.providerSessionId,
             requestProviderSessionResume: turnCtx?.requestProviderSessionResume ?? false,
           );
+          var measuredResult = _normalizeTurnUsage(
+            sessionId,
+            providerResult,
+            accountingBefore,
+            resumed: turnCtx?.providerSessionId != null,
+          );
+          try {
+            await _trackSessionUsage(sessionId, turnId, measuredResult, providerId, accountingBefore);
+          } catch (e) {
+            TurnRunner._log.warning('Failed to persist turn usage', e);
+            measuredResult = _withTokenCompleteness(measuredResult, false);
+          }
+          result = measuredResult;
         } finally {
           if (_worker case final HarnessTurnContextSink sink) sink.setTurnContext(null);
           _postProviderTurns.add(turnId);
@@ -220,15 +257,10 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
         final cacheReadTokens = _worker.supportsCachedTokens ? result.cacheReadTokens : 0;
         final cacheWriteTokens = _worker.supportsCachedTokens ? result.cacheWriteTokens : 0;
 
-        try {
-          await _trackSessionUsage(sessionId, result, providerId);
-          await _applySessionMetadata(sessionId, result);
-          // Zero reads as "no usage reported" here: a turn that reports none must not
-          // zero the last known context size, and no provider measures a real context at 0.
-          _contextMonitor.update(contextTokens: result.inputTokens > 0 ? result.inputTokens : null);
-        } catch (e) {
-          TurnRunner._log.warning('Failed to track usage', e);
-        }
+        // Context size is scoped to the root conversation, even when billable
+        // input includes delegated models.
+        final contextInput = result.mainSessionInputTokens ?? result.inputTokens;
+        _contextMonitor.update(contextTokens: contextInput > 0 ? contextInput : null);
 
         final tracker = _usageTracker;
         if (tracker != null) {
@@ -245,6 +277,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
                     agentName: turnCtx?.agentName ?? 'main',
                     inputTokens: inputTokens,
                     outputTokens: outputTokens,
+                    tokenUsageComplete: result.tokenUsageComplete,
                     durationMs: durationMs,
                   ),
                 )
@@ -306,6 +339,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             errorMessage: redactedProviderError,
             providerSessionId: result.providerSessionId,
             inputTokens: result.inputTokens,
+            tokenUsageComplete: result.tokenUsageComplete,
             outputTokens: result.outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
@@ -347,6 +381,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
             status: TurnStatus.cancelled,
             providerSessionId: result.providerSessionId,
             inputTokens: result.inputTokens,
+            tokenUsageComplete: result.tokenUsageComplete,
             outputTokens: result.outputTokens,
             cacheReadTokens: cacheReadTokens,
             cacheWriteTokens: cacheWriteTokens,
@@ -370,6 +405,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
           structuredOutput: result.structuredOutput,
           providerSessionId: result.providerSessionId,
           inputTokens: result.inputTokens,
+          tokenUsageComplete: result.tokenUsageComplete,
           outputTokens: result.outputTokens,
           cacheReadTokens: cacheReadTokens,
           cacheWriteTokens: cacheWriteTokens,
@@ -457,6 +493,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       statusTickTimer?.cancel();
       turnTimeoutTimer?.cancel();
       await eventSub.cancel();
+      await _toolHistoryWrites;
       final activeStillThisTurn = _activeTurns[sessionId]?.turnId == turnId;
       final cancelCleanupPending = _acceptedCancelCleanupPending.contains(turnId);
       if (activeStillThisTurn) {
@@ -491,6 +528,8 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       // unconditional removal also covers throw and early-return paths.
       _externallyCompletedTurns.remove(turnId);
       _postProviderTurns.remove(turnId);
+      _promptProvenance.remove(turnId);
+      _turnContextWindows.remove(turnId);
       _turnToolHooks.remove(turnId);
       if (!cancelCleanupPending) _cancellingTurns.remove(turnId);
       if (activeStillThisTurn && !cancelCleanupPending) {
@@ -509,5 +548,43 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
       }
       _acceptedCancelCleanupPending.remove(turnId);
     }
+  }
+
+  Future<void> _publishToolApprovalRequest({
+    required String sessionId,
+    required String turnId,
+    required ToolApprovalWaitEvent event,
+  }) async {
+    final observer = _toolApprovalRequested;
+    final expiresAt = event.expiresAt;
+    if (observer == null || expiresAt == null) {
+      await resolveToolApproval(turnId: turnId, requestId: event.requestId, approved: false);
+      return;
+    }
+    try {
+      await observer(
+        RuntimeToolApprovalRequest(
+          sessionId: sessionId,
+          turnId: turnId,
+          requestId: event.requestId,
+          action: event.toolName,
+          target: event.input,
+          expiresAt: expiresAt,
+        ),
+      );
+    } catch (error, stackTrace) {
+      TurnRunner._log.warning('Failed to retain runtime approval ${event.requestId}', error, stackTrace);
+      await resolveToolApproval(turnId: turnId, requestId: event.requestId, approved: false);
+    }
+  }
+
+  void _enqueueToolHistoryEvent(String sessionId, String turnId, BridgeEvent event) {
+    _toolHistoryWrites = _toolHistoryWrites.then((_) async {
+      try {
+        await _toolHistoryObserved?.call(sessionId, turnId, event);
+      } catch (error, stackTrace) {
+        TurnRunner._log.warning('Failed to retain tool history for turn $turnId', error, stackTrace);
+      }
+    });
   }
 }

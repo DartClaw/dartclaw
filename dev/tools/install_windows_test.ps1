@@ -86,10 +86,22 @@ function Assert-InstallerFailed {
 function Assert-InstalledLayout {
   param([Parameter(Mandatory)][string]$InstallRoot)
 
-  foreach ($relativePath in @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')) {
+  foreach ($relativePath in @('VERSION', 'bin/dartclaw.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $InstallRoot $relativePath) -PathType Leaf)) {
       throw "Installed layout is missing '$relativePath'."
     }
+  }
+  $libraryRoot = Join-Path $InstallRoot 'lib'
+  if (-not (Test-Path -LiteralPath $libraryRoot -PathType Container)) {
+    throw "Installed layout is missing 'lib'."
+  }
+  $nativeLibraries = @(Get-ChildItem -LiteralPath $libraryRoot -Recurse -File)
+  if ($nativeLibraries.Count -eq 0) {
+    throw 'Installed layout is missing native libraries.'
+  }
+  $sqliteAssets = @(Get-ChildItem -LiteralPath $libraryRoot -Recurse -File | Where-Object { $_.Name -match 'sqlite' })
+  if ($sqliteAssets.Count -ne 0) {
+    throw "Installed layout contains retired SQLite native assets: $($sqliteAssets.Name -join ', ')."
   }
   if (Test-Path -LiteralPath (Join-Path $InstallRoot 'share')) {
     throw 'Installed layout contains an unexpected share sidecar.'
@@ -112,7 +124,19 @@ function Assert-TreeHashesEqual {
     [Parameter(Mandatory)][string]$ActualRoot
   )
 
-  foreach ($relativePath in @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')) {
+  $expectedPrefix = $ExpectedRoot.TrimEnd('\') + '\'
+  $actualPrefix = $ActualRoot.TrimEnd('\') + '\'
+  $expectedFiles = @(Get-ChildItem -LiteralPath $ExpectedRoot -Recurse -File | ForEach-Object {
+      $_.FullName.Substring($expectedPrefix.Length).Replace('\', '/')
+    } | Sort-Object)
+  $actualFiles = @(Get-ChildItem -LiteralPath $ActualRoot -Recurse -File | ForEach-Object {
+      $_.FullName.Substring($actualPrefix.Length).Replace('\', '/')
+    } | Sort-Object)
+  $fileSetDifference = @(Compare-Object $expectedFiles $actualFiles)
+  if ($fileSetDifference.Count -ne 0) {
+    throw 'Installed file set does not match the expected tree.'
+  }
+  foreach ($relativePath in $expectedFiles) {
     $expected = (Get-FileHash -LiteralPath (Join-Path $ExpectedRoot $relativePath) -Algorithm SHA256).Hash
     $actual = (Get-FileHash -LiteralPath (Join-Path $ActualRoot $relativePath) -Algorithm SHA256).Hash
     if ($actual -ne $expected) {
@@ -212,7 +236,6 @@ try {
   Wait-TestFileUnlocked -Path $installedExecutable
   Set-Content -LiteralPath (Join-Path $installRoot 'VERSION') -Value 'older-version' -NoNewline
   Set-Content -LiteralPath $installedExecutable -Value 'older-executable' -NoNewline
-  Set-Content -LiteralPath (Join-Path $installRoot 'lib/sqlite3.dll') -Value 'older-library' -NoNewline
   $result = Invoke-InstallerProcess -InstallRoot $installRoot -LocalArtifact $artifact
   Assert-InstallerPassed -Result $result
   Assert-TreeHashesEqual -ExpectedRoot $expectedRoot -ActualRoot $installRoot
@@ -322,7 +345,6 @@ try {
   Wait-TestFileUnlocked -Path $installedExecutable
   Set-Content -LiteralPath (Join-Path $installRoot 'VERSION') -Value 'older-version' -NoNewline
   Set-Content -LiteralPath $installedExecutable -Value 'older-executable' -NoNewline
-  Set-Content -LiteralPath (Join-Path $installRoot 'lib/sqlite3.dll') -Value 'older-library' -NoNewline
   $preservedRoot = Join-Path $tempRoot 'preserved-old-install'
   Copy-Item -LiteralPath $installRoot -Destination $preservedRoot -Recurse
   $script:BackupFailureSource = $installRoot

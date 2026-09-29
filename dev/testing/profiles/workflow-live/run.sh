@@ -28,7 +28,8 @@ Modes:
                        multi-minute real-provider agent e2e (tag: live-e2e),
                        keeping the fast integration tests as a quick gate.
   --e2e                Run only the heavy real-provider agent e2e
-                       (spec-and-implement + plan-and-implement, tag: live-e2e).
+                       (spec-and-implement, plan-and-implement, merge-resolve;
+                       tag: live-e2e).
   --canary <name>      Single targeted canary (see below).
   --skip-preflight     Skip the fail-fast provider preflight (version, codex
                        bundled-tool quarantine check, pinned role-model
@@ -54,6 +55,9 @@ Canaries:
 
 Environment:
   DARTCLAW_TEST_LOG_DIR         Log directory. Defaults to .agent_temp/.
+  DARTCLAW_TEST_POSTGRES_URL    Disposable PostgreSQL 14+ database for agent E2E.
+                                Without it, the runner starts a disposable
+                                PostgreSQL 14 container through Docker.
   DARTCLAW_TEST_PROVIDER        Provider preset for workflow E2E fixtures.
   DARTCLAW_TEST_WORKFLOW_MODEL  Pins the workflow coordinator model; Codex
                                 preflight probes distinct configurations.
@@ -160,7 +164,10 @@ case "${MODE}:${CANARY:-}" in
     LOG_LABEL="full"
     ;;
   e2e:)
-    FILES=("packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart")
+    FILES=(
+      "packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart"
+      "packages/dartclaw_workflow/test/workflow/merge_resolve_integration_test.dart"
+    )
     LOG_LABEL="e2e"
     ;;
   canary:core)
@@ -238,7 +245,7 @@ case "${PROVIDER}" in
     REVIEWER_MODEL="${DARTCLAW_TEST_REVIEWER_MODEL:-gpt-5.6-luna}"
     ;;
   claude)
-    EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-claude-sonnet-4-6}"
+    EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-claude-sonnet-5}"
     ;;
   *)
     EXECUTOR_MODEL="${DARTCLAW_TEST_EXECUTOR_MODEL:-}"
@@ -247,6 +254,47 @@ esac
 
 LOG_DIR="${DARTCLAW_TEST_LOG_DIR:-${REPO_ROOT}/.agent_temp}"
 mkdir -p "${LOG_DIR}"
+
+POSTGRES_CONTAINER=""
+cleanup_postgres() {
+  if [ -n "${POSTGRES_CONTAINER}" ]; then
+    docker rm -f -v "${POSTGRES_CONTAINER}" >/dev/null
+  fi
+}
+trap cleanup_postgres EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ "${MODE}" = "e2e" ] || { [ "${MODE}" = "full" ] && [ "${SKIP_E2E}" -eq 0 ]; } || \
+  { [ "${MODE}" = "canary" ] && { [ "${CANARY}" = "spec-and-implement" ] || [ "${CANARY}" = "plan-and-implement" ] || [ "${CANARY}" = "merge-resolve" ]; }; }; then
+  if [ -n "${DARTCLAW_TEST_POSTGRES_URL:-}" ]; then
+    echo "Using supplied disposable PostgreSQL database for live workflow E2E."
+  else
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+      echo "Error: live workflow E2E requires DARTCLAW_TEST_POSTGRES_URL (disposable PostgreSQL 14+) or running Docker." >&2
+      exit 2
+    fi
+    POSTGRES_CONTAINER="$(docker run -d --rm -e POSTGRES_PASSWORD=PostgresFixturePasswordX9 -e POSTGRES_DB=dartclaw_test \
+      -p 127.0.0.1::5432 \
+      postgres:14@sha256:816cf7d06ec33116c8f54cf14197085be89f25291686229485ee7d53a785b901)"
+    ready=false
+    for ((attempt = 0; attempt < 60; attempt++)); do
+      if docker exec "${POSTGRES_CONTAINER}" pg_isready --host 127.0.0.1 --username postgres --dbname dartclaw_test >/dev/null 2>&1; then
+        ready=true
+        break
+      fi
+      sleep 1
+    done
+    if [ "${ready}" != true ]; then
+      echo "Error: PostgreSQL did not become ready within 60 attempts." >&2
+      docker logs "${POSTGRES_CONTAINER}" >&2
+      exit 2
+    fi
+    address="$(docker port "${POSTGRES_CONTAINER}" 5432/tcp)"
+    export DARTCLAW_TEST_POSTGRES_URL="postgres://postgres:PostgresFixturePasswordX9@${address}/dartclaw_test?sslmode=disable"
+    echo "Started disposable PostgreSQL 14 for live workflow E2E."
+  fi
+fi
 
 # Hermetic CODEX_HOME (codex only). Operator dotfiles (~/.codex/config.toml
 # model/effort overrides) must not leak into codex spawns that don't pass

@@ -90,6 +90,9 @@ void main() {
       e,
     ) async {
       await Future<void>.delayed(Duration.zero);
+      final session = await h.sessionService.createSession(type: SessionType.task);
+      await h.taskService.updateFields(e.taskId, sessionId: session.id);
+      await h.seedTaskUsage(e.taskId, session.id, 0);
       await h.completeTask(e.taskId);
     });
 

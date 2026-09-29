@@ -254,16 +254,13 @@ steps:
         }
       }
 
-      // spec-and-implement: BRANCH variable, gitStrategy, revise-spec step, not approve-spec.
+      // spec-and-implement: BRANCH variable, gitStrategy, and no retired review step.
       expect(specAndImplement.variables.containsKey('BRANCH'), isTrue);
       expect(specAndImplement.variables.containsKey('BASE_BRANCH'), isFalse);
       expect(specAndImplement.gitStrategy, isNotNull);
-      expect(specAndImplement.steps.any((s) => s.id == 'revise-spec'), isTrue);
+      expect(specAndImplement.steps.any((s) => s.id == 'revise-spec'), isFalse);
       expect(specAndImplement.steps.any((s) => s.id == 'approve-spec'), isFalse);
       expect(specAndImplement.steps.any((s) => s.id == 'review-spec'), isFalse);
-      // Confidence-gated revise-spec uses entryGate that references spec_confidence.
-      final reviseSpec = specAndImplement.steps.firstWhere((s) => s.id == 'revise-spec');
-      expect(reviseSpec.entryGate, contains('spec_confidence'));
       // spec_path is referenced somewhere in the definition steps.
       expect(specAndImplement.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
       assertSkills(specAndImplement, ['andthen:review'], ['andthen-review', 'dartclaw-review-gap']);
@@ -274,17 +271,19 @@ steps:
       expect(planAndImplement.steps.any((s) => s.id == 'discover-plan-state'), isTrue);
       expect(planAndImplement.steps.any((s) => s.id == 'prd'), isFalse);
       expect(planAndImplement.steps.any((s) => s.id == 'revise-prd'), isFalse);
+      expect(planAndImplement.steps.any((s) => s.id == 'revise-story-spec'), isFalse);
       expect(planAndImplement.steps.any((s) => s.id == 'review-prd'), isFalse);
       expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
         planAndImplement,
-        ['andthen:review', 'andthen:plan', 'dartclaw-discover-andthen-plan'],
+        ['andthen:review', 'andthen:spec', 'dartclaw-discover-andthen-plan'],
         // quick-review was replaced by the per-story review + nested loop.
         [
           'andthen:quick-review',
           'andthen-quick-review',
           'andthen-review',
           'andthen-plan',
+          'andthen:plan',
           'andthen-prd',
           'dartclaw-spec-plan',
         ],

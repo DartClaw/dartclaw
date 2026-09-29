@@ -49,6 +49,7 @@ class TurnOutcome {
   final int outputTokens;
   final int cacheReadTokens;
   final int cacheWriteTokens;
+  final bool tokenUsageComplete;
   final Duration turnDuration;
   final List<ToolCallRecord> toolCalls;
   final int toolCallCount;
@@ -84,6 +85,7 @@ class TurnOutcome {
     this.outputTokens = 0,
     this.cacheReadTokens = 0,
     this.cacheWriteTokens = 0,
+    this.tokenUsageComplete = false,
     this.turnDuration = Duration.zero,
     List<ToolCallRecord> toolCalls = const [],
     int? toolCallCount,

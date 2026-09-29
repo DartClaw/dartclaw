@@ -6,6 +6,10 @@ DartClaw is configured via `dartclaw.yaml`, behavior files, environment variable
 
 Use `dartclaw init` to create an instance. It runs preflight checks, generates `dartclaw.yaml`, scaffolds the workspace, and seeds `ONBOARDING.md`.
 
+PostgreSQL 14+ is required for database-backed operation. `init` records one URL or named-credential reference and
+remains usable while the service is unavailable; after administrator provisioning, `dartclaw doctor --fix` may
+bootstrap only an empty application schema. See [PostgreSQL](postgresql.md).
+
 ### Quick track (default)
 
 Collects the core options: instance name, instance directory, provider selection, per-provider auth, per-provider model, primary provider, port, and gateway auth. Completes in seconds.
@@ -28,7 +32,7 @@ dartclaw init --non-interactive \
   --auth-claude oauth \
   --auth-codex env \
   --model-claude sonnet \
-  --model-codex gpt-5 \
+  --model-codex gpt-5.6-sol \
   --primary-provider codex
 ```
 
@@ -94,9 +98,11 @@ DartClaw uses a single **instance directory** as the canonical home for configur
   workspace/         ← behavior files
   sessions/
   logs/
-  search.db
-  dartclaw.db
 ```
+
+Authoritative relational records and derived search rows live in the configured PostgreSQL database. Sessions,
+canonical memory/wiki, configuration, credentials, project metadata, audit/usage logs, and instance-local recovery
+remain files under the instance directory and need a separate backup.
 
 Set `DARTCLAW_HOME` to use a different instance directory (points to the directory, not the config file).
 
@@ -165,7 +171,14 @@ until then the editor may report that it cannot load the schema.
 port: 3333
 host: localhost
 data_dir: ~/.dartclaw
+database:
+  url: ${DARTCLAW_DATABASE_URL}
 ```
+
+There is no `database.backend` selector. In 0.27 only, the exact old value `postgres` is accepted with a removal
+warning; `sqlite` and other values refuse. New search configuration uses `search.backend: lexical` by default or
+explicit `hybrid`. The exact old `fts5` value is accepted only for this transition and normalized to `lexical`.
+See [Deprecated Configuration Keys](deprecated-config-keys.md) for the complete bounded transition inventory.
 
 <!-- The block between the BEGIN/END GENERATED CONFIG REFERENCE markers is written by dev/tools/render_config_reference.dart from ConfigMeta. Edit the field's FieldMeta description and re-run the tool; hand edits inside the block are overwritten. -->
 <!-- BEGIN GENERATED CONFIG REFERENCE -->
@@ -217,8 +230,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `memory.journal.enabled` | boolean |  | Distil each day of turn logs into canonical observations. Opt-in, and it costs one turn per run. (restart required) |
 | `memory.max_bytes` | integer | minimum 1 | Byte budget applied to each prompt memory projection – the index and the errors section – independently. Must be positive; a larger budget spends more of every prompt. (restart required) |
 | `memory.pruning.enabled` | boolean |  | Archive and de-duplicate recognized memory entries on a schedule. Unrecognized content is preserved either way. (restart required) |
-| `search.backend` | string | one of "fts5", "hybrid", "qmd" | Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required) |
-| `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
+| `search.backend` | string | one of "hybrid", "lexical" | PostgreSQL lexical search, optionally extended with embeddings. (restart required) |
 | `database.url` | null or string |  | PostgreSQL connection URL supplied through environment substitution. Read-only: secret material is never editable through the API. (file-only, not settable via API or CLI) |
 | `database.credential` | null or string |  | Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI) |
 | `database.pool_size` | integer | minimum 1 | Maximum PostgreSQL connections. Defaults to 5. (restart required) |
@@ -229,6 +241,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `scheduling.heartbeat.enabled` | boolean |  | Run the periodic unattended turn. Off means nothing fires from the schedule. (live) |
 | `scheduling.heartbeat.interval_minutes` | integer | 1–1440 | Minutes between heartbeat turns. Each one costs a full turn of tokens. (restart required) |
 | `sessions.idle_timeout_minutes` | integer | minimum 0 | Minutes of silence before an eligible session resets. 0 turns the timeout off. (reload) |
+| `sessions.auto_settle_idle_days` | integer | 0–3650 | Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off. (restart required) |
 | `sessions.reset_hour` | integer | -1–23 | Local hour at which main, channel and cron sessions are archived and restarted under the same key. -1 keeps them until idle timeout or maintenance. User-created sessions are never reset. (reload) |
 | `sessions.dm_scope` | string | one of "per-channel-contact", "per-contact", "shared" | How direct messages map onto sessions: one shared, one per contact, or one per contact per channel. (live) |
 | `sessions.group_scope` | string | one of "per-member", "shared" | How group messages map onto sessions: one shared per group, or one per member. (live) |
@@ -253,7 +266,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `agent.agents.<name>.max_response_bytes` | integer | minimum 1 | Ceiling on what this agent returns to its caller, in bytes. Defaults to 5 MiB. (restart required) |
 | `agent.agents.<name>.model` | null or string |  | Model override for this agent. Null inherits the primary lane setting. (restart required) |
 | `agent.agents.<name>.output_schema` | object |  | Inline JSON Schema the agent answer must conform to: a closed subset of type, properties, required, items, enum and additionalProperties, with every object level forced closed. A non-conforming answer fails the turn instead of being repaired or truncated; an unsupported keyword is refused at load. (restart required) |
-| `agent.agents.<name>.prompt` | string |  | System prompt used for this agent turns. Empty leaves the agent unguided. (restart required) |
+| `agent.agents.<name>.prompt` | string |  | Explicit SOUL prompt for this agent. Empty reads SOUL.md from its managed workspace. (restart required) |
 | `agent.agents.<name>.provider` | null or string |  | Harness driving this agent. Null inherits the primary lane setting; blank is refused. (restart required) |
 | `agent.agents.<name>.security_profile` | null or string | one of "restricted", "workspace", null | Container posture: workspace can write the checkout, restricted cannot. It never selects host or container placement. (restart required) |
 | `agent.agents.<name>.tools` | array |  | Tools this agent may call. Empty enforces no allowlist at all, which is warned about at load. (restart required) |
@@ -359,7 +372,6 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **data_dir** |  |  |  |
 | `data_dir` | string |  | Instance directory holding sessions, the workspace, databases and credential stores. Default ~/.dartclaw. (restart required) |
 | **database** |  |  |  |
-| `database.backend` | string | one of "postgres", "sqlite" | Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required) |
 | `database.credential` | null or string |  | Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI) |
 | `database.fts_language` | string |  | PostgreSQL text-search configuration name. Defaults to english; changing it requires restart and rebuild-index. (restart required) |
 | `database.pool_size` | integer | minimum 1 | Maximum PostgreSQL connections. Defaults to 5. (restart required) |
@@ -482,6 +494,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `projects.<name>.credentials` | null or string |  | Names a github-token credentials entry used for pushes and pull requests. (restart required) |
 | `projects.<name>.default` | boolean |  | Pick this project when a new task names none. (restart required) |
 | `projects.<name>.localPath` | null or string |  | Existing checkout used directly. Must be absolute, free of traversal, and inside the allowlist. (restart required) |
+| `projects.<name>.name` | null or string |  | Optional display name. Surfaces fall back to the project ID when absent. (restart required) |
 | `projects.<name>.pr.draft` | boolean |  | Open the pull request as a draft so review is opt-in. (restart required) |
 | `projects.<name>.pr.labels` | array |  | Labels applied to every pull request this project opens. (restart required) |
 | `projects.<name>.pr.strategy` | string | one of "branch-only", "github-pr" | What a finished task produces: a pushed branch only, or a GitHub pull request. (restart required) |
@@ -502,7 +515,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `scheduling.jobs` | array |  | Unattended jobs, each firing a prompt turn, creating a task, or running a shell command. Their prompt bodies are never validated here — an empty one only fails when the job runs. (restart required) |
 | `scheduling.mutation.approval` | string | one of "none", "operator" | Who commits a job the agent writes through schedule_upsert. none commits and loads it at once; operator parks it until it is approved or rejected on the Scheduling page. The jobs API and the page always commit. (restart required) |
 | **search** |  |  |  |
-| `search.backend` | string | one of "fts5", "hybrid", "qmd" | Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required) |
+| `search.backend` | string | one of "hybrid", "lexical" | PostgreSQL lexical search, optionally extended with embeddings. (restart required) |
 | `search.default_depth` | string |  | Effort a query spends when the caller names none: fast, standard or deep. (restart required) |
 | `search.embedding.credential` | null or string |  | Named generic API-key credential for the HTTP embedding provider. (file-only, not settable via API or CLI) |
 | `search.embedding.endpoint` | null or string |  | Absolute HTTP(S) endpoint used only by the HTTP embedding provider. (restart required) |
@@ -511,12 +524,11 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `search.providers.<name>.api_key` | string |  | Vendor API key, normally an environment reference such as ${BRAVE_API_KEY}. Exactly one of it and credential is required — an entry with neither, or both, is skipped. (file-only, not settable via API or CLI) |
 | `search.providers.<name>.credential` | null or string |  | Name of a credentials.<name> api-key entry to authenticate with, from the config file or the named credential store. Exactly one of it and api_key is required; an unknown name, a github-token entry or a blank value skips the provider. (file-only, not settable via API or CLI) |
 | `search.providers.<name>.enabled` | boolean |  | Whether this vendor may be queried. Required — an entry without it is skipped at load. (file-only, not settable via API or CLI) |
-| `search.qmd.host` | string |  | Loopback address of the qmd daemon. Only localhost, 127.x.x.x and ::1 are accepted. (restart required) |
-| `search.qmd.port` | integer | 1–65535 | TCP port the qmd daemon listens on. Default 8181. (restart required) |
 | **security** |  |  |  |
 | `security.bash_step.env_allowlist` | array |  | Environment variable names a workflow bash step may read, added to the built-in set. Everything else is stripped from its environment. (restart required) |
 | `security.bash_step.extra_strip_patterns` | array |  | Extra regexes whose matches are removed from bash-step output before the model sees it. (restart required) |
 | **sessions** |  |  |  |
+| `sessions.auto_settle_idle_days` | integer | 0–3650 | Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off. (restart required) |
 | `sessions.channels.<name>.dm_scope` | null or string | one of "per-channel-contact", "per-contact", "shared", null | Overrides how this channel one-to-one messages map onto sessions. (restart required) |
 | `sessions.channels.<name>.effort` | null or string |  | Reasoning-effort override for turns arriving on this channel. (restart required) |
 | `sessions.channels.<name>.group_scope` | null or string | one of "per-member", "shared", null | Overrides how this channel group messages map onto sessions. (restart required) |
@@ -589,7 +601,9 @@ Effort buys the turn more deliberation. It does not raise an output ceiling: the
 
 **Note on `scheduling.jobs` prompt content:** The `prompt` field of each scheduled job is passed directly to the agent at runtime. It is not validated by ConfigMeta — invalid or empty prompts are only caught when the job runs.
 
-**Note on `agent.agents.<id>.output_schema`:** An inline JSON Schema object that binds the agent's answer to a shape. When declared, the rendered contract is appended to the agent's `prompt` (or becomes the whole persona when `prompt` is blank), and the agent's result is parsed and validated on the host before it reaches the caller. A result that is not exactly one JSON value, or that does not conform, **fails the turn** with an error naming the first violation and its diagnostic location. Schema-declared paths use JSON Pointer; an unknown property uses a non-semantic fingerprint so rejected content is not echoed. The result is never repaired, defaulted, truncated, or partially returned. The schema is handed to the provider when the harness can apply it: Claude enforces it via `--json-schema` and returns a typed payload, and on Codex it also reaches the provider as a strict reply constraint. ACP receives none. The host parses and validates the result at the agent boundary either way, and every provider must still answer with exactly one bare JSON value — prose or a fenced block fails as `parse`. DartClaw already closes every object level of the schema (below), so the one thing to get right for Codex is that every declared property appears in `required`: a schema with an optional property loads and runs on Claude but fails the turn on Codex. This is unrelated to the workflow `schema:` presets, which only warn.
+**Named-agent workspaces:** DartClaw derives every configured agent's workspace as `data_dir/agents/<id>/workspace`; there is no path or sharing choice. The id must be 1–64 lowercase letters, digits, hyphens, or underscores, start with a letter or digit, and cannot be `main`. `agent.agents.<id>.workspace` is obsolete and its presence is refused, including null or blank values. Remove the key instead of replacing its value. `dartclaw init` and `dartclaw serve` validate all managed homes before changing any, then write the exact id-only `identity.json` marker before scaffolding a new workspace. A symlink, malformed or mismatched marker, or non-empty unmarked destination refuses setup without adopting, moving, deleting, or copying data. Storage ownership is always `agent:<id>` and never comes from a path, project, sender, or tool argument. The workspace remains the source of behavior files and provider-native skills when a turn runs in an authorized project directory: Claude receives it through `--add-dir` and Codex receives its `.agents/skills` directory through the app-server additional-roots protocol. A restricted profile exposes neither root.
+
+**Note on `agent.agents.<id>.output_schema`:** An inline JSON Schema object that binds the agent's answer to a shape. When declared, the rendered contract is appended after the composed persona. A non-empty `prompt` overrides the agent workspace's SOUL.md position; a blank prompt keeps workspace SOUL.md, or the built-in default when the agent has no workspace. The agent's result is parsed and validated on the host before it reaches the caller. A result that is not exactly one JSON value, or that does not conform, **fails the turn** with an error naming the first violation and its diagnostic location. Schema-declared paths use JSON Pointer; an unknown property uses a non-semantic fingerprint so rejected content is not echoed. The result is never repaired, defaulted, truncated, or partially returned. The schema is handed to the provider when the harness can apply it: Claude enforces it via `--json-schema` and returns a typed payload, and on Codex it also reaches the provider as a strict reply constraint. ACP receives none. The host parses and validates the result at the agent boundary either way, and every provider must still answer with exactly one bare JSON value — prose or a fenced block fails as `parse`. DartClaw already closes every object level of the schema (below), so the one thing to get right for Codex is that every declared property appears in `required`: a schema with an optional property loads and runs on Claude but fails the turn on Codex. This is unrelated to the workflow `schema:` presets, which only warn.
 
 Supported keywords: `type` (`object`, `array`, `string`, `number`, `integer`, `boolean`, `null`), `properties`, `required`, `items`, `enum`, and `additionalProperties`, plus `title`/`description`/`$schema` accepted as ignored annotations. Every object level is closed: `additionalProperties` is forced to `false` whether or not you declare it, so an unknown property fails. The root schema must be `type: object`; every schema map needs a single-string `type` (write `type: "null"` quoted for the null type — bare `type: null` is YAML's null, not a type name); `type: array` requires an `items` schema; `required` names must all appear in `properties`; `integer` accepts only whole numbers (`3.0` is a `number`, not an `integer`); and an `enum` must be non-empty with every member satisfying the declared type. Anything outside that set — `$ref`, `oneOf`/`anyOf`/`allOf`, `format`, `minimum`/`maxLength` and other bounds, `const`, `default`, `$id`, type arrays, tuple-form `items` — is **rejected when the config loads**, naming the keyword and its position in your schema. A constraint DartClaw cannot enforce is never silently ignored.
 
@@ -665,6 +679,21 @@ Claude's native sandbox is unavailable on native Windows, and restrictive Codex 
 Use a qualified POSIX host or WSL when provider sandboxing is a required boundary; see [Windows](windows.md#capability-matrix).
 
 The axes never cross: setting `sandbox: danger-full-access` disables OS isolation but does **not** relax prompt gating, and `approval: never` does **not** change the sandbox block. Invalid values warn and fall back to the default. The raw `permissionMode`/`sandbox`/`permissions` passthrough remains available as the advanced escape hatch.
+
+On a host Claude worker, raw `permissionMode: dontAsk` requests no operator prompts. DartClaw launches the resolved CLI with `--permission-mode dontAsk --permission-prompts none` and keeps subprocess environment scrub (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`) and `PreToolUse` guards. Scrub makes the effective native mode `default`; native prompts are explicitly `none`. A CLI that rejects the flag is refused before a turn: install a compatible Claude CLI or choose another permission mode. Workflow task configuration records identify this host posture. Containerized Claude keeps its separate placeholder-key environment and scrub `0`; this host mapping does not claim container behavior. See [Security § Choosing Between Subscription and API Key](security.md#choosing-between-subscription-and-api-key).
+
+Ordinary web approval cards follow actual native requests rather than the coarse provider label. For Codex they require
+`approval: on-request`. For Claude they require an explicit raw `permissionMode` of `default`, `acceptEdits`, or `plan`;
+the coarse `approval: on-request` and `unless-allow-listed` settings keep the guarded `dontAsk` host default and do not
+create a human prompt. `dontAsk`, `bypassPermissions`, background work, and unsupported providers remain non-interactive.
+
+Codex launches with `tools.experimental_request_user_input.enabled=false`, which disables the client-advertised
+`request_user_input` tool even if the Codex home enables it. Codex 0.155.1 can still emit
+`request_user_input_async`; DartClaw cannot collect an answer to a native mid-turn question. New Codex threads receive
+guidance to ask necessary clarification in a final reply for your next turn. If a native question arrives, DartClaw
+records its thread/turn/item identity, title and options as a WARNING in the configured stderr and optional file logs,
+subject to normal log level and redaction. The turn continues to its provider-reported outcome; no choice is inferred
+from an acknowledgement or recommended option. Existing threads keep their saved instructions.
 
 **Note on `harness.acp.agents`:** Each `harness.acp.agents.<id>` entry registers one ACP provider identity.
 
@@ -801,7 +830,7 @@ relative to cwd unless you override them explicitly. See [Deployment § Running 
 | `dartclaw status` | Show the data directory, local session count, and configured harness executable without starting the server |
 | `dartclaw token show` | Print the current gateway auth token from config or the generated token file |
 | `dartclaw token rotate` | Generate and persist a new file-backed gateway token; restart running servers to use it |
-| `dartclaw rebuild-index` | Rebuild the SQLite FTS5 projection from the validated canonical memory corpus |
+| `dartclaw rebuild-index` | Rebuild PostgreSQL lexical projections from canonical memory and session NDJSON, then reconcile vectors when hybrid is explicit |
 
 `dartclaw token show` prints a warning instead of a token until one is configured or generated by `dartclaw serve`.
 When `gateway.token` is set in YAML, rotate that config value instead of relying on the generated token file. A running
@@ -938,6 +967,8 @@ recorded here.
 | Deprecated Key | Use Instead | Notes |
 |---|---|---|
 | `memory_max_bytes` | `memory.max_bytes` | Top-level alias, still applied |
+| `database.backend` | – | `postgres` is accepted only to advise removal; `sqlite` and any other value block startup |
+| `search.qmd` (whole subtree) | – | Ignored with one removal advisory; search supports lexical and explicit hybrid modes |
 | `workflow.execution_mode` | – | Removed in 0.16.4; steps are always one-shot |
 | `channels.google_chat.space_events.auth_mode` | – | The Pub/Sub subscription decides authentication |
 | `context.exploration_summary_threshold` | – | Configured the removed exploration summarizer |

@@ -288,7 +288,7 @@ void main() {
 
       final lease = await coordinator.acquire(
         const ExecutionRequest(
-          surface: ExecutionSurface.interactive,
+          surface: ExecutionSurface.channel,
           providerId: 'ignored-by-primary-route',
           policy: ExecutionPolicy.host(),
           sessionId: 'routed',
@@ -375,13 +375,75 @@ void main() {
         await lease.release();
       }
 
-      for (final surface in [ExecutionSurface.interactive, ExecutionSurface.channel]) {
+      await acquireAndExpectLane(
+        ExecutionSurface.interactive,
+        ExecutionLane.primary,
+        policy: const ExecutionPolicy.container('primary'),
+      );
+      for (final surface in [ExecutionSurface.channel]) {
         await acquireAndExpectLane(surface, ExecutionLane.primary, policy: const ExecutionPolicy.container('primary'));
       }
       for (final surface in [ExecutionSurface.task, ExecutionSurface.scheduler, ExecutionSurface.logicalAgent]) {
         await acquireAndExpectLane(surface, ExecutionLane.worker);
       }
       await acquireAndExpectLane(ExecutionSurface.workflow, ExecutionLane.worker);
+    });
+
+    test('interactive provider override uses exact configured worker without rewriting admission', () async {
+      final admitted = <ExecutionRequest>[];
+      final primaryHarness = _TestHarness();
+      final secondaryHarness = _TestHarness();
+      final primary = _runner(primaryHarness, providerId: 'claude', policy: const ExecutionPolicy.host());
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'codex': 1},
+        primary: primary,
+        admitExecution: (request) async => admitted.add(request),
+        releaseAdmission: (_) {},
+        createWorker: (request) async =>
+            _runner(secondaryHarness, providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+
+      final secondary = await coordinator.acquire(
+        const ExecutionRequest(
+          surface: ExecutionSurface.interactive,
+          providerId: 'codex',
+          policy: ExecutionPolicy.host(),
+          sessionId: 'same-session-admission',
+          isHumanInput: true,
+        ),
+      );
+      expect(secondary!.runner.providerId, 'codex');
+      expect(secondary.runner.harness, same(secondaryHarness));
+      expect(admitted.single.providerId, 'codex');
+      expect(admitted.single.policy, const ExecutionPolicy.host());
+      expect(admitted.single.sessionId, 'same-session-admission');
+      expect(admitted.single.isHumanInput, isTrue);
+      expect(primaryHarness.startCalled, isFalse);
+      await secondary.release();
+
+      final compatible = await coordinator.acquire(
+        const ExecutionRequest(
+          surface: ExecutionSurface.interactive,
+          providerId: 'claude',
+          policy: ExecutionPolicy.host(),
+          sessionId: 'primary-session',
+        ),
+      );
+      expect(compatible!.runner, same(primary));
+      await compatible.release();
+
+      await expectLater(
+        coordinator.acquire(
+          const ExecutionRequest(
+            surface: ExecutionSurface.interactive,
+            providerId: 'unconfigured',
+            policy: ExecutionPolicy.host(),
+            sessionId: 'unconfigured-session',
+          ),
+        ),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('not configured'))),
+      );
     });
 
     test('SDK background fallback is explicit and excludes workflow and logical-agent surfaces', () async {
@@ -768,6 +830,48 @@ void main() {
         ]),
       );
       expect(events.where((event) => event.kind == ExecutionEventKind.acquired).first.request.taskId, 'task-1');
+    });
+
+    test('future workers inherit tool history observers and drain terminal writes before settlement', () async {
+      final fixture = _CoordinatorFixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      final observed = <BridgeEvent>[];
+      final terminalObserved = Completer<void>();
+      final allowTerminalWrite = Completer<void>();
+      fixture.coordinator.setToolHistoryObserver((sessionId, turnId, event) async {
+        expect(sessionId, 'worker-history');
+        expect(turnId, isNotEmpty);
+        observed.add(event);
+        if (event is ToolResultEvent) {
+          terminalObserved.complete();
+          await allowTerminalWrite.future;
+        }
+      });
+      final lease = await fixture.acquire(sessionId: 'worker-history', surface: ExecutionSurface.workflow);
+      final runner = lease.runner;
+      final harness = runner.harness as _TestHarness;
+      final turnId = await runner.reserveAdmittedTurn('worker-history');
+      runner.executeTurn('worker-history', turnId, const [
+        {'role': 'user', 'content': 'persist the worker tool'},
+      ]);
+      await harness.turnInvoked;
+      harness.emit(ToolUseEvent(toolName: 'worker_tool', toolId: 'worker-tool', input: const {}));
+      harness.emit(ToolResultEvent(toolId: 'worker-tool', output: 'done', isError: false));
+      await terminalObserved.future;
+      harness.completeSuccess();
+      var settled = false;
+      final outcome = runner.waitForOutcome('worker-history', turnId).then((value) {
+        settled = true;
+        return value;
+      });
+      await pumpEventQueue();
+      expect(settled, isFalse);
+      allowTerminalWrite.complete();
+      await outcome;
+      expect(settled, isTrue);
+      expect(observed.whereType<ToolUseEvent>(), hasLength(1));
+      expect(observed.whereType<ToolResultEvent>(), hasLength(1));
+      await lease.release();
     });
   });
 }

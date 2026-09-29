@@ -304,8 +304,7 @@ steps:
     steps:
       - id: remediate
         name: Remediate Findings
-        skill: andthen:remediate-findings
-        inputs: [review_report_path]
+        skill: andthen:implement-fix
         prompt: "--auto {{context.review_report_path}}"
         outputs:
           remediation_summary: remediation_summary
@@ -327,11 +326,16 @@ The aggregator's own `outputs:` keys must be exactly `review_report_path`, `find
 
 Workflow runs now distinguish three operator-visible non-success states:
 
-- `Paused`: deliberately paused by an operator.
+- `Paused`: paused by an operator or held at a failed execution unit by `onError: pause`.
 - `Awaiting approval`: blocked on an explicit approval step or a step that emitted `needsInput` without `onFailure: continue`. A `foreach`-nested remediation loop that exhausts with `onMaxIterations: escalate` also lands here – always, regardless of whether any story depends on the blocked one (a leaf or single-story plan pauses too), so an escalated residual is never shipped in a completed run.
 - `Failed`: a step, gate, or runtime failure stopped execution.
 
-Only `Failed` shows the **Retry** action in the workflow detail UI and via `dartclaw workflow retry <runId>`. Retry clears the failing step's lifecycle/outcome markers and restarts from the stored resume cursor. `Awaiting approval` uses `resume`, not `retry`, because the run is waiting on a human decision rather than a broken execution.
+Only `Failed` shows the **Retry** action in the workflow detail UI and via `dartclaw workflow retry <runId>`. An error-policy `Paused` run uses `dartclaw workflow resume <runId>`; it keeps the error reason and retries the failed unit. `Awaiting approval` also uses `resume`, which resolves its pending decision. A step with `onError: continue` stays failed in the step list even if independent work completes the run; a success-gated dependent step does not treat it as success.
+
+`onFailure` handles model-declared failure, failed/rejected tasks and post-task validation, including its bounded retry. `onError` handles non-zero/unstartable bash and task creation/wait errors: omission/`fail` stops the run, `pause` holds it for resume, and `continue` advances the owning unit with a failed record. Resume retains earlier successful linear/loop steps and settled parallel/foreach work, including outputs and accounted usage. It cannot undo side effects from the failed attempt.
+
+The [bounded workflow example](workflows-reference.md#onfailure-and-onerror-policies) joins host Claude permission
+posture, additive token accounting and the accounting stop that takes precedence over both continuation policies.
 
 Two resume semantics to know before reaching for `resume`:
 
@@ -379,7 +383,7 @@ stepDefaults:
     provider: claude
     turn_timeout: 1800
   - match: "review*"
-    model: claude-opus-4
+    model: claude-opus-5
 
 steps:
   - id: plan
@@ -600,9 +604,9 @@ Key runtime behavior:
 
 #### File-Based Artifact Contract
 
-Artifact-producing skills (`andthen:prd`, `andthen:plan`, `andthen:spec`) write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. Workflow steps downstream read the file via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
+Artifact-producing skills write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. The built-in `plan-and-implement` authoring step uses `andthen:spec` for plan and story-spec artifacts. Workflow steps downstream read the paths via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
 
-Built-in `plan-and-implement` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `andthen:plan` step to synthesize or republish the plan bundle. An empty `story_specs.items: []` is a successful resume signal – every story is already `done`/`skipped`, so the foreach iterates zero times and the workflow proceeds to plan-level review.
+Built-in `plan-and-implement` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `plan` step, using `andthen:spec`, to author or republish the plan bundle. An empty `story_specs.items: []` is a successful resume signal – every story is already `done`/`skipped`, so the foreach iterates zero times and the workflow proceeds to plan-level review.
 
 #### Artifact Auto-Commit
 
@@ -830,7 +834,7 @@ Use `stepDefaults` to apply pattern-based defaults without repeating configurati
 ```yaml
 stepDefaults:
   - match: "review*"
-    model: claude-opus-4
+    model: claude-opus-5
   - match: "*"
     provider: claude
 ```
@@ -949,7 +953,7 @@ To wire it up end-to-end, expose the server publicly (or via a tunnel for local 
 
 ### `spec-and-implement` – Feature Pipeline
 
-Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`, reuses an existing FIS path when detected, otherwise writes a spec with `andthen:spec`, optionally revises low-confidence specs, implements via `andthen:exec-spec`, runs an integrated `andthen:review` plus a parallel council review, and enters the remediation loop only when the loop `entryGate` sees remaining findings.
+Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `plan-and-implement`. Inline descriptions produce a FIS with `andthen:spec`; existing FIS files are reused. The workflow then implements via `andthen:exec-spec`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. The maintainer inline variant adds a parallel council review.
 
 Notable patterns:
 - **Narrow input guard**: FIS-path reuse is decided by `dartclaw-discover-andthen-spec`, not by relying on `andthen:spec` inference.
@@ -960,17 +964,17 @@ Notable patterns:
 
 Role usage:
 - `@planner`: `spec`
-- `@reviewer`: `revise-spec`, `integrated-review`, `re-review`
+- `@reviewer`: `integrated-review`, `re-review`
 - `@executor`: `implement`, `remediate`
 
 ### `plan-and-implement` – Story Fan-Out
 
-Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `revise-story-spec -> implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review + plan-review-council -> remediation-loop`.
+Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:spec`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop`. The maintainer inline variant adds a council review.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `discover-plan-state` requires an existing PRD and does not re-emit `done` or `skipped` stories; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
-- **Single-step artifact producers**: `plan` and `spec` are expected to produce solid final artifacts themselves. Downstream steps consume emitted paths (`prd`, `plan`, `spec_path`) via `file_read` instead of inserting separate review-only altitude steps.
-- **Merged plan + specs**: `plan` emits `stories` and `story_specs` together in a single pass; downstream steps consume both directly.
+- **Single-step artifact producers**: `andthen:spec` in the `plan` step authors the plan and story specs, and the `spec` step authors a feature FIS. Downstream steps consume emitted paths (`prd`, `plan`, `spec_path`) via `file_read` instead of inserting separate document-review or revision steps.
+- **Merged plan + specs**: `plan` emits the plan path and `story_specs` together in a single pass; downstream steps consume both directly.
 - **File-backed story specs**: every `story_specs.items[].spec_path` emitted by `plan` must exist on disk. Post-extraction validation checks the producing task worktree when one exists, falls back to the active workflow root otherwise, rejects missing FIS files, and sends that validation failure into the retry prompt.
 - **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, carried there by the artifact auto-commit on the workflow branch), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `story_specs` records also carry `id` and `dependencies`, so the foreach runtime can gate later stories on prerequisite promotions without consulting a second graph output. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
 - **Per-item sub-pipeline overlay**: later child steps read sibling outputs such as `{{context.story_result}}` within the same story iteration, via the bare keys each child declares under `outputs:`.
@@ -983,7 +987,7 @@ Role usage:
 - `@workflow`: `discover-plan-state`
 - `@planner`: `plan`
 - `@executor`: `implement`, `remediate-story`, `remediate`
-- `@reviewer`: `revise-story-spec`, `review-story`, `plan-review`, `re-review`
+- `@reviewer`: `review-story`, `plan-review`, `re-review`
 
 ### `code-review` – Review And Remediate Loop
 
@@ -1016,9 +1020,9 @@ Recommended presets:
 - Claude-first: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=claude/sonnet`, `reviewer=claude/opus`
 - Codex-first: `workflow=codex/gpt-5.6-sol` (effort `medium`), `planner=codex/gpt-5.6-sol` (effort `high`),
   `executor=codex/gpt-5.6-sol` (effort `high`), `reviewer=codex/gpt-5.6-sol` (effort `medium`)
-- Mixed: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=codex/gpt-5.4-mini`, `reviewer=claude/opus`
+- Mixed: `workflow=claude/sonnet`, `planner=claude/opus`, `executor=codex/gpt-5.6-sol`, `reviewer=claude/opus`
 
-Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.4-mini`, which automatically populate the sibling provider field. Effort sits beside `model` as
+Configure these in `workflow.defaults` in your config. The `model` fields accept shorthand such as `claude/opus` or `codex/gpt-5.6-sol`, which automatically populate the sibling provider field. Effort sits beside `model` as
 `workflow.defaults.<role>.effort`; planner, executor and reviewer inherit the workflow role's effort when unset. On Codex,
 keep one model across roles and vary effort per role: a smaller model in the executor or reviewer seat trades
 correctness for speed, which is a test-fixture trade rather than a production one.
@@ -1035,10 +1039,10 @@ DartClaw ships four DC-native skills and resolves all other workflow steps throu
 
 **AndThen provider skills**:
 
-- `andthen:spec`, `andthen:plan` – specification and planning
+- `andthen:spec` – feature specifications, plans, and per-story specifications
 - `andthen:exec-spec` – spec execution / implementation driver
-- `andthen:review` – code and doc review
-- `andthen:remediate-findings` – remediation loop driver
+- `andthen:review` – implementation, code, security, and outcome review
+- `andthen:implement-fix` – remediation loop driver
 - `andthen:triage` – failure investigation
 
 Install AndThen for the provider you run – the built-in workflows reference only core `andthen` plugin skills. DartClaw uses the exact authored name when visible, with a `<plugin>-<name>` fallback for legacy Codex skill installations. User-scope plugins are supported on host execution; see [AndThen Skills](andthen-skills.md#user-scope-plugins) for settings inheritance and isolation.

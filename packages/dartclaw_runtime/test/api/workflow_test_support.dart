@@ -15,12 +15,13 @@ import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, KvService, Mess
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
-        SqliteWorkflowRunRepository,
         WorkflowDefinition,
         WorkflowRun,
+        WorkflowRunRepository,
         WorkflowService,
         missingRequiredWorkflowVariables,
         missingRequiredWorkflowVariablesMessage;
+import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:path/path.dart' as p;
 
 /// Configurable fake [WorkflowService] backed by no-op lifecycle deps.
@@ -37,7 +38,7 @@ import 'package:path/path.dart' as p;
 ///   [lastCancelFeedback] / [activeRuns] — recorded for assertions.
 class FakeWorkflowService extends WorkflowService {
   new _super(
-    SqliteWorkflowRunRepository repository,
+    WorkflowRunRepository repository,
     TaskService taskService,
     MessageService messageService,
     EventBus eventBus,
@@ -52,13 +53,8 @@ class FakeWorkflowService extends WorkflowService {
         dataDir: dataDir,
       );
 
-  factory({
-    required DatabaseBackend backend,
-    required TaskService taskService,
-    required EventBus eventBus,
-    required String dataDir,
-  }) {
-    final repo = SqliteWorkflowRunRepository(backend);
+  factory({required TaskService taskService, required EventBus eventBus, required String dataDir}) {
+    final repo = InMemoryWorkflowRunRepository();
     final messages = MessageService(baseDir: p.join(dataDir, 'sessions'));
     final kv = KvService(filePath: p.join(dataDir, 'kv.json'));
     return FakeWorkflowService._super(repo, taskService, messages, eventBus, kv, dataDir);

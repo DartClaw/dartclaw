@@ -198,6 +198,7 @@ void main() {
     Future<ExecutionRequest> requestFor(
       String sessionId, {
       String agentName = 'main',
+      String? directory,
       List<String>? allowedTools,
     }) async {
       final (coordinator, requests) = recordingCoordinator();
@@ -208,7 +209,12 @@ void main() {
         policyResolver: resolverFor(containersEnabled: false),
       );
       addTearDown(turns.executions.dispose);
-      final turnId = await turns.reserveTurn(sessionId, agentName: agentName, allowedTools: allowedTools);
+      final turnId = await turns.reserveTurn(
+        sessionId,
+        agentName: agentName,
+        directory: directory,
+        allowedTools: allowedTools,
+      );
       final outcome = turns.waitForOutcome(sessionId, turnId);
       turns.releaseTurn(sessionId, turnId);
       await expectLater(outcome, throwsStateError);
@@ -243,6 +249,14 @@ void main() {
       expect(request.allowedTools, isEmpty);
     });
 
+    test('a turn carries its admitted execution directory into worker construction', () async {
+      final session = await sessions.createSession(type: SessionType.logicalAgent);
+
+      final request = await requestFor(session.id, agentName: 'ana', directory: '/authorized/project');
+
+      expect(request.directory, '/authorized/project');
+    });
+
     test('a main channel turn requests exactly what it does today', () async {
       final session = await sessions.createSession(type: SessionType.channel);
 
@@ -251,6 +265,54 @@ void main() {
       expect(request.surface, ExecutionSurface.channel);
       expect(request.admission, ExecutionAdmission.wait);
       expect(request.logicalAgentId, isNull);
+    });
+
+    test('a persisted owner channel refuses a newly invalid main workspace binding at admission', () async {
+      final session = await sessions.createSession(type: SessionType.channel, channelKey: SessionKey.dmShared());
+      final (coordinator, requests) = recordingCoordinator();
+      final turns = TurnManager.fromCoordinator(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        coordinator: coordinator,
+        sessions: sessions,
+        policyResolver: resolverFor(containersEnabled: false),
+        agentDefinitions: (agentId) => const {
+          'main': AgentDefinition(
+            id: 'main',
+            description: 'Owner',
+            prompt: '',
+            workspaceConfigurationError: 'agent.agents.main.workspace cannot bind the reserved owner identity',
+          ),
+        }[agentId],
+      );
+      addTearDown(turns.executions.dispose);
+
+      await expectLater(
+        turns.reserveTurn(session.id),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('reserved owner identity'))),
+      );
+      expect(requests, isEmpty);
+    });
+
+    test('a persisted owner channel keeps the owner lane when main has no workspace key', () async {
+      final session = await sessions.createSession(type: SessionType.channel, channelKey: SessionKey.dmShared());
+      final (coordinator, requests) = recordingCoordinator();
+      final turns = TurnManager.fromCoordinator(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        coordinator: coordinator,
+        sessions: sessions,
+        policyResolver: resolverFor(containersEnabled: false),
+        agentDefinitions: (agentId) =>
+            const {'main': AgentDefinition(id: 'main', description: 'Owner', prompt: '')}[agentId],
+      );
+      addTearDown(turns.executions.dispose);
+
+      final turnId = await turns.reserveTurn(session.id);
+      final outcome = turns.waitForOutcome(session.id, turnId);
+      turns.releaseTurn(session.id, turnId);
+      await expectLater(outcome, throwsStateError);
+
+      expect(requests.single.surface, ExecutionSurface.channel);
+      expect(requests.single.logicalAgentId, isNull);
     });
   });
 }

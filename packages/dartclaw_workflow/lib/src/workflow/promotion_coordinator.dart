@@ -68,7 +68,7 @@ void fireIterationFailureEvent(
   required int iterIndex,
   required MapStepContext mapCtx,
   required String taskId,
-  required int tokenCount,
+  required int? tokenCount,
 }) {
   eventBus.fire(
     MapIterationCompletedEvent(
@@ -97,6 +97,7 @@ Future<void> recordIterationFailureAndDecrement(
   required WorkflowRun run,
   required WorkflowStep step,
   required int iterTokens,
+  bool tokenUsageComplete = true,
   required Future<void> Function() persistProgress,
 }) async {
   mapCtx.recordFailure(iterIndex, failure, taskId);
@@ -109,7 +110,7 @@ Future<void> recordIterationFailureAndDecrement(
     iterIndex: iterIndex,
     mapCtx: mapCtx,
     taskId: taskId ?? '',
-    tokenCount: iterTokens,
+    tokenCount: tokenUsageComplete ? iterTokens : null,
   );
 }
 

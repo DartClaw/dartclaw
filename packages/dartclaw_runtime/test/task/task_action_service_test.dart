@@ -1,17 +1,15 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/task/task_budget_policy.dart' show lastFailureKindKey;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 void main() {
-  late SqliteBackend backend;
   late TaskService tasks;
   late TaskActionService actions;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(backend));
+    tasks = TaskService(InMemoryTaskRepository());
     actions = TaskActionService(
       tasks: tasks,
       reviewService: TaskReviewService(tasks: tasks),
@@ -20,7 +18,6 @@ void main() {
 
   tearDown(() async {
     await tasks.dispose();
-    await backend.close();
   });
 
   Future<void> failAfterRetries(String id) async {

@@ -6,8 +6,10 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:logging/logging.dart';
 
 import 'turn_runner.dart';
+import 'runtime_tool_history.dart';
 import 'turn_wait_status.dart';
 import 'worker_capacity_gate.dart';
+import 'runtime_context_telemetry.dart';
 
 part 'execution_models.dart';
 part 'execution_coordinator_lifecycle.dart';
@@ -66,9 +68,20 @@ final class ExecutionCoordinator {
   var _closing = false;
   Completer<void>? _drained;
   Future<void>? _disposeFuture;
+  RuntimeToolApprovalRequested? _toolApprovalRequested;
+  RuntimeToolApprovalClosed? _toolApprovalClosed;
+  RuntimeToolHistoryObserved? _toolHistoryObserved;
+  RuntimeContextTelemetryObserved? _contextTelemetryObserver;
 
   Stream<ExecutionEvent> get events => _events.stream;
   TurnRunner? get primary => _primary;
+
+  void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {
+    _contextTelemetryObserver = observer;
+    for (final runner in runners) {
+      runner.setContextTelemetryObserver(observer);
+    }
+  }
 
   List<TurnRunner> get runners {
     final result = <TurnRunner>[];
@@ -83,6 +96,29 @@ final class ExecutionCoordinator {
       if (seen.add(worker.runner)) result.add(worker.runner);
     }
     return List.unmodifiable(result);
+  }
+
+  void setToolApprovalObservers({
+    required RuntimeToolApprovalRequested? requested,
+    required RuntimeToolApprovalClosed? closed,
+  }) {
+    _toolApprovalRequested = requested;
+    _toolApprovalClosed = closed;
+    for (final runner in runners) {
+      runner.setToolApprovalObservers(requested: requested, closed: closed);
+    }
+  }
+
+  void setToolHistoryObserver(RuntimeToolHistoryObserved? observer) {
+    _toolHistoryObserved = observer;
+    for (final runner in runners) {
+      runner.setToolHistoryObserver(observer);
+    }
+  }
+
+  void _configureHistoryObservers(TurnRunner runner) {
+    runner.setToolApprovalObservers(requested: _toolApprovalRequested, closed: _toolApprovalClosed);
+    runner.setToolHistoryObserver(_toolHistoryObserved);
   }
 
   ExecutionSnapshot get snapshot {
@@ -106,7 +142,7 @@ final class ExecutionCoordinator {
     if (_closing) {
       throw StateError('Execution coordinator is closing');
     }
-    final lane = _laneFor(request.surface);
+    final lane = _laneFor(request);
     final routedRequest = _routeRequest(request, lane);
     if (routedRequest.providerId.trim().isEmpty) {
       throw ArgumentError.value(routedRequest.providerId, 'providerId', 'must not be blank');
@@ -140,8 +176,13 @@ final class ExecutionCoordinator {
     }
   }
 
-  ExecutionLane _laneFor(ExecutionSurface surface) => switch (surface) {
-    ExecutionSurface.interactive || ExecutionSurface.channel => ExecutionLane.primary,
+  ExecutionLane _laneFor(ExecutionRequest request) => switch (request.surface) {
+    ExecutionSurface.interactive =>
+      _primary == null || request.providerId != _primary.providerId || request.policy != _primary.executionPolicy
+          ? ExecutionLane.worker
+          : ExecutionLane.primary,
+    ExecutionSurface.temporary => ExecutionLane.worker,
+    ExecutionSurface.channel => ExecutionLane.primary,
     ExecutionSurface.workflow || ExecutionSurface.logicalAgent => ExecutionLane.worker,
     ExecutionSurface.task ||
     ExecutionSurface.scheduler => allowsPrimaryBackgroundFallback ? ExecutionLane.primary : ExecutionLane.worker,
@@ -180,6 +221,18 @@ final class ExecutionCoordinator {
     if (gate == null) {
       throw StateError('Provider "${request.providerId}" is not configured for worker execution');
     }
+    if (request.surface == ExecutionSurface.temporary) {
+      final retained = _takeCached(request);
+      if (retained != null) {
+        final permit = retained.retainedPermit!;
+        if (!_closing && retained.runner.isReusable && retained.runner.harness.state == WorkerState.idle) {
+          return _register(request, ExecutionLane.worker, permit, retained.runner);
+        }
+        final quarantined = await _discardWorker(retained.runner, request, ExecutionLane.worker, permit);
+        if (!quarantined) permit.release();
+        if (_closing) throw StateError('Execution coordinator is closing');
+      }
+    }
     final permit = await _acquirePermit(gate, request, ExecutionLane.worker);
     if (permit == null) return null;
 
@@ -215,6 +268,7 @@ final class ExecutionCoordinator {
           throw StateError('Worker factory returned a harness that did not become idle after startup');
         }
         _observeRunner(runner, _nextRunnerId++);
+        _configureHistoryObservers(runner);
         _emit(ExecutionEventKind.runnerCreated, request, ExecutionLane.worker, runner: runner);
       }
       if (_closing) {
@@ -276,17 +330,26 @@ final class ExecutionCoordinator {
           worker.runner.providerId == request.providerId &&
           worker.runner.executionPolicy == request.policy &&
           worker.lastSessionId == request.sessionId &&
+          worker.request.logicalAgentId == request.logicalAgentId &&
+          worker.request.workspace == request.workspace &&
+          worker.request.directory == request.directory &&
           (!worker.runner.executionPolicy.isContainer ||
               worker.request.surface == ExecutionSurface.logicalAgent &&
                   request.surface == ExecutionSurface.logicalAgent &&
-                  worker.request.logicalAgentId == request.logicalAgentId),
+                  worker.request.logicalAgentId == request.logicalAgentId ||
+              worker.request.surface == ExecutionSurface.temporary &&
+                  request.surface == ExecutionSurface.temporary &&
+                  worker.lastSessionId == request.sessionId),
     );
     if (index < 0 && !request.policy.isContainer) {
       index = _cache.indexWhere(
         (worker) =>
             !worker.request.hasExecutionScopedConstructionInputs &&
             worker.runner.providerId == request.providerId &&
-            worker.runner.executionPolicy == request.policy,
+            worker.runner.executionPolicy == request.policy &&
+            worker.request.logicalAgentId == request.logicalAgentId &&
+            worker.request.workspace == request.workspace &&
+            worker.request.directory == request.directory,
       );
     }
     return index < 0 ? null : _cache.removeAt(index);
@@ -294,8 +357,10 @@ final class ExecutionCoordinator {
 
   Future<void> _scavenge(String providerId, WorkerCapacityGate gate, WorkerCapacityPermit permit) async {
     final allowedCached = gate.effectiveCapacity - gate.activeCount;
-    while (_cache.where((worker) => worker.runner.providerId == providerId).length > allowedCached) {
-      final candidates = _cache.where((worker) => worker.runner.providerId == providerId).toList()
+    bool recyclable(_CachedWorker worker) =>
+        worker.runner.providerId == providerId && worker.request.surface != ExecutionSurface.temporary;
+    while (_cache.where(recyclable).length > allowedCached) {
+      final candidates = _cache.where(recyclable).toList()
         ..sort((left, right) => left.lastUsed.compareTo(right.lastUsed));
       final victim = candidates.first;
       _cache.remove(victim);
@@ -324,10 +389,13 @@ final class ExecutionCoordinator {
     if (active == null) return;
     final runner = active.runner;
     var quarantine = false;
+    var retainedPermit = false;
     if (active.lane == ExecutionLane.worker) {
       final cacheable =
           !active.request.hasExecutionScopedConstructionInputs &&
-          (!runner.executionPolicy.isContainer || active.request.surface == ExecutionSurface.logicalAgent);
+          (!runner.executionPolicy.isContainer ||
+              active.request.surface == ExecutionSurface.logicalAgent ||
+              active.request.surface == ExecutionSurface.temporary);
       if (cacheable && !_closing && runner.isReusable && runner.harness.state == WorkerState.idle) {
         _cache.add(
           _CachedWorker(
@@ -335,8 +403,10 @@ final class ExecutionCoordinator {
             lastSessionId: active.request.sessionId,
             lastUsed: DateTime.now(),
             request: active.request,
+            retainedPermit: active.request.surface == ExecutionSurface.temporary ? active.permit : null,
           ),
         );
+        retainedPermit = active.request.surface == ExecutionSurface.temporary;
       } else {
         final teardownConfirmed = await _tearDownWorker(runner, active.request);
         quarantine = _teardownNeedsQuarantine(runner, teardownConfirmed);
@@ -345,7 +415,7 @@ final class ExecutionCoordinator {
       }
     }
 
-    if (!quarantine) active.permit.release();
+    if (!quarantine && !retainedPermit) active.permit.release();
     _active.remove(executionId);
     try {
       _releaseAdmission?.call(active.request.sessionId);
@@ -357,6 +427,9 @@ final class ExecutionCoordinator {
 
   Future<void> resetSessionContinuity(String sessionId, {bool workersOnly = false}) =>
       _resetSessionContinuity(sessionId, workersOnly: workersOnly);
+
+  /// Releases the process-retained authority owned by one temporary session.
+  Future<void> releaseTemporarySession(String sessionId) => _releaseTemporarySession(sessionId);
 
   Future<void> dispose() => _disposeCoordinator();
 }
@@ -384,10 +457,17 @@ final class _ActiveExecution {
 }
 
 final class _CachedWorker {
-  const new({required this.runner, required this.lastSessionId, required this.lastUsed, required this.request});
+  const new({
+    required this.runner,
+    required this.lastSessionId,
+    required this.lastUsed,
+    required this.request,
+    this.retainedPermit,
+  });
 
   final TurnRunner runner;
   final String lastSessionId;
   final DateTime lastUsed;
   final ExecutionRequest request;
+  final WorkerCapacityPermit? retainedPermit;
 }

@@ -1,21 +1,18 @@
 import 'dart:async';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:test/test.dart';
 
 void main() {
-  late SqliteBackend backend;
   late EventBus eventBus;
   late TaskService taskService;
   late FakeTurnManager turns;
   late TaskCancellationSubscriber subscriber;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
+    taskService = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
     turns = FakeTurnManager();
     subscriber = TaskCancellationSubscriber(tasks: taskService, turns: turns);
     subscriber.subscribe(eventBus);
@@ -25,7 +22,6 @@ void main() {
     await subscriber.dispose();
     await taskService.dispose();
     await eventBus.dispose();
-    await backend.close();
   });
 
   test('cancels the active turn when a running task is cancelled', () async {

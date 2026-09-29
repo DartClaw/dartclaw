@@ -1,12 +1,13 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:fake_async/fake_async.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../delivery_test_support.dart';
@@ -314,6 +315,57 @@ void main() {
       expect(session?.provider, 'codex');
       expect(session?.securityProfile, 'restricted');
       expect(session?.executionMode, ExecutionMode.container);
+    });
+
+    test('workspace binding changes rotate only the internal cron sessions for journal and curation', () async {
+      final root = Directory.systemTemp.createTempSync('workspace_cron_rotation_');
+      final sessionsDir = p.join(root.path, 'sessions');
+      final initialSessions = SessionService(baseDir: sessionsDir);
+      final messages = MessageService(baseDir: sessionsDir);
+      addTearDown(() async {
+        await messages.dispose();
+        root.deleteSync(recursive: true);
+      });
+      final oldWorkspace = AgentWorkspace.pinned(agentId: 'a', directory: p.join(root.path, 'agent-a-old'));
+      final newWorkspace = AgentWorkspace.pinned(agentId: 'a', directory: p.join(root.path, 'agent-a-new'));
+      List<ScheduledJob> jobs(AgentWorkspace workspace) => [
+        for (final id in ['memory-journal:a', 'memory-curation:a'])
+          ScheduledJob(
+            id: id,
+            prompt: id,
+            scheduleType: ScheduleType.interval,
+            intervalMinutes: 60,
+            workspace: workspace,
+          ),
+      ];
+
+      final firstJobs = jobs(oldWorkspace);
+      final first = ScheduleService(turns: ConfigurableTurnManager(), sessions: initialSessions, jobs: firstJobs);
+      for (final job in firstJobs) {
+        await first.executeJobForTesting(job);
+      }
+      final oldSessions = await initialSessions.listSessions(type: SessionType.cron);
+      expect(oldSessions, hasLength(2));
+      for (final session in oldSessions) {
+        await messages.insertMessage(sessionId: session.id, role: 'assistant', content: 'old cron history');
+      }
+
+      final secondJobs = jobs(newWorkspace);
+      final restartedSessions = SessionService(baseDir: sessionsDir);
+      final second = ScheduleService(turns: ConfigurableTurnManager(), sessions: restartedSessions, jobs: secondJobs);
+      for (final job in secondJobs) {
+        await second.executeJobForTesting(job);
+      }
+
+      expect(secondJobs.map((job) => job.id), firstJobs.map((job) => job.id));
+      final allSessions = await restartedSessions.listSessions(type: SessionType.cron);
+      expect(allSessions, hasLength(4));
+      expect(allSessions.where((session) => session.workspace == oldWorkspace), hasLength(2));
+      expect(allSessions.where((session) => session.workspace == newWorkspace), hasLength(2));
+      for (final session in oldSessions) {
+        expect((await restartedSessions.getSession(session.id))!.workspace, oldWorkspace);
+        expect((await messages.getMessages(session.id)).single.content, 'old cron history');
+      }
     });
 
     test('successful agent-backed job delivers assistant response text', () async {

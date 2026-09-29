@@ -130,6 +130,9 @@ class WorkflowsPage extends DashboardPage {
         'startedAtDisplay': _formatRelative(run.startedAt),
         'startedAtIso': run.startedAt.toIso8601String(),
         'totalTokens': formatNumber(run.totalTokens),
+        'tokenUsageComplete': run.tokenUsageComplete,
+        'tokensDisplay':
+            '${formatNumber(run.totalTokens)} tokens${run.tokenUsageComplete ? '' : ' (incomplete lower bound)'}',
         'href': '/workflows/${run.id}',
       });
     }
@@ -208,6 +211,7 @@ class WorkflowsPage extends DashboardPage {
         'updatedAt': run.updatedAt.toIso8601String(),
         'completedAt': run.completedAt?.toIso8601String(),
         'totalTokens': run.totalTokens,
+        'tokenUsageComplete': run.tokenUsageComplete,
         'errorMessage': run.errorMessage,
         'contextJson': run.contextJson,
         'pendingApprovalStepId': pendingApprovalStepId,
@@ -391,10 +395,13 @@ class WorkflowsPage extends DashboardPage {
     }
 
     // Get token count and duration for this step.
-    int? tokenCount;
+    final stepId = definition != null && stepIndex < definition.steps.length ? definition.steps[stepIndex].id : null;
+    final stepStatus = stepId == null ? null : stepStatusFromTask(run, stepIndex, task, stepId: stepId);
+    final tokenCount = stepId == null
+        ? null
+        : (workflowContextValue(run, '$stepId.tokenCount') as num?)?.toInt() ?? (stepStatus == 'skipped' ? 0 : null);
     String? stepDuration;
     if (task != null) {
-      tokenCount = (task.configJson['totalTokens'] as num?)?.toInt();
       if (task.startedAt != null) {
         stepDuration = humanizeSpan(task.startedAt!, task.completedAt, true);
       }
@@ -407,6 +414,10 @@ class WorkflowsPage extends DashboardPage {
       inputs: inputs,
       outputKeys: outputKeys,
       tokenCount: tokenCount,
+      showTokenCount:
+          stepId != null &&
+          (tokenCount != null ||
+              (definition != null && const {'completed', 'failed', 'cancelled', 'skipped'}.contains(stepStatus))),
       durationDisplay: stepDuration,
     );
 

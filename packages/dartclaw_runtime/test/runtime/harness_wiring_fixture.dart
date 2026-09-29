@@ -10,7 +10,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawServer;
 import 'package:path/path.dart' as p;
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend, seedCanonicalMemory;
 
 const _workspacePromptFiles = {
   'SOUL.md': 'Soul prompt',
@@ -40,8 +41,9 @@ Future<StorageWiring> wireTestStorage({
   final storage = StorageWiring(
     config: config,
     eventBus: eventBus,
-    searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    knowledgeGraphFactory: (_) => InMemoryTemporalKnowledgeGraphService(),
     exitFn: exitFn,
   );
   await storage.wire();

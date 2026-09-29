@@ -87,7 +87,7 @@ workspace:
 
 # --- Search ---
 search:
-  backend: fts5                       # or 'qmd' for semantic hybrid search
+  backend: lexical                    # or explicit 'hybrid' for semantic search
 
 # --- Scheduling ---
 scheduling:
@@ -328,7 +328,8 @@ work use `task_list`, `review_list`, and `task_review`. See [Tasks](../tasks.md#
 ### Adjust memory context and curation
 
 - **Increase memory cap**: Set `memory.max_bytes: 131072` (128KB) if you generate lots of entries
-- **Semantic search**: Set `search.backend: qmd` for concept-based retrieval (requires QMD service)
+- **Semantic search**: Set `search.backend: hybrid`, configure an embedding provider, and have an administrator
+  install pgvector in PostgreSQL
 - **Curate duplicates**: read current revisions, then use one explicit `memory_apply` merge operation
 
 ### Use a cheaper model for scheduled jobs
@@ -352,12 +353,15 @@ Each pillar is documented in full detail in its own guide -- configuration optio
 | [Scheduled Task Queue](03-scheduled-task-queue.md) | Multiple job orchestration, concurrency limits, webhook delivery, task system |
 | [Knowledge Inbox](04-knowledge-inbox.md) | Topic tracking, content-guard filtering, duplicate detection |
 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp CRM, allowlist management, action item tracking |
-| [Research Assistant](06-research-assistant.md) | Interactive research, search agent tuning, QMD hybrid search |
+| [Research Assistant](06-research-assistant.md) | Interactive research and explicit hybrid search |
 | [Nightly Reflection](07-nightly-reflection.md) | Error analysis, learning patterns, model override |
 
 ### Personal AI landscape
 
-DartClaw's memory system uses keyword-based search (FTS5 BM25, with QMD hybrid opt-in). This is a solid foundation, and the architecture is designed for future enhancements. The landscape research (maintained in the project's specs repo) compares DartClaw to systems like Letta, Khoj, Mem0, Zep, Alfred, and PAI -- covering memory tiers (keyword → graph+vector → constitutional), identity systems, behavioral learning, and proactive AI patterns. Future roadmap items (0.11+) include expanded USER.md sections, implicit sentiment scoring, and inbox-drop knowledge ingestion.
+DartClaw's memory system uses PostgreSQL lexical search by default, with explicit pgvector-and-embedding hybrid search
+as an opt-in. The landscape research (maintained in the project's specs repo) compares DartClaw to systems like Letta,
+Khoj, Mem0, Zep, Alfred, and PAI, covering memory tiers, identity systems, behavioral learning, and proactive AI
+patterns.
 
 ### Common patterns
 

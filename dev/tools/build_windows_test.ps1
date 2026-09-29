@@ -3,8 +3,6 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'build_windows.ps1')
 
-Assert-NoSystemSqliteOverride
-
 function Assert-FailsWith {
   param(
     [Parameter(Mandatory)][scriptblock]$Action,
@@ -25,10 +23,8 @@ function Assert-FailsWith {
 foreach ($binaryName in @('dartclaw', 'dartclaw-workflow')) {
   $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "dartclaw-windows-build-test-$([guid]::NewGuid())"
   New-Item -ItemType Directory -Path (Join-Path $tempRoot 'bin') -Force | Out-Null
-  New-Item -ItemType Directory -Path (Join-Path $tempRoot 'lib') -Force | Out-Null
   Set-Content -LiteralPath (Join-Path $tempRoot 'VERSION') -Value '0.0.0'
   Set-Content -LiteralPath (Join-Path $tempRoot "bin/$binaryName.exe") -Value 'placeholder'
-  Set-Content -LiteralPath (Join-Path $tempRoot 'lib/sqlite3.dll') -Value 'placeholder'
 
   $rawBundle = $null
   try {
@@ -38,21 +34,21 @@ foreach ($binaryName in @('dartclaw', 'dartclaw-workflow')) {
     New-Item -ItemType Directory -Path (Join-Path $rawBundle 'bin') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $rawBundle 'lib') -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $rawBundle "bin/$binaryName.exe") -Value 'placeholder'
-    Set-Content -LiteralPath (Join-Path $rawBundle 'lib/sqlite3.dll') -Value 'placeholder'
+    Set-Content -LiteralPath (Join-Path $rawBundle 'lib/llamadart.dll') -Value 'placeholder'
     Assert-WindowsBuildBundle -Root $rawBundle -BinaryName $binaryName
     if ($binaryName -eq 'dartclaw') {
       Assert-WindowsReleaseLayout -Root $tempRoot
       Assert-WindowsBuildBundle -Root $rawBundle
     }
-    Remove-Item -LiteralPath (Join-Path $rawBundle 'lib/sqlite3.dll')
-    Assert-FailsWith -Message 'missing lib/sqlite3.dll' -Action {
+    Remove-Item -LiteralPath (Join-Path $rawBundle 'lib/llamadart.dll')
+    Assert-FailsWith -Message 'missing native libraries' -Action {
       Assert-WindowsBuildBundle -Root $rawBundle -BinaryName $binaryName
     }
+    Set-Content -LiteralPath (Join-Path $rawBundle 'lib/llamadart.dll') -Value 'placeholder'
 
     foreach ($case in @(
         @{ Path = 'VERSION'; Message = 'missing VERSION' },
-        @{ Path = "bin/$binaryName.exe"; Message = "missing bin/$binaryName.exe" },
-        @{ Path = 'lib/sqlite3.dll'; Message = 'missing lib/sqlite3.dll' }
+        @{ Path = "bin/$binaryName.exe"; Message = "missing bin/$binaryName.exe" }
       )) {
       $path = Join-Path $tempRoot $case.Path
       $backup = "$path.bak"
@@ -65,7 +61,14 @@ foreach ($binaryName in @('dartclaw', 'dartclaw-workflow')) {
     Assert-FailsWith -Message 'unexpected share/ sidecar' -Action { Assert-WindowsReleaseLayout -Root $tempRoot -BinaryName $binaryName }
     Remove-Item -LiteralPath (Join-Path $tempRoot 'share') -Recurse
 
-    $nativeNames = @('sqlite3.dll', 'llamadart.dll', 'llama.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu.dll', 'vcomp140.dll')
+    New-Item -ItemType Directory -Path (Join-Path $tempRoot 'lib') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $tempRoot 'lib/sqlite3.dll') -Value 'retired native asset'
+    Assert-FailsWith -Message 'unexpected artifact file(s): lib/sqlite3.dll' -Action {
+      Assert-WindowsReleaseLayout -Root $tempRoot -BinaryName $binaryName
+    }
+    Remove-Item -LiteralPath (Join-Path $tempRoot 'lib/sqlite3.dll')
+
+    $nativeNames = @('llamadart.dll', 'llama.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu.dll', 'vcomp140.dll')
     foreach ($name in $nativeNames) {
       Set-Content -LiteralPath (Join-Path $rawBundle "lib/$name") -Value $name
       Set-Content -LiteralPath (Join-Path $tempRoot "lib/$name") -Value $name
@@ -73,7 +76,7 @@ foreach ($binaryName in @('dartclaw', 'dartclaw-workflow')) {
     $moduleFiles = @(Get-WindowsRuntimeLibraryFiles -Root (Join-Path $rawBundle 'lib'))
     $expectedModules = @('llama.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cpu.dll', 'vcomp140.dll')
     if (@(Compare-Object ($moduleFiles.Name | Sort-Object) ($expectedModules | Sort-Object)).Count -ne 0) {
-      throw 'Backend staging must include module dependencies without duplicating SQLite or wrapper helpers.'
+      throw 'Backend staging must include module dependencies without duplicating the wrapper helper.'
     }
     foreach ($module in $moduleFiles) {
       Copy-Item -LiteralPath $module.FullName -Destination (Join-Path $tempRoot 'bin')
@@ -93,20 +96,6 @@ foreach ($binaryName in @('dartclaw', 'dartclaw-workflow')) {
     Assert-FailsWith -Message "$binaryName.exe --help smoke failed" -Action {
       Invoke-WindowsExecutableSmoke -Executable $badSmoke -BinaryName $binaryName
     }
-    Assert-FailsWith -Message 'bundled SQLite FTS5 check failed with exit code 7' -Action {
-      Invoke-WindowsBundledSqliteCheck -Executable $badSmoke -BinaryName $binaryName
-    }
-
-    $silentPass = Join-Path $tempRoot 'silent-pass.cmd'
-    Set-Content -LiteralPath $silentPass -Value '@exit /b 0'
-    Assert-FailsWith -Message 'did not rebuild the index' -Action {
-      Invoke-WindowsBundledSqliteCheck -Executable $silentPass -BinaryName $binaryName
-    }
-
-    $rebuilt = Join-Path $tempRoot 'rebuilt.cmd'
-    Set-Content -LiteralPath $rebuilt -Value @('@echo Rebuilt index: 1 entries at collection revision 1; health=healthy', '@exit /b 0')
-    Invoke-WindowsBundledSqliteCheck -Executable $rebuilt -BinaryName $binaryName
-
     $checksumArtifact = Join-Path $tempRoot 'checksum-test.zip'
     [IO.File]::WriteAllBytes($checksumArtifact, [byte[]](0, 1, 2, 3))
     Write-ChecksumSidecar -Artifact $checksumArtifact

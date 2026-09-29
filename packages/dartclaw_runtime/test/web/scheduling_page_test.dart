@@ -187,7 +187,7 @@ scheduling:
       // S08: the write is already live, so there is no restart banner to raise
       // and no restart wording in the toast.
       expect(response.body, isNot(contains('id="restart-banner"')));
-      final trigger = jsonDecode(response.headers['hx-trigger-after-swap']!) as Map<String, dynamic>;
+      final trigger = jsonDecode(response.headers['hx-trigger']!) as Map<String, dynamic>;
       expect((trigger['dc:toast'] as Map)['message'], 'Job added');
       expect((await writer.readSchedulingJobs()).map((job) => job['name']), contains('digest'));
       expect(service.hasJob('digest'), isTrue);
@@ -211,7 +211,7 @@ scheduling:
       final form = await send('GET', '/scheduling/jobs/remind-dentist/form');
       expect(form.status, 200);
       expect(form.body, contains('value="$at"'));
-      expect(form.headers['hx-trigger-after-swap'], isNull, reason: 'the form must open, not fall back to a toast');
+      expect(form.headers['hx-trigger'], isNull, reason: 'the form must open, not fall back to a toast');
     });
 
     test('S08 a job created through the page is runnable straight away', () async {
@@ -224,7 +224,7 @@ scheduling:
       final run = await send('POST', '/scheduling/jobs/standup/run');
 
       expect(run.status, 200);
-      final trigger = jsonDecode(run.headers['hx-trigger-after-swap']!) as Map<String, dynamic>;
+      final trigger = jsonDecode(run.headers['hx-trigger']!) as Map<String, dynamic>;
       expect((trigger['dc:toast'] as Map)['type'], 'success');
       expect((trigger['dc:toast'] as Map)['message'], "Job 'standup' started");
     });
@@ -436,7 +436,7 @@ scheduling:
 
       expect(response.status, 200);
       expect(response.body, contains('digest'));
-      final trigger = jsonDecode(response.headers['hx-trigger-after-swap']!) as Map<String, dynamic>;
+      final trigger = jsonDecode(response.headers['hx-trigger']!) as Map<String, dynamic>;
       final message = (trigger['dc:toast'] as Map)['message'] as String;
       expect(message, contains('not present in the running scheduler'));
       expect(message, isNot(contains('restart')));
@@ -547,7 +547,7 @@ scheduling:
       }
 
       Map<String, dynamic> toast(Map<String, String> headers) =>
-          ((jsonDecode(headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map).cast<String, dynamic>();
+          ((jsonDecode(headers['hx-trigger']!) as Map)['dc:toast'] as Map).cast<String, dynamic>();
 
       setUp(() => clock = DateTime.utc(2026, 9, 6, 12));
 
@@ -725,7 +725,7 @@ scheduling:
         for (final action in const ['approve', 'reject']) {
           final response = await send('POST', '/scheduling/pending/$changeId/$action');
           expect(response.status, 403, reason: action);
-          expect(response.headers.containsKey('hx-trigger-after-swap'), isFalse);
+          expect(response.headers.containsKey('hx-trigger'), isFalse);
         }
 
         expect(File(configPath).readAsBytesSync(), before);
@@ -799,7 +799,7 @@ scheduling:
         final response = await send('POST', '/scheduling/jobs/mail-feed/delete');
 
         expect(response.status, 200);
-        final toast = (jsonDecode(response.headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map;
+        final toast = (jsonDecode(response.headers['hx-trigger']!) as Map)['dc:toast'] as Map;
         expect(toast['type'], 'error');
         expect(toast['message'], contains('Shell jobs are file-only'));
         expect(File(configPath).readAsStringSync(), before);
@@ -809,7 +809,7 @@ scheduling:
         final response = await send('GET', '/scheduling/jobs/mail-feed/form');
 
         expect(response.status, 200);
-        final toast = (jsonDecode(response.headers['hx-trigger-after-swap']!) as Map)['dc:toast'] as Map;
+        final toast = (jsonDecode(response.headers['hx-trigger']!) as Map)['dc:toast'] as Map;
         expect(toast['message'], 'Job not found');
         expect(response.body, isNot(contains('mail-feed')));
       });
@@ -852,7 +852,14 @@ class _NoopSessionService implements SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
-  }) async => Session(id: 'session-$key', type: type, createdAt: DateTime.now(), updatedAt: DateTime.now());
+    AgentWorkspace? workspace,
+  }) async => Session(
+    id: 'session-$key',
+    type: type,
+    workspace: workspace,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

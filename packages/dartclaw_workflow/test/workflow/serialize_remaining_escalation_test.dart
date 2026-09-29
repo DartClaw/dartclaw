@@ -3,7 +3,7 @@
 // Tests cover the seven scenarios from the FIS plus BPC-11/12/13/23/32
 // and the TI01 event class shape.
 //
-// Tier note: tests that drive the full executor with SQLite are tagged
+// Tier note: tests that drive the full executor with in-memory repositories are tagged
 // `component`. Pure unit tests (event class shape, flag persistence round-trip)
 // run at the default tier.
 @Tags(['component'])

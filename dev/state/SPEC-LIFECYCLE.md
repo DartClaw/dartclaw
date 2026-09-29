@@ -8,6 +8,7 @@ When DartClaw is implementing a planned milestone, an exported implementation bu
 
 - Exported bundle files are **tracked** (not gitignored) so the implementing workflow can read them as ordinary files and PR reviewers can see them in the diff.
 - They appear at the start of milestone implementation, may be updated in place by the workflow (status checkboxes, `## Learnings` appends), and are removed before the squash-merge.
+- Milestone qualification protocols and result ledgers belong beside `plan.json` in the bundle, not in permanent `dev/testing/` documentation. Keep reusable runners and instructions in `dev/testing/`; consolidate release-relevant outcomes into the canonical PRD before removing the ledger.
 - The squash-merge is what keeps `main` clean: because the feature branch tip no longer contains the exported bundle, the squashed commit on `main` doesn't include it.
 - Older in-flight branches may still contain legacy transient exports under `dev/specs/<version>/`, scattered support-doc directories such as `dev/research/`, `dev/wireframes/`, or `dev/diagrams/`, or root aliases such as `dev/LEARNINGS.md`; treat those the same way and remove them before squash-merge. `dev/adrs/`, `dev/architecture/`, and `dev/design-system/` are canonical public docs and are no longer transient.
 

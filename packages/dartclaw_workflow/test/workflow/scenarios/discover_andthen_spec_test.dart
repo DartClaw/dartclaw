@@ -37,9 +37,10 @@ void main() {
       // Classification is multi-signal and filename-independent; assert the
       // documented contract, kept in sync with built_in_skill_inventory_test.dart.
       expect(skill, contains('## Implementation Plan'));
-      expect(skill, contains('corroborated'));
-      expect(skill, contains('Filename is irrelevant'));
-      expect(skill, contains('never reach `existing`'));
+      expect(skill, contains('regardless of FIS-like headings'));
+      expect(skill, contains('both `**Plan**:` and `**Story-ID**:`'));
+      expect(skill, contains('Written requirements belong in plan-and-implement'));
+      expect(skill, contains('Do not invoke `andthen:spec` on this input'));
       expect(skill, contains('existing'));
       expect(skill, contains('synthesized'));
       // The brittle filename gate and the stale section markers it keyed on are gone.
@@ -61,12 +62,11 @@ void main() {
       final outputs = await _extractDetectSpecOutputs(
         harness,
         projectRoot: projectRoot,
-        payload: {'spec_path': 'dev/specs/demo/fis/s01-story.md', 'spec_source': 'existing', 'spec_confidence': 0},
+        payload: {'spec_path': 'dev/specs/demo/fis/s01-story.md', 'spec_source': 'existing'},
       );
 
       expect(outputs['spec_path'], 'dev/specs/demo/fis/s01-story.md');
       expect(outputs['spec_source'], 'existing');
-      expect(outputs['spec_confidence'], 0);
     });
 
     test('extracts synthesized classification without requiring a path', () async {
@@ -77,12 +77,11 @@ void main() {
       final outputs = await _extractDetectSpecOutputs(
         harness,
         projectRoot: projectRoot,
-        payload: {'spec_path': '', 'spec_source': 'synthesized', 'spec_confidence': 0},
+        payload: {'spec_path': '', 'spec_source': 'synthesized'},
       );
 
       expect(outputs['spec_path'], '');
       expect(outputs['spec_source'], 'synthesized');
-      expect(outputs['spec_confidence'], 0);
     });
 
     test('execute validates spec_path through generic format: path (no bespoke skill gate)', () async {
@@ -116,7 +115,6 @@ void main() {
             outputs: {
               'spec_path': OutputConfig(format: OutputFormat.path),
               'spec_source': OutputConfig(format: OutputFormat.text),
-              'spec_confidence': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
             },
           ),
         ],
@@ -147,7 +145,6 @@ void main() {
                   executionEnvelopeOutputsKey: const {
                     'spec_path': 'dev/specs/demo/fis/s01-story.md',
                     'spec_source': 'existing',
-                    'spec_confidence': 0,
                   },
                   executionEnvelopeMarkerKey: executionEnvelopeVersion,
                 }),
@@ -205,7 +202,6 @@ Future<Map<String, dynamic>> _extractDetectSpecOutputs(
       outputs: {
         'spec_path': OutputConfig(format: OutputFormat.path),
         'spec_source': OutputConfig(format: OutputFormat.text),
-        'spec_confidence': OutputConfig(format: OutputFormat.json, schema: 'non_negative_integer'),
       },
     ),
     taskWithSession,

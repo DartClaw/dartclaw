@@ -1,11 +1,10 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_google_chat/testing.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:shelf/shelf.dart';
@@ -31,12 +30,10 @@ void main() {
   late TaskReviewService reviewService;
   late TaskNotificationSubscriber notificationSubscriber;
   late GoogleChatWebhookHandler webhookHandler;
-  late SqliteBackend taskBackend;
 
   setUp(() async {
     eventBus = EventBus();
-    taskBackend = await openPreparedTaskBackend();
-    tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
+    tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
     restClient = FakeGoogleChatRestClient();
     channel = GoogleChatChannel(
       config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
@@ -60,7 +57,6 @@ void main() {
     await manager.dispose();
     await eventBus.dispose();
     await tasks.dispose();
-    await taskBackend.close();
   });
 
   test('review transition sends a card and card click accepts the task', () async {

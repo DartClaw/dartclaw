@@ -3,6 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowService;
 
 import '../sidebar_live_state.dart';
+import '../conversation/inbox_service.dart';
 import '../task/task_service.dart';
 import '../templates/sidebar.dart';
 import 'session_usage.dart';
@@ -19,6 +20,7 @@ class SidebarDataBuilder {
     this.tasksEnabled = false,
     this.taskService,
     this.workflowService,
+    this.inbox,
   }) : _callback = null;
 
   new fromCallback(Future<SidebarData> Function() loadSidebarData)
@@ -29,6 +31,7 @@ class SidebarDataBuilder {
       tasksEnabled = false,
       taskService = null,
       workflowService = null,
+      inbox = null,
       _callback = (({String? activeSessionId}) async {
         final data = await loadSidebarData();
         return (
@@ -52,6 +55,7 @@ class SidebarDataBuilder {
   final bool tasksEnabled;
   final TaskService? taskService;
   final WorkflowService? workflowService;
+  final ConversationInboxService? inbox;
   final _SidebarDataCallback? _callback;
 
   Future<SidebarData> build({String? activeSessionId}) async {
@@ -62,6 +66,8 @@ class SidebarDataBuilder {
 
     final sessionService = sessions!;
     final all = await sessionService.listSessions();
+    final inboxPage = await inbox?.inbox(limit: ConversationInboxService.maxPageSize);
+    final activeIds = inboxPage?.entries.map((entry) => entry.session.id).toSet();
     SidebarSession? main;
     final dmChannels = <SidebarSession>[];
     final groupChannels = <SidebarSession>[];
@@ -86,7 +92,7 @@ class SidebarDataBuilder {
         case SessionType.logicalAgent:
           break;
         case SessionType.user:
-          activeEntries.add(entry);
+          if (activeIds == null || activeIds.contains(s.id)) activeEntries.add(entry);
         case SessionType.archive:
           archivedEntries.add(entry);
       }

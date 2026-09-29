@@ -17,10 +17,15 @@ class InMemorySessionService implements SessionService {
   @override
   final EventBus? eventBus;
 
+  @override
+  int get maxProcessSessions => 32;
+
   final String Function()? _idGenerator;
   SessionServiceObserver? _observer;
   final Map<String, Session> _sessionsById = <String, Session>{};
   final Map<String, String> _sessionKeys = <String, String>{};
+  final Map<String, ConversationState> _conversationStates = <String, ConversationState>{};
+  final Map<String, String> _temporaryEndStates = <String, String>{};
   int _nextSessionNumber = 1;
 
   @override
@@ -32,28 +37,79 @@ class InMemorySessionService implements SessionService {
   @override
   Future<Session> createSession({
     SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
     String? channelKey,
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
+  }) => createSessionWithIdentity(
+    id: _createId(),
+    type: type,
+    retention: retention,
+    channelKey: channelKey,
+    provider: provider,
+    securityProfile: securityProfile,
+    executionMode: executionMode,
+    workspace: workspace,
+  );
+
+  @override
+  Future<Session> createSessionWithIdentity({
+    required String id,
+    SessionType type = SessionType.user,
+    ConversationRetention retention = ConversationRetention.durable,
+    String? channelKey,
+    String? provider,
+    String? securityProfile,
+    ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
+    final existing = _sessionsById[id];
+    if (existing != null) {
+      if (existing.type != type ||
+          existing.retention != retention ||
+          existing.channelKey != channelKey ||
+          existing.provider != provider ||
+          existing.securityProfile != securityProfile ||
+          existing.executionMode != executionMode ||
+          existing.workspace != workspace) {
+        throw StateError('Session identity is already in use: $id');
+      }
+      return existing;
+    }
     final now = DateTime.now();
     final session = Session(
-      id: _createId(),
+      id: id,
       type: type,
+      retention: retention,
       channelKey: channelKey,
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
       createdAt: now,
       updatedAt: now,
     );
     _sessionsById[session.id] = session;
+    if (retention == ConversationRetention.process) _temporaryEndStates[session.id] = 'active';
     eventBus?.fire(
       SessionCreatedEvent(sessionId: session.id, sessionKey: channelKey, sessionType: type.name, timestamp: now),
     );
     return session;
   }
+
+  @override
+  Future<ConversationRetention?> retentionFor(String id) async => _sessionsById[id]?.retention;
+
+  @override
+  String? temporaryEndState(String id) => _temporaryEndStates[id];
+
+  @override
+  void markTemporaryEnding(String id) => _temporaryEndStates[id] = 'ending';
+
+  @override
+  void markTemporaryEndFailed(String id) => _temporaryEndStates[id] = 'end_failed';
 
   @override
   Future<Session> getOrCreateMainSession() {
@@ -62,6 +118,58 @@ class InMemorySessionService implements SessionService {
 
   @override
   Future<Session?> getSession(String id) async => _sessionsById[id];
+
+  @override
+  Future<ConversationState> getConversationState(String id) async {
+    if (!_sessionsById.containsKey(id)) throw StateError('Session not found: $id');
+    return _conversationStates[id] ?? ConversationState();
+  }
+
+  @override
+  Future<void> updateConversationState(String id, ConversationState state) async {
+    final session = _sessionsById[id];
+    if (session == null) throw StateError('Session not found: $id');
+    _conversationStates[id] = state;
+    _sessionsById[id] = session.copyWith(updatedAt: DateTime.now());
+  }
+
+  @override
+  Future<({Session session, ConversationState state})> updateInboxMetadata({
+    required String id,
+    required int expectedConversationRevision,
+    DateTime? settledAt,
+    bool clearSettledAt = false,
+    int? readMessageCursor,
+    String? attentionReadEventId,
+    List<String>? dismissedAttentionEventIds,
+  }) async {
+    final session = _sessionsById[id];
+    if (session == null) throw StateError('Session not found: $id');
+    final state = _conversationStates[id] ?? ConversationState();
+    if (state.revision != expectedConversationRevision) {
+      throw ConversationRevisionMismatch(expectedConversationRevision, state.revision);
+    }
+    final bounded = dismissedAttentionEventIds == null
+        ? null
+        : dismissedAttentionEventIds.length <= SessionService.maxDismissedAttentionEventIds
+        ? List<String>.of(dismissedAttentionEventIds, growable: false)
+        : dismissedAttentionEventIds.sublist(
+            dismissedAttentionEventIds.length - SessionService.maxDismissedAttentionEventIds,
+          );
+    final nextState = state.bumpRevision();
+    final nextSession = session.copyWith(
+      settledAt: clearSettledAt ? null : settledAt ?? session.settledAt,
+      readMessageCursor: readMessageCursor == null || readMessageCursor >= session.readMessageCursor
+          ? readMessageCursor
+          : session.readMessageCursor,
+      attentionReadEventId: attentionReadEventId ?? session.attentionReadEventId,
+      dismissedAttentionEventIds: bounded,
+      updatedAt: DateTime.now(),
+    );
+    _sessionsById[id] = nextSession;
+    _conversationStates[id] = nextState;
+    return (session: nextSession, state: nextState);
+  }
 
   @override
   Future<List<Session>> listSessions({
@@ -92,12 +200,68 @@ class InMemorySessionService implements SessionService {
 
   @override
   Future<int> updateTitle(String id, String title) async {
+    return updateTitleWithProvenance(id, title, provenance: SessionTitleProvenance.system);
+  }
+
+  @override
+  Future<int> updateTitleWithProvenance(String id, String title, {required SessionTitleProvenance provenance}) async {
     final session = _sessionsById[id];
     if (session == null) {
       return 0;
     }
-    _sessionsById[id] = session.copyWith(title: title, updatedAt: DateTime.now());
+    _sessionsById[id] = session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: provenance,
+      updatedAt: DateTime.now(),
+    );
     return 1;
+  }
+
+  @override
+  Future<Session?> setAutomaticTitleFallback(String id, String title) async {
+    final session = _sessionsById[id];
+    if (session == null) return null;
+    if (session.title?.trim().isNotEmpty ?? false) return session;
+    final updated = session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: SessionTitleProvenance.automaticFallback,
+      updatedAt: DateTime.now(),
+    );
+    _sessionsById[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<Session?> claimAutomaticTitle(String id) async {
+    final session = _sessionsById[id];
+    if (session == null ||
+        session.automaticTitleAttempted ||
+        session.titleProvenance != SessionTitleProvenance.automaticFallback) {
+      return null;
+    }
+    final updated = session.copyWith(automaticTitleAttempted: true, updatedAt: DateTime.now());
+    _sessionsById[id] = updated;
+    return updated;
+  }
+
+  @override
+  Future<bool> applyAutomaticTitle(String id, String title, {required int expectedRevision}) async {
+    final session = _sessionsById[id];
+    if (session == null ||
+        session.titleRevision != expectedRevision ||
+        session.titleProvenance != SessionTitleProvenance.automaticFallback ||
+        !session.automaticTitleAttempted) {
+      return false;
+    }
+    _sessionsById[id] = session.copyWith(
+      title: title,
+      titleRevision: session.titleRevision + 1,
+      titleProvenance: SessionTitleProvenance.automaticGenerated,
+      updatedAt: DateTime.now(),
+    );
+    return true;
   }
 
   @override
@@ -116,11 +280,19 @@ class InMemorySessionService implements SessionService {
     String? provider,
     String? securityProfile,
     ExecutionMode? executionMode,
+    AgentWorkspace? workspace,
   }) async {
     final existingId = _sessionKeys[key];
     if (existingId != null) {
       final session = _sessionsById[existingId];
       if (session != null && session.type != SessionType.archive) {
+        final bindingAgentId = workspace?.agentId ?? session.workspace?.agentId ?? 'unconfigured';
+        AgentWorkspace.requireCurrent(
+          sessionId: session.id,
+          agentId: bindingAgentId,
+          pinned: session.workspace,
+          configured: workspace,
+        );
         final resolvedMode = executionMode ?? session.executionMode;
         if (session.type != type ||
             session.channelKey != key ||
@@ -149,6 +321,7 @@ class InMemorySessionService implements SessionService {
       provider: provider,
       securityProfile: securityProfile,
       executionMode: executionMode,
+      workspace: workspace,
     );
     _sessionKeys[key] = session.id;
     return session;
@@ -212,8 +385,10 @@ class InMemorySessionService implements SessionService {
       throw StateError('Cannot delete ${session.type.name} session');
     }
 
-    _notify(() => _observer?.onSessionDeleting(id));
+    _notify(() => _observer?.onSessionDeleting(id, session));
     _sessionsById.remove(id);
+    _conversationStates.remove(id);
+    _temporaryEndStates.remove(id);
     _sessionKeys.removeWhere((_, sessionId) => sessionId == id);
     eventBus?.fire(
       SessionEndedEvent(

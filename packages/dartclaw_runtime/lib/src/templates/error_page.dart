@@ -25,8 +25,8 @@ String errorPageTemplate(
   });
   final shellWrapped = sidebarHtml != null && topbarHtml != null;
   final body = shellWrapped
-      ? '<div class="shell">$sidebarHtml<div class="shell-main">$topbarHtml'
-            '<main id="main-content" tabindex="-1" hx-history-elt class="page-content">$errorHtml</main>'
+      ? '<div class="shell" hx-history-elt>$sidebarHtml<div class="shell-main">$topbarHtml'
+            '<main id="main-content" tabindex="-1" class="page-content">$errorHtml</main>'
             '</div></div>'
       : errorHtml;
   return layoutTemplate(

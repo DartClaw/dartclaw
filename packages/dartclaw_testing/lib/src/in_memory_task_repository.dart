@@ -148,7 +148,9 @@ class InMemoryTaskRepository implements TaskRepository {
       configJson: task.configJson,
       worktreeJson: task.worktreeJson,
       agentExecutionId: task.agentExecutionId,
+      agentExecution: task.agentExecution,
       projectId: task.projectId ?? current.projectId,
+      retryCount: task.retryCount,
     );
     return true;
   }
@@ -169,14 +171,7 @@ class InMemoryTaskRepository implements TaskRepository {
     if (patch.isEmpty) {
       return true;
     }
-    final merged = <String, dynamic>{...current.configJson};
-    for (final entry in patch.entries) {
-      if (entry.value == null) {
-        merged.remove(entry.key);
-      } else {
-        merged[entry.key] = entry.value;
-      }
-    }
+    final merged = TaskRepository.mergeConfigJsonPatch(current.configJson, patch);
     _tasks[taskId] = current.copyWith(configJson: merged);
     return true;
   }

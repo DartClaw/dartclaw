@@ -51,6 +51,7 @@ void main() {
         'guard_audit.max_retention_days',
         'sessions.reset_hour',
         'sessions.idle_timeout_minutes',
+        'sessions.auto_settle_idle_days',
         'logging.level',
         'logging.format',
         'scheduling.heartbeat.interval_minutes',
@@ -59,8 +60,6 @@ void main() {
         'context.warning_threshold',
         'context.compact_instructions',
         'search.backend',
-        'search.qmd.host',
-        'search.qmd.port',
         'search.default_depth',
         'search.embedding.provider',
         'search.embedding.model',
@@ -129,6 +128,10 @@ void main() {
       expect(ConfigMeta.fields, isNot(contains('memory_max_bytes')));
       expect(ConfigMeta.fields, isNot(contains('guards.input_sanitizer.enabled')));
       expect(ConfigMeta.fields.keys.where((field) => field.startsWith('advisor.')), isEmpty);
+      final agentEntry = _entryFieldsOf(ConfigMeta.fields['agent.agents']!.entry);
+      expect(agentEntry, isNot(contains('workspace')));
+      expect(ConfigMeta.fields['agent.agents']!.description, contains('data_dir/agents/<id>/workspace'));
+      expect(ConfigMeta.fields['agent.agents']!.mutability, ConfigMutability.restart);
     });
 
     // The reload-tier disposition of the heartbeat/git-sync fold, by name. A later
@@ -227,7 +230,7 @@ void main() {
       expect(ConfigMeta.fields['workflow.runtime_artifacts_retention.prune_after_days']!.min, 0);
       expect(ConfigMeta.fields['context.warning_threshold']!.min, 50);
       expect(ConfigMeta.fields['context.warning_threshold']!.max, 99);
-      expect(ConfigMeta.fields['search.backend']!.allowedValues, ['fts5', 'hybrid', 'qmd']);
+      expect(ConfigMeta.fields['search.backend']!.allowedValues, ['lexical', 'hybrid']);
       expect(ConfigMeta.fields['search.embedding.provider']!.allowedValues, ['local', 'http']);
       expect(ConfigMeta.fields['search.embedding.credential']!.mutability, ConfigMutability.readonly);
       expect(ConfigMeta.fields['context.compact_instructions']!.nullable, true);
@@ -500,6 +503,8 @@ void main() {
       expect(
         ConfigMeta.toleratedLegacyKeys.keys,
         unorderedEquals(const [
+          'database.backend',
+          'search.qmd',
           'andthen',
           'delegation',
           'tasks.max_concurrent',
@@ -731,7 +736,6 @@ void main() {
           'tasks.budget.default_max_tokens',
           'providers.<id>.pool_size',
           'mcp_servers.<name>.<section>.<key>',
-          'mcp_servers.<name>.url IPv4 octets',
           'database.url delimiter positions',
           'governance.turn_limits duration and ordering checks',
           'agent.history.max_total_chars < max_message_chars',
@@ -1109,12 +1113,6 @@ const _numericBoundResiduals = <String, _NumericBoundResidual>{
   'mcp_servers.<name>.<section>.<key>': (
     reason: 'The four non-negative integers belong to object-map entry shapes, not resolvable FieldMeta values.',
     literalSites: ['config_parser_providers.dart|if (raw < 0) {'],
-  ),
-  'mcp_servers.<name>.url IPv4 octets': (
-    reason: 'The 0..255 range validates segments inside a URL string and is not a numeric config field.',
-    literalSites: [
-      'config_parser_providers.dart|return value != null && value >= 0 && value <= 255 && value.toString() == octet;',
-    ],
   ),
   'database.url delimiter positions': (
     reason: 'String delimiter positions detect persisted URL secrets; they are not numeric config-field bounds.',

@@ -45,7 +45,6 @@ class _FakePrCreator extends PrCreator {
 }
 
 void main() {
-  late SqliteBackend taskBackend;
   late EventBus eventBus;
   late TaskService taskService;
   late Directory tempDir;
@@ -55,15 +54,13 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('service_wiring_workflow_publish_test_');
     projectPath = p.join(tempDir.path, 'project');
     await _initProjectRepo(projectPath, workflowBranch: 'dartclaw/workflow/run123');
-    taskBackend = await openPreparedTaskBackend();
     eventBus = EventBus();
-    taskService = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
+    taskService = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
   });
 
   tearDown(() async {
     await eventBus.dispose();
     await taskService.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

@@ -1,9 +1,12 @@
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show SessionType;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/request_auth_context.dart';
+import '../concurrency/session_mutation_coordinator.dart';
+import '../conversation/conversation_service.dart';
 import '../turn_manager.dart' show TurnManager;
 import '../turn_wait_status.dart';
 import 'api_helpers.dart';
@@ -16,7 +19,13 @@ final _log = Logger('SessionTurnStatusRoutes');
 /// - `POST /api/sessions/<id>/turn/stop` — cancels the active turn if cancellable.
 /// - `GET /api/sessions/<id>/turn-status` — returns the turn-status snapshot.
 /// - `POST /api/sessions/<id>/turns/<turnId>/cancel` — cancels a specific turn by id.
-void registerSessionTurnStatusRoutes(Router router, {required SessionService sessions, required TurnManager turns}) {
+void registerSessionTurnStatusRoutes(
+  Router router, {
+  required SessionService sessions,
+  required TurnManager turns,
+  required ConversationService conversation,
+  required SessionMutationCoordinator sessionMutations,
+}) {
   // POST /api/sessions/<id>/turn/stop
   router.post('/api/sessions/<id>/turn/stop', (Request request, String id) async {
     try {
@@ -35,8 +44,15 @@ void registerSessionTurnStatusRoutes(Router router, {required SessionService ses
       if (!snapshot.canCancel) {
         return errorResponse(409, 'TURN_NOT_CANCELLABLE', 'Turn is not cancellable');
       }
-      await turns.cancelTurnById(id, turnId, TurnCancelReason.operatorCancel);
-      return jsonResponse(200, {'status': 'stopped'});
+      if (session.type != SessionType.user && session.type != SessionType.main) {
+        await sessionMutations.run(id, () => turns.cancelTurnById(id, turnId, TurnCancelReason.operatorCancel));
+        final state = await sessions.getConversationState(id);
+        return jsonResponse(200, {'status': 'stopped', 'conversation_revision': state.revision});
+      }
+      final state = await conversation.stop(sessionId: id, turnId: turnId);
+      return jsonResponse(200, {'status': 'stopped', 'conversation_revision': state.revision});
+    } on ConversationMutationException catch (e) {
+      return errorResponse(e.statusCode, e.code, e.message);
     } on TurnCancelException catch (e) {
       return errorResponse(e.statusCode, e.code, e.message);
     } catch (e) {
@@ -85,8 +101,15 @@ void registerSessionTurnStatusRoutes(Router router, {required SessionService ses
         return errorResponse(400, 'TURN_CANCEL_INVALID_REASON', 'Invalid turn cancel reason');
       }
       try {
-        final result = await turns.cancelTurnById(id, turnId, reason);
+        if (reason == TurnCancelReason.operatorCancel &&
+            (session.type == SessionType.user || session.type == SessionType.main)) {
+          final state = await conversation.stop(sessionId: id, turnId: turnId);
+          return jsonResponse(200, {'status': 'cancelled', 'conversation_revision': state.revision});
+        }
+        final result = await sessionMutations.run(id, () => turns.cancelTurnById(id, turnId, reason));
         return jsonResponse(200, result.toJson());
+      } on ConversationMutationException catch (e) {
+        return errorResponse(e.statusCode, e.code, e.message);
       } on TurnCancelException catch (e) {
         return errorResponse(e.statusCode, e.code, e.message);
       }

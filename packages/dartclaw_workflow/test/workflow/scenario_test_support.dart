@@ -10,7 +10,6 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRu
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 
 import '_support/workflow_test_paths.dart';
 
@@ -37,18 +36,16 @@ final class ScenarioTaskHarness {
   late SessionService sessions;
   late MessageService messages;
   late EventBus eventBus;
-  late SqliteTaskRepository taskRepository;
+  late InMemoryTaskRepository taskRepository;
   late TaskService tasks;
   late ScriptedAgentWorker _worker;
   late TurnManager turns;
   late ArtifactCollector collector;
   late KvService kvService;
-  late Database taskDb;
-  late SqliteBackend taskBackend;
-  late SqliteAgentExecutionRepository agentExecutions;
-  late SqliteWorkflowRunRepository workflowRuns;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
-  late SqliteExecutionRepositoryTransactor executionTransactor;
+  late InMemoryAgentExecutionRepository agentExecutions;
+  late WorkflowRunRepository workflowRuns;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
+  late InMemoryExecutionRepositoryTransactor executionTransactor;
   late GuardChain guardChain;
   late TaskToolFilterGuard taskToolFilterGuard;
 
@@ -61,15 +58,12 @@ final class ScenarioTaskHarness {
 
     harness.sessions = SessionService(baseDir: harness.sessionsDir);
     harness.messages = MessageService(baseDir: harness.sessionsDir);
-    harness.taskDb = sqlite3.openInMemory();
-    harness.taskBackend = SqliteBackend(harness.taskDb);
-    await SqliteSchemaGate.prepareTasks(harness.taskBackend, storeName: 'tasks.db');
     harness.eventBus = EventBus();
-    harness.taskRepository = SqliteTaskRepository(harness.taskBackend);
-    harness.agentExecutions = SqliteAgentExecutionRepository(harness.taskBackend);
-    harness.workflowRuns = SqliteWorkflowRunRepository(harness.taskBackend);
-    harness.workflowStepExecutions = SqliteWorkflowStepExecutionRepository(harness.taskBackend);
-    harness.executionTransactor = SqliteExecutionRepositoryTransactor(harness.taskBackend);
+    harness.taskRepository = InMemoryTaskRepository();
+    harness.agentExecutions = InMemoryAgentExecutionRepository();
+    harness.workflowRuns = InMemoryWorkflowRunRepository();
+    harness.workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
+    harness.executionTransactor = const InMemoryExecutionRepositoryTransactor();
     harness.tasks = TaskService(
       harness.taskRepository,
       agentExecutionRepository: harness.agentExecutions,
@@ -369,7 +363,6 @@ final class ScenarioTaskHarness {
     await messages.dispose();
     await kvService.dispose();
     await eventBus.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

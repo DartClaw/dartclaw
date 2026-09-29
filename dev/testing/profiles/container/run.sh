@@ -32,6 +32,7 @@ case "${1:-}" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/../postgres.sh"
 SEED_DIR="${SCRIPT_DIR}/data"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 if [ -n "$CI_MODE" ]; then
@@ -134,8 +135,11 @@ cleanup() {
   if [ -z "${DARTCLAW_CONTAINER_DATA_DIR:-}" ]; then
     rm -rf "${DATA_DIR}"
   fi
+  profile_postgres_stop
 }
 trap cleanup EXIT
+
+profile_postgres_start
 
 fail_with_log() {
   echo "FAIL: $1" >&2
@@ -159,9 +163,7 @@ if [ ! -x "${REPO_ROOT}/build/bridge/dartclaw-bridge-linux-x64" ]; then
 fi
 
 boot_server() {
-  # `dart run`, not `dart <file>`: only `dart run` executes the build hooks that
-  # produce the sqlite3 native asset. A runner without a system libsqlite3 has
-  # nothing to fall back to and the server dies in storage wiring.
+  # `dart run` resolves the workspace entry point and its generated assets.
   (cd "${REPO_ROOT}" && exec dart run apps/dartclaw_cli/bin/dartclaw.dart \
     --config "$CONFIG" serve --data-dir "$DATA_DIR" --source-dir "$REPO_ROOT") >"$LOG_PATH" 2>&1 &
   SERVER_PID=$!

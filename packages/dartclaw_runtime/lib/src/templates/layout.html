@@ -29,10 +29,40 @@
   <script type="module" src="/static/controllers/index.js"
           tl:attr="src=${assetPrefix} + '/controllers/index.js'"></script>
 </head>
-<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast" hx-indicator="#nav-progress">
+<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast dc-conversation-command"
+      hx-indicator:inherited="#nav-progress"
+      hx-status:4xx:inherited="swap:none" hx-status:5xx:inherited="swap:none">
 <a tl:if="${showSkipLink}" class="skip-link" href="#main-content">Skip to content</a>
 <div id="nav-progress" class="scan-bar htmx-indicator" aria-hidden="true"></div>
 <tl:block tl:utext="${body}"></tl:block>
+<dialog id="global-command-dialog" class="dialog command-dialog card-glass" data-command-dialog="global"
+        data-search-lifecycle="all" aria-label="Search and commands">
+  <div class="palette-input-row">
+    <span class="icon icon-search" aria-hidden="true"></span>
+    <label class="sr-only" for="global-command-query">Search conversations and commands</label>
+    <input id="global-command-query" class="form-input" type="search"
+           autocomplete="off" placeholder="Search conversations or run a command" data-command-query="global">
+    <button type="button" class="btn btn-icon-sm" data-command-close data-icon="x" aria-label="Close"></button>
+  </div>
+  <div class="palette-filters" data-command-search-filters>
+    <button type="button" class="chip" aria-pressed="true" data-search-lifecycle-option="all">All</button>
+    <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="active">Active</button>
+    <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="settled">Settled</button>
+    <button type="button" class="chip" aria-pressed="false" data-search-lifecycle-option="archived">Archived</button>
+    <label class="sr-only" for="global-command-project" data-project-controls hidden>Project</label>
+    <select id="global-command-project" class="palette-project"
+            data-search-project data-project-controls hidden>
+      <option value=":all">All chats</option>
+      <option value="">General chats</option>
+    </select>
+  </div>
+  <div class="command-results" data-command-results role="listbox" aria-label="Search and command results"></div>
+  <div class="palette-foot">
+    <span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span>
+    <span><kbd>&#9166;</kbd> open</span>
+    <span data-command-status role="status" aria-live="polite">Type to search.</span>
+  </div>
+</dialog>
 <tl:block tl:utext="${scriptsHtml}"></tl:block>
 </body>
 </html>

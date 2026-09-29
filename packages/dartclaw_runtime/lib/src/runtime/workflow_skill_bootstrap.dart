@@ -61,15 +61,14 @@ List<String> _workspaceMaterializationDirs(
   config_tools.DartclawConfig config, {
   required String? fallbackWorkspaceDir,
 }) {
-  if (config.projects.definitions.isEmpty) {
-    return [?fallbackWorkspaceDir];
-  }
-
-  return [
+  final directories = <String>{
+    if (config.projects.definitions.isEmpty) ?fallbackWorkspaceDir,
     for (final definition in config.projects.definitions.values)
       if (definition.localPath != null || _isGitWorkspace(configuredProjectDirectory(config, definition)))
         configuredProjectDirectory(config, definition),
-  ];
+    for (final definition in config.agent.definitions) ?definition.workspace?.directory,
+  };
+  return directories.toList(growable: false);
 }
 
 bool _isGitWorkspace(String path) {

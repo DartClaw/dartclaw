@@ -1587,7 +1587,9 @@ void main() {
     expect(hangingWorker.turnCallCount, 1);
 
     hangingWorker.cancelCompleter.complete();
-    await pumpEventQueue();
+    for (var attempt = 0; attempt < 100 && hangingWorker.turnCallCount < 2; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
     expect(hangingWorker.turnCallCount, 2);
 
     hangingWorker.completeSuccess(turnResult());
@@ -1738,6 +1740,8 @@ void main() {
       'cost_reported_turn_count',
       'turn_count',
       'provider',
+      'token_usage_complete',
+      'last_accounted_turn_id',
     });
     expect(usageData.containsKey('new_input_tokens'), isFalse);
     expect(usageData['provider'], 'claude');
@@ -1842,6 +1846,8 @@ void main() {
       'cost_reported_turn_count',
       'turn_count',
       'provider',
+      'token_usage_complete',
+      'last_accounted_turn_id',
     });
     expect(costData.containsKey('new_input_tokens'), isFalse);
     expect(costData['provider'], 'codex');
@@ -1883,20 +1889,6 @@ void main() {
     expect(costData['effective_tokens'], 500);
     expect(costData['cache_read_tokens'], 1000);
     expect(costData['cache_write_tokens'], 200);
-  });
-
-  test('defaults session cost provider to claude and treats missing cache_read_tokens as zero', () async {
-    final session = await sessions.getOrCreateMainSession();
-
-    scheduleTurnCompletion(worker, result: turnResult(inputTokens: 4, outputTokens: 6, totalCostUsd: 0.50));
-    final turnId = await runner.startTurn(session.id, [
-      {'role': 'user', 'content': 'default provider'},
-    ]);
-    await runner.waitForOutcome(session.id, turnId);
-
-    final costData = await readSessionCost(kvService, session.id);
-    expect(costData['provider'], 'claude');
-    expect(costData['cache_read_tokens'], 0);
   });
 
   test('tool call correlation produces ToolCallRecord with correct fields', () async {

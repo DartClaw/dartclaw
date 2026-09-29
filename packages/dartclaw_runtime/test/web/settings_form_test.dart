@@ -293,6 +293,30 @@ void main() {
       expect(group, contains('form-input--num'));
     });
 
+    test('a mutability tier renders as a quiet marker carrying what it means', () async {
+      final html = await renderPage(buildSurface());
+      final restart = _fieldGroup(html, 'agent.model');
+
+      expect(ConfigMeta.fields['agent.model']!.mutability, ConfigMutability.restart);
+      expect(restart, contains('class="field-tier"'));
+      expect(restart, contains('title="Applies after a server restart"'));
+      expect(restart, contains('>restart<'));
+      // The pill treatment is what nine RESTART badges in one card looked like.
+      expect(restart, isNot(contains('mode-badge')));
+      expect(restart, isNot(contains('restart-badge')));
+      expect(restart, isNot(contains('live-badge')));
+    });
+
+    test('the live tier renders no marker at all', () async {
+      final html = await renderPage(buildSurface());
+      final live = _fieldGroup(html, 'scheduling.heartbeat.enabled');
+
+      // A field that takes effect immediately is the expectation, and a marker
+      // on every field is a marker on none.
+      expect(ConfigMeta.fields['scheduling.heartbeat.enabled']!.mutability, ConfigMutability.live);
+      expect(live, isNot(contains('field-tier')));
+    });
+
     test('a readonly field renders as a fact with no enabled control', () async {
       final html = await renderPage(buildSurface());
       final group = _fieldGroup(html, 'tasks.execution');
@@ -385,7 +409,7 @@ void main() {
   });
 
   group('saving a section', () {
-    test('a restart-tier change writes YAML, badges the field and arms the shared banner', () async {
+    test('a restart-tier change writes YAML, marks the field and arms the shared banner', () async {
       final response = await post(buildSurface(), {
         settingsSectionFormField: 'agent',
         'agent.provider': 'claude',
@@ -398,6 +422,8 @@ void main() {
       expect(ConfigMeta.fields['agent.model']!.mutability, ConfigMutability.restart);
       expect(File(configPath).readAsStringSync(), contains('model: sonnet'));
       expect(File(p.join(dataDir, 'restart.pending')).readAsStringSync(), contains('agent.model'));
+      // The transient state keeps the marker's form and only re-hues it.
+      expect(_fieldGroup(body, 'agent.model'), contains('class="field-tier field-tier--warn"'));
       expect(_fieldGroup(body, 'agent.model'), contains('restart required'));
       // The shell's banner rides the same response rather than a second fetch.
       expect(body, contains('id="restart-banner"'));
@@ -421,6 +447,7 @@ void main() {
       expect(ConfigMeta.fields['scheduling.heartbeat.enabled']!.mutability, ConfigMutability.live);
       expect(fired.single.changedKeys, ['scheduling.heartbeat.enabled']);
       expect(File(p.join(dataDir, 'restart.pending')).existsSync(), isFalse);
+      expect(_fieldGroup(body, 'scheduling.heartbeat.enabled'), contains('class="field-tier field-tier--ok"'));
       expect(_fieldGroup(body, 'scheduling.heartbeat.enabled'), contains('applied'));
     });
 

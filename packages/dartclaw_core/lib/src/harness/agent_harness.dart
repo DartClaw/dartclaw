@@ -10,6 +10,81 @@ enum PromptStrategy {
   append,
 }
 
+/// Per-turn context fields an adapter serializes to its provider transport.
+///
+/// Which values each field accepts is not declared here: the provider process
+/// reports them as a [ModelCatalogue].
+final class EffectiveContextCapabilities {
+  final bool model;
+  final bool effort;
+
+  const new({required this.model, required this.effort});
+
+  static const unavailable = EffectiveContextCapabilities(model: false, effort: false);
+
+  Map<String, Object> toJson() => {'model': model, 'effort': effort};
+
+  static EffectiveContextCapabilities of(AgentHarness harness) => harness is EffectiveContextCapabilityProvider
+      ? (harness as EffectiveContextCapabilityProvider).effectiveContextCapabilities
+      : EffectiveContextCapabilities.unavailable;
+}
+
+abstract interface class EffectiveContextCapabilityProvider {
+  EffectiveContextCapabilities get effectiveContextCapabilities;
+}
+
+/// One model a provider offers the account.
+final class ModelCatalogueEntry {
+  /// The value the provider accepts as its model selection.
+  final String id;
+
+  /// The provider's own human-readable name, verbatim.
+  final String label;
+
+  /// Efforts the provider reports for this model; empty when it supports none.
+  final List<String> efforts;
+
+  const new({required this.id, required this.label, this.efforts = const []});
+}
+
+/// The models a provider process reports for the account it runs as.
+final class ModelCatalogue {
+  /// Selectable models in the provider's order.
+  final List<ModelCatalogueEntry> entries;
+
+  /// The entry the provider's default resolves to, or `null` when the resolved
+  /// model is not among [entries].
+  final String? defaultId;
+
+  const new({required this.entries, this.defaultId});
+
+  /// The entry whose id is [id], or `null` when [id] is null or not listed.
+  ModelCatalogueEntry? entryFor(String? id) {
+    for (final entry in entries) {
+      if (entry.id == id) return entry;
+    }
+    return null;
+  }
+
+  /// The entry Default resolves to, or `null` when [defaultId] is unresolved.
+  ModelCatalogueEntry? get defaultEntry => entryFor(defaultId);
+}
+
+/// A harness that can read its provider's [ModelCatalogue] without a turn.
+abstract interface class ModelCatalogueProvider {
+  /// Starts the provider process, reads the catalogue and the resolved
+  /// default, and stops the process.
+  ///
+  /// Throws when the provider cannot start or its answer lacks a field the
+  /// catalogue is built from; no partial catalogue is returned.
+  Future<ModelCatalogue> discoverModelCatalogue();
+}
+
+/// Adapter evidence that provider-native skill invocation is supported.
+abstract interface class NativeSkillCapabilityProvider {
+  bool get supportsNativeSkillInvocation;
+}
+
 /// Host-owned identity for the turn currently executing in a harness.
 final class HarnessTurnContext {
   const new({
@@ -18,12 +93,14 @@ final class HarnessTurnContext {
     required this.source,
     required this.agentName,
     this.turnTimeout,
+    this.allowOperatorApproval = false,
   });
 
   final String sessionId;
   final String turnId;
   final String? source;
   final String agentName;
+  final bool allowOperatorApproval;
 
   /// Provider-process backstop derived from this turn's effective wall-clock budget.
   final Duration? turnTimeout;
@@ -52,6 +129,9 @@ final class TurnResult {
     this.outputTokens = 0,
     this.cacheReadTokens = 0,
     this.cacheWriteTokens = 0,
+    this.tokenUsageComplete = false,
+    this.claudeUsageSnapshot,
+    this.mainSessionInputTokens,
   });
 
   final String? stopReason;
@@ -80,6 +160,15 @@ final class TurnResult {
   final int cacheReadTokens;
   final int cacheWriteTokens;
 
+  /// Whether the scalar token counters cover all work in this turn.
+  final bool tokenUsageComplete;
+
+  /// Claude's cumulative native-session reading; the runtime derives a turn delta.
+  final ClaudeUsageSnapshot? claudeUsageSnapshot;
+
+  /// The root conversation's input measure for context-window monitoring.
+  final int? mainSessionInputTokens;
+
   bool get isError => stopReason == 'error';
 
   bool get isCancelled => stopReason == 'cancelled';
@@ -90,6 +179,76 @@ final class TurnResult {
       'providerSessionId: $providerSessionId, structuredOutput: $structuredOutput, '
       'inputTokens: $inputTokens, outputTokens: $outputTokens, '
       'cacheReadTokens: $cacheReadTokens, cacheWriteTokens: $cacheWriteTokens)';
+}
+
+/// One model's cumulative counters in a Claude native session.
+final class ClaudeModelUsage {
+  const new({required this.input, required this.output, required this.cacheRead, required this.cacheWrite});
+
+  final int input;
+  final int output;
+  final int cacheRead;
+  final int cacheWrite;
+
+  Map<String, Object> toJson() => {
+    'input': input,
+    'output': output,
+    'cache_read': cacheRead,
+    'cache_write': cacheWrite,
+  };
+
+  static ClaudeModelUsage? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final input = value['input'];
+    final output = value['output'];
+    final cacheRead = value['cache_read'];
+    final cacheWrite = value['cache_write'];
+    if (input is! int ||
+        input < 0 ||
+        output is! int ||
+        output < 0 ||
+        cacheRead is! int ||
+        cacheRead < 0 ||
+        cacheWrite is! int ||
+        cacheWrite < 0) {
+      return null;
+    }
+    return ClaudeModelUsage(input: input, output: output, cacheRead: cacheRead, cacheWrite: cacheWrite);
+  }
+}
+
+/// Claude's full cumulative snapshot, scoped to its native session identity.
+final class ClaudeUsageSnapshot {
+  const new({required this.nativeSessionId, required this.models, this.totalCostUsd});
+
+  final String nativeSessionId;
+  final Map<String, ClaudeModelUsage> models;
+  final double? totalCostUsd;
+
+  Map<String, Object?> toJson() => {
+    'native_session_id': nativeSessionId,
+    'models': {for (final entry in models.entries) entry.key: entry.value.toJson()},
+    'total_cost_usd': totalCostUsd,
+  };
+
+  static ClaudeUsageSnapshot? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final id = value['native_session_id'];
+    final rawModels = value['models'];
+    final rawCost = value['total_cost_usd'];
+    if (id is! String || id.isEmpty || rawModels is! Map || rawModels.isEmpty) {
+      return null;
+    }
+    final models = <String, ClaudeModelUsage>{};
+    for (final entry in rawModels.entries) {
+      if (entry.key is! String || (entry.key as String).isEmpty) return null;
+      final usage = ClaudeModelUsage.fromJson(entry.value);
+      if (usage == null) return null;
+      models[entry.key as String] = usage;
+    }
+    final cost = rawCost is num && rawCost.isFinite && rawCost >= 0 ? rawCost.toDouble() : null;
+    return ClaudeUsageSnapshot(nativeSessionId: id, models: models, totalCostUsd: cost);
+  }
 }
 
 /// Thrown when a turn carries an input the target harness cannot honour.
@@ -112,6 +271,13 @@ final class UnsupportedHarnessCapabilityException implements Exception {
 /// Receives trusted host turn identity before provider execution begins.
 abstract interface class HarnessTurnContextSink {
   void setTurnContext(HarnessTurnContext? context);
+}
+
+/// Answers one provider-native approval request owned by the active turn.
+abstract interface class HarnessToolApprovalResponder {
+  bool canResolveToolApproval({required String turnId, required String requestId});
+
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved});
 }
 
 typedef ContextualMemoryToolHandler = Future<Map<String, dynamic>> Function(

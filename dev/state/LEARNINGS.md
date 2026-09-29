@@ -38,8 +38,7 @@
 - **Standalone `claude` reads keychain OAuth only when `USER` is in the spawn env.** `HOME`+`PATH` alone → "not logged in". The provider spawn sanitize deliberately keeps `USER` – never add an allowlist that drops it. Logged-out CLIs abort via `ProviderAuthPreflight` before skill introspection.
 - **Standalone harness startup is deferred behind the auth preflight.** CLI wiring splits into `wirePreHarness()` (no spawn) and `startHarnesses(providers)`; run/resume/retry derive the referenced-provider set, preflight it, then start only those. The executor-level preflight stays as the in-engine backstop for connected mode.
 - **A skill the harness activates by slash line must not declare `user-invocable: false`.** Claude Code 2.1.x refuses the `/skill` form for such skills and the step answers with no tool calls; `disable-model-invocation: true` keeps a host-invoked skill out of the menu while the slash form still works.
-- **Claude ends a headless turn's `result` while backgrounded subagents still run, then runs a notification turn by itself.** Under 2.1.x `Agent` backgrounds by default and no flag, setting or env var disables it; a process restart in between (the finalizer's `--json-schema`, a session switch) kills the children. `ClaudeCodeHarness` holds a successful turn while a non-`local_bash` task is listed (`control-protocol.md` § 4.8), bounded by the turn timeout.
-- **A `result`'s usage is the main conversation only.** Subagent usage rides `assistant` frames with `parent_tool_use_id`; credit the last frame per `message.id`, earlier ones are partial (2.1.270).
+- **Claude may remove a finished subagent from its background list before starting that agent's notification turn.** Under 2.1.x `Agent` backgrounds by default; a process restart before the notification loses its report. `ClaudeCodeHarness` holds a successful turn while a non-`local_bash` task is listed or its notification turn is owed (`control-protocol.md` § 4.8), bounded by the turn timeout.
 
 ### Codex
 - **Write `CODEX_HOME/config.toml` before spawning.** Later edits are unreliable as a control surface; see the `developerInstructions` entry for what the file does *not* govern.
@@ -76,6 +75,7 @@
 
 ## HTMX / SSE
 
+- **A programmatic write to a `select.form-select` leaves its enhanced trigger stale.** Every one is wrapped by `shared.js`; assignment, `form.reset()` and option rebuilds fire no `change`, so call `syncCustomSelect(select)` after each.
 - **`hx-swap="outerHTML"` required with `hx-select`.** Default `innerHTML` nests the extracted element → duplicate IDs.
 - **Every page needs `id="main-content"` + `hx-history-elt`.** Missing target → silent fallback to full-page nav.
 - **SSE `error` event triggers `onerror`, never named-event handlers.** Rename to e.g. `turn_error` for HTMX `sse-swap`.
@@ -237,6 +237,7 @@
 - **`build_windows_test.ps1` drives the validation helpers against `.bat` stubs, never the real binary.** The FTS5 probe now seeds no corpus at all: `rebuild-index` on an empty workspace is the whole proof, and the canonical dialect stays `dartclaw_core`'s alone.
 - **`arch_check`'s package count reads the filesystem on purpose – a red count on a developer host is real.** `git mv` and deletion leave a directory behind when it still holds ignored build output; delete the skeletons (ADR-056).
 - **A fitness gate's own remediation string can be asserted by that gate.** `memory_architecture_test.dart` pins its remediation wording; grep a gate for its own message before editing its advisory text.
+- **PostgreSQL-only unit fixtures need stateful domain repositories.** A no-op `DatabaseBackend` can accept writes while returning no rows, making runtime and standalone workflow tests hang after the internal work already completed.
 - **A `workflow_dispatch` dry run of `Release Binaries` proves nothing about publication.** `publish`, `homebrew` and `scoop` are gated on `github.ref_type == 'tag'`; render the formulas and manifests locally against fixture checksum files (`render_homebrew_formula.dart`, `render_scoop_manifest.dart --artifact <name>`).
 - **A live fixture must stage the shipped `dartclaw-*` skills itself.** A spawned Claude Code falls back to `~/.claude/skills` when the fixture has none; use `SkillProvisioner` + `WorkspaceSkillLinker` in setup.
 - **Precompile Dart-script test doubles that a test spawns.** `dart fake.dart` recompiles per spawn and overruns a 10-second handshake timeout on CI; `dart compile kernel` once in `setUpAll` and spawn the `.dill`.
@@ -262,6 +263,7 @@
 
 ## Testing
 
+- **Template comments ship in rendered pages.** `tasks_s11_test`/`task_detail_template_test` assert no `—` over the whole page and `inbox_template_test` bans a state-attribute name in prose, sidebar included – a template comment fails tests far from the edit.
 - **Bound-asserting tests must enumerate the set** – a test named 'only/every/no other' must assert with unorderedEquals/containsAll, never isNot(contains(...)).
 - **Fixtures built by the code under test never exercise its parser.** `writePage`-built fixtures meant `_readPage` never parsed foreign input – four data-loss bugs, suite green. Write raw literals.
 - **A fake returning a constant response makes retry tests vacuous.** Vary it per call, or no test can observe non-idempotent post-write effects.
@@ -269,6 +271,8 @@
 - **An ordering test must fail at the step *between* the two writes.** A payload rejected during extraction can't tell "wiki write last" from "wiki write first".
 - **A report category no test asserts on can ship inverted for its whole life.** Wiki `orphan` had zero assertions and read the wrong direction of the link graph.
 - **`dev/fitness` caps a `*_test.dart` at 1300 lines; the breach shows in the workspace gate only.** Put a new group in a sibling file with its own `setUp`.
+- **The conversation-loop browser profile is outside CI.** Chat UI changes pass CI while its assertions drift – `q1-e11` had never run. Rerun it after touching chat markup.
+- **Stage an identity marker outside its fresh destination.** A crash that leaves the temporary file inside an otherwise empty home makes the retry correctly refuse that now-nonempty unmarked directory.
 
 ## Scheduling
 

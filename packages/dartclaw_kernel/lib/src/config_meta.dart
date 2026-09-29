@@ -310,6 +310,17 @@ abstract final class ConfigMeta {
   /// and a companion gate pins every row to a CHANGELOG deprecation entry, so
   /// a deferred break stays announced rather than becoming permanent silence.
   static const Map<String, ToleratedLegacyKey> toleratedLegacyKeys = {
+    'database.backend': ToleratedLegacyKey(
+      path: 'database.backend',
+      match: LegacyKeyMatch.exact,
+      replacement: 'Remove database.backend; PostgreSQL is the only supported database.',
+      announcedBySweep: false,
+    ),
+    'search.qmd': ToleratedLegacyKey(
+      path: 'search.qmd',
+      match: LegacyKeyMatch.subtree,
+      replacement: 'Remove search.qmd; search supports lexical and explicit hybrid modes.',
+    ),
     'channels.whatsapp.task_trigger': ToleratedLegacyKey(
       path: 'channels.whatsapp.task_trigger',
       match: LegacyKeyMatch.subtree,

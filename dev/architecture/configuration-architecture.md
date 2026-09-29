@@ -2,11 +2,11 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.26 PostgreSQL database and native/HTTP embedding configuration, versioned schema `$id`, the
-offline `dartclaw config schema` command and the declared-view config load; 0.25 security posture corrections,
-capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
+**Current through**: 0.27 PostgreSQL-only database and lexical/hybrid configuration, managed named-agent workspace
+derivation, versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load;
+0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
 and kernel/channel loader constraint derivation, the declared per-section reload tiers, the schema-driven settings
-form, and kernel package formation. The authoritative SQLite store is `dartclaw.db`.
+form, and kernel package formation.
 
 ---
 
@@ -94,7 +94,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | Section | Class | Domain | Key Fields |
 |---------|-------|--------|------------|
 | `server` | `ServerConfig` | Server runtime | `port`, `host`, `name`, `dataDir`, `baseUrl`, `claudeExecutable`, `devMode`, `maxParallelTurns` |
-| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider`, logical agents with optional per-agent provider |
+| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider`, logical agents with optional per-agent provider and derived managed workspace |
 | `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
 | `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
 | `harness` | `HarnessConfig` | Harness-owned raw sections | Map-valued `harness.<name>` sections retained as data. The package owning a section parses it through the shared warning sink; `dartclaw_acp` owns `acp.agents.*`, and startup refuses any populated section for which no parser was composed. ACP container fields feed startup compatibility only, so `container_isolation_required: true` is startup-fatal |
@@ -103,7 +103,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `contentGuardFailOpen` |
 | `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
 | `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode, effort), `wikiLint` (`KnowledgeWikiLintConfig`) |
-| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`fts5`, `hybrid`, deprecated `qmd`), `qmd.host`, `qmd.port`, `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`) |
+| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`lexical`, `hybrid`), `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`); the removed `qmd` subtree is parser-only transition input |
 | `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
 | `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, hard worker-execution `poolSize`, options such as `inherit_user_settings`) |
 | `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
@@ -120,6 +120,20 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `features` | `FeaturesConfig` | Feature flags | `threadBinding` (enabled, idleTimeoutMinutes) |
 | `projects` | `ProjectConfig` | Multi-project | Project definitions |
 | `alerts` | `AlertsConfig` | Alert routing | `enabled`, `cooldownSeconds`, `burstThreshold`, `targets`, `routes` – all five registered in `ConfigMeta` |
+
+### Managed named-agent workspace derivation
+
+`agent.agents.<id>` defines an execution identity, not a filesystem path. Parsing derives
+`data_dir/agents/<id>/workspace` and the `agent:<id>` storage principal without touching disk. Ids are restricted to
+1–64 lowercase ASCII letters, digits, hyphens, or underscores, must start alphanumeric, and reserve `main` for the
+owner. The removed `workspace` entry field is absent from `ConfigMeta`, the generated JSON Schema, and the generated
+operator reference. The parser still detects its presence, including null or blank values, and records a fatal
+per-agent admission error directing the operator to remove it; no replacement path or sharing field exists.
+
+Init and serve own the filesystem phase. They validate every managed destination first, including exact id-only marker
+bytes and symlink/non-empty-unmarked refusal, then prepare all accepted homes before owner scaffolding or runtime/storage
+wiring. This keeps configuration parsing pure and makes partial setup unable to convert an arbitrary existing directory
+into a managed workspace.
 
 ### Nested Config Types
 
@@ -733,7 +747,7 @@ This is the **field-level** view — `ConfigMeta` mutability, which is what `PAT
 | `alerts.*` (targets, cooldowns, thresholds) | `logging.level`, `logging.format` |
 | | `governance.*` (turn limits, budgets, stall detection) |
 | | `container.*` |
-| | `search.backend`, `search.qmd.*`, `search.embedding.*` |
+| | `search.backend`, `search.embedding.*`; `search.qmd` is a removed parser-only transition key |
 | | `database.*` |
 | | `providers.*.pool_size`, `tasks.worktree.*`, guard chain (`guards.*`) |
 | | `harness.*`, `knowledge.*`, `workflow.*`, `mcp_servers.*` |
@@ -830,7 +844,9 @@ Hybrid retrieval is independent of `agent.provider`, model, effort and execution
 configuration above is its only model boundary; it creates no generative-agent turn or relevance-worker route.
 
 `database.credential` names one generic API-key entry whose resolved value is the PostgreSQL connection URL. It is
-mutually exclusive with `database.url`.
+mutually exclusive with `database.url`. There is no current database-engine selector. The 0.27 loader accepts only
+the exact legacy `database.backend: postgres` spelling with removal guidance and refuses other values. The exact old
+`search.backend: fts5` spelling similarly warns and normalizes to `lexical` for this transition release.
 
 ### CredentialsConfig
 
@@ -1043,8 +1059,8 @@ Comprehensive listing of all sections with hot-reload status. The **Reload Tier*
 |---------|-------------|-------------|---------------|---------------------|
 | `memory` | `MemoryConfig` | `restart` | No | Max bytes, pruning config |
 | `knowledge` | `KnowledgeConfig` | `restart` | No | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
-| `search` | `SearchConfig` | `restart` | No | Backend (`fts5`, `hybrid`, deprecated `qmd`), QMD connection, and the four `search.embedding.*` provider fields |
-| `database` | `DatabaseConfig` | `restart` | No | Backend selection, credential reference, pool size, FTS language |
+| `search` | `SearchConfig` | `restart` | No | Backend (`lexical`, `hybrid`) and the four `search.embedding.*` provider fields |
+| `database` | `DatabaseConfig` | `restart` | No | PostgreSQL URL or credential reference, pool size, text-search language |
 | `context` | `ContextConfig` | `reloadable` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, host tool-result byte cap |
 | `workspace` | `WorkspaceConfig` | `reloadable` | Yes (git sync toggles; `interval_minutes` needs a restart) | Git sync enabled/push/interval |
 | `workflow` | `WorkflowConfig` | `restart` | No | Workflow workspace directory |

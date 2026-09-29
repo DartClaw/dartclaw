@@ -66,6 +66,62 @@ void main() {
     });
   });
 
+  group('conversation state', () {
+    test('survives shared session metadata updates', () async {
+      final session = await sessions.createSession();
+      final now = DateTime.utc(2026, 9, 14);
+      final state = ConversationState().put(
+        ConversationSubmissionClaim(
+          submissionId: 'submission-1',
+          revisionId: 'revision-1',
+          messageId: '11111111-1111-4111-8111-111111111111',
+          attemptId: 'attempt-1',
+          payloadDigest: 'sha256:payload',
+          message: 'hello',
+          commitState: SubmissionCommitState.committed,
+          workState: ConversationWorkState.running,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      await sessions.updateConversationState(session.id, state);
+      await sessions.touchUpdatedAt(session.id);
+      await sessions.updateExecutionMode(session.id, ExecutionMode.container);
+      await sessions.updateProvider(session.id, 'codex');
+
+      final restored = await sessions.getConversationState(session.id);
+      expect(restored.revision, 1);
+      expect(restored.findSubmission('submission-1')?.message, 'hello');
+    });
+
+    test('serializes a claim update with an ordinary metadata update', () async {
+      final session = await sessions.createSession();
+      final now = DateTime.utc(2026, 9, 14);
+      final state = ConversationState().put(
+        ConversationSubmissionClaim(
+          submissionId: 'submission-race',
+          revisionId: 'revision-race',
+          messageId: '22222222-2222-4222-8222-222222222222',
+          attemptId: 'attempt-race',
+          payloadDigest: 'sha256:race',
+          message: 'kept',
+          commitState: SubmissionCommitState.committed,
+          workState: ConversationWorkState.running,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await Future.wait([
+        sessions.updateConversationState(session.id, state),
+        sessions.updateTitle(session.id, 'Also kept'),
+      ]);
+
+      expect((await sessions.getSession(session.id))?.title, 'Also kept');
+      expect((await sessions.getConversationState(session.id)).findSubmission('submission-race')?.message, 'kept');
+    });
+  });
+
   group('listSessions', () {
     test('returns empty list when no sessions', () async {
       final list = await sessions.listSessions();
@@ -111,6 +167,59 @@ void main() {
       expect(updated!.title, isNull);
       expect(updated.updatedAt.isAfter(session.updatedAt) || updated.updatedAt == session.updatedAt, isTrue);
     });
+  });
+
+  group('shared metadata mutation', () {
+    test('retains durable and process sessions', () async {
+      for (final retention in ConversationRetention.values) {
+        final session = await sessions.createSession(
+          retention: retention,
+          provider: 'claude',
+          executionMode: ExecutionMode.host,
+        );
+
+        await sessions.touchUpdatedAt(session.id);
+        await sessions.updateExecutionMode(session.id, ExecutionMode.container);
+        await sessions.updateProvider(session.id, 'codex');
+
+        final updated = await sessions.getSession(session.id);
+        expect(updated?.retention, retention);
+        expect(updated?.executionMode, ExecutionMode.container);
+        expect(updated?.provider, 'codex');
+        expect(Directory('${tempDir.path}/${session.id}').existsSync(), retention.isDurable);
+      }
+    });
+
+    test('unchanged execution mode keeps durable timestamp but touches process timestamp', () async {
+      final durable = await sessions.createSession(executionMode: ExecutionMode.host);
+      final process = await sessions.createSession(
+        retention: ConversationRetention.process,
+        executionMode: ExecutionMode.host,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+
+      final durableResult = await sessions.updateExecutionMode(durable.id, ExecutionMode.host);
+      final processResult = await sessions.updateExecutionMode(process.id, ExecutionMode.host);
+
+      expect(durableResult?.updatedAt, durable.updatedAt);
+      expect(processResult!.updatedAt.isAfter(process.updatedAt), isTrue);
+    });
+  });
+
+  test('persisted conversation access resolves owner and matching workspace only', () async {
+    final unconfigured = await sessions.createSession();
+    final configured = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: '${tempDir.path}/agent-a'),
+    );
+
+    expect(SessionService.persistedPrincipal(unconfigured), 'owner');
+    expect(SessionService.persistedPrincipal(unconfigured, fallbackUserId: 'fallback'), 'fallback');
+    expect(SessionService.persistedPrincipal(configured), 'agent:a');
+    expect(SessionService.isVisibleToPrincipal(unconfigured, 'owner'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'owner'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'agent:a'), isTrue);
+    expect(SessionService.isVisibleToPrincipal(configured, 'agent:b'), isFalse);
+    expect(SessionService.isVisibleToPrincipal(unconfigured, 'agent:a'), isFalse);
   });
 
   group('getOrCreateByKey', () {
@@ -201,6 +310,63 @@ void main() {
       final fetched = await sessions.getSession(session.id);
       expect(fetched, isNotNull);
       expect(fetched!.provider, 'codex');
+    });
+
+    test('persists immutable workspace ownership in meta.json while messages remain NDJSON', () async {
+      const workspace = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher');
+      final session = await sessions.getOrCreateByKey(
+        'agent:researcher:logical:owned',
+        type: SessionType.logicalAgent,
+        workspace: workspace,
+      );
+      final messages = MessageService(baseDir: tempDir.path);
+      await messages.insertMessage(sessionId: session.id, role: 'user', content: 'retained marker');
+
+      final meta = jsonDecode(File('${tempDir.path}/${session.id}/meta.json').readAsStringSync());
+      expect(meta, containsPair('workspaceAgentId', 'researcher'));
+      expect(meta, containsPair('workspaceDir', '/srv/agents/researcher'));
+      expect(File('${tempDir.path}/${session.id}/messages.ndjson').readAsLinesSync(), hasLength(1));
+
+      final restarted = SessionService(baseDir: tempDir.path);
+      expect((await restarted.getByKey('agent:researcher:logical:owned'))?.workspace, workspace);
+    });
+
+    test('refuses changed, removed, and newly configured ownership without rewriting history', () async {
+      const original = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher');
+      const changed = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher-v2');
+      final owned = await sessions.getOrCreateByKey(
+        'agent:researcher:logical:owned',
+        type: SessionType.logicalAgent,
+        workspace: original,
+      );
+      final legacy = await sessions.getOrCreateByKey('agent:researcher:logical:legacy', type: SessionType.logicalAgent);
+      final messages = MessageService(baseDir: tempDir.path);
+      await messages.insertMessage(sessionId: owned.id, role: 'user', content: 'owned marker');
+      await messages.insertMessage(sessionId: legacy.id, role: 'user', content: 'legacy marker');
+
+      for (final current in <AgentWorkspace?>[changed, null]) {
+        await expectLater(
+          sessions.getOrCreateByKey(
+            'agent:researcher:logical:owned',
+            type: SessionType.logicalAgent,
+            workspace: current,
+          ),
+          throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Create a new conversation'))),
+        );
+      }
+      await expectLater(
+        sessions.getOrCreateByKey(
+          'agent:researcher:logical:legacy',
+          type: SessionType.logicalAgent,
+          workspace: original,
+        ),
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('Create a new conversation'))),
+      );
+
+      expect((await sessions.getSession(owned.id))?.workspace, original);
+      expect((await sessions.getSession(legacy.id))?.workspace, isNull);
+      expect((await messages.getMessages(owned.id)).single.content, 'owned marker');
+      expect((await messages.getMessages(legacy.id)).single.content, 'legacy marker');
     });
 
     test('migrates provider on existing keyed session', () async {
@@ -477,7 +643,7 @@ final class _SessionObserver implements SessionServiceObserver {
   final deleting = <String>[];
 
   @override
-  void onSessionDeleting(String sessionId) => deleting.add(sessionId);
+  void onSessionDeleting(String sessionId, Session? session) => deleting.add(sessionId);
 
   @override
   void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType) {

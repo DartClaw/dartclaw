@@ -70,7 +70,10 @@ final class _WiringContext {
 /// Composes the turn manager the rest of the assembly threads through.
 ///
 /// Built before the server because scheduling, the task layer and the restart
-/// service all take it, and the server itself is one more consumer.
+/// service all take it, and the server itself is one more consumer. Its agent
+/// resolver therefore reads `harness.logicalAgentSessions` per lookup: that
+/// service is wired after this call, and only it knows the internal one-shot
+/// agents alongside the configured ones.
 TurnManager _composeTurns(
   DartclawConfig config,
   _WiringContext ctx,
@@ -95,6 +98,7 @@ TurnManager _composeTurns(
   usageTracker: harness.usageTracker,
   eventBus: ctx.eventBus,
   config: config,
+  agentDefinitions: (agentId) => harness.logicalAgentSessions.agentDefinition(agentId),
 );
 
 DartclawServer _composeRuntimeServer(
@@ -113,83 +117,117 @@ DartclawServer _composeRuntimeServer(
   ChannelWiring channel,
   SecurityWiring security,
   config_tools.ConfigWriter configWriter,
-) => composeServer(
-  core: ServerCoreDeps(
-    sessions: storage.sessions,
-    messages: storage.messages,
-    worker: harness.primaryHarness,
-    dataDir: ctx.dataDir,
-    staticDir: ctx.resolvedAssets.staticDir,
-    assetSource: ctx.resolvedAssets.source,
-    authEnabled: harness.authEnabled,
-    gatewayToken: harness.resolvedGatewayToken,
-    runtimeConfig: scheduling.runtimeConfig,
-    kvService: storage.kvService,
-    configWriter: configWriter,
-    config: config,
-    configNotifier: ctx.configNotifier,
-    restartService: restartService,
-    healthService: harness.healthService,
-    tokenService: harness.tokenService,
-    resetService: harness.resetService,
-    redactor: ctx.messageRedactor,
-    guardChain: security.guardChain,
-    auditLogger: security.auditLogger,
-    mcpToolCanonicals: harness.ownMcpToolCanonicals,
-    webhookSecret: channel.webhookSecret,
-    resultTrimmer: harness.resultTrimmer,
-  ),
-  turn: ServerTurnDeps(turns: ctx._serverTurns, executions: harness.executions),
-  channels: ServerChannelDeps(
-    channelManager: channel.channelManager,
-    whatsAppChannel: channel.whatsAppChannel,
-    signalChannel: channel.signalChannel,
-    googleChatWebhookHandler: channel.googleChatWebhookHandler,
-    spaceEventsWiring: channel.spaceEventsWiring,
-    threadBindingStore: channel.threadBindingStore,
-  ),
-  tasks: ServerTaskDeps(
-    projectService: project.projectService,
-    goalService: storage.goalService,
-    taskService: storage.taskService,
-    taskReviewService: task.taskReviewService,
-    worktreeManager: task.worktreeManager,
-    taskFileGuard: task.taskFileGuard,
-    runnerObserver: task.runnerObserver,
-    mergeExecutor: task.mergeExecutor,
-    mergeStrategy: config.tasks.worktreeMergeStrategy,
-    baseRef: config.tasks.worktreeBaseRef,
-    traceService: storage.traceService,
-    taskEventService: storage.taskEventService,
-    executionDrainer: task.drainExecutions,
-    eventBus: ctx.eventBus,
-  ),
-  observability: ServerObservabilityDeps(
-    eventBus: ctx.eventBus,
-    sseBroadcast: harness.sseBroadcast!,
-    providerStatus: providerStatus,
-    memoryFile: storage.memoryFile,
-    memoryStatusService: scheduling.memoryStatusService,
-    inspectMemorySearch: storage.inspectMemorySearch,
-    conversationSearch: storage.conversationSearch,
-    memoryPruner: scheduling.memoryPruner,
-    memoryIndex: storage.memoryIndex,
-    searchBackend: storage.searchBackend,
-    memoryCorpus: storage.memoryCorpus,
-    scheduleService: scheduling.scheduleService,
-    schedulingJobsApplier: scheduling.applyJobs,
-    pendingScheduleChanges: scheduling.pendingScheduleChanges,
-    gitSync: scheduling.gitSync,
-  ),
-  web: ServerWebDeps(
-    workflowService: workflowService,
-    workflowDefinitionSource: workflowRegistry,
-    kgService: storage.kg,
-    contentGuardApiKeyConfigured:
-        config.security.contentGuardClassifier == 'claude_binary' ||
-        (Platform.environment['ANTHROPIC_API_KEY']?.isNotEmpty ?? false),
-    contentGuardFailOpen: security.contentGuardFailOpen,
-    schedulingJobs: scheduling.displayJobs,
-    systemJobNames: scheduling.systemJobNames,
-  ),
-);
+  HarnessFactory harnessFactory,
+  SkillIntrospector? skillIntrospector,
+) {
+  final commandCatalog = HumanCommandCatalog(
+    harnessFactory: harnessFactory,
+    nativeSkills: _nativeSkillResolver(dataDir: ctx.dataDir, introspector: skillIntrospector),
+  );
+  return composeServer(
+    core: ServerCoreDeps(
+      sessions: storage.sessions,
+      messages: storage.messages,
+      worker: harness.primaryHarness,
+      dataDir: ctx.dataDir,
+      staticDir: ctx.resolvedAssets.staticDir,
+      assetSource: ctx.resolvedAssets.source,
+      authEnabled: harness.authEnabled,
+      gatewayToken: harness.resolvedGatewayToken,
+      runtimeConfig: scheduling.runtimeConfig,
+      kvService: storage.kvService,
+      configWriter: configWriter,
+      config: config,
+      configNotifier: ctx.configNotifier,
+      restartService: restartService,
+      healthService: harness.healthService,
+      tokenService: harness.tokenService,
+      resetService: harness.resetService,
+      redactor: ctx.messageRedactor,
+      guardChain: security.guardChain,
+      auditLogger: security.auditLogger,
+      mcpToolCanonicals: harness.ownMcpToolCanonicals,
+      webhookSecret: channel.webhookSecret,
+      resultTrimmer: harness.resultTrimmer,
+      effectiveContextCapabilities: harness.effectiveContextCapabilities,
+      modelCatalogues: harness.modelCatalogueFor,
+      logicalAgentSessions: harness.logicalAgentSessions,
+      temporaryConversationCapability: harness.temporaryConversationCapability,
+    ),
+    turn: ServerTurnDeps(turns: ctx._serverTurns, executions: harness.executions),
+    channels: ServerChannelDeps(
+      channelManager: channel.channelManager,
+      whatsAppChannel: channel.whatsAppChannel,
+      signalChannel: channel.signalChannel,
+      googleChatWebhookHandler: channel.googleChatWebhookHandler,
+      spaceEventsWiring: channel.spaceEventsWiring,
+      threadBindingStore: channel.threadBindingStore,
+    ),
+    tasks: ServerTaskDeps(
+      projectService: project.projectService,
+      goalService: storage.goalService,
+      taskService: storage.taskService,
+      taskReviewService: task.taskReviewService,
+      worktreeManager: task.worktreeManager,
+      taskFileGuard: task.taskFileGuard,
+      runnerObserver: task.runnerObserver,
+      mergeExecutor: task.mergeExecutor,
+      mergeStrategy: config.tasks.worktreeMergeStrategy,
+      baseRef: config.tasks.worktreeBaseRef,
+      traceService: storage.traceService,
+      taskEventService: storage.taskEventService,
+      executionDrainer: task.drainExecutions,
+      eventBus: ctx.eventBus,
+    ),
+    observability: ServerObservabilityDeps(
+      eventBus: ctx.eventBus,
+      sseBroadcast: harness.sseBroadcast!,
+      providerStatus: providerStatus,
+      memoryFile: storage.memoryFile,
+      memoryStatusService: scheduling.memoryStatusService,
+      memoryAdminService: scheduling.memoryStatusService == null ? null : MemoryAdminService(storage: storage),
+      inspectMemorySearch: storage.inspectMemorySearch,
+      conversationSearch: storage.conversationSearch,
+      memoryPruner: scheduling.memoryPruner,
+      memoryIndex: storage.memoryIndex,
+      searchBackend: storage.searchBackend,
+      memoryCorpus: storage.memoryCorpus,
+      scheduleService: scheduling.scheduleService,
+      schedulingJobsApplier: scheduling.applyJobs,
+      pendingScheduleChanges: scheduling.pendingScheduleChanges,
+      gitSync: scheduling.gitSync,
+    ),
+    web: ServerWebDeps(
+      inboxService: scheduling.inboxService,
+      conversationSearch: ProductConversationSearchService(
+        search: storage.conversationSearch,
+        sessions: storage.sessions,
+        messages: storage.messages,
+      ),
+      commandCatalog: commandCatalog,
+      workflowService: workflowService,
+      workflowDefinitionSource: workflowRegistry,
+      kgService: storage.kg,
+      contentGuardApiKeyConfigured:
+          config.security.contentGuardClassifier == 'claude_binary' ||
+          (Platform.environment['ANTHROPIC_API_KEY']?.isNotEmpty ?? false),
+      contentGuardFailOpen: security.contentGuardFailOpen,
+      schedulingJobs: scheduling.displayJobs,
+      systemJobNames: scheduling.systemJobNames,
+    ),
+  );
+}
+
+NativeSkillCatalogResolver? _nativeSkillResolver({required String dataDir, required SkillIntrospector? introspector}) {
+  if (introspector == null) return null;
+  return ({required String provider, required String? workspaceDir}) async {
+    final provisioned = WorkspaceSkillInventory.fromDataDir(dataDir);
+    final workspace = workspaceDir == null ? null : WorkspaceSkillInventory.fromWorkspace(workspaceDir);
+    final authorized = <String, String>{...provisioned.skillDescriptions, ...?workspace?.skillDescriptions};
+    final discovered = await introspector.listAvailable(provider: provider);
+    return [
+      for (final entry in authorized.entries)
+        if (discovered.contains(entry.key)) NativeSkillCatalogItem(name: entry.key, description: entry.value),
+    ];
+  };
+}

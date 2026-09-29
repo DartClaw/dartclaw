@@ -2,7 +2,8 @@
 
 Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
 
-**Current through**: 0.26 hybrid search inspection and connected search commands
+**Current through**: 0.27 PostgreSQL-only CLI readiness/maintenance, hybrid search inspection, connected search
+commands, HTMX 4 preparation, and selected-corpus Memory administration
 
 ---
 
@@ -55,7 +56,7 @@ At a high level, the CLI/API stack looks like this:
 │ core / workflow packages                    │
 │ - runtime orchestration                     │
 │ - typed config                              │
-│ - SQLite repositories                       │
+│ - PostgreSQL repositories                   │
 │ - workflow engine                           │
 └──────────────────────────────────────────────┘
 ```
@@ -149,7 +150,11 @@ Standalone mode is available for workflow commands with meaningful local semanti
 - `workflow status --standalone`
 - `workflow pause/resume/cancel/retry --standalone`
 
-The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives `dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`, `cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing accidental state-split or concurrent SQLite use; `status --standalone` is a read against the local tasks database with no probe.
+The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives
+`dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`,
+`cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing
+an accidental split writer beside the PostgreSQL serving interlock; `status --standalone` is a one-shot PostgreSQL
+read with no HTTP server.
 
 Headless composition retains task/session/turn persistence and guarded workflow execution. It omits personal-memory corpus preflight, search storage/backends, knowledge graph, self-improvement, memory MCP callbacks and memory prompt projection/retrieval hints. This boundary follows the existing headless mode; it is not a separate user configuration setting. Provider-native capabilities and project instructions are unaffected.
 
@@ -200,6 +205,15 @@ bounded result identity and provenance with nullable lexical/vector ranks, fixed
 unembedded count and structured degradations. It does not widen normal agent retrieval payloads. Memory inspection
 also authenticates one unchanged canonical-index fingerprint around the query; unavailable or changing state returns
 `503 SEARCH_INSPECTION_UNAVAILABLE` without hits.
+
+Owner Memory administration uses `GET /api/memory/corpora` for opaque selectors, then selected `GET /api/memory/entries`
+and `GET /api/memory/entries/:id` reads. `POST /api/memory/entries/:id/revise|remove` requires the selector and expected
+collection and entry revisions. The routes check admin access before resolving a corpus. `MemoryAdminService` maps the
+selector only to already validated configured or retained `StorageWiring` contexts; a missing or forged selector never
+falls back to owner. Canonical reads use that context's `MemoryCorpusService`; search and health use its matching
+principal. Writes go through `MemoryApplyService` and corpus CAS, reporting canonical and derived-index outcomes
+separately. The web Memory page uses the same administration service. Legacy status, file, prune, and polling routes
+remain default-agent only and reject a selector.
 
 The `/api/scheduling/jobs*` and `/api/scheduling/tasks*` handlers are likewise not the scheduling-mutation authority. Cron validation, the fresh read of `scheduling.jobs`, the modify-write and the restart-pending marker all live in `ScheduleMutationService` (`dartclaw_runtime/lib/src/scheduling/schedule_mutation.dart`); the routes map its outcome onto their status and error codes, and the `schedule_upsert` agent tool consumes the same seam. Neither surface can drift from the other's cron rule, and neither writes `scheduling.jobs` on its own. A written job takes effect only at the next restart: `ScheduleService` takes its job list at construction, which is why every write records the restart marker and why `schedule_list` reports what the running server actually loaded rather than what config says.
 
@@ -271,7 +285,9 @@ The two launch routes are one request shaping behind two encodings: both read th
 `api_helpers.dart`, then share the definition resolution, `PROJECT` injection and required-variable validation. Only the
 field extraction and the rendering differ – the JSON route reads a `variables` object and can set `approvals`/`inline`
 and answers `errorResponse` envelopes; the form route reads `var_`-prefixed fields and answers an HTMX-swappable HTTP
-200 fragment on failure, because HTMX drops the body on a 4xx and the launch error would vanish from `/workflows`.
+200 fragment on validation failure. The layout explicitly suppresses 4xx/5xx swaps in HTMX 4, reserving those
+statuses for auth and route refusals; a validation error at 4xx would therefore vanish from `/workflows`.
+Cross-surface fragments travel OOB in the same response, and `HX-Trigger` delivers toast feedback after the swap.
 
 ## 9. Local-Only Commands
 

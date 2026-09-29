@@ -225,18 +225,20 @@ void main() {
     });
 
     // SC03: the form writes a job the seam loads before it answers, so neither
-    // the badge nor the footer sentence may promise a restart.
-    test('the job form carries a one-time instant field and no restart badge', () {
+    // the tier marker nor the footer sentence may promise a restart.
+    // `.field-tier` is the live marker vocabulary; the retired `.restart-badge`
+    // spelling would make these assertions pass without reading anything.
+    test('the job form carries a one-time instant field and no restart marker', () {
       final html = schedulingJobFormFragment(values: emptyJobFormValues);
       expect(html, contains('id="job-at" name="at"'));
       expect(html, contains('Run once at'));
-      expect(html, isNot(contains('restart-badge')));
+      expect(html, isNot(contains('field-tier')));
       expect(html, isNot(contains('restart required')));
     });
 
-    test('the task form carries no restart badge either', () {
+    test('the task form carries no restart marker either', () {
       final html = schedulingTaskFormFragment(values: emptyTaskFormValues);
-      expect(html, isNot(contains('restart-badge')));
+      expect(html, isNot(contains('field-tier')));
       expect(html, isNot(contains('restart required')));
     });
 

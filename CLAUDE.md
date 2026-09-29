@@ -74,7 +74,7 @@ This table is the main registry of document locations relevant to development an
 | Testing strategy | `dev/guidelines/TESTING-STRATEGY.md` | 650 lines | Before writing tests: philosophy, four-layer pyramid, async patterns, coverage, shared fakes, anti-patterns |
 | HTMX patterns | `dev/guidelines/HTMX-GUIDELINES.md` | 250 lines | Before writing web UI fragments: attributes, server-side rendering, streaming updates, error handling, security |
 | Trellis templates | `dev/guidelines/TRELLIS-GUIDELINES.md` | 150 lines | Before writing templates: escaping rules, fragment patterns, HTMX integration, security |
-| Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | 1400 lines | Single source of truth for visual design; YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Before any UI/CSS/template work |
+| Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | 1450 lines | Single source of truth for visual design; YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Before any UI/CSS/template work |
 | Key dev commands | `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | 350 lines | Before/after modifying code; the Testing section declares the `fast` and `full` tiers and the run-one-test row that `andthen:ops complete-story` executes |
 
 
@@ -178,4 +178,5 @@ routine releases; audit it only after token rotation/widening or a relevant envi
 
 ## Spec-Driven Development (e.g. AndThen) process and SDLC guidelines
 
+- **Release gates are never story scope.** The candidate-wide gates – full workspace suites, PostgreSQL, architecture, fitness, build, CI – belong to release preparation, which runs them against one commit-bound candidate and keeps the receipts (`dev/guidelines/RELEASE_PREPARATION.md`). A story proves itself with its own tests plus the `fast`/`full` tiers in `KEY_DEVELOPMENT_COMMANDS.md`; a plan task that re-runs a release gate is duplicated scope, and its evidence expires the moment the tree moves.
 - **Keep stories package-scoped.** When breaking a plan into many stories, aim for each story to stay within one `packages/<name>/` (or `apps/<name>/`); reach across packages only for genuinely cross-cutting seams. A single-package scope keeps stories focused and keeps the implementing agent's context to one package's `CLAUDE.md` / `AGENTS.md`, source, and tests instead of several.

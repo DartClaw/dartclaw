@@ -63,22 +63,17 @@ void main() {
                     'title': 'Story One',
                     'dependencies': <String>[],
                     'spec_path': 'docs/specs/test/fis/s01-story-one.md',
-                    'spec_source': 'synthesized',
-                    'spec_confidence': 5,
                   },
                   {
                     'id': 'S02',
                     'title': 'Story Two',
                     'dependencies': ['S01'],
                     'spec_path': 'docs/specs/test/fis/s02-story-two.md',
-                    'spec_source': 'existing',
-                    'spec_confidence': 0,
                   },
                 ],
               },
             },
           ),
-          'revise-story-spec' => StubResponse(outputs: {}),
           _ => planAndImplementCommonStub(
             queued,
             storyResult: 'STORY_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
@@ -97,10 +92,9 @@ void main() {
     expect(trace.count('plan'), 1);
     // The PRD path is passed through to the plan step unchanged.
     expect(trace.descriptionsByStep['plan']!.single, contains('docs/specs/test/prd.md'));
-    expect(trace.count('revise-story-spec'), 1);
     expect(trace.count('implement'), 2);
     expect(trace.count('quick-review'), 0, reason: 'quick-review is replaced by the per-story review + nested loop');
-    expect(trace.count('simplify-code'), 0, reason: 'simplify-code retired with the andthen plugin split');
+    expect(trace.count('simplify-code'), 0, reason: 'per-story review follows implementation directly');
     expect(trace.count('review-story'), 2);
     expect(trace.count('plan-review'), 1);
 

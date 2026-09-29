@@ -30,7 +30,7 @@ Middleware securityHeadersMiddleware({bool enableHsts = false}) {
     return response.change(
       headers: {
         'Content-Security-Policy': _csp,
-        'Referrer-Policy': 'no-referrer',
+        'Referrer-Policy': 'same-origin',
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'DENY',
         if (!hasCacheControl) 'Cache-Control': 'no-store',

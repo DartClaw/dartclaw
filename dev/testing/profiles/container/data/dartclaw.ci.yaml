@@ -11,6 +11,9 @@
 
 port: 3342
 
+database:
+  url: ${DARTCLAW_POSTGRES_URL}
+
 gateway:
   auth_mode: none
 

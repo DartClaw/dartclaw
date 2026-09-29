@@ -26,6 +26,7 @@ String sessionInfoTemplate({
   List<Map<String, String>> recentTurns = const [],
   Map<String, dynamic>? turnStatus,
   String appName = 'DartClaw',
+  Map<String, dynamic>? effectiveContext,
 }) {
   final displayTitle = displayChatTitle(sessionTitle);
   final totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
@@ -98,6 +99,8 @@ String sessionInfoTemplate({
     'recentTurns': recentTurns,
     'turnStatus': turnStatusView,
     'hasTurnStatus': true,
+    'hasEffectiveContext': effectiveContext != null,
+    'effectiveContext': effectiveContext,
   });
 
   return layoutTemplate(title: 'Session Info', body: body, appName: appName, scripts: standardShellScripts());
@@ -107,7 +110,11 @@ Map<String, dynamic>? sessionTurnStatusView(Map<String, dynamic>? status, {requi
   if (status == null) return null;
   final state = status['state']?.toString() ?? 'idle';
   if (!isActiveTurnStatusState(state)) return null;
-  final reason = status['wait_reason']?.toString();
+  // `unknown` is the wait-reason enum's "nothing observed yet" member, not a
+  // reason. Printing it beside the state reads as a diagnosis the runtime has
+  // not made, so it is reported as an absent reason like any other.
+  final rawReason = status['wait_reason']?.toString();
+  final reason = rawReason == 'unknown' ? null : rawReason;
   final canCancel = status['can_cancel'] == true;
   return {
     'sessionId': status['session_id']?.toString() ?? fallbackSessionId,

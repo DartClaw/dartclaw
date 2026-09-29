@@ -7,14 +7,13 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/alerts/alert_router.dart';
 import 'package:dartclaw_runtime/src/api/task_sse_routes.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../alerts/alert_test_support.dart';
 
 void main() {
-  late SqliteBackend backend;
   late EventBus eventBus;
   late TaskService tasks;
   late ThreadBindingStore threadBindingStore;
@@ -25,9 +24,8 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
+    tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('agent_execution_boundary_replay_test_');
     threadBindingStore = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
     await threadBindingStore.load();
@@ -56,7 +54,6 @@ void main() {
     await lifecycleManager.dispose();
     await eventBus.dispose();
     await tasks.dispose();
-    await backend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

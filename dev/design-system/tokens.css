@@ -93,6 +93,11 @@
                'Menlo', 'Consolas', monospace;
 
   --text-xs:   0.75rem;     /* 12px — timestamps, metadata */
+  /* Chrome tier. At 14px a rail row, a toolbar or a 28px control cannot clear
+     its own padding, so the controls around the content read at 13px while the
+     content itself stays on --text-base. Chrome only: message bodies, card
+     bodies and running prose never take it. */
+  --text-sm:   0.8125rem;   /* 13px — rail rows, toolbars, buttons, fields */
   --text-base: 0.875rem;    /* 14px — body, messages */
   --text-lg:   1rem;        /* 16px — section headings */
   --text-xl:   1.125rem;    /* 18px — page title */
@@ -121,8 +126,11 @@
   --sp-12: 3rem;
 
   /* --- Layout --- */
-  --sidebar-w:     260px;
-  --topbar-h:      48px;
+  /* Rail default. The app may resize it between 240px and 420px; 280px is the
+     width at which a row carries a project line, a title and an optional
+     reason line without truncating the title at ~24 characters. */
+  --sidebar-w:     280px;
+  --topbar-h:      40px;
   --input-h:       80px;
   --container-max: 900px;
   /* Second container tier for data-dense surfaces. Opt-in only — a surface that
@@ -164,6 +172,15 @@
   --border:           1px solid var(--bg-surface0);
   --border-active:    1px solid var(--accent);
   --border-highlight: rgba(255, 255, 255, 0.08);  /* Luminous top-edge on cards */
+
+  /* Resting boundary of a form control. Opaque, and mixed into --bg-crust
+     rather than into `transparent`, because a border is painted over the
+     element's own background: an alpha boundary on a crust-backed control
+     would resolve against the crust anyway and read differently per plane.
+     78% is .btn-ghost's fraction — the same >=3:1 requirement against card and
+     page ground in both themes, so the two resting boundaries stay one answer.
+     Measured ratios in DESIGN.md § Forms. */
+  --border-control: color-mix(in srgb, var(--fg-overlay) 78%, var(--bg-crust));
 
   /* Meter channel — per-theme because the fills invert their value relation:
      dark fills are light pastels (dark channel gives contrast), light fills

@@ -3,14 +3,13 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
 
 void main() {
-  late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
   late Handler handler;
@@ -18,12 +17,11 @@ void main() {
   late ThreadBindingStore bindings;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
     eventBus = EventBus();
     tasks = TaskService(
-      SqliteTaskRepository(backend),
-      agentExecutionRepository: SqliteAgentExecutionRepository(backend, eventBus: eventBus),
-      executionTransactor: SqliteExecutionRepositoryTransactor(backend),
+      InMemoryTaskRepository(),
+      agentExecutionRepository: InMemoryAgentExecutionRepository(),
+      executionTransactor: const InMemoryExecutionRepositoryTransactor(),
       eventBus: eventBus,
     );
     tempDir = Directory.systemTemp.createTempSync('task_bindings_routes_test_');
@@ -35,7 +33,6 @@ void main() {
   tearDown(() async {
     await eventBus.dispose();
     await tasks.dispose();
-    await backend.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 

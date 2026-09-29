@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:path/path.dart' as p;
 import 'package:dartclaw_runtime/src/templates/chat.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
 import 'package:dartclaw_runtime/src/templates/session_info.dart';
@@ -68,32 +71,41 @@ void main() {
       expect(html, contains('<div class="session-list">'));
     });
 
-    test('places a quiet full-width creation command beneath the Chats label', () {
+    test('heads the conversation list with the rail controls, not a text command', () {
       final html = sidebarTemplate(
         mainSession: _session('main', 'claude'),
         activeEntries: [_session('s1', 'codex')],
         navItems: const [],
       );
 
-      expect(html, contains('<section class="sidebar-chat-section" aria-labelledby="sidebar-chats-label">'));
-      expect(html, contains('<div class="sidebar-section-label" id="sidebar-chats-label">Chats</div>'));
-      expect(html, contains('<button type="button" class="btn-new-session" data-session-create="true">'));
-      expect(html, contains('<span class="btn-new-session-icon" data-icon="new-session" aria-hidden="true"></span>'));
-      expect(html, contains('<span class="btn-new-session-label">New Chat</span>'));
-      expect(html, contains('<hr class="sidebar-chat-divider">'));
-      expect(html, isNot(contains('sidebar-section-heading')));
-      expect(html, isNot(contains('class="btn btn-ghost btn-sm btn-new-session"')));
+      expect(html, contains('<section class="sidebar-chat-section" aria-label="Chats">'));
+      expect(html, contains('<div class="sidebar-section-label">Chats</div>'));
+      // New Chat is an icon button in the rail's control row, not a full-width
+      // text command under the label (DESIGN.md § New Chat).
+      expect(html, contains('class="btn btn-icon rail-new" data-session-create="true"'));
+      expect(html, isNot(contains('btn-new-session')));
+      expect(html, isNot(contains('sidebar-chat-divider')));
 
-      final section = html.substring(
-        html.indexOf('<section class="sidebar-chat-section"'),
-        html.indexOf('</section>', html.indexOf('<section class="sidebar-chat-section"')),
+      // The search and scope rows head the list; the rows follow them.
+      expect(html.indexOf('class="rail-search"'), lessThan(html.indexOf('class="rail-scope"')));
+      expect(html.indexOf('class="rail-scope"'), lessThan(html.indexOf('data-inbox-list')));
+      expect(html.indexOf('data-inbox-list'), lessThan(html.indexOf('data-inbox-session-id="s1"')));
+    });
+
+    test('the rail carries exactly one label per conversation state control', () {
+      final html = sidebarTemplate(
+        mainSession: _session('main', 'claude'),
+        activeEntries: [_session('s1', 'codex')],
+        navItems: const [],
       );
-      expect(
-        section.indexOf('id="sidebar-chats-label">Chats</div>'),
-        lessThan(section.indexOf('class="btn-new-session"')),
-      );
-      expect(section.indexOf('class="btn-new-session"'), lessThan(section.indexOf('sidebar-chat-divider')));
-      expect(section.indexOf('sidebar-chat-divider'), lessThan(section.indexOf('class="session-item"')));
+
+      // 0.27 rendered a second, always-visible "Settle selected" button beside
+      // the per-row one; settle now exists once per row and once in the bulk bar.
+      expect(RegExp('data-inbox-settle-selected').allMatches(html), hasLength(1));
+      expect(RegExp('data-inbox-settle[^-]').allMatches(html), hasLength(1));
+      expect(RegExp('data-inbox-empty[^-]').allMatches(html), hasLength(1));
+      // The stray, unstyled total that wrapped to its own line under the label.
+      expect(html, isNot(contains('sidebar-inbox-count')));
     });
 
     test('distinguishes an untitled draft from the creation command and collapses system navigation', () {
@@ -106,7 +118,7 @@ void main() {
         ],
       );
 
-      expect(RegExp('New Chat').allMatches(html), hasLength(1));
+      expect(RegExp('New chat').allMatches(html), hasLength(1));
       expect(html, contains('Untitled draft'));
       expect(html, contains('<details class="sidebar-system-menu">'));
       expect(html, contains('System · Health'));
@@ -126,10 +138,39 @@ void main() {
     });
   });
 
-  test('session reset uses the destructive entry-point treatment', () {
+  test('every overflow action the topbar emits is one the chat controller owns', () async {
+    // The shell dispatches `dartclaw:chat-action` at a controller it holds no
+    // reference to, so a name only one side knows fails silently: the menu item
+    // opens nothing. The owned set is read from the controller rather than
+    // restated here, so a rename on either side fails this.
+    final controller = File(p.join(await resolveStaticDir(), 'controllers', 'dc_chat_controller.js'))
+        .readAsStringSync();
+    final map = controller.substring(
+      controller.indexOf('handleChatAction(event)'),
+      controller.indexOf('};', controller.indexOf('handleChatAction(event)')),
+    );
+    final owned = RegExp(
+      r"^\s+'?([a-z-]+)'?:\s*\(\)",
+      multiLine: true,
+    ).allMatches(map).map((match) => match.group(1)!).toSet();
+    expect(owned, isNotEmpty, reason: 'the chat controller action map could not be read');
+
+    final html = topbarTemplate(title: 'Chat', sessionId: 'session-1', sessionType: SessionType.user);
+    final emitted = RegExp('data-chat-action="([^"]+)"').allMatches(html).map((m) => m.group(1)!).toSet();
+    expect(emitted, isNotEmpty, reason: 'the overflow menu delegates nothing to the conversation');
+    expect(owned, containsAll(emitted));
+  });
+
+  test('session reset is a settled shell mutation, not an unrendered swap', () {
     final html = topbarTemplate(title: 'Chat', sessionId: 'session-1', sessionType: SessionType.user);
 
-    expect(html, contains('class="btn btn-danger btn-sm btn-reset"'));
+    // 0.27 drove reset through `hx-swap="none"` and re-rendered nothing. It is
+    // a shell mutation like archive and delete: the controller confirms, posts
+    // and reloads, so the topbar carries no request attributes of its own.
+    expect(html, contains('data-session-reset="true"'));
+    expect(html, contains('data-session-id="session-1"'));
+    expect(html, isNot(contains('hx-swap="none"')));
+    expect(html, isNot(contains('/api/sessions/session-1/reset')));
   });
 
   test('uses the draft label for a blank session title', () {

@@ -2,19 +2,17 @@ import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:test/test.dart';
 
 void main() {
-  late SqliteBackend backend;
   late TaskService tasks;
   late EventBus eventBus;
   late ContainerTaskFailureSubscriber subscriber;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
     eventBus = EventBus();
-    tasks = TaskService(SqliteTaskRepository(backend), eventBus: eventBus);
+    tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
     subscriber = ContainerTaskFailureSubscriber(tasks: tasks);
     subscriber.subscribe(eventBus);
   });
@@ -23,7 +21,6 @@ void main() {
     await subscriber.dispose();
     await eventBus.dispose();
     await tasks.dispose();
-    await backend.close();
   });
 
   Future<void> createTwoRunningTasks() async {

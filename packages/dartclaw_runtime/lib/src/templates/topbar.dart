@@ -23,6 +23,10 @@ String topbarTemplate({
   SessionType? sessionType,
   String appName = 'DartClaw',
   String restartBannerHtml = '',
+  String? projectId,
+  String? projectName,
+  String? providerLabel,
+  String? model,
 }) {
   final src = templateLoader.source('topbar');
 
@@ -36,6 +40,15 @@ String topbarTemplate({
   final displayTitle = displaySessionTitle(title, sessionType);
   final isWorkspace = sessionType == SessionType.main;
   final isArchive = sessionType == SessionType.archive;
+  // The crumb renders once the conversation has a provider. A conversation with
+  // no project says so in the same words the rail rows use rather than dropping
+  // the segment, so the two surfaces never disagree about what is known.
+  const noProjectLabel = 'General chat';
+  final resolvedProject = (projectName ?? '').trim();
+  final resolvedProvider = (providerLabel ?? '').trim();
+  final resolvedModel = (model ?? '').trim();
+  final hasCrumb = resolvedProvider.isNotEmpty;
+  final crumbProject = resolvedProject.isEmpty ? noProjectLabel : resolvedProject;
 
   return _withRestartSlot(
     templateLoader.trellis.renderFragment(
@@ -50,7 +63,17 @@ String topbarTemplate({
         'showResume': isArchive,
         'showReset': !isArchive,
         'infoHref': '/sessions/$sessionId/info',
-        'resetHref': '/api/sessions/$sessionId/reset',
+        'hasCrumb': hasCrumb,
+        'hasProject': projectId != null && projectId.isNotEmpty,
+        'projectId': projectId ?? '',
+        'projectName': crumbProject,
+        'noProject': resolvedProject.isEmpty,
+        // The crumb's identicon is 14px and the project name is right beside it;
+        // the shared two-letter form is for surfaces that carry no label.
+        'projectInitial': resolvedProject.isEmpty ? '·' : resolvedProject.substring(0, 1),
+        'providerLabel': resolvedProvider,
+        'hasModel': resolvedModel.isNotEmpty,
+        'model': resolvedModel,
       },
     ),
     restartBannerHtml,

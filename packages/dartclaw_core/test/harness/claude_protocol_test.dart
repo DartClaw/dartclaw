@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/src/harness/claude_protocol.dart';
+import 'package:dartclaw_core/src/worker/worker_state.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show CapturingFakeProcess;
 import 'package:test/test.dart';
+
+import 'harness_test_support.dart';
 
 String _j(Map<String, dynamic> m) => jsonEncode(m);
 
@@ -74,7 +79,7 @@ void main() {
 
       for (final testCase in cases) {
         test('${testCase.name} returns null', () {
-          expect(parseJsonlLine(testCase.line), isEmpty);
+          expect(parseJsonlLine(testCase.line), isNull);
         });
       }
     });
@@ -153,7 +158,7 @@ void main() {
 
       for (final testCase in cases) {
         test(testCase.name, () {
-          testCase.expectMessage(parseJsonlLine(_j(testCase.json)).singleOrNull);
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
         });
       }
     });
@@ -192,18 +197,21 @@ void main() {
           }),
         );
 
-        expect(message.single, isA<StreamTextDelta>());
-        expect((message.single as StreamTextDelta).text, 'Hello');
+        expect(message, isA<StreamTextDelta>());
+        expect((message as StreamTextDelta).text, 'Hello');
       });
 
       for (final json in nullCases) {
         test('ignores ${json['event'] ?? 'missing event'}', () {
-          expect(parseJsonlLine(_j(json)), isEmpty);
+          expect(parseJsonlLine(_j(json)), isNull);
         });
       }
     });
 
-    group('assistant blocks', () {
+    // Both message types carry tool blocks: the CLI puts the request on the
+    // `assistant` message and the result on a synthetic `user` one, so a reader
+    // that skips `user` never sees a tool finish.
+    group('tool blocks', () {
       final cases = <({String name, List<Map<String, dynamic>> content, _MessageExpectation expectMessage})>[
         (
           name: 'tool_use',
@@ -264,6 +272,20 @@ void main() {
           expectMessage: (message) => _expectToolResult(message, toolId: '', output: ''),
         ),
         (
+          name: 'block-list tool_result content',
+          content: [
+            {
+              'type': 'tool_result',
+              'tool_use_id': 'tu_blocks',
+              'content': [
+                {'type': 'text', 'text': 'line one'},
+                {'type': 'text', 'text': 'line two'},
+              ],
+            },
+          ],
+          expectMessage: (message) => _expectToolResult(message, toolId: 'tu_blocks', output: 'line one\nline two'),
+        ),
+        (
           name: 'text-only content',
           content: [
             {'type': 'text', 'text': 'Hello world'},
@@ -273,22 +295,24 @@ void main() {
         (name: 'empty content', content: [], expectMessage: (message) => expect(message, isNull)),
       ];
 
-      for (final testCase in cases) {
-        test(testCase.name, () {
-          testCase.expectMessage(
-            parseJsonlLine(
-              _j({
-                'type': 'assistant',
-                'message': {'content': testCase.content},
-              }),
-            ).singleOrNull,
-          );
+      for (final messageType in const ['assistant', 'user']) {
+        for (final testCase in cases) {
+          test('$messageType ${testCase.name}', () {
+            testCase.expectMessage(
+              parseJsonlLine(
+                _j({
+                  'type': messageType,
+                  'message': {'content': testCase.content},
+                }),
+              ),
+            );
+          });
+        }
+
+        test('$messageType missing message returns null', () {
+          expect(parseJsonlLine(_j({'type': messageType})), isNull);
         });
       }
-
-      test('missing message returns null', () {
-        expect(parseJsonlLine(_j({'type': 'assistant'})), isEmpty);
-      });
     });
 
     group('control requests', () {
@@ -329,12 +353,77 @@ void main() {
 
       for (final testCase in cases) {
         test(testCase.name, () {
-          testCase.expectMessage(parseJsonlLine(_j(testCase.json)).singleOrNull);
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
         });
       }
     });
 
     group('turn results', () {
+      test('retains complete cumulative model counters separately from root usage', () {
+        final result = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'total_cost_usd': 0.5,
+            'usage': {'output_tokens': 88},
+            'modelUsage': {
+              'root': {'inputTokens': 1, 'outputTokens': 88, 'cacheReadInputTokens': 2, 'cacheCreationInputTokens': 3},
+              'delegate': {
+                'inputTokens': 4,
+                'outputTokens': 633,
+                'cacheReadInputTokens': 5,
+                'cacheCreationInputTokens': 6,
+              },
+            },
+          }),
+        ) as TerminalResult;
+        expect(result.outputTokens, 88);
+        expect(result.usageSnapshot!.models.values.fold<int>(0, (sum, model) => sum + model.output), 721);
+        expect(result.usageSnapshot!.totalCostUsd, 0.5);
+      });
+
+      test('rejects malformed snapshots while preserving explicit root zero', () {
+        final zero = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'usage': {'output_tokens': 0},
+            'modelUsage': {
+              'root': {'inputTokens': 0, 'outputTokens': 0, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0},
+            },
+          }),
+        ) as TerminalResult;
+        expect(zero.outputTokens, 0);
+        expect(zero.usageSnapshot, isNotNull);
+        final malformed = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'modelUsage': {
+              'root': {'inputTokens': 0, 'outputTokens': -1, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0},
+            },
+          }),
+        ) as TerminalResult;
+        expect(malformed.usageSnapshot, isNull);
+      });
+
+      test('keeps valid token counters when cumulative cost is malformed', () {
+        final result = parseJsonlLine(
+          _j({
+            'type': 'result',
+            'session_id': 'native-1',
+            'total_cost_usd': 'invalid',
+            'usage': {'output_tokens': 7},
+            'modelUsage': {
+              'root': {'inputTokens': 0, 'outputTokens': 7, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0},
+            },
+          }),
+        ) as TerminalResult;
+        expect(result.outputTokens, 7);
+        expect(result.costUsd, isNull);
+        expect(result.usageSnapshot?.totalCostUsd, isNull);
+      });
+
       final cases = <({String name, Map<String, dynamic> json, _MessageExpectation expectMessage})>[
         (
           name: 'all fields',
@@ -402,9 +491,158 @@ void main() {
 
       for (final testCase in cases) {
         test(testCase.name, () {
-          testCase.expectMessage(parseJsonlLine(_j(testCase.json)).singleOrNull);
+          testCase.expectMessage(parseJsonlLine(_j(testCase.json)));
         });
       }
     });
   });
+
+  group('model catalogue', () {
+    Map<String, dynamic> line(String raw) => jsonDecode(raw) as Map<String, dynamic>;
+
+    test('the account rows become entries by their own names, and applied.model resolves Default', () {
+      final catalogue = claudeModelCatalogue(initialize: line(_claudeInitialize), settings: line(_claudeSettingsOpus));
+
+      // The `default` row is the account default, not a model a reader picks.
+      expect(catalogue.entries.map((entry) => (entry.id, entry.label)), [
+        ('opus[1m]', 'Opus (1M context)'),
+        ('claude-fable-5-1[1m]', 'Fable'),
+        ('sonnet', 'Sonnet'),
+        ('haiku', 'Haiku'),
+      ]);
+      expect(catalogue.entryFor('sonnet')!.efforts, ['low', 'medium', 'high', 'xhigh', 'max']);
+      // Haiku reports no effort fields: it supports none, so Effort must lock.
+      expect(catalogue.entryFor('haiku')!.efforts, isEmpty);
+      expect(catalogue.defaultId, 'opus[1m]');
+      expect(catalogue.defaultEntry!.label, 'Opus (1M context)');
+    });
+
+    test('an applied model no row resolves to leaves Default unresolved rather than guessed', () {
+      final catalogue = claudeModelCatalogue(
+        initialize: line(_claudeInitialize),
+        settings: line(
+          r'{"type":"control_response","response":{"subtype":"success","request_id":"req_settings_1","response":{"applied":{"model":"claude-sonnet-4-5","effort":"xhigh"},"effective":{},"sources":{}}}}',
+        ),
+      );
+
+      expect(catalogue.entries, hasLength(4));
+      expect(catalogue.defaultId, isNull);
+    });
+
+    // Observed wire (claude 2.1.278, `--model claude-fable-5-1[1m]`): the CLI
+    // reports `applied.model` without the `[1m]` suffix, which is Fable's
+    // `resolvedModel`, so Default resolves to the Fable row.
+    test('an applied model equal to a row resolvedModel resolves Default to that row', () {
+      final catalogue = claudeModelCatalogue(
+        initialize: line(_claudeInitialize),
+        settings: line(
+          r'{"type":"control_response","response":{"subtype":"success","request_id":"req_settings_1","response":{"applied":{"model":"claude-fable-5-1","effort":"high","advisor":null,"ultracode":false},"effective":{},"sources":{}}}}',
+        ),
+      );
+
+      expect(catalogue.defaultId, 'claude-fable-5-1[1m]');
+      expect(catalogue.defaultEntry!.label, 'Fable');
+    });
+
+    // Guard for a configured id the CLI echoes back verbatim: an `applied.model`
+    // equal to a row's `value` (not its `resolvedModel`) still resolves Default.
+    test('an applied model echoed verbatim as a row value resolves Default to that row', () {
+      final catalogue = claudeModelCatalogue(
+        initialize: line(_claudeInitialize),
+        settings: line(
+          r'{"type":"control_response","response":{"subtype":"success","request_id":"req_settings_1","response":{"applied":{"model":"claude-fable-5-1[1m]","effort":"xhigh","advisor":null,"ultracode":false},"effective":{},"sources":{}}}}',
+        ),
+      );
+
+      expect(catalogue.defaultId, 'claude-fable-5-1[1m]');
+      expect(catalogue.defaultEntry!.label, 'Fable');
+    });
+
+    test('a disabled row is visible to the CLI but not offered', () {
+      final catalogue = claudeModelCatalogue(
+        initialize: line(
+          r'{"type":"control_response","response":{"subtype":"success","request_id":"req_init_1","response":{"models":[{"value":"sonnet","resolvedModel":"claude-sonnet-5","displayName":"Sonnet","description":"Sonnet 5 · Efficient for routine tasks","supportsEffort":true,"supportedEffortLevels":["low","high"]},{"value":"opus[1m]","resolvedModel":"claude-opus-5[1m]","displayName":"Opus (1M context)","description":"Opus 5 with 1M context","disabled":true}]}}}',
+        ),
+        settings: line(_claudeSettingsOpus),
+      );
+
+      expect(catalogue.entries.map((entry) => entry.id), ['sonnet']);
+      // Default resolves to the disabled row, which is not selectable here.
+      expect(catalogue.defaultId, isNull);
+    });
+
+    test('a row without displayName fails the whole catalogue instead of yielding a partial one', () {
+      expect(
+        () => claudeModelCatalogue(
+          initialize: line(
+            r'{"type":"control_response","response":{"subtype":"success","request_id":"req_init_1","response":{"models":[{"value":"sonnet","resolvedModel":"claude-sonnet-5","displayName":"Sonnet"},{"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","description":"Haiku 4.5 · Fastest for quick answers"}]}}}',
+          ),
+          settings: line(_claudeSettingsOpus),
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('a settings answer without applied.model fails discovery', () {
+      expect(
+        () => claudeModelCatalogue(
+          initialize: line(_claudeInitialize),
+          settings: line(
+            r'{"type":"control_response","response":{"subtype":"success","request_id":"req_settings_1","response":{"effective":{},"sources":{}}}}',
+          ),
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('discovery sends only initialize and get_settings, then stops the process', () async {
+      final process = makeCapturingClaudeProcess();
+      final harness = buildClaudeHarness(
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+          scheduleMicrotask(() => process.emitStdout(_claudeInitialize));
+          unawaited(_answerGetSettings(process));
+          return process;
+        },
+      );
+      addTearDown(harness.dispose);
+
+      final catalogue = await harness.discoverModelCatalogue();
+
+      expect(catalogue.defaultId, 'opus[1m]');
+      final requests = process.capturedStdinJson;
+      expect(requests.map((message) => message['type']), everyElement('control_request'));
+      expect(requests.map((message) => (message['request'] as Map)['subtype']), ['initialize', 'get_settings']);
+      expect(harness.state, WorkerState.stopped);
+      expect(process.killCalled, isTrue);
+    });
+  });
 }
+
+/// Polls the fake's stdin until `get_settings` is written, then answers it.
+Future<void> _answerGetSettings(CapturingFakeProcess process) async {
+  for (var i = 0; i < 200; i++) {
+    final request = process.capturedStdinJson
+        .where((message) => (message['request'] as Map?)?['subtype'] == 'get_settings')
+        .firstOrNull;
+    if (request != null) {
+      process.emitStdout(_claudeSettingsOpus.replaceFirst('req_settings_1', request['request_id'] as String));
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
+/// The `initialize` control_response claude 2.1.278 sends, trimmed to its
+/// `models` rows (other response keys omitted).
+const _claudeInitialize =
+    r'{"type":"control_response","response":{"subtype":"success","request_id":"req_init_1","response":{"models":['
+    r'{"value":"default","resolvedModel":"claude-opus-5[1m]","displayName":"Default (recommended)","description":"Opus 5 with 1M context · Best for everyday, complex tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"],"supportsAdaptiveThinking":true,"supportsFastMode":true,"supportsAutoMode":true},'
+    r'{"value":"opus[1m]","resolvedModel":"claude-opus-5[1m]","displayName":"Opus (1M context)","description":"Opus 5 with 1M context · Best for everyday, complex tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"],"supportsAdaptiveThinking":true,"supportsFastMode":true,"supportsAutoMode":true},'
+    r'{"value":"claude-fable-5-1[1m]","resolvedModel":"claude-fable-5-1","displayName":"Fable","description":"Fable 5.1 · Most capable for your hardest and longest-running tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"],"supportsAdaptiveThinking":true,"supportsAutoMode":true},'
+    r'{"value":"sonnet","resolvedModel":"claude-sonnet-5","displayName":"Sonnet","description":"Sonnet 5 · Efficient for routine tasks","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"],"supportsAdaptiveThinking":true,"supportsAutoMode":true},'
+    r'{"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku","description":"Haiku 4.5 · Fastest for quick answers"}'
+    r']}}}';
+
+/// The `get_settings` control_response for a process spawned without `--model`.
+const _claudeSettingsOpus =
+    r'{"type":"control_response","response":{"subtype":"success","request_id":"req_settings_1","response":{"applied":{"model":"claude-opus-5[1m]","effort":"xhigh","advisor":null,"ultracode":false},"effective":{},"sources":{}}}}';

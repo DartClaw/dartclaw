@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show CompactionStartingEvent, EventBus, LoopDetectedEvent, TaskReviewReadyEvent;
+    show CompactionStartingEvent, EventBus, LoopDetectedEvent, TaskReviewReadyEvent, TurnWaitStateChangedEvent;
 
 import 'sse_broadcast.dart';
 
@@ -14,6 +14,7 @@ class EventBusSseBridge {
   final StreamSubscription<LoopDetectedEvent> _loopDetectedSub;
   final StreamSubscription<TaskReviewReadyEvent> _taskReviewReadySub;
   final StreamSubscription<CompactionStartingEvent> _compactionStartingSub;
+  final StreamSubscription<TurnWaitStateChangedEvent> _turnWaitStateSub;
 
   new({required EventBus bus, required SseBroadcast broadcast})
     : _loopDetectedSub = bus.on<LoopDetectedEvent>().listen((event) {
@@ -34,11 +35,20 @@ class EventBusSseBridge {
       }),
       _compactionStartingSub = bus.on<CompactionStartingEvent>().listen((event) {
         broadcast.broadcast('compaction_starting', {'sessionId': event.sessionId, 'trigger': event.trigger});
+      }),
+      _turnWaitStateSub = bus.on<TurnWaitStateChangedEvent>().listen((event) {
+        broadcast.broadcast('conversation_changed', {
+          'session_id': event.sessionId,
+          'revision': event.timestamp.microsecondsSinceEpoch,
+          'turn_id': event.turnId,
+          'work_state': event.state.name,
+        });
       });
 
   Future<void> cancel() async {
     await _loopDetectedSub.cancel();
     await _taskReviewReadySub.cancel();
     await _compactionStartingSub.cancel();
+    await _turnWaitStateSub.cancel();
   }
 }

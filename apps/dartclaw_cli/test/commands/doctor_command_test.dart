@@ -12,6 +12,12 @@ import 'package:test/test.dart';
 
 import '../helpers/fake_exit.dart';
 
+Future<List<DiagnosticRow>> _databaseReady(
+  DartclawConfig _, {
+  required bool bootstrap,
+  required Map<String, String> environment,
+}) async => const [];
+
 void main() {
   late Directory root;
   late String dataDir;
@@ -42,11 +48,12 @@ void main() {
     }
   }
 
-  Future<int> run(List<String> args, {bool realCredentials = false}) async {
+  Future<int> run(List<String> args, {bool realCredentials = false, DatabaseReadinessCheck? databaseReadiness}) async {
     final runner = DartclawRunner()
       ..addCommand(
         DoctorCommand(
           setupChecks: SetupChecks(
+            databaseReadiness: databaseReadiness ?? _databaseReady,
             probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: '2.1.80'),
             portFree: (_) async => true,
             providerVerified: realCredentials ? null : (_, _, _) async => true,
@@ -199,5 +206,24 @@ void main() {
     expect(await run(['--fix', '--json']), 1);
     expect(Directory(dataDir).existsSync(), isFalse);
     expect(config.readAsBytesSync(), before);
+  });
+
+  test('--fix reruns PostgreSQL readiness with empty-schema bootstrap enabled', () async {
+    writeConfig();
+    layout();
+    final bootstrapRequests = <bool>[];
+
+    expect(
+      await run(
+        ['--fix'],
+        databaseReadiness: (_, {required bootstrap, required environment}) async {
+          bootstrapRequests.add(bootstrap);
+          return const [];
+        },
+      ),
+      0,
+    );
+
+    expect(bootstrapRequests, [false, true]);
   });
 }

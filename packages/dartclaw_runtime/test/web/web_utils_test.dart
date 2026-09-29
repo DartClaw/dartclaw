@@ -8,8 +8,8 @@ void main() {
     test('carries the toast payload the browser controller listens for', () {
       final header = toastTriggerHeader('success', 'Project added');
 
-      expect(header.keys, ['HX-Trigger-After-Swap']);
-      expect(jsonDecode(header['HX-Trigger-After-Swap']!), {
+      expect(header.keys, ['HX-Trigger']);
+      expect(jsonDecode(header['HX-Trigger']!), {
         'dc:toast': {'type': 'success', 'message': 'Project added'},
       });
     });
@@ -17,7 +17,7 @@ void main() {
     test('a message outside Latin-1 survives the header as an escaped round trip', () {
       const message = 'Kunde inte hämta projektet "smiðia" — 完了';
 
-      final value = toastTriggerHeader('error', message)['HX-Trigger-After-Swap']!;
+      final value = toastTriggerHeader('error', message)['HX-Trigger']!;
 
       // A header carrying a non-Latin-1 byte is mangled on the wire, so the
       // payload must reach the client as ASCII and decode back to the original.
@@ -30,7 +30,7 @@ void main() {
     });
 
     test('a control character cannot break the header into a second one', () {
-      final value = toastTriggerHeader('error', 'line one\r\nX-Injected: yes')['HX-Trigger-After-Swap']!;
+      final value = toastTriggerHeader('error', 'line one\r\nX-Injected: yes')['HX-Trigger']!;
 
       expect(value, isNot(contains('\r')));
       expect(value, isNot(contains('\n')));

@@ -114,7 +114,6 @@ final class HeadlessRuntimeFixture {
   Future<HeadlessRuntimeStaging> stage(
     DartclawConfig config, {
     HarnessFactory? harnessFactory,
-    DatabaseBackendFactory? searchBackendFactory,
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
@@ -132,8 +131,13 @@ final class HeadlessRuntimeFixture {
       skillProvisionerEnvironment: resolvedEnvironment,
       runtimeCwd: runtimeCwd,
       harnessFactory: harnessFactory ?? harnessFactoryFor(() => FakeAgentHarness()),
-      searchBackendFactory: searchBackendFactory ?? (_) async => SqliteBackend.openInMemory(),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
+      taskRepositoryFactory: (_) => InMemoryTaskRepository(),
+      workflowRunRepositoryFactory: (_) => InMemoryWorkflowRunRepository(),
+      agentExecutionRepositoryFactory: (_) => InMemoryAgentExecutionRepository(),
+      workflowStepExecutionRepositoryFactory: (_) => InMemoryWorkflowStepExecutionRepository(),
+      executionRepositoryTransactorFactory: (_) => const InMemoryExecutionRepositoryTransactor(),
       stderrLine: (_) {},
       exitFn: unexpectedExit,
       skillIntrospector: skillIntrospector,
@@ -153,7 +157,6 @@ final class HeadlessRuntimeFixture {
   Future<DartclawRuntime> runtime(
     DartclawConfig config, {
     HarnessFactory? harnessFactory,
-    DatabaseBackendFactory? searchBackendFactory,
     SkillIntrospector? skillIntrospector,
     ProviderAuthPreflight? providerAuthPreflight,
     String? runtimeCwd,
@@ -166,7 +169,6 @@ final class HeadlessRuntimeFixture {
     final staging = await stage(
       config,
       harnessFactory: harnessFactory,
-      searchBackendFactory: searchBackendFactory,
       skillIntrospector: skillIntrospector,
       providerAuthPreflight: providerAuthPreflight,
       runtimeCwd: runtimeCwd,
@@ -340,7 +342,7 @@ const shippedDartclawSkillRefs = <String>[
   'andthen:exec-spec',
   'andthen:review',
   'andthen:quick-review',
-  'andthen:remediate-findings',
+  'andthen:implement-fix',
 ];
 
 void seedProviderAndThenSkills(String home) {

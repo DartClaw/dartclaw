@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 /// Creates a filesystem link from [linkPath] to [targetPath].
 typedef WorkspaceLinkFactory = void Function({required String targetPath, required String linkPath});
@@ -15,16 +16,35 @@ typedef WorkspaceGitDirResolver = String? Function(String workspaceDir);
 /// Installed DartClaw skill and agent names discovered from a data dir.
 final class WorkspaceSkillInventory {
   final List<String> skillNames;
+  final Map<String, String> skillDescriptions;
   final List<String> agentMdNames;
   final List<String> agentTomlNames;
 
-  const new({required this.skillNames, required this.agentMdNames, required this.agentTomlNames});
+  const new({
+    required this.skillNames,
+    this.skillDescriptions = const {},
+    required this.agentMdNames,
+    required this.agentTomlNames,
+  });
 
   factory fromDataDir(String dataDir) {
+    final skills = _discoverSkills(dataDir, managedOnly: true);
     return WorkspaceSkillInventory(
-      skillNames: _discoverSkillNames(dataDir),
+      skillNames: skills.keys.toList(growable: false),
+      skillDescriptions: skills,
       agentMdNames: _discoverAgentNames(p.join(dataDir, '.claude', 'agents'), '.md'),
       agentTomlNames: _discoverAgentNames(p.join(dataDir, '.codex', 'agents'), '.toml'),
+    );
+  }
+
+  /// Reads provider-native skill metadata rooted in one configured workspace.
+  factory fromWorkspace(String workspaceDir) {
+    final skills = _discoverSkills(workspaceDir, managedOnly: false);
+    return WorkspaceSkillInventory(
+      skillNames: skills.keys.toList(growable: false),
+      skillDescriptions: skills,
+      agentMdNames: const [],
+      agentTomlNames: const [],
     );
   }
 }
@@ -248,19 +268,40 @@ bool _isDartClawManagedName(String name) => RegExp(r'^dartclaw-[A-Za-z0-9._-]+$'
 
 String _withExtension(String name, String extension) => p.extension(name) == extension ? name : '$name$extension';
 
-List<String> _discoverSkillNames(String dataDir) {
-  final names = <String>{};
+Map<String, String> _discoverSkills(String dataDir, {required bool managedOnly}) {
+  final descriptions = <String, String>{};
   for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
     final dir = Directory(root);
     if (!dir.existsSync()) continue;
     for (final entry in dir.listSync(followLinks: false)) {
-      if (entry is! Directory) continue;
+      if (FileSystemEntity.typeSync(entry.path, followLinks: true) != FileSystemEntityType.directory) continue;
       final name = p.basename(entry.path);
-      if (!_isDartClawManagedName(name)) continue;
-      if (File(p.join(entry.path, 'SKILL.md')).existsSync()) names.add(name);
+      if (managedOnly ? !_isDartClawManagedName(name) : !_isSafeSkillName(name)) continue;
+      final skillFile = File(p.join(entry.path, 'SKILL.md'));
+      if (!skillFile.existsSync()) continue;
+      descriptions.putIfAbsent(name, () => _skillDescription(skillFile, name));
     }
   }
-  return names.toList()..sort();
+  return Map.unmodifiable(Map.fromEntries(descriptions.entries.toList()..sort((a, b) => a.key.compareTo(b.key))));
+}
+
+bool _isSafeSkillName(String name) => RegExp(r'^[A-Za-z0-9][A-Za-z0-9._:-]*$').hasMatch(name);
+
+String _skillDescription(File file, String name) {
+  try {
+    final source = file.readAsStringSync();
+    if (!source.startsWith('---\n')) return name;
+    final end = source.indexOf('\n---', 4);
+    if (end < 0) return name;
+    final frontmatter = loadYaml(source.substring(4, end));
+    if (frontmatter is YamlMap) {
+      final description = frontmatter['description'];
+      if (description is String && description.trim().isNotEmpty) return description.trim();
+    }
+  } on Object {
+    // Invalid metadata leaves the skill discoverable under its stable name.
+  }
+  return name;
 }
 
 List<String> _discoverAgentNames(String dirPath, String extension) {

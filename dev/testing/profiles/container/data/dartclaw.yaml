@@ -7,6 +7,9 @@
 
 port: 3341
 
+database:
+  url: ${DARTCLAW_POSTGRES_URL}
+
 container:
   enabled: true
 

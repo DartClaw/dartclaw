@@ -9,38 +9,114 @@ DartClaw's web UI is a terminal-aesthetic chat interface built with HTMX, the HT
 The interface has three main areas:
 
 ```
-┌──────────┬──────────────────────────────────┐
-│          │  Topbar (title, delete, theme)    │
-│ Sidebar  ├──────────────────────────────────┤
-│          │                                   │
-│ Sessions │  Chat Area                        │
-│ list     │  (messages + streaming)            │
-│          │                                   │
-│ + New    │                                   │
-│          ├──────────────────────────────────┤
-│          │  Rich composer + context tray      │
-└──────────┴──────────────────────────────────┘
+┌──────────────┬──────────────────────────────┐
+│ ❯ DartClaw   │ Title · context · provider   │
+│ Search  ⌘K ✎ │        state  🔍 🔔 ⋯        │
+│ Agent       ⚙├──────────────────────────────┤
+│ n waiting    │                              │
+│ ┌──────────┐ │  Chat Area                   │
+│ │ Chats    ⏱│ │  (messages + streaming)      │
+│ │ Title    ●│ │                              │
+│ └──────────┘ ├──────────────────────────────┤
+│ Settled (n)  │  Rich composer + context tray │
+│ System     ▲ │                              │
+└──────────────┴──────────────────────────────┘
 ```
+
+The rail is 280px by default and resizes between 240 and 420 by dragging its
+right edge, by arrow keys once the edge has focus (Shift for a larger step), and
+back to 280 with Home or a double-click. The width persists per device. The
+panel icon beside the wordmark collapses the rail; the hamburger in the topbar
+brings it back.
 
 ### Features
 
 **Session Management**
-- **Create**: Click **New Chat** in the sidebar. If an untouched default chat already exists, DartClaw reopens it instead of accumulating another blank conversation. Blank destinations are labelled **Untitled draft**, keeping **New Chat** exclusive to the command. Activating New Chat from that draft simply returns focus to its composer.
-- **Switch**: Click any session in the sidebar to load its messages
-- **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity.
-- **Delete**: Click the × button on a sidebar item
-- **Auto-title**: After the first assistant response, a new non-workspace conversation is titled with the first ~50 characters of your message. The workspace **Agent** is never auto-titled.
+- **Create**: Click global **New chat** beside the rail's search row (in the topbar at narrow widths), or use `/new`, to open a general chat in the owner workspace. An untouched general draft is reused only for general creation. **New chat** under a named project creates or reuses a draft for that exact ready project. An untouched draft in another context is never reused. Blank destinations are labelled **Untitled draft**.
+- **Switch**: Agent stays pinned. General conversations appear under **Chats**; conversations explicitly associated with registered projects appear under **Projects**. Click a row to load its messages. Its title, time, state and any attention or failure reason remain visible; project association appears only for project chats. Hovering or focusing the row swaps the time for **Settle** and **Archive**.
+- **Triage**: The inbox keeps creation order stable while showing unread, running, waiting, done, failed and local-draft state. Settle completed and fully read conversations to move them into the paged Settled tail; Restore returns them to their original place. New work restores a settled conversation automatically.
+- **Filter, scope and group**: **View options** offers *Show* (All · Unread · Waiting on you · Running · Failed · Drafts on this device) and grouping where relevant. Project scopes and filters appear only when an explicit project is registered. These are per-device view state: they never change stored order or the conversation's next context.
+- **Bulk settle**: **Select conversations** in the same menu reveals a checkbox on every row and a bulk bar with the selection count, a clear action and **Settle**. Each member settles against the revision the row was rendered with, so the result reports per-conversation acceptance. Escape leaves select mode.
+- **Waiting count**: A **n waiting on you** row appears above the list only while something is blocked on you, and jumps to the next such conversation.
+- **Settle and archive**: Settling is reversible inbox organization; the conversation stays writable and searchable. Archiving is a read-only historical lifecycle used by reset and maintenance, remains searchable under the archived filter, and appears in the separate Archived subsection.
+- **Attention**: The topbar bell pages durable completion, failure and input-request events, grouped into **Blocked on you** and **Finished**. A row links back to the exact transcript record; hovering or focusing it reveals approve, reject and dismiss, and the approval actions appear only while the underlying request remains pending. Opening the panel marks the newest unread item per conversation as read.
+- **Rename**: For non-workspace conversations, edit the title in the topbar, then press Enter or move focus away to save. The main workspace conversation keeps the fixed **Agent** identity and general context. Beside the title, a context crumb names a project only for a project chat, followed by provider and model; a badge reports its state.
+- **Delete**: Click the × button on an archived conversation. Active conversations carry settle and archive instead.
+- **Auto-title**: A new non-workspace conversation gets an immediate title from the first message. After the first assistant response, one schema-bound title request may replace that fallback. A manual or newer title always wins, and the workspace **Agent** is never auto-titled.
+- **Temporary conversations**: Start one from the topbar's overflow menu or the command palette. Creation requires the retention disclosure and is available only when the effective
+  provider is a built-in Codex adapter whose exact workspace-container policy passes the launch inventory and whose
+  Docker workspace profile is available. Release support also requires the shipped candidate to pass the documented
+  real-provider EOF/SIGKILL qualification matrix. The opaque link works only in the current server process. Drafts survive
+  in-page navigation but disappear on reload or close. A temporary conversation carries a one-line banner above the
+  transcript with its own **Export** and **End** actions. **End temporary chat** waits for active work and its container
+  to stop before revoking the link. Provider processing and deliberate workspace or external tool effects can persist.
+- **Export**: Reachable from the topbar's overflow menu, the command palette, or a temporary conversation's banner. An authenticated owner can confirm a Markdown download for an ordinary or temporary conversation. It
+  contains visible redacted messages, UTC timestamps, branch lineage, and an attachment availability manifest. It never
+  embeds attachment bytes. The downloaded file is a deliberate durable copy.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
-- **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages. When one is active, its name remains visible in the collapsed trigger.
+- **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages, including **Add project**. When one is active, its name remains visible in the collapsed trigger.
 - **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`
 - **Session cost**: Available only when every recorded turn has provider-reported cost. Missing, partial, and older records without this evidence show cost as unavailable; an explicitly reported zero remains zero. Token counts remain available independently.
 
 **Chat**
-- **Rich composer**: Type in the composer, press **Ctrl+Enter** (or **Cmd+Enter** on macOS), or use the square arrow send button. During streaming the button changes to stop.
+- **Search and commands**: **Find in conversation** — from the topbar's overflow menu or the command palette — opens a
+  slim bar above the transcript with a match count and previous/next controls. It searches indexed matches in the whole
+  conversation, including history outside the loaded 200-message window, and the count reports only matches the bar can
+  step to; a page it could not reach is marked with a trailing `+`. Press **Cmd-K** or **Ctrl-K** for global
+  conversation search and the shared command catalog. Global search can narrow by lifecycle and, when projects are registered, project; it opens the
+  exact matching message. The composer's `>_` button, or typing `/`, filters the same nine built-ins (`/new`, `/reset`, `/stop`, `/status`, `/fork`, `/settle`,
+  `/model`, `/effort`, `/help`) plus authorized provider-native skills. An unknown slash-prefixed message is labelled
+  **Send to provider** and follows the ordinary message path without byte changes or a capability claim. A built-in
+  keeps its canonical action when a native skill has the same name; the skill remains available with a skill label.
+- **Rich composer**: The composer floats over the transcript, aligned to the message column. Type, then press
+  **Enter** or the square arrow send button; **Shift+Enter** starts a new line. On a touch screen Return starts a new
+  line and the send button sends. Its toolbar carries attach, commands, and
+  a context chip naming the next context (General chat or an explicit project) — with the context window percentage when the provider
+  reports a live measurement — and, on the right, the draft-save status, a pill stating the provider, model and effort
+  for the next turn, and the send control. Drafts and selected file bytes are saved in this browser and restored after
+  reload. A persistent warning with retry, copy, and download actions replaces the saved status if browser storage
+  fails.
+- **Active turns**: Drafting remains available while a turn runs. The send control becomes **Stop** and cancels only the
+  displayed turn; **Queue** beside it accepts the draft in order, and **Steer** in its menu stops the displayed turn and
+  sends the follow-up after cancellation is confirmed. Queued and held turns render as one-line rows above the composer
+  with edit and remove controls. Failed, cancelled, stopped, and restart-recovered work holds queued items until
+  **Release** on the oldest held row sends the next queued message.
 - **Streaming**: Responses appear in real-time as the agent generates them
 - **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
+- **Retained history**: The page loads at most 200 visible messages at a time. Earlier pages and `?message=<id>` deep links
+  keep a stable message anchor while tool arguments, partial or terminal results, elapsed time, and linked branches remain
+  attached to their owning attempt.
+- **Recovery**: Copy preserves the whole displayed message. Retry starts one linked attempt from an unchanged failed or
+  cancelled input; edit-and-continue and fork create a linked conversation. These actions do not undo external tool effects.
+- **Runtime approval**: An approval card is actionable only while the exact provider request and owning web turn are live.
+  Expired, restarted, unsupported, mismatched, and hard-guarded requests remain visible as unavailable or blocked. While
+  one is pending, a strip above the composer names the request and offers **Review**, which moves focus to the card; the
+  verdict is only ever given on the card that states the action.
+- **Tool calls**: A turn's tool calls collapse into one disclosure naming their count, tools and elapsed time. It stays
+  open while any call is running, failed or blocked, and closes once every call in the run has succeeded. Opening it
+  shows each call's retained arguments and result.
 - **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
-- **Context references**: Type `@` to resolve sessions, projects, files, tools, and memory into explicit removable chips.
+- **Context references**: Type `@` to resolve sessions, files, tools, and memory into explicit removable chips. A project reference is suggested only when the chat is in that explicit project.
+- **Effective context**: The context chip and the model pill open one popover each, anchored under the control that
+  opens them. An eligible idle owner web chat can move between General chat and a ready named project. The move retains
+  history and applies only to future turns. A stale revision, pending work, ineligible conversation or invalid destination
+  leaves its current context and browser draft intact; invalid draft references must be corrected explicitly before a
+  move. Session info shows the actual execution directory, including for a general chat, without calling it a project or
+  offering a general-chat path override. It also lists the workspace
+  owner, the current turn, and the measurement, behavior and memory records. **Model** stages the provider, model and
+  effort. The model picker lists the models the provider reports for your account, each under the provider's own name,
+  after **Default · <name>** (what Default resolves to), plus any model already staged from YAML or the JSON API under
+  its id. Effort offers exactly the efforts the selected model supports and is locked for a model that supports none.
+  The pill and the topbar crumb name the model by the same label. DartClaw reads the list at startup by starting each
+  provider's CLI on the host with your configured model and credentials, runs no model turn, and keeps the list until
+  the server restarts. Until then, or when that fails, the pickers offer Default plus any staged value; a failed
+  provider is tried again at most every 5 minutes when the page renders. There is no Apply button: a pick applies as
+  soon as it is made. Provider, model and effort changes take effect for the next
+  turn and never interrupts a running one, and a change made while another is still being applied is sent right after
+  it. A provider change warns about provider-native continuity while the next turn's provider differs from the one the
+  conversation last ran on. Context changes carry the displayed conversation revision. Fields an adapter does not
+  transport are disabled. A rejected change shows the reason in the popover and the pickers return to the applied
+  context. Project association moves require the conversation to be idle; provider/model choices retain their existing next-turn behavior.
 - **Markdown**: Agent responses are rendered with full markdown support (headings, lists, code blocks, links)
 - **Syntax highlighting**: Code blocks are highlighted via highlight.js
 - **Tool indicators**: When the agent uses tools, you see status lines:
@@ -49,11 +125,13 @@ The interface has three main areas:
   - `> Bash: npm test ✗` (failed)
 
 **Theme**
-- Toggle between light and dark mode using the button in the topbar
+- On a conversation, **Toggle theme** is the last entry in the topbar's `⋯` overflow menu; on system pages it stays a topbar button
 - Preference is saved in localStorage and persists across sessions
 
 **Responsive**
-- On mobile/narrow screens, the sidebar collapses behind a hamburger menu
+- On mobile/narrow screens, the rail collapses behind a hamburger menu; New chat surfaces as its own topbar icon so creation stays reachable without opening the drawer
+- Below 768px the topbar's state badge becomes a dot and the context crumb and `⌘K` hint drop, leaving the title its width
+- The rail's per-row settle and archive are hover-only, so select mode and its bulk bar are the touch path for both
 - Single-column layout below 768px
 
 **Workflow Operations**
@@ -87,7 +165,8 @@ The interface has three main areas:
 - **Read-only**: Ingestion and invalidation remain MCP/tool or job operations
 
 **Memory lifecycle**
-- **Inspect**: `/memory` separates canonical roles, raw observations, the bounded prompt index, and rebuildable search rows
+- **Inspect**: `/memory` selects the default agent, a configured agent, or a retained removed-agent private corpus. It shows the selected owner, index health, and paged canonical entries; search and entry detail stay within that corpus. Empty, no-match, degraded, unavailable, and stale-result views offer a return to the selected corpus. Shared wiki and graph knowledge remain separate.
+- **Correct**: Open an entry to revise its content or confirm curated removal. Each write checks both the collection and entry revision; a stale write shows the current selected entry instead of overwriting it. Removal leaves source observations, transcripts, audit records, and backups in place.
 - **Curate**: enable the `memory-curation` job (`memory.curation.enabled`); run it on demand from Scheduling or `dartclaw jobs run memory-curation`
 - **Recover**: Degraded index states keep canonical success intact and point to the stopped-runtime `dartclaw rebuild-index` path
 
@@ -101,7 +180,8 @@ The interface has three main areas:
 
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+Enter / Cmd+Enter | Send message |
+| Enter, or Ctrl+Enter / Cmd+Enter | Send message (on a touch screen only the send button or Ctrl/Cmd+Enter) |
+| Shift+Enter | New line |
 | Tab | Focus textarea (when not focused) |
 
 ## REST API
@@ -143,8 +223,8 @@ Returns the persisted session metadata for a single session.
 POST /api/sessions
 ```
 
-No body required. Returns the new session. Interactive session creation does not accept a provider override; sends use
-the fixed primary lane and global `agent.provider`.
+No body is required for a durable session. Returns the new session. Interactive session creation does not accept a
+provider override; sends use the fixed primary lane and global `agent.provider`.
 
 ```json
 {
@@ -155,13 +235,46 @@ the fixed primary lane and global `agent.provider`.
 }
 ```
 
+To create a supported process-retained conversation, accept its disclosure explicitly:
+
+```json
+{"retention":"process","disclosureAccepted":true}
+```
+
+Process retention is available only to an authenticated owner when the runtime reports a qualified temporary
+conversation capability. It keeps the session, messages, attachments, conversation state, provider home, and usage
+context out of durable DartClaw stores. Page drafts stay only in that page and are lost on reload or close. Provider
+processing and deliberate workspace or external-tool effects may persist.
+
+#### End a temporary conversation
+
+```
+POST /api/sessions/:id/end-temporary
+```
+
+The route waits for active work and the dedicated container authority to stop, then clears the process-retained state
+and returns `204`. The opaque link is revoked only after cleanup is confirmed. `409 END_INCOMPLETE` leaves the link
+retryable when shutdown or cleanup cannot be confirmed.
+
+#### Export a conversation
+
+```
+GET /api/sessions/:id/export
+POST /api/sessions/:id/export
+```
+
+`GET` returns the export disclosure. `POST` requires
+`{"confirmed":true,"durableCopyAccepted":true}` and streams a durable Markdown copy containing visible redacted
+messages, timestamps, roles, visible tool and approval details, branch lineage, and an attachment availability
+manifest. It contains no attachment bytes, hidden messages, or provider-native state.
+
 #### Open a New Chat draft
 
 ```
 POST /api/sessions/open
 ```
 
-Used by the web UI's **New Chat** command. Returns the newest untitled, message-free default user session with `200`, or creates one and returns it with `201`. Concurrent requests are coalesced. Generic `POST /api/sessions` remains unconditional.
+Used by global **New chat** and **New chat** in a named project. Omitted or explicit `project_id: null` requests a general chat; a named `project_id` requests exactly that eligible project. Returns an untouched draft only in the requested context with `200`, or creates one and returns it with `201`. An invalid project rejects without a default fallback. Concurrent requests for the same context are coalesced. Generic `POST /api/sessions` remains unconditional.
 
 #### Rename session
 
@@ -196,6 +309,8 @@ Content-Type: application/json
 
 Stores an attachment under the session and returns structured metadata for the composer chip. Size and payload limits are enforced before storage.
 
+The composer reads the server limit from `GET /api/sessions/:id/attachments/limits`. An unclaimed draft attachment can be removed with `DELETE /api/sessions/:id/attachments/:attachment_id`; a handle owned by accepted work is retained.
+
 #### Lookup context references
 
 ```
@@ -203,6 +318,24 @@ GET /api/sessions/:id/references?q=<query>
 ```
 
 Returns typed reference suggestions for sessions, projects, files, tools, and memory. Submitted references must resolve before the message is accepted.
+
+#### Read and change effective context
+
+```
+GET /api/sessions/:id/conversation-state
+PATCH /api/sessions/:id/context
+Content-Type: application/json
+
+{"conversation_revision":4,"project_id":null,"directory":"/owner/workspace","provider":"claude","model":"sonnet","effort":"high","references":[]}
+```
+
+The conversation snapshot includes `current_context`, `next_context`, and session-scoped telemetry when recorded. A
+context mutation requires `project_id`: explicit `null` selects general context; omission is invalid. An eligible
+owner web conversation may change project association only while idle. Submit its current revision and browser draft
+references with the move; an invalid destination, stale revision, accepted pending work, or invalid reference rejects
+without changing the conversation or draft. A valid move adds one visible context-change marker and affects only
+future admitted attempts. Provider/model-only changes keep their next-turn behavior. General directory is the validated
+owner workspace, not a user-selected path. Past attempts retain their captured contexts.
 
 #### Send message and start turn
 
@@ -213,12 +346,52 @@ Content-Type: application/x-www-form-urlencoded
 message=Help+me+write+a+test&attachments=[]&references=[]
 ```
 
-Stores the user message, validates rich input metadata, composes the system prompt, and starts an agent turn. Attachments and references are persisted with the message and appended to the turn payload as a JSON-fenced `rich_input_context` block marked as untrusted data. Returns an HTML fragment (for HTMX) containing an `sse-connect` attribute that connects to the SSE stream via the HTMX SSE extension.
+The web composer also sends stable `submission_id` and `revision_id` fields. DartClaw durably claims that identity, validates rich input metadata, and accepts it once. If no turn is active, the committed submission starts a turn. Otherwise it enters the ordered queue. Attachments and references are persisted with the message and appended to the turn payload as a JSON-fenced `rich_input_context` block marked as untrusted data. An HTML request returns the matching active-turn or queued fragment. A request accepting JSON receives the stable message, attempt or queue identity and the authoritative conversation revision.
 
 **Error responses**:
 - `400` – empty message
 - `404` – session not found
-- `409` – another turn is already active on this session
+- `409` – the same submission identity names different content or its durable state cannot be reconciled safely
+
+#### Conversation and queue state
+
+```
+GET /api/sessions/:id/conversation-state
+PATCH /api/sessions/:id/queue/:queue_id
+DELETE /api/sessions/:id/queue/:queue_id
+POST /api/sessions/:id/queue/release
+POST /api/sessions/:id/steer
+GET /api/sessions/:id/messages?count=200&before_cursor=<cursor>
+GET /api/sessions/:id/messages?count=200&around_message_id=<message_id>
+POST /api/sessions/:id/approvals/:request_id
+POST /api/sessions/:id/attempts/:attempt_id/retry
+POST /api/sessions/:id/messages/:message_id/branch
+```
+
+The snapshot is the authority for submission, attempt, and queue state. Each persisted mutation advances its `revision`; clients include that revision when editing, removing, or releasing a queue item. A stale mutation returns the current snapshot without changing accepted work. Queue editing preserves its accepted attachment handles. Release sends only the oldest held item, and only when no active dispatch blocks it. A submission left `uncertain` by a restart records a dispatch whose outcome was never observed: it is never replayed, it blocks neither release nor a new send, and it settles as `failed`, with the reason in its detail, once the session dispatches again. Steer performs confirmed stop followed by ordinary admission.
+
+Its `activity` projection reads the latest retained message identity and current turn status from the existing message and turn authorities. Channel and cron sessions set `ordinary_controls` to false: their existing admission and Stop behavior remains available, while browser Queue and Steer actions are not offered.
+
+History `count` is 1–200. Filtering by the conversation visibility snapshot happens before the storage reader fills the
+window. `before_cursor` pages backward; `around_message_id` returns a bounded deep-link window and an explicit target
+state. They cannot be combined.
+
+Approval decisions require `attempt_id`, `turn_id`, and `decision` (`approve` or `reject`). Two viewers addressing the
+same live request receive its one terminal decision, while only one response reaches the provider. A request without an
+exact active provider owner returns `APPROVAL_UNAVAILABLE`. Operator approval is offered only for ordinary human web
+turns: Codex must be configured with `approval: on-request`; Claude must use an explicit native `permissionMode` that
+can emit `can_use_tool` (`default`, `acceptEdits`, or `plan`). Claude `PreToolUse` callbacks remain automatic guard
+evaluation. Background, channel, task, cron, workflow, ACP, Claude `dontAsk`/`bypassPermissions`, and other Codex
+approval modes do not expose these cards.
+
+Retry requires a stable `mutation_id`. Branch creation also requires `mutation_id`, plus `kind` (`edit` or `fork`) and
+an edited message for `edit`. Repeating an accepted mutation returns the same linked attempt or destination. Rejected,
+stale, read-only, and ineligible requests leave source messages, files, and provider state unchanged.
+
+Branch creation resolves the destination from the server's current configured agent and execution policy. A removed or
+changed workspace binding makes a new branch unavailable instead of reviving the source session's stale provider or
+workspace metadata. The mutation reserves its destination identity before copying history or admitting an edited turn,
+so retry after an interrupted write resumes the same destination.
 
 #### Turn status
 
@@ -402,6 +575,20 @@ Refused `400 INVALID_INPUT` for a `type: shell` entry, as for an update.
 
 ### Memory
 
+#### Administer private agent corpora
+
+```
+GET /api/memory/corpora
+GET /api/memory/entries?corpus=<selector>&q=<query>&page=<number>
+GET /api/memory/entries/:id?corpus=<selector>
+POST /api/memory/entries/:id/revise
+POST /api/memory/entries/:id/remove
+```
+
+These owner-only routes list the default, configured, and validated retained private corpora. The inventory supplies an opaque `selector`; omitted `corpus` selects the default agent for reads. A forged or no-longer-available selector returns `404 CORPUS_UNAVAILABLE`. Entries are paged 20 at a time; search pages within at most 50 matches, sorted by update time. Each entry supplies its ID, topic, content, state, provenance, and entry and collection revisions. Search uses the selected principal's index and reports degraded, empty, no-match, or stale-result state without substituting another corpus.
+
+Writes require JSON with `corpus`, `expectedCollectionRevision`, and `expectedEntryRevision`. Revision also requires `topic`, `content`, and `state`; removal requires `reason`. Both use the selected canonical corpus's revision check. A stale write returns `409` with the current entry; a committed write reports canonical and derived-index outcomes separately. Removing a curated entry does not erase retained source observations, transcripts, audit records, or backups. Agent and named-client callers cannot use these routes. The existing status, raw-file, and prune endpoints below remain default-agent only and reject a corpus selector.
+
 #### Get memory status
 
 ```
@@ -436,6 +623,32 @@ POST /api/memory/prune
 Runs the memory pruner immediately. Returns prune results (archived, deduped, remaining).
 
 ### Search
+
+#### Search conversations
+
+```
+GET /api/conversation-search?q=marker&scope=global&lifecycle=all&project_id=docs&request_token=17
+GET /api/conversation-search/target?session_id=<session>&message_id=<message>
+```
+
+The authenticated operator route searches authorized owner and configured-agent conversation indexes. `scope` is
+`current` or `global`; lifecycle is `all`, `active`, `settled`, or `archived`. Project filtering applies only to explicit
+project associations; a general result has no synthetic project label. Results include the total before page
+limits, a bounded snippet and highlight offsets, conversation revision, project/origin metadata, a stable
+`conversation:<session>/message:<message>` citation, and an exact-message URL. The target route reauthorizes the
+session and message immediately before navigation. Backend failures return `503 SEARCH_BACKEND_UNAVAILABLE`; missing
+or revoked targets return `404 SEARCH_TARGET_UNAVAILABLE` without result derivatives.
+
+```
+GET /api/command-catalog?surface=global&session_id=<session>
+POST /api/command-actions
+```
+
+Catalog responses carry an identity token bound to the principal, provider, workspace, conversation revision,
+current authorized skill inventory and effective capabilities. The server refreshes that inventory when a palette
+opens and again when an action is selected. The action endpoint accepts only a catalog ID plus that token and rejects
+stale context with `409 STALE_COMMAND_CONTEXT`. Native skills appear only when workspace discovery, authorization and
+the selected provider adapter all support invocation.
 
 #### Inspect search ranking
 
@@ -678,7 +891,7 @@ enabled. Requires operator/admin access; without it the request is refused with 
 GET /api/events
 ```
 
-Global SSE stream for system-level events (e.g., `server_restart`). Separate from per-session chat SSE.
+Global SSE stream for system-level events (e.g., `server_restart`). Separate from per-session chat SSE. A `conversation_changed` event carries `session_id` and `revision`, plus retained turn identity/state when a turn transition caused the invalidation. Clients fetch the authoritative conversation snapshot rather than treating the event as state.
 
 #### Task events stream
 
@@ -773,11 +986,18 @@ is an ordinary `WARNING`, so a `logging.level` above that suppresses it along wi
 | `POST /settings` | Save one settings section (form-encoded, admin-only); answers with that section re-rendered |
 | `GET /settings/channels/:type` | Channel detail page (DM/group access, allowlist management, pairing) |
 | `GET /scheduling` | Scheduling status, heartbeat, job management |
-| `GET /memory` | Memory dashboard (overview, pruning, search, file viewer) |
+| `GET /memory` | Owner Memory dashboard with selected private corpus inspection and revision-checked edit/removal, plus default-agent lifecycle controls |
 | `GET /memory/content` | Memory dashboard content fragment (HTMX polling) |
+| `POST /memory/edit`, `POST /memory/remove` | Owner form actions for selected canonical entries |
 | `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
 | `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
+
+The inbox API uses `conversation_revision` on every mutation so two viewers cannot silently overwrite one another.
+`GET /api/inbox` returns stable active or settled pages and complete counts; `POST /api/inbox/settle`,
+`POST /api/inbox/:id/restore`, and `POST /api/inbox/:id/read` update membership and foreground read boundaries.
+`GET /api/attention` returns durable attention events; its `/read`, `/dismiss`, and `/action` endpoints keep feed
+markers separate from exact pending-request resolution.
 
 #### Workflow API
 
@@ -840,7 +1060,7 @@ These tools are available to the agent during conversations. They're exposed via
 | `memory_apply` | `expectedRevision`, nonempty `operations` array | Atomically add, revise, merge, or remove curated personal entries. Every operation supplies a unique `correlationId`; revise/merge/remove use entry revisions. |
 | `memory_observe` | `text`, `role` (`observation` or `learning`) | Capture non-authoritative observations or bounded runtime learnings. |
 | `memory_search` | `query` (required), `limit` (optional integer, 1–50, default 5) | Search canonical memory and sourced knowledge using the configured backend's natural-language query path. Non-integer or out-of-range limits are rejected. Returns ranked results with explicit degraded-layer metadata. |
-| `memory_read` | `locator`, or `role` + `topic`; optional `limit` | Read a bounded canonical record or reopen a native wiki, knowledge-graph, knowledge-inbox, or eligible QMD search locator through its source owner. `role` + `topic` addresses canonical topic-bearing roles only. |
+| `memory_read` | `locator`, or `role` + `topic`; optional `limit` | Read a bounded canonical record or reopen a native wiki, knowledge-graph, or knowledge-inbox locator through its source owner. `role` + `topic` addresses canonical topic-bearing roles only. |
 
 `memory_apply` is personal-memory-only and uses the collection revision returned by canonical reads/search results. A valid changed request commits once; an exact no-op does not advance revision. Results report canonical and derived-index outcomes separately. Removal audit records contain the entry ID, time, host provenance, and the caller's unfiltered verbatim reason. The host never copies entry content into the record, though the caller's reason may independently quote it.
 

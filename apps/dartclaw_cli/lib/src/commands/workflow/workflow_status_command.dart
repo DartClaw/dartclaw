@@ -7,17 +7,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show Task, formatLocalDateTime, humanizeSpan;
+import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskRepository, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        adoptLegacyAuthoritativeStore,
-        AuthoritativeStoreAdoptionException,
-        SqliteTaskRepository,
-        databaseBackendFactoryFor,
-        prepareAuthoritativeStore;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
+    show DatabaseTaskRepository, PostgresSchemaGate, postgresBackendFactory;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show DatabaseWorkflowRunRepository, WorkflowDefinition, WorkflowRun, WorkflowStep, workflowContextValue;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunRepository;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveDatabaseDsn, scrubAgentReportedText;
-import 'package:path/path.dart' as p;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
@@ -25,6 +21,9 @@ import '../connected_command_support.dart' hide truncate;
 /// Shows workflow run status from the server by default, with a standalone fallback.
 class WorkflowStatusCommand extends WorkflowConnectedCommand {
   final DatabaseBackendFactory? _taskBackendFactory;
+  final bool _taskBackendIsPrepared;
+  final TaskRepository Function(DatabaseBackend)? _taskRepositoryFactory;
+  final WorkflowRunRepository Function(DatabaseBackend)? _workflowRunRepositoryFactory;
   final String? _currentDirectory;
   final Map<String, String>? _environment;
 
@@ -34,12 +33,18 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     this.standaloneOnly = false,
     super.config,
     DatabaseBackendFactory? taskBackendFactory,
+    bool taskBackendIsPrepared = false,
+    TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    WorkflowRunRepository Function(DatabaseBackend)? workflowRunRepositoryFactory,
     String? currentDirectory,
     Map<String, String>? environment,
     super.connection,
     super.writeLine,
     super.exitFn,
   }) : _taskBackendFactory = taskBackendFactory,
+       _taskBackendIsPrepared = taskBackendIsPrepared,
+       _taskRepositoryFactory = taskRepositoryFactory,
+       _workflowRunRepositoryFactory = workflowRunRepositoryFactory,
        _currentDirectory = currentDirectory,
        _environment = environment {
     argParser
@@ -97,18 +102,9 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       exitFn(1);
     }
 
-    if (config.database.backend == DatabaseBackendKind.sqlite) {
-      try {
-        await adoptLegacyAuthoritativeStore(config.dartclawDbPath);
-      } on AuthoritativeStoreAdoptionException catch (error) {
-        writeLine(error.toString());
-        exitFn(1);
-      }
-    }
-
     final factory =
         _taskBackendFactory ??
-        databaseBackendFactoryFor(
+        postgresBackendFactory(
           config.database,
           resolveDsn: (database) =>
               resolveDatabaseDsn(database, credentials: CredentialRegistry(credentials: config.credentials)),
@@ -118,8 +114,10 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     try {
       WorkflowRun? run;
       try {
-        await prepareAuthoritativeStore(backend, storeName: p.basename(config.dartclawDbPath));
-        final repository = SqliteWorkflowRunRepository(backend);
+        if (!_taskBackendIsPrepared) {
+          await PostgresSchemaGate.validateCurrent(backend, databaseIdentity: 'configured PostgreSQL database');
+        }
+        final repository = _workflowRunRepositoryFactory?.call(backend) ?? DatabaseWorkflowRunRepository(backend);
         run = await repository.getById(runId);
       } catch (_) {
         // DB not initialised or schema mismatch — user-visible message is the diagnostic.
@@ -132,7 +130,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         exitFn(1);
       }
 
-      final taskRepository = SqliteTaskRepository(backend);
+      final taskRepository = _taskRepositoryFactory?.call(backend) ?? DatabaseTaskRepository(backend);
       final childTasks = (await taskRepository.list()).where((task) => task.workflowRunId == runId).toList()
         ..sort((a, b) => (a.stepIndex ?? 0).compareTo(b.stepIndex ?? 0));
 
@@ -163,7 +161,9 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     writeLine(
       '  Steps:       ${steps.where((step) => step['status'] == 'completed').length}/${steps.length} completed',
     );
-    writeLine('  Tokens:      ${_formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0)}');
+    writeLine(
+      '  Tokens:      ${_formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0)}${run['tokenUsageComplete'] == true ? '' : ' (incomplete lower bound)'}',
+    );
     _printApiWhyPaused(run);
     if (run['errorMessage'] != null) {
       writeLine('  Error:       ${scrubAgentReportedText('${run['errorMessage']}')}');
@@ -173,14 +173,28 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       return;
     }
     writeLine('');
-    writeLine('  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(18)}  TASK');
+    writeLine(
+      '  ${'STEP'.padRight(6)}  ${'NAME'.padRight(30)}  ${'STATUS'.padRight(18)}  ${'TOKENS'.padRight(11)}  TASK',
+    );
     for (var index = 0; index < steps.length; index++) {
       final step = Map<String, dynamic>.from(steps[index]);
       final label = '${index + 1}/${steps.length}'.padRight(6);
       final name = truncate(step['name']?.toString() ?? '', 30, suffix: '...').padRight(30);
-      final status = (step['status']?.toString() ?? 'pending').padRight(18);
+      final rawStatus = step['status']?.toString() ?? 'pending';
+      final status = rawStatus.padRight(18);
+      final tokens = step['tokenCount'] is num
+          ? _formatNumber((step['tokenCount'] as num).toInt())
+          : switch (rawStatus) {
+              'skipped' => '0',
+              'pending' => '—',
+              _ => 'unavailable',
+            };
       final taskId = step['taskId']?.toString() ?? '—';
-      writeLine('  $label  $name  $status  $taskId');
+      writeLine('  $label  $name  $status  ${tokens.padRight(11)}  $taskId');
+      final reason = step['reason']?.toString();
+      if (reason != null && reason.isNotEmpty) {
+        writeLine('          Reason: ${scrubAgentReportedText(reason)}');
+      }
     }
   }
 
@@ -223,7 +237,9 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       writeLine('  Completed:   ${formatLocalDateTime(run.completedAt!.toIso8601String())}');
     }
     writeLine('  Steps:       ${run.currentStepIndex}/${_totalSteps(run)} completed');
-    writeLine('  Tokens:      ${_formatNumber(run.totalTokens)}');
+    writeLine(
+      '  Tokens:      ${_formatNumber(run.totalTokens)}${run.tokenUsageComplete ? '' : ' (incomplete lower bound)'}',
+    );
     if (isAwaitingApproval) {
       final approvalMessage = run.contextJson['$pendingApprovalStepId.approval.message'] as String?;
       writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
@@ -239,6 +255,17 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       writeLine('  Error:       ${scrubAgentReportedText(run.errorMessage!)}');
     }
 
+    WorkflowDefinition? definition;
+    try {
+      definition = WorkflowDefinition.fromJson(run.definitionJson);
+    } catch (_) {}
+    for (final step in definition?.steps ?? const <WorkflowStep>[]) {
+      if (workflowContextValue(run, '${step.id}.status') != 'failed') continue;
+      final reason =
+          workflowContextValue(run, 'step.${step.id}.outcome.reason') ?? workflowContextValue(run, '${step.id}.error');
+      writeLine('  Step error:  ${step.name}${reason == null ? '' : ': ${scrubAgentReportedText('$reason')}'}');
+    }
+
     if (childTasks.isEmpty) {
       return;
     }
@@ -252,7 +279,11 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       final stepLabel = '$stepNum/$totalStr'.padRight(6);
       final name = truncate(scrubAgentReportedText(task.title), 30, suffix: '...').padRight(30);
       final status = task.status.name.padRight(10);
-      final tokens = '—'.padRight(8);
+      final stepId = task.stepIndex != null && definition != null && task.stepIndex! < definition.steps.length
+          ? definition.steps[task.stepIndex!].id
+          : null;
+      final count = stepId == null ? null : workflowContextValue(run, '$stepId.tokenCount');
+      final tokens = (count is num ? _formatNumber(count.toInt()) : 'unavailable').padRight(8);
       final duration = _taskDuration(task);
       writeLine('  $stepLabel  $name  $status  $tokens  $duration');
     }

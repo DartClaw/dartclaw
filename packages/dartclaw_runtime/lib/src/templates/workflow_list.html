@@ -1,8 +1,8 @@
-<div class="shell">
+<div class="shell" hx-history-elt>
   <div tl:utext="${sidebar}">sidebar</div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
+  <main id="main-content" tabindex="-1" class="content-area print-in">
     <div class="content-inner content-inner--wide workflow-list-page" data-controller="dc-workflows">
 
       <!-- Filters -->
@@ -64,7 +64,7 @@
               <div class="card-footer t-caption">
                 <span tl:attr="title=${run.startedAtIso}"
                       tl:text="${run.startedAtDisplay}">2h ago</span>
-                <span tl:text="${run.totalTokens} + ' tokens'">12.4K tokens</span>
+                <span tl:text="${run.tokensDisplay}">12.4K tokens</span>
               </div>
           </a>
         </div>

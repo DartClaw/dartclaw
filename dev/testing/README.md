@@ -10,6 +10,11 @@ This directory hosts everything needed to run DartClaw against pre-configured en
 
 ## Profile Quick Reference
 
+Select checks using the [experimental-stage testing scope](../guidelines/TESTING-STRATEGY.md#verification-scope-at-the-experimental-stage).
+The profile inventory is not a requirement to run every suite. Full accessibility and device/zoom qualification is
+opt-in. Some `conversation-loop` cases still bundle strict audits with functional checks; their exit status and
+receipts retain that meaning. Report scoped functional evidence separately rather than relabelling a failed run.
+
 | Profile | Port | Run command | Purpose |
 |---|---|---|---|
 | `plain` | 3335 | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels. Backs `UI-SMOKE-TEST.md` and most `scenarios/session-*` scenarios. |
@@ -19,14 +24,40 @@ This directory hosts everything needed to run DartClaw against pre-configured en
 | `workflows` | 3333 | `bash dev/testing/profiles/workflows/run.sh` | Codex-first workflow execution against the `DartClaw/workflow-test-todo-app` fixture repo. Publish runs need a GitHub token; `run.sh` takes `GITHUB_TOKEN`, else the fixture askpass file, else `gh auth token`. |
 | `workflow-contract` | n/a | `bash dev/testing/profiles/workflow-contract/run.sh` | Fast deterministic workflow contract checks. Use while iterating on workflow YAML, gates, output contracts, and resolver behavior. |
 | `workflow-live` | n/a | `bash dev/testing/profiles/workflow-live/run.sh --canary <name>` | Explicit live workflow integration canaries and full sweep. Codex requires the installed AndThen plugin; the runner copies and enables it in a hermetic `CODEX_HOME`, then runs fail-fast provider/model preflight (`--skip-preflight` to skip). Captures logs and summarizes warning patterns. |
+| `conversation-loop` | n/a | `bash dev/testing/profiles/conversation-loop/run.sh --case <name>` | Browser and process-boundary conversation journeys. `run.sh --help` lists the cases. `visual_checks.sh`'s `assert_layout_canon` measures the live app against the layout canon (desktop control heights, 40px topbar, composer anchoring, 44px touch targets, overflow, alignment, placeholder leaks); review its retained screenshots against the accepted design reference. |
 | `container` | 3341 | `bash dev/testing/profiles/container/run.sh` | Real container isolation end to end: a turn runs inside a container, the container holds no provider credential, and a task tool is served over the MCP bridge. SIGKILL leaves the turn container running; restart reclaims it and its generated state. Reports a stated skip when no container runtime answers. |
 | `container --ci` | 3342 | `bash dev/testing/profiles/container/run.sh --ci` | What CI runs. Boots a config declaring **no** `container:` section and asserts the posture resolved to container isolation, so an advisory downgrade fails instead of passing. An absent runtime is a failure, not a skip. Injects SIGKILL and three decoys, then proves restart reclaims only the owned labelled decoy. Issues no model turn and needs no credential, so it runs on a fork PR. |
-| `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders` | Native Windows x64 release smoke: server, Web UI, FTS5, and file-watch reload. Claude and Codex turns are optional compatibility layers. Writes the layered report to `.agent_temp/windows-runtime-smoke.md`. |
+| `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders` | Native Windows x64 release smoke: server, Web UI, PostgreSQL lexical storage/search, and file-watch reload. Claude and Codex turns are optional compatibility layers. Writes the layered report to `.agent_temp/windows-runtime-smoke.md`. |
+
+## Evidence and milestone records
+
+Keep reusable runners and test instructions under `dev/testing/`. The single 0.27 result authority is
+[`0.27-qualification.md`](0.27-qualification.md); producer runs append actual candidate/environment-bound evidence or
+explicit holds there. During implementation, keep scenario mappings and working ledgers beside the exported plan in
+`dev/bundle/docs/specs/<version>/`. Remove that bundle before release under the
+[spec lifecycle](../state/SPEC-LIFECYCLE.md); this 0.27 ledger retains its release holds and results.
+
+Store run artifacts under `.agent_temp/`. Record the command, environment, tested revision and working-tree changes,
+exit status, and artifact paths. Distinguish focused evidence from full-suite results, working-tree results from
+committed-candidate results, and deferred checks from passes. Preserve failed attempts when recording a later fix.
+Use [Key Development Commands](../guidelines/KEY_DEVELOPMENT_COMMANDS.md) for repository gates and
+[Release Preparation](../guidelines/RELEASE_PREPARATION.md) for release requirements rather than duplicating them in ledgers.
+
+## Running profiles
 
 Each Unix server profile resolves the repo root from `dev/testing/profiles/<name>/run.sh`, copies its seed data to a
 writable temp directory by default, and starts `dartclaw_cli` in `--dev` mode. Set `DARTCLAW_<PROFILE>_DATA_DIR`
 (e.g. `DARTCLAW_VISUAL_DATA_DIR=/tmp/visual`) to persist those server-profile states across runs. Command and
 Windows-native profiles document their own inputs in the table and linked scenario.
+
+The `plain`, `channels`, `governance`, `visual`, and `container` launchers use `DARTCLAW_POSTGRES_URL` when set. Otherwise
+they start a disposable PostgreSQL 14 database through Docker or Podman and remove it when the launcher exits. Supply
+a dedicated PostgreSQL 14+ database through that variable when you need state to survive a restart, including when
+using a persistent `DARTCLAW_<PROFILE>_DATA_DIR`. The `workflows` profile persists its data by default and requires the
+variable. The Windows runtime smoke also requires it and expects a native PostgreSQL service. Do not point concurrent
+profiles at the same database: the serving interlock and seeded data are profile-specific.
+Existing persistent data directories keep their copied YAML; add `database.url: ${DARTCLAW_POSTGRES_URL}` there if the
+copy predates 0.27.
 
 The `workflow-contract` and `workflow-live` profiles are command profiles rather than server profiles. They do not bind a port. Use them as the workflow validation ladder:
 
@@ -44,10 +75,9 @@ The Windows runtime profile is release-ready only when its artifact-mode verdict
 explicit and uses a startup-only stub so the deterministic core layers run without credentials. Omit it to revalidate
 live Claude and Codex compatibility after relevant integration changes. See `scenarios/windows-runtime-smoke.md`.
 
-`-ArtifactPath` is the supported mode: the release bundle carries `lib/sqlite3.dll` and the profile loads it from
-there. **`-SourceDir` additionally requires `.dart_tool/lib/sqlite3.dll` in that checkout, and no repo tooling
-provisions it** — neither `dart pub get` nor any build script writes that file, so source mode on a fresh Windows
-checkout stops at `source-setup` until the module is supplied. Use artifact mode unless you have a reason not to.
+`-ArtifactPath` is the release-qualification mode. It validates that the archive has no SQLite runtime asset and uses
+a native PostgreSQL 14+ service for storage/search. `-SourceDir` remains useful for diagnosis but does not qualify the
+release artifact. Use artifact mode unless you have a reason not to.
 The `windows-x64-host` layer reports `skipped` on an arm64 Windows host, which alone keeps that host from ever
 reaching a release-ready verdict.
 

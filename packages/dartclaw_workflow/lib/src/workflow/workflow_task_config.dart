@@ -202,6 +202,8 @@ abstract final class WorkflowTaskConfig {
     required int inputTokensNew,
     required int cacheReadTokens,
     required int outputTokens,
+    String? turnId,
+    bool tokenUsageComplete = false,
   }) async {
     await _update(
       repo,
@@ -211,6 +213,8 @@ abstract final class WorkflowTaskConfig {
           'inputTokensNew': inputTokensNew,
           'cacheReadTokens': cacheReadTokens,
           'outputTokens': outputTokens,
+          'turnId': turnId,
+          'tokenUsageComplete': tokenUsageComplete,
         }),
       ),
     );

@@ -3,6 +3,14 @@
 Project-specific conventions for running visual validation of the DartClaw web UI.
 Use this alongside `dev/testing/UI-SMOKE-TEST.md` which defines the actual test cases.
 
+## Scope
+
+Follow [Testing Strategy: experimental-stage verification](TESTING-STRATEGY.md#verification-scope-at-the-experimental-stage).
+Inspect affected flows for readable content, usable controls, keyboard/focus behavior and blocking layout errors.
+Full accessibility audits, scanner-incomplete adjudication, screen-reader/device matrices and exhaustive zoom checks
+are opt-in, not default review or experimental-release gates. Keep optional audit results separate from functional
+results; do not rerun a passing journey merely to clear an advisory scanner result.
+
 ---
 
 ## Server Setup
@@ -52,7 +60,7 @@ Use **chrome-devtools MCP** when deeper inspection is needed (computed styles, D
 
 ## Viewports
 
-Always test at two viewports unless the test case specifies otherwise:
+Use desktop by default. Add mobile for layout/responsive changes or an explicitly selected mobile scenario:
 
 | Name    | Width | Notes |
 |---------|-------|-------|

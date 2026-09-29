@@ -505,7 +505,7 @@ class ProjectServiceImpl implements ProjectService {
       if (def.localPath != null) {
         final project = Project(
           id: id,
-          name: def.id,
+          name: def.name ?? def.id,
           remoteUrl: '',
           localPath: localPath,
           defaultBranch: def.branch,
@@ -523,7 +523,7 @@ class ProjectServiceImpl implements ProjectService {
       final cloneExists = Directory(localPath).existsSync();
       var project = Project(
         id: id,
-        name: def.id, // Use ID as name for config-defined (no display name in YAML)
+        name: def.name ?? def.id,
         remoteUrl: def.remote!,
         localPath: localPath,
         defaultBranch: def.branch,

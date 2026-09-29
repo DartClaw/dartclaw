@@ -13,6 +13,7 @@ import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;
 import 'api_helpers.dart';
 import 'session_routes_support.dart';
+import 'session_attachment_routes.dart';
 
 final _log = Logger('SessionLifecycleRoutes');
 
@@ -26,15 +27,46 @@ final _log = Logger('SessionLifecycleRoutes');
 void registerSessionLifecycleRoutes(
   Router router, {
   required SessionService sessions,
+  required MessageService messages,
   required TurnManager turns,
   required SessionMutationCoordinator sessionMutations,
   SessionResetService? resetService,
   Future<SidebarData> Function({String? activeSessionId})? sidebarData,
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
+  required ProcessAttachmentOwner processAttachments,
 }) {
+  router.post('/api/sessions/<id>/end-temporary', (Request request, String id) async {
+    try {
+      return await _endTemporarySession(
+        id,
+        sessions: sessions,
+        messages: messages,
+        turns: turns,
+        sessionMutations: sessionMutations,
+        processAttachments: processAttachments,
+      );
+    } catch (e) {
+      sessions.markTemporaryEndFailed(id);
+      _log.warning('Failed to end temporary session $id: $e', e);
+      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to end temporary conversation');
+    }
+  });
+
   // DELETE /api/sessions/<id>
   router.delete('/api/sessions/<id>', (Request request, String id) async {
     try {
+      final candidate = await sessions.getSession(id);
+      if (candidate?.retention == ConversationRetention.process &&
+          !SessionService.protectedTypes.contains(candidate?.type)) {
+        return await _endTemporarySession(
+          id,
+          sessions: sessions,
+          messages: messages,
+          turns: turns,
+          sessionMutations: sessionMutations,
+          processAttachments: processAttachments,
+        );
+      }
       return await sessionMutations.run(id, () async {
         final session = await sessions.getSession(id);
         if (session == null) {
@@ -43,7 +75,6 @@ void registerSessionLifecycleRoutes(
         if (SessionService.protectedTypes.contains(session.type)) {
           return errorResponse(403, 'FORBIDDEN', 'Cannot delete ${session.type.name} session');
         }
-
         await turns.cancelTurn(id);
         try {
           await turns.waitForCompletion(id);
@@ -165,6 +196,43 @@ void registerSessionLifecycleRoutes(
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to reset session');
     }
   });
+}
+
+Future<Response> _endTemporarySession(
+  String id, {
+  required SessionService sessions,
+  required MessageService messages,
+  required TurnManager turns,
+  required SessionMutationCoordinator sessionMutations,
+  required ProcessAttachmentOwner processAttachments,
+}) async {
+  final refusal = await sessionMutations.run(id, () async {
+    final session = await sessions.getSession(id);
+    if (session == null) return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
+    if (session.retention != ConversationRetention.process) {
+      return errorResponse(409, 'INVALID_STATE', 'Only temporary conversations can be ended here');
+    }
+    if (sessions.temporaryEndState(id) == 'ending') {
+      return errorResponse(409, 'END_IN_PROGRESS', 'Temporary conversation is already ending');
+    }
+    sessions.markTemporaryEnding(id);
+    return null;
+  });
+  if (refusal != null) return refusal;
+  try {
+    await turns.cancelTurn(id);
+    await turns.waitForCompletion(id);
+    await turns.releaseTemporarySession(id);
+    await sessionMutations.run(id, () async {
+      processAttachments.clearSession(id);
+      await messages.clearMessages(id);
+      await sessions.deleteSession(id);
+    });
+  } catch (error) {
+    sessions.markTemporaryEndFailed(id);
+    return errorResponse(409, 'END_INCOMPLETE', 'Temporary conversation cleanup was not confirmed; retry ending');
+  }
+  return Response(204, headers: {'cache-control': 'no-store'});
 }
 
 String _withSidebarOobSwap(String html) {

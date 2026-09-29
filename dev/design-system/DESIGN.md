@@ -135,8 +135,8 @@ spacing:
   sp-8: 32px
   sp-10: 40px
   sp-12: 48px
-  sidebar-w: 260px
-  topbar-h: 48px
+  sidebar-w: 280px
+  topbar-h: 40px
   input-h: 80px
   container-max: 900px
   container-wide: 1280px
@@ -237,7 +237,7 @@ components:
     rounded: "{rounded.sm}"
     padding: 8px 12px
   form-select:
-    backgroundColor: "{colors.bg-base}"  # chevron painted via background-image, see § Native selects
+    backgroundColor: "{colors.bg-base}"  # chevron painted via background-image, see § Selects
     textColor: "{colors.fg}"
     typography: "{typography.body-md}"
     rounded: "{rounded.sm}"
@@ -475,12 +475,12 @@ Downstream pages consume these tokens; they never re-tone a card, chrome or grou
 
 The interface uses the native **system UI sans stack**. It matches desktop platform conventions, keeps compact navigation calm, and makes hierarchy depend on size and weight instead of the visual bulk of a monospaced face. **JetBrains Mono** remains the technical voice for code, tool calls, paths, IDs, terminal frames, and the DartClaw wordmark.
 
-- **Base size** — 14px (`body-md`). The root stays at 16px so `rem` tokens resolve to their declared sizes; `body` applies `body-md`. Larger sizes are deliberately shallow: section headings (16px), page title (18px), display moments (20px), and metric values (24px). Below body, 12px (`caption`) carries metadata and pill text.
+- **Base size** — 14px (`body-md`). The root stays at 16px so `rem` tokens resolve to their declared sizes; `body` applies `body-md`. Larger sizes are deliberately shallow: section headings (16px), page title (18px), display moments (20px), and metric values (24px). Below body, 13px (`--text-sm`) is the chrome tier and 12px (`caption`) carries metadata and pill text.
 - **Weights** — three only: `400` (normal body), `500` (medium — UI labels), `600` (bold — headings, role labels).
 - **Line height** — `1.5` for body and code; `1.3` for headings and tight UI like the input textarea; tighter still (≤1.2) at display sizes.
 - **Tracking** — `-0.015em` (`tracking-tight`) on heading, display and metric text; `+0.04em` (`tracking-caps`) on uppercase micro-labels. System sans needs less correction than monospace.
 - **Reading measure** — running prose constrains to `measure` (65ch). Top-level code blocks, tables and other non-prose blocks do **not**: they keep their container's full width and scroll horizontally when they need to. The exemption is top-level only — a code block nested inside a list item or blockquote sits within that prose block's measure and is bounded by it.
-- **Sidebar rail** — the compact chrome uses `body-md` for every actionable row and `caption` only for section labels and metadata. The wordmark keeps JetBrains Mono as a scarce brand accent. Density comes from the sans face, tight line height, and row padding; essential navigation never drops to caption size.
+- **Sidebar rail** — the compact chrome uses `--text-sm` (13px) for every actionable row and `caption` only for section labels and metadata. The wordmark keeps JetBrains Mono as a scarce brand accent. Density comes from the sans face, tight line height, and row padding; essential navigation never drops to caption size.
 
 Every tier has exactly one backing composite class that binds all four typographic properties together. Apply the class; do not re-derive a tier from separate `font-size` + `font-weight` + `line-height` + `letter-spacing` declarations. Raw `--text-*` tokens remain for one-offs only.
 
@@ -503,11 +503,11 @@ Uppercase micro-labels — role labels, pill text, table headers — compose cap
 
 This is required, not stylistic. Every tier declares `letter-spacing`, so `.t-caption` alone resets an uppercase label to `normal` — and a component rule of equal specificity declared earlier (`.section-label`, `.msg-role`, `.sidebar-section-label`, `.tool-call-io-label`, `.notif-group`, `.palette-section`) loses its own tracking the moment `.t-caption` is applied beside it. `.tracking-caps` restores it order-independently. Rules that already out-specify the tier (`.data-table th`, `.card-metric .metric-label`) keep their tracking without it.
 
-There is no 13px tier. `body-md` is the readable floor for interface and running text; `caption` is the metadata tier. Compactness comes from the system face and shallow heading scale, not sub-body navigation text.
+13px (`--text-sm`) is the **chrome** tier and nothing else: rail rows, toolbars, button and field labels, the topbar, collapsed tool rows, palette and notification rows. Content stays on `body-md` — message bodies, card bodies, running prose and every reading surface. The split exists because the control tier is 28px: at 14px a 28px button or a 30px rail row cannot clear its own padding. It is a raw token, not a composite tier, so no `.t-*` class binds it; a component declares it directly the way the canon rules above do.
 
 ## Layout
 
-The shell is a **CSS Grid two-column layout**: a 260px sidebar and a flexible main column. The content column constrains to `container-max` (900px) for reading comfort. Spacing follows a strict **4px base unit** (`sp-1` through `sp-12`).
+The shell is a **CSS Grid two-column layout**: a 280px sidebar (`--sidebar-w`; the app may resize it between 240px and 420px) and a flexible main column. The content column constrains to `container-max` (900px) for reading comfort. Spacing follows a strict **4px base unit** (`sp-1` through `sp-12`).
 
 - **Rhythm** — small gaps use `sp-2` (8px); component internal padding uses `sp-3` (12px) or `sp-4` (16px); page padding uses `sp-6` (24px); major section separation uses `sp-8` (32px).
 - **Shell** — `.shell` is the app frame, `.sidebar` is the primary nav rail, `.topbar` is the page header, `.content-area` / `.content-inner` is the scrollable body and width-constrained inner column.
@@ -522,8 +522,8 @@ The shell is a **CSS Grid two-column layout**: a 260px sidebar and a flexible ma
 
 | Token | Value | Usage |
 |---|---|---|
-| `sidebar-w` | 260px | Sidebar width |
-| `topbar-h` | 48px | Top bar height |
+| `sidebar-w` | 280px | Sidebar width (app-resizable 240–420px) |
+| `topbar-h` | 40px | Top bar height |
 | `container-max` | 900px | Default content / message width |
 | `container-wide` | 1280px | Opt-in width for data-dense surfaces |
 | `measure` | 65ch | Reading measure for running prose inside the 900px tier |
@@ -732,6 +732,14 @@ Borders are first-class:
 - **`border-highlight`** — luminous top-edge (`rgba(255, 255, 255, 0.08)`).
 - **`border-active`** — `1px solid var(--accent)`. Focused/selected state.
 
+### Left-edge geometry
+
+A coloured 2–3px `border-left` states a **role** (`.msg`) or a **status** (`.tool-call`, `.notif-item`, `.approval-card--*`). An element that carries one **squares its left corners**: `border-radius: 0 r r 0`. Under a full radius a border is painted only between the corners, so the edge fades out top and bottom and reads as a rendering fault rather than a state. The edge decides the shape, not the colour — a component that carries a neutral edge at rest and recolours it for state squares at rest too, so a list of them keeps one silhouette while only the colour changes. A container with no edge (a plain `.card`) keeps its full radius. **Selection is not a status edge**: a selected or keyboard-cursored row is marked by its fill and its type — no edge, no detached pill, no ring (keyboard focus keeps the canon accent outline), because moving a clipped marker off the edge as a floating pill only trades one artifact for another.
+
+### Scrollbars
+
+Scrollbars are **invisible at rest** and fade in while their container is hovered, focused within, or being scrolled. The system declares only the standard properties (`scrollbar-width`, `scrollbar-color` animated through a registered `--sb-thumb` custom property) on the named scroll containers — never a bare `::-webkit-scrollbar` rule. A bare pseudo-element rule matches every scroll container in the app and, by existing at all, opts Chrome and Safari out of overlay scrollbars: the thumb then reserves a permanent 6px gutter and never fades, so every list carries a standing grey bar. No `scrollbar-gutter` is declared either, for the same reason. One exception: **`.tabs`** keeps its own styled thumb, because there the scrollbar *is* the overflow affordance (§ Tabs).
+
 ## Components
 
 DartClaw uses two **container families** — Wells (structural grouping) and Cards (semantic content) — plus a small vocabulary of status indicators, dividers, and interactive atoms. Pick by intent, not visual preference.
@@ -865,11 +873,13 @@ Card sub-elements:
 - `.btn-full` — full-width
 - States: hover (lighter bg + border highlight + 1px lift), active (darker, settles back down), disabled (0.4 opacity, no lift)
 
-**Size tier.** `.btn-sm` and `.btn-icon-sm` differ from their base by **compact padding and a smaller `min-height` only**. Neither declares a `font-size` — a size modifier that also shrinks the label is how 12px button text spread across dozens of call sites, and the label tier belongs to the type layer (§ Typography), not to a button modifier.
+**Control tier.** `.btn` and `.btn-icon` are **28px**, `.btn-sm` and `.btn-icon-sm` **24px**; `.form-input` and `.form-select` share the 28px box and the topbar is 40px. Height lives on `min-height`, so re-tiering a label never re-derives the padding. `.btn` declares the chrome type tier (`--text-sm`) on the **base**; the size modifiers still declare **no** `font-size` — a size modifier that also shrinks the label is how 12px button text spread across dozens of call sites. Under a coarse pointer or below 768px every one of these controls is floored at 44px (§ Touch targets).
 
-**Ghost buttons keep a resting boundary.** A ghost button with no border at rest reads as prose until it is hovered — unusable without a pointer, and invisible in a screenshot review. The rest-state border holds **≥3:1** (WCAG 1.4.11 non-text minimum) against both planes a ghost button actually sits on, the card and the page ground, in both themes. The mix fraction is pinned by the worst of those four combinations; lowering it drops the light-theme-on-ground case below the minimum.
+**Text ghost buttons keep a resting boundary.** A ghost button whose affordance is a *label* reads as prose until it is hovered — unusable without a pointer, and invisible in a screenshot review. The rest-state border holds **≥3:1** (WCAG 1.4.11 non-text minimum) against both planes a ghost button actually sits on, the card and the page ground, in both themes. The mix fraction is pinned by the worst of those four combinations; lowering it drops the light-theme-on-ground case below the minimum.
 
-**New Chat is a sidebar command, not a selected destination.** `.btn-new-session` is one full-width, transparent command row directly below the Chats label. Its bordered 28px square-pen well keeps the resting affordance visible without filling the row like an active session; hover adds `bg-surface0`, active adds `bg-surface1`, and keyboard focus uses the standard 2px accent outline. A subtle divider separates the command from the chat collection. Untitled draft rows render as **Untitled draft**, so the noun phrase **New Chat** belongs only to creation commands. The row is 40px on desktop and 48px at the mobile drawer breakpoint; the adjacent Archived disclosure shares the 48px mobile floor. Keep the explicit label visible: DartClaw has no collapsed-sidebar mode. Do not display `Ctrl/⌘+N` – browsers own that shortcut. The command owns one reusable untouched draft: activating it from that draft focuses the composer, and activating it elsewhere reopens the same draft. A draft stops being reusable as soon as it is named, provider-specific, keyed, or contains a message; only then may the next activation create another chat. Never remove older blank sessions automatically – cleanup is an explicit user action.
+**Icon-only buttons rest borderless — both size tiers.** `.btn-icon` and `.btn-icon-sm` have no fill and no border at rest: the glyph is already the ≥3:1 non-text affordance, so a box around it is redundant chrome, and a toolbar or a message-action row of bordered boxes becomes the loudest thing on screen. Hover and active fill it, and the 2px accent focus ring is unchanged — nothing is revealed by hover alone. `.btn-primary`, `.btn-danger` and `.btn-danger-fill` keep their own treatment when composed with either. The glyph is centred on both axes from the padding box at an explicit px size (16px, 14px at `-sm`), so a 13px-chrome control and a 14px-body one draw the same glyph in the same box. The two tiers take one rule: when only `.btn-icon` had the treatment, every `.btn-icon-sm` — queue rows, popover close buttons, the rail's settle and archive actions — shipped as a bordered square with the glyph pushed off centre.
+
+**New Chat is a sidebar command, not a selected destination.** `.btn-new-session` is one full-width, transparent command row directly below the Chats label. Its bordered 22px square-pen well keeps the resting affordance visible without filling the row like an active session; hover adds `bg-surface0`, active adds `bg-surface1`, and keyboard focus uses the standard 2px accent outline. A subtle divider separates the command from the chat collection. Untitled draft rows render as **Untitled draft**, so the noun phrase **New Chat** belongs only to creation commands. The row is 30px on desktop and 44px at the touch tier; the adjacent Archived disclosure shares that floor. Keep the explicit label visible: DartClaw has no collapsed-sidebar mode. Do not display `Ctrl/⌘+N` – browsers own that shortcut. The command owns one reusable untouched draft: activating it from that draft focuses the composer, and activating it elsewhere reopens the same draft. A draft stops being reusable as soon as it is named, provider-specific, keyed, or contains a message; only then may the next activation create another chat. Never remove older blank sessions automatically – cleanup is an explicit user action.
 
 ### Keycaps
 
@@ -877,9 +887,9 @@ Card sub-elements:
 
 ### Composer & input area
 
-Two roles, split cleanly. **`.input-area`** is the *anchored strip* — the `crust 30% / mantle` gradient with a luminous top border that pins the input to the bottom of the chat surface. **`.composer`** is the *input object* it contains: one card holding the textarea on top and a toolbar row inside it. The bare "textarea + Send button side by side" layout is superseded for chat — a 40px send button bottom-aligned against a growing textarea is exactly the misalignment the object shape removes.
+Two roles, split cleanly. **`.input-area`** is the *dock* — padding that pins the input to the bottom of the chat surface, and nothing more. **`.composer`** is the *input object* it contains: one card holding the textarea on top and a toolbar row inside it. The bare "textarea + Send button side by side" layout is superseded for chat — a 40px send button bottom-aligned against a growing textarea is exactly the misalignment the object shape removes. The dock carries **no fill and no top border**: it had both — a `crust 30% / mantle` gradient under a luminous rule — from when it *was* the input, and with the composer as its own card that band is a second container around a container, the rule reading as a page split and the fill as a plane the surface ladder does not have. The composer floats over the transcript instead, and the scroll fades out behind it.
 
-The composer carries the input-family treatment on the *container* – `bg-base`, `inset-sm`, `rounded.lg` – with the textarea bare and transparent inside it. **Focus is terminal-native and quiet, but quiet is bounded**: no rings and no glow, and every persistent focus cue still clears the WCAG 1.4.11 non-text minimum of **3:1**. Three cues compose it: the **caret is terminal green** (`caret-color: accent` – the blinking cursor is the focus signal, exactly as in a terminal), the **send button rests on a dimmed fill and wakes to the full accent gradient** on `:focus-within` (also on hover, keyboard focus, and while streaming – the stop button never sleeps), and the container border takes an accent mix into `surface0` held at ≥ 3:1 against `bg-base` in both themes. A textarea can never carry its own border here (it has no margin against the container), so the container + caret + send do all the work. The textarea grows from `min-height: 40px` to `max-height: 40vh` at `leading-tight`.
+The composer carries the input-family treatment on the *container* – `bg-base`, `inset-sm`, `rounded.lg` – with the textarea bare and transparent inside it. **Focus is terminal-native and quiet, but quiet is bounded**: no rings and no glow, and every persistent focus cue still clears the WCAG 1.4.11 non-text minimum of **3:1**. Three cues compose it: the **caret is terminal green** (`caret-color: accent` – the blinking cursor is the focus signal, exactly as in a terminal), the **send button rests on a dimmed fill and wakes to the full accent gradient** on `:focus-within` (also on hover, keyboard focus, and while streaming – the stop button never sleeps), and the container border takes an accent mix into `surface0` held at ≥ 3:1 against `bg-base` in both themes. A textarea can never carry its own border here (it has no margin against the container), so the container + caret + send do all the work. The textarea grows from `min-height: 24px` — one line, since the container owns the padding — to `max-height: 40vh` at `leading-tight`.
 
 > The send button's resting dim lives on the **fill**, never on element-level `opacity`. Opacity composites the glyph and the fill together toward the ground, which collapsed glyph-vs-fill to 1.72:1 in light – an enabled control below the non-text minimum. Dimming the fill and holding the glyph at full strength keeps the same "asleep" reading while staying legible. Genuinely disabled controls are exempt (WCAG 1.4.11) and keep `.btn:disabled { opacity: 0.4 }`.
 
@@ -908,7 +918,7 @@ Anatomy:
 
 - `.composer-toolbar` — the inside row: attach/mode on the left, `.composer-meta` (model/effort + send) pushed right with `margin-left: auto`.
 - `.composer-model` — a quiet text button (the composer's only chrome) with a trailing chevron; opens the model/effort picker.
-- `.composer-send` — a **square** `btn-primary` icon button (the shape language holds — no circular send buttons); streaming swaps its glyph to `square` (stop), an app behavior, not a CSS state.
+- `.composer-send` — a **square 28px** `btn-primary` icon button (the shape language holds — no circular send buttons) carrying the `arrow-up` glyph and no text label; streaming swaps its glyph to `square` (stop), an app behavior, not a CSS state. It is a control, not a block: the 44px box it briefly took was sized for a "Send" *label*, and the label is gone.
 - `.composer-context` — a chip + metadata row adjacent to the composer (above or below).
 
 Composition rules (no new vocabulary): the permission/guard **mode** is a `.status-badge` (neutral default; `status-badge-warning` for elevated modes — badges carry state, chips never do); **attachments/refs** are chips, placed in a `.chip-row` inside the composer above the toolbar or in `.composer-context`; **streaming** adds `.composer--streaming` (disables the textarea at 0.5 opacity) while the app swaps send→stop.
@@ -921,18 +931,28 @@ Native elements under canonical classes. Any DartClaw form — settings, task, s
 |---|---|
 | `.form-field` | One label + control + message, stacked. The unit a form is built from. |
 | `.form-field--inline` | Label left, control trailing. Toggle rows and other control-follows-label cases. **Compose onto `.form-field`.** |
-| `.form-field--checkbox` | Control first, label text after, `sp-2` gap. **Compose onto a `.form-field` label** so its full 48px mobile row activates the control. |
+| `.form-field--checkbox` | Control first, label text after, `sp-2` gap. **Compose onto a `.form-field` label** so its full 44px touch row activates the control. |
 | `.form-row` | Multi-field horizontal group; fields share the row and stack when they run out of width. |
 | `.form-label` | Field label in the **eyebrow voice**: the rule uppercases; markup composes `.t-caption.tracking-caps` for size and tracking. The eyebrow rhythm is what keeps a resting form from reading as a gray stack. Flex row so an icon or badge can sit beside the text. |
 | `.form-input` | Text input. Recessed well (a step below `bg-base` toward the crust) + `inset-sm` depth + accent caret. Focus adds the phosphor ring — a soft accent glow on top of the recess; the `:focus-visible` outline stays the guaranteed a11y cue. |
-| `.form-select` | Native `<select>` — see § Native selects. |
+| `.form-select` | `<select>`, always enhanced into a listbox — see § Selects. |
 | `.form-textarea` | Multi-line input; vertical resize only. |
 | `.form-error` | Validation message. Floors a filled message at one line; an empty one takes no height. It does not pre-reserve the line, so a layout that must not reflow when an error appears has to reserve the slot itself. |
 | `.form-hint` | Helper text below a control. |
+| `.field-tier` | When a change takes effect, at the right end of the label row: quiet text (`--text-xs`, `--fg-overlay`), no fill, no border, no tracking. `--warn` and `--ok` re-hue it for the transient post-save states. A tier the reader already expects renders no marker — a marker on every field is a marker on none. |
 | `.form-checkbox` / `.form-radio` | Native inputs, `appearance: none`. Checked = top-lit accent gradient + micro-glow. |
 | `.form-toggle` + `.form-toggle-slider` | Switch presentation of a checkbox. CSS-only, state from `:checked`; the on state runs the accent gradient with a micro-glow, the off track is recessed. |
 
 **Control rules are element-qualified** — `input.form-input`, not `.form-input`. The app stylesheet loads after the design system, so a bare class rule loses every shared property to the app's own copy and lands half-applied. Qualification also keeps the family class-bound: an unqualified `input {` here would re-skin every unadopted template at once.
+
+**Resting boundary: `--border-control`.** Depth alone cannot carry a control's edge. The family's border used to be a 15% accent whisper into `bg-surface0`, which measured under 1.5:1 against the dark card — a resting field read as a shade of the page rather than as a control. `--border-control` is `--fg-overlay` at 78% into `--bg-crust`: the same fraction `.btn-ghost` uses for the same ≥3:1 requirement (WCAG 1.4.11), and opaque rather than alpha, because a border paints over the element's own background and an alpha boundary on a crust-backed control would resolve against the crust anyway. Measured in the running app, both themes:
+
+| Plane | Dark | Light |
+|---|---|---|
+| Card (`--bg-card`) | **5.59:1** | **4.65:1** |
+| Page ground (`--bg-base`) | **4.37:1** | **3.76:1** |
+
+Hover takes the boundary up to full `--fg-overlay` rather than down to `--bg-surface2`, which is the *dimmer* of the two in dark and would have faded a field on hover. Focus is unchanged. Single-line controls are **28px** with `sp-3` of horizontal padding; a select reserves `sp-8` on the right for the chevron well. Re-measure the table if a theme's `--fg-overlay`, `--bg-crust`, `--bg-card` or `--bg-base` moves.
 
 Controls do not inherit the document font, so each control rule sets `font: inherit`. That is a reset, not a type tier — no control rule declares a `font-size`. Compose `.t-caption.tracking-caps` on labels (the eyebrow voice), `.t-label` on tabs, `.t-caption` on hints and errors.
 
@@ -949,16 +969,29 @@ Status is never carried by colour alone, so **an invalid control always renders 
 
 Anything longer (paths, prompts, URLs) takes the unmodified full-width control. `ch` keeps these caps relative to the active UI face rather than hard-coding pixels.
 
-At `≤768px` the canonical `input.form-input`, `select.form-select` and `textarea.form-textarea` all hold a `16px` floor — below it iOS zooms the viewport on focus. The textarea was held out until the same native case was evidenced on a real control; it since was, so all three text-entry controls now share the floor.
+At `≤768px` the canonical `input.form-input`, `select.form-select`, `button.custom-select-trigger` and `textarea.form-textarea` all hold a `16px` floor — below it iOS zooms the viewport on focus.
 
-**Touch targets.** At `≤768px` `.form-toggle` takes a `48px` box, matching the floor `.btn` and `.sidebar-nav-item` already hold. The slider stays `36×20` and centres inside it — the switch does not get bigger, its target does. A `36×20` target is 20px tall, under WCAG 2.5.8's 24px minimum, and the box has to *reserve* the space rather than just claim it: enlarging only the (out-of-flow) input would buy the target for free but let stacked toggle rows overlap, so a tap near a row boundary would flip the wrong setting. Expect toggle rows to be taller on mobile; that is the trade.
+**Touch targets.** Under a coarse pointer or at `≤768px` `.form-toggle` takes a `44px` box, matching the floor `.btn` and `.sidebar-nav-item` already hold. The slider stays `36×20` and centres inside it — the switch does not get bigger, its target does. A `36×20` target is 20px tall, under WCAG 2.5.8's 24px minimum, and the box has to *reserve* the space rather than just claim it: enlarging only the (out-of-flow) input would buy the target for free but let stacked toggle rows overlap, so a tap near a row boundary would flip the wrong setting. Expect toggle rows to be taller under touch; that is the trade.
 
-### Native selects
+### Selects
 
-- Closed select controls visually match the input family: same surface, inset depth, accent focus ring, and a custom DartClaw chevron rather than the browser-default arrow chrome. **Backed by `select.form-select`** — this section describes shipped CSS, not an aspiration.
-- Extra right padding and a subtle divider before the chevron so the control reads as an intentional picker.
-- The chevron is painted with the `background-image` / `-position` / `-repeat` **longhands**, because `::before`/`::after` do not render on a `<select>` and a `mask-image` on the control would clip the whole element. Painting it as an image means the stroke colour is baked into the URI rather than resolved through `currentColor`, so `--icon-chevron-down-control` is a theme-aware pair in `icons.css` — the one pre-coloured icon token in the system.
-- Safari limitation: closed control can be themed, but the opened option popover stays system-native. If branded option menus, search, or grouped content are required, use an accessible custom listbox/combobox instead of over-styling `<select>`.
+**Every `select.form-select` is enhanced, and there is no opt-in.** `initCustomSelects` (`shared.js`) runs on load and after every HTMX swap: it wraps the `<select>`, hides it, and stands a `<button>` trigger and a menu in its place. The one exception is declared in the markup, not in the script — a select carrying `aria-hidden="true"` is a *value holder* behind a purpose-built control (the channel mode radiogroup is the case), and the enhancer skips it. A select rendered `hidden` keeps its wrapper hidden with it.
+
+**The `<select>` stays in the DOM and stays the value authority.** The trigger writes to it and dispatches a bubbling `change`; nothing reads state off the menu. Forms serialize, HTMX swaps, and dirty-tracking keep working because none of them ever sees the enhancement.
+
+| Part | Markup |
+|---|---|
+| Wrapper | `.custom-select`, `data-open="true|false"` |
+| Value authority | the original `<select class="form-select native-select-hidden" aria-hidden="true" tabindex="-1">` |
+| Trigger | `button.custom-select-trigger` + `.custom-select-label` |
+| Menu | `.pop.card.card-elevated.custom-select-menu`, `role="listbox"` |
+| Option | `button.palette-item.menu-item.custom-select-option`, `role="option"`, with `.menu-tick` + `.palette-item-label` |
+
+**The trigger *is* the closed control.** It is named in the same rules as `input.form-input` / `select.form-select` rather than carrying a second copy of them — same box, `--border-control` boundary, inset depth, chevron token and divider, 28px tier, 44px touch floor. Re-tone a field and the trigger re-tones with it; a page that runs no JS keeps a themed native select instead of a half-styled one. It inherits the select's accessible name from its `aria-label`, or from the `<label for>` that pointed at the select.
+
+**The menu is the popover vocabulary, not a select-only one** (§ Command palette): only the geometry is this component's, hanging under the trigger at the trigger's width and capping at `18rem` before it scrolls. When the whole menu does not fit below the trigger, it opens on the side with more room – `.custom-select-menu--up` hangs it above – and caps its height to that room so its rows scroll inside it; room is measured on every open, against the viewport and any clipping ancestor such as a dialog body. Do not introduce a second dropdown — this is the one. **The menu has one cursor, and it is DOM focus:** pointer movement over an enabled row focuses it (without scrolling), the keyboard moves on from there, a disabled row never takes it, and the row fill follows `:focus` rather than `:hover`, so a pointer resting over one row while the keys move to another paints only the second. Keyboard: Enter / Space / ArrowUp / ArrowDown open it onto the selected row; ArrowUp/Down, Home and End move; Enter or Space commits; Escape closes back to the trigger; a printable key jumps to the first row starting with what has been typed (the buffer clears after 700ms). It closes on a pointerdown outside it — **pointerdown, not click**, because a click elsewhere lands after that control has already reacted — and whenever focus leaves the wrapper.
+
+The chevron is painted with the `background-image` / `-position` / `-repeat` **longhands**, because `::before`/`::after` do not render on a `<select>` and a `mask-image` on the control would clip the whole element. Painting it as an image means the stroke colour is baked into the URI rather than resolved through `currentColor`, so `--icon-chevron-down-control` is a theme-aware pair in `icons.css` — the one pre-coloured icon token in the system.
 
 ### Tabs
 
@@ -978,7 +1011,7 @@ Do not re-invent a wrapping bar or a `mask-image` edge fade to get the same affo
 
 **Sticky material.** `.tabs--sticky` fills with a tint of the ground token plus a backdrop blur, not a flat opaque slab. The bar pins over the body gradient, whose ambient washes vary across the viewport, so any fixed opaque fill lands as a hard-edged rectangle somewhere — in light theme at scroll-top most visibly.
 
-**Touch targets.** At `≤768px` `.tab` holds a `48px` `min-height`, the same floor `.btn` takes. Padding alone leaves a tab 36px tall — clear of WCAG 2.5.8's minimum, but meaner than every other control on the screen, and a tab bar is primary navigation. `.tab` centres its label with `inline-flex` rather than relying on the line box, because a `<button>` centres its own content and an `<a>` does not; without it the two tab forms would sit differently once the floor raises the box.
+**Touch targets.** Under a coarse pointer or at `≤768px` `.tab` holds a `44px` `min-height`, the same floor `.btn` takes. Padding alone leaves a tab 36px tall — clear of WCAG 2.5.8's minimum, but meaner than every other control on the screen, and a tab bar is primary navigation. `.tab` centres its label with `inline-flex` rather than relying on the line box, because a `<button>` centres its own content and an `<a>` does not; without it the two tab forms would sit differently once the floor raises the box.
 
 ### List toolbar and pager
 
@@ -998,6 +1031,11 @@ downgraded to `type="text"`, so the role and Escape behaviour survive. The reset
 (`app.css`, keyed on `input.form-input--search`) because canon was frozen when it was found — it is a hoist candidate
 for `components.css`.
 
+**Selection bar.** `.bulk-bar` appears at the foot of a list once rows are selected: a `.bulk-count` naming the
+selection, a `.bulk-spacer`, and the actions that apply to it. It is sticky to the bottom of its own scroll container,
+not floating over the page — the rows it acts on have to stay visible while it is open. It declares no `display` of its
+own, because a list has no selection at rest and the app owns when it appears.
+
 ### Feedback
 
 | Feedback type | Mechanism | Examples |
@@ -1008,7 +1046,7 @@ for `components.css`.
 | Row-scoped destructive | `.delete-confirm-bar` | Deleting one scheduled job from its own row |
 | Needs structured input | `.dialog` + width modifier + `.card.card-glass`, hosting real form controls | New task, rename with validation |
 
-**Native `alert()`, `confirm()` and `prompt()` are banned.** They cannot be themed or brand-styled, they block the event loop, and they are threadbare on their own terms — one line of text, OS-chrome buttons, and for `prompt()` a single unvalidated field. Every row above names a class backed by CSS in `components.css`; reach for one of those instead. Same rule, same reason as the § Native selects limitation: where the platform control cannot be made to belong, replace it rather than over-style it.
+**Native `alert()`, `confirm()` and `prompt()` are banned.** They cannot be themed or brand-styled, they block the event loop, and they are threadbare on their own terms — one line of text, OS-chrome buttons, and for `prompt()` a single unvalidated field. Every row above names a class backed by CSS in `components.css`; reach for one of those instead. Same rule, same reason the select's option list is a `.pop` menu rather than a themed native popover (§ Selects): where the platform control cannot be made to belong, replace it rather than over-style it.
 
 **Danger is a markup choice, not a second frame.** `.dialog--confirm` serves both destructive and non-destructive confirmations — there is no dialog-danger variant. The severity lives entirely in what the markup puts inside the frame:
 
@@ -1056,19 +1094,23 @@ The frame carries **no `z-index`**. `showModal()` promotes the element into the 
 
 **Empty state vs absent value.** `.empty-state` answers "this whole list is empty" and gets a title, an explanation and a way forward. `.value-absent` answers "this one field has no value" and gets a dash. Reaching for the block treatment on a single missing cell is how a table turns into a wall of apologies.
 
-**The leading mark comes in two forms, and they are not interchangeable.** The mascot image is the branded shape; a typed glyph (the `❯_` prompt mark) is the lighter one. `.empty-state .icon` styles the typed glyph as *text* — accent colour and a phosphor glow — so a bare `.icon` there opts out of the icon system's mask fill and its 1em box. Add an `.icon-<name>` modifier and it is a real masked icon again, keeping both. This is why a bare `.icon` in an empty state renders a glyph rather than a filled square: the two paths are told apart by the presence of the modifier, not by what the element contains.
+**The leading mark comes in two forms, and they are not interchangeable.** The mascot image is the branded shape; a typed glyph (the `❯_` prompt mark) is the lighter one. `.empty-state > .icon` styles the typed glyph as *text* — accent colour and a phosphor glow — so a bare `.icon` there opts out of the icon system's mask fill and its 1em box. Add an `.icon-<name>` modifier and it is a real masked icon again, keeping both. This is why a bare `.icon` in an empty state renders a glyph rather than a filled square: the two paths are told apart by the presence of the modifier, not by what the element contains.
+
+**The hero rule is direct-child only.** An `.icon` deeper inside an empty state belongs to something else — the action button's leading icon above all. As a descendant rule it painted that glyph accent-on-accent inside a `.btn-primary`, where it was invisible, and its 1em box shoved the label off centre. Keep the hero mark a direct child of `.empty-state`; anything nested keeps the icon system's own treatment.
 
 `.value-absent` renders the dash as **generated content on an empty element**, so an empty cell still occupies its row and reads as "no value" rather than as a rendering failure. An element that does carry content keeps its own text, muted.
 
 ### Messages
 
-- `.msg` — base message with left border accent
+- `.msg` — base message with left border accent, capped at **760px** (~78 characters of measure at `body-md`). The transcript is narrower than the 900px `container-max` other surfaces use, so the 65ch prose block does not float inside a much wider frame; the cap is scoped to `.msg` rather than re-toned on the shared token. Its left corners are square because it carries a role edge (§ Left-edge geometry).
 - `.msg-user` — green left border + faint accent tint bleeding from the border edge
 - `.msg-assistant` — blue left border + faint info tint bleeding from the border edge
 - `.msg-role` — uppercase label (`caption`, bold)
 - `.msg-content` — markdown-rendered content (headings, lists, code, tables, blockquotes supported)
 
 **The thread bottom-anchors.** `.messages` is a column flex container and its first child takes `margin-top: auto`, so a short conversation sits against the composer instead of stranding the last message most of a viewport above it; the last child drops its bottom margin so the gap is exactly one `sp-4`. Use this idiom, **not** `justify-content: flex-end` – once the thread overflows, `flex-end` pushes content above the scroll origin where it can never be reached.
+
+**Conversation controls keep a 44px target at every width.** The message action lane reserves that height even on desktop; copy, edit, fork and retry keep their small glyphs inside 44px buttons. Tool disclosures and live approval/recovery actions use the same minimum. This is a conversation-specific exception to the compact desktop control tier.
 
 **Thinking slot** (`.msg-thinking`) — the sanctioned pre-stream composition state, and *the* claw moment of the chat view: an assistant message showing the `.claw-loader` plus a muted "thinking" label with an animated ellipsis (reusing the `.tool-indicator.pending` blink, not a new keyframe). It is replaced entirely by streamed content on the first token, so there is at most one per view — this is where users stare longest, which is exactly why the brand lives here. Under reduced motion it degrades to the static claw-mark + text.
 
@@ -1083,7 +1125,7 @@ The frame carries **no `z-index`**. `showModal()` promotes the element into the 
 
 `.tool-call` is the structured, timeline sibling of `.tool-indicator`: the line stays the transient/inline atom, the card is the durable conversation record. Same monospace voice and `> ` prefix, now with a name, a detail path, a duration, and an expandable result well — built on `<details>`/`<summary>` so disclosure is zero-JS. A leading `::before` `> ` and a trailing chevron (rotating on `[open]`) frame the summary; the body holds `args`/`result` wells (`.tool-call-io-label` + `.well-deep`, capped at 320px and scrollable).
 
-State lives on the 3px left edge and the name glyph, never on a badge:
+State lives on the 3px left edge and the name glyph, never on a badge. The frame's left corners are square so that edge runs its full height (§ Left-edge geometry), and the collapsed summary is a 26px chrome-tier row — a tool call is the densest repeated object in a transcript.
 
 | Variant | Left edge | Extra |
 |---|---|---|
@@ -1119,7 +1161,7 @@ Without a band a table reads as one undifferentiated block – the header sample
 
 ### Approval gates
 
-`.approval-card` makes the plan-approval / HITL gate a first-class object rather than a line in the log — governance rendered as UX. It builds on the Card family with a severity treatment while waiting: `--waiting` gets a `warning` left edge and a faint gradient bleed from that edge (the `.panel-warning` recipe), a `.status-dot--attention` in the header, an `.approval-card-plan` well (rendered plan markdown, capped at 400px), and an `.approval-card-actions` footer (Approve / Reject / Comment). **The dot pulses; the card does not** — attention is expressed once, never stacked. On narrow screens (≤768px) the actions stack full-width at ≥48px tall.
+`.approval-card` makes the plan-approval / HITL gate a first-class object rather than a line in the log — governance rendered as UX. It builds on the Card family with a severity treatment while waiting: `--waiting` gets a `warning` left edge and a faint gradient bleed from that edge (the `.panel-warning` recipe), a `.status-dot--attention` in the header, an `.approval-card-plan` well (rendered plan markdown, capped at 400px), and an `.approval-card-actions` footer (Approve / Reject / Comment). **The dot pulses; the card does not** — attention is expressed once, never stacked. On narrow screens (≤768px) the actions stack full-width, at the touch tier's 44px floor.
 
 Resolved variants drop the pulse and actions for a single `.approval-card-resolution` line (caption, leading icon): `--approved` (success edge, `.icon-check`), `--rejected` (error edge, `.icon-circle-x`), `--expired` (neutral edge, whole card at 0.75 opacity, overlay-toned text).
 
@@ -1133,11 +1175,13 @@ Resolved variants drop the pulse and actions for a single `.approval-card-resolu
 
 ### Notifications
 
-Rows for the attention center; the panel container is `.card-glass` (canon). `.notif-group` is an uppercase section header; `.notif-item` is a three-column grid (dot · body · time) with a status dot from the vocabulary, a bold `.notif-item-title`, an ellipsized `.notif-item-detail`, and a `.notif-item-time`. Rows are ≥44px for touch, hover to `bg-surface0`, and take an accent focus ring. `.notif-item--unread` carries a 2px accent left edge and a `bg-sub-base` tint; read rows keep a transparent 2px edge so titles stay aligned.
+Rows for the attention center; the panel container is `.card-glass` (canon). `.notif-group` is an uppercase section header; `.notif-item` is a three-column grid (dot · body · time) with a status dot from the vocabulary, a bold `.notif-item-title`, an ellipsized `.notif-item-detail`, and a `.notif-item-time`. Rows are 36px (44px at the touch tier), hover to `bg-surface0`, and take an accent focus ring. `.notif-item--unread` carries a 2px accent left edge and a `bg-sub-base` tint; read rows keep a transparent 2px edge so titles stay aligned. Because the row carries an edge, its left corners are square (§ Left-edge geometry).
 
 ### Command palette
 
-Rows inside the glass palette (`.card-glass` container + the canonical input at top are existing canon). `.palette-section` is a section header sharing the `.notif-group` recipe (kept a separate class because the contexts differ). `.palette-item` is a four-column grid (icon · label · context · `kbd`): `.palette-item-label` in `fg`, an ellipsized `.palette-item-context` in overlay, and a trailing keycap. Rows are ≥40px (48px on ≤768px). `.palette-item--active` is the keyboard cursor — `bg-surface0` plus an accent left edge, with the icon brightening to `fg`; hover matches active minus the accent edge.
+Rows inside the glass palette (`.card-glass` container + the canonical input at top are existing canon). `.palette-section` is a section header sharing the `.notif-group` recipe (kept a separate class because the contexts differ). `.palette-item` is a four-column grid (icon · label · context · `kbd`): `.palette-item-label` in `fg`, an ellipsized `.palette-item-context` in overlay, and a trailing keycap. Rows are 30px (44px at the touch tier). `.palette-item--active` is the one cursor — `bg-surface0` plus a bolder `fg` label, with the icon brightening to `fg` — and pointer movement moves it exactly as the arrow keys do, so a row has no hover fill of its own and Enter always runs the highlighted row. Movement, not entry: a list scrolled under a resting pointer leaves the cursor where the key put it. A press inside a palette (header, padding or row) keeps focus in the palette's text input, and a completed click still chooses the row. It carries **no** left edge: a 2px border under a `radius` is painted only between the corners, so the marker renders as a segment floating mid-edge (see § Left-edge geometry).
+
+**Popovers are the same rows on a floating shell, and the shell is canon.** `.pop` is float and z-index only — compose `.pop.card.card-elevated` and supply placement yourself, which is the one thing that stays app-side. A floating menu is an overlay, so it keeps its resting background, borders, shadow and position under the pointer, and its rows fill with `bg-surface1` on hover and cursor, since the shell itself is `bg-surface0`. The shell draws its own edge, a `fg`-derived hairline, because the card's `--border` is `bg-surface0` too, which left a menu with no edge wherever it met a `bg-surface0` plane, such as a select opened inside a composer popover. Inside it, `.pop-head` is an eyebrow section header (a trailing `.btn-icon-sm` takes the right end), `.pop-sep` divides groups, and `.menu-item` re-templates `.palette-item` into tick · label · context so `.menu-tick` can carry an accent check on the chosen row, with `.menu-item--on` lifting its label to `fg`. Every floating menu in the product is built from these — the topbar overflow, the attention panel, the rail's scope and view menus, and the enhanced select's listbox (§ Selects). `.menu-*` must stay *after* `.palette-item` in the stylesheet: the grid re-template is an equal-specificity override, so source order is what decides it.
 
 ### Orchestration
 
@@ -1281,7 +1325,16 @@ Every code-bearing surface takes the theme — an unhighlighted code block is a 
 | — | `git-branch` | `--icon-git-branch` | Session fork/lineage |
 | `workflow` | `workflow` | `--icon-workflow` | Workflows nav / run board |
 | — | `clock` | `--icon-clock` | Durations, timestamps |
-| — | `corner-down-right` | `--icon-corner-down-right` | Forked-from lineage indicator |
+| `fork-from` | `corner-down-right` | `--icon-corner-down-right` | Forked-from lineage indicator |
+| `arrow-down` | `arrow-down` | `--icon-arrow-down` | Jump to next attention |
+| `attach` | `paperclip` | `--icon-paperclip` | Composer attach |
+| `copy` | `copy` | `--icon-copy` | Copy a message |
+| `fork` | `git-branch` | `--icon-git-branch` | Fork from a message |
+| `overflow` | `ellipsis` | `--icon-ellipsis` | Overflow menu trigger |
+| `panel-left` | `panel-left` | `--icon-panel-left` | Collapse the rail |
+| `retry` | `rotate-ccw` | `--icon-rotate-ccw` | Retry a turn |
+| `sliders` | `sliders-horizontal` | `--icon-sliders` | Rail view options |
+| `stop` | `square` | `--icon-square` | Stop a running turn |
 
 ### Unicode exceptions
 
@@ -1297,7 +1350,7 @@ These remain as Unicode characters — text/punctuation, not UI icons:
 
 - Always use `mask-image` (not `background-image`) so icons respond to color changes.
 - Include `-webkit-mask-*` prefixes for Safari compatibility.
-- Size icons with `em` units so they scale with surrounding text.
+- Size icons with `em` units so they scale with surrounding text — except inside an **icon-only control** (`.btn-icon`, `.btn-icon-sm`, `.icon-control`, `.icon-slot`, `.icon-lead`), where the glyph takes an explicit px size keyed to the box so a 13px-chrome control and a 14px-body one draw the same glyph.
 - SVG format: `viewBox="0 0 24 24"`, `stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"`, `fill="none"`.
 - Use `stroke='%23000'` (URL-encoded `#000`) in data URIs for mask source.
 

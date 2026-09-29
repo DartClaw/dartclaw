@@ -25,6 +25,20 @@ void main() {
       });
     }
 
+    test('every server testing profile resolves its PostgreSQL connection', () {
+      const url = 'postgresql://runtime@localhost/dartclaw_profile';
+      final configPath = p.join(Directory.systemTemp.path, 'dartclaw-profile-config.yaml');
+      for (final relative in shippedConfigCorpus.where((path) => path.startsWith('dev/testing/profiles/'))) {
+        final config = DartclawConfig.load(
+          configPath: configPath,
+          fileReader: (path) => path == configPath ? read(relative) : null,
+          env: {'HOME': Directory.systemTemp.path, 'DARTCLAW_POSTGRES_URL': url},
+        );
+        expect(config.database.url, url, reason: relative);
+        expect(config.database.urlEnvVars, contains('DARTCLAW_POSTGRES_URL'), reason: relative);
+      }
+    });
+
     test('the walk reaches leaves only an items arm can reach', () {
       // Without descending `items`, jobs and rule lists are never looked at and
       // the corpus gate is green because it never got there.

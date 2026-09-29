@@ -9,6 +9,9 @@
 
 port: 3333
 
+database:
+  url: ${DARTCLAW_POSTGRES_URL}
+
 # Declared, not inferred: these profiles exercise the host lane, and an
 # undeclared posture would isolate wherever a container runtime happens to exist.
 container:
@@ -17,7 +20,7 @@ data_dir: "__DATA_DIR__"
 
 agent:
   provider: codex
-  model: gpt-5.4
+  model: gpt-5.6-sol
 
 gateway:
   auth_mode: token
@@ -45,13 +48,14 @@ workflow:
   # Role models mirror the Codex preset in
   # packages/dartclaw_workflow/test/fixtures/e2e_fixture.dart — one mapping, so a
   # scenario run and the e2e suite exercise the same models. `gpt-5-codex` sat
-  # here until 2026-08-31 and a ChatGPT subscription cannot serve it at all.
+  # here until 2026-08-31 and the workflow role drifted to `gpt-5.4` until
+  # 2026-09-20; a ChatGPT subscription cannot serve either one at all.
   # The planner is luna, not the sol the product docs recommend: on sol the plan
   # step fans story specs out to Codex sub-agents and the parent turn ended at
   # the first child's answer (2026-09-01, twice); luna writes them inline.
   defaults:
     workflow:
-      model: codex/gpt-5.4
+      model: codex/gpt-5.6-luna
     planner:
       model: codex/gpt-5.6-luna
       effort: medium

@@ -127,6 +127,91 @@ void main() {
     expect((await readSessionUsage(kvService, session.id)).estimatedCostUsd, isNull);
   });
 
+  test('resumed Claude snapshots add only their native-session increments', () async {
+    await worker.dispose();
+    worker = FakeAgentHarness(supportsProviderSessionResume: true);
+    final session = await sessions.getOrCreateMainSession();
+    TurnResult snapshot(int output, double cost, int rootOutput) => TurnResult(
+      outputTokens: rootOutput,
+      claudeUsageSnapshot: ClaudeUsageSnapshot(
+        nativeSessionId: 'native-1',
+        models: {'model': ClaudeModelUsage(input: 0, output: output, cacheRead: 0, cacheWrite: 0)},
+        totalCostUsd: cost,
+      ),
+    );
+    Future<TurnOutcome> run(int output, double cost, int rootOutput, {bool resume = false}) async {
+      final runner = buildRunner();
+      scheduleTurnCompletion(worker, result: snapshot(output, cost, rootOutput));
+      final turnId = await runner.reserveTurn(session.id, providerSessionId: resume ? 'native-1' : null);
+      runner.executeTurn(session.id, turnId, [
+        {'role': 'user', 'content': 'Continue'},
+      ]);
+      return runner.waitForOutcome(session.id, turnId);
+    }
+
+    expect((await run(408, 0.0504705, 408)).outputTokens, 408);
+    expect((await run(537, 0.0619837, 129, resume: true)).outputTokens, 129);
+    expect((await run(775, 0.1106287, 238, resume: true)).outputTokens, 238);
+    final ledger = await readSessionCost(kvService, session.id);
+    expect(ledger['output_tokens'], 775);
+    expect(ledger['estimated_cost_usd'], closeTo(0.1106287, 0.000000001));
+    expect(ledger['cost_reported_turn_count'], 3);
+    expect(ledger['token_usage_complete'], isTrue);
+    expect(ledger['pending_accounting_turn_id'], isNull);
+    expect(ledger['last_accounted_turn_id'], isNotNull);
+    expect((ledger['claude_native_snapshot'] as Map)['native_session_id'], 'native-1');
+  });
+
+  test('failed final write leaves a gap and later snapshots never catch it up', () async {
+    await worker.dispose();
+    worker = FakeAgentHarness(supportsProviderSessionResume: true);
+    final path = kvService.filePath;
+    await kvService.dispose();
+    kvService = _FailingAccountingKv(filePath: path);
+    final failingKv = kvService as _FailingAccountingKv;
+    final session = await sessions.getOrCreateMainSession();
+    TurnResult snapshot(int output, int rootOutput) => TurnResult(
+      outputTokens: rootOutput,
+      claudeUsageSnapshot: ClaudeUsageSnapshot(
+        nativeSessionId: 'native-1',
+        models: {'model': ClaudeModelUsage(input: 0, output: output, cacheRead: 0, cacheWrite: 0)},
+        totalCostUsd: output / 1000,
+      ),
+    );
+    Future<TurnOutcome> run(int output, int rootOutput, {bool resume = false}) async {
+      final runner = buildRunner();
+      scheduleTurnCompletion(worker, result: snapshot(output, rootOutput));
+      final turnId = await runner.reserveTurn(session.id, providerSessionId: resume ? 'native-1' : null);
+      runner.executeTurn(session.id, turnId, [
+        {'role': 'user', 'content': 'Continue'},
+      ]);
+      return runner.waitForOutcome(session.id, turnId);
+    }
+
+    final first = await run(100, 100);
+    failingKv.failWriteNumber = 4;
+    final failed = await run(130, 20, resume: true);
+    expect(failed.outputTokens, 30);
+    expect(failed.tokenUsageComplete, isFalse);
+    var ledger = await readSessionCost(kvService, session.id);
+    expect(ledger['output_tokens'], 100);
+    expect(ledger['pending_accounting_turn_id'], failed.turnId);
+    expect(ledger['last_accounted_turn_id'], first.turnId);
+
+    final third = await run(170, 25, resume: true);
+    ledger = await readSessionCost(kvService, session.id);
+    expect(third.outputTokens, 25);
+    expect(third.tokenUsageComplete, isFalse);
+    expect(ledger['output_tokens'], 125);
+    expect(ledger['token_usage_complete'], isFalse);
+    final fourth = await run(180, 10, resume: true);
+    ledger = await readSessionCost(kvService, session.id);
+    expect(fourth.outputTokens, 10);
+    expect(fourth.tokenUsageComplete, isTrue);
+    expect(ledger['output_tokens'], 135);
+    expect(ledger['token_usage_complete'], isFalse);
+  });
+
   test('S01/S03 reservation inputs reach the harness and completed outcome', () async {
     worker = FakeAgentHarness(supportsStructuredOutput: true, supportsProviderSessionResume: true);
     final runner = buildRunner();
@@ -503,4 +588,20 @@ void main() {
     expect(outcome.structuredOutput, {'answer': 'guarded'});
     expect(outcome.providerSessionId, 'provider-session-x');
   });
+}
+
+final class _FailingAccountingKv extends KvService {
+  new({required super.filePath});
+
+  int writeCount = 0;
+  int? failWriteNumber;
+
+  @override
+  Future<void> set(String key, String value) {
+    if (key.startsWith('session_cost:')) {
+      writeCount++;
+      if (writeCount == failWriteNumber) throw StateError('injected accounting write failure');
+    }
+    return super.set(key, value);
+  }
 }

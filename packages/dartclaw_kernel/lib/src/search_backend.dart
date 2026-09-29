@@ -5,14 +5,11 @@ enum SearchResultLayer {
   /// Personal canonical and unmatched native memory results.
   memory,
 
-  /// Native or QMD-observed wiki results.
+  /// Native wiki results.
   wiki,
 }
 
 /// Abstract interface for memory search backends.
-///
-/// Implementations: [Fts5SearchBackend] (built-in default), [QmdSearchBackend]
-/// (opt-in via config).
 abstract class SearchBackend {
   /// Searches memory chunks matching [query].
   ///
@@ -29,7 +26,6 @@ abstract class SearchBackend {
   /// Resolves a native locator previously returned by [search].
   Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'});
 
-  /// Trigger incremental indexing after a memory write.
-  /// FTS5: no-op (triggers handle it). QMD: runs `qmd update && qmd embed`.
+  /// Triggers any incremental work needed after a memory write.
   Future<void> indexAfterWrite();
 }

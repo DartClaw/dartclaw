@@ -94,7 +94,13 @@ void main() {
       });
       expect(stored.providerSessionId, 'sess-abc');
       expect(stored.structuredOutput, {'answer': 42});
-      expect(stored.stepTokenBreakdown, {'inputTokensNew': 10, 'cacheReadTokens': 3, 'outputTokens': 7});
+      expect(stored.stepTokenBreakdown, {
+        'inputTokensNew': 10,
+        'cacheReadTokens': 3,
+        'outputTokens': 7,
+        'turnId': null,
+        'tokenUsageComplete': false,
+      });
     });
 
     test('mirrors token breakdown into task config keys for artifact consumers', () {

@@ -5,7 +5,7 @@
 // from the test hooks, and invoke [BuiltInWorkflowDriver.executeBuiltInWorkflow]
 // to run a shipped definition against a stubbed turn loop.
 //
-// The driver wraps a [WorkflowExecutorHarness] (in-memory SQLite + services)
+// The driver wraps a [WorkflowExecutorHarness] (in-memory repositories + services)
 // so the per-file fixtures never re-declare the executor wiring.
 library;
 
@@ -53,25 +53,22 @@ class StubResponse {
   /// The declared outputs this step's finalizer envelope carries.
   final Map<String, Object?> outputs;
   final Map<String, dynamic>? worktreeJson;
+  final String? outcome;
+  final String reason;
 
-  const new({required this.outputs, this.worktreeJson});
+  const new({required this.outputs, this.worktreeJson, this.outcome, this.reason = ''});
 }
 
 StubResponse specAndImplementCommonStub(
   QueuedStep queued, {
   String specPath = 'docs/specs/test/spec.md',
   String specSource = 'synthesized',
-  int specConfidence = 9,
   String diffSummary = 'DIFF',
   String remediationSummary = 'none',
-  bool includeReviseSpec = false,
   bool includeRemediation = false,
 }) {
   return switch (queued.stepKey) {
-    'spec' => StubResponse(
-      outputs: {'spec_path': specPath, 'spec_source': specSource, 'spec_confidence': specConfidence},
-    ),
-    'revise-spec' when includeReviseSpec => StubResponse(outputs: const {}),
+    'spec' => StubResponse(outputs: {'spec_path': specPath, 'spec_source': specSource}),
     'implement' => StubResponse(outputs: {'diff_summary': diffSummary}),
     'integrated-review' => StubResponse(
       outputs: reviewReportContext(
@@ -395,6 +392,7 @@ final class BuiltInWorkflowDriver {
     required String workflowFileName,
     required Map<String, String> variables,
     required Future<StubResponse> Function(QueuedStep queued) responseForStep,
+    StubResponse Function(String feature)? detectResponseForFeature,
     WorkflowTurnAdapter? turnAdapter,
   }) async {
     final projectId = variables['PROJECT']?.trim();
@@ -428,7 +426,6 @@ final class BuiltInWorkflowDriver {
         outputs: {
           'spec_path': isMarkdownPath ? trimmed : '',
           'spec_source': isMarkdownPath ? 'existing' : 'synthesized',
-          'spec_confidence': 0,
         },
       );
     }
@@ -477,10 +474,15 @@ final class BuiltInWorkflowDriver {
         mapIndex: task.workflowStepExecution?.mapIterationIndex,
       );
       final response = switch (rawStepKey) {
-        'detect-spec-input' => detectSpecInputResponse(variables['FEATURE'] ?? ''),
+        'detect-spec-input' =>
+          detectResponseForFeature?.call(variables['FEATURE'] ?? '') ??
+              detectSpecInputResponse(variables['FEATURE'] ?? ''),
         _ => normalizeDiscoverAndthenPlanResponse(rawStepKey, await responseForStep(queued)),
       };
       await _attachStepOutputs(task, outputs: response.outputs, context: context, worktreeJson: response.worktreeJson);
+      if (response.outcome != null) {
+        await harness.seedStepOutcome(task.id, outcome: response.outcome!, reason: response.reason);
+      }
       await _completeTask(task.id);
     });
 

@@ -11,6 +11,8 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../api/api_helpers.dart';
+import '../api/session_routes_support.dart'
+    show ModelCatalogueLookup, contextModelLabel, effectiveContextView, noModelCatalogues;
 import '../auth/auth_utils.dart';
 import '../auth/session_token.dart';
 import '../auth/token_service.dart';
@@ -25,6 +27,7 @@ import '../templates/layout.dart';
 import '../templates/login.dart';
 import '../templates/memory_dashboard.dart';
 import '../memory/memory_status_service.dart';
+import '../memory/memory_admin_service.dart';
 import '../memory/memory_prune_service.dart';
 import '../session/session_display_title.dart';
 import '../templates/session_info.dart';
@@ -78,6 +81,7 @@ Router webRoutes(
   TurnManager? turns,
   RuntimeConfig? runtimeConfig,
   MemoryStatusService? memoryStatusService,
+  MemoryAdminService? memoryAdminService,
   MemoryPruneService? memoryPruneService,
   FullTextIndex? memoryIndex,
   TemporalKnowledgeGraphService? kgService,
@@ -103,6 +107,8 @@ Router webRoutes(
   ThreadBindingStore? threadBindingStore,
   WorkflowService? workflowService,
   WorkflowDefinitionSource? workflowDefinitionSource,
+  Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
+  ModelCatalogueLookup modelCatalogues = noModelCatalogues,
 }) {
   final router = Router();
   final auditReader = dataDir != null ? AuditLogReader(dataDir: dataDir) : null;
@@ -126,6 +132,7 @@ Router webRoutes(
       guardChain: guardChain,
       runtimeConfigGetter: () => runtimeConfig,
       memoryStatusServiceGetter: () => memoryStatusService,
+      memoryAdminServiceGetter: () => memoryAdminService,
       memoryPruneServiceGetter: () => memoryPruneService,
       memoryIndexGetter: () => memoryIndex,
       kgServiceGetter: () => kgService,
@@ -249,7 +256,7 @@ Router webRoutes(
     final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appName);
     final topbar = topbarTemplate(appName: appName, restartBannerHtml: restartBannerHtml(dataDir));
     final main = emptyAppStateTemplate(appName: appName);
-    final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$main</div></div>';
+    final bodyHtml = '<div class="shell" hx-history-elt>$sidebar<div class="shell-main">$topbar$main</div></div>';
     final page = layoutTemplate(title: appName, body: bodyHtml, appName: appName, scripts: standardShellScripts());
 
     return Response.ok(page, headers: htmlHeaders);
@@ -262,25 +269,93 @@ Router webRoutes(
       if (session == null) return _htmlNotFound('Session not found: $id');
 
       final sidebarData = await pageContext.sidebar.build(activeSessionId: id);
-      final msgs = await messages.getMessagesTail(id);
+      final conversationState = await sessions.getConversationState(id);
+      final effectiveContext = await effectiveContextView(
+        session,
+        conversationState,
+        projectService,
+        defaultProvider,
+        contextCapabilities,
+        catalogues: modelCatalogues,
+        ownerWorkspaceDir: config?.workspaceDir,
+      );
+      final targetMessageId = request.url.queryParameters['message'];
+      late final List<Message> msgs;
+      late final bool hasEarlierMessages;
+      DateTime? markerAfter;
+      var targetUnavailable = false;
+      if (targetMessageId != null) {
+        try {
+          msgs = await messages.getMessagesAroundWhere(
+            id,
+            targetMessageId,
+            include: (message) => conversationState.includesMessage(message.id),
+            before: 100,
+            after: 99,
+          );
+        } on ArgumentError {
+          msgs = const [];
+        }
+        targetUnavailable = msgs.isEmpty;
+        final priorMessages = msgs.isEmpty
+            ? const <Message>[]
+            : await messages.getMessagesBeforeWhere(
+                id,
+                msgs.first.cursor,
+                include: (message) => conversationState.includesMessage(message.id),
+                count: 1,
+              );
+        hasEarlierMessages = priorMessages.isNotEmpty;
+        markerAfter = priorMessages.lastOrNull?.createdAt;
+      } else {
+        final boundedMessages = await messages.getMessagesTailWhere(
+          id,
+          include: (message) => conversationState.includesMessage(message.id),
+          count: 201,
+        );
+        hasEarlierMessages = boundedMessages.length > 200;
+        markerAfter = hasEarlierMessages ? boundedMessages.first.createdAt : null;
+        msgs = hasEarlierMessages ? boundedMessages.sublist(1) : boundedMessages;
+      }
       final messageList = msgs
           .map(
-            (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
+            (m) => classifyMessage(
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              metadata: m.metadata,
+              senderName: null,
+              createdAt: m.createdAt,
+              cursor: m.cursor,
+            ),
           )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
-      final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
 
       final sidebar = buildSidebar(sidebarData: sidebarData, navItems: systemNav, appName: appName);
       final displayTitle = displaySessionTitle(session.title, session.type);
+      // The crumb follows the same next-turn association as the rail and composer.
+      final crumb = conversationState.nextContext;
+      final crumbProject = crumb?.projectId == null ? null : await projectService?.get(crumb!.projectId!);
       final topbar = topbarTemplate(
         title: session.title,
         sessionId: id,
         sessionType: session.type,
         appName: appName,
         restartBannerHtml: restartBannerHtml(dataDir),
+        projectId: crumb?.projectId,
+        projectName: crumbProject?.name ?? crumb?.projectId,
+        providerLabel: crumb?.provider,
+        model: crumb == null ? null : contextModelLabel(modelCatalogues(crumb.provider), crumb.model),
       );
-      final msgsHtml = messagesHtmlFragment(messageList);
+      final msgsHtml = messagesHtmlFragment(
+        messageList,
+        conversationState: conversationState,
+        markerAfter: markerAfter,
+        effectiveContext: effectiveContext,
+        approvalAvailable: (record) =>
+            turns?.canResolveToolApproval(sessionId: id, turnId: record.turnId, requestId: record.id) ?? false,
+      );
       // Restart state is persistent shell chrome and lives in the topbar slot;
       // these two are one-shot, session-scoped notices and stay page-local.
       final chatNoticeHtml = StringBuffer();
@@ -298,10 +373,22 @@ Router webRoutes(
           '<button class="dismiss" aria-label="Dismiss" data-icon="x"></button></div>',
         );
       }
+      if (targetUnavailable) {
+        chatNoticeHtml.write(
+          '<div class="banner banner-warning" role="status">That message is unavailable or no longer visible. '
+          '<a href="/sessions/$id">Return to the conversation</a></div>',
+        );
+      }
       final isArchive = session.type == SessionType.archive;
       final turnStatus = turns?.turnStatus(id);
       final chat = chatAreaTemplate(
         sessionId: id,
+        isTemporary: session.retention == ConversationRetention.process,
+        canMove:
+            session.type == SessionType.user &&
+            session.channelKey == null &&
+            session.retention == ConversationRetention.durable,
+        temporaryEndState: sessions.temporaryEndState(id),
         messagesHtml: msgsHtml,
         hasTitle: session.type == SessionType.main || (session.title != null && session.title!.trim().isNotEmpty),
         chatNoticeHtml: chatNoticeHtml.toString(),
@@ -317,21 +404,31 @@ Router webRoutes(
         earliestCursor: earliestCursor,
         hasEarlierMessages: hasEarlierMessages,
         turnStatus: turnStatus?.toJson(),
+        targetMessageId: targetUnavailable ? null : targetMessageId,
+        effectiveContext: effectiveContext,
       );
 
       if (wantsFragment(request)) {
         final documentTitle = documentTitleFragment(title: displayTitle, appName: appName);
-        return htmlFragment('$documentTitle$chat$topbar$sidebar');
+        final response = htmlFragment('$documentTitle$chat$topbar$sidebar');
+        return session.retention == ConversationRetention.process
+            ? response.change(headers: {'cache-control': 'no-store'})
+            : response;
       }
 
-      final bodyHtml = '<div class="shell">$sidebar<div class="shell-main">$topbar$chat</div></div>';
+      final history = session.retention == ConversationRetention.process ? ' hx-history="false"' : ' hx-history-elt';
+      final bodyHtml =
+          '<div class="shell shell--chat"$history>$sidebar<div class="shell-main">$topbar$chat</div></div>';
       final page = layoutTemplate(
         title: displayTitle,
         body: bodyHtml,
         appName: appName,
         scripts: standardShellScripts(),
       );
-      return Response.ok(page, headers: htmlHeaders);
+      return Response.ok(
+        page,
+        headers: {...htmlHeaders, if (session.retention == ConversationRetention.process) 'cache-control': 'no-store'},
+      );
     } catch (e) {
       return _htmlError('Failed to load session: $e');
     }
@@ -344,22 +441,52 @@ Router webRoutes(
       if (session == null) return _htmlNotFound('Session not found: $id');
 
       final beforeCursor = int.tryParse(request.url.queryParameters['before'] ?? '');
-      final msgs = beforeCursor == null
-          ? await messages.getMessagesTail(id)
-          : await messages.getMessagesBefore(id, beforeCursor);
+      final state = await sessions.getConversationState(id);
+      final count = beforeCursor == null ? 200 : 50;
+      final boundedMessages = beforeCursor == null
+          ? await messages.getMessagesTailWhere(
+              id,
+              include: (message) => state.includesMessage(message.id),
+              count: count + 1,
+            )
+          : await messages.getMessagesBeforeWhere(
+              id,
+              beforeCursor,
+              include: (message) => state.includesMessage(message.id),
+              count: count + 1,
+            );
+      final hasEarlierMessages = boundedMessages.length > count;
+      final msgs = hasEarlierMessages ? boundedMessages.sublist(1) : boundedMessages;
       final messageList = msgs
           .map(
-            (m) => classifyMessage(id: m.id, role: m.role, content: m.content, metadata: m.metadata, senderName: null),
+            (m) => classifyMessage(
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              metadata: m.metadata,
+              senderName: null,
+              createdAt: m.createdAt,
+              cursor: m.cursor,
+            ),
           )
           .toList();
       final earliestCursor = msgs.isEmpty ? null : msgs.first.cursor;
-      final hasEarlierMessages = earliestCursor != null && earliestCursor > 1;
-      final html = beforeCursor == null || messageList.isNotEmpty ? messagesHtmlFragment(messageList) : '';
+      final html = beforeCursor == null || messageList.isNotEmpty
+          ? messagesHtmlFragment(
+              messageList,
+              conversationState: state,
+              markerAfter: hasEarlierMessages ? boundedMessages.first.createdAt : null,
+              includeTrailingMarkers: beforeCursor == null,
+              approvalAvailable: (record) =>
+                  turns?.canResolveToolApproval(sessionId: id, turnId: record.turnId, requestId: record.id) ?? false,
+            )
+          : '';
 
       return Response.ok(
         html,
         headers: {
           ...htmlHeaders,
+          if (session.retention == ConversationRetention.process) 'cache-control': 'no-store',
           'x-dartclaw-earliest-cursor': earliestCursor?.toString() ?? '',
           'x-dartclaw-has-earlier-messages': '$hasEarlierMessages',
         },
@@ -375,7 +502,10 @@ Router webRoutes(
       final session = await sessions.getSession(id);
       if (session == null) return _htmlNotFound('Session not found: $id');
 
-      final msgs = await messages.getMessages(id);
+      final state = await sessions.getConversationState(id);
+      final msgs = (await messages.getMessages(id))
+          .where((message) => state.includesMessage(message.id))
+          .toList(growable: false);
 
       final recentTurns = msgs.reversed
           .take(8)
@@ -415,6 +545,15 @@ Router webRoutes(
         recentTurns: recentTurns,
         turnStatus: turns?.turnStatus(id).toJson(),
         appName: appName,
+        effectiveContext: await effectiveContextView(
+          session,
+          state,
+          projectService,
+          defaultProvider,
+          contextCapabilities,
+          catalogues: modelCatalogues,
+          ownerWorkspaceDir: config?.workspaceDir,
+        ),
       );
 
       return Response.ok(page, headers: htmlHeaders);
@@ -456,6 +595,7 @@ Router webRoutes(
       final memService = memoryStatusService;
       if (memService == null) return _htmlError('Memory not configured');
 
+      if (request.url.queryParameters.containsKey('corpus')) return Response.notFound('Memory selection unavailable');
       final status = await memService.getStatus();
       final fragment = memoryDashboardContentFragment(status: status, workspacePath: config?.workspaceDir ?? '');
       return htmlFragment(fragment);

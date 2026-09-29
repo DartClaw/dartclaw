@@ -18,17 +18,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart'
-    show
-        HarnessFactory,
-        HarnessFactoryConfig,
-        SqliteAgentExecutionRepository,
-        SqliteBackend,
-        SqliteSchemaGate,
-        SqliteTaskRepository,
-        SqliteWorkflowStepExecutionRepository,
-        TurnOutcome,
-        TurnStatus;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, HarnessFactoryConfig, TurnOutcome, TurnStatus;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show BehaviorFileService, TaskService, TurnRunner;
 import 'package:dartclaw_runtime/src/task/task_budget_policy.dart' show TaskBudgetPolicy;
@@ -52,8 +42,8 @@ import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart' s
 import 'package:dartclaw_workflow/src/workflow/workflow_run_paths.dart'
     show stepArtifactsDirEnvVar, workflowStepArtifactsDir;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnRunner;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../fixtures/e2e_fixture.dart';
@@ -282,9 +272,8 @@ void main() {
   late String fixtureDir;
   late String runtimeArtifactsDir;
   late TaskService taskService;
-  late SqliteBackend taskBackend;
-  late SqliteAgentExecutionRepository agentExecutions;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
+  late InMemoryAgentExecutionRepository agentExecutions;
+  late InMemoryWorkflowStepExecutionRepository workflowStepExecutions;
   late SessionService sessionService;
   late MessageService messageService;
   late ContextExtractor extractor;
@@ -359,12 +348,14 @@ void main() {
       agentTomlNames: skillInventory.agentTomlNames,
     );
 
-    final database = sqlite3.openInMemory();
-    taskBackend = SqliteBackend(database);
-    await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
-    taskService = TaskService(SqliteTaskRepository(taskBackend));
-    agentExecutions = SqliteAgentExecutionRepository(taskBackend);
-    workflowStepExecutions = SqliteWorkflowStepExecutionRepository(taskBackend);
+    final taskRepository = InMemoryTaskRepository();
+    agentExecutions = InMemoryAgentExecutionRepository();
+    workflowStepExecutions = InMemoryWorkflowStepExecutionRepository();
+    taskService = TaskService(
+      taskRepository,
+      agentExecutionRepository: agentExecutions,
+      executionTransactor: const InMemoryExecutionRepositoryTransactor(),
+    );
     sessionService = SessionService(baseDir: sessionsDir);
     messageService = MessageService(baseDir: sessionsDir);
     extractor = ContextExtractor(
@@ -392,7 +383,6 @@ void main() {
   tearDown(() async {
     await taskService.dispose();
     await messageService.dispose();
-    await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }
@@ -669,7 +659,7 @@ void main() {
     expect((storySpecs.single as Map<Object?, Object?>)['spec_path'], fisPath, reason: planResult.artifactPath);
   }, timeout: const Timeout(Duration(minutes: 10)));
 
-  test('plan emits stories and story_specs in a single pass from the reviewed PRD', () async {
+  test('plan emits distinct story specs for a multi-story PRD', () async {
     if (!claudeReady) {
       markTestSkipped('claude binary not available – run with Claude Code CLI installed');
       return;
@@ -680,18 +670,19 @@ void main() {
       ..writeAsStringSync(
         '# Product Requirements Document\n\n'
         '## Executive Summary\n\n'
-        'Add a tiny integration-tested note file and keep the implementation minimal.\n\n'
+        'Add two independent note templates and keep each implementation minimal.\n\n'
         '## User Stories\n\n'
-        '- Author a single markdown note file.\n'
-        '- Validate that the note content matches expectations.\n',
+        '- As a contributor, I need an inbox note template for uncategorized ideas.\n'
+        '- As a maintainer, I need an archive note template for completed ideas.\n\n'
+        'Plan these as two separate stories with distinct implementation specifications. '
+        'Each template has its own content validation and can be delivered independently.\n',
       );
 
     final result = await executeStep(
       step: _stepById(planDefinition, 'plan'),
       context: WorkflowContext(
         variables: const {
-          'FEATURE':
-              'Create a tiny note-taking improvement: add one markdown note file and a follow-up validation step.',
+          'FEATURE': 'Create separate inbox and archive note templates from the PRD.',
           'PROJECT': 'workflow-testing',
           'BRANCH': 'main',
           'MAX_PARALLEL': '1',
@@ -710,14 +701,15 @@ void main() {
       stepTimeout: const Duration(minutes: 20),
     );
 
-    // The plan step declares `story_specs` (story_specs schema) and `plan`
-    // (format=path). The richer `stories` output was removed when the plan
-    // bundle was collapsed onto the one-story-per-FIS invariant; assert on
-    // `story_specs` + `plan` instead.
     final storySpecsList = _normalizeStoryList(result.outputs['story_specs']);
-    expect(storySpecsList, isNotEmpty);
+    expect(storySpecsList, hasLength(greaterThanOrEqualTo(2)), reason: 'each independent PRD story needs its own FIS');
     final firstStorySpec = storySpecsList.first;
     expectStorySpecShape(firstStorySpec);
+    expect(
+      storySpecsList.whereType<Map<Object?, Object?>>().map((story) => story['spec_path']).toSet(),
+      hasLength(storySpecsList.length),
+      reason: 'the plan cannot reuse one FIS path for distinct stories',
+    );
 
     _requireRelativeExistingPlanPath(result, 'plan', rootDir: fixtureDir);
     for (final storySpec in storySpecsList.whereType<Map<Object?, Object?>>()) {
@@ -743,11 +735,10 @@ void main() {
   // Live authoring probe for spec-and-implement. The heavy spec-and-implement
   // e2e feeds a pre-authored FIS and skips the `spec` step, so the one live
   // authoring turn that used to run there is relocated here as a single thin
-  // probe: run `spec` on a free-text feature and assert it self-classifies as a
-  // synthesized spec with a parseable confidence and an on-disk FIS. Downstream
-  // branch coverage stays in the stubbed built-in suite; the plan-authoring
+  // probe: run `spec` on a free-text feature and assert it produces an on-disk
+  // synthesized FIS. Downstream branch coverage stays in the stubbed built-in suite; the plan-authoring
   // counterpart is the "plan emits stories and story_specs" test above.
-  test('spec authors a synthesized FIS with a self-rated confidence for a free-text feature', () async {
+  test('spec authors a synthesized FIS for a free-text feature', () async {
     if (!claudeReady) {
       markTestSkipped('claude binary not available – run with Claude Code CLI installed');
       return;
@@ -781,20 +772,6 @@ void main() {
       reason:
           'the spec step authors a new FIS from free text, so spec_source is synthesized. '
           'Artifact: ${result.artifactPath}',
-    );
-    final confidence = switch (result.outputs['spec_confidence']) {
-      final int numeric => numeric,
-      final value => int.tryParse('$value'),
-    };
-    expect(
-      confidence,
-      isNotNull,
-      reason: 'spec_confidence must be parseable as an int. Artifact: ${result.artifactPath}',
-    );
-    expect(
-      confidence,
-      inInclusiveRange(1, 10),
-      reason: 'a synthesized spec self-rates readiness 1-10. Artifact: ${result.artifactPath}',
     );
     _requireRelativeExistingMarkdownPath(
       result.outputs['spec_path'],

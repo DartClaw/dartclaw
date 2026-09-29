@@ -462,11 +462,11 @@ Future<String?> _readDailyLog(String workspaceDir) async {
 Future<String?> _nextSseFrame(StreamController<List<int>> controller) async {
   final queue = StreamQueue(controller.stream);
   try {
-    final hasNext = await queue.hasNext.timeout(const Duration(milliseconds: 150), onTimeout: () => false);
-    if (!hasNext) {
-      return null;
+    while (await queue.hasNext.timeout(const Duration(milliseconds: 150), onTimeout: () => false)) {
+      final frame = utf8.decode(await queue.next);
+      if (frame != ': connected\n\n') return frame;
     }
-    return utf8.decode(await queue.next);
+    return null;
   } finally {
     await queue.cancel(immediate: true);
   }

@@ -91,7 +91,7 @@ void main() {
       );
       expect(sendRes1.statusCode, equals(200));
       final sendHtml = await sendRes1.readAsString();
-      expect(sendHtml, contains('sse-connect='));
+      expect(sendHtml, contains('hx-sse:connect='));
 
       // 3. Verify user message persisted
       final msgRes1 = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/$sessionId1/messages')));
@@ -105,9 +105,9 @@ void main() {
       await worker.turnInvoked;
       worker.emit(DeltaEvent('Agent reply'));
       await Future<void>.delayed(Duration.zero);
+      final turnId1 = server.turns.activeTurnId(sessionId1)!;
       worker.completeSuccess();
-      // Allow async turn completion to flush
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await server.turns.waitForOutcome(sessionId1, turnId1);
 
       // 5. Verify assistant message persisted
       final msgRes2 = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/$sessionId1/messages')));
@@ -134,8 +134,9 @@ void main() {
 
       // Complete session 2 turn
       await worker.turnInvoked;
+      final turnId2 = server.turns.activeTurnId(sessionId2)!;
       worker.completeSuccess();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await server.turns.waitForOutcome(sessionId2, turnId2);
 
       // Session 2 messages should NOT contain session 1 messages
       final msgRes3 = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/$sessionId2/messages')));
@@ -173,14 +174,15 @@ void main() {
         ),
       );
 
-      // Extract turn ID from send response HTML — parse sse-connect attribute
+      // Extract turn ID from send response HTML — parse hx-sse:connect attribute
       final sendRes = await handler(Request('GET', Uri.parse('http://localhost/api/sessions/$sessionId/messages')));
       expect(sendRes.statusCode, equals(200));
 
       // The turn is active now — complete it before shutdown
       await worker.turnInvoked;
+      final turnId = server.turns.activeTurnId(sessionId)!;
       worker.completeSuccess();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await server.turns.waitForOutcome(sessionId, turnId);
     });
   });
 

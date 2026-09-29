@@ -10,6 +10,12 @@ import 'package:yaml/yaml.dart' show loadYaml;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+Future<List<DiagnosticRow>> _databaseReady(
+  DartclawConfig _, {
+  required bool bootstrap,
+  required Map<String, String> environment,
+}) async => const [];
+
 SetupChecks _postWrite({
   BinaryProbeOutcome binary = BinaryProbeOutcome.responded,
   bool configParseable = true,
@@ -17,6 +23,7 @@ SetupChecks _postWrite({
   bool providerVerified = false,
 }) {
   return SetupChecks(
+    databaseReadiness: _databaseReady,
     loadConfig: (_) => const DartclawConfig.defaults(),
     probeBinary: (_) async => (outcome: binary, version: null),
     configParseable: (_) async => configParseable,
@@ -60,11 +67,11 @@ void main() {
       String? serverOverride,
       String? runtimeCase,
       bool windows = false,
-      String? resolvedExecutable,
       List<List<String>>? commands,
       bool realCredentials = false,
     }) async {
       final checks = SetupChecks(
+        databaseReadiness: _databaseReady,
         probeBinary: (binary) async => (
           outcome: binary == 'missing-codex' ? BinaryProbeOutcome.notFound : BinaryProbeOutcome.responded,
           version: '2.1.80',
@@ -73,7 +80,6 @@ void main() {
         writeProbeFile: (_) {},
         providerVerified: realCredentials ? null : (_, _, _) async => true,
         serverHealth: (_, _) async => health,
-        resolvedExecutable: resolvedExecutable,
         runCommand: (binary, args) async {
           commands?.add(args);
           if (runtimeCase == null) return ProcessResult(1, 1, '', '');
@@ -229,23 +235,14 @@ mcp_servers:
       expect(declaredWindows.summary, contains('native Windows'));
     });
 
-    test('S10 Windows checks share Git Bash resolution and distinguish source/release layouts', () async {
+    test('Windows checks report reload and Git Bash guidance without a SQLite asset check', () async {
       writeConfig('gateway:\n  reload:\n    mode: signal\n');
-      final executable = p.join(root.path, 'bin', 'dartclaw.exe');
-      final source = await diagnose(windows: true, resolvedExecutable: executable);
-      expect(row(source, 'windows.sqlite_dll').status, DiagnosticStatus.skip);
-      Directory(p.join(root.path, 'lib')).createSync();
-      final report = await diagnose(windows: true, resolvedExecutable: executable);
-      expect(row(report, 'windows.sqlite_dll').status, DiagnosticStatus.fail);
+      final report = await diagnose(windows: true);
       expect(row(report, 'windows.reload_mode').status, DiagnosticStatus.warn);
       expect(row(report, 'windows.reload_mode').remediation, contains('auto'));
       expect(row(report, 'windows.git_bash').remediation, contains('bash steps require Git Bash on Windows'));
       expect(row(report, 'secrets.permissions').status, DiagnosticStatus.skip);
-      File(p.join(root.path, 'lib', 'sqlite3.dll')).writeAsStringSync('');
-      expect(
-        row(await diagnose(windows: true, resolvedExecutable: executable), 'windows.sqlite_dll').status,
-        DiagnosticStatus.pass,
-      );
+      expect(report.rows.any((entry) => entry.id == 'windows.sqlite_dll'), isFalse);
       expect((await diagnose()).rows.any((r) => r.id.startsWith('windows.')), isFalse);
     });
 
@@ -264,6 +261,7 @@ mcp_servers:
         await request.response.close();
       });
       final checks = SetupChecks(
+        databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         portFree: (_) async => false,
         writeProbeFile: (_) {},
@@ -292,6 +290,7 @@ mcp_servers:
         await request.response.close();
       });
       final checks = SetupChecks(
+        databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         portFree: (_) async => false,
         writeProbeFile: (_) {},
@@ -331,6 +330,22 @@ mcp_servers:
       expect(commands.any((args) => args.first == 'rm'), isFalse);
       expect((await diagnose()).rows.any((r) => r.id == 'container.orphans'), isFalse);
     });
+
+    test('missing PostgreSQL connection reports a redaction-safe refusal and skips dependent checks', () async {
+      writeConfig();
+      final report = await SetupChecks(
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+        portFree: (_) async => true,
+        writeProbeFile: (_) {},
+        providerVerified: (_, _, _) async => true,
+        runCommand: (_, _) async => ProcessResult(1, 1, '', ''),
+      ).diagnose(configPath: config.path, environment: environment);
+
+      expect(row(report, 'database.connection').status, DiagnosticStatus.fail);
+      expect(row(report, 'database.connection').summary, 'PostgreSQL connection reference is missing.');
+      expect(row(report, 'database.schema').status, DiagnosticStatus.skip);
+      expect(row(report, 'database.vector').status, DiagnosticStatus.skip);
+    });
   });
 
   group('SetupChecks pre-write stage', () {
@@ -347,8 +362,10 @@ mcp_servers:
     });
 
     test('passes when all providers resolve and target path is writable', () async {
-      final result = await SetupChecks(probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null))
-          .preflight(providers: const ['claude', 'codex'], port: _freePort(), instanceDir: tempDir.path);
+      final result = await SetupChecks(
+        databaseReadiness: _databaseReady,
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+      ).preflight(providers: const ['claude', 'codex'], port: _freePort(), instanceDir: tempDir.path);
 
       expect(result.passed, isTrue);
       expect(result.errors, isEmpty);
@@ -356,6 +373,7 @@ mcp_servers:
 
     test('fails when a provider binary returns non-zero', () async {
       final result = await SetupChecks(
+        databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.nonZeroExit, version: null),
       ).preflight(providers: const ['claude'], port: _freePort(), instanceDir: tempDir.path);
 
@@ -370,6 +388,7 @@ mcp_servers:
 
     test('fails when any provider binary is missing', () async {
       final result = await SetupChecks(
+        databaseReadiness: _databaseReady,
         probeBinary: (exe) async =>
             (outcome: exe == 'codex' ? BinaryProbeOutcome.notFound : BinaryProbeOutcome.responded, version: null),
       ).preflight(providers: const ['claude', 'codex'], port: _freePort(), instanceDir: tempDir.path);
@@ -383,8 +402,10 @@ mcp_servers:
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(server.close);
 
-      final result = await SetupChecks(probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null))
-          .preflight(providers: const ['claude'], port: server.port, instanceDir: tempDir.path);
+      final result = await SetupChecks(
+        databaseReadiness: _databaseReady,
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+      ).preflight(providers: const ['claude'], port: server.port, instanceDir: tempDir.path);
 
       expect(result.passed, isFalse);
       expect(
@@ -398,8 +419,10 @@ mcp_servers:
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(server.close);
 
-      final result = await SetupChecks(probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null))
-          .preflight(providers: const ['claude'], port: server.port, instanceDir: tempDir.path, workflowTrack: true);
+      final result = await SetupChecks(
+        databaseReadiness: _databaseReady,
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+      ).preflight(providers: const ['claude'], port: server.port, instanceDir: tempDir.path, workflowTrack: true);
 
       expect(result.passed, isTrue);
     });
@@ -409,8 +432,10 @@ mcp_servers:
       // is the nearest existing ancestor, not the requested path or its parent.
       final missing = p.join(tempDir.path, 'does-not-exist', 'nor-this', 'dartclaw');
 
-      final result = await SetupChecks(probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null))
-          .preflight(providers: const ['claude'], port: _freePort(), instanceDir: missing);
+      final result = await SetupChecks(
+        databaseReadiness: _databaseReady,
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+      ).preflight(providers: const ['claude'], port: _freePort(), instanceDir: missing);
 
       expect(result.passed, isTrue, reason: 'the probe must walk up to ${tempDir.path} rather than fail on the chain');
       expect(Directory(missing).existsSync(), isFalse, reason: 'preflight checks writability, it does not create');
@@ -420,8 +445,10 @@ mcp_servers:
       final filePath = '${tempDir.path}/not-a-dir';
       File(filePath).writeAsStringSync('x');
 
-      final result = await SetupChecks(probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null))
-          .preflight(providers: const ['claude'], port: _freePort(), instanceDir: filePath);
+      final result = await SetupChecks(
+        databaseReadiness: _databaseReady,
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+      ).preflight(providers: const ['claude'], port: _freePort(), instanceDir: filePath);
 
       expect(result.passed, isFalse);
       expect(result.errors.join('\n'), contains('not a directory'));
@@ -439,6 +466,82 @@ mcp_servers:
 
       expect(result.failed, isTrue);
       expect(result.local.failures.single, contains('valid YAML'));
+    });
+
+    test('database readiness is a blocking local check without bootstrap', () async {
+      bool? bootstrapRequested;
+      final checks = SetupChecks(
+        loadConfig: (_) => const DartclawConfig.defaults(),
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+        configParseable: (_) async => true,
+        writeProbeFile: (_) {},
+        portFree: (_) async => true,
+        providerVerified: (_, _, _) async => true,
+        databaseReadiness: (_, {required bootstrap, required environment}) async {
+          bootstrapRequested = bootstrap;
+          return const [
+            DiagnosticRow(
+              id: 'database.connection',
+              status: DiagnosticStatus.fail,
+              summary: 'PostgreSQL authentication failed.',
+            ),
+          ];
+        },
+      );
+
+      final result = await checks.verify(
+        configPath: _params.configPath,
+        providerIds: _params.providerIds,
+        instanceDir: _params.instanceDir,
+        port: _params.port,
+      );
+
+      expect(bootstrapRequested, isFalse);
+      expect(result.failed, isTrue);
+      expect(result.local.failures, ['PostgreSQL authentication failed.']);
+    });
+
+    test('empty schema defers verification until doctor can bootstrap it', () async {
+      var providerChecks = 0;
+      final checks = SetupChecks(
+        loadConfig: (_) => const DartclawConfig.defaults(),
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+        configParseable: (_) async => true,
+        writeProbeFile: (_) {},
+        portFree: (_) async => true,
+        providerVerified: (_, _, _) async {
+          providerChecks++;
+          return true;
+        },
+        databaseReadiness: (_, {required bootstrap, required environment}) async => const [
+          DiagnosticRow(
+            id: 'database.connection',
+            status: DiagnosticStatus.pass,
+            summary: 'PostgreSQL connection is ready.',
+          ),
+          DiagnosticRow(
+            id: 'database.schema',
+            status: DiagnosticStatus.fail,
+            summary: 'PostgreSQL application schema is empty.',
+            fixable: true,
+          ),
+        ],
+      );
+
+      final result = await checks.verify(
+        configPath: _params.configPath,
+        providerIds: _params.providerIds,
+        instanceDir: _params.instanceDir,
+        port: _params.port,
+      );
+
+      expect(result.configuredButUnverified, isTrue);
+      expect(result.databaseBootstrapPending, isTrue);
+      expect(result.local.failures, isEmpty);
+      expect(result.local.warnings.single, 'PostgreSQL application schema is empty.');
+      expect(result.network?.message, contains('doctor --fix'));
+      expect(result.network?.skipped, isTrue);
+      expect(providerChecks, 0);
     });
 
     test('port conflict is a blocking local failure', () async {
@@ -490,6 +593,7 @@ mcp_servers:
 
       final result =
           await SetupChecks(
+            databaseReadiness: _databaseReady,
             probeBinary: (exe) async => (
               outcome: exe == '/opt/x/claude' ? BinaryProbeOutcome.notFound : BinaryProbeOutcome.responded,
               version: null,
@@ -523,6 +627,7 @@ mcp_servers:
 
       final result =
           await SetupChecks(
+            databaseReadiness: _databaseReady,
             loadConfig: (path) =>
                 loadCliConfig(configPath: path, cliOverrides: const {'claude_executable': '/custom/claude'}),
             probeBinary: (executable) async {
@@ -596,6 +701,7 @@ mcp_servers:
 
     test('any unverified configured provider yields configured but unverified', () async {
       final checks = SetupChecks(
+        databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
@@ -627,6 +733,7 @@ mcp_servers:
 
       final result =
           await SetupChecks(
+            databaseReadiness: _databaseReady,
             loadConfig: (_) => const DartclawConfig.defaults(),
             probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
             configParseable: (_) async => true,
@@ -646,6 +753,7 @@ mcp_servers:
     test('verification reuses the parsed config when resolving provider binaries', () async {
       var loadCount = 0;
       final checks = SetupChecks(
+        databaseReadiness: _databaseReady,
         loadConfig: (_) {
           loadCount += 1;
           return const DartclawConfig.defaults();
@@ -699,6 +807,7 @@ mcp_servers:
     );
 
     Future<SetupVerificationResult> verify() => SetupChecks(
+      databaseReadiness: _databaseReady,
       probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
       configParseable: (_) async => true,
       writeProbeFile: (_) {},

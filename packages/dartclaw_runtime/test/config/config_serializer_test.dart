@@ -32,7 +32,7 @@ void main() {
       expect(memory['curation'], {'enabled': false, 'schedule': '0 3 * * *'});
 
       expect(json['search'], {
-        'backend': 'fts5',
+        'backend': 'lexical',
         'embedding': {
           'provider': 'local',
           'model': 'embeddinggemma-300M-Q8_0.gguf',
@@ -86,7 +86,7 @@ void main() {
         'workflow': {'provider': 'claude', 'model': null},
         'planner': {'provider': null, 'model': null},
         'executor': {'provider': null, 'model': null},
-        'reviewer': {'provider': null, 'model': 'claude-opus-4'},
+        'reviewer': {'provider': null, 'model': 'claude-opus-5'},
       });
     });
 
@@ -310,40 +310,24 @@ void main() {
 
     test('database URL is masked while safe connection settings remain visible', () {
       const databaseUrl = 'postgresql://runtime:ConfigSurfacePasswordX9@database.internal/dartclaw';
-      final config = const DartclawConfig(
-        database: DatabaseConfig(backend: DatabaseBackendKind.postgres, url: databaseUrl, poolSize: 7),
-      );
+      final config = const DartclawConfig(database: DatabaseConfig(url: databaseUrl, poolSize: 7));
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
       final encoded = jsonEncode(json);
 
-      expect(json['database'], {
-        'backend': 'postgres',
-        'url': '***',
-        'credential': null,
-        'poolSize': 7,
-        'ftsLanguage': 'english',
-      });
+      expect(json['database'], {'url': '***', 'credential': null, 'poolSize': 7, 'ftsLanguage': 'english'});
       expect(encoded, isNot(contains('ConfigSurfacePasswordX9')));
       expect(encoded, isNot(contains(databaseUrl)));
     });
 
     test('database credential exposes only its reference name', () {
-      final config = const DartclawConfig(
-        database: DatabaseConfig(backend: DatabaseBackendKind.postgres, credential: 'database-main', poolSize: 11),
-      );
+      final config = const DartclawConfig(database: DatabaseConfig(credential: 'database-main', poolSize: 11));
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);
 
       final json = serializer.toJson(config, runtime: runtime);
 
-      expect(json['database'], {
-        'backend': 'postgres',
-        'url': null,
-        'credential': 'database-main',
-        'poolSize': 11,
-        'ftsLanguage': 'english',
-      });
+      expect(json['database'], {'url': null, 'credential': 'database-main', 'poolSize': 11, 'ftsLanguage': 'english'});
     });
 
     test('live-mutable fields read from RuntimeConfig, not DartclawConfig', () {

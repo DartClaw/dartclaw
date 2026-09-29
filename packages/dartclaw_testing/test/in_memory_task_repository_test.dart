@@ -1,4 +1,5 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show AgentExecution;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
@@ -92,6 +93,56 @@ void main() {
 
       await repo.dispose();
       expect(repo.disposed, isTrue);
+    });
+
+    test('mutable updates persist execution and retry fields', () async {
+      final repo = InMemoryTaskRepository();
+      await repo.insert(_task());
+      final updated = _task().copyWith(
+        agentExecutionId: 'ae-task-1',
+        agentExecution: const AgentExecution(id: 'ae-task-1', sessionId: 'session-1'),
+        retryCount: 1,
+      );
+
+      expect(await repo.updateMutableFieldsIfStatus(updated, expectedStatus: TaskStatus.draft), isTrue);
+      final stored = await repo.getById('task-1');
+      expect(stored?.agentExecutionId, 'ae-task-1');
+      expect(stored?.sessionId, 'session-1');
+      expect(stored?.retryCount, 1);
+    });
+
+    test('config merge recursively preserves nested keys and removes null keys', () async {
+      final repo = InMemoryTaskRepository();
+      final task = _task().copyWith(
+        configJson: const {
+          'first': 1,
+          'nested': {'keep': true, 'replace': 'old'},
+          'remove': 'old',
+        },
+      );
+      await repo.insert(task);
+
+      expect(
+        await repo.mergeConfigJsonIfStatus(task.id, const {
+          'nested': {'replace': 'new', 'added': 2},
+          'remove': null,
+        }, expectedStatus: TaskStatus.draft),
+        isTrue,
+      );
+      expect((await repo.getById(task.id))!.configJson, {
+        'first': 1,
+        'nested': {'keep': true, 'replace': 'new', 'added': 2},
+      });
+      expect(await repo.mergeConfigJsonIfStatus(task.id, const {}, expectedStatus: TaskStatus.draft), isTrue);
+      expect(
+        await repo.mergeConfigJsonIfStatus(task.id, const {'blocked': true}, expectedStatus: TaskStatus.running),
+        isFalse,
+      );
+      expect(
+        await repo.mergeConfigJsonIfStatus('missing', const {'blocked': true}, expectedStatus: TaskStatus.draft),
+        isFalse,
+      );
+      expect((await repo.getById(task.id))!.configJson.containsKey('blocked'), isFalse);
     });
   });
 }

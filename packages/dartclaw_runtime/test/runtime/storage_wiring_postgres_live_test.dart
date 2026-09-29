@@ -30,7 +30,6 @@ void main() {
     final configFile = File('${dataDir.path}/dartclaw.yaml')..writeAsStringSync('# test\n');
     PostgresBackend? opened;
     var opens = 0;
-    var searchOpens = 0;
     DartclawRuntime? runtime;
     try {
       final config = DartclawConfig(
@@ -40,7 +39,7 @@ void main() {
           entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
         ),
         server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
-        database: DatabaseConfig(backend: DatabaseBackendKind.postgres, url: dsn, poolSize: 3),
+        database: DatabaseConfig(url: dsn, poolSize: 3),
       );
       final harnesses = HarnessFactory()..register('claude', (_) => FakeAgentHarness());
       runtime = await DartclawRuntime.build(
@@ -48,10 +47,6 @@ void main() {
         dataDir: dataDir.path,
         port: 0,
         harnessFactory: harnesses,
-        searchBackendFactory: (_) async {
-          searchOpens++;
-          return SqliteBackend.openInMemory();
-        },
         taskBackendFactory: (_) async {
           opens++;
           return opened = await PostgresBackend.open(dsn: dsn, poolSize: 3, namespace: namespace);
@@ -68,7 +63,6 @@ void main() {
       final task = await runtime.taskService.create(id: 'pg-task', title: 'Postgres', description: 'round trip');
       expect((await runtime.taskService.get(task.id))?.title, 'Postgres');
       expect(opens, 1);
-      expect(searchOpens, 0);
       expect(File(config.dartclawDbPath).existsSync(), isFalse);
       expect(File(config.searchDbPath).existsSync(), isFalse);
 
@@ -179,12 +173,7 @@ Future<_FailedStartup> _captureFailedBuild({required String dsn, required Direct
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
       server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
-      database: DatabaseConfig(
-        backend: DatabaseBackendKind.postgres,
-        url: dsn,
-        urlEnvVars: const ['DARTCLAW_DATABASE_URL'],
-        poolSize: 1,
-      ),
+      database: DatabaseConfig(url: dsn, urlEnvVars: const ['DARTCLAW_DATABASE_URL'], poolSize: 1),
     );
     await runZoned(() async {
       runtime = await DartclawRuntime.build(

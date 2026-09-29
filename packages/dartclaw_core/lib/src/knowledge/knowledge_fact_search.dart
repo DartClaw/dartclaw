@@ -6,7 +6,7 @@ abstract interface class KnowledgeFactSearch {
 
 /// Matches every whitespace-separated term as a case-insensitive substring.
 final class SubstringFactSearch implements KnowledgeFactSearch {
-  /// Creates the SQLite substring strategy.
+  /// Creates the portable substring strategy.
   const new();
 
   @override

@@ -61,14 +61,18 @@ class SseBroadcast {
   static final _log = Logger('SseBroadcast');
   final List<StreamController<List<int>>> _clients = [];
 
-  /// Registers a new SSE client. Returns the controller whose stream
-  /// should be used as the shelf response body.
+  /// Registers a new SSE client and sends an initial connection comment so
+  /// the HTTP response opens before the first broadcast.
+  ///
+  /// Returns the controller whose stream should be used as the shelf response
+  /// body.
   StreamController<List<int>> subscribe() {
     final controller = StreamController<List<int>>();
     _clients.add(controller);
     controller.onCancel = () {
       _clients.remove(controller);
     };
+    controller.add(utf8.encode(': connected\n\n'));
     return controller;
   }
 

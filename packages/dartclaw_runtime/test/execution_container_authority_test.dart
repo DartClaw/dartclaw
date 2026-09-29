@@ -59,6 +59,96 @@ void main() {
       await second.release();
     });
 
+    test('host cache reuse never crosses workspace principals', () async {
+      final fixture = _Fixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      const agentA = AgentWorkspace(agentId: 'a', directory: '/srv/agents/a');
+      const agentB = AgentWorkspace(agentId: 'b', directory: '/srv/agents/b');
+
+      final first = await fixture.acquire('session-a', const ExecutionPolicy.host(), workspace: agentA);
+      final firstRunner = first.runner;
+      await first.release();
+
+      final second = await fixture.acquire('session-b', const ExecutionPolicy.host(), workspace: agentB);
+
+      expect(second.runner, isNot(same(firstRunner)));
+      expect(fixture.created, hasLength(2));
+      await second.release();
+    });
+
+    test('host cache reuse never crosses admitted execution directories', () async {
+      final fixture = _Fixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      const workspace = AgentWorkspace(agentId: 'a', directory: '/srv/agents/a');
+
+      final first = await fixture.acquire(
+        'session-a',
+        const ExecutionPolicy.host(),
+        logicalAgentId: 'a',
+        workspace: workspace,
+        directory: '/srv/projects/one',
+      );
+      final firstRunner = first.runner;
+      await first.release();
+
+      final second = await fixture.acquire(
+        'session-b',
+        const ExecutionPolicy.host(),
+        logicalAgentId: 'a',
+        workspace: workspace,
+        directory: '/srv/projects/two',
+      );
+
+      expect(second.runner, isNot(same(firstRunner)));
+      expect(fixture.created, hasLength(2));
+      await second.release();
+    });
+
+    test('an unconfigured host request cannot inherit a configured workspace worker', () async {
+      final fixture = _Fixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+      const agent = AgentWorkspace(agentId: 'a', directory: '/srv/agents/a');
+
+      final configured = await fixture.acquire('session-a', const ExecutionPolicy.host(), workspace: agent);
+      final configuredRunner = configured.runner;
+      await configured.release();
+
+      final absent = await fixture.acquire('session-c', const ExecutionPolicy.host());
+
+      expect(absent.runner, isNot(same(configuredRunner)));
+      expect(fixture.created, hasLength(2));
+      await absent.release();
+    });
+
+    test('host cache reuse separates owner and no-workspace agent construction identity', () async {
+      final fixture = _Fixture(capacities: const {'claude': 1});
+      addTearDown(fixture.dispose);
+
+      final owner = await fixture.acquire('owner-task', const ExecutionPolicy.host());
+      final ownerRunner = owner.runner;
+      await owner.release();
+
+      final agentC = await fixture.acquire(
+        'agent-c',
+        const ExecutionPolicy.host(),
+        surface: ExecutionSurface.logicalAgent,
+        logicalAgentId: 'c',
+      );
+      final agentCRunner = agentC.runner;
+      expect(agentCRunner, isNot(same(ownerRunner)));
+      await agentC.release();
+
+      final agentD = await fixture.acquire(
+        'agent-d',
+        const ExecutionPolicy.host(),
+        surface: ExecutionSurface.logicalAgent,
+        logicalAgentId: 'd',
+      );
+      expect(agentD.runner, isNot(same(agentCRunner)));
+      expect(fixture.created, hasLength(3));
+      await agentD.release();
+    });
+
     test('each runner reports its real mode, with the host profile absent', () async {
       final fixture = _Fixture(capacities: const {'claude': 2});
       addTearDown(fixture.dispose);
@@ -104,15 +194,18 @@ void main() {
       await second.release();
     });
 
-    test('a logical-agent owner keeps its container across turns and destroys it on discard', () async {
+    test('a logical-agent container is reused only for the same admitted execution directory', () async {
       final fixture = _Fixture(capacities: const {'claude': 1});
       addTearDown(fixture.dispose);
+      const workspace = AgentWorkspace(agentId: 'researcher', directory: '/srv/agents/researcher');
 
       final first = await fixture.acquire(
         'logical-session',
         const ExecutionPolicy.container('workspace'),
         surface: ExecutionSurface.logicalAgent,
         logicalAgentId: 'researcher',
+        workspace: workspace,
+        directory: '/srv/projects/one',
       );
       final runner = first.runner;
       await first.release();
@@ -122,14 +215,30 @@ void main() {
         const ExecutionPolicy.container('workspace'),
         surface: ExecutionSurface.logicalAgent,
         logicalAgentId: 'researcher',
+        workspace: workspace,
+        directory: '/srv/projects/one',
       );
       expect(second.runner, same(runner));
       expect(fixture.created, hasLength(1));
       expect(fixture.destroyed, isEmpty);
       await second.release();
 
-      await fixture.coordinator.resetSessionContinuity('logical-session', workersOnly: true);
+      final changedDirectory = await fixture.acquire(
+        'logical-session',
+        const ExecutionPolicy.container('workspace'),
+        surface: ExecutionSurface.logicalAgent,
+        logicalAgentId: 'researcher',
+        workspace: workspace,
+        directory: '/srv/projects/two',
+      );
+      final changedRunner = changedDirectory.runner;
+      expect(changedRunner, isNot(same(runner)));
+      expect(fixture.created, hasLength(2));
       expect(fixture.destroyed, [runner]);
+      await changedDirectory.release();
+
+      await fixture.coordinator.resetSessionContinuity('logical-session', workersOnly: true);
+      expect(fixture.destroyed, [runner, changedRunner]);
       expect(fixture.coordinator.snapshot.cachedWorkers, 0);
     });
 
@@ -350,6 +459,8 @@ class _Fixture {
     ExecutionPolicy policy, {
     ExecutionSurface surface = ExecutionSurface.task,
     String? logicalAgentId,
+    AgentWorkspace? workspace,
+    String? directory,
   }) async {
     final lease = await coordinator.acquire(
       ExecutionRequest(
@@ -358,6 +469,8 @@ class _Fixture {
         policy: policy,
         sessionId: sessionId,
         logicalAgentId: logicalAgentId,
+        workspace: workspace,
+        directory: directory,
       ),
     );
     return lease!;

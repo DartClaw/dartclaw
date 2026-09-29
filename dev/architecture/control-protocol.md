@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.26.2 subagent and per-thread cumulative usage crediting on both harnesses; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.27 Codex user-input diagnostics, Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -97,6 +97,7 @@ claude --print \
        [--permission-prompt-tool stdio] \
        [--setting-sources project] \
        [--settings <json>] \
+       [--add-dir <agent-workspace>] \
        --model opus[1m] \
        [--effort <level>] \
        [--append-system-prompt <prompt>] \
@@ -120,10 +121,11 @@ claude --print \
 | `--permission-prompt-tool stdio` | Route tool approval requests through the JSONL `can_use_tool` channel (not an interactive TTY). Emitted only when native permissions are *not* skipped – the `restricted` container profile, or a non-`bypassPermissions`/`dontAsk` `permissionMode`. **Not** emitted in the default config |
 | `--setting-sources project` | Project-only settings isolation. Omitted by default so Claude loads user, project, and local settings; emitted only when `providers.claude.inherit_user_settings: false` |
 | `--settings <json>` | Inline settings JSON (sandbox / permissions allow-deny). Emitted only when the provider's `sandbox`/`permissions`/`settings` options are present |
+| `--add-dir <agent-workspace>` | Adds the configured agent's pinned workspace so Claude discovers its `.claude/skills` independently of the turn working directory; omitted for restricted and unconfigured agents |
 | `--max-turns <n>` | `agent.max_turns` or a per-turn override (a changed override restarts the process). Exceeding it ends the turn with `subtype: error_max_turns`, mapped to an error result |
 | `--disallowedTools <name>...` | `agent.disallowed_tools` plus the native `WebSearch`/`WebFetch` suppression when DartClaw serves the guarded MCP versions or the spawn is containerized. Entries are normalized through `ToolPolicyCascade.normalizeEntry` and mapped to Claude's spelling (`shell` → `Bash`, `file_edit` → `Edit` + `NotebookEdit`); unknown names pass through. The flag is variadic, so it is always the last argument |
 | `--model` | Model selection – bare names (`haiku`, `sonnet`, `opus`) or with context suffix (`opus[1m]`). Default: `opus[1m]`. Configurable via `HarnessLaunchOptions` |
-| `--effort` | Reasoning effort level: `low`, `medium`, `high`, `max` (optional; configurable via `HarnessLaunchOptions`) |
+| `--effort` | Reasoning effort level: `low`, `medium`, `high`, `xhigh`, `max` (optional; configurable via `HarnessLaunchOptions`) |
 | `--append-system-prompt` | Behavior content injected at spawn (append-mode strategy) |
 | `--mcp-config` | Path to ephemeral MCP config file pointing at DartClaw's internal MCP server |
 | `--json-schema` | Inline JSON Schema the CLI enforces on the turn's final output, emitted only when `turn(outputSchema: ...)` supplies one. Process-level, so a changed schema joins the desired-state comparison and restarts the process – **dropping** the schema restarts too, and every restart re-injects the bounded `<conversation_history>` replay, so alternating schema-bearing and schema-free turns pays two restarts and two replays per pair |
@@ -141,10 +143,13 @@ Claude's native permission UX assumes an interactive TTY, so DartClaw normally d
 |---|---|
 | No `permissionMode`, non-`restricted` profile (**default**) | `--dangerously-skip-permissions` (no prompt tool; `can_use_tool` is suppressed) |
 | No `permissionMode`, `restricted` container profile | `--permission-prompt-tool stdio` (native prompts kept; tool requests flow through the JSONL `can_use_tool` channel) |
-| `permissionMode: bypassPermissions` or `dontAsk` | `--permission-mode <mode>` only |
+| Host `permissionMode: dontAsk` | `--permission-mode dontAsk --permission-prompts none`; subprocess env scrub stays `1`, so effective native mode is `default` with prompts disabled |
+| Container `permissionMode: dontAsk` | `--permission-mode dontAsk` only; container scrub remains `0`, and the host no-prompt mapping is not claimed for this lane |
+| `permissionMode: bypassPermissions` | `--permission-mode bypassPermissions` only; host scrub is `0` for this explicit bypass |
 | `permissionMode: acceptEdits` / `auto` / `default` / `plan` | `--permission-mode <mode>` + `--permission-prompt-tool stdio` |
 
 Regardless of which row applies, the registered `PreToolUse` hook still fires and runs the guard chain – disabling the native gate does not disable DartClaw's enforcement.
+For host `dontAsk`, startup checks the resolved Claude executable's help for `--permission-prompts` and its `none` target before sending a turn. A binary without that support is refused with a remedy to install a compatible Claude CLI or select a different permission mode. Workflow task records carry the requested host policy and its effective native mode, prompt policy, scrub, and guard status.
 
 ### Environment stripping
 
@@ -247,12 +252,41 @@ Key fields in the `request` object:
   "response": {
     "subtype": "success",
     "request_id": "req_init_1710234567890",
-    "response": { ... }
+    "response": { "models": [ ... ], ... }
   }
 }
 ```
 
 The harness waits up to 10 seconds for this response. Timeout kills the process.
+
+#### Model catalogue discovery (`models` + `get_settings`)
+
+The `initialize` response carries `response.response.models[]`, one row per model the account may select (claude
+2.1.278):
+
+```json
+{"value":"opus[1m]","resolvedModel":"claude-opus-5[1m]","displayName":"Opus (1M context)","description":"…",
+ "supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]}
+{"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku","description":"…"}
+```
+
+The `default` row is the account default rather than a model; a row with `disabled: true` is visible but not
+selectable. To learn which model the process actually runs, DartClaw sends a `get_settings` control request and reads
+`applied.model` from its response:
+
+```json
+{"type":"control_request","request_id":"req_settings_1710234567890","request":{"subtype":"get_settings"}}
+{"type":"control_response","response":{"subtype":"success","request_id":"req_settings_1710234567890",
+ "response":{"applied":{"model":"claude-opus-5[1m]","effort":"xhigh"},"effective":{…},"sources":{…}}}}
+```
+
+`ClaudeCodeHarness.discoverModelCatalogue()` starts the process, sends only `initialize` and `get_settings`, and stops
+it – no user turn. Entries are the rows minus `default` and `disabled`, labelled by `displayName` verbatim, with
+efforts from `supportedEffortLevels` (none when absent). Default resolves to the entry whose `resolvedModel` or `value`
+equals `applied.model`; none matching leaves it unresolved. Both surfaces are undocumented CLI output: a row missing `value`,
+`displayName` or `resolvedModel`, or a response without `applied.model`, fails discovery as a whole rather than
+yielding a partial list. The runtime runs this once per provider at startup on the host (see Codex below for the
+shared owner).
 
 ### 4.2 System Init Event
 
@@ -529,7 +563,7 @@ schema) and, when validation never succeeded, `subtype: "error_max_structured_ou
 
 Claude submits that payload through its native `StructuredOutput` protocol call. For a turn with an active provider-enforced schema, `TurnRunner` enables a session-local `TaskToolFilterGuard` exception requiring both raw `StructuredOutput` and canonical `claude:StructuredOutput`. This keeps an explicit empty workflow tool policy compatible with finalization; ordinary tools and the knowledge-inbox no-tools sentinel remain denied, and the exception is cleared after the turn.
 
-Parsed into the wire message `TerminalResult(stopReason, subtype, structuredOutput, costUsd, durationMs, inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens)`, which the harness converts into the provider-independent `TurnResult` it completes the pending `_turnCompleter` with, ending the `turn()` call. The retry-exhaustion subtype ends the turn as an error — a terminal result is an outcome, not a success, and a successful turn with a null payload would be indistinguishable from a model that chose to return nothing.
+The parser retains valid `modelUsage` counters for every model, `total_cost_usd`, and the native `session_id` as a typed cumulative snapshot. The harness returns that snapshot beside root-session `usage` counters. Direct `AgentHarness.turn` callers receive only those known root-session token contributions, marked incomplete, and null additive `costUsd`. `TurnRunner` subtracts the matching native-session baseline before any ledger or usage observer consumes the result. A root `usage.output_tokens` value of 88 can accompany 721 output tokens across root and delegated models; the additive turn uses 721. Consecutive snapshots with 41 then 81 output tokens and cost 0.0760910 then 0.0808288 USD produce a second-turn increment of 40 tokens and 0.0047378 USD. The retry-exhaustion subtype still ends the turn as an error.
 
 #### Background tasks at the turn boundary
 
@@ -542,7 +576,7 @@ The CLI runs the `Agent` tool in the background by default (2.1.x) and may backg
 
 beside per-task `task_started` / `task_progress` / `task_updated` / `task_notification` system messages, which DartClaw ignores. The model's turn ends with an ordinary `result` while those tasks are still running; when a task reports, the CLI runs a notification turn on its own – a new `system`/`init`, the model's reaction, and a second `result` carrying `origin: {"kind": "task-notification"}` – with no stdin input.
 
-`ClaudeCodeHarness` keeps the last inventory (`BackgroundTasksChanged`) and, on a successful `result` while it lists a task whose `task_type` is not `local_bash`, does **not** complete the turn: it logs `Turn boundary held`, emits `ProviderProgressBridgeEvent(kind: background_tasks)` so the runner's stall monitor sees activity, and folds that result's token usage into the result that finally completes the turn – the first `result` with nothing outstanding (its `total_cost_usd` is session-cumulative and already includes the subagents). The `result` usage itself covers the main conversation only (verified on 2.1.270 against the transcripts: it equals the main transcript deduplicated by `message.id`, and the four subagent transcripts beside it appear nowhere in it); `ClaudeProtocolAdapter` credits subagent usage from the `assistant` frames carrying `parent_tool_use_id` – the last frame per `message.id`, since under `--include-partial-messages` a frame's usage is partial until the block that closes the message – and folds what accrued since the previous `result` into each `TurnComplete`. The turn timeout bounds the wait and tears the process down as for any stuck turn. An error `result` completes the turn at once. A backgrounded shell command never holds the turn: the CLI's own `--print` exit policy waits for subagents and workflows but kills a background shell a few seconds after the final result, and a step that left a dev server running must still end. Without the hold, the next turn's process restart (a finalizer's `--json-schema`, a session switch) kills every running subagent. Verified on 2.1.263 (2026-09-07). The CLI offers no spawn flag, setting or environment variable that makes `Agent` foreground by default or disables background tasks; `CLAUDE_AUTO_BACKGROUND_TASKS` and the subagent frontmatter `background: true` only force the opposite.
+`ClaudeCodeHarness` keeps the last inventory (`BackgroundTasksChanged`) and tracks non-`local_bash` tasks that leave it until the next `system`/`init` starts their notification turn. A successful `result` does **not** complete the caller turn while a task is still listed or its notification turn is owed: the harness logs `Turn boundary held`, emits `ProviderProgressBridgeEvent(kind: background_tasks)` so the runner's stall monitor sees activity, and folds only root-session per-result `usage` into the direct harness lower bound. This also covers a task that finishes during an earlier task's notification turn: it leaves the list before its own notification turn begins. The final `result` supplies one cumulative `modelUsage` and cost snapshot for the whole held caller turn; repeated snapshots are never added. The turn timeout bounds the wait and tears the process down as for any stuck turn. An error `result` completes the turn at once. A backgrounded shell command never holds the turn: the CLI's own `--print` exit policy waits for subagents and workflows but kills a background shell a few seconds after the final result, and a step that left a dev server running must still end. Without the hold, the next turn's process restart (a finalizer's `--json-schema`, a session switch) kills every running subagent. Verified on 2.1.263 (2026-09-07), with the notification race observed on 2.1.284 (2026-09-29). The CLI offers no spawn flag, setting or environment variable that makes `Agent` foreground by default or disables background tasks; `CLAUDE_AUTO_BACKGROUND_TASKS` and the subagent frontmatter `background: true` only force the opposite.
 
 ---
 
@@ -731,6 +765,8 @@ ToolCallRecord
 
 `ProtocolAdapter` normalizes provider-specific cache token field names to a canonical two-field model before they reach `TurnOutcome`. Consumers never need to know the underlying wire format:
 
+For Claude, `TurnRunner` subsequently derives an additive delta from the native-session-scoped cumulative `modelUsage` snapshot. A result with 721 output tokens across models and 88 root-session output tokens charges 721 output tokens; the direct harness reports only root-session `usage`, marks it incomplete, and leaves additive cost null. A later cumulative snapshot charges only its increment, such as 40 output tokens and 0.0047378 cost, rather than charging the cumulative total again. A durable logical session writes `pending_accounting_turn_id` before dispatch and atomically records the additive ledger, next native baseline, `last_accounted_turn_id`, and sticky `token_usage_complete` in its `session_cost:<id>` value at settlement. An older record without a baseline, an uncleared pending marker, or malformed/decreasing counters yields only valid root `usage` as a lower bound and null cost for that turn. A later valid snapshot can establish a new baseline, but cannot make a prior gap complete. Cost availability is independent of token completeness: `estimated_cost_usd` adds only known increments and `cost_reported_turn_count` counts those increments. `total_tokens` remains input plus output, and effective-token cache weights do not change. Context-window monitoring uses root-session input, not the cross-model billable sum.
+
 | Provider | Wire field(s) | Canonical mapping |
 |----------|--------------|-------------------|
 | Anthropic (Claude) | `cache_read_input_tokens`, `cache_creation_input_tokens` | `cacheReadTokens`, `cacheWriteTokens` |
@@ -747,6 +783,7 @@ TurnOutcome
 ├── turnDuration: Duration        – wall-clock elapsed via Stopwatch
 ├── cacheReadTokens: int          – normalized by ProtocolAdapter
 ├── cacheWriteTokens: int         – normalized by ProtocolAdapter
+├── tokenUsageComplete: bool      – true only for a fully measured turn
 ├── toolCalls: List<ToolCallRecord> – correlated from stream events
 ├── structuredOutput: Map<String, dynamic>? – completed provider payload after output guards pass
 └── providerSessionId: String?    – provider-reported identity; absent when unreported or guard-blocked
@@ -854,7 +891,7 @@ abstract class AgentHarness {
 }
 ```
 
-`turn()` returns a typed `TurnResult` (`stopReason`, `error`, `costUsd`, `sessionTitle`, `providerSessionId`, `structuredOutput`, and
+`turn()` returns a typed `TurnResult` (`stopReason`, `error`, additive nullable `costUsd`, `tokenUsageComplete`, `sessionTitle`, `providerSessionId`, `structuredOutput`, and
 non-nullable `inputTokens`/`outputTokens`/`cacheReadTokens`/`cacheWriteTokens`, plus `isError`/`isCancelled`
 predicates). The field set is the union every consumer reads, so a provider that cannot supply a value must still name
 it — a key one harness never emits is a compile error rather than a silent zero.
@@ -1017,7 +1054,7 @@ The bearer header is omitted only for an authentication-disabled loopback deploy
 | `memory_apply` | `MemoryApplyTool` | always | Atomically curate personal memory with collection CAS |
 | `memory_observe` | `MemoryObserveTool` | always | Capture observations or bounded learnings |
 | `memory_search` | `MemorySearchTool` | always | Natural-language search over canonical entries and native wiki sources |
-| `memory_read` | `MemoryReadTool` | always | Read bounded canonical records by locator or role/topic, or reopen native wiki/KG/inbox/QMD locators through their source owners |
+| `memory_read` | `MemoryReadTool` | always | Read bounded canonical records by locator or role/topic, or reopen native wiki/KG/inbox locators through their source owners |
 | `kg_add` | `KgAddTool` | always | Add a source-linked temporal fact to the knowledge graph |
 | `kg_query` | `KgQueryTool` | always | Query temporal knowledge-graph facts by entity/predicate (+ optional `as_of`) |
 | `kg_timeline` | `KgTimelineTool` | always | Return the full temporal fact timeline for an entity |
@@ -1067,7 +1104,7 @@ Codex integrates through `codex app-server`, a long-lived subprocess that speaks
 The Codex harness spawns the app-server binary directly:
 
 ```bash
-codex app-server
+codex app-server -c tools.experimental_request_user_input.enabled=false
 ```
 
 Startup uses a two-step handshake:
@@ -1075,8 +1112,38 @@ Startup uses a two-step handshake:
 1. DartClaw sends `initialize`.
 2. Codex responds, then DartClaw sends `initialized`.
 
+For a configured agent workspace, DartClaw next sends
+`skills/extraRoots/set {"extraRoots":["<workspace>/.agents/skills"]}` and waits for success. Thread creation remains
+blocked until that request completes, so an unsupported provider version or unmapped container path fails the worker
+instead of silently running without the agent's skills. This process-scoped root remains active when an authorized
+project becomes the turn cwd. Restricted and unconfigured agents send no additional root.
+
 Only after that does DartClaw create a thread with `thread/start`, or load an explicitly requested durable thread with
 `thread/resume {"threadId": "…"}`. The first ordinary turn for a session creates a thread; later turns reuse its cached ID.
+The process override applies to host and container launches, including restarts, and takes precedence over an enabled
+tool in the selected Codex home. Codex 0.155.1 removes the client-advertised `request_user_input` tool under this
+override, but a subscription-backed `request_user_input_async` call remains possible. A CLI that rejects the override
+fails startup; DartClaw does not retry without it.
+
+### Model catalogue discovery (`model/list` + ephemeral `thread/start`)
+
+`CodexHarness.discoverModelCatalogue()` runs the handshake, then pages `model/list` (params `{cursor}`; result
+`{data: Model[], nextCursor}`) until `nextCursor` is null, bounded at 50 pages. Each `Model` carries `id, model,
+displayName, description, hidden, isDefault, defaultReasoningEffort, supportedReasoningEfforts` (codex-cli 0.155.1);
+hidden entries are not offered, labels are `displayName` verbatim, and efforts are
+`supportedReasoningEfforts[].reasoningEffort`. `isDefault` marks the catalogue default, not the model this deployment
+runs, so the resolved default comes from one `thread/start` with `ephemeral: true` (plus the configured model, as a
+turn would send it), whose result names `model` without starting a turn; the default is the non-hidden entry whose
+`model` matches. No `turn/start` is sent and the process is stopped afterwards. A missing or mistyped field fails
+discovery as a whole.
+
+Both harnesses' discovery is owned by one runtime object, `ModelCatalogueDiscovery` (started through `HarnessWiring`
+once a server-composing runtime has started its primary lane): it spawns each executable provider on the host – never in a container – from the worker's
+executable, provider options, configured model and effort, credential environment and subscription home, with no guard
+chain, MCP wiring or workspace roots, and never blocks a render. A dedicated subscription home is prepared the probe-lane
+way and the probe writes neither its `config.toml` nor `AGENTS.md`: the home is shared with running workers, and Codex
+re-reads `config.toml` on every thread start. A success is kept for the process; a failure is
+logged with the provider id and retried by the first read at least 5 minutes later, one attempt at a time.
 
 ### Turn lifecycle
 
@@ -1088,6 +1155,10 @@ The harness correlates response notifications with the active thread and, once `
 turn. Agent messages and terminal notifications from background subagent threads or an earlier turn cannot emit
 parent-response text, contribute usage, or settle the pending parent turn. Child tool lifecycle notifications continue
 through the approval and guard path.
+Every new thread receives developer instructions that DartClaw cannot collect native mid-turn question answers, that
+necessary clarification belongs in the final reply for a later user turn, and that a queued acknowledgement or
+recommendation is not an answer. Caller instructions remain intact. Local reuse compares these effective instructions;
+an explicit `thread/resume` retains instructions saved at thread creation. This does not retrofit older threads.
 
 When the app-server exits unexpectedly, DartClaw clears the cached thread IDs, restarts the process with backoff, re-runs the handshake, creates a fresh thread, and replays the saved history into the next `turn/start` request.
 
@@ -1107,6 +1178,13 @@ Codex emits turn and item notifications over stdout. DartClaw parses and maps th
 | `thread/tokenUsage/updated` | The turn's usage. `tokenUsage.last` is this turn's, `tokenUsage.total` the thread's running sum; `inputTokens` includes `cachedInputTokens`, normalised to the fresh-input convention on arrival. Held until the `turn/completed` it precedes |
 | `turn/failed` | Completes the pending turn with an error stop reason |
 
+An active turn's `agentMessage` with valid structured `questions` produces one WARNING per question item, carrying
+thread, turn and item IDs, question titles and options, and the fact that DartClaw supplied no answer. A question first
+present in `turn/completed.turn.items` is covered too. Malformed non-null metadata yields a warning without echoing the
+frame. The warning is independent of final-text extraction, which remains provider-authoritative; no diagnostic text,
+answer or synthetic completion enters the assistant response. Ordinary prose and `delivery: async` alone are not
+classified as questions.
+
 This is the Codex path implemented by `CodexProtocolAdapter`. The adapter also accepts the v0.118.0 `ClientResponse` envelope variants while preserving the same `SystemInit` and thread-id extraction behavior.
 
 ### Approval flow
@@ -1119,6 +1197,8 @@ accepts the legacy `control/approval` and `approval/request` shapes. Broad
 declined because DartClaw has no interactive form surface. Other server requests receive a terminal JSON-RPC
 unsupported-method error rather than holding the turn. It evaluates each recognized tool request through the same guard
 chain used elsewhere in the runtime, then replies using that request type's native result shape.
+`item/tool/requestUserInput` also logs the structured question when it belongs to the active turn, then receives the
+existing `-32601` unsupported-method error on its wire ID. It does not create an approval card or an answers map.
 
 The approval payload is normalized before guard evaluation so DartClaw can strip sensitive environment values and
 translate provider tool names into canonical tool names. File approvals reuse the preceding `item/started` context and
@@ -1144,11 +1224,14 @@ DartClaw passes `approval_policy` and `sandbox` as per-turn settings in every `t
 | `approval: on-request` | `approval_policy: "on-request"` | Recommended explicit posture – broadest available approval interception for DartClaw's guard chain |
 | `approval: unless-allow-listed` | `approval_policy: "granular"` | Partial – safe-listed commands emit no approval request |
 | `approval: never` | `approval_policy: "never"` | No approval requests – all tool calls execute immediately |
-| `sandbox: workspace-write` | `sandbox: "workspaceWrite"` | Codex sandbox allows writes to working directory only |
+| `sandbox: workspace-write` | `sandbox: "workspaceWrite"` | Codex sandbox allows writes to the working directory and the execution's declared workspace/artifact roots |
 | `sandbox: danger-full-access` | `sandbox: "dangerFullAccess"` | No Codex sandbox restrictions |
 
 When `approval` is absent or blank, DartClaw omits `approval_policy` and Codex inherits its own configuration. Because
 that inherited posture is not verifiable, serve warns whenever tool-restricted agents or jobs use such a provider.
+For `workspaceWrite`, declared writable roots are sent as `sandboxPolicy.writableRoots` on each `turn/start`; `readOnly`
+never receives them. The list is bound to the immutable worker construction identity and translated through the
+container mount map when applicable.
 
 #### Approval coverage
 
@@ -1300,6 +1383,15 @@ ExecutionRequest(
 ```
 
 There is no policy or provider fallback. Each live container authority owns a container created when it is admitted and destroyed when it is released; a container neither reserves provider capacity nor holds conversation state.
+
+Temporary Codex execution always takes the worker lane and derives process retention from the host-owned session. The
+existing execution coordinator retains that worker and its capacity permit by trusted session ID across idle turns;
+only explicit end or coordinator shutdown releases it, and no other session may reuse it.
+Its `ContainerManager` runs `docker run --rm -i -a stdin` with a foreground `cat` root and retains that root stdin for
+the authority lifetime. Generated Codex state lives at `containerGeneratedStatePath` on an owner-only uid-1000 tmpfs;
+there is no generated-state host bind. Release closes the retained stdin, awaits root exit, and confirms container
+absence. The conformance profile records the live Docker stdin, TTY, auto-remove, command, tmpfs, mount, EOF, and parent
+SIGKILL observations before any restart or orphan reclaim.
 
 ### Container naming
 

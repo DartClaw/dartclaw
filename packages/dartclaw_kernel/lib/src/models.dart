@@ -1,4 +1,5 @@
 import 'execution_policy.dart';
+import 'agent_definition.dart' show AgentWorkspace;
 
 const _sessionFieldUnset = Object();
 
@@ -27,11 +28,39 @@ enum SessionType {
 
   /// Whether messages in this session belong to the conversation index.
   ///
-  /// Internal execution sessions and archived sessions are excluded.
+  /// Internal execution sessions are excluded. Archived conversations remain
+  /// searchable by the owner even though they are read-only.
   bool get isChatFacing => switch (this) {
-    main || channel || user => true,
-    cron || task || logicalAgent || archive => false,
+    main || channel || user || archive => true,
+    cron || task || logicalAgent => false,
   };
+}
+
+/// Governs whether a conversation may outlive the current server process.
+enum ConversationRetention {
+  /// The conversation is written to configured durable stores.
+  durable,
+
+  /// The conversation exists only in bounded process memory.
+  process;
+
+  /// Whether durable persistence consumers may observe this conversation.
+  bool get isDurable => this == durable;
+}
+
+/// Source of the current session title used to resolve automatic-title races.
+enum SessionTitleProvenance {
+  /// Immediate truncation shown before a generated title is available.
+  automaticFallback,
+
+  /// Validated title produced by the schema-bound title agent.
+  automaticGenerated,
+
+  /// Title explicitly supplied by an operator.
+  manual,
+
+  /// Title written by a non-interactive runtime lifecycle.
+  system,
 }
 
 /// A top-level conversation container for exchanges between a user and an agent.
@@ -42,8 +71,20 @@ class Session {
   /// Human-readable title shown in UI surfaces, or `null` when unnamed.
   final String? title;
 
+  /// Monotonic revision of [title].
+  final int titleRevision;
+
+  /// Authority that last wrote [title].
+  final SessionTitleProvenance? titleProvenance;
+
+  /// Whether the one automatic title request has been claimed.
+  final bool automaticTitleAttempted;
+
   /// How this session was created and routed through the runtime.
   final SessionType type;
+
+  /// Persistence boundary applied by every conversation owner.
+  final ConversationRetention retention;
 
   /// Channel-specific routing key for sessions that originate from a channel.
   final String? channelKey;
@@ -61,75 +102,158 @@ class Session {
   /// container availability, then persist the derived value forward.
   final ExecutionMode? executionMode;
 
+  /// Agent workspace ownership pinned when this session was created.
+  ///
+  /// Null keeps legacy and unconfigured sessions backward-readable without
+  /// assigning them a workspace identity.
+  final AgentWorkspace? workspace;
+
   /// When this session record was first created.
   final DateTime createdAt;
 
   /// When this session was last mutated.
   final DateTime updatedAt;
 
+  /// When the owner moved this conversation out of the active inbox.
+  ///
+  /// This remains independent from archival [type], read state, and execution
+  /// state. Null means the conversation is active.
+  final DateTime? settledAt;
+
+  /// Highest durable message cursor the owner has visibly read.
+  final int readMessageCursor;
+
+  /// Latest durable attention event the owner has marked read.
+  final String? attentionReadEventId;
+
+  /// Terminal attention event identities the owner has dismissed.
+  final List<String> dismissedAttentionEventIds;
+
   /// Creates a session snapshot with immutable metadata.
   const new({
     required this.id,
     this.title,
+    this.titleRevision = 0,
+    this.titleProvenance,
+    this.automaticTitleAttempted = false,
     this.type = SessionType.user,
+    this.retention = ConversationRetention.durable,
     this.channelKey,
     this.provider,
     this.securityProfile,
     this.executionMode,
+    this.workspace,
     required this.createdAt,
     required this.updatedAt,
+    this.settledAt,
+    this.readMessageCursor = 0,
+    this.attentionReadEventId,
+    this.dismissedAttentionEventIds = const [],
   });
 
   /// Serializes this session to a JSON-safe map.
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
+    'titleRevision': titleRevision,
+    if (titleProvenance != null) 'titleProvenance': titleProvenance!.name,
+    if (automaticTitleAttempted) 'automaticTitleAttempted': true,
     'type': type.name,
+    'retention': retention.name,
     if (channelKey != null) 'channelKey': channelKey,
     if (provider != null) 'provider': provider,
     if (securityProfile != null) 'securityProfile': securityProfile,
     if (executionMode != null) 'executionMode': executionMode!.name,
+    if (workspace != null) 'workspaceAgentId': workspace!.agentId,
+    if (workspace != null) 'workspaceDir': workspace!.directory,
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
+    if (settledAt != null) 'settledAt': settledAt!.toUtc().toIso8601String(),
+    if (readMessageCursor > 0) 'readMessageCursor': readMessageCursor,
+    if (attentionReadEventId != null) 'attentionReadEventId': attentionReadEventId,
+    if (dismissedAttentionEventIds.isNotEmpty) 'dismissedAttentionEventIds': dismissedAttentionEventIds,
   };
 
   /// Reconstructs a [Session] from persisted JSON data.
   ///
   /// A missing legacy `type` defaults to [SessionType.user]. Throws
   /// [FormatException] when a present type is not a supported string value.
-  factory fromJson(Map<String, dynamic> json) => Session(
-    id: json['id'] as String,
-    title: json['title'] as String?,
-    type: _parseSessionType(json['type']),
-    channelKey: json['channelKey'] as String?,
-    provider: json['provider'] as String?,
-    securityProfile: json['securityProfile'] as String?,
-    executionMode: _parseExecutionMode(json['executionMode']),
-    createdAt: DateTime.parse(json['createdAt'] as String),
-    updatedAt: DateTime.parse(json['updatedAt'] as String),
-  );
+  factory fromJson(Map<String, dynamic> json) {
+    final workspaceAgentId = json['workspaceAgentId'];
+    final workspaceDir = json['workspaceDir'];
+    if ((workspaceAgentId == null) != (workspaceDir == null) ||
+        workspaceAgentId != null && (workspaceAgentId is! String || workspaceDir is! String)) {
+      throw const FormatException('Session workspace ownership must contain workspaceAgentId and workspaceDir');
+    }
+    return Session(
+      id: json['id'] as String,
+      title: json['title'] as String?,
+      titleRevision: json['titleRevision'] as int? ?? 0,
+      titleProvenance: _parseTitleProvenance(json['titleProvenance']),
+      automaticTitleAttempted: json['automaticTitleAttempted'] as bool? ?? false,
+      type: _parseSessionType(json['type']),
+      retention: _parseRetention(json['retention']),
+      channelKey: json['channelKey'] as String?,
+      provider: json['provider'] as String?,
+      securityProfile: json['securityProfile'] as String?,
+      executionMode: _parseExecutionMode(json['executionMode']),
+      workspace: workspaceAgentId == null
+          ? null
+          : AgentWorkspace.pinned(agentId: workspaceAgentId as String, directory: workspaceDir as String),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      settledAt: json['settledAt'] == null ? null : DateTime.parse(json['settledAt'] as String),
+      readMessageCursor: json['readMessageCursor'] as int? ?? 0,
+      attentionReadEventId: json['attentionReadEventId'] as String?,
+      dismissedAttentionEventIds: (json['dismissedAttentionEventIds'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
+    );
+  }
 
   /// Returns a copy with selected fields replaced.
   Session copyWith({
     String? id,
     Object? title = _sessionFieldUnset,
+    int? titleRevision,
+    Object? titleProvenance = _sessionFieldUnset,
+    bool? automaticTitleAttempted,
     SessionType? type,
+    ConversationRetention? retention,
     Object? channelKey = _sessionFieldUnset,
     Object? provider = _sessionFieldUnset,
     Object? securityProfile = _sessionFieldUnset,
     Object? executionMode = _sessionFieldUnset,
+    Object? workspace = _sessionFieldUnset,
     DateTime? createdAt,
     DateTime? updatedAt,
+    Object? settledAt = _sessionFieldUnset,
+    int? readMessageCursor,
+    Object? attentionReadEventId = _sessionFieldUnset,
+    List<String>? dismissedAttentionEventIds,
   }) => Session(
     id: id ?? this.id,
     title: identical(title, _sessionFieldUnset) ? this.title : title as String?,
+    titleRevision: titleRevision ?? this.titleRevision,
+    titleProvenance: identical(titleProvenance, _sessionFieldUnset)
+        ? this.titleProvenance
+        : titleProvenance as SessionTitleProvenance?,
+    automaticTitleAttempted: automaticTitleAttempted ?? this.automaticTitleAttempted,
     type: type ?? this.type,
+    retention: retention ?? this.retention,
     channelKey: identical(channelKey, _sessionFieldUnset) ? this.channelKey : channelKey as String?,
     provider: identical(provider, _sessionFieldUnset) ? this.provider : provider as String?,
     securityProfile: identical(securityProfile, _sessionFieldUnset) ? this.securityProfile : securityProfile as String?,
     executionMode: identical(executionMode, _sessionFieldUnset) ? this.executionMode : executionMode as ExecutionMode?,
+    workspace: identical(workspace, _sessionFieldUnset) ? this.workspace : workspace as AgentWorkspace?,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    settledAt: identical(settledAt, _sessionFieldUnset) ? this.settledAt : settledAt as DateTime?,
+    readMessageCursor: readMessageCursor ?? this.readMessageCursor,
+    attentionReadEventId: identical(attentionReadEventId, _sessionFieldUnset)
+        ? this.attentionReadEventId
+        : attentionReadEventId as String?,
+    dismissedAttentionEventIds: dismissedAttentionEventIds ?? this.dismissedAttentionEventIds,
   );
 
   static ExecutionMode? _parseExecutionMode(Object? value) {
@@ -146,6 +270,24 @@ class Session {
       if (type != null) return type;
     }
     throw FormatException('Unknown session type: $value');
+  }
+
+  static ConversationRetention _parseRetention(Object? value) {
+    if (value == null) return ConversationRetention.durable;
+    if (value case final String name) {
+      final retention = ConversationRetention.values.asNameMap()[name];
+      if (retention != null) return retention;
+    }
+    throw FormatException('Unknown conversation retention: $value');
+  }
+
+  static SessionTitleProvenance? _parseTitleProvenance(Object? value) {
+    if (value == null) return null;
+    if (value case final String name) {
+      final provenance = SessionTitleProvenance.values.asNameMap()[name];
+      if (provenance != null) return provenance;
+    }
+    throw FormatException('Unknown session title provenance: $value');
   }
 }
 

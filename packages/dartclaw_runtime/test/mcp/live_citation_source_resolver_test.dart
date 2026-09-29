@@ -3,9 +3,8 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTemporalKnowledgeGraphService;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../helpers/search_index_test_support.dart';
@@ -13,19 +12,15 @@ import '../helpers/search_index_test_support.dart';
 void main() {
   test('reopens role-discriminated canonical and native locators independently of search results', () async {
     final workspace = Directory.systemTemp.createTempSync('citation_resolver_');
-    final searchDb = sqlite3.openInMemory();
-    final taskBackend = await openPreparedTaskBackend();
     final corpus = MemoryCorpusService(workspaceDir: workspace.path);
     addTearDown(() async {
       await corpus.close();
-      searchDb.close();
-      await taskBackend.close();
       workspace.deleteSync(recursive: true);
     });
-    final memory = await prepareMemoryIndex(searchDb);
+    final memory = await prepareMemoryIndex();
     final wiki = WikiSearchSource(workspaceDir: workspace.path);
     final search = ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: memory),
+      personal: LexicalSearchBackend(index: memory),
       wiki: wiki,
     );
     final handlers = createMemoryHandlers(
@@ -45,7 +40,7 @@ void main() {
     final inboxFile = File(p.join(workspace.path, 'inbox', 'note.md'));
     inboxFile.parent.createSync(recursive: true);
     inboxFile.writeAsStringSync('Inbox note');
-    final kg = TemporalKnowledgeGraphService(taskBackend);
+    final kg = InMemoryTemporalKnowledgeGraphService();
     final factId = await kg.addFact(
       entity: 'Falcon',
       predicate: 'status',
@@ -53,12 +48,7 @@ void main() {
       validFrom: '2026-08-12T00:00:00Z',
       source: 'wiki/falcon.md',
     );
-    final resolver = LiveCitationSourceResolver(
-      corpus: corpus,
-      wiki: wiki,
-      kg: kg,
-      inbox: KnowledgeInboxReadService(workspaceDir: workspace.path),
-    );
+    final resolver = LiveCitationSourceResolver(corpus: corpus, wiki: wiki, kg: kg);
 
     expect(first, isNot(second));
     expect(await resolver.resolves(_ref(CitationLayer.memory, first, 'topic')), isTrue);
@@ -71,7 +61,7 @@ void main() {
     expect(await resolver.resolves(_ref(CitationLayer.wiki, 'wiki/falcon.md', null)), isFalse);
     expect(await resolver.resolves(_ref(CitationLayer.kg, '$factId', 'kg')), isTrue);
     expect(await resolver.resolves(_ref(CitationLayer.kg, '$factId', null)), isFalse);
-    expect(await resolver.resolves(_ref(CitationLayer.inbox, 'inbox/note.md', 'knowledge-inbox')), isTrue);
+    expect(await resolver.resolves(_ref(CitationLayer.inbox, 'inbox/note.md', 'knowledge-inbox')), isFalse);
     expect(await resolver.resolves(_ref(CitationLayer.inbox, 'inbox/note.md', null)), isFalse);
   });
 }

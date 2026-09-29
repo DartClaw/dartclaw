@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart' show TurnTrace, TurnTraceSummary, ToolCallRecord;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DatabaseBackend;
 
-/// SQLite-backed persistence for turn traces.
+/// Database-backed persistence for turn traces.
 ///
 /// Shares the prepared task backend with the other task-domain services.
 class TurnTraceService {

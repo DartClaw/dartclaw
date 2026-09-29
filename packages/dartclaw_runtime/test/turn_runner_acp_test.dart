@@ -52,7 +52,7 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  test('ACP session title and usage data land on existing session and usage surfaces', () async {
+  test('ACP usage lands on the session while provider title metadata cannot rename it', () async {
     final session = await sessions.createSession();
 
     unawaited(() async {
@@ -82,10 +82,33 @@ void main() {
     expect(outcome.outputTokens, 17);
     expect(outcome.cacheReadTokens, 19);
     expect(outcome.cacheWriteTokens, 23);
-    expect(updatedSession!.title, 'Plan cleanup');
+    expect(updatedSession!.title, isNull);
     expect(costData['provider'], 'acp');
     expect(costData['input_tokens'], 13);
     expect(costData['output_tokens'], 17);
+  });
+
+  test('ACP explicit zero and missing usage retain distinct completeness', () async {
+    final session = await sessions.createSession();
+    Future<TurnOutcome> run(TurnResult result) async {
+      unawaited(() async {
+        await worker.turnInvoked;
+        worker.completeSuccess(result);
+      }());
+      final turnId = await runner.startTurn(session.id, [
+        {'role': 'user', 'content': 'measure'},
+      ]);
+      return runner.waitForOutcome(session.id, turnId);
+    }
+
+    final zero = await run(const TurnResult(inputTokens: 0, outputTokens: 0, tokenUsageComplete: true));
+    expect(zero.tokenUsageComplete, isTrue);
+    expect(zero.totalTokens, 0);
+    final missing = await run(const TurnResult());
+    expect(missing.tokenUsageComplete, isFalse);
+    expect(missing.totalTokens, 0);
+    final ledger = jsonDecode((await kvService.get('session_cost:${session.id}'))!) as Map;
+    expect(ledger['token_usage_complete'], isFalse);
   });
 
   test('ACP session title metadata does not rename the main workspace', () async {

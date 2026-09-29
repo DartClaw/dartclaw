@@ -87,17 +87,13 @@ void main() {
       expect(content, contains('execution envelope'));
       expect(content, isNot(contains('<workflow-context>')));
 
-      // Strong-signal vocabulary the strengthened classifier keys on – pins the
-      // multi-signal contract so a regression to a single header/filename gate fails.
+      // A PRD heading cannot substitute for FIS provenance and story markers.
       expect(content, contains('## Implementation Plan'));
-      expect(content, contains('Implementation Observations'));
-      expect(content, contains('Strong signals'));
-      expect(content, contains('corroborated'));
-      // Bind the weak-only exclusion clause, not just the glossary – a regression
-      // that drops the "weak signals alone never classify existing" rule fails here.
-      expect(content, contains('never reach `existing`'));
-      // Filename-independence: descriptive and sNN names classify the same way.
-      expect(content, contains('Filename is irrelevant'));
+      expect(content, contains('regardless of FIS-like headings'));
+      expect(content, contains('both `**Plan**:` and `**Story-ID**:`'));
+      expect(content, contains('`**TI01**` tasks'));
+      expect(content, contains('Written requirements belong in plan-and-implement'));
+      expect(content, contains('filename alone never qualifies'));
       // Stale retired markers must not return as classification signals.
       expect(content, isNot(contains('## Acceptance Criteria')));
       expect(content, isNot(contains('## Touched Files')));

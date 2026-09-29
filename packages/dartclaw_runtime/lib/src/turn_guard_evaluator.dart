@@ -6,6 +6,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 
 import 'behavior/self_improvement_service.dart';
+import 'memory/daily_log_record.dart';
 import 'session/session_reset_service.dart';
 import 'task/tool_call_summary.dart';
 import 'turn_governance_enforcer.dart';
@@ -128,9 +129,11 @@ class TurnToolHookCallbackHandler {
   final TurnProgressSnapshot Function() _buildSnapshot;
   final void Function(TurnProgressEvent event) _emitProgressEvent;
   final void Function(LoopDetection detection)? _onLoopAbort;
+  final MessageRedactor? _redactor;
 
   final List<ToolUseEvent> _toolEvents = [];
-  final Map<String, ({String name, String? context, DateTime startedAt})> _pendingToolCalls = {};
+  final Map<String, ({String name, String? context, String arguments, bool truncated, DateTime startedAt})>
+  _pendingToolCalls = {};
   final List<ToolCallRecord> _completedToolCalls = [];
   int _toolCallCount = 0;
   int _failedToolCallCount = 0;
@@ -148,6 +151,7 @@ class TurnToolHookCallbackHandler {
     void Function()? recordProgress,
     LoopAction? loopAction,
     void Function(LoopDetection detection)? onLoopAbort,
+    MessageRedactor? redactor,
   }) : _sessionId = sessionId,
        _turnId = turnId,
        _resetService = resetService,
@@ -156,7 +160,8 @@ class TurnToolHookCallbackHandler {
        _loopAction = loopAction,
        _buildSnapshot = buildSnapshot,
        _emitProgressEvent = emitProgressEvent,
-       _onLoopAbort = onLoopAbort;
+       _onLoopAbort = onLoopAbort,
+       _redactor = redactor;
 
   List<ToolUseEvent> get toolEvents => _toolEvents;
 
@@ -184,9 +189,12 @@ class TurnToolHookCallbackHandler {
     if (!_pendingToolCalls.containsKey(event.toolId) && _pendingToolCalls.length >= maxRetainedToolEvents) {
       _pendingToolCalls.remove(_pendingToolCalls.keys.last);
     }
+    final arguments = DailyLogToolSerializer(_redactor ?? MessageRedactor()).serializeInput(event.input);
     _pendingToolCalls[event.toolId] = (
       name: event.toolName,
       context: summarizeToolInput(event.toolName, event.input),
+      arguments: arguments.truncated ? '${arguments.summary}\n[Display payload truncated]' : arguments.summary,
+      truncated: arguments.truncated,
       startedAt: DateTime.now(),
     );
     _toolCallCount += 1;
@@ -215,13 +223,18 @@ class TurnToolHookCallbackHandler {
     }
 
     final durationMs = DateTime.now().difference(pending.startedAt).inMilliseconds;
+    final history = _historyText(event.output);
     _retainCompletedToolCall(
       ToolCallRecord(
+        id: event.toolId,
         name: pending.name,
         success: !event.isError,
         durationMs: durationMs,
         errorType: event.isError ? 'tool_error' : null,
         context: pending.context,
+        arguments: pending.arguments,
+        result: history.text,
+        isTruncated: pending.truncated || history.truncated,
         sourceLocators: !event.isError && pending.name == 'memory_search' ? _returnedLocators(event.output) : const [],
       ),
     );
@@ -253,17 +266,27 @@ class TurnToolHookCallbackHandler {
       final durationMs = turnEndedAt.difference(entry.value.startedAt).inMilliseconds;
       _retainCompletedToolCall(
         ToolCallRecord(
+          id: entry.key,
           name: entry.value.name,
           success: false,
           durationMs: durationMs,
           errorType: 'incomplete',
           context: entry.value.context,
+          arguments: entry.value.arguments,
+          isTruncated: entry.value.truncated,
         ),
       );
     }
     _failedToolCallCount += _unresolvedToolCallCount;
     _unresolvedToolCallCount = 0;
     _pendingToolCalls.clear();
+  }
+
+  ({String text, bool truncated}) _historyText(String value) {
+    const maxChars = 64 * 1024;
+    final redacted = _redactor?.redact(value) ?? value;
+    if (redacted.length <= maxChars) return (text: redacted, truncated: false);
+    return (text: '${redacted.substring(0, maxChars)}\n[Display payload truncated]', truncated: true);
   }
 
   void _retainCompletedToolCall(ToolCallRecord record) {

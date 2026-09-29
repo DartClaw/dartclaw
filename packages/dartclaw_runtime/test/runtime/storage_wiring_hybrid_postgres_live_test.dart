@@ -17,7 +17,7 @@ void main() {
       final dataDir = Directory.systemTemp.createTempSync('postgres_hybrid_wiring_');
       final config = DartclawConfig(
         server: ServerConfig(dataDir: dataDir.path),
-        database: const DatabaseConfig(backend: DatabaseBackendKind.postgres),
+        database: const DatabaseConfig(),
         search: const SearchConfig(backend: 'hybrid'),
       );
       await seedCanonicalMemory(
@@ -37,8 +37,6 @@ void main() {
 
       var taskFactoryCalls = 0;
       var providers = 0;
-      var vectorFactoryCalls = 0;
-      var searchFactoryCalls = 0;
       var providerDisposals = 0;
       final wiring = StorageWiring(
         config: config,
@@ -46,14 +44,6 @@ void main() {
         taskBackendFactory: (_) async {
           taskFactoryCalls++;
           return backend;
-        },
-        vectorBackendFactory: (_) async {
-          vectorFactoryCalls++;
-          return backend;
-        },
-        searchBackendFactory: (_) async {
-          searchFactoryCalls++;
-          throw StateError('PostgreSQL hybrid search must not open SQLite search storage');
         },
         embeddingProviderFactory: () {
           providers++;
@@ -64,10 +54,8 @@ void main() {
       try {
         await wiring.wire();
 
-        expect(vectorFactoryCalls, 0);
         expect(taskFactoryCalls, 1);
         expect(providers, 1);
-        expect(searchFactoryCalls, 0);
         expect(await wiring.memoryMissingVectorCount(), 0);
         expect(await wiring.conversationMissingVectorCount(), 0);
         final memoryHits = await wiring.inspectMemorySearch('memoryneedle');

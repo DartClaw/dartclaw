@@ -7,7 +7,7 @@ enum ExecutionLane { primary, worker }
 enum ExecutionAdmission { wait, failFast }
 
 /// Identifies the product surface requesting execution.
-enum ExecutionSurface { interactive, channel, task, workflow, logicalAgent, scheduler }
+enum ExecutionSurface { interactive, temporary, channel, task, workflow, logicalAgent, scheduler }
 
 /// Describes one post-governance execution allocation.
 final class ExecutionRequest {
@@ -16,10 +16,13 @@ final class ExecutionRequest {
     required this.providerId,
     required this.policy,
     required this.sessionId,
+    this.retention = ConversationRetention.durable,
     this.admission = ExecutionAdmission.wait,
     this.isHumanInput = false,
     this.taskId,
     this.logicalAgentId,
+    this.workspace,
+    this.directory,
     this.allowedTools,
     this.artifactsDir,
     this.spawnEnvironment,
@@ -35,6 +38,7 @@ final class ExecutionRequest {
   /// are two container workers built from different profiles.
   final ExecutionPolicy policy;
   final String sessionId;
+  final ConversationRetention retention;
   final ExecutionAdmission admission;
   final bool isHumanInput;
   final String? taskId;
@@ -45,6 +49,16 @@ final class ExecutionRequest {
   /// derived from its definition, so the identity has to reach whatever grants
   /// them.
   final String? logicalAgentId;
+
+  /// Workspace identity pinned to the session, separate from any selected
+  /// project or per-turn working directory.
+  final AgentWorkspace? workspace;
+
+  /// The execution directory already admitted by the requesting surface.
+  ///
+  /// This remains separate from [workspace]: selecting a project changes where
+  /// the turn runs without changing its workspace principal.
+  final String? directory;
 
   /// The tool policy already in force for this execution, when it carries one
   /// of its own rather than a logical agent's.
@@ -72,10 +86,13 @@ final class ExecutionRequest {
       providerId: providerId ?? this.providerId,
       policy: policy ?? this.policy,
       sessionId: sessionId,
+      retention: retention,
       admission: admission,
       isHumanInput: isHumanInput,
       taskId: taskId,
       logicalAgentId: logicalAgentId,
+      workspace: workspace,
+      directory: directory,
       allowedTools: allowedTools,
       artifactsDir: artifactsDir,
       spawnEnvironment: spawnEnvironment,

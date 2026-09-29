@@ -1,14 +1,13 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/knowledge_hub_page.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../../test_utils.dart';
@@ -17,8 +16,7 @@ import '../../helpers/search_index_test_support.dart';
 void main() {
   late Directory tempDir;
   late SessionService sessions;
-  late Database searchDb;
-  late SqliteBackend taskBackend;
+  late DatabaseBackend taskBackend;
   late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
 
@@ -28,10 +26,9 @@ void main() {
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('knowledge_hub_page_test_');
     sessions = SessionService(baseDir: tempDir.path);
-    searchDb = sqlite3.openInMemory();
     taskBackend = await openPreparedTaskBackend();
-    memory = await prepareMemoryIndex(searchDb);
-    kg = TemporalKnowledgeGraphService(taskBackend);
+    memory = await prepareMemoryIndex();
+    kg = InMemoryTemporalKnowledgeGraphService();
     _writeFile(tempDir, 'wiki/onboarding.md', 'Merge queue onboarding keeps source links.');
     _writeFile(tempDir, 'inbox/merge-note.md', 'Merge source landed in the inbox.');
     await memory.replaceAll([
@@ -52,7 +49,6 @@ void main() {
   });
 
   tearDown(() async {
-    searchDb.close();
     await taskBackend.close();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);

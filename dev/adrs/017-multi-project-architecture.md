@@ -1,6 +1,6 @@
 # ADR-017: Multi-Project Architecture
 
-**Status:** Accepted (implemented in 0.14.2)
+**Status:** Accepted (implemented in 0.14.2; general-chat amendment accepted 2026-09-25, implementation pending in 0.27)
 
 ## Context
 
@@ -123,7 +123,62 @@ This is a DartClaw differentiator — no other tool in the space does this.
 <project>/AGENTS.md            (project-level safety rules)
 ```
 
-For task sessions, `BehaviorFileService` receives the resolved project's path as `projectDir`. Interactive chat uses the default project.
+For task sessions, `BehaviorFileService` receives the resolved project's path as `projectDir`. Interactive chat originally used the default project; the 0.27 amendment below supersedes that rule for owner web chats.
+
+### 9. General chats and explicit project context (0.27 amendment)
+
+The plain-profile landing page exposes the server cwd as a project before the owner has selected one. This confuses the
+assistant's workspace with a checkout. The product decision is that Agent stays general, global New chat creates a
+general conversation, and project chats begin through an explicitly named project action. Other writable owner web
+chats may explicitly move between general and project contexts. Project selection never changes ownership or memory.
+
+**Representation and authority.** Extend `EffectiveConversationContext` with a nullable `projectId`: `null` is the valid
+general-chat state, not a failed lookup. Keep `directory` and `referenceRoot` concrete and validated. Do not create a
+"General" project, a magic id, or a second context resolver. `ConversationService` owns initialization, validation,
+revision-checked mutation and admission; renderers and search consume that state without consulting `defaultProject`
+to fill an absent association. The complete context mutation carries `project_id: null` explicitly; omission must not
+be interpreted as a project move.
+
+**Execution boundary.** For owner web general chats, resolve the existing `config.workspaceDir` through the current
+workspace/filesystem authority. General context has that root and no composer directory override. Never substitute
+`Directory.current`, a configured default checkout, or an unavailable project's path. Compose the existing owner
+behavior and memory under their existing policy, without the launch-directory `.dartclaw` project overlay. Explicit
+project contexts validate their selected directory under the project root and compose only that project's applicable
+instructions. Provider cwd and prompt reuse must follow the admitted context; use the existing restart/continuity
+seam when a provider cannot change it safely. Previously discussed project content in visible history remains history,
+not a claim that a move purges knowledge. Tool grants, sandbox posture and memory eligibility remain independently
+enforced. Unsupported provider placement fails rather than using a broader or different directory.
+
+**Mutation boundary.** Project association changes require an eligible durable owner web conversation, its current revision,
+and no queued, held, dispatching or running accepted work. Check those predicates and persist the next context plus
+one typed visible context-change record under the existing conversation mutation coordinator. Do not retrofit past
+attempts, relocate files, or silently discard/rebind references. No-op selections produce no record. Provider/model
+changes keep their existing next-turn semantics; this idle requirement is for project association changes. Agent and
+system-managed/archived/temporary conversations cannot be moved through a UI or API bypass.
+
+**Navigation boundary.** The implicit `_local` registry entry remains available to the task/workflow default resolver,
+but is neither a new-chat destination nor evidence that the owner uses projects. The ordinary Chats list and explicit
+Projects list are projections of the same conversation state, not new stores. Project management remains the existing
+checkout registry and UI. General creation must not reuse an untouched project draft, and project creation must not
+reuse a general or differently bound draft. Search uses the conversation's next context for current association even
+when a retained attempt's current context names its earlier project; histories retain attempt-level provenance.
+
+**Trade-off and alternatives.** This applies separation of concerns and ADR-054's one-authority rule within the
+existing modular runtime. The cost is a nullable-context contract change in core plus runtime consumers. Hiding the
+badge alone leaves cwd/instruction inheritance unchanged; retaining a required id as a synthetic "General" project
+duplicates workspace identity in the project registry. A new chat service or registry would add an owner without a
+distinct responsibility. Extending the existing context is the smallest approach that satisfies general execution,
+explicit project work and truthful presentation together.
+
+**Implementation and proof.** One 0.27 story covers the context contract, composition, navigation and explicit moves.
+Prove the boundary with distinguishable instructions in the owner workspace, server cwd and selected checkout,
+recording the composed prompt and dispatched directory. Prove revision/pending-work refusal and history preservation
+through the real conversation service, and the no-project/explicit-project journeys through served UI. This single-user
+pre-release change is adopted with fresh conversation state; pre-change chat migration, legacy Agent transition UI and
+compatibility layers are outside scope. Leave existing data untouched and never infer project intent from old `_local`
+contexts. Normal moves under the new contract still preserve history and draft; earlier storage/workspace preservation
+contracts are unchanged.
+This amendment is a target contract, not an assertion that the running release implements it.
 
 ## Consequences
 
@@ -133,7 +188,7 @@ For task sessions, `BehaviorFileService` receives the resolved project's path as
 - Dynamic project management via web UI — unique differentiator vs all surveyed competitors
 - Auto-fetch eliminates the "stale main" problem that affects every other tool
 - Per-project config (base ref, merge strategy, PR strategy) supports diverse repo needs
-- Fully backward compatible — zero changes needed for existing single-project deployments
+- The original 0.14.2 rollout preserved single-project defaults; the 0.27 amendment changes owner web-chat defaults
 - First-class `projectId` on tasks enables project-scoped queries, dashboards, and cost attribution
 - Security model cleanly extends — per-project mounts, credential isolation, file guard scoping
 
@@ -147,7 +202,7 @@ For task sessions, `BehaviorFileService` receives the resolved project's path as
 
 ### Neutral
 
-- The implicit cwd project preserves existing behavior exactly — no migration needed
+- The implicit cwd project preserves task/workflow default resolution; owner web-chat cutover follows §9
 - `ProjectService` follows the same service pattern as `TaskService`, `SessionService`
 - Credential security extends existing `CredentialProxy` pattern — no new security primitives
 - Container mount expansion uses existing `workspaceMounts: List<String>` — no container infrastructure changes

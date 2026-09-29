@@ -1,13 +1,11 @@
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskConfig;
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'task_executor_test_support.dart';
@@ -21,19 +19,13 @@ void main() {
   late TaskExecutorTestHarness harness;
   late FakeTaskWorker worker;
   late List<ExecutionRequest> requests;
-  late Database taskDatabase;
-  late SqliteTaskRepository taskRepository;
+  late InMemoryTaskRepository taskRepository;
 
   setUp(() async {
     worker = FakeTaskWorker();
     harness = TaskExecutorTestHarness(worker);
-    await harness.setUp(
-      tempPrefix: 'dartclaw_policy_routing_',
-      taskRepositoryFactory: (database) {
-        taskDatabase = database;
-        return taskRepository = SqliteTaskRepository(harness.taskBackend);
-      },
-    );
+    taskRepository = InMemoryTaskRepository();
+    await harness.setUp(tempPrefix: 'dartclaw_policy_routing_', taskRepositoryFactory: (_) => taskRepository);
     requests = [];
   });
 
@@ -233,79 +225,6 @@ void main() {
     expect(policyFor('queued-task'), const ExecutionPolicy.host());
   });
 
-  test('a pre-upgrade research row fails before any execution request', () async {
-    final executor = harness.buildWorkflowExecutor(turnManager: recordingTurns(), policyResolver: tasksOnHost());
-    addTearDown(executor.stop);
-    await harness.tasks.create(
-      id: 'legacy-research',
-      title: 'Legacy research',
-      description: 'Persisted before upgrade.',
-      autoStart: true,
-    );
-    taskDatabase.execute('UPDATE tasks SET type = ? WHERE id = ?', ['research', 'legacy-research']);
-
-    expect(await executor.pollOnce(), isTrue);
-
-    final task = (await harness.tasks.get('legacy-research'))!;
-    expect(task.status, TaskStatus.failed);
-    expect(task.configJson['errorSummary'], allOf(contains('research'), contains('securityProfile')));
-    expect(requests, isEmpty);
-  });
-
-  test('a pre-upgrade coding row without a worktree declaration fails before execution', () async {
-    final executor = harness.buildWorkflowExecutor(turnManager: recordingTurns(), policyResolver: tasksOnHost());
-    addTearDown(executor.stop);
-    await harness.tasks.create(
-      id: 'legacy-coding',
-      title: 'Legacy coding',
-      description: 'Persisted before upgrade.',
-      autoStart: true,
-      configJson: const {},
-    );
-    taskDatabase.execute('UPDATE tasks SET type = ? WHERE id = ?', ['coding', 'legacy-coding']);
-
-    expect(await executor.pollOnce(), isTrue);
-
-    final task = (await harness.tasks.get('legacy-coding'))!;
-    expect(task.status, TaskStatus.failed);
-    expect(task.configJson['errorSummary'], allOf(contains('coding'), contains('needsWorktree')));
-    expect(requests, isEmpty);
-  });
-
-  test('pre-upgrade research rows fail before missing, cloning, or errored project preparation', () async {
-    final projects = FakeProjectService(
-      projects: [
-        cloningProject(id: 'cloning'),
-        erroredProject(id: 'errored'),
-      ],
-      includeLocalProjectInGetAll: false,
-    );
-    final executor = harness.buildWorkflowExecutor(
-      turnManager: recordingTurns(),
-      policyResolver: tasksOnHost(),
-      projectService: projects,
-    );
-    addTearDown(executor.stop);
-    for (final projectId in const ['missing', 'cloning', 'errored']) {
-      await harness.tasks.create(
-        id: 'legacy-$projectId',
-        title: 'Legacy $projectId project row',
-        description: 'Persisted before upgrade.',
-        projectId: projectId,
-        autoStart: true,
-      );
-      taskDatabase.execute('UPDATE tasks SET type = ? WHERE id = ?', ['research', 'legacy-$projectId']);
-    }
-
-    expect(await executor.pollOnce(), isTrue);
-    expect(requests, isEmpty);
-    expect(projects.getCalls, isEmpty);
-    for (final projectId in const ['missing', 'cloning', 'errored']) {
-      final task = (await harness.tasks.get('legacy-$projectId'))!;
-      expect(task.status, TaskStatus.failed, reason: projectId);
-      expect(task.configJson['errorSummary'], contains('securityProfile explicitly'), reason: projectId);
-    }
-  });
   group('S04 workflow-owned execution', () {
     late WorkflowTaskExecutorTestContext context;
     late FakeTaskWorker workflowWorker;

@@ -378,6 +378,43 @@ void main() {
       expect(inventory.skillNames, contains('dartclaw-discover-andthen-spec'));
     });
   });
+
+  group('WorkspaceSkillInventory.fromWorkspace', () {
+    late Directory workspace;
+
+    setUp(() => workspace = Directory.systemTemp.createTempSync('workspace_skill_metadata_test_'));
+    tearDown(() => workspace.deleteSync(recursive: true));
+
+    test('discovers safe native names and descriptions without granting them', () {
+      File(p.join(workspace.path, '.agents', 'skills', 'review', 'SKILL.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('---\nname: review\ndescription: Review the current change\n---\nBody\n');
+      File(p.join(workspace.path, '.claude', 'skills', 'help', 'SKILL.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('---\nname: help\ndescription: Workspace help\n---\nBody\n');
+
+      final inventory = WorkspaceSkillInventory.fromWorkspace(workspace.path);
+
+      expect(inventory.skillNames, ['help', 'review']);
+      expect(inventory.skillDescriptions, {'help': 'Workspace help', 'review': 'Review the current change'});
+      expect(inventory.agentMdNames, isEmpty);
+      expect(inventory.agentTomlNames, isEmpty);
+    });
+
+    test('ignores unsafe directory names and falls back to the skill name for invalid metadata', () {
+      File(p.join(workspace.path, '.agents', 'skills', 'unsafe name', 'SKILL.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('---\ndescription: unsafe\n---\n');
+      File(p.join(workspace.path, '.agents', 'skills', 'valid-skill', 'SKILL.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('not frontmatter');
+
+      final inventory = WorkspaceSkillInventory.fromWorkspace(workspace.path);
+
+      expect(inventory.skillNames, ['valid-skill']);
+      expect(inventory.skillDescriptions['valid-skill'], 'valid-skill');
+    });
+  });
 }
 
 bool _gitAvailable() {

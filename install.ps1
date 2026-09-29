@@ -54,10 +54,18 @@ function Resolve-DartClawReleaseVersion {
 function Assert-DartClawInstallLayout {
   param([Parameter(Mandatory)][string]$Root)
 
-  foreach ($relativePath in @('VERSION', 'bin/dartclaw.exe', 'lib/sqlite3.dll')) {
+  foreach ($relativePath in @('VERSION', 'bin/dartclaw.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $Root $relativePath) -PathType Leaf)) {
       throw "Downloaded archive is missing required file '$relativePath'."
     }
+  }
+  $libraryRoot = Join-Path $Root 'lib'
+  if (-not (Test-Path -LiteralPath $libraryRoot -PathType Container)) {
+    throw "Downloaded archive is missing required directory 'lib'."
+  }
+  $nativeLibraries = @(Get-ChildItem -LiteralPath $libraryRoot -Recurse -File)
+  if ($nativeLibraries.Count -eq 0) {
+    throw "Downloaded archive is missing required native libraries."
   }
   if (Test-Path -LiteralPath (Join-Path $Root 'share')) {
     throw "Downloaded archive contains an unsupported 'share' sidecar."

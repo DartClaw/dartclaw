@@ -1,43 +1,159 @@
 <header tl:fragment="sessionTopbar" class="topbar" id="topbar">
-  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
+  <button class="btn btn-icon menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
     aria-expanded="false" data-icon="menu"></button>
-  <h1 tl:if="${isWorkspace}" class="session-title-static t-page-title" tl:text="${displayTitle}">Agent</h1>
-  <span tl:if="${isArchive}" class="session-title" tl:text="${displayTitle}">Untitled draft</span>
-  <input tl:if="${isEditable}" id="session-title" class="session-title" type="text"
-    tl:attr="value=${displayTitle},data-session-id=${sessionId},data-original-title=${displayTitle}"
-    maxlength="100" aria-label="Session title">
+  <div class="tb-title-wrap">
+    <h1 tl:if="${isWorkspace}" class="session-title-static t-page-title" tl:text="${displayTitle}">Agent</h1>
+    <span tl:if="${isArchive}" class="session-title" tl:text="${displayTitle}">Untitled draft</span>
+    <input tl:if="${isEditable}" id="session-title" class="session-title" type="text"
+      tl:attr="value=${displayTitle},data-session-id=${sessionId},data-original-title=${displayTitle}"
+      maxlength="100" aria-label="Session title">
+    <span tl:if="${hasCrumb}" class="crumb" data-session-crumb>
+      <span tl:if="${hasProject}" class="identicon" aria-hidden="true"
+        tl:attr="data-identicon-id=${projectId},data-identicon-initials=${projectInitial}"></span>
+      <span class="crumb-project" tl:classappend="${noProject} ? 'row-project--none' : ''"
+        tl:text="${projectName}">project</span>
+      <!-- data-crumb-tail marks what the shell controller rebuilds from the
+           inbox projection once the conversation's context resolves. -->
+      <span class="crumb-sep" data-crumb-tail aria-hidden="true">&middot;</span>
+      <span data-crumb-tail tl:text="${providerLabel}">claude</span>
+      <tl:block tl:if="${hasModel}"><span class="crumb-sep" data-crumb-tail aria-hidden="true">&middot;</span>
+      <span data-crumb-tail tl:text="${model}">model</span></tl:block>
+    </span>
+  </div>
+
+  <!-- Filled by the shell controller from the inbox projection — the one
+       authority over a conversation's unread/waiting/running/failed state. -->
+  <span class="status-badge" data-session-state-badge hidden></span>
+  <span class="tb-dot status-dot" data-session-state-dot role="img" hidden></span>
+
   <div class="topbar-actions">
-    <a tl:attr="href=${infoHref},hx-get=${infoHref}" class="btn btn-icon btn-ghost" aria-label="Session info"
-      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-      hx-select-oob="#topbar,#restart-banner-slot,#sidebar" data-icon="info"></a>
-    <button tl:if="${showResume}" class="btn btn-ghost btn-sm" data-session-resume="true"
-      tl:attr="data-session-id=${sessionId}">Resume</button>
-    <button tl:if="${showReset}" class="btn btn-danger btn-sm btn-reset"
-      tl:attr="hx-post=${resetHref}"
-      hx-confirm="Reset this session? Conversation will be archived."
-      hx-on::after-request="location.reload()"
-      aria-label="Reset session">Reset</button>
-    <button class="theme-toggle" aria-label="Toggle theme"></button>
+    <button type="button" class="btn btn-icon tb-newchat" data-session-create="true"
+      data-icon="new-session" aria-label="New chat"></button>
+    <button type="button" class="btn btn-icon tb-search" data-command-open="global"
+      aria-haspopup="dialog" data-icon="search" aria-label="Search"></button>
+    <kbd class="tb-kbd">&#8984;K</kbd>
+    <span class="tb-bell">
+      <button type="button" class="btn btn-icon attention-toggle" data-attention-toggle
+        aria-label="Attention" aria-expanded="false" data-icon="bell"></button>
+      <span class="tb-bell-count" data-attention-unread hidden></span>
+    </span>
+    <button type="button" class="btn btn-icon" data-topbar-overflow aria-haspopup="menu"
+      aria-expanded="false" data-icon="overflow" aria-label="More actions"></button>
+
+    <!-- The theme toggle lives in the menu on a conversation: at 390 the seven
+         icon buttons the topbar already carries leave the title ~60px. -->
+    <div class="pop pop-menu card card-elevated" data-topbar-menu role="menu" hidden>
+      <a tl:attr="href=${infoHref},hx-get=${infoHref}" class="palette-item" role="menuitem"
+        hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+        hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
+        <span class="icon icon-info" aria-hidden="true"></span>
+        <span class="palette-item-label">Session info</span>
+      </a>
+      <button type="button" class="palette-item" role="menuitem" data-chat-action="find">
+        <span class="icon icon-search" aria-hidden="true"></span>
+        <span class="palette-item-label">Find in conversation</span>
+      </button>
+      <button type="button" class="palette-item" role="menuitem" data-chat-action="export">
+        <span class="icon icon-file-text" aria-hidden="true"></span>
+        <span class="palette-item-label">Export transcript</span>
+      </button>
+      <div class="pop-sep"></div>
+      <button type="button" class="palette-item" role="menuitem" data-chat-action="temporary-create">
+        <span class="icon icon-clock" aria-hidden="true"></span>
+        <span class="palette-item-label">New temporary chat</span>
+      </button>
+      <button tl:if="${showResume}" type="button" class="palette-item" role="menuitem"
+        data-session-resume="true" tl:attr="data-session-id=${sessionId}">
+        <span class="icon icon-rotate-ccw" aria-hidden="true"></span>
+        <span class="palette-item-label">Resume conversation</span>
+      </button>
+      <button tl:if="${showReset}" type="button" class="palette-item btn-reset" role="menuitem"
+        data-session-reset="true" tl:attr="data-session-id=${sessionId}">
+        <span class="icon icon-rotate-ccw" aria-hidden="true"></span>
+        <span class="palette-item-label">Reset conversation</span>
+      </button>
+      <div class="pop-sep"></div>
+      <!-- No inner icon: icons.css gives .theme-toggle a sun/moon ::before, and
+           it lands in the palette row's icon column on its own. -->
+      <button type="button" class="palette-item theme-toggle" role="menuitem">
+        <span class="palette-item-label">Toggle theme</span>
+      </button>
+    </div>
+
+    <section class="pop pop-attention card card-glass attention-panel" data-attention-panel hidden
+      aria-label="Attention">
+      <div class="pop-head">
+        Attention
+        <button type="button" class="btn btn-icon-sm" data-attention-read-all
+          data-icon="check" aria-label="Mark all read"></button>
+      </div>
+      <div data-attention-list></div>
+      <button type="button" class="btn btn-ghost btn-sm attention-next" data-attention-next hidden>Next page</button>
+    </section>
   </div>
 </header>
 
 <header tl:fragment="plainTopbar" class="topbar" id="topbar">
-  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
+  <button class="btn btn-icon menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
     aria-expanded="false" data-icon="menu"></button>
-  <h1 class="session-title t-page-title" tl:text="${appName}">DartClaw</h1>
+  <div class="tb-title-wrap">
+    <h1 class="session-title-static t-page-title" tl:text="${appName}">DartClaw</h1>
+  </div>
   <div class="topbar-actions">
-    <button class="theme-toggle" aria-label="Toggle theme"></button>
+    <button type="button" class="btn btn-icon tb-newchat" data-session-create="true"
+      data-icon="new-session" aria-label="New chat"></button>
+    <button type="button" class="btn btn-icon tb-search" data-command-open="global"
+      aria-haspopup="dialog" data-icon="search" aria-label="Search"></button>
+    <kbd class="tb-kbd">&#8984;K</kbd>
+    <span class="tb-bell">
+      <button type="button" class="btn btn-icon attention-toggle" data-attention-toggle
+        aria-label="Attention" aria-expanded="false" data-icon="bell"></button>
+      <span class="tb-bell-count" data-attention-unread hidden></span>
+    </span>
+    <button class="btn btn-icon theme-toggle" type="button" aria-label="Toggle theme"></button>
+    <section class="pop pop-attention card card-glass attention-panel" data-attention-panel hidden
+      aria-label="Attention">
+      <div class="pop-head">
+        Attention
+        <button type="button" class="btn btn-icon-sm" data-attention-read-all
+          data-icon="check" aria-label="Mark all read"></button>
+      </div>
+      <div data-attention-list></div>
+      <button type="button" class="btn btn-ghost btn-sm attention-next" data-attention-next hidden>Next page</button>
+    </section>
   </div>
 </header>
 
 <header tl:fragment="pageTopbar" class="topbar" id="topbar">
-  <button class="btn btn-icon btn-ghost menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
+  <button class="btn btn-icon menu-toggle" aria-label="Open sidebar" aria-controls="sidebar"
     aria-expanded="false" data-icon="menu"></button>
-  <a tl:if="${backHref}" tl:attr="href=${backHref},hx-get=${backHref}" class="topbar-back"
-    hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
-    hx-select-oob="#topbar,#restart-banner-slot,#sidebar"><span class="icon icon-arrow-left" aria-hidden="true"></span> <span tl:text="${backLabel}">Back</span></a>
-  <h1 class="session-title-static t-page-title" tl:text="${title}">Page Title</h1>
+  <div class="tb-title-wrap">
+    <a tl:if="${backHref}" tl:attr="href=${backHref},hx-get=${backHref}" class="topbar-back"
+      hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true"
+      hx-select-oob="#topbar,#restart-banner-slot,#sidebar"><span class="icon icon-arrow-left" aria-hidden="true"></span> <span tl:text="${backLabel}">Back</span></a>
+    <h1 class="session-title-static t-page-title" tl:text="${title}">Page Title</h1>
+  </div>
   <div class="topbar-actions">
-    <button class="theme-toggle" aria-label="Toggle theme"></button>
+    <button type="button" class="btn btn-icon tb-newchat" data-session-create="true"
+      data-icon="new-session" aria-label="New chat"></button>
+    <button type="button" class="btn btn-icon tb-search" data-command-open="global"
+      aria-haspopup="dialog" data-icon="search" aria-label="Search"></button>
+    <kbd class="tb-kbd">&#8984;K</kbd>
+    <span class="tb-bell">
+      <button type="button" class="btn btn-icon attention-toggle" data-attention-toggle
+        aria-label="Attention" aria-expanded="false" data-icon="bell"></button>
+      <span class="tb-bell-count" data-attention-unread hidden></span>
+    </span>
+    <button class="btn btn-icon theme-toggle" type="button" aria-label="Toggle theme"></button>
+    <section class="pop pop-attention card card-glass attention-panel" data-attention-panel hidden
+      aria-label="Attention">
+      <div class="pop-head">
+        Attention
+        <button type="button" class="btn btn-icon-sm" data-attention-read-all
+          data-icon="check" aria-label="Mark all read"></button>
+      </div>
+      <div data-attention-list></div>
+      <button type="button" class="btn btn-ghost btn-sm attention-next" data-attention-next hidden>Next page</button>
+    </section>
   </div>
 </header>

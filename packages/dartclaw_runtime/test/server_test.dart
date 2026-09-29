@@ -7,11 +7,11 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show RecordingGitRunner, openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTaskRepository, RecordingGitRunner, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 import 'package:dartclaw_runtime/src/server.dart'
     show ServerCoreDeps, ServerObservabilityDeps, ServerTaskDeps, ServerTurnDeps, ServerWebDeps;
@@ -218,17 +218,8 @@ void main() {
     final localMessages = MessageService(baseDir: sessionDataDir);
     final localWorker = FakeWorkerService();
     final eventBus = EventBus();
-    final taskBackend = await openPreparedTaskBackend();
-    final workflowDb = sqlite3.openInMemory();
-    final workflowBackend = SqliteBackend(workflowDb);
-    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
-    final tasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: eventBus);
-    final workflows = FakeWorkflowService(
-      backend: workflowBackend,
-      taskService: tasks,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
-    );
+    final tasks = TaskService(InMemoryTaskRepository(), eventBus: eventBus);
+    final workflows = FakeWorkflowService(taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     final localServer = composeServer(
       core: ServerCoreDeps(
         sessions: localSessions,
@@ -251,8 +242,6 @@ void main() {
       await workflows.dispose();
       await tasks.dispose();
       await eventBus.dispose();
-      await taskBackend.close();
-      workflowDb.close();
     });
     final session = await localSessions.createSession();
 
@@ -450,14 +439,9 @@ void main() {
         behavior: BehaviorFileService(workspaceDir: p.join(tempDir.path, 'github-workspace')),
         config: config,
       );
-      final taskBackend = await openPreparedTaskBackend();
-      final workflowDb = sqlite3.openInMemory();
-      final workflowBackend = SqliteBackend(workflowDb);
-      await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
       final workflowEvents = EventBus();
-      final workflowTasks = TaskService(SqliteTaskRepository(taskBackend), eventBus: workflowEvents);
+      final workflowTasks = TaskService(InMemoryTaskRepository(), eventBus: workflowEvents);
       final workflows = FakeWorkflowService(
-        backend: workflowBackend,
         taskService: workflowTasks,
         eventBus: workflowEvents,
         dataDir: coreDataDir.path,
@@ -480,8 +464,6 @@ void main() {
         await workflows.dispose();
         await workflowTasks.dispose();
         await workflowEvents.dispose();
-        await taskBackend.close();
-        workflowDb.close();
       });
 
       final response = await localServer.handler(
@@ -612,7 +594,6 @@ void main() {
   });
 
   group('task route wiring', () {
-    late SqliteBackend taskBackend;
     late TaskService taskService;
     late EventBus eventBus;
     late WorktreeManager worktreeManager;
@@ -622,9 +603,8 @@ void main() {
     late String configDataDir;
 
     setUp(() async {
-      taskBackend = await openPreparedTaskBackend();
       configDataDir = p.join(tempDir.path, 'config-data');
-      taskService = TaskService(SqliteTaskRepository(taskBackend));
+      taskService = TaskService(InMemoryTaskRepository());
       eventBus = EventBus();
       worktreeManager = WorktreeManager(
         dataDir: tempDir.path,
@@ -670,7 +650,6 @@ void main() {
     tearDown(() async {
       await eventBus.dispose();
       await taskService.dispose();
-      await taskBackend.close();
     });
 
     test('search inspection shares authentication and reports missing wiring after authentication', () async {
@@ -753,12 +732,10 @@ void main() {
 
   group('runtime service validation', () {
     test('throws when taskService is enabled without required task runtime services', () async {
-      final taskBackend = await openPreparedTaskBackend();
-      final taskService = TaskService(SqliteTaskRepository(taskBackend));
+      final taskService = TaskService(InMemoryTaskRepository());
       final eventBus = EventBus();
       addTearDown(eventBus.dispose);
       addTearDown(taskService.dispose);
-      addTearDown(taskBackend.close);
 
       final s = composeServer(
         core: ServerCoreDeps(sessions: sessions, messages: messages, worker: worker, staticDir: _staticDirPath),
@@ -869,14 +846,14 @@ void main() {
   });
 
   group('goal route wiring', () {
-    late SqliteBackend taskBackend;
+    late DatabaseBackend taskBackend;
     late GoalService goalService;
-    late SqliteTaskRepository taskRepository;
+    late DatabaseTaskRepository taskRepository;
 
     setUp(() async {
       taskBackend = await openPreparedTaskBackend();
-      taskRepository = SqliteTaskRepository(taskBackend);
-      goalService = GoalService(SqliteGoalRepository(taskBackend));
+      taskRepository = DatabaseTaskRepository(taskBackend);
+      goalService = GoalService(DatabaseGoalRepository(taskBackend));
       server = composeServer(
         core: ServerCoreDeps(
           sessions: sessions,

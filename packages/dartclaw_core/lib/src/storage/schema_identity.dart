@@ -49,65 +49,28 @@ final class SchemaIndex {
   final bool unique;
 }
 
-/// A SQLite object whose stored declaration is part of compatibility.
-final class SqliteSchemaObject {
-  /// Creates a required SQLite object descriptor.
-  const new(this.type, this.name, this.table, this.sql);
-
-  /// SQLite object type.
-  final String type;
-
-  /// Object name.
-  final String name;
-
-  /// Object's `sqlite_master.tbl_name` value.
-  final String table;
-
-  /// Expected declaration after whitespace normalization.
-  final String sql;
-}
-
 /// Required-only structural identity for one store.
 ///
 /// Extra objects and columns do not affect compatibility. This lets a store
 /// retain unused columns while still requiring every object the runtime reads.
 final class SchemaIdentity {
   /// Creates one backend-owned required-object manifest.
-  const new({
-    required this.tables,
-    required this.indexes,
-    required this.sqliteObjects,
-    required this.bootstrapStatements,
-    this.dropStatements = const [],
-  });
+  const new({required this.tables, required this.indexes, required this.bootstrapStatements});
 
   /// The one schema epoch understood by this release.
   static const currentEpoch = 1;
 
   /// Required identity for the authoritative task store.
-  static const tasks = SchemaIdentity(
-    tables: _taskTables,
-    indexes: _taskIndexes,
-    sqliteObjects: [],
-    bootstrapStatements: _taskBootstrap,
-  );
+  static const tasks = SchemaIdentity(tables: _taskTables, indexes: _taskIndexes, bootstrapStatements: _taskBootstrap);
 
   /// Required identity for the derived search store.
-  static const search = SchemaIdentity(
-    tables: _searchTables,
-    indexes: [],
-    sqliteObjects: _searchObjects,
-    bootstrapStatements: _searchBootstrap,
-    dropStatements: _searchDrops,
-  );
+  static const search = SchemaIdentity(tables: _searchTables, indexes: [], bootstrapStatements: _searchBootstrap);
 
   /// Required identity for the derived vector store.
   static const vectors = SchemaIdentity(
     tables: _vectorTables,
     indexes: _vectorIndexes,
-    sqliteObjects: [],
     bootstrapStatements: _vectorBootstrap,
-    dropStatements: _vectorDrops,
   );
 
   /// Required tables.
@@ -116,14 +79,8 @@ final class SchemaIdentity {
   /// Required conventional indexes.
   final List<SchemaIndex> indexes;
 
-  /// Required SQLite-specific objects.
-  final List<SqliteSchemaObject> sqliteObjects;
-
-  /// SQLite statements that create the complete current structure.
+  /// PostgreSQL statements that create the complete current structure.
   final List<String> bootstrapStatements;
-
-  /// SQLite statements that remove every owned derived object.
-  final List<String> dropStatements;
 }
 
 const _taskTables = [
@@ -248,7 +205,7 @@ const _taskTables = [
     SchemaColumn('owner', 'TEXT'),
     SchemaColumn('invalidated_at', 'TEXT'),
     SchemaColumn('invalidation_reason', 'TEXT'),
-    SchemaColumn('created_at', 'TEXT', notNull: true, defaultValue: 'datetime(\'now\')'),
+    SchemaColumn('created_at', 'TEXT', notNull: true, defaultValue: 'CURRENT_TIMESTAMP::text'),
   ]),
 ];
 
@@ -278,19 +235,19 @@ const _taskIndexes = [
 
 const _taskBootstrap = [
   '''CREATE TABLE agent_executions (id TEXT PRIMARY KEY NOT NULL, session_id TEXT, provider TEXT, model TEXT,
-    workspace_dir TEXT, container_json TEXT, budget_tokens INTEGER, harness_meta_json TEXT, started_at TEXT,
+    workspace_dir TEXT, container_json TEXT, budget_tokens bigint, harness_meta_json TEXT, started_at TEXT,
     completed_at TEXT)''',
   '''CREATE TABLE workflow_step_executions (task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
     agent_execution_id TEXT NOT NULL REFERENCES agent_executions(id), workflow_run_id TEXT NOT NULL,
-    step_index INTEGER NOT NULL, step_id TEXT NOT NULL, step_type TEXT, git_json TEXT, provider_session_id TEXT,
-    structured_schema_json TEXT, structured_output_json TEXT, follow_up_prompts_json TEXT, map_iteration_index INTEGER,
-    map_iteration_total INTEGER, step_token_breakdown_json TEXT)''',
+    step_index bigint NOT NULL, step_id TEXT NOT NULL, step_type TEXT, git_json TEXT, provider_session_id TEXT,
+    structured_schema_json TEXT, structured_output_json TEXT, follow_up_prompts_json TEXT, map_iteration_index bigint,
+    map_iteration_total bigint, step_token_breakdown_json TEXT)''',
   '''CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, type TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft', version INTEGER NOT NULL DEFAULT 1, goal_id TEXT, acceptance_criteria TEXT,
+    status TEXT NOT NULL DEFAULT 'draft', version bigint NOT NULL DEFAULT 1, goal_id TEXT, acceptance_criteria TEXT,
     config_json TEXT NOT NULL DEFAULT '{}', worktree_json TEXT, created_at TEXT NOT NULL, started_at TEXT,
     completed_at TEXT, created_by TEXT, agent_execution_id TEXT REFERENCES agent_executions(id) ON DELETE RESTRICT,
-    project_id TEXT, workflow_run_id TEXT, step_index INTEGER, max_retries INTEGER NOT NULL DEFAULT 0,
-    retry_count INTEGER NOT NULL DEFAULT 0)''',
+    project_id TEXT, workflow_run_id TEXT, step_index bigint, max_retries bigint NOT NULL DEFAULT 0,
+    retry_count bigint NOT NULL DEFAULT 0)''',
   'CREATE INDEX idx_tasks_status ON tasks(status)',
   'CREATE INDEX idx_tasks_type ON tasks(type)',
   'CREATE INDEX idx_tasks_status_type ON tasks(status, type)',
@@ -303,17 +260,17 @@ const _taskBootstrap = [
   'CREATE INDEX idx_wse_run_step ON workflow_step_executions(workflow_run_id, step_index)',
   'CREATE INDEX idx_wse_agent_execution ON workflow_step_executions(agent_execution_id)',
   '''CREATE TABLE goals (id TEXT PRIMARY KEY, title TEXT NOT NULL, parent_goal_id TEXT, mission TEXT NOT NULL,
-    created_at TEXT NOT NULL, max_tokens INTEGER)''',
+    created_at TEXT NOT NULL, max_tokens bigint)''',
   'CREATE INDEX idx_goals_parent ON goals(parent_goal_id)',
   '''CREATE TABLE task_events (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, timestamp TEXT NOT NULL, kind TEXT NOT NULL,
     details TEXT NOT NULL DEFAULT '{}')''',
   'CREATE INDEX idx_task_events_task ON task_events(task_id)',
   'CREATE INDEX idx_task_events_task_kind ON task_events(task_id, kind)',
   'CREATE INDEX idx_task_events_timestamp ON task_events(timestamp)',
-  '''CREATE TABLE turns (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, runner_id INTEGER, model TEXT,
-    provider TEXT, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, input_tokens INTEGER NOT NULL DEFAULT 0,
-    output_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-    cache_write_tokens INTEGER NOT NULL DEFAULT 0, is_error INTEGER NOT NULL DEFAULT 0, error_type TEXT, tool_calls TEXT)''',
+  '''CREATE TABLE turns (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, runner_id bigint, model TEXT,
+    provider TEXT, started_at TEXT NOT NULL, ended_at TEXT NOT NULL, input_tokens bigint NOT NULL DEFAULT 0,
+    output_tokens bigint NOT NULL DEFAULT 0, cache_read_tokens bigint NOT NULL DEFAULT 0,
+    cache_write_tokens bigint NOT NULL DEFAULT 0, is_error bigint NOT NULL DEFAULT 0, error_type TEXT, tool_calls TEXT)''',
   'CREATE INDEX idx_turns_session ON turns(session_id)',
   'CREATE INDEX idx_turns_task ON turns(task_id)',
   'CREATE INDEX idx_turns_started ON turns(started_at)',
@@ -322,14 +279,14 @@ const _taskBootstrap = [
   '''CREATE TABLE workflow_runs (id TEXT PRIMARY KEY, definition_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending', context_json TEXT NOT NULL DEFAULT '{}',
     variables_json TEXT NOT NULL DEFAULT '{}', started_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT,
-    error_message TEXT, total_tokens INTEGER NOT NULL DEFAULT 0, current_step_index INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT, total_tokens bigint NOT NULL DEFAULT 0, current_step_index bigint NOT NULL DEFAULT 0,
     definition_json TEXT NOT NULL DEFAULT '{}', execution_cursor_json TEXT, workflow_worktree_json TEXT)''',
   'CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)',
   'CREATE INDEX idx_workflow_runs_definition ON workflow_runs(definition_name)',
   'CREATE TABLE workflow_run_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)',
-  '''CREATE TABLE kg_facts (id INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT NOT NULL, predicate TEXT NOT NULL,
+  '''CREATE TABLE kg_facts (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, entity TEXT NOT NULL, predicate TEXT NOT NULL,
     value TEXT NOT NULL, valid_from TEXT NOT NULL, valid_to TEXT, source TEXT NOT NULL, owner TEXT,
-    invalidated_at TEXT, invalidation_reason TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))''',
+    invalidated_at TEXT, invalidation_reason TEXT, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text))''',
   'CREATE INDEX kg_facts_lookup ON kg_facts(entity, predicate, valid_from, valid_to)',
 ];
 
@@ -340,7 +297,7 @@ const _searchTables = [
     SchemaColumn('chunk_index', 'INTEGER', notNull: true),
     SchemaColumn('source', 'TEXT', notNull: true),
     SchemaColumn('category', 'TEXT'),
-    SchemaColumn('created_at', 'TEXT', notNull: true, defaultValue: 'datetime(\'now\')'),
+    SchemaColumn('created_at', 'TEXT', notNull: true, defaultValue: 'CURRENT_TIMESTAMP::text'),
     SchemaColumn('user_id', 'TEXT', notNull: true, defaultValue: "'owner'"),
     SchemaColumn('role', 'TEXT', notNull: true, defaultValue: "'memory'"),
     SchemaColumn('provenance', 'TEXT', notNull: true, defaultValue: "'unknown'"),
@@ -361,106 +318,14 @@ const _searchTables = [
 ];
 
 const _searchBootstrap = [
-  '''CREATE TABLE memory_chunks (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL, source TEXT NOT NULL,
-    category TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), user_id TEXT NOT NULL DEFAULT 'owner',
+  '''CREATE TABLE memory_chunks (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, text TEXT NOT NULL,
+    chunk_index bigint NOT NULL, source TEXT NOT NULL,
+    category TEXT, created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text), user_id TEXT NOT NULL DEFAULT 'owner',
     role TEXT NOT NULL DEFAULT 'memory', provenance TEXT NOT NULL DEFAULT 'unknown', locator TEXT, entry_id TEXT,
-    entry_revision INTEGER)''',
-  '''CREATE VIRTUAL TABLE memory_chunks_fts USING fts5(body, content='memory_chunks', content_rowid='id')''',
-  '''CREATE TRIGGER memory_chunks_ai AFTER INSERT ON memory_chunks BEGIN
-    INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
-  '''CREATE TRIGGER memory_chunks_ad AFTER DELETE ON memory_chunks BEGIN
-    INSERT INTO memory_chunks_fts(memory_chunks_fts, rowid, body) VALUES('delete', old.id, old.text); END''',
-  '''CREATE TRIGGER memory_chunks_au AFTER UPDATE ON memory_chunks BEGIN
-    INSERT INTO memory_chunks_fts(memory_chunks_fts, rowid, body) VALUES('delete', old.id, old.text);
-    INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
-  '''CREATE TABLE conversation_chunks (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT NOT NULL,
-    user_id TEXT NOT NULL, text TEXT NOT NULL, chunk_index INTEGER NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL,
+    entry_revision bigint)''',
+  '''CREATE TABLE conversation_chunks (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, message_id TEXT NOT NULL,
+    user_id TEXT NOT NULL, text TEXT NOT NULL, chunk_index bigint NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL,
     created_at TEXT NOT NULL)''',
-  '''CREATE VIRTUAL TABLE conversation_chunks_fts USING fts5(body, content='conversation_chunks', content_rowid='id')''',
-  '''CREATE TRIGGER conversation_chunks_ai AFTER INSERT ON conversation_chunks BEGIN
-    INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
-  '''CREATE TRIGGER conversation_chunks_ad AFTER DELETE ON conversation_chunks BEGIN
-    INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) VALUES('delete', old.id, old.text); END''',
-  '''CREATE TRIGGER conversation_chunks_au AFTER UPDATE ON conversation_chunks BEGIN
-    INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) VALUES('delete', old.id, old.text);
-    INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END''',
-];
-
-const _searchObjects = [
-  SqliteSchemaObject(
-    'table',
-    'memory_chunks_fts',
-    'memory_chunks_fts',
-    'CREATE VIRTUAL TABLE memory_chunks_fts USING fts5(body, content=\'memory_chunks\', content_rowid=\'id\')',
-  ),
-  SqliteSchemaObject(
-    'trigger',
-    'memory_chunks_ai',
-    'memory_chunks',
-    'CREATE TRIGGER memory_chunks_ai AFTER INSERT ON memory_chunks BEGIN '
-        'INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text); END',
-  ),
-  SqliteSchemaObject(
-    'trigger',
-    'memory_chunks_ad',
-    'memory_chunks',
-    'CREATE TRIGGER memory_chunks_ad AFTER DELETE ON memory_chunks BEGIN INSERT INTO memory_chunks_fts('
-        'memory_chunks_fts, rowid, body) VALUES(\'delete\', old.id, old.text); END',
-  ),
-  SqliteSchemaObject(
-    'trigger',
-    'memory_chunks_au',
-    'memory_chunks',
-    'CREATE TRIGGER memory_chunks_au AFTER UPDATE ON memory_chunks BEGIN INSERT INTO memory_chunks_fts('
-        'memory_chunks_fts, rowid, body) VALUES(\'delete\', old.id, old.text); '
-        'INSERT INTO memory_chunks_fts(rowid, body) VALUES (new.id, new.text); END',
-  ),
-  SqliteSchemaObject(
-    'table',
-    'conversation_chunks_fts',
-    'conversation_chunks_fts',
-    'CREATE VIRTUAL TABLE conversation_chunks_fts USING fts5(body, content=\'conversation_chunks\', '
-        'content_rowid=\'id\')',
-  ),
-  SqliteSchemaObject(
-    'trigger',
-    'conversation_chunks_ai',
-    'conversation_chunks',
-    'CREATE TRIGGER conversation_chunks_ai AFTER INSERT ON conversation_chunks BEGIN '
-        'INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END',
-  ),
-  SqliteSchemaObject(
-    'trigger',
-    'conversation_chunks_ad',
-    'conversation_chunks',
-    'CREATE TRIGGER conversation_chunks_ad AFTER DELETE ON conversation_chunks BEGIN '
-        'INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) '
-        'VALUES(\'delete\', old.id, old.text); END',
-  ),
-  SqliteSchemaObject(
-    'trigger',
-    'conversation_chunks_au',
-    'conversation_chunks',
-    'CREATE TRIGGER conversation_chunks_au AFTER UPDATE ON conversation_chunks BEGIN '
-        'INSERT INTO conversation_chunks_fts(conversation_chunks_fts, rowid, body) '
-        'VALUES(\'delete\', old.id, old.text); '
-        'INSERT INTO conversation_chunks_fts(rowid, body) VALUES (new.id, new.text); END',
-  ),
-];
-
-const _searchDrops = [
-  'DROP TRIGGER IF EXISTS conversation_chunks_ai',
-  'DROP TRIGGER IF EXISTS conversation_chunks_ad',
-  'DROP TRIGGER IF EXISTS conversation_chunks_au',
-  'DROP TABLE IF EXISTS conversation_chunks_fts',
-  'DROP TABLE IF EXISTS conversation_chunks',
-  'DROP TRIGGER IF EXISTS memory_chunks_ai',
-  'DROP TRIGGER IF EXISTS memory_chunks_ad',
-  'DROP TRIGGER IF EXISTS memory_chunks_au',
-  'DROP TABLE IF EXISTS memory_chunks_fts',
-  'DROP TABLE IF EXISTS memory_chunks',
-  'DROP TABLE IF EXISTS dartclaw_schema',
 ];
 
 const _vectorTables = [
@@ -490,21 +355,13 @@ const _vectorIndexes = [
 ];
 
 const _vectorBootstrap = [
-  '''CREATE TABLE memory_vectors (user_id TEXT NOT NULL, document_id TEXT NOT NULL, chunk_index INTEGER NOT NULL,
-    content_hash TEXT NOT NULL, model_fingerprint TEXT NOT NULL, dimension INTEGER NOT NULL, embedding BLOB NOT NULL,
+  '''CREATE TABLE memory_vectors (user_id TEXT NOT NULL, document_id TEXT NOT NULL, chunk_index bigint NOT NULL,
+    content_hash TEXT NOT NULL, model_fingerprint TEXT NOT NULL, dimension bigint NOT NULL, embedding public.vector NOT NULL,
     PRIMARY KEY (user_id, document_id, chunk_index))''',
   'CREATE INDEX memory_vectors_lookup_idx ON memory_vectors(user_id, model_fingerprint, dimension)',
   '''CREATE TABLE conversation_vectors (user_id TEXT NOT NULL, document_id TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL, content_hash TEXT NOT NULL, model_fingerprint TEXT NOT NULL,
-    dimension INTEGER NOT NULL, embedding BLOB NOT NULL, PRIMARY KEY (user_id, document_id, chunk_index))''',
+    chunk_index bigint NOT NULL, content_hash TEXT NOT NULL, model_fingerprint TEXT NOT NULL,
+    dimension bigint NOT NULL, embedding public.vector NOT NULL, PRIMARY KEY (user_id, document_id, chunk_index))''',
   '''CREATE INDEX conversation_vectors_lookup_idx
     ON conversation_vectors(user_id, model_fingerprint, dimension)''',
-];
-
-const _vectorDrops = [
-  'DROP INDEX IF EXISTS conversation_vectors_lookup_idx',
-  'DROP TABLE IF EXISTS conversation_vectors',
-  'DROP INDEX IF EXISTS memory_vectors_lookup_idx',
-  'DROP TABLE IF EXISTS memory_vectors',
-  'DROP TABLE IF EXISTS dartclaw_schema',
 ];

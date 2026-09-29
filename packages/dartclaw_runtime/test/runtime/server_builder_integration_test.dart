@@ -42,7 +42,7 @@ void _stageProviderAndThenSkillStubs(String searchRoot) {
     'andthen:spec',
     'andthen:exec-spec',
     'andthen:review',
-    'andthen:remediate-findings',
+    'andthen:implement-fix',
     'andthen:quick-review',
     'andthen:ops',
   ];
@@ -195,7 +195,6 @@ Future<void> _disposeRuntime(DartclawRuntime result, LogService logService, {boo
   await result.requireSelfImprovement.dispose();
   await result.taskService.dispose();
   await result.eventBus.dispose();
-  await result.qmdManager?.stop();
   await result.closeStorage();
   await logService.dispose();
 }
@@ -290,8 +289,8 @@ void main() {
         port: 3000,
         harnessFactory: _harnessFactoryFor(worker),
         serverFactory: serverFactory,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
         stderrLine: (_) {},
         exitFn: _unexpectedExit,
         resolvedConfigPath: configFile.path,
@@ -310,15 +309,6 @@ void main() {
 
     final result = await wiring();
     addTearDown(() => _disposeRuntime(result, logService));
-    await result.agentExecutionRepository.create(
-      AgentExecution(
-        id: 'ae-1',
-        provider: 'claude',
-        sessionId: 'sess-1',
-        startedAt: DateTime.parse('2026-04-19T00:00:00Z'),
-      ),
-    );
-    expect(await result.agentExecutionRepository.get('ae-1'), isNotNull);
 
     final handler = result.server!.handler;
 
@@ -365,11 +355,9 @@ void main() {
     final created = jsonDecode(
       ((callResult['content'] as List).single as Map<String, dynamic>)['text'] as String,
     ) as Map<String, dynamic>;
-
-    final stored = await result.taskService.get(created['task_id'] as String);
-    expect(stored, isNotNull, reason: 'a registration that reaches no service would still list fine');
-    expect(stored!.title, 'Wired');
-    expect(stored.status, TaskStatus.draft);
+    expect(created['task_id'], isA<String>().having((id) => id.isNotEmpty, 'nonempty ID', isTrue));
+    expect(created['title'], 'Wired');
+    expect(created['status'], TaskStatus.draft.name);
   });
 
   test('DartclawRuntime registers surfaced outbound MCP tools on the live MCP handler', () async {

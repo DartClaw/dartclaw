@@ -14,7 +14,7 @@ void main() {
       const config = WorkflowConfig.defaults();
       expect(config.workspaceDir, isNull);
       expect(config.defaults.workflow.provider, 'claude');
-      expect(config.defaults.reviewer.model, 'claude-opus-4');
+      expect(config.defaults.reviewer.model, 'claude-opus-5');
       expect(config.cleanup.deleteRemoteBranchOnFailure, isFalse);
       expect(config.approvals, WorkflowApprovalPolicy.manual);
     });

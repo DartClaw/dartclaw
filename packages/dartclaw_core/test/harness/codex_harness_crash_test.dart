@@ -25,6 +25,43 @@ CodexHarness _buildHarness({
 
 void main() {
   group('CodexHarness crash recovery + capabilities', () {
+    test('user input override remains on the restart argv', () async {
+      final first = FakeCodexProcess(completeExitOnKill: true);
+      final second = FakeCodexProcess(completeExitOnKill: true);
+      final processes = [first, second];
+      final argsSeen = <List<String>>[];
+      var index = 0;
+      final harness = CodexHarness(
+        cwd: '/tmp',
+        processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+          argsSeen.add(List<String>.from(args));
+          return processes[index++];
+        },
+        commandProbe: defaultCommandProbe,
+        delayFactory: noOpDelay,
+        environment: const {'OPENAI_API_KEY': 'sk-test-key'},
+      );
+      addTearDown(harness.dispose);
+      await startHarness(harness, first);
+      first.exit(1);
+      await pumpEventLoop();
+      final turn = harness.turn(
+        sessionId: 'restart',
+        messages: const [
+          {'role': 'user', 'content': 'test'},
+        ],
+        systemPrompt: '',
+      );
+      await waitForSentMessage(second, 'initialize');
+      second.emitInitializeResponse(id: latestRequestId(second, 'initialize'));
+      await respondToLatestThreadStart(second);
+      second.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+      await turn;
+      expect(argsSeen, hasLength(2));
+      for (final args in argsSeen) {
+        expect(args, containsAllInOrder(['-c', 'tools.experimental_request_user_input.enabled=false']));
+      }
+    });
     test('crash transitions to WorkerState.crashed', () async {
       final process = FakeCodexProcess(completeExitOnKill: true);
       final harness = _buildHarness(processFactory: () => process);

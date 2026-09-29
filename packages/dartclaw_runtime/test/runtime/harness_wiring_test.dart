@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -208,9 +209,13 @@ void main() {
     await wireHarness(fakeFactory(['claude']));
     final broadcast = harnessWiring!.sseBroadcast!;
     final client = broadcast.subscribe();
-    final frame = client.stream.first;
+    final iterator = StreamIterator(client.stream);
+    expect(await iterator.moveNext(), isTrue);
+    expect(utf8.decode(iterator.current), ': connected\n\n');
     broadcast.broadcast('budget_warning', {'percentage': 80});
-    expect(utf8.decode(await frame), 'event: budget_warning\ndata: {"percentage":80}\n\n');
+    expect(await iterator.moveNext(), isTrue);
+    expect(utf8.decode(iterator.current), 'event: budget_warning\ndata: {"percentage":80}\n\n');
+    await iterator.cancel();
     await broadcast.dispose();
   });
 
@@ -647,11 +652,12 @@ void main() {
       required String? model,
       required String? effort,
     }) async {
+      final harnessCount = createdHarnesses.length;
       final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
         'agent': agent,
         'message': 'Handle this',
       });
-      await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+      await _pollFor(() => createdHarnesses.length, (length) => length == harnessCount + 1);
       final logicalAgentHarness = createdHarnesses.last;
       await logicalAgentHarness.turnInvoked;
       final internalSessionId = logicalAgentHarness.lastSessionId;
@@ -665,21 +671,27 @@ void main() {
       expect(result['isError'], isNull);
       expect(result['content'], contains(containsPair('text', '$agent result')));
       final sessionId = result['sessionId'] as String;
+      final followUpHarnessCount = createdHarnesses.length;
       final followUpFuture = harnessWiring!.logicalAgentSessions.handleSessionsSend({
         'session_id': sessionId,
         'message': 'Continue this',
       });
-      await logicalAgentHarness.turnInvoked;
-      expect(createdHarnesses, hasLength(2));
-      expect(createdHarnesses.last, same(logicalAgentHarness));
-      expect(logicalAgentHarness.lastSessionId, internalSessionId);
-      expect(logicalAgentHarness.lastMessages, [
+      await _pollFor(() => createdHarnesses.length, (length) => length == followUpHarnessCount + 1);
+      final followUpHarness = createdHarnesses.last;
+      await followUpHarness.turnInvoked;
+      expect(followUpHarness, isNot(same(logicalAgentHarness)));
+      expect(followUpHarness.lastSessionId, internalSessionId);
+      expect(followUpHarness.lastAgentId, agent);
+      expect(followUpHarness.lastSystemPrompt, contains(persona));
+      expect(followUpHarness.lastModel, model);
+      expect(followUpHarness.lastEffort, effort);
+      expect(followUpHarness.lastMessages, [
         {'role': 'user', 'content': 'Handle this'},
         {'role': 'assistant', 'content': '$agent result'},
         {'role': 'user', 'content': 'Continue this'},
       ]);
-      logicalAgentHarness.emit(DeltaEvent('$agent follow-up'));
-      logicalAgentHarness.completeSuccess();
+      followUpHarness.emit(DeltaEvent('$agent follow-up'));
+      followUpHarness.completeSuccess();
       final followUp = await followUpFuture;
       expect(followUp['isError'], isNull);
       expect(followUp['content'], contains(containsPair('text', '$agent follow-up')));
@@ -845,11 +857,12 @@ void main() {
     await wireHarnessWithServer(fakeFactory(['claude', providerId]));
 
     Future<void> completeLogicalAgentSession(String agentId) async {
+      final harnessCount = createdHarnesses.length;
       final resultFuture = harnessWiring!.logicalAgentSessions.handleSessionsSpawn({
         'agent': agentId,
         'message': 'Handle this',
       });
-      await _pollFor(() => createdHarnesses.length, (length) => length == 2);
+      await _pollFor(() => createdHarnesses.length, (length) => length == harnessCount + 1);
       final logicalAgentHarness = createdHarnesses.last;
       await logicalAgentHarness.turnInvoked;
       if (agentId == 'search') {

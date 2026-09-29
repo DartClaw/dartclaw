@@ -32,6 +32,7 @@ final class GatewayPrincipal {
     required this.policy,
     this.sourceSessionId,
     this.logicalAgentId,
+    this.workspacePrincipal,
     this.taskId,
   });
 
@@ -46,6 +47,7 @@ final class GatewayPrincipal {
   final String? sourceSessionId;
 
   final String? logicalAgentId;
+  final String? workspacePrincipal;
   final String? taskId;
 
   /// The container profile this authority runs under, or `null` on the host.
@@ -58,7 +60,8 @@ final class GatewayPrincipal {
   String describe() {
     final agent = logicalAgentId;
     return 'session=$sessionId provider=$providerId policy=${policy.describe()}'
-        '${agent == null ? '' : ' agent=$agent'}';
+        '${agent == null ? '' : ' agent=$agent'}'
+        '${workspacePrincipal == null ? '' : ' workspace=$workspacePrincipal'}';
   }
 }
 

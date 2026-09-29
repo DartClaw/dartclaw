@@ -1,5 +1,7 @@
 # ADR-050: Native Hybrid Search (`dartclaw_search`) – In-Process Embeddings, Retiring the QMD Outpost
 
+**0.27 amendment (2026-09-20):** [ADR-060](060-postgresql-only-storage.md) supersedes the SQLite vector-storage branch for 0.27. Removal is pending; PostgreSQL hybrid search remains opt-in, with pgvector and embeddings unnecessary for default lexical search.
+
 **Status:** Accepted – 2026-07-25; amended 2026-09-09 to restore agent-independent retrieval. Implemented in **0.26** after its Phase A storage seams. Supersedes [ADR-004](004-vector-search-approach.md); QMD is deprecated but still works in 0.26 and is removed in the following milestone. Validation spike passed 2026-07-25; independent retrieval acceptance passed 2026-09-13 under protocol 3. Platform qualification and publication are assessed separately.
 **Deciders:** DartClaw team
 

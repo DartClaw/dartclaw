@@ -5,25 +5,17 @@ final _recognizedClaudeModels = RegExp(
   caseSensitive: false,
 );
 const _invalidYamlRoot = FormatException('YAML configuration root must be a map — refusing to start with defaults');
-const _recognizedCodexModels = <String>{
-  'gpt-5.4',
-  'gpt-5.4-mini',
-  'gpt-5.4-nano',
-  'gpt-5.6-luna',
-  'gpt-5',
-  'gpt-5-mini',
-  'gpt-5-nano',
-  'gpt-5-codex',
-  'gpt-5.3-codex',
-  'gpt-5.2-codex',
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-max',
-  'gpt-5.1-codex-mini',
-  'codex-mini-latest',
-  'o1',
-  'o3',
-  'o4-mini',
-};
+
+/// Matches Codex model identifiers by shape, like [_recognizedClaudeModels].
+///
+/// An enumerated list of vendor model names went stale on OpenAI's release
+/// schedule and still could not catch the failure that matters — a retired
+/// model the CLI rejects at dispatch. Only the `o<digit>` branch is narrowed,
+/// so `opus` cannot match here.
+final _recognizedCodexModels = RegExp(
+  r'^(gpt-[a-z0-9][a-z0-9.\-]*|o[0-9][a-z0-9.\-]*|codex-[a-z0-9][a-z0-9.\-]*)$',
+  caseSensitive: false,
+);
 
 const _knownKeys = {
   'port',
@@ -307,7 +299,13 @@ LoggingConfig _parseLogging(
   return LoggingConfig(format: format, file: file, level: level, redactPatterns: redactPatterns);
 }
 
-AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<String> warns) {
+AgentConfig _parseAgent(
+  Map<String, dynamic> yaml,
+  AgentConfig defaults,
+  List<String> warns, {
+  required String dataDir,
+  required String ownerWorkspaceDir,
+}) {
   var provider = defaults.provider;
   var disallowedTools = defaults.disallowedTools;
   int? maxTurns = defaults.maxTurns;
@@ -356,7 +354,14 @@ AgentConfig _parseAgent(Map<String, dynamic> yaml, AgentConfig defaults, List<St
       final id = entry.key;
       final value = entry.value;
       if (value is Map) {
-        definitions.add(AgentDefinition.fromYaml(id as String, Map<String, dynamic>.from(value), warns));
+        final definition = AgentDefinition.fromYaml(
+          id as String,
+          Map<String, dynamic>.from(value),
+          warns,
+          dataDir: dataDir,
+          ownerWorkspaceDir: ownerWorkspaceDir,
+        );
+        definitions.add(definition);
       }
     }
   }
@@ -412,7 +417,7 @@ void _warnIfUnrecognizedModel(List<String> warns, String field, String? value) {
   final trimmed = value?.trim();
   if (trimmed == null || trimmed.isEmpty) return;
   final lower = trimmed.toLowerCase();
-  if (_recognizedClaudeModels.hasMatch(lower) || _recognizedCodexModels.contains(lower)) return;
+  if (_recognizedClaudeModels.hasMatch(lower) || _recognizedCodexModels.hasMatch(lower)) return;
   addConfigAdvisory(warns, 'Unrecognized $field: "$trimmed" — keeping value as configured');
 }
 
@@ -580,6 +585,7 @@ ReloadConfig _parseReloadConfig(Map<dynamic, dynamic>? gMap, ReloadConfig defaul
 SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, List<String> warns) {
   var resetHour = defaults.resetHour;
   var idleTimeoutMinutes = defaults.idleTimeoutMinutes;
+  var autoSettleIdleDays = defaults.autoSettleIdleDays;
   var scopeConfig = defaults.scopeConfig;
   var maintenanceConfig = defaults.maintenanceConfig;
 
@@ -589,6 +595,17 @@ SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, 
     idleTimeoutMinutes =
         readInt('idle_timeout_minutes', sessionsMap, warns, defaultValue: defaults.idleTimeoutMinutes) ??
         defaults.idleTimeoutMinutes;
+    final parsedAutoSettleIdleDays = readInt(
+      'auto_settle_idle_days',
+      sessionsMap,
+      warns,
+      defaultValue: defaults.autoSettleIdleDays,
+    );
+    if (parsedAutoSettleIdleDays != null && !parsedAutoSettleIdleDays.isNegative) {
+      autoSettleIdleDays = parsedAutoSettleIdleDays;
+    } else if (parsedAutoSettleIdleDays != null) {
+      warns.add('Invalid value for sessions.auto_settle_idle_days: $parsedAutoSettleIdleDays — using default');
+    }
     scopeConfig = _parseSessionScope(sessionsMap, defaults.scopeConfig, warns);
     maintenanceConfig = _parseSessionMaintenance(sessionsMap, defaults.maintenanceConfig, warns);
   }
@@ -596,6 +613,7 @@ SessionConfig _parseSessions(Map<String, dynamic> yaml, SessionConfig defaults, 
   return SessionConfig(
     resetHour: resetHour,
     idleTimeoutMinutes: idleTimeoutMinutes,
+    autoSettleIdleDays: autoSettleIdleDays,
     scopeConfig: scopeConfig,
     maintenanceConfig: maintenanceConfig,
   );

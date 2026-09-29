@@ -545,7 +545,7 @@ void main() {
 
       final session = await sessionService.createSession(type: SessionType.task);
       await h.taskService.updateFields(task.id, sessionId: session.id);
-      await h.kvService.set('session_cost:${session.id}', jsonEncode({'total_tokens': 7}));
+      await h.seedTaskUsage(task.id, session.id, 7);
       await h.taskService.transition(task.id, TaskStatus.running, trigger: 'test');
       await h.taskService.transition(task.id, TaskStatus.failed, trigger: 'test');
     });
@@ -1475,7 +1475,13 @@ void main() {
     await h.repository.insert(run);
     final context = WorkflowContext();
 
-    final sub = completeQueuedTasks();
+    final sub = completeQueuedTasks(
+      beforeComplete: (e) async {
+        final session = await h.sessionService.createSession(type: SessionType.task);
+        await h.taskService.updateFields(e.taskId, sessionId: session.id);
+        await h.seedTaskUsage(e.taskId, session.id, 0);
+      },
+    );
 
     await h.executor.execute(run, definition, context);
     await sub.cancel();

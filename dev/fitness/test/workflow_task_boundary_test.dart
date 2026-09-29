@@ -31,7 +31,7 @@ import 'package:test/test.dart';
 import '_internal/fitness_test_utils.dart';
 
 /// Third-party packages already declared in `dartclaw_workflow`'s `pubspec.yaml`.
-const _allowedThirdParty = <String>{'logging', 'path', 'sqlite3', 'uuid', 'yaml'};
+const _allowedThirdParty = <String>{'logging', 'path', 'uuid', 'yaml'};
 
 /// Internal DartClaw packages the workflow layer may depend on.
 const _allowedInternal = <String>{'dartclaw_core', 'dartclaw_kernel'};

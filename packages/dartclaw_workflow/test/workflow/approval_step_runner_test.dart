@@ -8,13 +8,14 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:async';
 
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:fake_async/fake_async.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:dartclaw_workflow/src/workflow/approval_step_runner.dart'
     show ApprovalStepDependencies, executeApprovalStep;
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart' show WorkflowTemplateEngine;
 import 'package:test/test.dart';
+
+import 'package:dartclaw_workflow/testing.dart';
 
 import 'workflow_executor_test_support.dart';
 
@@ -343,15 +344,7 @@ void main() {
       WorkflowRun? pausedRun;
 
       fakeAsync((async) {
-        // The backend queue and timer must share the virtual-time zone.
-        late DatabaseBackend backend;
-        unawaited(
-          openPreparedTaskBackend().then((value) {
-            backend = value;
-          }),
-        );
-        async.flushMicrotasks();
-        final repository = SqliteWorkflowRunRepository(backend);
+        final repository = InMemoryWorkflowRunRepository();
         unawaited(repository.insert(run));
         async.flushMicrotasks();
 
@@ -389,8 +382,6 @@ void main() {
             cancelReason = r?.contextJson['gate.approval.cancel_reason'] as String?;
           }),
         );
-        async.flushMicrotasks();
-        unawaited(backend.close());
         async.flushMicrotasks();
       });
 

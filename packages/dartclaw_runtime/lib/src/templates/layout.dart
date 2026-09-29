@@ -31,8 +31,8 @@ String documentTitleFragment({required String title, String appName = 'DartClaw'
 /// and exposed as `data-app-name` on `<body>` for client-side JS. Defaults to
 /// `'DartClaw'`.
 ///
-/// Callers should wrap `<main id="main-content" hx-history-elt>` in [body]
-/// for HTMX SPA navigation history tracking.
+/// Callers should wrap shell chrome and `<main id="main-content">` in a
+/// `[hx-history-elt]` shell so history restoration keeps them consistent.
 ///
 /// [showSkipLink] emits the body-first "Skip to content" link. It defaults to
 /// true because every standard shell body supplies `#main-content`; a caller

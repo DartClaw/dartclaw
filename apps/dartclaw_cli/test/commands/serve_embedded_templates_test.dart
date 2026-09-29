@@ -23,6 +23,12 @@ HarnessFactory _harnessFactoryFor(AgentHarness harness) {
   return factory;
 }
 
+FullTextIndex _inMemorySearchIndex(
+  DatabaseBackend backend,
+  PostgresFtsTable table, {
+  required bool withinTransaction,
+}) => InMemoryFullTextIndex();
+
 void main() {
   group('ServeCommand embedded templates', () {
     test('boots successfully without filesystem assets', () async {
@@ -47,7 +53,9 @@ void main() {
 
       final command = ServeCommand(
         config: config,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
+        taskBackendIsPrepared: true,
+        searchIndexFactory: _inMemorySearchIndex,
         harnessFactory: _harnessFactoryFor(worker),
         serverFactory: (server) => server,
         serveFn: (handler, address, port) async => throw SocketException('Address already in use'),

@@ -95,6 +95,10 @@
       border: var(--border); border-radius: var(--radius);
       padding: 0 var(--sp-3) var(--sp-3);
     }
+
+    /* The one demo that is deliberately not as shipped: the select's menu is
+       pinned open and in flow, which is what an anatomy diagram wants. */
+    .showcase .custom-select[data-open="true"] > .custom-select-menu { position: static; }
   </style>
 </head>
 <body>
@@ -263,7 +267,7 @@
       <div><span class="label">metric-value</span> <span class="t-metric">1,402 tokens (24px / 600)</span></div>
       <div><span class="label">code</span> <code>The quick brown fox jumps (14px / 400)</code></div>
     </div>
-    <p class="use-case">Uppercase micro-labels compose <code>.tracking-caps</code> on top of <code>.t-caption</code> rather than getting their own tier. There is no 13px tier &mdash; it was indistinguishable from the body tier and collapsed into it.</p>
+    <p class="use-case">Uppercase micro-labels compose <code>.tracking-caps</code> on top of <code>.t-caption</code> rather than getting their own tier. Below body sits <code>--text-sm</code> (13px) &mdash; the <em>chrome</em> tier: rail rows, toolbars, button and field labels, the topbar. Content never takes it. It is a raw token, not a composite <code>.t-*</code> tier.</p>
     <div class="type-scale">
       <div><span class="label">caption</span> <span class="t-caption">SERVICES &mdash; caption tier alone, tracking reset to normal</span></div>
       <div><span class="label">+ tracking-caps</span> <span class="t-caption tracking-caps">SERVICES &mdash; composed, caps tracking restored</span></div>
@@ -594,9 +598,9 @@ done.<span class="streaming"></span></code></pre>
         <span class="status-badge status-badge-success"><span class="status-dot status-dot--live"></span>Running</span>
         <span class="status-badge status-badge-error"><span class="status-dot status-dot--error"></span>Failed</span>
         <span class="status-badge status-badge-warning"><span class="status-dot status-dot--warning"></span>Pending</span>
-        <span class="status-badge status-badge-muted"><span class="status-dot status-dot--idle"></span>Disabled</span>
+        <span class="status-badge status-badge-muted"><span class="status-dot status-dot--muted"></span>Disabled</span>
       </div>
-      <p class="use-case"><code>.status-badge-muted</code> &mdash; the neutral disabled/unavailable treatment. No semantic hue, no animation; pairs with the existing <code>.status-dot--idle</code>, not a dot variant of its own.</p>
+      <p class="use-case"><code>.status-badge-muted</code> &mdash; the neutral disabled/unavailable treatment. No semantic hue or animation; pairs with <code>.status-dot--muted</code> so idle remains a distinct runtime state.</p>
       <div class="text-sm text-muted" style="margin-bottom:var(--sp-2)">Absent value:</div>
       <div class="btn-row" style="margin-bottom:var(--sp-4)">
         <span class="text-sm">Last run: <span class="value-absent"></span></span>
@@ -935,7 +939,7 @@ done.<span class="streaming"></span></code></pre>
     <p class="use-case"><code>.btn-secondary</code> is the orchestration action (run workflow, open studio) &mdash; info-tinted fill and ring between primary (create) and danger (destroy).</p>
 
     <h3>Size tier &amp; filled destructive</h3>
-    <p class="use-case"><code>.btn-sm</code> / <code>.btn-icon-sm</code> differ by padding and <code>min-height</code> only &mdash; neither declares a <code>font-size</code>. <code>.btn-danger-fill</code> is the committed destructive step; outlined <code>.btn-danger</code> stays the default.</p>
+    <p class="use-case"><code>.btn</code> / <code>.btn-icon</code> are 28px, <code>.btn-sm</code> / <code>.btn-icon-sm</code> 24px &mdash; they differ by padding and <code>min-height</code> only, and neither size modifier declares a <code>font-size</code> (the base does). <code>.btn-danger-fill</code> is the committed destructive step; outlined <code>.btn-danger</code> stays the default.</p>
     <div class="btn-row">
       <button type="button" class="btn btn-sm">Default</button>
       <button type="button" class="btn btn-primary btn-sm">Primary</button>
@@ -947,8 +951,8 @@ done.<span class="streaming"></span></code></pre>
       <button type="button" class="btn btn-icon-sm" aria-label="Remove"><span class="icon icon-x"></span></button>
     </div>
 
-    <h3>Ghost buttons at rest &mdash; on both planes</h3>
-    <p class="use-case">Resting boundary holds &ge;3:1 (WCAG 1.4.11) against the card plane <em>and</em> the page ground, in both themes &mdash; identifiable without hovering.</p>
+    <h3>Text ghost buttons at rest &mdash; on both planes</h3>
+    <p class="use-case">A ghost button whose affordance is a <em>label</em> keeps a resting boundary, holding &ge;3:1 (WCAG 1.4.11) against the card plane <em>and</em> the page ground, in both themes &mdash; identifiable without hovering. An icon-only <code>.btn-icon</code> is the exception: its glyph is already the non-text affordance, so it rests borderless and fills on hover (see the two icon buttons above).</p>
     <div class="grid-2">
       <div class="card" id="ghost-plane-card">
         <div class="card-body" style="margin-bottom:var(--sp-3)">On <code>.card</code></div>
@@ -988,7 +992,7 @@ done.<span class="streaming"></span></code></pre>
             <option selected>medium</option>
             <option>high</option>
           </select>
-          <span class="form-hint t-caption">Native <code>&lt;select&gt;</code> with the DartClaw chevron &mdash; no browser-default arrow.</span>
+          <span class="form-hint t-caption">The closed control. In the app <code>initCustomSelects</code> stands a trigger in its place &mdash; same box &mdash; and the native element stays as the value authority.</span>
         </div>
       </div>
 
@@ -1064,6 +1068,54 @@ done.<span class="streaming"></span></code></pre>
       </div>
     </div>
 
+    <h3>Enhanced select &mdash; anatomy</h3>
+    <p class="use-case">Every <code>select.form-select</code> is enhanced on load and after every HTMX swap; there is no opt-in attribute. The markup below is what the enhancer builds (shown open, and in flow rather than floating). The trigger is named in the same rules as the closed control, so it is the same box; the menu is the shared <code>.pop</code> + <code>.palette-item</code> popover vocabulary, never a select-only one.</p>
+    <div class="well-content">
+      <div class="form-field" style="max-width:320px">
+        <label class="form-label t-caption tracking-caps" id="demo-enhanced-label">Effort</label>
+        <div class="custom-select" data-open="true">
+          <select class="form-select native-select-hidden" aria-hidden="true" tabindex="-1">
+            <option>low</option>
+            <option selected>medium</option>
+            <option>high</option>
+          </select>
+          <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="true"
+                  aria-labelledby="demo-enhanced-label" aria-controls="demo-enhanced-menu">
+            <span class="custom-select-label">medium</span>
+          </button>
+          <div class="pop card card-elevated custom-select-menu" id="demo-enhanced-menu" role="listbox">
+            <button type="button" class="palette-item menu-item custom-select-option" role="option" aria-selected="false" tabindex="-1">
+              <span class="menu-tick" aria-hidden="true"></span><span class="palette-item-label">low</span>
+            </button>
+            <button type="button" class="palette-item menu-item custom-select-option menu-item--on" role="option" aria-selected="true" tabindex="-1">
+              <span class="menu-tick icon-control" data-icon="check" aria-hidden="true"></span><span class="palette-item-label">medium</span>
+            </button>
+            <button type="button" class="palette-item menu-item custom-select-option" role="option" aria-selected="false" tabindex="-1">
+              <span class="menu-tick" aria-hidden="true"></span><span class="palette-item-label">high</span>
+            </button>
+          </div>
+        </div>
+        <span class="form-hint t-caption">The <code>&lt;select&gt;</code> stays in the DOM as the value authority &mdash; forms serialize and HTMX swaps never see the enhancement.</span>
+      </div>
+    </div>
+
+    <h3>Field tier marker</h3>
+    <p class="use-case"><code>.field-tier</code> is how a settings field states when a change takes effect: quiet text at the right end of the label row, never a pill. A pill per field reads as a warning per field, and the tier is a property of the field rather than a state of it. The <code>live</code> tier renders nothing; the post-save states keep the same form and only re-hue.</p>
+    <div class="well-content">
+      <div class="form-field">
+        <label class="form-label t-caption tracking-caps" for="demo-tier-restart">Model<span class="field-tier" title="Applies after a server restart">restart</span></label>
+        <input type="text" class="form-input" id="demo-tier-restart" value="claude/opus">
+      </div>
+      <div class="form-field" style="margin-top:var(--sp-4)">
+        <label class="form-label t-caption tracking-caps" for="demo-tier-saved">Heartbeat interval<span class="field-tier field-tier--ok">applied</span></label>
+        <input type="text" class="form-input" id="demo-tier-saved" value="30">
+      </div>
+      <div class="form-field" style="margin-top:var(--sp-4)">
+        <label class="form-label t-caption tracking-caps" for="demo-tier-pending">Max turns<span class="field-tier field-tier--warn">restart required</span></label>
+        <input type="text" class="form-input" id="demo-tier-pending" value="40">
+      </div>
+    </div>
+
 
     <!-- TABS -->
     <h2>Tabs</h2>
@@ -1131,6 +1183,18 @@ done.<span class="streaming"></span></code></pre>
         <button type="button" class="btn btn-ghost">Previous</button>
         <span class="pager-label t-caption">Page 1 of 5</span>
         <button type="button" class="btn btn-ghost">Next</button>
+      </div>
+    </div>
+
+    <h3>Selection bar</h3>
+    <p class="use-case"><code>.bulk-bar</code> &mdash; sticky to the bottom of the list it belongs to, never floating over the page: the rows it acts on stay visible while it is open. It declares no <code>display</code>, so the app owns when it appears.</p>
+    <div class="well-content" style="padding:0">
+      <div class="bulk-bar">
+        <span class="bulk-count">3 selected</span>
+        <span class="bulk-spacer"></span>
+        <button type="button" class="btn btn-sm">Archive</button>
+        <button type="button" class="btn btn-sm">Settle</button>
+        <button type="button" class="btn btn-icon-sm" data-icon="x" aria-label="Clear selection"></button>
       </div>
     </div>
 
@@ -1298,7 +1362,7 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- COMPOSER -->
     <h2>Composer</h2>
-    <p><code>.input-area</code> is the anchored strip (gradient + top highlight); <code>.composer</code> is the input object it holds &mdash; textarea on top, toolbar inside, focus ring on the container. The bare textarea + Send layout is superseded for chat.</p>
+    <p><code>.input-area</code> is the dock &mdash; padding only, no fill and no top rule; <code>.composer</code> is the input object it holds &mdash; textarea on top, toolbar inside, focus ring on the container. The bare textarea + Send layout is superseded for chat, and <code>.composer-send</code> is a 28px <code>arrow-up</code> icon button.</p>
 
     <h3>Idle &mdash; toolbar + context row</h3>
     <div class="input-area" style="border-radius:var(--radius-lg)">
@@ -1334,7 +1398,7 @@ done.<span class="streaming"></span></code></pre>
       </div>
     </div>
 
-    <p class="use-case" style="margin-top:var(--sp-3)"><code>.input-area</code> alone remains the anchored strip; a mode is a <code>.status-badge</code> (neutral / <code>--warning</code> when elevated &mdash; never a chip), and refs are chips in <code>.composer-context</code> or a <code>.chip-row</code> above the toolbar.</p>
+    <p class="use-case" style="margin-top:var(--sp-3)"><code>.input-area</code> alone remains the dock; a mode is a <code>.status-badge</code> (neutral / <code>--warning</code> when elevated &mdash; never a chip), and refs are chips in <code>.composer-context</code> or a <code>.chip-row</code> above the toolbar.</p>
 
 
     <!-- EMPTY STATE -->
@@ -1350,7 +1414,7 @@ done.<span class="streaming"></span></code></pre>
     </div>
 
     <h3>Glyph variant &mdash; prompt mark instead of the mascot</h3>
-    <p class="use-case">The lighter shape for panel-level empties. <code>.empty-state .icon</code> is a <em>text</em> treatment here, so the glyph must not inherit the icon system's mask fill.</p>
+    <p class="use-case">The lighter shape for panel-level empties. <code>.empty-state &gt; .icon</code> is a <em>text</em> treatment here, so the glyph must not inherit the icon system's mask fill.</p>
     <div class="well-content">
       <div class="empty-state">
         <div class="icon" aria-hidden="true">&#10095;_</div>
@@ -1366,6 +1430,17 @@ done.<span class="streaming"></span></code></pre>
         <span class="icon icon-file-text" aria-hidden="true"></span>
         <p class="empty-state-title t-label">No knowledge entries</p>
         <p>Ingest a document to populate the hub.</p>
+      </div>
+    </div>
+
+    <h3>Nested icon &mdash; the hero rule stops at the direct child</h3>
+    <p class="use-case">An <code>.icon</code> deeper inside an empty state belongs to something else. As a descendant rule the hero treatment painted the action button's leading glyph accent-on-accent, where it was invisible, and its 1em box shoved the label off centre.</p>
+    <div class="well-content">
+      <div class="empty-state">
+        <div class="icon" aria-hidden="true">&#10095;_</div>
+        <p class="empty-state-title t-label">Page not found</p>
+        <p>The requested page does not exist.</p>
+        <a href="#" class="btn btn-primary"><span class="icon icon-arrow-left" aria-hidden="true"></span> Back to Home</a>
       </div>
     </div>
 
@@ -1418,13 +1493,14 @@ done.<span class="streaming"></span></code></pre>
 
     <!-- ICONS -->
     <h2>Icons</h2>
-    <p>49 Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
+    <p>Lucide icons via CSS <code>mask-image</code>. Inherit <code>currentColor</code> from parent.</p>
 
     <h3>Inline Icons (<code>.icon.icon-*</code>)</h3>
     <div class="card" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr)); gap:var(--sp-3); padding:var(--sp-4)">
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-activity"></span><span class="text-xs">activity</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-archive"></span><span class="text-xs">archive</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-left"></span><span class="text-xs">arrow-left</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-down"></span><span class="text-xs">arrow-down</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-arrow-right"></span><span class="text-xs">arrow-right</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-at-sign"></span><span class="text-xs">at-sign</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-bell"></span><span class="text-xs">bell</span></span>
@@ -1438,7 +1514,9 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-circle-x"></span><span class="text-xs">circle-x</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clipboard-list"></span><span class="text-xs">clipboard-list</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-clock"></span><span class="text-xs">clock</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-copy"></span><span class="text-xs">copy</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-corner-down-right"></span><span class="text-xs">corner-down-right</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-ellipsis"></span><span class="text-xs">ellipsis</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-file-json"></span><span class="text-xs">file-json</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-file-warning"></span><span class="text-xs">file-warning</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-folder-kanban"></span><span class="text-xs">folder-kanban</span></span>
@@ -1450,13 +1528,16 @@ done.<span class="streaming"></span></code></pre>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-message-circle"></span><span class="text-xs">message-circle</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-messages-square"></span><span class="text-xs">messages-square</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-moon"></span><span class="text-xs">moon</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-panel-left"></span><span class="text-xs">panel-left</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-paperclip"></span><span class="text-xs">paperclip</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-pencil"></span><span class="text-xs">pencil</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-radio-tower"></span><span class="text-xs">radio-tower</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-rotate-ccw"></span><span class="text-xs">rotate-ccw</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-search"></span><span class="text-xs">search</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-server"></span><span class="text-xs">server</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-settings"></span><span class="text-xs">settings</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-shield-alert"></span><span class="text-xs">shield-alert</span></span>
+      <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-sliders"></span><span class="text-xs">sliders-horizontal</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-square"></span><span class="text-xs">square</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-square-pen"></span><span class="text-xs">square-pen</span></span>
       <span style="display:flex;align-items:center;gap:var(--sp-2)"><span class="icon icon-sun"></span><span class="text-xs">sun</span></span>

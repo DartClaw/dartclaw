@@ -127,7 +127,7 @@ void main() {
     );
 
     expect(response.statusCode, 200);
-    expect(response.headers['HX-Trigger-After-Swap'], isNull);
+    expect(response.headers['HX-Trigger'], isNull);
     expect(RegExp(r'aria-checked="true"').allMatches(dmGroup).length, 1);
     expect(dmGroup, contains('value="allowlist"'));
     expect(body, contains('hx-swap-oob="true"'));
@@ -152,7 +152,7 @@ void main() {
     expect(dmGroup, contains('aria-invalid="true"'));
     expect(dmGroup, contains(message));
     expect(dmGroup, matches(RegExp(r'value="open"[^>]*aria-checked="true"')));
-    expect(response.headers['HX-Trigger-After-Swap'], isNull);
+    expect(response.headers['HX-Trigger'], isNull);
     expect(File(configPath).readAsBytesSync(), before);
   });
 

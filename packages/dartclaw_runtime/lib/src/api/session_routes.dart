@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:logging/logging.dart';
@@ -8,15 +9,25 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../concurrency/session_mutation_coordinator.dart';
+import '../conversation/conversation_service.dart';
+import '../conversation/human_command_catalog.dart';
+import '../conversation/inbox_service.dart';
+import '../conversation/product_conversation_search.dart';
 import '../session/session_reset_service.dart';
 import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;
+import '../temporary_conversation_capability.dart';
 import 'api_helpers.dart';
 import 'session_attachment_routes.dart';
+import 'conversation_search_command_routes.dart';
+import 'session_conversation_routes.dart';
+import 'session_export_routes.dart';
 import 'session_lifecycle_routes.dart';
+import 'session_inbox_routes.dart';
 import 'session_message_routes.dart';
 import 'session_routes_support.dart';
 import 'session_turn_status_routes.dart';
+import 'sse_broadcast.dart';
 
 final _log = Logger('SessionRoutes');
 
@@ -36,26 +47,110 @@ Router sessionRoutes(
   SessionResetService? resetService,
   MessageRedactor? redactor,
   ProjectService? projectService,
+  required String ownerWorkspaceDir,
+  Map<String, EffectiveContextCapabilities> contextCapabilities = const {},
+  ModelCatalogueLookup modelCatalogues = noModelCatalogues,
+  String defaultProvider = 'claude',
+  TemporaryConversationCapability? temporaryConversationCapability,
+  LogicalAgentSessionService? logicalAgentSessions,
   Future<SidebarData> Function({String? activeSessionId})? sidebarData,
   String Function({required SidebarData sidebarData, List<NavItem> navItems})? buildSidebarHtml,
+  SseBroadcast? sseBroadcast,
+  ConversationInboxService? inboxService,
+  ProductConversationSearchService? conversationSearch,
+  HumanCommandCatalog? commandCatalog,
+  ConversationFailpoint? conversationFailpoint,
+  void Function(ConversationService conversation)? onConversationCreated,
+  AttachmentWriteFailpoint? attachmentWriteFailpoint,
+  String Function()? attachmentIdFactory,
+  ProcessAttachmentOwner? processAttachmentOwner,
 }) {
   final router = Router();
-  final sessionMutations = SessionMutationCoordinator();
-  Future<({Session session, bool created})>? openNewChatPromise;
+  final sessionMutations = inboxService?.mutations ?? SessionMutationCoordinator();
+  final inbox =
+      inboxService ??
+      ConversationInboxService(
+        sessions: sessions,
+        messages: messages,
+        mutations: sessionMutations,
+        updates: sseBroadcast,
+        projects: projectService,
+        isSessionRunning: turns.isActive,
+      );
+  final processAttachments = processAttachmentOwner ?? ProcessAttachmentOwner();
+  final conversation = ConversationService(
+    sessions: sessions,
+    messages: messages,
+    turns: turns,
+    mutations: sessionMutations,
+    updates: sseBroadcast,
+    failpoint: conversationFailpoint,
+    projects: projectService,
+    ownerWorkspaceDir: ownerWorkspaceDir,
+    contextCapabilities: contextCapabilities,
+    defaultProvider: defaultProvider,
+    titleAgents: logicalAgentSessions,
+    processAttachmentResolver: processAttachments.resolve,
+    processAttachmentCopier: processAttachments.copy,
+    redactor: redactor,
+    approvalResponder: (sessionId, turnId, requestId, approved) =>
+        turns.resolveToolApproval(sessionId: sessionId, turnId: turnId, requestId: requestId, approved: approved),
+    approvalValidator: (sessionId, turnId, requestId) =>
+        turns.canResolveToolApproval(sessionId: sessionId, turnId: turnId, requestId: requestId),
+    referenceValidator: (references) async {
+      for (final reference in references) {
+        final type = reference['type'];
+        final id = reference['id'];
+        if (type is! String || id is! String) {
+          throw const ConversationMutationException(409, 'REFERENCE_UNAVAILABLE', 'Retained reference is invalid');
+        }
+        final resolved = await resolveConversationReference(
+          type: type,
+          id: id,
+          sessions: sessions,
+          projects: projectService,
+        );
+        if (resolved.error != null) {
+          throw const ConversationMutationException(
+            409,
+            'REFERENCE_UNAVAILABLE',
+            'Retained reference is no longer available',
+          );
+        }
+      }
+    },
+  );
+  onConversationCreated?.call(conversation);
+  turns.setToolApprovalObservers(
+    requested: conversation.retainRuntimeApproval,
+    closed: conversation.closeRuntimeApproval,
+  );
+  turns.setToolHistoryObserver(conversation.retainRuntimeToolEvent);
+  turns.setContextTelemetryObserver((telemetry) async {
+    await conversation.recordTelemetry(telemetry.sessionId, telemetry);
+  });
+  conversation.setInboxObservers(
+    turnStarted: (sessionId) => inbox.handleWorkSignal(sessionId, InboxWorkSignal.turnStarted),
+    inputRequested: (sessionId) => inbox.handleWorkSignal(sessionId, InboxWorkSignal.inputRequested),
+  );
+  inbox.bindApprovalResolver(conversation.resolveApproval);
+  final openNewChatPromises = <String?, Future<({Session session, bool created})>>{};
 
-  Future<({Session session, bool created})> openNewChat() {
-    final pending = openNewChatPromise;
+  Future<({Session session, bool created})> openNewChat(String? projectId) {
+    final pending = openNewChatPromises[projectId];
     if (pending != null) return pending;
 
     late final Future<({Session session, bool created})> operation;
     operation = () async {
       try {
-        return await _openNewChat(sessions, messages, turns, sessionMutations);
+        return await _openNewChat(sessions, messages, turns, sessionMutations, conversation, projectId);
       } finally {
-        if (identical(openNewChatPromise, operation)) openNewChatPromise = null;
+        if (identical(openNewChatPromises[projectId], operation)) {
+          final _ = openNewChatPromises.remove(projectId);
+        }
       }
     }();
-    openNewChatPromise = operation;
+    openNewChatPromises[projectId] = operation;
     return operation;
   }
 
@@ -79,7 +174,13 @@ Router sessionRoutes(
       if (session == null) {
         return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
       }
-      return jsonResponse(200, session.toJson());
+      final response = jsonResponse(200, {
+        ...session.toJson(),
+        if (session.retention == ConversationRetention.process) 'temporaryEndState': sessions.temporaryEndState(id),
+      });
+      return session.retention == ConversationRetention.process
+          ? response.change(headers: {'cache-control': 'no-store'})
+          : response;
     } catch (e) {
       _log.warning('Failed to get session $id: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to get session');
@@ -90,11 +191,16 @@ Router sessionRoutes(
   router.post('/api/sessions', (Request request) async {
     try {
       final queryProvider = trimmedOrNull(request.url.queryParameters['provider']);
-      final parsed = queryProvider == null
-          ? await parseOptionalBodyField(request, 'provider')
-          : (value: queryProvider, error: null);
-      if (parsed.error != null) return parsed.error!;
-      if (parsed.value != null) {
+      final raw = await readRequestBody(request, maxBytes: defaultMaxJsonBodyBytes);
+      if (raw.error != null) return raw.error!;
+      var body = <String, dynamic>{};
+      if (raw.body!.trim().isNotEmpty) {
+        final parsed = decodeJsonObject(raw.body!);
+        if (parsed.error != null) return parsed.error!;
+        body = parsed.value!;
+      }
+      final provider = queryProvider ?? trimmedStringOrNull(body['provider']);
+      if (provider != null) {
         return errorResponse(
           400,
           'PROVIDER_OVERRIDE_UNSUPPORTED',
@@ -102,7 +208,36 @@ Router sessionRoutes(
           {'field': 'provider'},
         );
       }
-
+      final retention = body['retention'];
+      if (retention != null && retention != 'process') {
+        return errorResponse(400, 'INVALID_RETENTION', 'retention must be process when supplied');
+      }
+      if (retention == 'process') {
+        if (body['disclosureAccepted'] != true) {
+          return errorResponse(400, 'DISCLOSURE_REQUIRED', 'Temporary conversation disclosure must be accepted');
+        }
+        final capability = temporaryConversationCapability;
+        if (capability == null || !capability.available) {
+          return errorResponse(
+            409,
+            'TEMPORARY_UNAVAILABLE',
+            capability?.reason.isNotEmpty == true
+                ? capability!.reason
+                : 'Temporary conversations are unavailable on this host',
+          );
+        }
+        final session = await sessions.createSession(
+          retention: ConversationRetention.process,
+          provider: capability.providerId,
+          securityProfile: capability.policy.containerProfile,
+          executionMode: capability.policy.mode,
+        );
+        return Response(
+          201,
+          body: jsonEncode(session.toJson()),
+          headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'},
+        );
+      }
       final session = await sessions.createSession();
       return jsonResponse(201, session.toJson());
     } catch (e) {
@@ -114,8 +249,18 @@ Router sessionRoutes(
   // POST /api/sessions/open — open the single reusable blank default chat.
   router.post('/api/sessions/open', (Request request) async {
     try {
-      final result = await openNewChat();
+      final raw = await readRequestBody(request, maxBytes: defaultMaxJsonBodyBytes);
+      if (raw.error != null) return raw.error!;
+      final parsed = raw.body!.trim().isEmpty ? null : decodeJsonObject(raw.body!);
+      if (parsed?.error != null) return parsed!.error!;
+      final body = parsed?.value ?? const <String, dynamic>{};
+      if (body.containsKey('project_id') && body['project_id'] != null && body['project_id'] is! String) {
+        return errorResponse(400, 'INVALID_INPUT', 'project_id must be a project id or null');
+      }
+      final result = await openNewChat(body['project_id'] as String?);
       return jsonResponse(result.created ? 201 : 200, result.session.toJson());
+    } on ConversationMutationException catch (error) {
+      return errorResponse(error.statusCode, error.code, error.message);
     } catch (e) {
       _log.warning('Failed to open a new chat: $e', e);
       return errorResponse(500, 'INTERNAL_ERROR', 'Failed to open a new chat');
@@ -141,7 +286,7 @@ Router sessionRoutes(
         if (session.type == SessionType.main) {
           return errorResponse(403, 'FORBIDDEN', 'Cannot rename main session');
         }
-        await sessions.updateTitle(id, trimmed);
+        await sessions.updateTitleWithProvenance(id, trimmed, provenance: SessionTitleProvenance.manual);
         final updated = await sessions.getSession(id);
         if (updated == null) {
           return errorResponse(404, 'SESSION_NOT_FOUND', 'Session not found');
@@ -164,23 +309,76 @@ Router sessionRoutes(
     redactor: redactor,
     projectService: projectService,
     sessionMutations: sessionMutations,
+    conversation: conversation,
   );
 
   // Attachment upload + reference autocomplete.
-  registerSessionAttachmentRoutes(router, sessions: sessions, messages: messages, projectService: projectService);
+  registerSessionAttachmentRoutes(
+    router,
+    sessions: sessions,
+    messages: messages,
+    sessionMutations: sessionMutations,
+    conversation: conversation,
+    projectService: projectService,
+    failpoint: attachmentWriteFailpoint,
+    attachmentIdFactory: attachmentIdFactory,
+    processAttachments: processAttachments,
+  );
+  registerSessionExportRoutes(
+    router,
+    sessions: sessions,
+    conversation: conversation,
+    processAttachments: processAttachments,
+  );
 
   // Stuck-turn status + early-cancel endpoints (turn/stop, turn-status, turns/<turnId>/cancel).
-  registerSessionTurnStatusRoutes(router, sessions: sessions, turns: turns);
+  registerSessionTurnStatusRoutes(
+    router,
+    sessions: sessions,
+    turns: turns,
+    conversation: conversation,
+    sessionMutations: sessionMutations,
+  );
+
+  registerSessionConversationRoutes(
+    router,
+    sessions: sessions,
+    conversation: conversation,
+    turns: turns,
+    projects: projectService,
+    contextCapabilities: contextCapabilities,
+    modelCatalogues: modelCatalogues,
+    defaultProvider: defaultProvider,
+  );
+  registerSessionInboxRoutes(router, inbox: inbox, modelCatalogues: modelCatalogues);
+  if (conversationSearch != null && commandCatalog != null) {
+    registerConversationSearchCommandRoutes(
+      router,
+      sessions: sessions,
+      messages: messages,
+      conversation: conversation,
+      inbox: inbox,
+      turns: turns,
+      sessionMutations: sessionMutations,
+      search: conversationSearch,
+      catalog: commandCatalog,
+      contextCapabilities: contextCapabilities,
+      defaultProvider: defaultProvider,
+      resetService: resetService,
+    );
+  }
 
   // Session lifecycle (delete / resume / archive / reset).
   registerSessionLifecycleRoutes(
     router,
     sessions: sessions,
+    messages: messages,
     turns: turns,
     sessionMutations: sessionMutations,
     resetService: resetService,
     sidebarData: sidebarData,
     buildSidebarHtml: buildSidebarHtml,
+    processAttachments: processAttachments,
   );
 
   return router;
@@ -206,7 +404,10 @@ Future<({Session session, bool created})> _openNewChat(
   MessageService messages,
   TurnManager turns,
   SessionMutationCoordinator sessionMutations,
+  ConversationService conversation,
+  String? projectId,
 ) async {
+  final context = await conversation.newChatContext(projectId);
   final candidates = await sessions.listSessions(type: SessionType.user);
   for (final session in candidates) {
     if (!_isReusableNewChatMetadata(session)) continue;
@@ -215,15 +416,22 @@ Future<({Session session, bool created})> _openNewChat(
       if ((await messages.getMessagesTail(session.id, count: 1)).isNotEmpty) return null;
       final current = await sessions.getSession(session.id);
       if (current == null || !_isReusableNewChatMetadata(current) || turns.isActive(current.id)) return null;
+      final state = await sessions.getConversationState(current.id);
+      if (state.nextContext != null && state.nextContext!.projectId != projectId) return null;
+      if (state.nextContext == null && projectId != null) return null;
       return current;
     });
     if (reusable != null) return (session: reusable, created: false);
   }
-  return (session: await sessions.createSession(), created: true);
+  final created = await sessions.createSession();
+  await conversation.initializeNewChat(created.id, context);
+  return (session: created, created: true);
 }
 
 bool _isReusableNewChatMetadata(Session session) =>
     session.type == SessionType.user &&
+    session.retention.isDurable &&
+    session.workspace == null &&
     session.channelKey == null &&
     !(session.provider?.trim().isNotEmpty ?? false) &&
     (session.title == null || session.title!.trim().isEmpty);

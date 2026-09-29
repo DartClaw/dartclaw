@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, SqliteBackend;
+import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, PrCreator;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillProvisioner;
 import 'package:path/path.dart' as p;
 
@@ -577,8 +578,7 @@ final class E2EFixtureInstance {
       environment: environment,
       skillProvisionerEnvironment: environment,
       harnessFactory: harnessFactory ?? HarnessFactory(),
-      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) => openPreparedTaskBackend(),
       stderrLine: (_) {},
       exitFn: (code) => throw StateError('Headless runtime exited with code $code'),
       runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,

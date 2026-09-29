@@ -99,6 +99,13 @@ String _promptMemory(String prompt) {
   return end < 0 ? prompt.substring(start) : prompt.substring(start, end + endMarker.length);
 }
 
+void expectPromptWithMemoryAudience(String actual, String core) {
+  expect(actual, startsWith('$core\n\n## Memory audience\n'));
+  expect(actual, contains('Capture routine observations and preferences in personal memory'));
+  expect(actual, contains('If publication intent is ambiguous, ask which audience they intend'));
+  expect(actual, contains('Temporary conversations cannot write personal memory or shared durable knowledge'));
+}
+
 void main() {
   late Directory globalDir;
   late Directory projectDir;
@@ -116,7 +123,10 @@ void main() {
   test('returns hardcoded default when no files exist', () async {
     final service = BehaviorFileService(workspaceDir: globalDir.path);
     // Use task scope to suppress compact instructions and test core default
-    expect(await service.composeSystemPrompt(scope: PromptScope.task), BehaviorFileService.defaultPrompt);
+    expectPromptWithMemoryAudience(
+      await service.composeSystemPrompt(scope: PromptScope.task),
+      BehaviorFileService.defaultPrompt,
+    );
   });
 
   test('missing optional files do not emit warning logs', () async {
@@ -142,7 +152,7 @@ void main() {
   test('returns global SOUL.md content', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('You are a pirate.');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(scope: PromptScope.task), 'You are a pirate.');
+    expectPromptWithMemoryAudience(await service.composeSystemPrompt(scope: PromptScope.task), 'You are a pirate.');
   });
 
   test('project SOUL.md is not included (deprecated)', () async {
@@ -150,18 +160,18 @@ void main() {
     File('${projectDir.path}/SOUL.md').writeAsStringSync('Project soul');
     final service = BehaviorFileService(workspaceDir: globalDir.path, projectDir: projectDir.path);
     final result = await service.composeSystemPrompt(scope: PromptScope.task);
-    expect(result, 'Global soul');
+    expectPromptWithMemoryAudience(result, 'Global soul');
     expect(result, isNot(contains('Project soul')));
   });
 
   test('task scope: SOUL.md + TOOLS.md, no MEMORY', () async {
     File('${globalDir.path}/SOUL.md').writeAsStringSync('Global soul');
     File('${projectDir.path}/SOUL.md').writeAsStringSync('Project soul');
-    File('${globalDir.path}/MEMORY.md').writeAsStringSync('Memory');
+    File('${globalDir.path}/MEMORY.md').writeAsStringSync('PRIVATE MEMORY PAYLOAD');
     final service = BehaviorFileService(workspaceDir: globalDir.path, projectDir: projectDir.path);
     final result = await service.composeSystemPrompt(scope: PromptScope.task);
-    expect(result, 'Global soul');
-    expect(result, isNot(contains('Memory')));
+    expectPromptWithMemoryAudience(result, 'Global soul');
+    expect(result, isNot(contains('PRIVATE MEMORY PAYLOAD')));
     expect(result, isNot(contains('Project soul')));
   });
 
@@ -179,14 +189,20 @@ void main() {
   test('skips non-UTF-8 file gracefully', () async {
     File('${globalDir.path}/SOUL.md').writeAsBytesSync([0xFF, 0xFE]);
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(scope: PromptScope.task), BehaviorFileService.defaultPrompt);
+    expectPromptWithMemoryAudience(
+      await service.composeSystemPrompt(scope: PromptScope.task),
+      BehaviorFileService.defaultPrompt,
+    );
   });
 
   test('skips file with permission error', () async {
     final soulFile = File('${globalDir.path}/SOUL.md')..writeAsStringSync('content');
     Process.runSync('chmod', ['000', soulFile.path]);
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(scope: PromptScope.task), BehaviorFileService.defaultPrompt);
+    expectPromptWithMemoryAudience(
+      await service.composeSystemPrompt(scope: PromptScope.task),
+      BehaviorFileService.defaultPrompt,
+    );
     Process.runSync('chmod', ['644', soulFile.path]);
   }, testOn: 'mac-os || linux');
 
@@ -195,15 +211,15 @@ void main() {
     File('${projectDir.path}/SOUL.md').writeAsStringSync('Should not appear');
     // Even with projectDir set, project SOUL.md is not included
     final service = BehaviorFileService(workspaceDir: globalDir.path, projectDir: projectDir.path);
-    expect(await service.composeSystemPrompt(scope: PromptScope.task), 'Global only');
+    expectPromptWithMemoryAudience(await service.composeSystemPrompt(scope: PromptScope.task), 'Global only');
   });
 
   test('re-reads files on each call (live editing)', () async {
     final soulFile = File('${globalDir.path}/SOUL.md')..writeAsStringSync('Version 1');
     final service = BehaviorFileService(workspaceDir: globalDir.path);
-    expect(await service.composeSystemPrompt(scope: PromptScope.task), 'Version 1');
+    expectPromptWithMemoryAudience(await service.composeSystemPrompt(scope: PromptScope.task), 'Version 1');
     soulFile.writeAsStringSync('Version 2');
-    expect(await service.composeSystemPrompt(scope: PromptScope.task), 'Version 2');
+    expectPromptWithMemoryAudience(await service.composeSystemPrompt(scope: PromptScope.task), 'Version 2');
   });
 
   test('includes USER.md in prompt when present', () async {
@@ -429,7 +445,7 @@ void main() {
     final service = BehaviorFileService(workspaceDir: globalDir.path);
     // Use task scope to suppress compact instructions and user context for exact match
     final result = await service.composeSystemPrompt(scope: PromptScope.task);
-    expect(result, 'Soul');
+    expectPromptWithMemoryAudience(result, 'Soul');
     expect(result, isNot(contains('## User Context')));
     expect(result, isNot(contains('## Environment Notes')));
   });
@@ -1078,7 +1094,7 @@ void main() {
     });
 
     test(
-      'the variant shares the workspace dir and collaborators, and the restricted scope ignores the stand-in',
+      'the variant shares the workspace dir and collaborators, and the restricted scope keeps the stand-in',
       () async {
         final base = BehaviorFileService(
           workspaceDir: globalDir.path,
@@ -1095,12 +1111,69 @@ void main() {
         expect(variant.onboardingExpiryDays, 3);
         expect(variant.compactInstructions, 'Custom compact');
         expect(variant.identifierPreservation, IdentifierPreservationMode.off);
-        expect(
-          await variant.composeSystemPrompt(scope: PromptScope.restricted, origin: origin),
-          await base.composeSystemPrompt(scope: PromptScope.restricted, origin: origin),
-        );
-        expect(await variant.composeSystemPrompt(scope: PromptScope.restricted), isNot(contains('You are Ana.')));
+        expect(await variant.composeSystemPrompt(scope: PromptScope.restricted, origin: origin), 'You are Ana.');
+        expect(await variant.composeSystemPrompt(scope: PromptScope.restricted), contains('You are Ana.'));
       },
     );
+  });
+
+  group('named-agent workspace scoping', () {
+    test('configured agents read identity only from their pinned workspace', () async {
+      final agentDir = Directory.systemTemp.createTempSync('behavior_test_agent');
+      addTearDown(() => agentDir.deleteSync(recursive: true));
+      File('${globalDir.path}/SOUL.md').writeAsStringSync('OWNER SOUL');
+      File('${globalDir.path}/USER.md').writeAsStringSync('OWNER USER');
+      File('${globalDir.path}/TOOLS.md').writeAsStringSync('OWNER TOOLS');
+      File('${agentDir.path}/SOUL.md').writeAsStringSync('AGENT SOUL');
+      File('${agentDir.path}/USER.md').writeAsStringSync('AGENT USER');
+      File('${agentDir.path}/TOOLS.md').writeAsStringSync('AGENT TOOLS');
+      final service = BehaviorFileService(workspaceDir: globalDir.path)
+          .forAgentWorkspace(AgentWorkspace(agentId: 'researcher', directory: agentDir.path));
+
+      final prompt = await service.composeSystemPrompt(scope: PromptScope.primary);
+
+      expect(prompt, contains('AGENT SOUL'));
+      expect(prompt, contains('AGENT USER'));
+      expect(prompt, contains('AGENT TOOLS'));
+      expect(prompt, isNot(contains('OWNER')));
+      expect(service.personalMemoryEnabled, isFalse);
+    });
+
+    test('missing agent files and absent workspace never fall through to owner files', () async {
+      final emptyAgentDir = Directory.systemTemp.createTempSync('behavior_test_empty_agent');
+      addTearDown(() => emptyAgentDir.deleteSync(recursive: true));
+      File('${globalDir.path}/SOUL.md').writeAsStringSync('OWNER SOUL');
+      File('${globalDir.path}/USER.md').writeAsStringSync('OWNER USER');
+      File('${globalDir.path}/TOOLS.md').writeAsStringSync('OWNER TOOLS');
+      final base = BehaviorFileService(workspaceDir: globalDir.path);
+
+      final configured = await base
+          .forAgentWorkspace(AgentWorkspace(agentId: 'researcher', directory: emptyAgentDir.path))
+          .composeSystemPrompt(scope: PromptScope.primary);
+      final absent = await base.forAgentWorkspace(null).composeSystemPrompt(scope: PromptScope.primary);
+
+      expect(configured, isNot(contains('OWNER')));
+      expect(absent, isNot(contains('OWNER')));
+      expect(configured, contains(BehaviorFileService.defaultPrompt));
+      expect(absent, contains(BehaviorFileService.defaultPrompt));
+    });
+
+    test('explicit prompt occupies SOUL while retaining only that agent workspace tools', () async {
+      final agentDir = Directory.systemTemp.createTempSync('behavior_test_prompt_agent');
+      addTearDown(() => agentDir.deleteSync(recursive: true));
+      File('${agentDir.path}/SOUL.md').writeAsStringSync('FILE SOUL');
+      File('${agentDir.path}/TOOLS.md').writeAsStringSync('AGENT TOOLS');
+      final service = BehaviorFileService(workspaceDir: globalDir.path)
+          .forAgentWorkspace(AgentWorkspace(agentId: 'researcher', directory: agentDir.path))
+          .withSoul('EXPLICIT SOUL');
+
+      final prompt = await service.composeSystemPrompt(scope: PromptScope.task);
+      final restricted = await service.composeSystemPrompt(scope: PromptScope.restricted);
+
+      expect(prompt, contains('EXPLICIT SOUL'));
+      expect(prompt, contains('AGENT TOOLS'));
+      expect(prompt, isNot(contains('FILE SOUL')));
+      expect(restricted, 'EXPLICIT SOUL');
+    });
   });
 }

@@ -6,11 +6,24 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/mcp/citation_packet.dart';
 import 'package:dartclaw_runtime/src/mcp/context_research_tool.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:test/test.dart';
 
+const _agentCaller = McpCallerContext(
+  authorityId: 'agent:main',
+  sourceEvent: 'test:context-research',
+  sessionId: 'main',
+  agentId: 'main',
+);
+
+extension on ContextResearchTool {
+  Future<ToolResult> callAsAgent(Map<String, dynamic> args) => callWithContext(args, _agentCaller);
+}
+
 void main() {
-  late SqliteBackend backend;
+  late DatabaseBackend backend;
   late TemporalKnowledgeGraphService kg;
   late Directory workspace;
   late _RecordingSearchBackend memory;
@@ -18,7 +31,7 @@ void main() {
 
   setUp(() async {
     backend = await openPreparedTaskBackend();
-    kg = TemporalKnowledgeGraphService(backend);
+    kg = InMemoryTemporalKnowledgeGraphService();
     workspace = Directory.systemTemp.createTempSync('context_research_test_');
     Directory('${workspace.path}/wiki').createSync(recursive: true);
     memory = _RecordingSearchBackend();
@@ -37,13 +50,12 @@ void main() {
     CitationSourceResolver? sourceResolver,
   }) {
     return ContextResearchTool(
-      memorySearch: ComposedSearchBackend(
-        personal: memory,
-        wiki: wiki ?? WikiSearchSource(workspaceDir: workspace.path),
-      ),
+      scopeResolver: (_) async =>
+          ContextResearchScope.private(principal: 'owner', memorySearch: memory, memoryCorpus: null),
+      wiki: wiki ?? WikiSearchSource(workspaceDir: workspace.path),
       kg: kg,
       synthesizer: synthesizer ?? _candidateSynthesizer,
-      sourceResolver: sourceResolver,
+      sourceResolverFactory: sourceResolver == null ? null : (_) => sourceResolver,
       metricsSink: (event) async => metrics.add(event),
       defaultTokenBudget: tokenBudget,
     );
@@ -93,7 +105,7 @@ void main() {
       MemorySearchResult(text: 'Memory says temporal KG avoids destructive overwrite.', source: 'MEMORY.md', score: 1),
     ];
 
-    final result = await tool().call({'query': 'temporal KG'});
+    final result = await tool().callAsAgent({'query': 'temporal KG'});
     final json = _decodeResult(result);
     final packet = json['packet'] as Map<String, dynamic>;
     final layers = ((packet['sourceList'] as List).cast<Map<String, dynamic>>()).map((ref) => ref['layer']).toSet();
@@ -104,21 +116,101 @@ void main() {
     expect((packet['sourceList'] as List).any((ref) => (ref as Map)['locator'] == '$factId'), isTrue);
   });
 
+  test(
+    'caller-private retrieval composes with shared sources while shared-only callers receive no private input',
+    () async {
+      File('${workspace.path}/wiki/shared.md').writeAsStringSync('colliding-boundary-marker shared-wiki-marker');
+      await kg.addFact(
+        entity: 'colliding-boundary-marker',
+        predicate: 'scope',
+        value: 'shared-kg-marker',
+        validFrom: '2026-09-22T00:00:00Z',
+        source: '/private/operator/source.md',
+      );
+      final agentA = _RecordingSearchBackend()
+        ..results = const [
+          MemorySearchResult(text: 'colliding-boundary-marker agent-a-private', source: 'a-1', score: 0),
+        ];
+      final agentB = _RecordingSearchBackend()
+        ..results = const [
+          MemorySearchResult(text: 'colliding-boundary-marker agent-b-private', source: 'b-1', score: 0),
+        ];
+      final requests = <String, ContextResearchSynthesisRequest>{};
+      late String activeCaller;
+      final scoped = ContextResearchTool(
+        scopeResolver: (caller) async => switch (caller.knowledgeScope) {
+          McpKnowledgeScope.sharedOnly => const ContextResearchScope.sharedOnly(),
+          McpKnowledgeScope.privateAndShared => ContextResearchScope.private(
+            principal: 'agent:${caller.agentId}',
+            memorySearch: caller.agentId == 'a' ? agentA : agentB,
+            memoryCorpus: null,
+          ),
+        },
+        wiki: WikiSearchSource(workspaceDir: workspace.path),
+        kg: kg,
+        synthesizer: (request) async {
+          requests[activeCaller] = request;
+          return _candidateSynthesizer(request);
+        },
+      );
+
+      activeCaller = 'a';
+      await scoped.callWithContext({
+        'query': 'colliding-boundary-marker',
+      }, const McpCallerContext(authorityId: 'agent:a', sourceEvent: 'test:a', sessionId: 'a-session', agentId: 'a'));
+      activeCaller = 'b';
+      await scoped.callWithContext({
+        'query': 'colliding-boundary-marker',
+      }, const McpCallerContext(authorityId: 'agent:b', sourceEvent: 'test:b', sessionId: 'b-session', agentId: 'b'));
+      activeCaller = 'client';
+      final clientResult = await scoped.callWithContext(
+        {'query': 'colliding-boundary-marker'},
+        const McpCallerContext(
+          authorityId: 'mcp-client:ide',
+          sourceEvent: 'test:client',
+          knowledgeScope: McpKnowledgeScope.sharedOnly,
+        ),
+      );
+
+      expect(
+        requests['a']!.candidates.map((candidate) => candidate.text),
+        contains('colliding-boundary-marker agent-a-private'),
+      );
+      expect(
+        requests['a']!.candidates.map((candidate) => candidate.text),
+        isNot(contains('colliding-boundary-marker agent-b-private')),
+      );
+      expect(
+        requests['b']!.candidates.map((candidate) => candidate.text),
+        contains('colliding-boundary-marker agent-b-private'),
+      );
+      expect(
+        requests['client']!.candidates.map((candidate) => candidate.text),
+        everyElement(isNot(contains('private'))),
+      );
+      expect(requests['client']!.candidates.map((candidate) => candidate.sourceRef.layer).toSet(), {
+        CitationLayer.wiki,
+        CitationLayer.kg,
+      });
+      expect(jsonEncode(_decodeResult(clientResult)), isNot(contains('/private/operator/source.md')));
+    },
+  );
+
   test('S03 one Context Research request traverses wiki once and keeps native provenance', () async {
     memory.results = const [
       MemorySearchResult(
-        text: 'duplicate QMD page',
-        source: 'qmd://memory/wiki/kg.md',
+        text: 'duplicate wiki page',
+        source: 'wiki/kg.md',
         score: -2,
         role: 'wiki',
-        provenance: 'qmd',
-        locator: 'qmd:/wiki/kg.md',
+        provenance: 'wiki',
+        locator: 'wiki/kg.md',
       ),
       MemorySearchResult(text: 'healthy personal result', source: 'entry-1', score: 0, locator: 'entry-1'),
     ];
     final wiki = _CountingWiki();
 
-    final result = await tool(wiki: wiki).call({'query': 'temporal KG'});
+    final result = await tool(wiki: wiki).callAsAgent({'query': 'temporal KG'});
     final sourceList = (((_decodeResult(result)['packet'] as Map<String, dynamic>)['sourceList']) as List)
         .cast<Map<String, dynamic>>();
 
@@ -148,7 +240,7 @@ void main() {
         'degradedLayers': [],
         'noSourcesFound': false,
       }),
-    ).call({'query': 'Temporal KG'});
+    ).callAsAgent({'query': 'Temporal KG'});
     final statement =
         ((_decodeResult(result)['packet'] as Map<String, dynamic>)['statements'] as List).single
             as Map<String, dynamic>;
@@ -189,7 +281,7 @@ void main() {
         'degradedLayers': [],
         'noSourcesFound': false,
       }),
-    ).call({'query': 'Temporal KG'});
+    ).callAsAgent({'query': 'Temporal KG'});
     final packet = (_decodeResult(result)['packet'] as Map<String, dynamic>);
     final statement = (packet['statements'] as List).single as Map<String, dynamic>;
     final retainedRefs = (statement['sourceRefs'] as List).cast<Map<String, dynamic>>();
@@ -215,7 +307,7 @@ void main() {
           },
         ],
       }),
-    ).call({'query': 'Unique retrieval needle'});
+    ).callAsAgent({'query': 'Unique retrieval needle'});
 
     final statement =
         (((_decodeResult(result)['packet'] as Map<String, dynamic>)['statements'] as List).single)
@@ -224,27 +316,28 @@ void main() {
     expect(statement['unattributed'], isTrue);
   });
 
-  test('knowledge inbox candidates keep their native citation layer', () async {
+  test('ingestion-only knowledge inbox candidates never reach synthesis', () async {
     memory.results = const [
       MemorySearchResult(
         text: 'Inbox finding.',
-        source: 'qmd:/inbox/finding.md',
+        source: 'inbox/finding.md',
         score: 0,
         role: 'knowledge-inbox',
-        provenance: 'qmd',
-        locator: 'qmd:/inbox/finding.md',
+        provenance: 'knowledge-inbox',
+        locator: 'inbox/finding.md',
       ),
     ];
 
     final request = <ContextResearchSynthesisRequest>[];
-    await tool(
+    final result = await tool(
       synthesizer: (value) async {
         request.add(value);
         return _candidateSynthesizer(value);
       },
-    ).call({'query': 'Inbox finding'});
+    ).callAsAgent({'query': 'Inbox finding'});
 
-    expect(request.single.candidates.single.sourceRef.layer, CitationLayer.inbox);
+    expect(request, isEmpty);
+    expect(_decodeResult(result)['status'], 'no_sources_found');
   });
 
   test('unknown search roles degrade instead of becoming canonical-memory citations', () async {
@@ -258,7 +351,7 @@ void main() {
       ),
     ];
 
-    final result = await tool(sourceResolver: _AlwaysResolvingSource()).call({'query': 'Unknown source'});
+    final result = await tool(sourceResolver: _AlwaysResolvingSource()).callAsAgent({'query': 'Unknown source'});
     final packet = _decodeResult(result)['packet'] as Map<String, dynamic>;
 
     expect(packet['sourceList'], isEmpty);
@@ -273,7 +366,7 @@ void main() {
         dispatches++;
         return _candidateSynthesizer(request);
       },
-    ).call({'query': 'temporal KG'});
+    ).callAsAgent({'query': 'temporal KG'});
     expect((_decodeResult(result1)['packet'] as Map<String, dynamic>)['statements'], isNotEmpty);
 
     await kg.addFact(
@@ -288,7 +381,7 @@ void main() {
         dispatches++;
         return _candidateSynthesizer(request);
       },
-    ).call({'query': 'temporal KG'});
+    ).callAsAgent({'query': 'temporal KG'});
     final statements = ((_decodeResult(result2)['packet'] as Map<String, dynamic>)['statements'] as List)
         .cast<Map<String, dynamic>>();
 
@@ -298,7 +391,7 @@ void main() {
   });
 
   test('S04 TI06 no sources found returns explicit non-fabricated packet', () async {
-    final result = await tool().call({'query': 'no matches'});
+    final result = await tool().callAsAgent({'query': 'no matches'});
     final json = _decodeResult(result);
     final packet = json['packet'] as Map<String, dynamic>;
 
@@ -308,13 +401,15 @@ void main() {
   });
 
   test('S05 TI07 empty and oversized queries return isError before retrieval or synthesis', () async {
-    final empty = await tool().call({'query': '   '});
+    final empty = await tool().callAsAgent({'query': '   '});
     final oversized = await ContextResearchTool(
-      memorySearch: memory,
+      scopeResolver: (_) async =>
+          ContextResearchScope.private(principal: 'owner', memorySearch: memory, memoryCorpus: null),
+      wiki: WikiSearchSource(workspaceDir: workspace.path),
       kg: kg,
       synthesizer: (_) async => throw StateError('should not synthesize'),
       maxQueryLength: 4,
-    ).call({'query': '12345'});
+    ).callAsAgent({'query': '12345'});
 
     expect(empty, isA<ToolResultError>());
     expect(oversized, isA<ToolResultError>());
@@ -331,7 +426,7 @@ void main() {
       ),
     );
 
-    final result = await tool(tokenBudget: 90).call({'query': 'budget', 'token_budget': 90});
+    final result = await tool(tokenBudget: 90).callAsAgent({'query': 'budget', 'token_budget': 90});
     final json = _decodeResult(result);
     final statements = ((json['packet'] as Map<String, dynamic>)['statements'] as List).cast<Map<String, dynamic>>();
 
@@ -361,7 +456,7 @@ void main() {
         'degradedLayers': [],
         'noSourcesFound': false,
       }),
-    ).call({'query': 'budget', 'token_budget': 64});
+    ).callAsAgent({'query': 'budget', 'token_budget': 64});
 
     expect(result, isA<ToolResultError>());
     expect((result as ToolResultError).message, contains('exceeds token budget 64'));
@@ -374,17 +469,44 @@ void main() {
     final throwingKg = _ThrowingKg(backend);
 
     final result = await ContextResearchTool(
-      memorySearch: ComposedSearchBackend(
-        personal: memory,
-        wiki: WikiSearchSource(workspaceDir: workspace.path),
-      ),
+      scopeResolver: (_) async =>
+          ContextResearchScope.private(principal: 'owner', memorySearch: memory, memoryCorpus: null),
+      wiki: WikiSearchSource(workspaceDir: workspace.path),
       kg: throwingKg,
       synthesizer: _candidateSynthesizer,
-    ).call({'query': 'Temporal KG'});
+    ).callAsAgent({'query': 'Temporal KG'});
     final packet = _decodeResult(result)['packet'] as Map<String, dynamic>;
 
     expect(packet['degradedLayers'], contains('kg'));
     expect((packet['statements'] as List), isNotEmpty);
+  });
+
+  test('failed private retrieval reports only memory degradation while shared layers stay available', () async {
+    File('${workspace.path}/wiki/shared.md').writeAsStringSync('shared survives private failure');
+    final scoped = ContextResearchTool(
+      scopeResolver: (_) async => ContextResearchScope.private(
+        principal: 'agent:a',
+        memorySearch: _ThrowingSearchBackend(),
+        memoryCorpus: null,
+      ),
+      wiki: WikiSearchSource(workspaceDir: workspace.path),
+      kg: kg,
+      synthesizer: _candidateSynthesizer,
+    );
+
+    final result = await scoped.callAsAgent({'query': 'shared survives'});
+    final packet = _decodeResult(result)['packet'] as Map<String, dynamic>;
+
+    expect(packet['degradedLayers'], ['memory']);
+    expect(jsonEncode(packet), contains('shared survives private failure'));
+  });
+
+  test('unscoped calls refuse instead of falling back to owner memory', () async {
+    final result = await tool().call({'query': 'owner'});
+
+    expect(result, isA<ToolResultError>());
+    expect((result as ToolResultError).message, contains('authenticated caller context'));
+    expect(memory.searchCalls, 0);
   });
 
   test('S-02 logical-agent synthesizer frames candidate text as untrusted inert data', () async {
@@ -477,6 +599,22 @@ final class _RecordingSearchBackend implements SearchBackend {
     searchCalls++;
     return MemorySearchOutcome(results: results.take(limit).toList());
   }
+
+  @override
+  Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;
+}
+
+final class _ThrowingSearchBackend implements SearchBackend {
+  @override
+  Future<void> indexAfterWrite() async {}
+
+  @override
+  Future<MemorySearchOutcome> search(
+    String query, {
+    int limit = 10,
+    String userId = 'owner',
+    Set<SearchResultLayer>? layers,
+  }) async => throw StateError('private search unavailable');
 
   @override
   Future<MemorySearchResult?> resolve(String locator, {String userId = 'owner'}) async => null;

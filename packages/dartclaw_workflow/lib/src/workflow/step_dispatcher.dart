@@ -19,6 +19,12 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     void Function(String taskId)? onFirstTaskCreated,
     _NestedLoopScope? nestedLoopScope,
   }) async {
+    if (context['${step.id}.status'] == 'failed') {
+      context.remove('${step.id}.status');
+      context.remove('${step.id}.error');
+      context.remove('step.${step.id}.outcome');
+      context.remove('step.${step.id}.outcome.reason');
+    }
     if (step.taskType == WorkflowTaskType.bash) {
       return _executeBashStep(run, step, context);
     }
@@ -96,6 +102,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
       step,
       resolved,
       context,
+      taskProvider: taskProvider,
       resolvedWorktreeMode: resolvedWorktreeMode,
       effectivePromotion: effectivePromotion,
       effectiveOutputs: effectiveOutputs,
@@ -139,8 +146,25 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         await _failRun(run, msg);
         return null;
       }
-      final baselineTokens = await _readSessionTokens(prevSessionId);
-      taskConfig = {...taskConfig, '_continueSessionId': prevSessionId, '_sessionBaselineTokens': baselineTokens};
+      int? baselineTokens;
+      try {
+        baselineTokens = await _readSessionTokens(prevSessionId);
+      } catch (_) {
+        baselineTokens = null;
+      }
+      if (baselineTokens == null && definition.maxTokens != null) {
+        await _failRun(
+          run,
+          "Workflow accounting unavailable for continued step '${step.id}'; retry after session usage is complete.",
+        );
+        return null;
+      }
+      taskConfig = {
+        ...taskConfig,
+        '_continueSessionId': prevSessionId,
+        '_sessionBaselineTokens': ?baselineTokens,
+        '_sessionBaselineValid': baselineTokens != null,
+      };
       final prevProviderSessionId = _resolveContinueSessionRootProviderSessionId(definition, step, context);
       if (prevProviderSessionId != null && prevProviderSessionId.isNotEmpty) {
         taskConfig = {...taskConfig, '_continueProviderSessionId': prevProviderSessionId};
@@ -193,12 +217,15 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     }
     taskConfig[WorkflowTaskConfig.workflowStepName] = step.name;
     var accumulatedTokenCount = 0;
+    var tokenUsageComplete = true;
+    var accountingReadError = false;
+    var accountingKnownBeforeReadError = 0;
 
     WorkflowStepRetryFailure? lastFailure;
     return runWithWorkflowRetry<StepOutcome?>(
       onFailure: step.onFailure,
       maxRetries: resolved.maxRetries ?? 0,
-      isFailedOutcome: (result) => result?.outcome == 'failed',
+      isFailedOutcome: (result) => result?.outcome == 'failed' && result?.accountingStop != true,
       failure: (result) {
         lastFailure = result?.retryFailure;
         return lastFailure;
@@ -210,6 +237,9 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         );
       },
       dispatchAttempt: (attemptIndex) async {
+        if (attemptIndex > 0 && definition.maxTokens != null && !tokenUsageComplete) {
+          return null;
+        }
         final taskId = _uuid.v4();
         final completer = Completer<Task>();
         final sub = _eventBus.on<TaskStatusChangedEvent>().where((e) => e.taskId == taskId).listen((event) {
@@ -250,8 +280,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           await sub.cancel();
           final msg = "Failed to create task for step '${step.name}': $e";
           WorkflowExecutor._log.severe("Workflow '${run.id}': $msg", e, st);
-          await _failRun(run, msg);
-          return null;
+          return StepOutcome(step: step, success: false, executionError: true, error: msg);
         }
 
         onFirstTaskCreated?.call(taskId);
@@ -266,12 +295,14 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
         } catch (e, st) {
           final msg = "Step '${step.name}' wait failed: $e";
           WorkflowExecutor._log.severe("Workflow '${run.id}': $msg", e, st);
-          await _failRun(run, msg);
-          return null;
+          return StepOutcome(step: step, success: false, executionError: true, error: msg);
         }
 
-        final tokenCount = await _readStepTokenCount(finalTask);
-        accumulatedTokenCount += tokenCount;
+        final tokenUsage = await _readStepTokenCount(finalTask);
+        if (tokenUsage.readError) accountingKnownBeforeReadError = accumulatedTokenCount;
+        accumulatedTokenCount += tokenUsage.knownTokens;
+        tokenUsageComplete = tokenUsageComplete && tokenUsage.complete;
+        accountingReadError = accountingReadError || tokenUsage.readError;
 
         Map<String, dynamic> outputs = {};
         StepValidationFailure? extractionFailure;
@@ -358,6 +389,10 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           task: finalTask,
           outputs: outputs,
           tokenCount: accumulatedTokenCount,
+          tokenUsageComplete: tokenUsageComplete,
+          accountingReadError: accountingReadError,
+          accountingStop: definition.maxTokens != null && !tokenUsageComplete,
+          accountingKnownBeforeReadError: accountingKnownBeforeReadError,
           success: success,
           error: error,
           outcome: effectiveOutcome,
@@ -366,6 +401,14 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           validationFailure: validationFailure,
           retryFailure: retryFailure,
         );
+
+        if (definition.maxTokens != null && !tokenUsageComplete) {
+          return buildTaskOutcome(
+            success: false,
+            error: "Workflow accounting unavailable for step '${step.id}'; token usage is incomplete.",
+            reason: "Workflow accounting unavailable for step '${step.id}'; token usage is incomplete.",
+          );
+        }
 
         // Teardown interruption bypasses every policy branch: onFailure
         // retry/continue/pause must not re-dispatch or advance past a task the

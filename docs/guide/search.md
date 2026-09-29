@@ -67,9 +67,11 @@ reported as wiki-layer degradation without discarding healthy memory results.
 Search responses include structured `degradations` with the reason, affected locator when known, observed and limit
 values, and omitted count.
 
-### FTS5 (Default)
+### Lexical Search (Default)
 
-Built-in full-text search using SQLite FTS5 with BM25 ranking. Zero external dependencies. Handles indexing automatically via database triggers.
+Built-in PostgreSQL full-text search ranks the memory and conversation projections without an embedding model or
+pgvector. Indexing follows canonical memory changes and eligible session messages; `dartclaw rebuild-index`
+reconstructs both projections from those sources.
 
 ### Built-in Hybrid Search (Opt-in)
 
@@ -157,58 +159,26 @@ repairing the local model, or recovering from vector degradation. The command re
 reconciles their vectors. Its human output reports both unembedded counts. JSON output uses
 `memoryUnembeddedCount`, `conversationUnembeddedCount`, and `vectorDegradedCorpora` when recovery is incomplete.
 
-On SQLite, `search.db` is the replaceable lexical projection and `vectors.db` is the separate retained vector store.
-On PostgreSQL, `memory_vectors` and `conversation_vectors` hold the two corpus-specific vector projections. PostgreSQL
-hybrid search requires administrator-provisioned pgvector; see [PostgreSQL](postgresql.md#provisioning). These stores are
-derived and can be rebuilt from canonical memory and session NDJSON.
+`memory_vectors` and `conversation_vectors` hold the two corpus-specific PostgreSQL vector projections. Hybrid search
+requires administrator-provisioned pgvector; see [PostgreSQL](postgresql.md#provision-as-an-administrator). These
+tables are derived and can be rebuilt from canonical memory and session NDJSON.
 
-SQLite full-text search matches `unicode61` tokens without stemming. PostgreSQL full-text search applies the configured
-Snowball stemming. Semantic matches come from embeddings and can match related wording that shares no lexical token.
+PostgreSQL full-text search applies the configured Snowball stemming. Semantic matches come from embeddings and can
+match related wording that shares no lexical token.
 Hybrid search combines the lexical and semantic rankings while preserving each corpus's canonical result identity.
 
-### QMD Hybrid Search (Deprecated)
+### PostgreSQL Language-Aware Search
 
-QMD is deprecated in 0.26 but remains working during this milestone; the following milestone removes it. Existing QMD
-deployments can continue to use its vector search for semantic matching. DartClaw manages the daemon lifecycle and
-supports stable QMD 2.5.3 or later 2.x releases. Startup uses QMD's explicit global `index`, verifies
-`collection show memory` maps to the exact workspace with the recursive `**/*.md` mask, then completes both the initial
-update and embedding pass. Queries use QMD's structured REST contract; daemon binding is restricted to literal loopback
-hosts (`localhost`, `127.x.x.x`, or `::1`), and shutdown uses `qmd mcp stop`.
-
-```yaml
-search:
-  backend: qmd              # fts5 (default) | qmd
-  qmd:
-    host: 127.0.0.1
-    port: 8181
-  default_depth: standard   # fast | standard | deep
-```
-
-| Depth | Method | Speed |
-|-------|--------|-------|
-| `fast` | Lexical only | ~26ms |
-| `standard` | Lexical + vector | ~200ms |
-| `deep` | Full query + reranking | 5-8s |
-
-If QMD becomes unreachable or a query fails, DartClaw falls back to FTS5 and reports `qmd` in the degraded layers.
-
-If startup reports that the existing `memory` collection uses the legacy `*.md` mask, run
-`qmd --index index collection remove memory`, then restart DartClaw. Startup recreates the collection with `**/*.md`.
-
-### PostgreSQL Language-Aware Search (Opt-in)
-
-With the [PostgreSQL backend](postgresql.md), one deployment-level `database.fts_language` setting drives memory,
+One deployment-level `database.fts_language` setting drives memory,
 conversation, and knowledge-graph fact search. Changing it requires a restart followed by `dartclaw rebuild-index`
 for the stored memory and conversation search projections. Knowledge-graph facts use the new language on their next
 query after restart. The wiki stays file-backed and is searched live, and tasks are never indexed.
 
 PostgreSQL uses Snowball stemming for regular inflections. For example, Swedish `springa` can match `springer`, but
 the irregular English `sprang` does not match `springa`. Mixed-language content can be mis-stemmed because every
-document uses the configured deployment language. PostgreSQL does not fold diacritics where FTS5 does, and a query
+document uses the configured deployment language. PostgreSQL does not fold all diacritics, and a query
 made only of stopwords returns no matches. Quoted phrases and `-word` negation use PostgreSQL web-search query syntax.
-FTS-only operation uses core PostgreSQL and requires no extension; built-in hybrid search also requires pgvector.
-
-SQLite keeps its existing FTS5 behavior unchanged, including `unicode61` tokenization without stemming.
+Lexical operation uses core PostgreSQL and requires no extension; built-in hybrid search also requires pgvector.
 
 ### Memory Curation
 
@@ -216,20 +186,21 @@ Curated personal memory changes through one path. `memory_apply` accepts one clo
 
 ## Conversation Search
 
-DartClaw indexes user and assistant message text from user, main and channel sessions separately from memory.
-System messages, attachments, and task, cron, logical-agent and archived sessions are excluded. Session NDJSON remains
-the source of truth. Indexing failures are logged without interrupting message persistence.
+DartClaw indexes visible user and assistant message text from user, main, channel, and archived conversations separately
+from memory. System messages, attachments, queued or removed input, and task, cron, and logical-agent sessions are
+excluded. Session NDJSON and its conversation visibility state remain the source of truth. Indexing failures are logged
+without interrupting message persistence.
 
-Deleting or clearing a session removes its indexed messages. Archiving removes them from search while retaining the
-files; resuming a chat-facing session restores them. Dart integrations use `ConversationSearchService`, and operators
-can inspect the corpus with `dartclaw search inspect --corpus conversation`, including message/session IDs, role,
-timestamp, text, score and hybrid ranking evidence.
+Deleting or clearing a conversation removes its indexed messages. Archiving keeps its indexed history available to the
+owner under the `archived` lifecycle filter. Product search can search the current conversation or aggregate authorized
+owner and configured-agent principal indexes; agent-facing conversation search remains confined to the caller's pinned
+principal. Every result and exact-message target is reauthorized before it is returned. Operators can inspect one
+principal's corpus with `dartclaw search inspect --corpus conversation`, including message/session IDs, role, timestamp,
+text, score and hybrid ranking evidence.
 
-SQLite matches sanitized exact terms with `unicode61`, without stemming or prefix queries. PostgreSQL uses
-`database.fts_language` for stemming, shared with memory and knowledge-graph search. After changing that language,
+PostgreSQL uses `database.fts_language` for stemming, shared with memory and knowledge-graph search. After changing it,
 rebuild to update stored conversation and memory text vectors.
 
 Stop DartClaw, then run `dartclaw rebuild-index` to rebuild both memory and conversation indexes. Its existing memory
 summary is followed by `Rebuilt conversation index: N messages from M sessions`; `--json` adds `conversationMessages`
 and `conversationSessions`. No chat-facing sessions means an empty conversation index, clearing any stale rows.
-A memory-index rebuild also restores conversation rows from NDJSON when it replaces the SQLite search file.

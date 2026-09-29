@@ -167,6 +167,33 @@ jobs:
         shell: pwsh
         run: dart test --reporter=failures-only packages/dartclaw_core/test/harness/process_lifecycle_test.dart
 
+      - name: Prepare Windows smoke database
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $services = @(Get-Service -Name 'postgresql-x64-*' -ErrorAction SilentlyContinue)
+          if ($services.Count -ne 1 -or -not $env:PGBIN) {
+            throw 'Expected one installed PostgreSQL service and PGBIN on the Windows runner.'
+          }
+          $service = $services[0].Name
+          Set-Service -Name $service -StartupType Manual
+          Start-Service -Name $service
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            & "$env:PGBIN\pg_isready.exe" --host=127.0.0.1 --username=postgres --dbname=postgres | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ready) { throw 'PostgreSQL did not become ready for the Windows smoke.' }
+          $env:PGPASSWORD = 'root'
+          & "$env:PGBIN\createdb.exe" --host=127.0.0.1 --username=postgres dartclaw_release_smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the dedicated Windows smoke database.' }
+          $version = & "$env:PGBIN\psql.exe" --host=127.0.0.1 --username=postgres --dbname=dartclaw_release_smoke --tuples-only --no-align --command='SHOW server_version_num'
+          if ($LASTEXITCODE -ne 0 -or [int]$version.Trim() -lt 140000) {
+            throw "Windows smoke requires PostgreSQL 14 or newer; server reported '$version'."
+          }
+          'DARTCLAW_POSTGRES_URL=postgres://postgres:root@127.0.0.1:5432/dartclaw_release_smoke?sslmode=disable' >> $env:GITHUB_ENV
+
       - name: Smoke-test Windows release artifact
         if: runner.os == 'Windows'
         shell: pwsh
@@ -175,6 +202,19 @@ jobs:
             -ArtifactPath "build/dartclaw-v$env:DARTCLAW_VERSION-windows-x64.zip" `
             -SkipProviders `
             -EvidencePath build/windows-runtime-smoke.md
+
+      - name: Clean up Windows smoke database
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $services = @(Get-Service -Name 'postgresql-x64-*' -ErrorAction SilentlyContinue)
+          if ($services.Count -eq 1 -and $env:PGBIN -and $services[0].Status -eq 'Running') {
+            $env:PGPASSWORD = 'root'
+            & "$env:PGBIN\dropdb.exe" --host=127.0.0.1 --username=postgres --if-exists dartclaw_release_smoke
+            if ($LASTEXITCODE -ne 0) { throw 'Could not remove the dedicated Windows smoke database.' }
+            Stop-Service -Name $services[0].Name
+            Set-Service -Name $services[0].Name -StartupType Disabled
+          }
 
       - name: Upload staged release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

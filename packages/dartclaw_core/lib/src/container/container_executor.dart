@@ -57,6 +57,16 @@ abstract interface class ContainerExecutor {
   String? containerPathForHostPath(String hostPath);
 }
 
+/// Writes generated state inside the container when [volatileGeneratedState] is true.
+abstract interface class VolatileContainerGeneratedState {
+  /// Whether this execution uses container-owned rather than host-mounted state.
+  bool get volatileGeneratedState;
+
+  String get generatedStateContainerPath;
+
+  Future<void> writeGeneratedStateFile(String relativePath, String content);
+}
+
 /// Whether [executable] actually runs inside [container].
 ///
 /// A missing or unrunnable image binary is statically detectable, so callers

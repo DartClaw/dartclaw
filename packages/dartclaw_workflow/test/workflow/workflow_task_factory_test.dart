@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         BashStepPolicy,
@@ -17,7 +16,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputConfig,
         OutputFormat,
         OutputMode,
-        SqliteWorkflowRunRepository,
         StepExecutionContext,
         StepPromptConfiguration,
         TaskStatusChangedEvent,
@@ -33,34 +31,30 @@ import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart';
 import 'package:dartclaw_workflow/src/workflow/step_config_resolver.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_task_factory.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_template_engine.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 import 'package:uuid/uuid.dart';
 
 void main() {
   group('workflow_task_factory', () {
     late Directory tempDir;
-    late Database db;
-    late SqliteBackend taskBackend;
     late EventBus eventBus;
-    late SqliteTaskRepository taskRepository;
-    late SqliteAgentExecutionRepository agentExecutionRepository;
-    late SqliteWorkflowStepExecutionRepository workflowStepExecutionRepository;
-    late SqliteExecutionRepositoryTransactor executionTransactor;
+    late InMemoryTaskRepository taskRepository;
+    late InMemoryAgentExecutionRepository agentExecutionRepository;
+    late InMemoryWorkflowStepExecutionRepository workflowStepExecutionRepository;
+    late ExecutionRepositoryTransactor executionTransactor;
     late TaskService taskService;
     late StepExecutionContext executionContext;
 
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('workflow_task_factory_test_');
-      db = sqlite3.openInMemory();
-      taskBackend = SqliteBackend(db);
-      await SqliteSchemaGate.prepareTasks(taskBackend, storeName: 'tasks.db');
       eventBus = EventBus();
-      taskRepository = SqliteTaskRepository(taskBackend);
-      agentExecutionRepository = SqliteAgentExecutionRepository(taskBackend, eventBus: eventBus);
-      workflowStepExecutionRepository = SqliteWorkflowStepExecutionRepository(taskBackend);
-      executionTransactor = SqliteExecutionRepositoryTransactor(taskBackend);
+      taskRepository = InMemoryTaskRepository();
+      agentExecutionRepository = InMemoryAgentExecutionRepository();
+      workflowStepExecutionRepository = InMemoryWorkflowStepExecutionRepository();
+      executionTransactor = _RollbackTransactor(taskRepository, agentExecutionRepository);
       taskService = TaskService(
         taskRepository,
         agentExecutionRepository: agentExecutionRepository,
@@ -72,7 +66,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv.json')),
-        repository: SqliteWorkflowRunRepository(taskBackend),
+        repository: InMemoryWorkflowRunRepository(),
         gateEvaluator: GateEvaluator(),
         contextExtractor: ContextExtractor(
           taskService: taskService,
@@ -89,7 +83,6 @@ void main() {
     });
 
     tearDown(() async {
-      await taskBackend.close();
       await tempDir.delete(recursive: true);
     });
 
@@ -98,7 +91,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv-copy.json')),
-        repository: SqliteWorkflowRunRepository(taskBackend),
+        repository: InMemoryWorkflowRunRepository(),
         gateEvaluator: GateEvaluator(),
         contextExtractor: executionContext.contextExtractor,
         defaultWorkspaceRoot: '/repo',
@@ -284,7 +277,7 @@ void main() {
         taskService: taskService,
         eventBus: eventBus,
         kvService: KvService(filePath: p.join(tempDir.path, 'kv-fail.json')),
-        repository: SqliteWorkflowRunRepository(taskBackend),
+        repository: InMemoryWorkflowRunRepository(),
         gateEvaluator: GateEvaluator(),
         contextExtractor: executionContext.contextExtractor,
         dataDir: tempDir.path,
@@ -551,6 +544,30 @@ WorkflowRun _run() {
     startedAt: now,
     updatedAt: now,
   );
+}
+
+final class _RollbackTransactor implements ExecutionRepositoryTransactor {
+  const new(this.tasks, this.executions);
+
+  final InMemoryTaskRepository tasks;
+  final InMemoryAgentExecutionRepository executions;
+
+  @override
+  Future<T> transaction<T>(FutureOr<T> Function() action) async {
+    final taskIds = (await tasks.list()).map((task) => task.id).toSet();
+    final executionIds = (await executions.list()).map((execution) => execution.id).toSet();
+    try {
+      return await action();
+    } catch (_) {
+      for (final task in await tasks.list()) {
+        if (!taskIds.contains(task.id)) await tasks.delete(task.id);
+      }
+      for (final execution in await executions.list()) {
+        if (!executionIds.contains(execution.id)) await executions.delete(execution.id);
+      }
+      rethrow;
+    }
+  }
 }
 
 final class _ThrowingWorkflowStepExecutionRepository implements WorkflowStepExecutionRepository {

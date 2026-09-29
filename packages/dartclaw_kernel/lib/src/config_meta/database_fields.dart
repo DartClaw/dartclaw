@@ -1,14 +1,6 @@
 part of '../config_meta.dart';
 
 const Map<String, FieldMeta> _databaseFields = {
-  'database.backend': FieldMeta(
-    yamlPath: 'database.backend',
-    jsonKey: 'database.backend',
-    type: ConfigFieldType.enum_,
-    mutability: ConfigMutability.restart,
-    description: 'Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential.',
-    allowedValues: ['sqlite', 'postgres'],
-  ),
   'database.url': FieldMeta(
     yamlPath: 'database.url',
     jsonKey: 'database.url',

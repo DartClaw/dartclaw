@@ -26,6 +26,9 @@
   /* archive — storage box (archived sessions) */
   --icon-archive: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='20' height='5' x='2' y='3' rx='1'/%3E%3Cpath d='M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8'/%3E%3Cpath d='M10 12h4'/%3E%3C/svg%3E");
 
+  /* arrow-down — jump to next attention */
+  --icon-arrow-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14'/%3E%3Cpath d='m19 12-7 7-7-7'/%3E%3C/svg%3E");
+
   /* arrow-left — back navigation */
   --icon-arrow-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 19-7-7 7-7'/%3E%3Cpath d='M19 12H5'/%3E%3C/svg%3E");
 
@@ -71,8 +74,14 @@
   /* clock — durations, timestamps */
   --icon-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E");
 
+  /* copy — copy a message */
+  --icon-copy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='14' height='14' x='8' y='8' rx='2' ry='2'/%3E%3Cpath d='M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'/%3E%3C/svg%3E");
+
   /* corner-down-right — forked-from lineage */
   --icon-corner-down-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='15 10 20 15 15 20'/%3E%3Cpath d='M4 4v7a4 4 0 0 0 4 4h12'/%3E%3C/svg%3E");
+
+  /* ellipsis — overflow menu trigger */
+  --icon-ellipsis: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='1'/%3E%3Ccircle cx='19' cy='12' r='1'/%3E%3Ccircle cx='5' cy='12' r='1'/%3E%3C/svg%3E");
 
   /* folder-kanban — projects */
   --icon-folder-kanban: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z'/%3E%3Cpath d='M8 10v4'/%3E%3Cpath d='M12 10v2'/%3E%3Cpath d='M16 10v6'/%3E%3C/svg%3E");
@@ -103,6 +112,9 @@
   /* moon — theme toggle (light mode) */
   --icon-moon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401'/%3E%3C/svg%3E");
 
+  /* panel-left — collapse the rail */
+  --icon-panel-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Cpath d='M9 3v18'/%3E%3C/svg%3E");
+
   /* paperclip — attachment chips, composer */
   --icon-paperclip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/%3E%3C/svg%3E");
 
@@ -118,6 +130,9 @@
   /* radio-tower — channels section */
   --icon-radio-tower: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.9 16.1C1 12.2 1 5.8 4.9 1.9'/%3E%3Cpath d='M7.8 4.7a6.14 6.14 0 0 0-.8 7.5'/%3E%3Ccircle cx='12' cy='9' r='2'/%3E%3Cpath d='M16.2 4.8c2 2 2.26 5.11.8 7.47'/%3E%3Cpath d='M19.1 1.9a9.96 9.96 0 0 1 0 14.1'/%3E%3Cpath d='M9.5 18h5'/%3E%3Cpath d='m8 22 4-11 4 11'/%3E%3C/svg%3E");
 
+  /* rotate-ccw — retry a turn */
+  --icon-rotate-ccw: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+
   /* search — command palette, search inputs */
   --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
 
@@ -130,11 +145,17 @@
   /* shield-alert — guard block */
   --icon-shield-alert: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'/%3E%3Cpath d='M12 8v4'/%3E%3Cpath d='M12 16h.01'/%3E%3C/svg%3E");
 
+  /* sliders-horizontal — rail view options (show / group by) */
+  --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='21' x2='14' y1='4' y2='4'/%3E%3Cline x1='10' x2='3' y1='4' y2='4'/%3E%3Cline x1='21' x2='12' y1='12' y2='12'/%3E%3Cline x1='8' x2='3' y1='12' y2='12'/%3E%3Cline x1='21' x2='16' y1='20' y2='20'/%3E%3Cline x1='12' x2='3' y1='20' y2='20'/%3E%3Cline x1='14' x2='14' y1='2' y2='6'/%3E%3Cline x1='8' x2='8' y1='10' y2='14'/%3E%3Cline x1='16' x2='16' y1='18' y2='22'/%3E%3C/svg%3E");
+
   /* square — stop button */
   --icon-square: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3C/svg%3E");
 
   /* square-pen — new session */
   --icon-square-pen: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7'/%3E%3Cpath d='M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z'/%3E%3C/svg%3E");
+
+  /* square-slash — composer slash-command palette */
+  --icon-square-slash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='18' height='18' x='3' y='3' rx='2'/%3E%3Cpath d='M9 15 15 9'/%3E%3C/svg%3E");
 
   /* sun — theme toggle (dark mode) */
   --icon-sun: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2v2'/%3E%3Cpath d='M12 20v2'/%3E%3Cpath d='m4.93 4.93 1.41 1.41'/%3E%3Cpath d='m17.66 17.66 1.41 1.41'/%3E%3Cpath d='M2 12h2'/%3E%3Cpath d='M20 12h2'/%3E%3Cpath d='m6.34 17.66-1.41 1.41'/%3E%3Cpath d='m19.07 4.93-1.41 1.41'/%3E%3C/svg%3E");
@@ -247,6 +268,7 @@
 
 .icon-activity          { -webkit-mask-image: var(--icon-activity);        mask-image: var(--icon-activity); }
 .icon-archive           { -webkit-mask-image: var(--icon-archive);         mask-image: var(--icon-archive); }
+.icon-arrow-down        { -webkit-mask-image: var(--icon-arrow-down);      mask-image: var(--icon-arrow-down); }
 .icon-arrow-left        { -webkit-mask-image: var(--icon-arrow-left);      mask-image: var(--icon-arrow-left); }
 .icon-arrow-right       { -webkit-mask-image: var(--icon-arrow-right);     mask-image: var(--icon-arrow-right); }
 .icon-arrow-up          { -webkit-mask-image: var(--icon-arrow-up);        mask-image: var(--icon-arrow-up); }
@@ -263,7 +285,9 @@
 .icon-clipboard-list    { -webkit-mask-image: var(--icon-clipboard-list);  mask-image: var(--icon-clipboard-list); }
 .icon-folder-git        { -webkit-mask-image: var(--icon-folder-git);       mask-image: var(--icon-folder-git); }
 .icon-clock             { -webkit-mask-image: var(--icon-clock);           mask-image: var(--icon-clock); }
+.icon-copy              { -webkit-mask-image: var(--icon-copy);            mask-image: var(--icon-copy); }
 .icon-corner-down-right { -webkit-mask-image: var(--icon-corner-down-right); mask-image: var(--icon-corner-down-right); }
+.icon-ellipsis          { -webkit-mask-image: var(--icon-ellipsis);        mask-image: var(--icon-ellipsis); }
 .icon-folder-kanban     { -webkit-mask-image: var(--icon-folder-kanban);   mask-image: var(--icon-folder-kanban); }
 .icon-git-branch        { -webkit-mask-image: var(--icon-git-branch);      mask-image: var(--icon-git-branch); }
 .icon-hash              { -webkit-mask-image: var(--icon-hash);            mask-image: var(--icon-hash); }
@@ -277,17 +301,21 @@
 .icon-message-circle    { -webkit-mask-image: var(--icon-message-circle);  mask-image: var(--icon-message-circle); }
 .icon-messages-square   { -webkit-mask-image: var(--icon-messages-square); mask-image: var(--icon-messages-square); }
 .icon-moon              { -webkit-mask-image: var(--icon-moon);            mask-image: var(--icon-moon); }
+.icon-panel-left        { -webkit-mask-image: var(--icon-panel-left);      mask-image: var(--icon-panel-left); }
 .icon-paperclip         { -webkit-mask-image: var(--icon-paperclip);       mask-image: var(--icon-paperclip); }
 .icon-pencil            { -webkit-mask-image: var(--icon-pencil);          mask-image: var(--icon-pencil); }
 .icon-plus              { -webkit-mask-image: var(--icon-plus);            mask-image: var(--icon-plus); }
 .icon-play              { -webkit-mask-image: var(--icon-play);            mask-image: var(--icon-play); }
 .icon-radio-tower       { -webkit-mask-image: var(--icon-radio-tower);     mask-image: var(--icon-radio-tower); }
+.icon-rotate-ccw        { -webkit-mask-image: var(--icon-rotate-ccw);      mask-image: var(--icon-rotate-ccw); }
 .icon-search            { -webkit-mask-image: var(--icon-search);          mask-image: var(--icon-search); }
 .icon-server            { -webkit-mask-image: var(--icon-server);          mask-image: var(--icon-server); }
 .icon-settings          { -webkit-mask-image: var(--icon-settings);        mask-image: var(--icon-settings); }
 .icon-shield-alert      { -webkit-mask-image: var(--icon-shield-alert);    mask-image: var(--icon-shield-alert); }
+.icon-sliders           { -webkit-mask-image: var(--icon-sliders);         mask-image: var(--icon-sliders); }
 .icon-square            { -webkit-mask-image: var(--icon-square);          mask-image: var(--icon-square); }
 .icon-square-pen        { -webkit-mask-image: var(--icon-square-pen);      mask-image: var(--icon-square-pen); }
+.icon-square-slash      { -webkit-mask-image: var(--icon-square-slash);    mask-image: var(--icon-square-slash); }
 .icon-sun               { -webkit-mask-image: var(--icon-sun);             mask-image: var(--icon-sun); }
 .icon-terminal          { -webkit-mask-image: var(--icon-terminal);        mask-image: var(--icon-terminal); }
 .icon-triangle-alert    { -webkit-mask-image: var(--icon-triangle-alert);  mask-image: var(--icon-triangle-alert); }
@@ -349,6 +377,17 @@
 [data-icon="workflow"]::before      { -webkit-mask-image: var(--icon-workflow);       mask-image: var(--icon-workflow); }
 [data-icon="plus"]::before          { -webkit-mask-image: var(--icon-plus);           mask-image: var(--icon-plus); }
 [data-icon="arrow-up"]::before      { -webkit-mask-image: var(--icon-arrow-up);       mask-image: var(--icon-arrow-up); }
+[data-icon="arrow-down"]::before    { -webkit-mask-image: var(--icon-arrow-down);     mask-image: var(--icon-arrow-down); }
+[data-icon="attach"]::before        { -webkit-mask-image: var(--icon-paperclip);      mask-image: var(--icon-paperclip); }
+[data-icon="square-slash"]::before  { -webkit-mask-image: var(--icon-square-slash);   mask-image: var(--icon-square-slash); }
+[data-icon="copy"]::before          { -webkit-mask-image: var(--icon-copy);           mask-image: var(--icon-copy); }
+[data-icon="fork"]::before          { -webkit-mask-image: var(--icon-git-branch);     mask-image: var(--icon-git-branch); }
+[data-icon="fork-from"]::before     { -webkit-mask-image: var(--icon-corner-down-right); mask-image: var(--icon-corner-down-right); }
+[data-icon="overflow"]::before      { -webkit-mask-image: var(--icon-ellipsis);       mask-image: var(--icon-ellipsis); }
+[data-icon="panel-left"]::before    { -webkit-mask-image: var(--icon-panel-left);     mask-image: var(--icon-panel-left); }
+[data-icon="retry"]::before         { -webkit-mask-image: var(--icon-rotate-ccw);     mask-image: var(--icon-rotate-ccw); }
+[data-icon="sliders"]::before       { -webkit-mask-image: var(--icon-sliders);        mask-image: var(--icon-sliders); }
+[data-icon="stop"]::before          { -webkit-mask-image: var(--icon-square);         mask-image: var(--icon-square); }
 
 
 /* ----------------------------------------------------------------
@@ -375,14 +414,48 @@
 /* New Session command: centre the semantic icon inside its visible affordance. */
 .btn-new-session-icon[data-icon]::before { margin-right: 0; }
 
-/* Icon-only buttons: center the icon, hide text overflow */
-.btn-icon[data-icon] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+/* Icon-only controls: the glyph sits on the box's optical centre, on both axes.
+   Cancelling the 8px margin-right alone (which is what this rule used to do,
+   and only for .btn-icon) left three things: .btn-icon-sm and every non-.btn
+   icon control kept the margin and sat 4px left of centre; vertical-align
+   -0.125em shifted the glyph down against the inline box; and the glyph was
+   sized in em, so a 13px-chrome control and a 14px-body one drew different
+   glyphs in the same 28px box.
+
+   inline-grid + place-items centres from the padding box, line-height: 0 drops
+   the inline strut the glyph would otherwise sit on, and the sizes are px keyed
+   to the box rather than to the inherited font. .icon-control is the hook for an
+   icon-only control that is not a .btn. */
+.btn-icon[data-icon],
+.btn-icon-sm[data-icon],
+.icon-control[data-icon] {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  line-height: 0;
 }
-.btn-icon[data-icon]::before {
-  margin-right: 0;
+
+.btn-icon[data-icon]::before,
+.btn-icon-sm[data-icon]::before,
+.icon-control[data-icon]::before {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  vertical-align: baseline;
+}
+
+.btn-icon-sm[data-icon]::before { width: 14px; height: 14px; }
+
+/* An inline .icon span inside a centred flex/grid cell has the same two
+   problems minus the margin; pinning the box keeps it on the row's optical
+   centre instead of the text baseline. */
+.icon-slot > .icon,
+.icon-lead > .icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  vertical-align: baseline;
 }
 
 /* Preserve topbar sidebar-toggle visibility rules despite generic btn-icon layout. */
@@ -392,7 +465,7 @@
 
 @media (max-width: 768px) {
   .topbar .menu-toggle.btn-icon[data-icon] {
-    display: inline-flex;
+    display: inline-grid;
   }
 }
 

@@ -1,4 +1,5 @@
 import DcChannelDetailController from './dc_channel_detail_controller.js';
+import DcConversationCommandController from './dc_conversation_command_controller.js';
 import DcChatController from './dc_chat_controller.js';
 import DcHealthController from './dc_health_controller.js';
 import DcMemoryController from './dc_memory_controller.js';
@@ -22,6 +23,7 @@ if (!stimulus || !stimulus.Application) {
   const application = stimulus.Application.start();
 
   application.register('dc-channel-detail', DcChannelDetailController);
+  application.register('dc-conversation-command', DcConversationCommandController);
   application.register('dc-chat', DcChatController);
   application.register('dc-health', DcHealthController);
   application.register('dc-memory', DcMemoryController);

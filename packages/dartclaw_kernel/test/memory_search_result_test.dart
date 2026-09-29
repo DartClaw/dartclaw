@@ -25,13 +25,13 @@ void main() {
     );
     const outcome = MemorySearchOutcome(
       results: [result],
-      degradedLayers: ['qmd'],
+      degradedLayers: ['hybrid'],
       degradations: [degradation],
       canonicalRevision: 41,
     );
 
     expect(outcome.single.text, 'Falcon');
-    expect(outcome.degradedLayers, ['qmd']);
+    expect(outcome.degradedLayers, ['hybrid']);
     expect(outcome.degradations, [degradation]);
     expect(outcome.canonicalRevision, 41);
     expect(degradation.toJson(), {

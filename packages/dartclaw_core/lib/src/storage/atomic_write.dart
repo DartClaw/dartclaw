@@ -6,6 +6,31 @@ final _tempSuffixRand = Random.secure();
 
 /// Atomically writes [value]; last writer wins without caller locking.
 Future<void> atomicWriteJson(File f, Object value) => secureWriteFile(f, jsonEncode(value), restrictPermissions: false);
+
+/// Atomically writes binary [contents], preserving an existing regular target's POSIX permissions.
+Future<void> atomicWriteBytes(File target, List<int> contents, {bool restrictPermissions = false}) async {
+  final tempFile = File('${target.path}.${_tempSuffix()}.tmp');
+  RandomAccessFile? handle;
+  try {
+    handle = await tempFile.open(mode: FileMode.writeOnly);
+    final mode = _replacementMode(target, restrictPermissions);
+    final tempMode = Platform.isWindows ? mode : (await tempFile.stat()).mode & 0x1ff;
+    if (mode == 0x180 && tempMode != mode) await chmodOwnerOnly(tempFile.path);
+    if (mode != null && mode != 0x180 && tempMode != mode) await _chmodMode(tempFile.path, mode);
+    await handle.writeFrom(contents);
+    await handle.flush();
+    await handle.close();
+    handle = null;
+    await tempFile.rename(target.path);
+  } catch (_) {
+    try {
+      await handle?.close();
+    } catch (_) {}
+    _deleteTempSync(tempFile);
+    rethrow;
+  }
+}
+
 String _tempSuffix() =>
     List.generate(4, (_) => _tempSuffixRand.nextInt(0x7fffffff).toRadixString(16).padLeft(8, '0')).join();
 

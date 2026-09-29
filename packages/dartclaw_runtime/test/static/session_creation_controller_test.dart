@@ -81,10 +81,12 @@ const controller = new module.default();
 
 let fetchCount = 0;
 const fetchUrls = [];
+const fetchBodies = [];
 let resolveFetch;
-globalThis.fetch = (url) => {
+globalThis.fetch = (url, options) => {
   fetchCount += 1;
   fetchUrls.push(url);
+  fetchBodies.push(JSON.parse(options.body));
   return new Promise((resolve) => { resolveFetch = resolve; });
 };
 
@@ -93,6 +95,7 @@ const second = controller.createSession();
 assert(first === second, 'concurrent activation did not reuse the in-flight request');
 await Promise.resolve();
 assert(fetchCount === 1, 'concurrent activation issued ' + fetchCount + ' POST requests');
+assert(fetchBodies[0].project_id === null, 'global New chat did not request General explicitly');
 for (const button of createButtons) {
   assert(button.disabled, 'a New Chat entry point stayed enabled while creation was pending');
   assert(button.hasAttribute('aria-busy'), 'a New Chat entry point did not expose its busy state');
@@ -164,4 +167,23 @@ assert(
   window.location.href === '/sessions/created',
   'same-id reuse without a valid draft marker did not reconcile through navigation',
 );
+
+chatArea.dataset.newChatDraft = 'true';
+chatArea.dataset.projectId = 'website';
+let resolveGeneral;
+globalThis.fetch = (url, options) => {
+  assert(JSON.parse(options.body).project_id === null, 'global New chat inherited the open project');
+  return new Promise((resolve) => { resolveGeneral = resolve; });
+};
+const generalFromProject = controller.createSession();
+await Promise.resolve();
+assert(focusCount === 1, 'global New chat reused the project draft');
+resolveGeneral({ ok: true, json: async () => ({ id: 'general' }) });
+await generalFromProject;
+assert(window.location.href === '/sessions/general', 'global New chat did not open General');
+
+window.location.href = '/sessions/created';
+window.location.pathname = '/sessions/created';
+await controller.createSession('website');
+assert(focusCount === 2, 'named project New chat did not reuse its own draft');
 ''';

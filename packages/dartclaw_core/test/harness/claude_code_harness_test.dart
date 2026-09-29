@@ -18,6 +18,7 @@ import 'package:test/test.dart';
 import 'harness_test_support.dart';
 
 part 'claude_provider_session_resume_cases.dart';
+part 'claude_operator_approval_cases.dart';
 
 const _mcpOptions = HarnessLaunchOptions(mcpServerUrl: 'http://127.0.0.1:3333/mcp', mcpGatewayToken: 'test-token');
 
@@ -887,6 +888,7 @@ void main() {
           contains(containsPair('response', containsPair('response', containsPair('behavior', 'deny')))),
         );
       });
+      registerClaudeOperatorApprovalTests();
 
       test('PreToolUse blocks with the logical-agent identity and DartClaw session id', () async {
         final guard = RecordingGuard(verdict: GuardVerdict.block('blocked'));
@@ -1704,7 +1706,7 @@ void main() {
     // -------------------------------------------------------------------------
 
     group('T11: Effort tolerance', () {
-      test('null processEffort adopts first-use non-null effort without restart', () async {
+      test('first-use non-null effort restarts so the CLI receives the override', () async {
         var spawnCount = 0;
 
         // Harness spawned with no effort (null).
@@ -1717,7 +1719,6 @@ void main() {
         await h.start();
         expect(spawnCount, 1, reason: 'Should spawn exactly once on start');
 
-        // Call turn() with effort: 'medium' — should be adopted without restart.
         await h.turn(
           sessionId: 'test',
           messages: const [
@@ -1727,8 +1728,7 @@ void main() {
           effort: 'medium',
         );
 
-        // Only one spawn — no restart triggered for null -> 'medium' adoption.
-        expect(spawnCount, 1, reason: 'First-use adoption must not trigger a restart');
+        expect(spawnCount, 2, reason: 'The process must restart with the per-turn effort flag');
         expect(h.state, WorkerState.idle);
       });
 

@@ -93,20 +93,31 @@ WorkflowRunCommand _standaloneCommand({
   FakeProviderAuthPreflight? providerAuthPreflight,
   FakeSkillIntrospector? skillIntrospector,
   bool runWorkflowSkillsBootstrap = false,
-}) => WorkflowRunCommand(
-  config: config,
-  reachabilityProbe: reachabilityProbe ?? (_) async => false,
-  environment: environment,
-  harnessFactory: harnessFactory ?? _harnessFactoryFor(() => FakeAgentHarness()),
-  searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-  taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-  stdoutLine: stdoutOutput?.add ?? (_) {},
-  stderrLine: stderrOutput?.add ?? (_) {},
-  exitFn: fakeExit,
-  runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
-  providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
-  skillIntrospector: skillIntrospector ?? FakeSkillIntrospector({}),
-);
+}) {
+  final tasks = InMemoryTaskRepository();
+  final runs = InMemoryWorkflowRunRepository();
+  final agentExecutions = InMemoryAgentExecutionRepository();
+  final stepExecutions = InMemoryWorkflowStepExecutionRepository();
+  return WorkflowRunCommand(
+    config: config,
+    reachabilityProbe: reachabilityProbe ?? (_) async => false,
+    environment: environment,
+    harnessFactory: harnessFactory ?? _harnessFactoryFor(() => FakeAgentHarness()),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    taskRepositoryFactory: (_) => tasks,
+    workflowRunRepositoryFactory: (_) => runs,
+    agentExecutionRepositoryFactory: (_) => agentExecutions,
+    workflowStepExecutionRepositoryFactory: (_) => stepExecutions,
+    executionRepositoryTransactorFactory: (_) => const InMemoryExecutionRepositoryTransactor(),
+    stdoutLine: stdoutOutput?.add ?? (_) {},
+    stderrLine: stderrOutput?.add ?? (_) {},
+    exitFn: fakeExit,
+    runWorkflowSkillsBootstrap: runWorkflowSkillsBootstrap,
+    providerAuthPreflight: providerAuthPreflight ?? FakeProviderAuthPreflight(),
+    skillIntrospector: skillIntrospector ?? FakeSkillIntrospector({}),
+  );
+}
 
 Never _unexpectedRuntimeExit(int code) {
   throw StateError('Unexpected exit($code) during standalone runtime composition');
@@ -207,7 +218,7 @@ steps:
         'workflow_step_completed type,runId,stepId,stepIndex,totalSteps,taskId,success,tokenCount,durationMs',
         'workflow_step_completed type,runId,stepId,stepIndex,totalSteps,taskId,success,reason,tokenCount,durationMs',
         'workflow_status_changed type,runId,definitionName,oldStatus,newStatus,errorMessage',
-        'workflow_run_digest type,runId,status,steps,nextActions',
+        'workflow_run_digest type,runId,status,totalTokens,tokenUsageComplete,steps,nextActions',
       ], reason: 'renderer-authored payloads are lane-owned and must not converge on the connected lane\'s echo');
       // The renderer-authored keys the connected lane never carries.
       expect(frames[1]['definitionName'], 'mixed');
@@ -261,7 +272,7 @@ steps:
         "[workflow] Failed at step 2/2: Step 'bad-step' (Bad Step) failed: exited with code 3",
         '[digest] Run <run-id> – failed',
         '  1. ok-step: completed (0 tokens)',
-        '  2. bad-step: failed (0 tokens)',
+        '  2. bad-step: failed – exited with code 3 (0 tokens)',
         '[digest] Next:',
         '  dartclaw retry <run-id> --standalone',
       ]);
@@ -698,8 +709,7 @@ steps:
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
         stderrLine: (_) {},
         exitFn: _unexpectedRuntimeExit,
       );
@@ -734,8 +744,7 @@ steps:
         dataDir: config.server.dataDir,
         runWorkflowSkillsBootstrap: false,
         harnessFactory: factory,
-        searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+        taskBackendFactory: (_) async => openPreparedTaskBackend(),
         stderrLine: (_) {},
         exitFn: _unexpectedRuntimeExit,
       );

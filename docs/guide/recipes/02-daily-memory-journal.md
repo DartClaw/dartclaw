@@ -41,6 +41,11 @@ workspace:
 
 The journal is disabled by default. [`examples/personal-assistant.yaml`](../../../examples/personal-assistant.yaml) opts in and keeps a user-authored weekly review as a customization example.
 
+The owner journal writes only the owner's personal memory. For a named agent, DartClaw adds a separate journal only
+when that agent's existing tool policy grants `memory_apply` or `memory_observe`; merely having a managed workspace or
+read-only memory access does not make it journal-eligible. A journal never publishes its observations to the shared wiki
+or knowledge graph and never broadens the agent's helper or tool permissions.
+
 ## Behavior Files
 
 ### SOUL.md
@@ -107,4 +112,5 @@ The host binds provenance and returns each observation's stable locator, entry r
 - **Observations are non-authoritative** -- journal capture cannot revise, merge, or remove curated personal entries
 - **Git sync requires a remote** for push -- run `git remote add origin <url>` in `~/.dartclaw/workspace/` to set it up
 - **Journal job sees an isolated session** -- it does not have access to your main session's chat history directly. It reviews canonical observations and entries through `memory_search`/`memory_read` plus behavior files
+- **Named-agent journals stay local** -- each eligible journal reads and writes only that agent's managed personal-memory corpus. Sharing requires a separate, explicitly granted wiki or knowledge-graph publication path
 - **Session maintenance** -- long-running assistant setups accumulate many sessions (including cron sessions). Configure `sessions.maintenance` to auto-prune old sessions. See [Common Patterns](_common-patterns.md#session-maintenance) for details

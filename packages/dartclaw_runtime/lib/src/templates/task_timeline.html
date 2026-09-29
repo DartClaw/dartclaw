@@ -2,7 +2,7 @@
   <div id="timeline-loading" class="poll-skeleton htmx-indicator" aria-hidden="true">
     <div class="scan-bar"></div>
   </div>
-  <div class="tl-filter-bar chip-row" hx-indicator="#timeline-loading">
+  <div class="tl-filter-bar chip-row" hx-indicator:inherited="#timeline-loading">
     <button tl:each="f : ${filters}" type="button" class="chip"
             tl:attr="aria-pressed=${f.active ? 'true' : 'false'},hx-get=${f.href}"
             hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-push-url="true">

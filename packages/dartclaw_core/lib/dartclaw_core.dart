@@ -17,49 +17,50 @@
 library;
 
 // Storage services
-export 'src/storage/authoritative_store_adoption.dart'
-    show
-        adoptLegacyAuthoritativeStore,
-        probeAuthoritativeStore,
-        AuthoritativeStoreAdoptionException,
-        AuthoritativeStoreProbe,
-        AuthoritativeStoreAbsent,
-        AuthoritativeStoreAmbiguous,
-        AuthoritativeStorePresent,
-        AuthoritativeStoreContentState;
 export 'src/storage/index_reconciler.dart'
     show CanonicalIndexReconciler, IndexHealthEvidence, IndexHealthState, IndexHealthStore, IndexReconcileResult;
 export 'src/storage/index_rebuild_target.dart'
-    show IndexRebuildTarget, SiblingFileRebuildTarget, TransactionalRebuildTarget, IndexReconcileTransition;
-export 'src/storage/sqlite_agent_execution_repository.dart' show SqliteAgentExecutionRepository;
-export 'src/storage/sqlite_execution_repository_transactor.dart' show SqliteExecutionRepositoryTransactor;
-export 'src/storage/sqlite_backend.dart' show SqliteBackend;
-export 'src/storage/database_backend_selection.dart' show databaseBackendFactoryFor, prepareAuthoritativeStore;
+    show IndexRebuildTarget, TransactionalRebuildTarget, IndexReconcileTransition;
+export 'src/storage/database_agent_execution_repository.dart' show DatabaseAgentExecutionRepository;
+export 'src/storage/database_execution_repository_transactor.dart' show DatabaseExecutionRepositoryTransactor;
+export 'src/storage/postgres_backend_factory.dart' show postgresBackendFactory;
 export 'src/storage/postgres_backend.dart' show PostgresBackend, PostgresInterlock, PostgresStorageMessages;
-export 'src/storage/abandoned_store_probe.dart'
-    show InactivePostgresStoreState, InactivePostgresStoreProbe, probeInactivePostgresStore;
 export 'src/storage/postgres_connection_posture.dart' show PostgresConnectionPosture, evaluatePostgresConnectionPosture;
 export 'src/storage/postgres_schema_gate.dart' show PostgresSchemaGate;
 export 'src/storage/postgres_dispatch_policy.dart'
     show PostgresDispatchAttempt, PostgresDispatchPolicy, PostgresServerFailure;
-export 'src/storage/schema_identity.dart'
-    show SchemaColumn, SchemaIdentity, SchemaIndex, SchemaTable, SqliteSchemaObject;
-export 'src/storage/sqlite_schema_gate.dart'
-    show SqliteSchemaGate, SqliteSchemaInspection, SqliteSchemaState, SqliteSearchRebuild, SqliteSearchCorpusRebuild;
-export 'src/storage/sqlite_goal_repository.dart' show SqliteGoalRepository;
-export 'src/storage/sqlite_task_repository.dart' show SqliteTaskRepository;
-export 'src/storage/sqlite_workflow_step_execution_repository.dart' show SqliteWorkflowStepExecutionRepository;
+export 'src/storage/schema_identity.dart' show SchemaColumn, SchemaIdentity, SchemaIndex, SchemaTable;
+export 'src/storage/database_goal_repository.dart' show DatabaseGoalRepository;
+export 'src/storage/database_task_repository.dart' show DatabaseTaskRepository;
+export 'src/storage/database_workflow_step_execution_repository.dart' show DatabaseWorkflowStepExecutionRepository;
 export 'src/storage/turn_state_store.dart' show TurnStateStore, openTurnStateStore;
 export 'src/storage/webhook_delivery_store.dart'
     show WebhookDeliveryReservation, WebhookDeliveryStore, openWebhookDeliveryStore;
 export 'src/storage/task_event_service.dart' show TaskEventService;
 export 'src/storage/turn_trace_service.dart' show TurnTraceService, TraceQueryResult;
-export 'src/storage/session_service.dart' show SessionService, SessionServiceObserver;
-export 'src/storage/message_service.dart' show MessageService, MessageServiceObserver;
+export 'src/storage/session_service.dart' show SessionService, SessionServiceObserver, ConversationRevisionMismatch;
+export 'src/storage/uuid_validation.dart' show isValidUuid;
+export 'src/storage/message_service.dart' show MessageService, MessageServiceObserver, MessageIdentityConflict;
+export 'src/storage/conversation_state.dart'
+    show
+        SubmissionCommitState,
+        ConversationWorkState,
+        ConversationRecordKind,
+        ConversationRecordState,
+        ConversationDisplayRecord,
+        ConversationBranchKind,
+        ConversationBranchLink,
+        ConversationAttachmentManifest,
+        ConversationSubmissionClaim,
+        ConversationState,
+        EffectiveConversationContext,
+        SessionContextTelemetry,
+        ContextMeasurementAvailability;
 export 'src/storage/kv_service.dart' show KvService;
 export 'src/storage/atomic_write.dart'
     show
         atomicWriteJson,
+        atomicWriteBytes,
         secureWriteFile,
         secureWriteFileSync,
         chmodOwnerOnly,
@@ -70,17 +71,14 @@ export 'src/storage/named_credential_store.dart' show NamedCredentialStore;
 export 'src/storage/subscription_credential_store.dart' show SubscriptionCredentialStore;
 
 // Search backends
-export 'src/search/fts5_search_backend.dart' show Fts5SearchBackend;
+export 'src/search/lexical_search_backend.dart' show LexicalSearchBackend;
 export 'src/search/postgres_fts_index.dart' show PostgresFtsIndex, PostgresFtsTable, validatePostgresFtsLanguage;
-export 'src/search/sqlite_fts_index.dart' show SqliteFtsIndex, SqliteFtsTable;
-export 'src/search/vector_index.dart' show VectorTable, SqliteVectorIndex, PostgresVectorIndex;
+export 'src/search/vector_index.dart' show VectorTable, PostgresVectorIndex;
 export 'src/search/conversation_index_projection.dart' show ConversationIndexProjection, ConversationProjectionResult;
 export 'src/search/conversation_indexer.dart' show ConversationIndexer;
 export 'src/search/conversation_search_service.dart'
-    show ConversationHit, ConversationSearchQuery, ConversationSearchService;
+    show ConversationHit, ConversationSearchOutcome, ConversationSearchQuery, ConversationSearchService;
 export 'src/search/search_backend_factory.dart' show createSearchBackend;
-export 'src/search/qmd_search_backend.dart' show QmdSearchBackend, SearchDepth;
-export 'src/search/qmd_manager.dart' show QmdManager;
 export 'src/search/wiki_search_source.dart' show WikiSearchSource, WikiSearchScan, knownWikiProvenance;
 export 'src/search/composed_search_backend.dart' show ComposedSearchBackend, SearchIndexHealthProbe;
 
@@ -151,9 +149,18 @@ export 'src/channel/dm_access.dart' show DmAccessMode, DmAccessController, Pairi
 export 'src/harness/agent_harness.dart'
     show
         AgentHarness,
+        ClaudeModelUsage,
+        ClaudeUsageSnapshot,
+        EffectiveContextCapabilities,
+        EffectiveContextCapabilityProvider,
+        ModelCatalogue,
+        ModelCatalogueEntry,
+        ModelCatalogueProvider,
+        NativeSkillCapabilityProvider,
         ContextualMemoryToolHandler,
         HarnessTurnContext,
         HarnessTurnContextSink,
+        HarnessToolApprovalResponder,
         PromptStrategy,
         TurnResult,
         UnsupportedHarnessCapabilityException;
@@ -274,6 +281,7 @@ export 'src/memory/memory_corpus_service.dart'
 export 'src/container/container_executor.dart'
     show
         ContainerExecutor,
+        VolatileContainerGeneratedState,
         containerClaudeExecutable,
         containerCodexExecutable,
         containerExecutableRuns,
@@ -285,7 +293,7 @@ export 'src/scoping/group_entry.dart' show GroupEntry;
 export 'src/scoping/live_scope_config.dart' show LiveScopeConfig;
 
 // Agents
-export 'src/agents/logical_agent_session_service.dart' show LogicalAgentSessionService;
+export 'src/agents/logical_agent_session_service.dart' show AgentDefinitionResolver, LogicalAgentSessionService;
 export 'src/agents/tool_policy_cascade.dart' show ToolPolicyCascade, ToolPolicyGuard;
 
 // Tasks

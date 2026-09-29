@@ -36,6 +36,9 @@ enum CanonicalTool {
   /// Bounded memory and knowledge read.
   memoryRead('memory_read'),
 
+  /// Synthesized, cited read across owner knowledge.
+  contextResearch('context_research'),
+
   /// Create a new logical-agent session.
   sessionsSpawn('sessions_spawn'),
 

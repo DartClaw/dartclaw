@@ -1,30 +1,23 @@
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryGoalRepository;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
 
 void main() {
-  late SqliteBackend backend;
-  late SqliteTaskRepository taskRepository;
   late GoalService goals;
   late Handler handler;
   late ApiRouteTestClient api;
 
   setUp(() async {
-    backend = await openPreparedTaskBackend();
-    taskRepository = SqliteTaskRepository(backend);
-    goals = GoalService(SqliteGoalRepository(backend));
+    goals = GoalService(InMemoryGoalRepository());
     handler = goalRoutes(goals).call;
     api = ApiRouteTestClient(handler);
   });
 
   tearDown(() async {
     await goals.dispose();
-    await taskRepository.dispose();
-    await backend.close();
   });
 
   group('POST /api/goals', () {

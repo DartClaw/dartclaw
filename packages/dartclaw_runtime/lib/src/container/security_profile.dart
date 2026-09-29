@@ -14,19 +14,18 @@ class SecurityProfile {
 
   /// Creates the standard writable workspace profile.
   ///
-  /// [projectsClonesDir] is optional — when provided, a read-only `/projects`
-  /// mount is added for all project clones (ADR-017 §4). When null, the mount
-  /// is omitted and only the legacy `/project` alias is present.
+  /// [projectDir] adds the selected project at the legacy `/project` alias.
+  /// [projectsClonesDir] adds the owner's read-only `/projects` collection.
   static SecurityProfile workspace({
-    required String workspaceDir,
-    required String projectDir,
+    required String? workspaceDir,
+    required String? projectDir,
     String? projectsClonesDir,
   }) => SecurityProfile(
     id: 'workspace',
     displayName: 'Workspace',
     workspaceMounts: [
-      '$workspaceDir:/workspace:rw',
-      '$projectDir:/project:ro', // Legacy alias for default project
+      if (workspaceDir != null) '$workspaceDir:/workspace:rw',
+      if (projectDir != null) '$projectDir:/project:ro',
       if (projectsClonesDir != null) '$projectsClonesDir:/projects:ro',
     ],
   );

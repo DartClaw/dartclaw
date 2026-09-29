@@ -92,7 +92,7 @@ final class _SessionObserver implements SessionServiceObserver {
   final notifications = <String>[];
 
   @override
-  void onSessionDeleting(String sessionId) => notifications.add('delete:$sessionId');
+  void onSessionDeleting(String sessionId, Session? session) => notifications.add('delete:$sessionId');
 
   @override
   void onSessionTypeChanged(String sessionId, SessionType oldType, SessionType newType) {

@@ -266,7 +266,7 @@ void main() {
     test('no row asserts a state the app never measured', () {
       final html = _render();
 
-      for (final invented in ['claude binary', 'FTS5 Index', 'file-based', 'Search DB']) {
+      for (final invented in ['claude binary', 'PostgreSQL Index', 'file-based', 'Search DB']) {
         expect(html, isNot(contains(invented)), reason: '$invented is a hardcoded constant, not a probe');
       }
     });

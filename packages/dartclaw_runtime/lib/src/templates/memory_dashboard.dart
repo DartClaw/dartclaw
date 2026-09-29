@@ -10,6 +10,7 @@ String memoryDashboardTemplate({
   required SidebarData sidebarData,
   required List<NavItem> navItems,
   required String workspacePath,
+  Map<String, dynamic>? administration,
   String restartBannerHtml = '',
   String appName = 'DartClaw',
 }) {
@@ -17,18 +18,28 @@ String memoryDashboardTemplate({
 
   final topbar = pageTopbarTemplate(title: 'Memory Dashboard', restartBannerHtml: restartBannerHtml);
 
-  final context = _buildContext(status, sidebar, topbar, workspacePath);
+  final context = _buildContext(status, sidebar, topbar, workspacePath, administration);
 
   final body = templateLoader.trellis.render(templateLoader.source('memory_dashboard'), context);
   return layoutTemplate(title: 'Memory', body: body, appName: appName, scripts: standardShellScripts());
 }
 
-String memoryDashboardContentFragment({required Map<String, dynamic> status, required String workspacePath}) {
-  final context = _buildContext(status, '', '', workspacePath);
+String memoryDashboardContentFragment({
+  required Map<String, dynamic> status,
+  required String workspacePath,
+  Map<String, dynamic>? administration,
+}) {
+  final context = _buildContext(status, '', '', workspacePath, administration);
   return templateLoader.trellis.render(templateLoader.source('memory_dashboard'), context);
 }
 
-Map<String, dynamic> _buildContext(Map<String, dynamic> status, String sidebar, String topbar, String workspacePath) {
+Map<String, dynamic> _buildContext(
+  Map<String, dynamic> status,
+  String sidebar,
+  String topbar,
+  String workspacePath,
+  Map<String, dynamic>? administration,
+) {
   final memoryMd = status['memoryMd'] as Map<String, dynamic>? ?? {};
   final archiveMd = status['archiveMd'] as Map<String, dynamic>? ?? {};
   final errorsMd = status['errorsMd'] as Map<String, dynamic>? ?? {};
@@ -41,6 +52,15 @@ Map<String, dynamic> _buildContext(Map<String, dynamic> status, String sidebar, 
   final promptIndex = status['promptIndex'] as Map<String, dynamic>? ?? const {};
   final observations = status['observations'] as Map<String, dynamic>? ?? const {};
   final index = status['index'] as Map<String, dynamic>? ?? const {};
+  final selected = administration?['selected'] as Map<String, dynamic>? ?? const {};
+  final entries = (administration?['entries'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
+  final corpora = (administration?['corpora'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
+  final detail = administration?['detail'] as Map<String, dynamic>?;
+  final health = administration?['health'] as Map<String, dynamic>? ?? const {};
+  final selector = selected['selector']?.toString() ?? 'owner';
+  final query = administration?['query']?.toString() ?? '';
+  final page = administration?['page'] as int? ?? 1;
+  final searchUrl = Uri(path: '/memory', queryParameters: {'corpus': selector, if (query.isNotEmpty) 'q': query});
 
   final sizeBytes = memoryMd['coverage'] == 'lowerBound' ? null : memoryMd['sizeBytes'] as int?;
   final budgetBytes = memoryMd['budgetBytes'] as int? ?? config['memoryMaxBytes'] as int? ?? 32768;
@@ -101,6 +121,57 @@ Map<String, dynamic> _buildContext(Map<String, dynamic> status, String sidebar, 
       .toList();
 
   return {
+    'adminAvailable': administration != null,
+    'adminUnavailableSelection': administration != null && selected['selector'] == '',
+    'showDefaultLifecycle': administration == null || selector == 'owner',
+    'adminCorpora': corpora
+        .map(
+          (corpus) => {
+            'selector': corpus['selector']?.toString() ?? '',
+            'label': corpus['label']?.toString() ?? '',
+            'selected': corpus['selector'] == selector ? 'selected' : null,
+          },
+        )
+        .toList(),
+    'adminSelectedLabel': selected['label']?.toString() ?? 'Unavailable corpus',
+    'adminSelectedKind': selected['kind']?.toString() ?? '',
+    'adminHealth': health['state']?.toString() ?? 'unavailable',
+    'adminRevision': administration?['collectionRevision']?.toString() ?? 'unknown',
+    'adminState': administration?['state']?.toString() ?? 'unavailable',
+    'adminCanBrowse': administration?['state'] != 'unavailable' && administration?['state'] != 'staleResult',
+    'adminStaleResult': administration?['state'] == 'staleResult',
+    'adminQuery': query,
+    'adminSelector': selector,
+    'adminClearUrl': Uri(path: '/memory', queryParameters: {'corpus': selector}).toString(),
+    'adminEntries': entries
+        .map(
+          (entry) => {
+            ...entry,
+            'detailUrl': Uri(
+              path: '/memory',
+              queryParameters: {
+                'corpus': selector,
+                if (query.isNotEmpty) 'q': query,
+                'entry': entry['id']?.toString() ?? '',
+              },
+            ).toString(),
+          },
+        )
+        .toList(),
+    'adminHasEntries': entries.isNotEmpty,
+    'adminNoMatch': administration?['state'] == 'noMatch' || (query.isNotEmpty && entries.isEmpty),
+    'adminPage': page,
+    'adminHasPrev': page > 1,
+    'adminHasNext': administration?['hasNext'] == true,
+    'adminPrevUrl': searchUrl
+        .replace(queryParameters: {...searchUrl.queryParameters, 'page': '${page - 1}'})
+        .toString(),
+    'adminNextUrl': searchUrl
+        .replace(queryParameters: {...searchUrl.queryParameters, 'page': '${page + 1}'})
+        .toString(),
+    'adminDetail': detail,
+    'adminHasDetail': detail != null,
+    'adminNotice': administration?['notice']?.toString(),
     'sidebar': sidebar,
     'topbar': topbar,
     'workspacePath': workspacePath,

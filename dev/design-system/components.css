@@ -32,7 +32,18 @@
    26. List Toolbar & Pager
    27. Dialogs (modal frame, scrim, width ladder, confirm variants)
    28. Composite Type Layer (.t-* named tiers)
-   29. Reduced Motion */
+   29. Touch Tier (44px target floors under a coarse pointer)
+   30. Reduced Motion
+
+   Left-edge geometry — a rule that crosses several of the sections above.
+   A coloured 2-3px border-left states a ROLE or a STATUS, and an element that
+   carries one squares its left corners: `border-radius: 0 r r 0`. Under a full
+   radius a border is painted only between the corners, so the edge fades out
+   top and bottom and reads as a rendering fault rather than a state. .msg has
+   always done this; .tool-call, .notif-item and the .approval-card--* variants
+   now do too, and a list of them keeps one silhouette while only the colour
+   changes. SELECTION is not a status edge — it is the fill and the type, with
+   no edge at all (see .palette-item--active). */
 
 
 /* ================================================================
@@ -235,12 +246,15 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   .sidebar-body .session-list { flex: 1; min-height: 0; overflow-y: auto; }
 }
 
+/* 30px single-line row. A second line (an attention reason, a failure) is
+   opt-in per row, not the row's default shape. */
 .session-item {
   display: flex;
   align-items: center;
-  padding: var(--sp-2) var(--sp-4);
+  min-height: 30px;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
   color: var(--fg);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   line-height: var(--leading-tight);
   cursor: pointer;
   border-left: 2px solid transparent;
@@ -330,7 +344,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   display: flex;
   align-items: center;
   width: calc(100% - (2 * var(--sp-2)));
-  min-height: 40px;
+  min-height: 30px;
   margin: var(--sp-1) var(--sp-2) var(--sp-2);
   padding: var(--sp-1) var(--sp-2);
   border: 1px solid transparent;
@@ -338,7 +352,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   background: transparent;
   color: var(--fg);
   font: inherit;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
   text-align: left;
@@ -358,8 +372,8 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   margin-right: var(--sp-2);
   border: 1px solid color-mix(in srgb, var(--fg-overlay) 78%, transparent);
   border-radius: var(--radius);
@@ -373,16 +387,14 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   border-top-color: color-mix(in srgb, var(--bg-surface1) 52%, transparent);
 }
 
-@media (max-width: 768px) {
-  .btn-new-session { min-height: 48px; }
-}
 
 .sidebar-nav-item {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-4);
-  font-size: var(--text-base);
+  min-height: 28px;
+  padding: 0 var(--sp-3);
+  font-size: var(--text-sm);
   line-height: var(--leading-tight);
   color: var(--fg-sub1);
   cursor: pointer;
@@ -423,13 +435,13 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 40px;
-  padding: var(--sp-2) var(--sp-4);
+  min-height: 30px;
+  padding: 0 var(--sp-3);
   border-left: 2px solid transparent;
   background: transparent;
   color: var(--fg-sub1);
   cursor: pointer;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
   list-style: none;
@@ -526,9 +538,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 }
 
 @media (max-width: 768px) {
-  .sidebar-system-trigger { min-height: 48px; }
   .sidebar-system-panel { max-height: calc(100dvh - var(--topbar-h) - 72px); }
-  .sidebar-system-panel .sidebar-nav-item { min-height: 48px; }
 }
 
 /* --- Topbar --- */
@@ -538,17 +548,21 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   border-bottom: 1px solid var(--border-highlight);
   display: flex;
   align-items: center;
-  padding: 0 var(--sp-4);
-  gap: var(--sp-3);
+  padding: 0 var(--sp-3);
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
   min-height: var(--topbar-h);
 }
 
 .topbar .menu-toggle { display: none; }
 @media (max-width: 768px) { .topbar .menu-toggle { display: block; } }
 
+/* The conversation title is chrome, not a page title: at 18px/600 it is the
+   loudest text on a screen whose subject is the transcript below it. --text-base
+   still outranks the 13px chrome around it. */
 .topbar .session-title {
   flex: 1;
-  font-size: var(--text-xl);
+  font-size: var(--text-base);
   font-weight: var(--weight-bold);
   line-height: var(--leading-tight);
   color: var(--fg);
@@ -569,7 +583,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 
 .topbar .session-title-static {
   flex: 1;
-  font-size: var(--text-xl);
+  font-size: var(--text-base);
   font-weight: var(--weight-bold);
   line-height: var(--leading-tight);
   color: var(--fg);
@@ -598,14 +612,19 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    3. BUTTONS
    ================================================================ */
 
+/* Height lives on min-height, not on derived padding, so re-tiering the label
+   never re-derives the box. The base declares the chrome tier; the size
+   modifiers below stay padding-and-box only. */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--sp-1);
-  padding: var(--sp-2) var(--sp-3);
+  min-height: 28px;
+  padding: 0 var(--sp-3);
   font: inherit;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
   font-weight: var(--weight-medium);
   border-radius: var(--radius);
   border: var(--border);
@@ -643,12 +662,14 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   background: color-mix(in oklab, var(--accent) 80%, black 20%);
 }
 
-/* The resting boundary is the whole point: a borderless ghost button reads as
-   prose until hovered, which is unusable for pointerless input and invisible in
-   a screenshot. The mix fraction is pinned by the worst of the four surface ×
-   theme pairs — --fg-overlay at 78% clears WCAG 1.4.11's 3:1 non-text minimum
-   against card AND page ground in both themes (light ground is the floor at
-   ~3.4:1). Lower it and the light-on-ground case drops below 3:1. */
+/* A TEXT ghost button keeps its resting boundary: without one the label reads
+   as prose until hovered, which is unusable for pointerless input and invisible
+   in a screenshot. (An icon-only button is the exception — its glyph is itself
+   the non-text affordance; see .btn-icon below.) The mix fraction is pinned by
+   the worst of the four surface × theme pairs — --fg-overlay at 78% clears
+   WCAG 1.4.11's 3:1 non-text minimum against card AND page ground in both
+   themes (light ground is the floor at ~3.4:1). Lower it and the
+   light-on-ground case drops below 3:1. */
 .btn-ghost {
   background: transparent;
   border-color: color-mix(in srgb, var(--fg-overlay) 78%, transparent);
@@ -694,12 +715,39 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), var(--shadow-sm);
 }
 
-.btn-icon { padding: var(--sp-1); min-width: 32px; min-height: 32px; }
+.btn-icon { padding: 0; min-width: 28px; min-height: 28px; }
 /* Size tier. Padding and box only — declaring a font-size here is what put 12px
    labels across 58 call sites; the label tier stays with the type layer. */
-.btn-sm { padding: var(--sp-1) var(--sp-3); min-height: 28px; }
-.btn-icon-sm { padding: 0; min-width: 28px; min-height: 28px; }
+.btn-sm { padding: 0 var(--sp-2); min-height: 24px; }
+.btn-icon-sm { padding: 0; min-width: 24px; min-height: 24px; }
 .btn-full { width: 100%; justify-content: center; }
+
+/* Icon-only buttons rest borderless. The glyph is itself the >=3:1 non-text
+   affordance, so a box around it is redundant chrome, and a toolbar or a
+   message-action row of bordered boxes becomes the loudest thing on screen.
+   Hover/active fill and the accent focus ring (line 591) are kept, so nothing
+   is revealed by hover alone. The filled and outlined semantic variants keep
+   their own treatment.
+
+   Both size tiers, or the rule only half-exists: .btn-icon-sm is the same
+   control one tier down and carried the border while .btn-icon shed it, which
+   is what left the queue rows and popover close buttons as bordered squares. */
+:is(.btn-icon, .btn-icon-sm):not(.btn-primary):not(.btn-danger-fill):not(.btn-danger) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--fg-sub0);
+}
+:is(.btn-icon, .btn-icon-sm):not(.btn-primary):not(.btn-danger-fill):not(.btn-danger):hover {
+  background: var(--bg-surface0);
+  border-color: transparent;
+  color: var(--fg);
+  translate: none;  /* the 1px lift is for card-like buttons */
+  box-shadow: none;
+}
+:is(.btn-icon, .btn-icon-sm):not(.btn-primary):not(.btn-danger-fill):not(.btn-danger):active {
+  background: var(--bg-surface1);
+}
 
 
 /* ================================================================
@@ -738,11 +786,14 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    shrink-wraps its children. Once prose carries a max-width (see --measure),
    a shrink-wrapped bubble would collapse to the prose measure and drag full-
    width children — tables especially — down with it. */
+/* 760px at 14px/1.5 is ~78 characters of measure, which keeps the prose block
+   (--measure, 65ch) from floating inside a much wider frame. Scoped here rather
+   than re-toned on --container-max, which other surfaces use. */
 .msg {
   width: 100%;
-  max-width: var(--container-max);
-  margin: 0 auto var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
+  max-width: 760px;
+  margin: 0 auto var(--sp-5);
+  padding: var(--sp-2) var(--sp-4);
   border-left: 2px solid var(--bg-surface1);
   border-radius: 0 var(--radius) var(--radius) 0;
 }
@@ -872,17 +923,19 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* --- Input area --- */
+/* --- Input area ---
+   The dock the composer sits in, and nothing more. It carried a crust/mantle
+   gradient, a luminous top border and a flex row back when it WAS the input: a
+   bar pinned under a transcript that ended at a hard rule. With the composer as
+   its own card, that band is a second container around a container — the line
+   reads as a page split and the fill as a plane the surface ladder does not
+   have. The composer floats over the transcript instead. */
 
 .input-area {
-  background: linear-gradient(0deg,
-    color-mix(in oklab, var(--bg-crust) 30%, var(--bg-mantle)) 0%,
-    var(--bg-mantle) 100%);
-  border-top: 1px solid var(--border-highlight);
+  background: none;
+  border-top: none;
   padding: var(--sp-3) var(--sp-4);
-  display: flex;
-  gap: var(--sp-3);
-  align-items: flex-end;
+  display: block;
 }
 
 .input-area textarea {
@@ -926,9 +979,9 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   border: var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--inset-sm);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2);
   display: grid;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
   transition: border-color var(--transition);
 }
 /* The container border is the composer's only persistent focus cue, so it is
@@ -946,7 +999,9 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   font: inherit; font-size: var(--text-base); line-height: var(--leading-tight);
   color: var(--fg);
   resize: none;
-  min-height: 40px; max-height: 40vh;
+  /* One line. The container owns the padding, so the control does not have to
+     reserve the bare-textarea-plus-Send height it inherited. */
+  min-height: 24px; max-height: 40vh;
   padding: var(--sp-1) 0;
 }
 .composer textarea::placeholder { color: var(--fg-overlay); }
@@ -983,7 +1038,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    The resting dim must stay on the FILL: element-level opacity composites glyph
    and fill together and drops glyph-vs-fill below the 3:1 non-text minimum. */
 .composer-send {
-  width: 32px; height: 32px; min-height: 32px; padding: 0;
+  width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0;
   background: linear-gradient(180deg,
     color-mix(in oklab, var(--accent) 82%, var(--bg-surface0)) 0%,
     color-mix(in oklab, var(--accent) 72%, var(--bg-surface0)) 100%);
@@ -997,14 +1052,6 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .composer-send:focus-visible {
   background: linear-gradient(180deg, color-mix(in oklab, var(--accent) 90%, white) 0%, var(--accent) 100%);
   border-color: var(--accent);
-}
-
-@media (max-width: 768px) {
-  .btn { min-width: 48px; min-height: 48px; }
-  .sidebar-nav-item { min-height: 48px; }
-  .input-area textarea { min-height: 48px; font-size: 16px; }
-  .input-area .btn-send { min-height: 48px; }
-  .composer-send { width: 48px; height: 48px; min-width: 48px; min-height: 48px; }
 }
 
 /* Context row — chips + metadata adjacent to the composer (above or below). */
@@ -1642,9 +1689,13 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   background: var(--accent);
   box-shadow: 0 0 4px color-mix(in srgb, var(--accent) 65%, transparent);
 }
+/* The ring's extent is capped at a 12px box — the dot slot a 30px rail row
+   reserves. Scaled to 2.2 from a 16px box it drew a ~35px halo, which floats
+   in open space at the old densities but reaches into the title beside it and
+   past the .status-badge label it sits inside at these. */
 .status-dot--live::before {
   content: '';
-  position: absolute; inset: -4px;
+  position: absolute; inset: -2px;
   border-radius: 50%;
   border: 1.5px solid var(--accent);
   animation: pulse-ring 2s ease-out infinite;
@@ -1658,9 +1709,9 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 }
 
 @keyframes pulse-ring {
-  0%   { transform: scale(0.8); opacity: 0.9; }
-  70%  { transform: scale(2.2); opacity: 0; }
-  100% { transform: scale(2.2); opacity: 0; }
+  0%   { transform: scale(0.7); opacity: 0.85; }
+  70%  { transform: scale(1);   opacity: 0; }
+  100% { transform: scale(1);   opacity: 0; }
 }
 @keyframes pulse-core {
   0%, 100% { opacity: 1; box-shadow: 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); }
@@ -1670,6 +1721,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .status-dot--error   { background: var(--error);   box-shadow: 0 0 4px color-mix(in srgb, var(--error) 55%, transparent); }
 .status-dot--warning { background: var(--warning); box-shadow: 0 0 4px color-mix(in srgb, var(--warning) 55%, transparent); }
 .status-dot--idle    { background: var(--fg-overlay); }
+.status-dot--muted   { background: var(--fg-sub0); opacity: 0.55; }
 
 /* Attention — blocked on the user. The ONLY amber pulse in the system:
    motion is reserved for "working" (--live) and "needs you" (--attention). */
@@ -1679,7 +1731,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 }
 .status-dot--attention::before {
   content: '';
-  position: absolute; inset: -4px;
+  position: absolute; inset: -2px;
   border-radius: 50%;
   border: 1.5px solid var(--warning);
   animation: pulse-ring 2.8s ease-out infinite;  /* slower than --live's 2s — urgent but patient */
@@ -1882,9 +1934,10 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 
 /* --- Banners --- */
 
+/* A one-line status strip, not a page-level notice. */
 .banner {
-  padding: var(--sp-2) var(--sp-4);
-  font-size: var(--text-base);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--text-sm);
   border-bottom: var(--border);
   display: flex;
   align-items: center;
@@ -2054,14 +2107,19 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
    `.icon-<name>` modifier is a genuine masked icon and still needs the fill and
    the square to paint through its mask, so it keeps them. The real cure is for
    a text glyph not to wear a mask-system class at all, but that name lives in
-   shared markup, not in canon. */
-.empty-state .icon:not([class*="icon-"]) {
+   shared markup, not in canon.
+
+   Direct child only. The hero mark is a child of `.empty-state`; a descendant
+   `.icon` is a glyph inside something else — the leading icon of the action
+   button, most of all, where accent-on-accent made it invisible and its 1em box
+   shoved the label off centre. */
+.empty-state > .icon:not([class*="icon-"]) {
   background-color: transparent;
   width: auto;
   height: auto;
 }
 
-.empty-state .icon {
+.empty-state > .icon {
   font-size: var(--text-2xl);
   color: var(--accent);
   text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent),
@@ -2194,10 +2252,55 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
 .theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Theme toggle icon: now in icons.css (sun/moon via mask-image) */
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bg-surface1); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--bg-surface2); }
+/* --- Scrollbars: invisible at rest, faded in while a container is in use ---
+   There are no bare ::-webkit-scrollbar rules here, deliberately. They match
+   every scroll container in the app, and their mere existence opts Chrome and
+   Safari out of overlay scrollbars: the thumb then reserves a permanent 6px
+   gutter (measured: .session-list offsetWidth − clientWidth = 6) and never
+   fades, so every list carries a standing grey bar whether or not anyone is
+   reading it. The standard properties below get overlay behaviour back.
+
+   No scrollbar-gutter is declared: with overlay scrollbars there is no gutter
+   to stabilise, and reserving one reintroduces the 6px this removes.
+   The .tabs scrollbar is the one exception — there the thumb IS the overflow
+   affordance, and it keeps its own pseudo-element rules. */
+
+@property --sb-thumb {
+  syntax: '<color>';
+  initial-value: transparent;
+  inherits: true;
+}
+
+.messages,
+.session-list,
+.palette-list,
+.pop,
+.sidebar-system-panel,
+.dialog-body,
+.well-deep,
+.msg-content pre,
+.approval-card-plan,
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) transparent;
+  /* Rest: fade out over 200ms after a 600ms grace, so a scroll that pauses does
+     not blink the thumb away. */
+  transition: --sb-thumb 200ms ease 600ms;
+}
+
+.messages:hover, .messages:focus-within,
+.session-list:hover, .session-list:focus-within,
+.palette-list:hover, .palette-list:focus-within,
+.pop:hover, .pop:focus-within,
+.sidebar-system-panel:hover, .sidebar-system-panel:focus-within,
+.dialog-body:hover, .dialog-body:focus-within,
+.well-deep:hover, .well-deep:focus-within,
+.msg-content pre:hover,
+.approval-card-plan:hover, .approval-card-plan:focus-within,
+.table-scroll:hover, .table-scroll:focus-within {
+  --sb-thumb: var(--bg-surface2);
+  transition: --sb-thumb 150ms ease 0s;
+}
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -2394,7 +2497,7 @@ kbd, .kbd {
 .identicon--2 { background: linear-gradient(135deg, var(--info), var(--sky)); }
 .identicon--3 { background: linear-gradient(135deg, var(--mauve), var(--lavender)); }
 .identicon--4 { background: linear-gradient(135deg, var(--pink), var(--mauve)); }
-.identicon--5 { background: linear-gradient(135deg, var(--teal), var(--sky)); }
+.identicon--5 { background: linear-gradient(135deg, var(--teal), color-mix(in oklab, var(--info) 72%, black)); }
 .identicon--6 { background: linear-gradient(135deg, var(--lavender), var(--info)); }
 
 /* --- Print-in ---
@@ -2429,16 +2532,20 @@ kbd, .kbd {
   background: var(--bg-base);
   border: var(--border);
   border-left: 3px solid var(--bg-surface1);
-  border-radius: var(--radius);
-  font-size: var(--text-base);
+  /* Square left: the status edge runs the frame's full height (see
+     § Left-edge geometry). */
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: var(--text-sm);
   font-family: var(--font-mono);
 }
 
+/* A collapsed tool row is the densest repeated object in a transcript. */
 .tool-call-summary {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  min-height: 26px;
+  padding: var(--sp-1) var(--sp-2);
   cursor: pointer;
   list-style: none;
 }
@@ -2490,7 +2597,7 @@ kbd, .kbd {
 .tool-call--pending .tool-call-summary .scan-bar {
   position: absolute;
   left: 0; right: 0; bottom: -1px;
-  border-radius: 0 0 var(--radius) var(--radius);
+  border-radius: 0 0 var(--radius) 0;  /* follows the frame's squared left */
 }
 .tool-call--success { border-left-color: color-mix(in srgb, var(--success) 55%, var(--bg-surface1)); }
 .tool-call--error   { border-left-color: var(--error); }
@@ -2538,9 +2645,19 @@ kbd, .kbd {
 }
 .approval-card--expired .approval-card-resolution { color: var(--fg-overlay); }
 
+/* Square left on the four variants that add an edge; a plain .card, which has
+   none, keeps its full radius (see § Left-edge geometry). The radius is the
+   larger tier here because .card carries --radius-lg. */
+.approval-card--waiting,
+.approval-card--approved,
+.approval-card--rejected,
+.approval-card--expired {
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+}
+
 @media (max-width: 768px) {
   .approval-card-actions { flex-direction: column; }
-  .approval-card-actions .btn { width: 100%; min-height: 48px; }
+  .approval-card-actions .btn { width: 100%; }
 }
 
 
@@ -2557,7 +2674,9 @@ kbd, .kbd {
   align-items: center;
   gap: 6px;
   max-width: 240px;
-  padding: 2px var(--sp-2);
+  /* A stated box, so a chip row and a 28px control row share one baseline. */
+  min-height: 22px;
+  padding: 0 var(--sp-2);
   font-size: var(--text-xs);
   color: var(--fg-sub1);
   background: var(--bg-surface0);
@@ -2616,11 +2735,6 @@ button.chip[aria-pressed="true"] {
 
 .chip-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
-@media (max-width: 768px) {
-  .chip { min-height: 44px; }
-  .chip-remove { width: 44px; height: 44px; }
-}
-
 
 /* ================================================================
    20. NOTIFICATIONS
@@ -2641,9 +2755,11 @@ button.chip[aria-pressed="true"] {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 44px;
-  padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--radius);
+  min-height: 36px;
+  padding: var(--sp-1) var(--sp-2);
+  /* Square left: the unread edge runs the row's full height (see
+     § Left-edge geometry). */
+  border-radius: 0 var(--radius) var(--radius) 0;
   border-left: 2px solid transparent;
   color: var(--fg-sub1);
   text-decoration: none;
@@ -2652,7 +2768,7 @@ button.chip[aria-pressed="true"] {
 .notif-item:hover { background: var(--bg-surface0); text-decoration: none; }
 .notif-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .notif-item-body { display: flex; flex-direction: column; min-width: 0; }
-.notif-item-title { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--fg); }
+.notif-item-title { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--fg); }
 .notif-item-detail {
   font-size: var(--text-xs);
   color: var(--fg-sub0);
@@ -2671,7 +2787,9 @@ button.chip[aria-pressed="true"] {
    21. COMMAND PALETTE
 
    Rows inside the glass palette (.card-glass container + canonical input
-   at top are existing canon). --active is the keyboard cursor.
+   at top are existing canon). --active is the one cursor, and pointer
+   movement moves it, so a palette row has no :hover fill of its own: a
+   fill under a resting pointer would be a second highlight.
    ================================================================ */
 
 /* Section header — intentionally the same recipe as .notif-group; kept a
@@ -2689,8 +2807,8 @@ button.chip[aria-pressed="true"] {
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  min-height: 40px;
-  padding: var(--sp-2) var(--sp-3);
+  min-height: 30px;
+  padding: 0 var(--sp-2);
   text-align: left;
   background: transparent;
   border: none;
@@ -2701,10 +2819,9 @@ button.chip[aria-pressed="true"] {
   cursor: pointer;
   transition: background var(--transition);
 }
-.palette-item:hover { background: var(--bg-surface0); }
 .palette-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .palette-item > .icon { color: var(--fg-sub0); }
-.palette-item-label { font-size: var(--text-base); color: var(--fg); }
+.palette-item-label { font-size: var(--text-sm); color: var(--fg); }
 .palette-item-context {
   font-size: var(--text-xs);
   color: var(--fg-overlay);
@@ -2712,15 +2829,65 @@ button.chip[aria-pressed="true"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Selection on a rounded row is the fill and the type, never an edge: a 2px
+   border-left under a border-radius is painted only between the corners, so the
+   marker renders as a short segment floating mid-edge. The fill separates from
+   both grounds on its own and the label tier carries the rest. (An edge that
+   means STATUS keeps its edge and squares its left corners instead — see
+   § Left-edge geometry.) */
 .palette-item--active {
   background: var(--bg-surface0);
-  border-left-color: var(--accent);
+  border-left-color: transparent;
 }
 .palette-item--active > .icon { color: var(--fg); }
+.palette-item--active .palette-item-label { color: var(--fg); font-weight: var(--weight-bold); }
 
-@media (max-width: 768px) {
-  .palette-item { min-height: 48px; }
+/* --- Popover shell ---
+   One placement vocabulary for every floating menu: the topbar overflow, the
+   attention panel, the rail's scope and view menus, and the enhanced select's
+   listbox. The surface itself is always a .card (.card-elevated for a menu
+   that floats free); this adds only the float and the inner structure, so a
+   consumer composes `.pop.card.card-elevated` and supplies its own placement.
+   .menu-* are .palette-item modifiers and must stay after it — the tick column
+   re-templates the row's grid at equal specificity. */
+.pop { position: absolute; z-index: var(--z-dropdown); padding: var(--sp-1); }
+/* .card's --border is --bg-surface0, the elevated card's own fill, so a
+   floating menu had no edge where it met another surface0 plane — an enhanced
+   select opened inside a popover merged into it. A foreground hairline draws
+   the edge on every ground in both themes; the top edge keeps its highlight. */
+.pop.card-elevated {
+  border-color: color-mix(in srgb, var(--fg) 9%, transparent);
+  border-top-color: color-mix(in srgb, var(--fg) 14%, transparent);
 }
+/* A floating menu is an overlay, like .card-glass: pointing at it must not
+   tint, glow or lift it. .card-elevated:hover and .card:hover would otherwise
+   apply, so the resting values are restated here (glass has its own). */
+.pop.card-elevated:hover, .pop.card-elevated.card-hover {
+  background: var(--bg-surface0);
+  border-color: color-mix(in srgb, var(--fg) 9%, transparent);
+  border-top-color: color-mix(in srgb, var(--fg) 14%, transparent);
+  box-shadow: var(--shadow-md);
+  translate: none;
+}
+/* Rows on a .pop sit on --bg-surface0, so the row fill steps up a tier to
+   read at all. In the enhanced select the cursor is DOM focus and pointer
+   movement moves it, so there the fill follows :focus and a resting pointer
+   paints nothing. */
+.pop .palette-item:hover,
+.pop .palette-item--active,
+.custom-select-menu .palette-item:focus { background: var(--bg-surface1); }
+.custom-select-menu .palette-item:hover:not(:focus) { background: transparent; }
+.pop-sep { height: 1px; margin: var(--sp-1) 0; background: color-mix(in srgb, var(--bg-surface1) 55%, transparent); }
+.pop-head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2) var(--sp-2);
+  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+}
+.pop-head .btn-icon-sm { margin-left: auto; }
+.menu-item { grid-template-columns: 16px minmax(0, 1fr) auto; }
+.menu-tick { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--accent); }
+.menu-item--on .palette-item-label { color: var(--fg); }
 
 
 /* ================================================================
@@ -2886,9 +3053,6 @@ button.chip[aria-pressed="true"] {
 .form-field--inline { flex-direction: row; align-items: center; justify-content: space-between; }
 .form-field--checkbox { flex-direction: row; align-items: center; gap: var(--sp-2); }
 
-@media (max-width: 768px) {
-  label.form-field--checkbox { min-height: 48px; }
-}
 
 /* Multi-field horizontal group; fields share the row and stack when they run
    out of width. */
@@ -2911,28 +3075,48 @@ button.chip[aria-pressed="true"] {
 
 /* --- Text controls --- */
 
+/* The enhanced select's trigger stands in for a closed `select.form-select`, so
+   it joins the family by selector rather than by a second copy of these
+   declarations — re-tone a field here and the trigger re-tones with it. */
 input.form-input,
 select.form-select,
-textarea.form-textarea {
+textarea.form-textarea,
+button.custom-select-trigger {
   width: 100%;
   padding: var(--sp-2) var(--sp-3);
   /* Text fields join the deep-well family (code wells, terminal bodies): a
-     crust-level channel, not a tinted rectangle. Depth does the resting work;
-     the border carries a 15% accent whisper — the phosphor reads faintly at
-     rest and wakes fully on focus. */
+     crust-level channel, not a tinted rectangle. Depth carries the family
+     reading, but it cannot carry the boundary: the 15% accent whisper this
+     border used to be was invisible against the dark card, so a resting field
+     read as a shade of the page. --border-control is the same >=3:1 resting
+     boundary .btn-ghost holds, and the accent still wakes fully on focus. */
   background: var(--bg-crust);
   color: var(--fg);
   caret-color: var(--accent);  /* terminal-native: the caret is part of the focus signal */
-  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--bg-surface0));
+  border: 1px solid var(--border-control);
   border-radius: var(--radius);
   box-shadow: var(--inset-sm);
   font: inherit;
+  font-size: var(--text-sm);
   transition: border-color var(--transition), box-shadow var(--transition-glow);
 }
 
+/* Single-line controls take the 28px chrome box; the padding stops being a
+   height derivation. A textarea is multi-line and keeps its own floor below. */
+input.form-input,
+select.form-select,
+button.custom-select-trigger {
+  min-height: 28px;
+  padding: 0 var(--sp-3);
+}
+
+/* Hover strengthens the boundary it already has. --bg-surface2 used to do that
+   against the old accent whisper; against --border-control it is the dimmer of
+   the two in dark, so hovering would have faded the field. */
 input.form-input:hover:not(:disabled):not(:focus),
 select.form-select:hover:not(:disabled):not(:focus),
-textarea.form-textarea:hover:not(:disabled):not(:focus) { border-color: var(--bg-surface2); }
+textarea.form-textarea:hover:not(:disabled):not(:focus),
+button.custom-select-trigger:hover:not(:disabled) { border-color: var(--fg-overlay); }
 
 textarea.form-textarea { resize: vertical; min-height: 6rem; }
 
@@ -2941,14 +3125,17 @@ textarea.form-textarea::placeholder { color: var(--fg-overlay); }
 
 input.form-input:disabled,
 select.form-select:disabled,
-textarea.form-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+textarea.form-textarea:disabled,
+button.custom-select-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Focus is the field's phosphor moment: accent border + a soft glow ring on
    top of the recessed inset. The ring is atmosphere, not the a11y signal —
    the :focus-visible outline below stays the guaranteed cue. */
 input.form-input:focus,
 select.form-select:focus,
-textarea.form-textarea:focus {
+textarea.form-textarea:focus,
+button.custom-select-trigger:focus,
+.custom-select[data-open="true"] > button.custom-select-trigger {
   outline: none;
   border-color: var(--accent);
   box-shadow: var(--inset-sm),
@@ -2958,7 +3145,8 @@ textarea.form-textarea:focus {
 
 input.form-input:focus-visible,
 select.form-select:focus-visible,
-textarea.form-textarea:focus-visible {
+textarea.form-textarea:focus-visible,
+button.custom-select-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-color: var(--accent);
@@ -2974,6 +3162,23 @@ textarea.form-textarea:focus-visible {
 .form-error:not(:empty) { min-height: 1em; }
 
 .form-hint { color: var(--fg-overlay); }
+
+/* When a change takes effect, at the right end of the label row. Quiet text,
+   never a pill: a pill per field reads as a warning per field, and nine of them
+   in one card is what this replaces. The tier is a property of the field, so it
+   is stated once and never competes with real state. The label row is uppercase
+   with caps tracking and both inherit, hence the two resets. The transient
+   post-save states keep the form and only re-hue. */
+.field-tier {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg-overlay);
+}
+.field-tier--warn { color: var(--warning); }
+.field-tier--ok { color: var(--success); }
 
 /* --- Validity ---
    Keyed on :user-invalid, which matches only after the user has interacted with
@@ -3130,55 +3335,99 @@ input.form-radio:disabled { opacity: 0.5; cursor: not-allowed; }
 .form-toggle input:disabled { cursor: not-allowed; }
 .form-toggle input:disabled + .form-toggle-slider { opacity: 0.5; }
 
-/* --- Native select ---
+/* --- Select: the closed control ---
    ::after does not render on a <select> and a mask on the control clips the
    whole element, so the chevron is painted with the background-image longhands
    — which also survive app.css's `background` shorthand, since this rule is
    element-qualified and out-specifies it. The shared --icon-* URIs are
    black-stroked and resolve colour only through mask + currentColor, hence the
    dedicated theme-aware pair in icons.css. The second layer is the divider.
-   Closed control only: Safari keeps the opened option popover system-native. */
-select.form-select {
+   The well and the divider band are sized to the 28px box: sp-10 of reserved
+   right padding and a 55% band left the glyph floating in it.
+
+   The enhanced trigger takes the same rule, so the control does not change
+   shape when the enhancer replaces it — and a browser that runs no JS keeps a
+   themed native select rather than a half-styled one. */
+select.form-select,
+button.custom-select-trigger {
   appearance: none;
   -webkit-appearance: none;
-  padding-right: var(--sp-10);
+  padding-right: var(--sp-8);
   background-image: var(--icon-chevron-down-control),
                     linear-gradient(var(--bg-surface0), var(--bg-surface0));
   background-repeat: no-repeat, no-repeat;
-  background-position: right var(--sp-3) center,
-                       right calc(var(--sp-3) + 14px + var(--sp-2)) center;
-  background-size: 14px 14px, 1px 55%;
+  background-position: right var(--sp-2) center,
+                       right calc(var(--sp-2) + 14px + var(--sp-2)) center;
+  background-size: 12px 12px, 1px 60%;
 }
 
-/* iOS zooms the viewport when a focused native control's text is under 16px.
-   The floor belongs with the canonical controls, not in an app stylesheet.
+/* --- Select: the open menu ---
+   `initCustomSelects` wraps every select that is a control, hides the native
+   one and stands the trigger above in its place; the <select> stays in the DOM
+   as the value authority. The menu is a `.pop` card of `.palette-item` rows —
+   the popover vocabulary the rail menus already use — so the geometry below is
+   all this component owns. There is no second dropdown in the system. */
+.custom-select { position: relative; width: 100%; }
+.custom-select[data-open="true"] { z-index: var(--z-dropdown); }
 
-   textarea was held out of this group until the same native case was evidenced
-   on a real control rather than assumed. It since was: five multi-line fields
-   (compact instructions, new-task description and acceptance criteria, the
-   task-detail pushback box and the generated workflow-variable inputs) took the
-   app stylesheet's floor while they carried an input class, and computed 14px
-   the moment they moved onto the canonical one — 14px beside a 16px input in
-   the same form. Two textarea families were also disagreeing on one device,
-   since the app keeps a 16px floor for its own bespoke form-row textareas. */
-@media (max-width: 768px) {
-  input.form-input,
-  select.form-select,
-  textarea.form-textarea { font-size: 16px; }
+/* A hidden control has no visible stand-in. The wrapper took the select's place
+   in the layout, so a `hidden` select (the guard editor toggles it) has to take
+   the wrapper with it. */
+.custom-select:has(> select[hidden]) { display: none; }
 
+/* Kept in flow and transparent rather than display:none, so the native control
+   still reports a box to anything that measures it and still submits. */
+.custom-select > select.native-select-hidden {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+button.custom-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+
+.custom-select-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 18rem caps a long catalogue at roughly nine rows before it scrolls. */
+.custom-select-menu {
+  top: calc(100% + var(--sp-1));
+  left: 0;
+  right: 0;
+  display: none;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+/* Set on open when the menu does not fit below its trigger and there is more
+   room above; the script also caps max-height to the room it chose. */
+.custom-select-menu--up { top: auto; bottom: calc(100% + var(--sp-1)); }
+.custom-select[data-open="true"] > .custom-select-menu { display: block; }
+.custom-select-option:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@media (max-width: 768px), (pointer: coarse) {
   /* Touch-target floor. The 36x20 slider is a fine pointer target and a 20px-tall
      finger target — under WCAG 2.5.8's 24px minimum.
 
      The box grows and the slider stays 36x20 centred inside it, which is what
-     every other 48px floor in this file does. Growing only the input instead —
+     every other floor in § Touch tier does. Growing only the input instead —
      it is out of flow, so it costs no layout — buys the target for free but
-     lets neighbours overlap: stacked toggle rows sit on a ~28px pitch, so 48px
-     hit areas would reach 14px into the rows above and below and a tap near a
+     lets neighbours overlap: stacked toggle rows sit on a ~28px pitch, so 44px
+     hit areas would reach 8px into the rows above and below and a tap near a
      boundary would toggle the wrong setting. Reserving the space is the point,
      not a side effect. */
   .form-toggle {
-    min-width: 48px;
-    min-height: 48px;
+    min-width: 44px;
+    min-height: 44px;
   }
   .form-toggle-slider {
     inset: 50% auto auto 50%;
@@ -3319,15 +3568,6 @@ select.form-select {
   backdrop-filter: blur(var(--glass-blur));
 }
 
-/* Touch-target floor, the same 48px the .btn family takes. Padding alone leaves
-   a tab 36px tall — clear of WCAG 2.5.8's minimum, but meaner than every other
-   control on the same screen, and tab bars are a primary mobile navigation.
-   Height only: the label keeps its padding and the active underline stays on
-   the bottom edge. */
-@media (max-width: 768px) {
-  .tab { min-height: 48px; }
-}
-
 
 /* ================================================================
    26. LIST TOOLBAR & PAGER
@@ -3381,6 +3621,34 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
 }
 
 .pager-label { color: var(--fg-sub0); }
+
+/* Selection bar — appears at the foot of a list once rows are selected, and
+   holds the count plus the actions that apply to the selection. It pins to the
+   bottom of its scroll container rather than floating over the page: the rows
+   it acts on must stay visible while it is open. Visibility is the app's (a
+   list has no selection at rest), so this declares no display of its own. */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  padding: var(--sp-2) var(--sp-4);
+  background: color-mix(in oklab, var(--bg-card) 92%, var(--bg-chrome));
+  border-top: var(--border);
+  box-shadow: 0 -6px 16px -10px rgba(6, 7, 18, 0.8);
+}
+
+.bulk-count {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+/* Pushes everything after it to the trailing edge. */
+.bulk-spacer { margin-left: auto; }
 
 
 /* ================================================================
@@ -3465,7 +3733,7 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--sp-4) var(--sp-5);
+  padding: var(--sp-3) var(--sp-4);
   border-bottom: var(--border);
 }
 
@@ -3492,7 +3760,7 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
   border-top: var(--border);
   background: color-mix(in srgb, var(--bg-base) 18%, var(--bg-mantle));
 }
@@ -3505,7 +3773,8 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
 
 /* A tab strip directly under the header would otherwise draw a second rule
    a few pixels below the header's own — one chrome edge, not two. */
-.dialog .tabs { border-bottom: 0; }
+.dialog > .tabs,
+.dialog > form > .tabs { border-bottom: 0; }
 
 /* A strip between the header and the body is chrome too, so it holds its
    height while the body absorbs the squeeze. The inset lines the strip up with
@@ -3649,7 +3918,61 @@ input.form-input.form-input--search { padding-left: var(--sp-8); }
 
 
 /* ================================================================
-   29. REDUCED MOTION
+   29. TOUCH TIER
+
+   The default control tier above is the fine-pointer one: 28px buttons and
+   fields, 24px small ones, 30px rail rows. This block restores WCAG 2.5.5's
+   44px targets where a finger is doing the pointing. The query is width OR
+   coarse pointer, not width alone — a tablet or a touch-screen laptop at
+   desktop width gets 28px targets otherwise.
+
+   Touch-target floors only. A responsive LAYOUT change (the sidebar drawer,
+   content padding, a stacked action row) stays a width-only query beside the
+   component it reshapes.
+   ================================================================ */
+
+@media (max-width: 768px), (pointer: coarse) {
+  .btn         { min-width: 44px; min-height: 44px; padding: 0 var(--sp-3); }
+  .btn-sm      { min-height: 44px; }
+  .btn-icon,
+  .btn-icon-sm { min-width: 44px; min-height: 44px; }
+
+  /* iOS zooms the viewport when a focused native control's text is under 16px,
+     and the floor belongs with the canonical controls rather than in an app
+     stylesheet. textarea is in this group because five multi-line fields took
+     the app stylesheet's floor while they carried an input class and computed
+     14px the moment they moved onto the canonical one — 14px beside a 16px
+     input in the same form. */
+  input.form-input,
+  select.form-select,
+  button.custom-select-trigger { min-height: 44px; font-size: 16px; }
+  textarea.form-textarea { font-size: 16px; }
+  label.form-field--checkbox { min-height: 44px; }
+
+  .composer-send     { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .composer textarea { min-height: 44px; font-size: 16px; }
+  .input-area textarea { min-height: 44px; font-size: 16px; }
+  .input-area .btn-send { min-height: 44px; }
+
+  .session-item          { min-height: 44px; }
+  .sidebar-nav-item      { min-height: 44px; }
+  .btn-new-session       { min-height: 44px; }
+  .sidebar-system-trigger { min-height: 44px; }
+
+  .palette-item      { min-height: 44px; padding: 0 var(--sp-3); }
+  .notif-item        { min-height: 44px; padding: var(--sp-2) var(--sp-3); }
+  .chip              { min-height: 44px; }
+  .chip-remove       { width: 44px; height: 44px; }
+  .tool-call-summary { min-height: 44px; padding: var(--sp-2) var(--sp-3); }
+
+  /* Padding only: the label keeps its own and the active underline stays on the
+     bottom edge. A tab bar is primary navigation at this size. */
+  .tab { min-height: 44px; }
+}
+
+
+/* ================================================================
+   30. REDUCED MOTION
    ================================================================ */
 
 @media (prefers-reduced-motion: reduce) {

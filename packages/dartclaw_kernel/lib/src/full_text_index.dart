@@ -59,6 +59,24 @@ final class SearchResult {
   }
 }
 
+/// Restricts a full-text query to documents whose metadata value is accepted.
+final class FullTextSearchScope {
+  /// Creates an immutable any-of metadata scope.
+  new({required this.metadataKey, required Iterable<String> acceptedValues})
+    : acceptedValues = Set.unmodifiable(acceptedValues) {
+    if (metadataKey.isEmpty) throw ArgumentError.value(metadataKey, 'metadataKey', 'must not be empty');
+    if (this.acceptedValues.any((value) => value.isEmpty)) {
+      throw ArgumentError.value(acceptedValues, 'acceptedValues', 'must not contain empty values');
+    }
+  }
+
+  /// Metadata key to constrain.
+  final String metadataKey;
+
+  /// Accepted values for [metadataKey]. An empty set matches nothing.
+  final Set<String> acceptedValues;
+}
+
 /// Corpus-agnostic full-text document index.
 ///
 /// `(userId, document.id)` identifies one document. Mutations are atomic per
@@ -94,4 +112,25 @@ abstract interface class FullTextIndex {
 
   /// Throws when the backend's internal consistency check fails.
   Future<void> verifyIntegrity();
+}
+
+/// Backend-owned scoped query operations over a [FullTextIndex].
+abstract interface class ScopedFullTextIndex implements FullTextIndex {
+  /// Searches matching chunks after applying [scope] and before [limit].
+  Future<List<SearchResult>> searchScoped(
+    String naturalLanguageQuery, {
+    required String userId,
+    required FullTextSearchScope scope,
+    int limit = 20,
+  });
+
+  /// Counts query matches after applying the optional [scope].
+  Future<int> countMatches(String naturalLanguageQuery, {required String userId, FullTextSearchScope? scope});
+
+  /// Fetches selected documents after applying [scope].
+  Future<List<SearchDocument>> fetchScoped(
+    Iterable<String> ids, {
+    required String userId,
+    required FullTextSearchScope scope,
+  });
 }

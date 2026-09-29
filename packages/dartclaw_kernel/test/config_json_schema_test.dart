@@ -49,6 +49,13 @@ void main() {
       expect(resetHour, containsPair('maximum', 23));
     });
 
+    test('automatic settling publishes its disabled value and upper bound', () {
+      final autoSettle = _node(schema, 'sessions.auto_settle_idle_days');
+      expect(autoSettle, containsPair('type', 'integer'));
+      expect(autoSettle, containsPair('minimum', 0));
+      expect(autoSettle, containsPair('maximum', 3650));
+    });
+
     test('an enumerated field emits its declared set as a string enum', () {
       expect(_node(schema, 'logging.level'), containsPair('type', 'string'));
       expect(_node(schema, 'logging.level')['enum'], ['FINE', 'INFO', 'SEVERE', 'WARNING']);
@@ -151,6 +158,8 @@ void main() {
 
     test('a list-valued field emits its entry shape as items', () {
       expect(_node(schema, 'agent.agents.<entry>.tools')['items'], {'type': 'string'});
+      final agentEntry = _node(schema, 'agent.agents.<entry>');
+      expect(agentEntry['properties'], isNot(contains('workspace')));
       expect(_node(schema, 'guards.file.extra_rules.[].pattern')['type'], 'string');
       expect(_node(schema, 'guards.file.extra_rules.[].level')['enum'], ['no_access', 'no_delete', 'read_only']);
       expect(_node(schema, 'github.triggers.[]')['properties'], isA<Map<String, Object?>>());

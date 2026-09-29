@@ -7,7 +7,7 @@ VERSION_FILE="$ROOT_DIR/packages/dartclaw_runtime/lib/src/version.dart"
 TARGET="${DARTCLAW_RELEASE_TARGET:-}"
 SKIP_COMPILE="${DARTCLAW_BUILD_SKIP_COMPILE:-}"
 NATIVE_MANIFEST="${DARTCLAW_NATIVE_MANIFEST:-$ROOT_DIR/dev/native_artifacts.json}"
-NATIVE_CACHE="${DARTCLAW_NATIVE_ARCHIVE_CACHE:-}"
+NATIVE_CACHE="${DARTCLAW_NATIVE_ARCHIVE_CACHE:-$ROOT_DIR/.agent_temp/native-cache}"
 NATIVE_ALLOW_DOWNLOAD="${DARTCLAW_NATIVE_ALLOW_DOWNLOAD:-}"
 
 stage_root="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-build.XXXXXX")"
@@ -17,10 +17,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Run the version sync from a copy outside the workspace: `dart run` inside the
-# repo rebuilds the shared .dart_tool/native_assets.yaml (sqlite3 hooks), and a
-# concurrently loading test-runner VM that reads the file mid-write aborts with
-# "File not formatted as yaml". The tool imports only dart:io, so a detached
-# copy runs hook-free.
+# repo may rewrite shared native-asset metadata, and a concurrently loading
+# test-runner VM that reads the file mid-write aborts with "File not formatted
+# as yaml". The tool imports only dart:io, so a detached copy runs hook-free.
 cp "$ROOT_DIR/dev/tools/sync_version.dart" "$stage_root/"
 (cd "$stage_root" && dart sync_version.dart "$ROOT_DIR")
 
@@ -56,13 +55,10 @@ target_arch_name() {
   echo "${target##*-}"
 }
 
-# Build the release binary with `dart build cli`, which runs the sqlite3 native
-# build hooks and emits a bundle with the executable plus its bundled
-# libsqlite3 in a sibling lib/. `dart compile exe` cannot be used: its
-# build-hook detection classifies by the workspace-root pubspec (where sqlite3
-# is absent), so it silently produces a binary with no sqlite native-asset
-# mapping (dart-lang/sdk#62593). `dart build cli` cannot cross-compile, so each
-# target must be built on a native runner for that OS/arch.
+# Build the release binary with `dart build cli`, which runs the llamadart
+# native hook and emits the executable plus its verified native libraries.
+# `dart build cli` cannot cross-compile, so each target must be built on a
+# native runner for that OS/arch.
 compile_binary() {
   local target_os="$1"
   local target_arch="$2"
@@ -100,6 +96,26 @@ sha256_file() {
   fi
 }
 
+release_os="$(platform_name)"
+release_arch="$(arch_name)"
+if [[ -n "$TARGET" ]]; then
+  release_os="$(target_os_name "$TARGET")"
+  release_arch="$(target_arch_name "$TARGET")"
+fi
+release_target="$release_os-$release_arch"
+prepare_args=(
+  --manifest "$NATIVE_MANIFEST"
+  --target "$release_target"
+  --cache "$NATIVE_CACHE"
+  --stage-parent "$stage_root"
+  --hook-root-only
+)
+if [[ "$NATIVE_ALLOW_DOWNLOAD" == "1" ]]; then
+  prepare_args+=(--allow-download)
+fi
+echo "==> Verifying native archive for $release_target"
+native_hook_root="$(cd "$ROOT_DIR" && dart run apps/dartclaw_cli/tool/native_artifact_preparation.dart "${prepare_args[@]}")"
+
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
@@ -113,30 +129,6 @@ bash "$ROOT_DIR/dev/tools/build_bridge.sh" --embed
 # before compiling or the build fails on a fresh checkout.
 echo "==> Generating embedded assets"
 dart run "$ROOT_DIR/dev/tools/embed_assets.dart"
-
-release_os="$(platform_name)"
-release_arch="$(arch_name)"
-if [[ -n "$TARGET" ]]; then
-  release_os="$(target_os_name "$TARGET")"
-  release_arch="$(target_arch_name "$TARGET")"
-fi
-release_target="$release_os-$release_arch"
-if [[ -z "$NATIVE_CACHE" ]]; then
-  echo "DARTCLAW_NATIVE_ARCHIVE_CACHE is required for release builds" >&2
-  exit 1
-fi
-prepare_args=(
-  --manifest "$NATIVE_MANIFEST"
-  --target "$release_target"
-  --cache "$NATIVE_CACHE"
-  --stage-parent "$stage_root"
-  --hook-root-only
-)
-if [[ "$NATIVE_ALLOW_DOWNLOAD" == "1" ]]; then
-  prepare_args+=(--allow-download)
-fi
-echo "==> Verifying native archive for $release_target"
-native_hook_root="$(cd "$ROOT_DIR" && dart run apps/dartclaw_cli/tool/native_artifact_preparation.dart "${prepare_args[@]}")"
 
 if [[ -z "$SKIP_COMPILE" ]]; then
   native_workspace="$stage_root/workspace"

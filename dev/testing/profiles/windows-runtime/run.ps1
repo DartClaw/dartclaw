@@ -38,7 +38,6 @@ $script:Version = $null
 $script:SourceIdentity = $null
 $script:SourceFingerprint = $null
 $script:ArtifactSha256 = $null
-$script:SqliteModule = $null
 $script:ProviderVersions = [ordered]@{ claude = 'unavailable'; codex = 'unavailable' }
 $script:DartVersion = 'unavailable'
 $script:ReloadValue = 65536
@@ -47,7 +46,7 @@ $script:RequiredLayers = @(
   'windows-x64-host',
   'server-startup',
   'web-ui',
-  'fts5-search',
+  'lexical-search',
   'config-reload'
 )
 
@@ -106,7 +105,7 @@ function Invoke-SelfTest {
   }
   $oneFailure['claude-turn'] = [pscustomobject]@{ Result = 'fail' }
   $missingRequired = [ordered]@{}
-  foreach ($layer in $script:RequiredLayers | Where-Object { $_ -ne 'fts5-search' }) {
+  foreach ($layer in $script:RequiredLayers | Where-Object { $_ -ne 'lexical-search' }) {
     $missingRequired[$layer] = [pscustomobject]@{ Result = 'pass' }
   }
   $cases = @(
@@ -133,6 +132,9 @@ function Invoke-SelfTest {
     $script:ProviderStubPath = Join-Path $testRoot 'provider-startup-stub.exe'
     Write-SmokeConfig -Provider claude -UseProviderStub $true
     $stubConfig = Get-Content -LiteralPath $script:ConfigPath -Raw
+    if ($stubConfig -notmatch '(?m)^  url: \$\{DARTCLAW_POSTGRES_URL\}$') {
+      throw 'PostgreSQL URL reference was not written to the smoke config'
+    }
     if ([regex]::Matches($stubConfig, '(?m)^    executable: provider-startup-stub\.exe$').Count -ne 2) {
       throw 'provider stub was not selected for both providers'
     }
@@ -218,6 +220,9 @@ host: 127.0.0.1
 port: $Port
 dev_mode: true
 
+database:
+  url: `${DARTCLAW_POSTGRES_URL}
+
 gateway:
   auth_mode: none
   reload:
@@ -228,7 +233,7 @@ guards:
   enabled: false
 
 search:
-  backend: fts5
+  backend: lexical
 
 context:
   max_result_bytes: $script:ReloadValue
@@ -467,7 +472,6 @@ function Write-EvidenceReport {
   $lines.Add("**Source fingerprint**: $(if ($script:SourceFingerprint) { $script:SourceFingerprint } else { 'not applicable' })")
   $lines.Add("**Claude**: $($script:ProviderVersions.claude)")
   $lines.Add("**Codex**: $($script:ProviderVersions.codex)")
-  $lines.Add("**Expected bundled SQLite module**: $script:SqliteModule")
   $lines.Add('')
   $lines.Add('## Layer Results')
   $lines.Add('')
@@ -506,6 +510,10 @@ $script:ConfigPath = Join-Path $script:TempRoot 'dartclaw.yaml'
 New-Item -ItemType Directory -Path (Join-Path $script:DataDir 'workspace') -Force | Out-Null
 
 try {
+  $script:CurrentStage = 'database-preflight'
+  if (-not $env:DARTCLAW_POSTGRES_URL) {
+    throw 'Set DARTCLAW_POSTGRES_URL to a dedicated PostgreSQL 14+ database before running the Windows runtime smoke.'
+  }
   $script:DartVersion = Get-CommandVersion 'dart'
   if ($PSCmdlet.ParameterSetName -eq 'Artifact') {
     $script:CurrentStage = 'artifact-layout'
@@ -526,7 +534,6 @@ try {
     }
     $script:ExecutionMode = 'artifact'
     $script:Executable = Join-Path $script:ArtifactRoot 'bin/dartclaw.exe'
-    $script:SqliteModule = Join-Path $script:ArtifactRoot 'lib/sqlite3.dll'
     $script:SourceIdentity = "release $script:Version"
   } else {
     $script:CurrentStage = 'source-setup'
@@ -535,10 +542,6 @@ try {
     }
     $script:ExecutionMode = 'source'
     $script:Executable = 'dart.exe'
-    $script:SqliteModule = Join-Path $script:SourceDir '.dart_tool/lib/sqlite3.dll'
-    if (-not (Test-Path -LiteralPath $script:SqliteModule -PathType Leaf)) {
-      throw "source SQLite module not found: $script:SqliteModule (run dart pub get on Windows)"
-    }
     $script:SourceIdentity = (& git -c "safe.directory=$script:SourceDir" -C $script:SourceDir rev-parse HEAD | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'unable to resolve source revision' }
     $script:SourceFingerprint = Get-SourceFingerprint
@@ -565,7 +568,7 @@ try {
     Set-LayerResult 'windows-x64-host' 'pass' 'native Windows x64 host'
   } else {
     Set-LayerResult 'windows-x64-host' 'skipped' `
-      "$([Runtime.InteropServices.RuntimeInformation]::OSArchitecture) host cannot qualify x64 artifact, SQLite, installer, or core runtime"
+      "$([Runtime.InteropServices.RuntimeInformation]::OSArchitecture) host cannot qualify x64 artifact, installer, or core runtime"
   }
 
   # Seeded through the corpus authority, never as hand-written Markdown: the
@@ -581,7 +584,7 @@ try {
       'packages/dartclaw_testing/bin/seed_canonical_memory.dart',
       (Join-Path $script:DataDir 'workspace'),
       'smoke',
-      'windowsfts5smokeseed layered runtime proof'
+      'windowslexicalsmokeseed layered runtime proof'
     )
     $seedOutput = @(& dart @seedArguments 2>&1)
     $seedExitCode = $LASTEXITCODE
@@ -593,7 +596,7 @@ try {
     throw "canonical memory seed failed ($seedExitCode): $($seedOutput -join [Environment]::NewLine)"
   }
   Write-SmokeConfig -Provider claude
-  $script:CurrentStage = 'fts5-index'
+  $script:CurrentStage = 'lexical-index'
   Invoke-DartClaw -Arguments @('--config', $script:ConfigPath, 'rebuild-index') | Out-Null
 
   $script:CurrentStage = 'server-startup'
@@ -622,13 +625,13 @@ try {
     }
 
     try {
-      $search = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/knowledge?q=windowsfts5smokeseed&layer=memory"
+      $search = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/knowledge?q=windowslexicalsmokeseed&layer=memory"
       if ($search.StatusCode -ne 200 -or $search.Content -notmatch 'layered runtime proof') {
-        throw 'live FTS5 query did not return the seeded record'
+        throw 'live lexical query did not return the seeded record'
       }
-      Set-LayerResult 'fts5-search' 'pass' "MATCH returned windowsfts5smokeseed via the bundled SQLite build"
+      Set-LayerResult 'lexical-search' 'pass' 'PostgreSQL lexical search returned the seeded record'
     } catch {
-      Set-LayerResult 'fts5-search' 'fail' $_.Exception.Message
+      Set-LayerResult 'lexical-search' 'fail' $_.Exception.Message
     }
 
     try {
@@ -654,7 +657,7 @@ try {
       Set-LayerResult 'config-reload' 'fail' $_.Exception.Message
     }
   } else {
-    foreach ($layer in @('web-ui', 'fts5-search', 'config-reload')) {
+    foreach ($layer in @('web-ui', 'lexical-search', 'config-reload')) {
       Set-LayerResult $layer 'skipped' 'server-startup failed'
     }
   }
@@ -709,7 +712,7 @@ try {
 } catch {
   $failedStage = $script:CurrentStage
   Set-LayerResult $failedStage 'fail' $_.Exception.Message
-  foreach ($layer in @('server-startup', 'web-ui', 'fts5-search', 'config-reload', 'claude-turn', 'codex-turn')) {
+  foreach ($layer in @('server-startup', 'web-ui', 'lexical-search', 'config-reload', 'claude-turn', 'codex-turn')) {
     if (-not $script:Layers.Contains($layer)) { Set-LayerResult $layer 'skipped' "blocked by $failedStage" }
   }
   if (-not $script:Layers.Contains('windows-x64-host')) {
@@ -719,7 +722,6 @@ try {
   }
   if (-not $script:Version) { $script:Version = 'unresolved' }
   if (-not $script:SourceIdentity) { $script:SourceIdentity = 'unresolved' }
-  if (-not $script:SqliteModule) { $script:SqliteModule = 'unresolved' }
   $verdict = [pscustomobject]@{ Status = 'failed'; ReleaseReady = $false }
   Write-EvidenceReport -Verdict $verdict
   Write-Host "Windows runtime smoke: failed at $failedStage; release-ready=false"

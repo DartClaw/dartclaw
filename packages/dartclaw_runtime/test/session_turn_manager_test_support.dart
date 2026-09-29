@@ -21,14 +21,16 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 /// [reserveCalled] lets command-intercept tests assert a turn was never
 /// reserved.
 class FakeTurnManager extends TurnManager {
-  new(MessageService messages, AgentHarness worker)
-    : super(
+  new(MessageService messages, AgentHarness worker, {String Function()? turnIdFactory})
+    : _turnIdFactory = turnIdFactory,
+      super(
         turnLimits: const TurnLimitsConfig.defaults(),
         messages: messages,
         worker: worker,
         behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
       );
 
+  final String Function()? _turnIdFactory;
   bool _busy = false;
   final Map<String, String> _activeTurns = {};
   final Map<String, TurnOutcome> _outcomes = {};
@@ -37,6 +39,7 @@ class FakeTurnManager extends TurnManager {
   List<Map<String, dynamic>>? lastExecuteMessages;
   final List<String> resetContinuitySessionIds = [];
   bool reserveCalled = false;
+  int executeCallCount = 0;
 
   void setBusy() {
     _busy = true;
@@ -72,10 +75,29 @@ class FakeTurnManager extends TurnManager {
       throw BusyTurnException('global busy', isSameSession: false);
     }
     lastPromptScope = promptScope;
-    const turnId = 'fake-turn-id';
+    final turnId = _turnIdFactory?.call() ?? 'fake-turn-id';
     _activeTurns[sessionId] = turnId;
     return turnId;
   }
+
+  @override
+  Future<String> reserveContextTurn(
+    String sessionId, {
+    required String provider,
+    required String directory,
+    String? model,
+    String? effort,
+    required PromptScope promptScope,
+    required TurnOrigin origin,
+  }) => reserveTurn(
+    sessionId,
+    directory: directory,
+    model: model,
+    effort: effort,
+    isHumanInput: true,
+    promptScope: promptScope,
+    origin: origin,
+  );
 
   @override
   void executeTurn(
@@ -85,6 +107,7 @@ class FakeTurnManager extends TurnManager {
     String? source,
     String agentName = 'main',
   }) {
+    executeCallCount += 1;
     lastExecuteMessages = messages;
   }
 
@@ -206,66 +229,6 @@ class FailingStopHarness extends FakeAgentHarness {
       remainingStopFailures -= 1;
       throw StateError('stop failed');
     }
-  }
-}
-
-final class QueuingFakeTurnManager extends FakeTurnManager {
-  new(super.messages, super.worker);
-
-  final queuedReservationStarted = Completer<void>();
-  final resumeQueuedReservation = Completer<void>();
-  var _reservations = 0;
-
-  @override
-  Future<String> reserveTurn(
-    String sessionId, {
-    String agentName = 'main',
-    String? directory,
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    ExecutionPolicy? workerPolicy,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    bool isHumanInput = false,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    Duration? turnTimeout,
-    TurnOrigin? origin,
-  }) async {
-    _reservations += 1;
-    if (_reservations == 2) {
-      queuedReservationStarted.complete();
-      await resumeQueuedReservation.future;
-    }
-    return super.reserveTurn(
-      sessionId,
-      agentName: agentName,
-      directory: directory,
-      model: model,
-      effort: effort,
-      systemPromptOverride: systemPromptOverride,
-      workerPolicy: workerPolicy,
-      maxTurns: maxTurns,
-      outputSchema: outputSchema,
-      outputSchemaWhenSupported: outputSchemaWhenSupported,
-      providerSessionId: providerSessionId,
-      requestProviderSessionResume: requestProviderSessionResume,
-      taskId: taskId,
-      isHumanInput: isHumanInput,
-      behaviorOverride: behaviorOverride,
-      promptScope: promptScope,
-      allowedTools: allowedTools,
-      readOnly: readOnly,
-      turnTimeout: turnTimeout,
-      origin: origin,
-    );
   }
 }
 

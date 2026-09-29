@@ -37,21 +37,27 @@ Themes from https://github.com/catppuccin/highlightjs.
 
 Download latest from `https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js` and strip the trailing `//# sourceMappingURL=...` line to avoid CSP console warnings.
 
-## htmx-ext-sse
+## HTMX hx-sse
 
-- **Version**: 2.2.4
+- **Version**: 4.0.0
 - **License**: BSD-2-Clause
-- **Source**: https://github.com/bigskysoftware/htmx-extensions/tree/main/src/sse
+- **Source**: https://cdn.jsdelivr.net/npm/htmx.org@4.0.0/dist/ext/hx-sse.min.js
+- **Upstream SRI**: `sha384-VZD0TLKqhJ26ayBUgQg3ud6DsOLMJvtcz0ANpNc9WSbgIuQTnlXI2IfsF5jhBjT6`
+- **Patched SRI**: `sha384-Bh4KeEkjZ1WLWrp84wbo+L4GaWH9fTrqFtgoORzTh+dyb8NcyEms2n6nAbzbOhkb`
 
 ### Files
 
 | File | Description |
 |------|-------------|
-| `sse.js` | HTMX SSE extension (declarative EventSource + DOM swapping) |
+| `sse.js` | HTMX 4 hx-sse extension (fetch stream + named DOM events), patched to handle `reader.cancel()` before aborting the fetch |
 
 ### Upgrading
 
-Download latest from `https://unpkg.com/htmx-ext-sse@{version}/sse.js`.
+Download the matching core release from `https://cdn.jsdelivr.net/npm/htmx.org@{version}/dist/ext/hx-sse.min.js`.
+Verify its unmodified bytes against the upstream SRI, then replace the cleanup sequence
+`abortController.abort(), reader.cancel()` with a handled `reader.cancel()` before `abortController.abort()`. This local
+correction prevents Chrome from reporting the expected named-close teardown as an unhandled `AbortError`. Verify the
+result against the patched SRI.
 
 ## Stimulus
 
@@ -71,10 +77,10 @@ Download from `https://unpkg.com/@hotwired/stimulus@3.2.1/dist/stimulus.umd.js` 
 
 ## htmx
 
-- **Version**: 2.0.8
+- **Version**: 4.0.0
 - **License**: BSD-2-Clause
 - **Source**: https://github.com/bigskysoftware/htmx
-- **SRI**: `sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz`
+- **SRI**: `sha384-BvJpBiO8Kh31EqtJe5DRIeWrHWnCGkwytKs9NKFi86Hhw96dEqdEMzZDeK9iEGTc`
 
 ### Files
 
@@ -84,14 +90,14 @@ Download from `https://unpkg.com/@hotwired/stimulus@3.2.1/dist/stimulus.umd.js` 
 
 ### Upgrading
 
-Download from `https://unpkg.com/htmx.org@{version}/dist/htmx.min.js` and vendor as `htmx.min.js`.
+Download from `https://cdn.jsdelivr.net/npm/htmx.org@{version}/dist/htmx.min.js` and vendor as `htmx.min.js`.
 
 The bytes are the upstream release file unmodified. `integrity` left `layout.html` when the load became same-origin,
 so verify a replacement against the published SRI hash instead:
 
 ```bash
 shasum -b -a 384 htmx.min.js | cut -d' ' -f1 | xxd -r -p | base64
-# 2.0.8 -> /TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz
+# 4.0.0 -> BvJpBiO8Kh31EqtJe5DRIeWrHWnCGkwytKs9NKFi86Hhw96dEqdEMzZDeK9iEGTc
 ```
 
 ## marked

@@ -2,11 +2,24 @@ import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show LoginStoreCollisionError, SubscriptionCredentialStore, NamedCredentialStore;
+    show
+        LoginStoreCollisionError,
+        NamedCredentialStore,
+        PostgresBackend,
+        PostgresSchemaGate,
+        SubscriptionCredentialStore,
+        postgresBackendFactory;
 import 'package:yaml/yaml.dart';
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
-    show ContainerManager, RunCommand, dartclawVersion, defaultProviderExecutable, formatUptime, resolveProviderTarget;
+    show
+        ContainerManager,
+        RunCommand,
+        dartclawVersion,
+        defaultProviderExecutable,
+        formatUptime,
+        resolveDatabaseDsn,
+        resolveProviderTarget;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show selectBashShell;
 
 import '../connected_command_support.dart';
@@ -16,6 +29,11 @@ import '../config_loader.dart';
 
 typedef _ProviderTarget = ({String providerId, String providerBinary});
 typedef _LocalVerificationCheck = ({List<DiagnosticRow> rows, List<_ProviderTarget> providerTargets});
+typedef DatabaseReadinessCheck = Future<List<DiagnosticRow>> Function(
+  DartclawConfig config, {
+  required bool bootstrap,
+  required Map<String, String> environment,
+});
 
 /// Outcome of probing a provider binary with `--version`.
 ///
@@ -89,7 +107,7 @@ enum VerificationOutcome {
   /// All local and provider-auth checks passed.
   success,
 
-  /// Local checks passed; provider verification was skipped or unavailable.
+  /// Setup completed, but the schema or provider still needs verification.
   configuredButUnverified,
 
   /// A blocking local check failed (config parse, binary, port, writability).
@@ -121,8 +139,9 @@ class SetupVerificationResult {
   final VerificationOutcome outcome;
   final LocalVerificationResult local;
   final NetworkVerificationResult? network;
+  final bool databaseBootstrapPending;
 
-  const new({required this.outcome, required this.local, this.network});
+  const new({required this.outcome, required this.local, this.network, this.databaseBootstrapPending = false});
 
   bool get success => outcome == VerificationOutcome.success;
   bool get configuredButUnverified => outcome == VerificationOutcome.configuredButUnverified;
@@ -146,7 +165,7 @@ class SetupChecks {
   final Future<bool> Function(String providerId, String providerBinary, String configPath)? _providerVerified;
   final RunCommand _runCommand;
   final Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? _serverHealth;
-  final String _resolvedExecutable;
+  final DatabaseReadinessCheck _databaseReadiness;
 
   new({
     Future<BinaryProbe> Function(String executable)? probeBinary,
@@ -157,7 +176,7 @@ class SetupChecks {
     Future<bool> Function(String providerId, String providerBinary, String configPath)? providerVerified,
     RunCommand? runCommand,
     Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? serverHealth,
-    String? resolvedExecutable,
+    DatabaseReadinessCheck? databaseReadiness,
   }) : _probeBinary = probeBinary ?? _defaultProbeBinary,
        _portFree = portFree ?? _defaultPortFree,
        _writeProbeFile = writeProbeFile ?? _defaultWriteProbeFile,
@@ -166,7 +185,7 @@ class SetupChecks {
        _providerVerified = providerVerified,
        _runCommand = runCommand ?? Process.run,
        _serverHealth = serverHealth,
-       _resolvedExecutable = resolvedExecutable ?? Platform.resolvedExecutable;
+       _databaseReadiness = databaseReadiness ?? _defaultDatabaseReadiness;
 
   /// Whether [port] can be bound, using the same probe [preflight] and
   /// [diagnose] run.
@@ -238,35 +257,49 @@ class SetupChecks {
     bool skipNetwork = false,
     bool skipPortCheck = false,
   }) async {
+    final config = _loadConfig(configPath);
     final localCheck = await _runLocal(
       configPath: configPath,
       providerIds: providerIds,
       instanceDir: instanceDir,
       port: port,
       skipPortCheck: skipPortCheck,
+      loadedConfig: config,
     );
-    final failures = localCheck.rows
-        .where((row) => row.status == DiagnosticStatus.fail)
+    final databaseRows = await _databaseReadiness(config, bootstrap: false, environment: Platform.environment);
+    final localRows = [...localCheck.rows, ...databaseRows];
+    final pendingBootstrap = databaseRows.any(
+      (row) => row.id == 'database.schema' && row.status == DiagnosticStatus.fail && row.fixable,
+    );
+    final failures = localRows
+        .where((row) => row.status == DiagnosticStatus.fail && !(pendingBootstrap && row.id == 'database.schema'))
         .map((row) => row.summary)
         .toList();
     final local = LocalVerificationResult(
       passed: failures.isEmpty,
       failures: failures,
-      warnings: localCheck.rows.where((row) => row.status == DiagnosticStatus.warn).map((row) => row.summary).toList(),
+      warnings: [
+        ...localRows.where((row) => row.status == DiagnosticStatus.warn).map((row) => row.summary),
+        if (pendingBootstrap) 'PostgreSQL application schema is empty.',
+      ],
     );
 
     if (!local.passed) {
       return SetupVerificationResult(outcome: VerificationOutcome.localFailure, local: local);
     }
 
-    if (skipNetwork) {
+    if (skipNetwork || pendingBootstrap) {
       return SetupVerificationResult(
         outcome: VerificationOutcome.configuredButUnverified,
         local: local,
-        network: const NetworkVerificationResult(
+        databaseBootstrapPending: pendingBootstrap,
+        network: NetworkVerificationResult(
           reachable: false,
           skipped: true,
-          messages: ['Provider verification skipped (--skip-verify).'],
+          messages: [
+            if (pendingBootstrap) 'Run dartclaw doctor --fix to bootstrap the empty application schema.',
+            if (skipNetwork) 'Provider verification skipped (--skip-verify).',
+          ],
         ),
       );
     }
@@ -289,6 +322,7 @@ class SetupChecks {
     String? serverOverride,
     PlatformCapabilities? platformCapabilities,
     Map<String, String>? environment,
+    bool repairDatabase = false,
   }) async {
     final env = environment ?? Platform.environment;
     final capabilities = platformCapabilities ?? PlatformCapabilities(environment: env);
@@ -335,6 +369,7 @@ class SetupChecks {
       parseRow: parse,
     );
     final rows = [local.rows.first, ...validRows, ...local.rows.skip(1)];
+    rows.addAll(await _databaseReadiness(config, bootstrap: repairDatabase, environment: env));
     Map<String, dynamic>? server;
     final port = rows.where((row) => row.id == 'server.port').firstOrNull;
     if (serverOverride != null || port?.status == DiagnosticStatus.fail) {
@@ -463,6 +498,9 @@ class SetupChecks {
       'data_dir.writable',
       'data_dir.layout',
       'server.port',
+      'database.connection',
+      'database.schema',
+      'database.vector',
       'secrets.literals',
       'secrets.unresolvable',
       'secrets.shadowed',
@@ -471,7 +509,7 @@ class SetupChecks {
       'container.runtime',
       'container.image',
       'container.engine',
-      if (!capabilities.posixSignalsAvailable) ...['windows.reload_mode', 'windows.git_bash', 'windows.sqlite_dll'],
+      if (!capabilities.posixSignalsAvailable) ...['windows.reload_mode', 'windows.git_bash'],
     ])
       DiagnosticRow(id: id, status: DiagnosticStatus.skip, summary: 'Config could not be loaded.'),
   ];
@@ -616,25 +654,6 @@ class SetupChecks {
         ),
       );
     }
-    final lib = Directory(p.join(p.dirname(p.dirname(_resolvedExecutable)), 'lib'));
-    final source = !lib.existsSync();
-    final dll = File(p.join(lib.path, 'sqlite3.dll')).existsSync();
-    rows.add(
-      DiagnosticRow(
-        id: 'windows.sqlite_dll',
-        status: source
-            ? DiagnosticStatus.skip
-            : dll
-            ? DiagnosticStatus.pass
-            : DiagnosticStatus.fail,
-        summary: source
-            ? 'Source run: no release library directory.'
-            : dll
-            ? 'Bundled sqlite3.dll exists.'
-            : 'Bundled sqlite3.dll is missing.',
-        remediation: !source && !dll ? 'Reinstall the complete release archive, including lib/sqlite3.dll.' : null,
-      ),
-    );
     return rows;
   }
 
@@ -655,6 +674,164 @@ class SetupChecks {
       transport?.close(force: true);
     }
   }
+
+  static Future<List<DiagnosticRow>> _defaultDatabaseReadiness(
+    DartclawConfig config, {
+    required bool bootstrap,
+    required Map<String, String> environment,
+  }) async {
+    final database = config.database;
+    if (database.url == null && database.credential == null) {
+      return const [
+        DiagnosticRow(
+          id: 'database.connection',
+          status: DiagnosticStatus.fail,
+          summary: 'PostgreSQL connection reference is missing.',
+          remediation: 'Set database.url with environment substitution or set database.credential.',
+        ),
+        DiagnosticRow(
+          id: 'database.schema',
+          status: DiagnosticStatus.skip,
+          summary: 'PostgreSQL connection is unavailable.',
+        ),
+        DiagnosticRow(
+          id: 'database.vector',
+          status: DiagnosticStatus.skip,
+          summary: 'PostgreSQL connection is unavailable.',
+        ),
+      ];
+    }
+
+    DatabaseBackend? backend;
+    try {
+      final stored = NamedCredentialStore.readOnly(
+        credentialsDir: config.credentialsDir,
+        environment: environment,
+      ).readAll();
+      final credentials = CredentialsConfig(entries: {...config.credentials.entries, ...stored});
+      final factory = postgresBackendFactory(
+        database,
+        resolveDsn: (value) => resolveDatabaseDsn(value, credentials: CredentialRegistry(credentials: credentials)),
+        auditLogger: GuardAuditLogger(dataDir: config.server.dataDir),
+      );
+      backend = await factory('');
+    } on StorageException catch (error) {
+      return _databaseConnectionFailure(error.message);
+    } on Object {
+      return _databaseConnectionFailure('PostgreSQL connection failed. Check the configured connection reference.');
+    }
+
+    final identity = backend is PostgresBackend ? backend.databaseIdentity : 'configured PostgreSQL database';
+    final rows = <DiagnosticRow>[
+      DiagnosticRow(
+        id: 'database.connection',
+        status: DiagnosticStatus.pass,
+        summary: 'PostgreSQL 14+ connection is ready: $identity.',
+      ),
+    ];
+    try {
+      final relations = await backend.query('''
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+      ''');
+      if (relations.isEmpty && !bootstrap) {
+        rows.add(
+          const DiagnosticRow(
+            id: 'database.schema',
+            status: DiagnosticStatus.fail,
+            summary: 'PostgreSQL application schema is empty.',
+            remediation: 'Run dartclaw doctor --fix to bootstrap the empty application schema.',
+            fixable: true,
+          ),
+        );
+      } else {
+        if (relations.isEmpty) {
+          await PostgresSchemaGate.prepare(backend, databaseIdentity: identity);
+        } else {
+          await PostgresSchemaGate.validateCurrent(backend, databaseIdentity: identity);
+        }
+        rows.add(
+          DiagnosticRow(
+            id: 'database.schema',
+            status: DiagnosticStatus.pass,
+            summary: relations.isEmpty
+                ? 'PostgreSQL application schema bootstrapped.'
+                : 'PostgreSQL application schema is current.',
+          ),
+        );
+      }
+    } on StorageException catch (error) {
+      rows.add(
+        DiagnosticRow(
+          id: 'database.schema',
+          status: DiagnosticStatus.fail,
+          summary: error.message,
+          remediation: 'Grant the runtime role access to its database and schema, then retry dartclaw doctor.',
+        ),
+      );
+    } on Object {
+      rows.add(
+        const DiagnosticRow(
+          id: 'database.schema',
+          status: DiagnosticStatus.fail,
+          summary: 'PostgreSQL schema inspection failed.',
+          remediation: 'Check runtime-role permissions and retry dartclaw doctor.',
+        ),
+      );
+    }
+
+    if (config.search.backend == 'hybrid') {
+      try {
+        await PostgresSchemaGate.preflightVectorExtension(backend, databaseIdentity: identity);
+        rows.add(
+          const DiagnosticRow(
+            id: 'database.vector',
+            status: DiagnosticStatus.pass,
+            summary: 'pgvector is installed and usable by the runtime role.',
+          ),
+        );
+      } on StorageException catch (error) {
+        rows.add(
+          DiagnosticRow(
+            id: 'database.vector',
+            status: DiagnosticStatus.fail,
+            summary: error.message,
+            remediation: 'Ask an administrator to install pgvector in public and grant runtime-role access.',
+          ),
+        );
+      }
+    } else {
+      rows.add(
+        const DiagnosticRow(
+          id: 'database.vector',
+          status: DiagnosticStatus.skip,
+          summary: 'Lexical search does not require pgvector or embeddings.',
+        ),
+      );
+    }
+    await backend.close();
+    return rows;
+  }
+
+  static List<DiagnosticRow> _databaseConnectionFailure(String summary) => [
+    DiagnosticRow(
+      id: 'database.connection',
+      status: DiagnosticStatus.fail,
+      summary: summary,
+      remediation: 'Check the PostgreSQL service, TLS posture, connection reference, and runtime-role access.',
+    ),
+    const DiagnosticRow(
+      id: 'database.schema',
+      status: DiagnosticStatus.skip,
+      summary: 'PostgreSQL connection is unavailable.',
+    ),
+    const DiagnosticRow(
+      id: 'database.vector',
+      status: DiagnosticStatus.skip,
+      summary: 'PostgreSQL connection is unavailable.',
+    ),
+  ];
 
   Future<_LocalVerificationCheck> _runLocal({
     required String configPath,

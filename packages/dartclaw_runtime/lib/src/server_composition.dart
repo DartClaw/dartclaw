@@ -45,12 +45,18 @@ TurnManager composeServerTurns({
   EventBus? eventBus,
   DartclawConfig? config,
   ExecutionPolicy executionPolicy = const ExecutionPolicy.host(),
+  AgentDefinitionResolver? agentDefinitions,
 }) {
+  final configured = {
+    for (final definition in config?.agent.definitions ?? const <AgentDefinition>[]) definition.id: definition,
+  };
+  final resolveAgent = agentDefinitions ?? (String agentId) => configured[agentId];
   final turns = executions != null
       ? TurnManager.fromCoordinator(
           coordinator: executions,
           sessions: sessionsForTurns ?? sessions,
           policyResolver: policyResolver,
+          agentDefinitions: resolveAgent,
           turnLimits: config?.governance.turnLimits ?? const TurnLimitsConfig.defaults(),
         )
       : TurnManager(
@@ -71,6 +77,7 @@ TurnManager composeServerTurns({
           turnLimits: config?.governance.turnLimits ?? const TurnLimitsConfig.defaults(),
           eventBus: eventBus,
           executionPolicy: executionPolicy,
+          agentDefinitions: resolveAgent,
         );
   resetService?.bindSessionContinuityResetter(turns.resetSessionContinuity);
   return turns;

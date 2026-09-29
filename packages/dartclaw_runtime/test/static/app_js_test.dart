@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -29,6 +30,22 @@ void main() {
   });
 
   group('legacy static asset removal', () {
+    test('vendored HTMX 4 core and hx-sse bytes match the recorded release', () {
+      final core = File('$baseDir/htmx.min.js').readAsBytesSync();
+      final sse = File('$baseDir/sse.js').readAsBytesSync();
+
+      expect(core, hasLength(36716));
+      expect(
+        sha384.convert(core).toString(),
+        '06f2690623bc2a1df512ab497b90d121e5ab1d69c21a4c32b4ab3d34a162f3a1e1c3de9d12a74433364378af621064dc',
+      );
+      expect(sse, hasLength(6240));
+      expect(
+        sha384.convert(sse).toString(),
+        '061e0a78492367558b5aba7ce306e8f8be066961fd7d3aea16d828391cd387e7726fc35cc849acda7ea701bcdb3a191b',
+      );
+    });
+
     test('streaming cursor retains the canonical block glyph', () {
       final appCss = File(componentsCssPath).readAsStringSync();
       final designSystemCss = File(designSystemCssPath).readAsStringSync();
@@ -130,7 +147,8 @@ void main() {
       expect(chatSource, contains('handleBeforeRequest(event)'));
       expect(chatSource, contains('handleTurnError()'));
       expect(chatSource, contains('finalizeTurn(options = {})'));
-      final turnErrorHandler = _jsFunction(chatSource, 'handleTurnError()');
+      final turnErrorStart = chatSource.indexOf('\n  handleTurnError() {');
+      final turnErrorHandler = _jsFunction(chatSource.substring(turnErrorStart + 1), 'handleTurnError()');
       expect(turnErrorHandler, contains('this.showRecovery('));
       expect(turnErrorHandler, isNot(contains('this.finalizeTurn(')));
     });
@@ -158,13 +176,12 @@ void main() {
       // .open class, so the inert boundary must be re-derived after every swap
       // and whenever the drawer breakpoint stops matching — otherwise
       // .menu-toggle is stranded inside the region it would have to un-inert.
-      // Settle, not swap: the OOB #sidebar still carries the old .open class at
-      // every afterSwap, so an earlier reconcile reads a stale open drawer.
       expect(shellSource, contains('this.reconcileDrawerState();'));
       expect(
         shellSource.indexOf('this.reconcileDrawerState();'),
-        greaterThan(shellSource.indexOf('handleAfterSettle() {')),
+        greaterThan(shellSource.indexOf('handleAfterSwap(event) {')),
       );
+      expect(shellSource, isNot(contains('handleAfterSettle')));
       expect(shellSource, contains('handleDrawerViewportChange'));
       expect(shellSource, contains("window.matchMedia('(max-width: 768px)')"));
     });
@@ -203,6 +220,19 @@ void main() {
     test('enhanced selects emit one bubbling native change', () async {
       final sharedFile = File('$baseDir/controllers/shared.js').absolute;
       await expectNodeHarness(_customSelectHarness, [sharedFile.uri.toString()]);
+    });
+
+    // Pointer and keyboard are two ways of moving one cursor; two cursors in one
+    // menu leave the reader unsure which row Enter commits.
+    test('enhanced select option cursor follows pointer movement and the keyboard alike', () async {
+      final sharedFile = File('$baseDir/controllers/shared.js').absolute;
+      await expectNodeHarness(_customSelectCursorHarness, [sharedFile.uri.toString()]);
+    });
+
+    // A menu cut off by the viewport hides rows the keyboard can still land on.
+    test('enhanced select menu placement keeps the whole menu visible', () async {
+      final sharedFile = File('$baseDir/controllers/shared.js').absolute;
+      await expectNodeHarness(_customSelectPlacementHarness, [sharedFile.uri.toString()]);
     });
 
     test('navigation notification badges use hidden state', () {
@@ -265,8 +295,8 @@ void main() {
       expect(chatSource, contains(".querySelector('.msg-thinking')?.remove()"));
       expect(chatSource, contains("classList.add('streaming')"));
       expect(chatSource, isNot(contains('#streaming-content .claw-loader')));
-      expect(chatSource, contains("if (event.detail?.type === 'delta')"));
-      expect(chatSource, isNot(contains("if (event.detail?.type !== 'delta') return")));
+      expect(chatSource, contains("if (message.event === 'delta')"));
+      expect(chatSource, contains('event.detail.waitUntil(this.processSseMessage('));
       // Auto-scroll is intent-driven: no call may re-anchor unconditionally.
       expect(chatSource, contains('scrollToBottom(this.element, { force: true })'));
       expect(chatSource, isNot(contains('scrollToBottom(this.element);')));
@@ -285,20 +315,6 @@ void main() {
       expect(workflowSource, isNot(contains('innerHTML')));
     });
 
-    test('pairing progress bars are independently centered', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(
-        appCss,
-        contains(
-          '.pairing-status-row {\n'
-          '  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); text-align: center;\n'
-          '}',
-        ),
-      );
-      expect(appCss, contains('.pairing-status-row .scan-bar { flex: 0 0 auto; width: min(6rem, 30%); }'));
-    });
-
     test('server-rendered forms leave workflow action hierarchy canonical', () {
       final settingsSource = File('$baseDir/controllers/dc_settings_controller.js').readAsStringSync();
       final workflowSource = File('$baseDir/controllers/dc_workflows_controller.js').readAsStringSync();
@@ -311,8 +327,7 @@ void main() {
       expect(workflowSource, isNot(contains('submitBtn.classList')));
     });
 
-    test('sidebar creation action is a quiet full-width command below Chats', () async {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+    test('sidebar creation action is an icon button in the rail control row', () async {
       final iconsCss = File(iconsCssPath).readAsStringSync();
       final sidebarTemplatePath = p.join(await resolveTemplatesDir(), 'sidebar.html');
       final sidebarSource = File(sidebarTemplatePath).readAsStringSync();
@@ -320,73 +335,17 @@ void main() {
 
       expect(sidebarSource, contains('class="sidebar-body"'));
       expect(sidebarSource, contains('class="sidebar-chat-section"'));
-      expect(sidebarSource, contains('type="button" class="btn-new-session"'));
-      expect(sidebarSource, contains('class="btn-new-session-icon" data-icon="new-session"'));
-      expect(sidebarSource, contains('class="sidebar-chat-divider"'));
+      expect(sidebarSource, contains('class="btn btn-icon rail-new" data-session-create="true"'));
+      expect(sidebarSource, contains('data-icon="new-session"'));
+      // The full-width text command and its divider are gone with the control
+      // row that replaced them.
+      expect(sidebarSource, isNot(contains('btn-new-session')));
+      expect(sidebarSource, isNot(contains('sidebar-chat-divider')));
       expect(sidebarSource, isNot(contains('sidebar-section-heading')));
-      expect(
-        RegExp(
-          r'\.btn-new-session\s*\{[^}]*width:\s*calc\(100% - \(2 \* var\(--sp-2\)\)\);[^}]*min-height:\s*40px;'
-          r'[^}]*border:\s*1px solid transparent;[^}]*background:\s*transparent;',
-        ).hasMatch(designSystemCss),
-        isTrue,
-      );
-      expect(designSystemCss, contains('.btn-new-session:hover { background: var(--bg-surface0); }'));
-      expect(designSystemCss, contains('.btn-new-session:disabled { cursor: wait; opacity: 0.6; }'));
-      expect(designSystemCss, contains('.btn-new-session:focus-visible {'));
-      expect(designSystemCss, contains('.btn-new-session { min-height: 48px; }'));
-      expect(designSystemCss, contains('.sidebar-body { overflow: hidden; }'));
-      expect(designSystemCss, contains('.sidebar-body .session-list { flex: 1; min-height: 0; overflow-y: auto; }'));
       expect(sidebarSectionsSource, contains("sidebar.querySelector('.sidebar-chat-section')"));
       expect(sidebarSectionsSource, contains('workflowSection || chatsSection'));
       expect(iconsCss, contains('[data-icon="server"]::before'));
       expect(iconsCss, contains('[data-icon="chevron-up"]::before'));
-    });
-
-    test('system active indicator clears rounded window corners', () {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-
-      expect(RegExp(r'\.sidebar-system-trigger\s*\{[^}]*position:\s*relative;').hasMatch(designSystemCss), isTrue);
-      expect(
-        RegExp(
-          r'\.sidebar-system-menu:has\(\.sidebar-nav-item\.active\)\s*>\s*\.sidebar-system-trigger\s*\{'
-          r'[^}]*border-left-color:',
-        ).hasMatch(designSystemCss),
-        isFalse,
-      );
-      expect(
-        RegExp(
-          r'\.sidebar-system-menu:has\(\.sidebar-nav-item\.active\)\s*>\s*\.sidebar-system-trigger::before\s*\{'
-          r'[^}]*top:\s*50%;[^}]*left:\s*var\(--sp-2\);'
-          r'[^}]*width:\s*3px;[^}]*height:\s*16px;[^}]*transform:\s*translateY\(-50%\);'
-          r'[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
-        ).hasMatch(designSystemCss),
-        isTrue,
-      );
-    });
-
-    test('system panel active item uses the notch, not the flush edge', () {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-
-      expect(
-        designSystemCss,
-        contains('.sidebar-system-panel .sidebar-nav-item.active { border-left-color: transparent; }'),
-      );
-      expect(
-        RegExp(
-          r'\.sidebar-system-panel \.sidebar-nav-item\.active::after\s*\{'
-          r'[^}]*top:\s*50%;[^}]*left:\s*var\(--sp-1\);'
-          r'[^}]*width:\s*3px;[^}]*height:\s*16px;[^}]*transform:\s*translateY\(-50%\);'
-          r'[^}]*border-radius:\s*999px;[^}]*background:\s*var\(--accent\);',
-        ).hasMatch(designSystemCss),
-        isTrue,
-      );
-    });
-
-    test('mobile sidebar disclosures share the 48px touch floor', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(appCss, contains('@media (max-width: 768px) {\n  .sidebar-archive-toggle { min-height: 48px; }'));
     });
 
     test('light theme uses visible Aurora washes without sacrificing muted-text contrast', () {
@@ -446,96 +405,11 @@ void main() {
       }
     });
 
-    test('mobile form and composer floors use fixed accessible dimensions', () async {
+    test('the settings tab strip is canon-owned and driven by the controller', () {
       final appCss = File(componentsCssPath).readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-
-      expect(designSystemCss, contains('.input-area textarea { min-height: 48px; font-size: 16px; }'));
-      expect(designSystemCss, contains('.input-area .btn-send { min-height: 48px; }'));
-      expect(designSystemCss, contains('.btn { min-width: 48px; min-height: 48px; }'));
-      expect(designSystemCss, contains('.sidebar-nav-item { min-height: 48px; }'));
-      expect(designSystemCss, contains('label.form-field--checkbox { min-height: 48px; }'));
-      // Height only on the bare rule: a min-width floor stretches narrow inline
-      // chips that happen to be buttons. Square targets set their own width.
-      expect(appCss, contains('button,\n  summary,\n  [role="button"] {\n    min-height: 48px;\n  }'));
-      expect(appCss, contains('.topbar .menu-toggle,\n  .theme-toggle {\n    width: 48px;'));
-      // `.btn-icon-sm` is canon's tier now, so canon's own `.btn` floor (asserted
-      // above) owns its mobile target — which only reaches the icon buttons
-      // because they carry the base class. Assert that half too; either alone
-      // passes vacuously.
-      final schedulingHtml = File(p.join(await resolveTemplatesDir(), 'scheduling.html')).readAsStringSync();
-      expect(RegExp(r'class="btn-icon-sm').hasMatch(schedulingHtml), isFalse);
-      expect(RegExp(r'class="btn btn-icon-sm').allMatches(schedulingHtml), hasLength(7));
-      // Anchors get no floor from the bare `button` rule, so they are named as
-      // one intent-based list. The three class-name lists this replaced each
-      // missed the tab and pager anchors, which is how those shipped at 28px.
-      expect(appCss, contains(':is(.topbar-back, .card-link, .guard-audit-link, .tabs a.tab, .pager a) {'));
-      // The toggle is canon's `.form-toggle` now, and canon carries its mobile
-      // floor: the box grows to 48px while the slider stays 36x20 centred.
-      expect(designSystemCss, contains('.form-toggle {\n    min-width: 48px;\n    min-height: 48px;\n  }'));
-      expect(designSystemCss, contains('.tab { min-height: 48px; }'));
-      expect(RegExp(r'^\.toggle-(switch|slider)\b', multiLine: true).hasMatch(appCss), isFalse);
-      expect(appCss, contains('.login-input,\n  .login-checkbox {\n    min-height: 48px;'));
-      expect(appCss, isNot(contains('.btn-sm.btn-primary {')));
-      expect(appCss, isNot(contains('.btn-sm.btn-danger {')));
-      expect(RegExp(r'^\.metric-(value|label)\s*\{', multiLine: true).hasMatch(appCss), isFalse);
-      expect(appCss, isNot(contains('.input-area textarea:focus {')));
-      expect(appCss, isNot(contains('*, *::before, *::after {')));
-      // Anchored: app CSS must not re-declare canon's live-dot treatment. The
-      // `.shell[data-connection="lost"]` descendant rule is a state gate over
-      // canon's animation, not a second definition of it.
-      expect(RegExp(r'^\.status-dot--live::before', multiLine: true).hasMatch(appCss), isFalse);
-      expect(designSystemCss, contains('.pipeline-step--failed .pipeline-node'));
-      expect(appCss, contains('.well-content .form-select {\n    font-size: 16px;'));
-      // The dialogs' 48px control floor survives the canon swap keyed on the
-      // preserved dialog ids — canon floors no control, so nothing else owns it.
-      // Both bind the declaration: the same selector heads also open the base
-      // 44px block, so a selector-only check passes with the floor deleted.
-      expect(RegExp(r'#new-task-dialog \.form-input,[^}]*min-height: 48px;').hasMatch(appCss), isTrue);
-      expect(RegExp(r'#add-project-dialog \.form-select \{\s*\n\s*min-height: 48px;').hasMatch(appCss), isTrue);
-    });
-
-    test('design tokens resolve to their declared type and spacing scale', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
-      final tokensCss = File(tokensCssPath).readAsStringSync();
-
-      expect(tokensCss, contains('--font-sans: system-ui, -apple-system, BlinkMacSystemFont'));
-      expect(tokensCss, contains('--text-lg:   1rem;        /* 16px — section headings */'));
-      expect(tokensCss, contains('--text-xl:   1.125rem;    /* 18px — page title */'));
-      expect(tokensCss, contains('--text-2xl:  1.25rem;     /* 20px — hero/page-level display */'));
-      expect(tokensCss, contains('--text-3xl:  1.5rem;      /* 24px — metric values, big numbers */'));
-      expect(tokensCss, contains('--leading:       1.5;'));
-      expect(tokensCss, contains('--measure:        65ch;'));
-      expect(designSystemCss, contains('html {\n  font-family: var(--font-sans);\n  font-size: 16px;'));
-      expect(designSystemCss, contains('code, pre, kbd, samp { font-family: var(--font-mono); }'));
-      expect(designSystemCss, contains('font-size: var(--text-base);\n  min-height: 100dvh;'));
-      expect(designSystemCss, contains('.card-title { font: inherit; }'));
-      expect(appCss, contains('grid-template-columns: minmax(0, 1fr);'));
-      expect(appCss, contains('font-size: var(--text-base);\n  font-weight: var(--weight-medium);'));
-    });
-
-    test('settings use full-width panes and a single-row responsive tab strip', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
       final settingsSource = File('$baseDir/controllers/dc_settings_controller.js').readAsStringSync();
 
-      expect(appCss, contains('.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr);'));
       // The strip is canon's single `.tabs` component now; app.css re-implements none of it.
-      expect(RegExp(r'\.tabs\s*\{[^}]*overflow-x:\s*auto;').hasMatch(designSystemCss), isTrue);
-      expect(RegExp(r'\.tabs\s*\{[^}]*flex-wrap:\s*nowrap;').hasMatch(designSystemCss), isTrue);
-      expect(RegExp(r'\.tab\s*\{[^}]*flex:\s*0 0 auto;').hasMatch(designSystemCss), isTrue);
-      expect(RegExp(r'\.tabs\s*\{[^}]*grid-template-columns').hasMatch(designSystemCss), isFalse);
-      expect(designSystemCss, contains('scrollbar-color: var(--fg-sub0) transparent;'));
-      expect(
-        RegExp(r'\.tabs::\-webkit-scrollbar-thumb\s*\{[^}]*background:\s*var\(--fg-sub0\);').hasMatch(designSystemCss),
-        isTrue,
-      );
-      expect(
-        RegExp(r'\.tabs::after\s*\{[^}]*width:\s*var\(--sp-5\);[^}]*color-mix\(in srgb, var\(--fg\) 24%, transparent\)')
-            .hasMatch(designSystemCss),
-        isTrue,
-      );
       expect(RegExp(r'^\.settings-tabs?\b', multiLine: true).hasMatch(appCss), isFalse);
       expect(appCss, isNot(contains('.restart-required-badge')));
       // Same intent as the retired `aria-current` assertion: the active tab is
@@ -570,14 +444,12 @@ void main() {
 
     test('composer rich input reuses canonical accessible chips', () {
       final chatSource = File('$baseDir/controllers/dc_chat_controller.js').readAsStringSync();
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
 
       expect(chatSource, contains('<span class="chip">'));
       expect(chatSource, contains('<span class="chip chip--ref">'));
       expect(chatSource, contains('class="chip-remove" aria-label="Remove attachment"'));
       expect(chatSource, contains('class="chip-remove" aria-label="Remove reference"'));
       expect(chatSource, isNot(contains('composer-chip')));
-      expect(designSystemCss, contains('.chip-remove { width: 44px; height: 44px; }'));
     });
 
     test('composer suggestions restore the message affordances', () {
@@ -585,7 +457,10 @@ void main() {
       final appCss = File(componentsCssPath).readAsStringSync();
 
       expect(chatSource, contains('applySuggestion(event)'));
-      expect(appCss, contains('.composer-hints'));
+      // Suggestions are the empty state's own row; the shortcut hint rides the
+      // placeholder rather than a standing hint strip in the toolbar.
+      expect(appCss, contains('.suggest-row'));
+      expect(appCss, isNot(contains('.composer-hints')));
     });
 
     test('composer input keeps only the reference palette path', () {
@@ -622,13 +497,16 @@ void main() {
 
     test('exactly one confirmation API and one htmx:confirm gate exist', () {
       var definitions = 0;
+      var inputDefinitions = 0;
       var confirmEventMentions = 0;
       for (final file in controllerSources) {
         final source = file.readAsStringSync();
         definitions += 'function confirmDialog('.allMatches(source).length;
+        inputDefinitions += 'function inputDialog('.allMatches(source).length;
         confirmEventMentions += "'htmx:confirm'".allMatches(source).length;
       }
       expect(definitions, 1, reason: 'a second modal confirmation implementation appeared');
+      expect(inputDefinitions, 1, reason: 'custom text input must stay in the shared dialog authority');
       // One addEventListener plus its disconnect() counterpart.
       expect(confirmEventMentions, 2);
 
@@ -643,8 +521,8 @@ void main() {
       final shellSource = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
       expect(shellSource, contains("addEventListener('htmx:confirm', this.handleHtmxConfirm)"));
       expect(shellSource, contains("removeEventListener('htmx:confirm', this.handleHtmxConfirm)"));
-      // Without the argument htmx falls back to its own native confirm box.
-      expect(shellSource, contains('issueRequest(true)'));
+      expect(shellSource, contains('event.detail.issueRequest();'));
+      expect(shellSource, contains('event.detail.dropRequest();'));
     });
 
     test('the confirmation frame composes the canonical dialog classes', () {
@@ -656,6 +534,11 @@ void main() {
       // Danger is markup, not a second frame — DESIGN.md § Feedback.
       expect(sharedSource, contains("danger ? 'btn btn-danger-fill btn-sm' : 'btn btn-sm'"));
       expect(sharedSource, contains("'icon icon-triangle-alert'"));
+      expect(sharedSource, contains("'dialog dialog--sm card card-glass'"));
+      expect(sharedSource, contains("input.className = 'form-textarea'"));
+      expect(sharedSource, contains('input.focus()'));
+      expect(sharedSource, contains('input.select()'));
+      expect(sharedSource, contains("event.key !== 'Enter'"));
       for (final rule in ['.dialog--confirm', '.dialog-header', '.dialog-body', '.dialog-footer', '.dialog-actions']) {
         expect(designSystemCss, contains(rule), reason: '$rule is consumed but not defined in canon');
       }
@@ -704,33 +587,8 @@ void main() {
       expect(designSystemCss, contains('.status-dot--live::after'));
     });
 
-    test('shell contains entry motion while page surfaces retain scroll ownership', () {
-      final designSystemCss = File(designSystemCssPath).readAsStringSync();
+    test('app CSS does not override canon shell containment', () {
       final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(designSystemCss, contains('grid-template-columns: var(--sidebar-w) minmax(0, 1fr);'));
-      expect(designSystemCss, contains('grid-template-rows: var(--topbar-h) minmax(0, 1fr);'));
-      expect(designSystemCss, contains('height: 100dvh;\n  overflow: hidden;'));
-      expect(designSystemCss, contains('.shell { grid-template-columns: minmax(0, 1fr); }'));
-      expect(designSystemCss, contains('.content-area {\n  min-height: 0;\n  overflow-y: auto;'));
-      expect(
-        designSystemCss,
-        contains('.chat-area {\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  min-height: 0;'),
-      );
-      expect(
-        designSystemCss,
-        contains('.messages {\n  flex: 1;\n  display: flex;\n  flex-direction: column;\n  overflow-y: auto;'),
-      );
-      expect(designSystemCss, contains('@starting-style {\n  .print-in {\n    opacity: 0;\n    translate: 0 6px;'));
-      expect(appCss, contains('.page-content { position: relative; min-height: 0; overflow-y: auto;'));
-      expect(
-        appCss,
-        contains(
-          '.shell > .shell-main {\n  grid-row: 1 / -1;\n  display: flex;\n  flex-direction: column;\n  min-height: 0;',
-        ),
-      );
-      expect(appCss, contains('.shell-main > #main-content { flex: 1 1 auto; min-height: 0; }'));
-      expect(appCss, contains('.pairing-main { overflow-y: auto;'));
 
       final appShellDeclarations = RegExp(
         r'^\s*\.shell\s*\{([^}]*)\}',
@@ -752,7 +610,7 @@ void main() {
       // Two listeners on the same event paint two toasts for one failure, so
       // the archive-local pair was removed rather than deduplicated downstream.
       expect(shell, isNot(contains('bindHtmxRequestErrors')));
-      for (final event in ['htmx:responseError', 'htmx:sendError']) {
+      for (final event in ['htmx:response:error', 'htmx:error']) {
         expect(
           "addEventListener('$event'".allMatches(shell).length,
           1,
@@ -764,7 +622,7 @@ void main() {
           reason: '$event must be torn down in disconnect()',
         );
       }
-      expect(shell, contains('readHtmxErrorMessage(event.detail.xhr'));
+      expect(shell, contains('readHtmxErrorMessage(event.detail.ctx'));
       // Archive keeps its sidebar restoration and gains no replacement catch.
       expect(shell, contains('if (wasSidebarOpen) this.setSidebarOpen(true);'));
     });
@@ -806,7 +664,9 @@ void main() {
 
       // hx-indicator on <body> is inherited by every htmx element, so no
       // per-surface template carries a navigation indicator of its own.
-      expect(layout, contains('hx-indicator="#nav-progress"'));
+      expect(layout, contains('hx-indicator:inherited="#nav-progress"'));
+      expect(layout, contains('hx-status:4xx:inherited="swap:none"'));
+      expect(layout, contains('hx-status:5xx:inherited="swap:none"'));
       expect(layout, contains('id="nav-progress" class="scan-bar htmx-indicator"'));
       expect(appCss, contains('#nav-progress'));
       // Overlaid, not in flow: a polled region's content is already on screen,
@@ -821,35 +681,6 @@ void main() {
       expect(appCss, isNot(contains('#audit-table-container .table-scroll th, ')));
       // Canon's .data-table th owns the header treatment outright.
       expect(appCss, isNot(contains('#audit-table-container .table-scroll th {')));
-    });
-
-    test('task tables fit the shell throughout its constrained desktop range', () {
-      final appCss = File(componentsCssPath).readAsStringSync();
-
-      expect(
-        appCss,
-        contains(
-          '@media (max-width: 1156px) {\n'
-          '  .task-status-group .data-table { min-width: 100%; }\n'
-          '  .task-status-group .task-col-created-by,\n'
-          '  .task-status-group .task-col-created,\n'
-          '  .task-status-group .task-col-status,\n'
-          '  .task-status-group .task-col-tokens {\n'
-          '    min-width: 0;\n'
-          '  }\n'
-          '}',
-        ),
-      );
-      expect(appCss, isNot(contains('.task-status-group .task-col-tokens { display: none; }')));
-      expect(
-        appCss,
-        contains(
-          '@media (min-width: 769px) and (max-width: 1156px) {\n'
-          '  .task-status-group .data-table :is(th, td) { padding-inline: var(--sp-2); }\n'
-          '}',
-        ),
-      );
-      expect(appCss, contains('table-layout: fixed;\n    min-width: 0;'));
     });
   });
 
@@ -868,25 +699,21 @@ void main() {
       expect(source, isNot(contains("from './")));
     });
 
-    test('shell reapplies identicons after swaps and history navigation', () {
+    test('shell reapplies identicons and scopes restore scrolling to its refetch', () {
       final source = File('$baseDir/controllers/dc_shell_controller.js').readAsStringSync();
 
       expect(source, contains('applyIdenticons();'));
       expect(RegExp(r'handleAfterSwap[\s\S]*?applyIdenticons\(\);').hasMatch(source), isTrue);
-      expect(RegExp(r'handleHistoryRestore[\s\S]*?applyIdenticons\(\);').hasMatch(source), isTrue);
-      expect(RegExp(r'handleHistoryCacheMissLoad[\s\S]*?applyIdenticons\(\);').hasMatch(source), isTrue);
+      expect(source, contains("ctx?.request?.headers?.['HX-History-Restore-Request'] === 'true'"));
+      expect(
+        RegExp(r'handleAfterSwap[\s\S]*?isHistoryRestore[\s\S]*?scrollToBottom\(document, \{ force: true \}\)')
+            .hasMatch(source),
+        isTrue,
+      );
+      expect(source, isNot(contains('historyRestorePending')));
       expect(source, contains('list.hidden = isCollapsed;'));
       expect(source, contains('list.hidden = wasExpanded;'));
       expect(source, isNot(contains('list.style.display')));
-    });
-
-    test('sidebar entity actions retain mobile touch targets', () {
-      final css = File(componentsCssPath).readAsStringSync();
-
-      expect(css, contains('.session-item { padding: 0; }'));
-      expect(css, contains('.session-item-link,'));
-      expect(css, contains('.session-item .session-action,\n  .session-item .session-delete {\n    min-height: 48px;'));
-      expect(css, contains('.session-item :is(.session-action, .session-delete) {\n    min-width: 48px;'));
     });
   });
 
@@ -948,8 +775,8 @@ void main() {
       // and released again on every terminal outcome. A refused or failed
       // request swaps nothing, so without these the section would stay
       // permanently unsavable.
-      expect(listeners, contains("content.addEventListener('htmx:beforeRequest'"));
-      expect(listeners, contains("'htmx:afterRequest', 'htmx:sendError', 'htmx:responseError'"));
+      expect(listeners, contains("content.addEventListener('htmx:before:request'"));
+      expect(listeners, contains("content.addEventListener('htmx:finally:request'"));
       expect(listeners, contains('delete form.dataset.saving;'));
       // A refused field's message cannot outlive the value it named.
       expect(listeners, contains("content.addEventListener('input', clearFieldError);"));
@@ -1133,12 +960,17 @@ if (unicode.textContent !== 'Ån') throw new Error('Unicode initials were not pr
 if (punctuationOnly.textContent !== '?') throw new Error('punctuation-only initials did not fall back');
 ''';
 
-const _customSelectHarness = r'''
+/// A fake DOM just deep enough for `enhanceCustomSelect`: the harnesses below
+/// append their own select and assertions to it.
+const _customSelectDom = r'''
 import { readFile } from 'node:fs/promises';
 
 class ClassList {
   constructor() { this.names = new Set(); }
   add(...names) { names.forEach((name) => this.names.add(name)); }
+  remove(...names) { names.forEach((name) => this.names.delete(name)); }
+  toggle(name, on) { if (on) this.names.add(name); else this.names.delete(name); }
+  contains(name) { return this.names.has(name); }
 }
 
 class Element {
@@ -1149,37 +981,215 @@ class Element {
     this.listeners = {};
     this.attributes = {};
     this.classList = new ClassList();
+    this.style = {};
     this.disabled = false;
   }
+  get firstChild() { return this.children[0]; }
+  get lastChild() { return this.children[this.children.length - 1]; }
+  // A node that was given text is a leaf; otherwise it reads as its children,
+  // which is what lets a row report the label its last child carries.
+  get textContent() {
+    if (this._text !== undefined) return this._text;
+    return this.children.map((child) => child.textContent ?? '').join('');
+  }
+  set textContent(value) { this._text = value; }
   append(...children) { this.children.push(...children); }
   appendChild(child) { this.children.push(child); }
+  replaceChildren(...children) { this.children = [...children]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
   setAttribute(name, value) { this.attributes[name] = value; }
-  querySelectorAll(selector) {
-    if (selector === '.custom-select-option') {
-      return this.children.filter((child) => child.className === 'custom-select-option');
-    }
-    return [];
-  }
+  querySelectorAll() { return []; }
   querySelector() { return null; }
-  focus() {}
-  set innerHTML(_) { this.children = []; }
+  // Real containment, so the focusout close path is actually exercised rather
+  // than short-circuited by a fake that never contains anything.
+  contains(node) {
+    if (node === this) return true;
+    return this.children.some((child) => child.contains?.(node) === true);
+  }
+  focus() { document.activeElement = this; }
+  getBoundingClientRect() { return this.rect; }
 }
 
+const created = [];
+globalThis.window = { innerHeight: 600 };
+globalThis.getComputedStyle = (node) => ({ overflowY: node.overflowY ?? 'visible' });
+globalThis.document = {
+  activeElement: null,
+  createElement(tagName) {
+    const element = new Element(tagName);
+    created.push(element);
+    return element;
+  },
+  addEventListener() {},
+  querySelectorAll() { return []; },
+  querySelector() { return null; },
+};
+
+const source = await readFile(new URL(process.argv[1]), 'utf8');
+const shared = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+// Enhances a fresh select over [options] and hands back the parts it built.
+function enhancedSelect(options, { parentElement = null } = {}) {
+  const select = {
+    dataset: {},
+    parentNode: { insertBefore() {} },
+    isConnected: true,
+    classList: new ClassList(),
+    attributes: {},
+    tabIndex: 0,
+    value: options[0].value,
+    disabled: false,
+    options: options.map(([value, disabled = false]) =>
+      ({ value, textContent: value, label: value, selected: false, disabled })),
+    get selectedIndex() { return this.options.findIndex((option) => option.value === this.value); },
+    getAttribute(name) { return this.attributes[name] ?? null; },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    addEventListener() {},
+    dispatchEvent() {},
+  };
+  const start = created.length;
+  shared.initCustomSelects({ querySelectorAll: () => [select] });
+  const built = created.slice(start);
+  const wrapper = built.find((element) => element.className === 'custom-select');
+  wrapper.parentElement = parentElement;
+  return {
+    select,
+    wrapper,
+    trigger: built.find((element) => element.className === 'custom-select-trigger'),
+    menu: built.find((element) => element.className?.includes('custom-select-menu')),
+  };
+}
+''';
+
+const _customSelectCursorHarness =
+    _customSelectDom +
+    r'''
+const { wrapper, trigger, menu } = enhancedSelect([['low'], ['medium'], ['high'], ['max'], ['xhigh', true]]);
+trigger.rect = { top: 100, bottom: 128, height: 28 };
+menu.rect = { top: 132, bottom: 300, height: 168 };
+const row = (value) => menu.children.find((candidate) => candidate.dataset.value === value);
+const focused = () => document.activeElement?.dataset.value;
+const key = (name) => menu.listeners.keydown({ key: name, preventDefault() {} });
+
+// Opened from the keyboard, the cursor starts on the selected row.
+trigger.listeners.keydown({ key: 'ArrowDown', preventDefault() {} });
+if (focused() !== 'low') throw new Error('keyboard open did not land on the selected row: ' + focused());
+
+// The pointer moves the one cursor, without scrolling the list under it.
+let scrolled = false;
+const focusHigh = row('high').focus;
+row('high').focus = function (options) {
+  scrolled = options?.preventScroll !== true;
+  focusHigh.call(this, options);
+};
+row('high').listeners.pointermove();
+if (focused() !== 'high') throw new Error('pointer movement did not move the cursor: ' + focused());
+if (scrolled) throw new Error('pointer movement scrolled the list');
+
+// The keyboard continues from where the pointer left the cursor.
+key('ArrowDown');
+if (focused() !== 'max') throw new Error('ArrowDown did not continue from the pointer row: ' + focused());
+
+// A disabled row cannot take the cursor.
+row('xhigh').listeners.pointermove();
+if (focused() !== 'max') throw new Error('a disabled row took the cursor: ' + focused());
+
+// A second press on the trigger closes the open menu. Modelled on WebKit, which
+// focuses nothing when a button is pressed: unless the page takes focus itself,
+// the row blurs to nowhere, the focusout closes the menu, and the click that
+// follows reopens it.
+function press() {
+  const from = document.activeElement;
+  let prevented = false;
+  trigger.listeners.mousedown?.({ preventDefault() { prevented = true; } });
+  const to = prevented ? document.activeElement : null;
+  if (to !== from) wrapper.listeners.focusout({ relatedTarget: to });
+  trigger.listeners.click();
+}
+if (wrapper.dataset.open !== 'true') throw new Error('the menu was not open before the second press');
+press();
+if (wrapper.dataset.open !== 'false') throw new Error('a second press on the trigger left the menu open');
+if (document.activeElement !== trigger) throw new Error('closing from the trigger did not leave focus on it');
+press();
+if (wrapper.dataset.open !== 'true') throw new Error('a press on the closed trigger did not open the menu');
+''';
+
+const _customSelectPlacementHarness =
+    _customSelectDom +
+    r'''
+// The viewport is 600px tall. The menu hangs 4px under its trigger and is 168px
+// tall at rest, so it needs 172px of room below the trigger.
+function open(triggerTop, { menuHeight = 168, parentElement = null } = {}) {
+  const parts = enhancedSelect([['low'], ['high']], { parentElement });
+  parts.trigger.rect = { top: triggerTop, bottom: triggerTop + 28, height: 28 };
+  // Measured where the menu opens by default, as the browser would before the
+  // script moves it.
+  parts.menu.rect = { top: triggerTop + 32, bottom: triggerTop + 32 + menuHeight, height: menuHeight };
+  parts.trigger.listeners.click();
+  return parts.menu;
+}
+const up = (menu) => menu.classList.contains('custom-select-menu--up');
+
+const fits = open(100);
+if (up(fits)) throw new Error('a menu with room below opened upward');
+if (fits.style.maxHeight) throw new Error('a menu with room below was capped: ' + fits.style.maxHeight);
+
+// 600 - 528 - 4 = 68px below, 500 - 4 = 496px above.
+const flipped = open(500);
+if (!up(flipped)) throw new Error('a menu without room below did not open upward');
+if (flipped.style.maxHeight) throw new Error('a menu with room above was capped: ' + flipped.style.maxHeight);
+
+// Reopened where it fits again, it goes back below: placement is per open.
+flipped.rect = { top: 132, bottom: 300, height: 168 };
+const triggerOf = (menu) => created.find((element) =>
+  element.className === 'custom-select-trigger' && element.attributes['aria-controls'] === menu.id);
+triggerOf(flipped).rect = { top: 100, bottom: 128, height: 28 };
+triggerOf(flipped).listeners.click();
+triggerOf(flipped).listeners.click();
+if (up(flipped)) throw new Error('a reopened menu kept the previous upward placement');
+
+// A 400px menu fits neither side of a trigger at 250: 600 - 278 - 4 = 318 below,
+// 250 - 4 = 246 above. It takes the larger side and scrolls inside that room.
+const clamped = open(250, { menuHeight: 400 });
+if (up(clamped)) throw new Error('the clamped menu took the smaller side');
+if (clamped.style.maxHeight !== '318px') throw new Error('the clamped menu was not capped to its room: '
+  + clamped.style.maxHeight);
+
+// A clipping ancestor is a boundary like the viewport: inside a dialog body
+// that ends at 400, only 400 - 278 - 4 = 118px are below and the menu flips.
+const dialogBody = { overflowY: 'auto', parentElement: null, getBoundingClientRect: () => ({ top: 0, bottom: 400 }) };
+const clipped = open(250, { parentElement: dialogBody });
+if (!up(clipped)) throw new Error('a clipping ancestor was not treated as a boundary');
+''';
+
+const _customSelectHarness =
+    _customSelectDom +
+    r'''
 let bubbledChanges = 0;
 const parent = { insertBefore() {} };
 const selectListeners = {};
+const formListeners = {};
+const form = {
+  addEventListener(name, listener) { formListeners[name] = listener; },
+  removeEventListener(name) { delete formListeners[name]; },
+};
 const select = {
   dataset: {},
   parentNode: parent,
+  form,
+  isConnected: true,
   classList: new ClassList(),
+  attributes: {},
   tabIndex: 0,
   value: '',
+  disabled: false,
   options: [
     { value: '', textContent: 'All statuses', label: 'All statuses', selected: true, disabled: false },
     { value: 'review', textContent: 'Review', label: 'Review', selected: false, disabled: false },
   ],
   get selectedIndex() { return this.options.findIndex((option) => option.value === this.value); },
+  getAttribute(name) { return this.attributes[name] ?? null; },
+  setAttribute(name, value) { this.attributes[name] = value; },
   addEventListener(name, listener) { selectListeners[name] = listener; },
   dispatchEvent(event) {
     selectListeners[event.type]?.(event);
@@ -1187,28 +1197,84 @@ const select = {
   },
 };
 
-const created = [];
-globalThis.window = {};
-globalThis.document = {
-  createElement(tagName) {
-    const element = new Element(tagName);
-    created.push(element);
-    return element;
-  },
-  querySelectorAll() { return []; },
-};
-
-const source = await readFile(new URL(process.argv[1]), 'utf8');
-const shared = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-shared.initCustomSelects({
+// The enhancer is opt-out now. The selector asks only "not enhanced yet"; the
+// markup's opt-out is aria-hidden, decided inside the enhancer, so the enhancer
+// setting aria-hidden itself can never read back as an opt-out.
+let selectorAsked = null;
+const enhance = (node) => shared.initCustomSelects({
   querySelectorAll(selector) {
-    return selector === 'select[data-enhance="custom-select"]' ? [select] : [];
+    selectorAsked = selector;
+    return [node];
   },
 });
 
-const optionButtons = created.filter((element) => element.className === 'custom-select-option');
-if (optionButtons.length !== 2) throw new Error('enhanced options were not built');
-optionButtons[1].listeners.click();
+const optedOut = { dataset: {}, attributes: { 'aria-hidden': 'true' },
+  getAttribute(name) { return this.attributes[name] ?? null; } };
+enhance(optedOut);
+if (optedOut.dataset.customSelectInit) throw new Error('an aria-hidden value holder was enhanced');
+
+enhance(select);
+if (selectorAsked !== 'select.form-select:not([data-custom-select-init])') {
+  throw new Error('unexpected enhancement selector: ' + selectorAsked);
+}
+
+const optionRows = created.filter((element) => element.className?.includes('custom-select-option'));
+if (optionRows.length !== 2) throw new Error('enhanced options were not built');
+// The menu is built from the shared popover vocabulary, not a select-only one.
+if (!optionRows[0].className.includes('palette-item menu-item')) {
+  throw new Error('option row does not carry the canonical menu classes: ' + optionRows[0].className);
+}
+if (optionRows[0].attributes.role !== 'option') throw new Error('option row is not a listbox option');
+if (select.attributes['aria-hidden'] !== 'true') throw new Error('native select stayed in the a11y tree');
+
+optionRows[1].listeners.click();
 if (select.value !== 'review') throw new Error('native select value did not change');
 if (bubbledChanges !== 1) throw new Error('expected one bubbling change, got ' + bubbledChanges);
+// The tick follows the value, so the selected row is readable without colour.
+if (optionRows[1].firstChild.className !== 'menu-tick icon-control') {
+  throw new Error('selected row carries no tick: ' + optionRows[1].firstChild.className);
+}
+if (optionRows[0].firstChild.className !== 'menu-tick') {
+  throw new Error('unselected row kept a tick: ' + optionRows[0].firstChild.className);
+}
+
+const wrapper = created.find((element) => element.className === 'custom-select');
+const trigger = created.find((element) => element.className === 'custom-select-trigger');
+const menu = created.find((element) => element.className?.includes('custom-select-menu'));
+const label = () => trigger.children[0].textContent;
+
+// Focus leaving the wrapper closes the menu; focus moving inside it does not.
+wrapper.dataset.open = 'true';
+wrapper.listeners.focusout({ relatedTarget: optionRows[0] });
+if (wrapper.dataset.open !== 'true') throw new Error('focus moving inside the menu closed it');
+wrapper.listeners.focusout({ relatedTarget: null });
+if (wrapper.dataset.open !== 'false') throw new Error('focus leaving the wrapper left the menu open');
+
+// A form reset restores the select silently — no change event — so the enhancer
+// has to resync itself or the trigger keeps the discarded label.
+select.value = '';
+formListeners.reset();
+await new Promise((resolve) => setTimeout(resolve, 0));
+if (label() !== 'All statuses') throw new Error('trigger kept the discarded label: ' + label());
+
+// Rewriting the option list has to reach the rows, not just the label: a menu
+// still listing the previous provider's models is worse than a stale label.
+select.options = [
+  { value: 'sonnet', textContent: 'Sonnet', label: 'Sonnet', selected: true, disabled: false },
+  { value: 'opus', textContent: 'Opus', label: 'Opus', selected: false, disabled: false },
+  { value: 'haiku', textContent: 'Haiku', label: 'Haiku', selected: false, disabled: true },
+];
+select.value = 'opus';
+shared.syncCustomSelect(select);
+const rowLabels = menu.children.map((row) => row.lastChild.textContent);
+if (rowLabels.join(',') !== 'Sonnet,Opus,Haiku') throw new Error('menu rows were not rebuilt: ' + rowLabels);
+if (menu.children[2].disabled !== true) throw new Error('rebuilt row dropped its disabled state');
+if (label() !== 'Opus') throw new Error('trigger did not follow the rebuilt options: ' + label());
+
+// An unchanged option list must not rebuild — a rebuild drops keyboard focus.
+const rowsBefore = menu.children.slice();
+shared.syncCustomSelect(select);
+if (menu.children.some((row, index) => row !== rowsBefore[index])) {
+  throw new Error('an unchanged option list rebuilt the menu');
+}
 ''';

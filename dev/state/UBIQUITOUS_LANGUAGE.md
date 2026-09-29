@@ -86,19 +86,26 @@
 | Emergency Control | Admin-only: `/stop` (abort all), `/pause` (queue messages), `/resume` (drain queue) | kill switch |
 
 ## Conversation & Session
-
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
 | Session | Top-level conversation container with persisted messages. Types: main, channel, cron, user, task, logicalAgent, archive | conversation, thread, chat |
 | Session Key | Deterministic routing string `agent:<agentId>:<scope>:<identifiers>`. Decouples scoping from session discovery | session ID, routing key |
 | Session Scope | Rules for session creation: `shared`, `per_contact`, `per_channel_contact`, `per_member` | isolation mode, distribution |
+| Managed Workspace Binding | Agent id and derived `data_dir/agents/<id>/workspace` directory pinned to a conversation at creation; owns behavior and skills under the `agent:<id>` storage principal independently of project context | workspace selection, configured path, project workspace |
+| Conversation Attempt | One admitted unit of conversation work linking its submission, captured effective context, provider turn, terminal outcome, messages, tools, approvals, and branch lineage | turn (when persistence identity matters), retry |
+| Effective Context | Complete nullable project association, directory, reference root, provider, model, and effort snapshot captured by the next admitted attempt; never changes the Managed Workspace Binding | workspace, execution defaults |
+| General Chat | Owner web conversation without a project association, executing in the existing owner workspace; Agent and global New chat start here | General project, implicit local project |
+| Project Chat | Owner web conversation associated with an explicitly selected Project for subsequent work; association changes preserve owner, memory and past attempts | project workspace, project agent |
+| Attention Event | Durable completion, failure, or input-request record linked to exact conversation history and projected into the owner's attention feed | notification, alert |
+| Action Availability | Server projection that an exact live request and owning turn still permit an action; read or dismiss state does not confer it | button state, permission |
+| Temporary Conversation | Owner-authorized conversation with `process` retention whose DartClaw state, attachments, usage context, and provider home remain in process, page, or volatile container storage until confirmed end | incognito chat, automatically private chat |
 | NDJSON | Newline-Delimited JSON. One JSON object per line. Used for messages, audit logs, usage | JSON lines, line-delimited JSON |
 | Cursor | Line number in an NDJSON file used as a crash-recovery resume point. `lastCursor` tracks position | offset, checkpoint, position |
 | Atomic Write | Temp file + rename pattern preventing corruption on crash | safe write, transactional write |
-| Database Backend | Restart-tier selection behind the storage layer (`DatabaseBackend`): `SqliteBackend` is the default and `PostgresBackend` is opt-in. One deployment uses one database backend and, with PostgreSQL, one database and pool (ADR-045). Always qualify it as *database* backend – bare "backend" is a disfavored synonym for Provider | engine, database provider |
-| Authoritative Store | Durable relational records for tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts. SQLite stores these in `dartclaw.db`; the derived search index is rebuildable | `tasks.db` (retired SQLite filename) |
-| Instance-Local Store | Serve-process-only filesystem state in `turn_state.json` and `webhook_deliveries/`. It is transient, safe to lose, and never moves into the selected database backend | state database, delivery database |
-| Schema Compatibility Gate | Startup contract using one current schema epoch plus backend-owned required-object manifests. It transactionally bootstraps fresh storage, admits the exact released-0.25 SQLite transition, and refuses incompatible authoritative storage with back-up-then-reset-or-recreate guidance. Derived search storage rebuilds from complete supported sources or refuses. It is not a migration history (ADR-045) | schema epoch check, compatibility check |
+| Database Backend | Dependency-free relational port implemented by the sole PostgreSQL runtime adapter. One deployment uses one PostgreSQL 14+ database and pool. Always qualify it as *database* backend – bare "backend" is a disfavored synonym for Provider | engine, database provider |
+| Authoritative Store | Durable PostgreSQL records for tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts. Derived memory and conversation indexes are rebuildable | relational store |
+| Instance-Local Store | Serve-process-only filesystem state in `turn_state.json` and `webhook_deliveries/`. It is transient, safe to lose, and never moves into PostgreSQL | state database, delivery database |
+| Schema Compatibility Gate | `PostgresSchemaGate`: one current schema epoch plus required-object manifests. It transactionally bootstraps only an empty application namespace, validates compatible current storage without mutation, and refuses partial, foreign, or incompatible storage. It is not a migration history | schema epoch check, compatibility check |
 
 ## Channel Integration
 
@@ -161,10 +168,14 @@
 | Workflow Run Artifact | Persistent record of a workflow run event – outcome, inputs/outputs, metadata. Stored alongside other workflow run state and queryable post-hoc. Examples: per-step output records, Resolution Attempt artifact | run artifact, structured artifact |
 
 ## Knowledge & Memory
-
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
-| Context Engine | Server-side layer that synthesizes internal knowledge from wiki, temporal KG, and memory, ingests external sources through MCP, and serves compact citation-backed packets to agents over MCP | turn context assembler, context window assembler |
+| Context Engine | Server-side layer that combines caller-private personal memory with the shared wiki and temporal KG, then serves compact citation-backed packets to agents and read-only MCP clients | turn context assembler, context window assembler |
+| Personal Memory | Canonical memory and derived projections owned by one storage principal (`owner` or `agent:<id>`); never a shared source merely because its managed workspace exists | global memory, shared memory |
+| Selected Private Corpus | The single owner-authorized personal-memory corpus chosen for administration by an opaque selector. Reads, health, search, and revision-checked writes use that corpus's principal | active workspace, shared memory |
+| Retained Agent Corpus | Existing canonical memory under a removed named agent's validated managed home. The owner may inspect and correct it; the removed agent has no tool access | orphan workspace, adopted memory |
+| Curated Removal | Revision-checked removal of one canonical curated entry. It does not erase its source observations, transcripts, audit records, or backups | source purge, hard delete |
+| Shared Knowledge Surface | Explicitly published wiki pages and temporal KG facts readable by owner, named agents with `context_research`, and named MCP clients; excludes personal memory and knowledge-inbox files | all knowledge, global memory |
 | Canonical Memory Entry | Stable UUID-addressed record with revision, role, provenance, and validated Markdown representation | memory chunk, indexed text |
 | Memory Role | Closed discriminant for every canonical memory document kind: `index`, `topic`, `archive`, `observation`, `learning`, `audit`, `wiki`, `kg`. Topic, archive, observation, and learning entries are index-eligible; index, audit, wiki, and KG entries are not | memory type, category |
 | Memory Provenance | The `MemorySourceRef` tuple every canonical record carries (origin kind, source locator, source event, caller, session ref). Origin kinds: `turn`, `journal`, `inbox`, `curation`, `migration`. Compare with `isExactReplayOf` for dedup and deletion authorization – structural equality is deliberately looser | source ref, origin |
@@ -174,14 +185,14 @@
 | Knowledge Inbox | Drop-folder ingestion path whose files move through the fixed states `inbox`, `processed`, `quarantine`, `skipped` | upload folder, import queue |
 | Knowledge Hub | Operator-facing browse/search surface over the knowledge layers (`all`, `wiki`, `kg`, `memory`, `inbox`) | knowledge UI, memory browser |
 | Search Index | Rebuildable backend-native lexical and vector projections of canonical memory and chat-facing conversation messages in separate corpora. Memory audit entries and non-chat messages are excluded | source of truth, search database |
-| Full-Text Index | Generic lexical-document `FullTextIndex` port over SQLite FTS5 or PostgreSQL text search, instantiated separately for memory documents and conversation messages. Search, upsert, and delete carry `user_id`; current projections use the instance-owner identity. It is not a global knowledge index (ADR-045) | FTS layer, search abstraction |
+| Full-Text Index | Generic lexical-document `FullTextIndex` port over PostgreSQL text search, instantiated separately for memory documents and conversation messages. Search, upsert, and delete carry the owner or `agent:<id>` principal as `user_id`; it is not a global knowledge index | FTS layer, search abstraction |
 | Embedding Provider | Owner of query and ordered document embeddings under one Model Fingerprint. The `local` provider uses the verified EmbeddingGemma artifact and its query/document prefixes; `http` sends raw input to one explicit endpoint that owns preprocessing and the external trust boundary | embedding backend, model |
 | Model Fingerprint | Derived identity of the provider, model and input convention used to authenticate reusable vectors. It is never an operator-supplied configuration value | model ID, embedding version |
-| Vector Index | Owner- and corpus-scoped `VectorIndex` projection for exact-fingerprint embeddings. SQLite uses separate `vectors.db` and Dart cosine ranking; PostgreSQL uses application vector tables with `public.vector` and its qualified cosine operator | vector database, semantic store |
+| Vector Index | Optional principal- and corpus-scoped PostgreSQL `VectorIndex` projection for exact-fingerprint embeddings, using application vector tables with administrator-provisioned `public.vector` and its qualified cosine operator | vector database, semantic store |
 | Hybrid Search | `dartclaw_search` composition of one Full-Text Index and one Vector Index using frozen weighted RRF. Memory and conversation instances synchronize independently; lexical results remain available when embeddings or vectors degrade | semantic search, reranker |
-| QMD | Deprecated external hybrid-search daemon retained as a working opt-in backend through 0.26. It is removed in the following milestone; built-in Hybrid Search is the current semantic path | current hybrid backend, embeddings service |
+| QMD | Retired external hybrid-search daemon removed in 0.27. Its old config subtree is parser-only transition input and never activates a runtime path; built-in Hybrid Search is the semantic path | current hybrid backend, embeddings service |
 | citation packet | Compact synthesized response where each claim carries source references resolvable to wiki, temporal KG, memory, or external MCP source material | answer blob, summary packet |
-| `context_research` | MCP synthesis tool that retrieves across internal knowledge layers and returns a citation packet | context engine tool, research outpost, search summary |
+| `context_research` | MCP synthesis tool that retrieves caller-private personal memory when available plus the shared wiki and KG, then returns a citation packet; named clients receive shared sources only | context engine tool, research outpost, search summary |
 | wiki provenance | Frontmatter field recording who authored a wiki page's content. `human-authored` and `hybrid` rank as search-trusted; `llm-authored` ranks trusted while `sources` is populated; any other stored value is preserved untouched and reported by wiki lint | authorship, page origin |
 | `hybrid` | The wiki provenance a page takes on when a `human-authored` or `hybrid` page gains machine-synthesized content, so it is neither relabelled as machine-authored nor claimed as sole machine authorship | mixed, merged provenance |
 | supplement section | A `## Supplement from <source> (<date>)` block appended to an existing wiki page. Reachable only when the merge turn declares the new material unrelated to the stored page | append block, merge section |
@@ -271,7 +282,10 @@
 | Drain | Workflow Orchestration | Cancelling and re-queueing in-flight foreach iterations on Serialize-remaining | Runtime Governance | `/resume (drain queue)` – replaying the paused message queue |
 
 ## Changelog
-
+- 2026-09-26: Clarified that Effective Context permits a null project association for general chats.
+- 2026-09-25: Added General Chat and Project Chat and nullable Effective Context from ADR-017 §9.
+- 2026-09-22: Replaced configurable Workspace Binding with Managed Workspace Binding and added Personal Memory and Shared Knowledge Surface.
+- 2026-09-14: Added Workspace Binding, Conversation Attempt, Effective Context, Attention Event, Action Availability, and Temporary Conversation.
 - 2026-09-09: Aligned database and schema-compatibility terms and added Instance-Local Store.
 - 2026-09-09: Full-Text Index and Search Index now name separate memory and conversation corpora and their owner scope.
 - 2026-09-09: Added Embedding Provider, Model Fingerprint, Vector Index, and Hybrid Search; marked QMD's 0.26 deprecation window.
@@ -284,12 +298,3 @@
 - 2026-08-14: Regrouped the whole glossary onto the 15 bounded contexts registered in `dev/architecture/context-map.md` (closes D-4): the `##` section *is* the context, so the ~50 ad-hoc "Bounded Context" labels and their column are gone. Added the missing Scheduling vocabulary under `task-review` (closes D-5) and first-time coverage for `project-registry`, `tool-surface`, `operator-interface`, and `observability-alerting`. New terms elsewhere: Security Profile, Worker Capacity Gate, Session Lock, Context Monitor, Prompt Scope, Memory Role/Provenance/Observation, Temporal Knowledge Graph, Knowledge Inbox, Knowledge Hub, QMD, Platform Capabilities. Added overloads for Message, Event, Audit, Runner, Context, Budget, Merge, Project, Tool, and the channel-task Bridge. Dropped "Dependency Reversal" and "Outpost Pattern" (generic jargon; "outpost" is already an Avoid synonym for the outbound MCP client) and the degenerate Worker/Guard/Verification overload rows.
 - 2026-08-12: Retired the pre-0.24 Credential Proxy entry (redirect to Host Gateway / Container Bridge) and updated Container Isolation to the shipped 0.24 model (per-authority single-use container, `no-new-privileges`, framed bridge as the only egress path).
 - 2026-08-12: Added 0.24 execution-isolation terms – Execution Policy, Principal, Container Authority, Host Gateway, Container Bridge (`dartclaw_bridge`); extended the Bridge overloaded-term row with the container-bridge sense.
-- 2026-08-09: Replaced legacy pool terminology with Execution Coordinator, Execution Lease, and Execution Fingerprint; capacity is lease-based and independent from optional worker reuse.
-- 2026-06-12: Added 0.19 Context Engine, Turn Context Assembler, outbound MCP client, `context_research`, egress guard, and citation packet terms.
-- 2026-08-23: Retired the task-category meaning from the overloaded Type row; workflow step and scheduled-job types remain distinct.
-- 2026-04-25: Added 0.16.4 agent-resolved-merge terms (workflow git) and the Agent Skills terms Bang Operator and Env-var Injection.
-- 2026-08-23: Clarified that workflow-authored step types remain workflow execution metadata while task dispatch uses explicit `readOnly` and `needsWorktree` declarations.
-- 2026-04-11: Added 0.16 terms for alert routing, compaction observability, and reconfigurable service; updated workflow ownership to `dartclaw_workflow`; added fitness function as a 0.16.3 architecture-governance term.
-- 2026-04-04: Added the Workflows section for the 0.15 milestone.
-- 2026-03-24: Reassigned thread binding, sender attribution, review commands, and runtime governance to concrete capability areas after removing the former shared bounded context.
-- 2026-03-23: Initial extraction from architecture docs, CLAUDE.md, and codebase.

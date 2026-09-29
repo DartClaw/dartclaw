@@ -1,7 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:uuid/uuid.dart';
 
-/// Centralizes task event recording: SQLite persistence + EventBus notification.
+/// Centralizes task event recording and EventBus notification.
 ///
 /// Integration points call typed convenience methods instead of manually
 /// constructing [TaskEvent] instances. Each method:
@@ -106,12 +106,14 @@ class TaskEventRecorder {
     String taskId, {
     required int inputTokens,
     required int outputTokens,
+    bool tokenUsageComplete = false,
     int cacheReadTokens = 0,
     int cacheWriteTokens = 0,
   }) async {
     await _record(taskId, TaskEventKind.tokenUpdate, {
       'inputTokens': inputTokens,
       'outputTokens': outputTokens,
+      'tokenUsageComplete': tokenUsageComplete,
       if (cacheReadTokens > 0) 'cacheReadTokens': cacheReadTokens,
       if (cacheWriteTokens > 0) 'cacheWriteTokens': cacheWriteTokens,
     });

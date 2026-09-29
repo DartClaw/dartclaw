@@ -9,10 +9,10 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/turn_wait_status.dart';
 import 'package:dartclaw_runtime/src/web/pages/health_page.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import '../signal_test_support.dart';
@@ -112,18 +112,16 @@ void main() {
     /// Builds the wiki handler. A null [dataDirPath] reproduces the
     /// unconfigured-workspace rejection.
     Future<Handler> wikiHandler({String? dataDirPath}) async {
-      final memoryDb = sqlite3.openInMemory();
       final taskBackend = await openPreparedTaskBackend();
       addTearDown(() async {
-        memoryDb.close();
         await taskBackend.close();
       });
       return webRoutes(
         sessions,
         messages,
         kvService: kvService,
-        memoryIndex: await prepareMemoryIndex(memoryDb),
-        kgService: TemporalKnowledgeGraphService(taskBackend),
+        memoryIndex: await prepareMemoryIndex(),
+        kgService: InMemoryTemporalKnowledgeGraphService(),
         config: dataDirPath == null ? null : DartclawConfig(server: ServerConfig(dataDir: dataDirPath)),
         dataDir: dataDirPath,
       ).call;
@@ -157,7 +155,7 @@ void main() {
       expect(res.statusCode, 200);
       expect(res.headers['content-type'], contains('text/html'));
       expect(res.headers['content-type'], isNot(contains('text/plain')));
-      expect(body, contains('<div class="shell">'));
+      expect(body, contains('<div class="shell"'));
       expect(body, contains('class="sidebar"'));
       expect(body, contains('id="topbar"'));
       // A way back to the hub, and the document title in the topbar.
@@ -391,7 +389,7 @@ void main() {
 
       expect(res.statusCode, 200);
       expect(res.headers['location'], isNull);
-      expect(body, contains('<div class="shell">'));
+      expect(body, contains('<div class="shell"'));
       expect(body, contains('Guard Activity'));
       // Newest first: entry-58 heads page 1, entry-8..entry-0 are page 2.
       expect(body, contains('Page 2 of 2'));
@@ -409,7 +407,7 @@ void main() {
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
-      expect(body, contains('<div class="shell">'));
+      expect(body, contains('<div class="shell"'));
       // Newest first: entry-29 heads page 1, entry-4 heads page 2.
       expect(body, contains('entry-4'));
       expect(body, isNot(contains('entry-29')));
@@ -420,7 +418,7 @@ void main() {
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
-      expect(body, isNot(contains('<div class="shell">')));
+      expect(body, isNot(contains('<div class="shell"')));
       expect(body, isNot(contains('<html')));
       expect(res.headers['vary'], contains('HX-Request'));
     });
@@ -431,7 +429,7 @@ void main() {
       );
 
       expect(res.statusCode, 200);
-      expect(await res.readAsString(), contains('<div class="shell">'));
+      expect(await res.readAsString(), contains('<div class="shell"'));
     });
   });
 
@@ -486,7 +484,8 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}')));
       final body = await res.readAsString();
 
-      expect(body, contains('data-session-id="${session.id}" data-has-title="true"'));
+      expect(body, contains('data-session-id="${session.id}"'));
+      expect(body, contains('data-has-title="true"'));
     });
 
     test('response body escapes XSS in session title', () async {
@@ -651,7 +650,11 @@ void main() {
       final res = await handler(Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html')));
       final body = await res.readAsString();
       expect(body, contains('prompt-hero'));
-      expect(body, contains('Welcome back'));
+      expect(body, contains('Ready when you are'));
+      // The suggestion chips belong to the empty state, so they arrive and
+      // leave with it rather than standing in the composer toolbar.
+      expect(body, contains('id="chat-empty-state"'));
+      expect(body, contains('class="suggest-row"'));
     });
 
     test('returns message list when messages exist', () async {
@@ -708,6 +711,47 @@ void main() {
       expect(body, isNot(contains('<p>Message 051</p>')));
       expect(res.headers['x-dartclaw-earliest-cursor'], '1');
       expect(res.headers['x-dartclaw-has-earlier-messages'], 'false');
+    });
+
+    test('paged history places a move marker in only its message window', () async {
+      final session = await sessions.createSession();
+      DateTime? movedAt;
+      for (var i = 1; i <= 260; i++) {
+        final message = await messages.insertMessage(sessionId: session.id, role: 'user', content: 'Message $i');
+        if (i == 30) movedAt = message.createdAt;
+      }
+      await sessions.updateConversationState(
+        session.id,
+        ConversationState(
+          records: [
+            ConversationDisplayRecord(
+              id: 'move-1',
+              attemptId: '',
+              turnId: '',
+              kind: ConversationRecordKind.contextChange,
+              state: ConversationRecordState.succeeded,
+              label: 'Moved to project',
+              createdAt: movedAt!,
+              updatedAt: movedAt,
+            ),
+          ],
+        ),
+      );
+
+      Future<String> load([String suffix = '']) async {
+        final res = await handler(
+          Request('GET', Uri.parse('http://localhost/sessions/${session.id}/messages-html$suffix')),
+        );
+        expect(res.statusCode, 200);
+        return res.readAsString();
+      }
+
+      expect(await load(), isNot(contains('id="record-move-1"')));
+      final middle = await load('?before=61');
+      expect(middle, contains('id="record-move-1"'));
+      expect(middle.indexOf('Message 29'), lessThan(middle.indexOf('record-move-1')));
+      expect(middle.indexOf('record-move-1'), lessThan(middle.indexOf('Message 31')));
+      expect(await load('?before=11'), isNot(contains('id="record-move-1"')));
     });
   });
 

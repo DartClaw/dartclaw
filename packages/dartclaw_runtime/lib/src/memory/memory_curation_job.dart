@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show AgentWorkspace;
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../scheduling/cron_parser.dart';
@@ -22,12 +23,15 @@ ScheduledJob buildMemoryCurationJob({
   required MemoryCorpusService corpus,
   required MemoryApplyService applyService,
   required int maxIndexBytes,
+  String jobId = memoryCurationJobId,
+  AgentWorkspace? workspace,
 }) => ScheduledJob(
-  id: memoryCurationJobId,
+  id: jobId,
   scheduleType: ScheduleType.cron,
   cronExpression: cronExpression,
   deliveryMode: DeliveryMode.none,
   allowedTools: const ['memory_apply'],
+  workspace: workspace,
   composePrompt: (sessionId) async {
     final snapshot = await corpus.curationSnapshot(maxIndexBytes: maxIndexBytes);
     // Claim the scope only once the prompt exists: a scope registered before a throwing

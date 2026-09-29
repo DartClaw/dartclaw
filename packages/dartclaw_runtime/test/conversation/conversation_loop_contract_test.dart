@@ -1,0 +1,902 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConversationRetention;
+import 'package:dartclaw_runtime/src/api/session_attachment_routes.dart' show ProcessAttachmentOwner;
+import 'package:dartclaw_runtime/src/concurrency/session_mutation_coordinator.dart';
+import 'package:dartclaw_runtime/src/conversation/conversation_service.dart';
+import 'package:dartclaw_runtime/src/runtime_tool_history.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
+import 'package:test/test.dart';
+
+import '../session_turn_manager_test_support.dart';
+
+void main() {
+  late Directory temporaryDirectory;
+  late SessionService sessions;
+  late MessageService messages;
+  late _CompletingTurnManager turns;
+  late ConversationService conversation;
+  late String sessionId;
+  var clockTick = 0;
+
+  setUp(() async {
+    temporaryDirectory = Directory.systemTemp.createTempSync('dartclaw_conversation_loop_');
+    sessions = SessionService(baseDir: temporaryDirectory.path);
+    messages = MessageService(baseDir: temporaryDirectory.path, retentionForSession: sessions.retentionFor);
+    turns = _CompletingTurnManager(messages, FakeAgentHarness());
+    conversation = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      clock: () => DateTime.utc(2026, 9, 14).add(Duration(milliseconds: clockTick++)),
+    );
+    sessionId = (await sessions.createSession()).id;
+  });
+
+  tearDown(() {
+    if (temporaryDirectory.existsSync()) temporaryDirectory.deleteSync(recursive: true);
+  });
+
+  test('process attachment claims, queued release, and branch copy remain in memory', () async {
+    const attachmentId = '00000000-0000-4000-8000-000000000099';
+    final owner = ProcessAttachmentOwner();
+    final temporary = await sessions.createSession(retention: ConversationRetention.process);
+    final bytes = utf8.encode('temporary attachment');
+    owner.put(temporary.id, {
+      'id': attachmentId,
+      'filename': 'temporary.txt',
+      'mediaType': 'text/plain',
+      'size': bytes.length,
+      'digest': 'sha256:${sha256.convert(bytes)}',
+      'state': 'ready',
+      'owner': 'draft',
+    }, bytes);
+    final processConversation = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      processAttachmentResolver: owner.resolve,
+      processAttachmentCopier: owner.copy,
+    );
+    Future<ConversationAdmission> send(String id, String text) => processConversation.submit(
+      sessionId: temporary.id,
+      submissionId: id,
+      revisionId: '$id-revision',
+      message: text,
+      attachments: const [
+        {'id': attachmentId},
+      ],
+      references: const [],
+    );
+
+    final first = await send('temporary-first', 'Use the attachment');
+    final queued = await send('temporary-queued', 'Use it again');
+    expect(first.submission.workState, ConversationWorkState.running);
+    expect(queued.submission.workState, ConversationWorkState.queued);
+    expect(Directory('${temporaryDirectory.path}/${temporary.id}').existsSync(), isFalse);
+
+    turns.complete(temporary.id, first.submission.turnId!);
+    await turns.secondDispatch;
+    await _waitForWorkState(processConversation, temporary.id, 'temporary-queued', ConversationWorkState.running);
+    final replay = await send('temporary-first', 'Use the attachment');
+    expect(replay.replayed, isTrue);
+    turns.complete(
+      temporary.id,
+      (await processConversation.snapshot(temporary.id)).findSubmission('temporary-queued')!.turnId!,
+    );
+    await processConversation.drain();
+
+    final branch = await processConversation.branchFromMessage(
+      sessionId: temporary.id,
+      sourceMessageId: first.submission.messageId,
+      mutationId: 'temporary-branch',
+      kind: ConversationBranchKind.fork,
+    );
+    final branchId = branch['destinationSessionId'] as String;
+    expect((await sessions.getSession(branchId))?.retention, ConversationRetention.process);
+    expect(owner.contains(branchId, attachmentId), isTrue);
+    final continued = await processConversation.submit(
+      sessionId: branchId,
+      submissionId: 'temporary-continued',
+      revisionId: 'temporary-continued-revision',
+      message: 'Use the copied attachment',
+      attachments: const [
+        {'id': attachmentId},
+      ],
+      references: const [],
+    );
+    expect(continued.submission.workState, ConversationWorkState.running);
+    expect(Directory('${temporaryDirectory.path}/${temporary.id}').existsSync(), isFalse);
+    expect(Directory('${temporaryDirectory.path}/$branchId').existsSync(), isFalse);
+
+    final busySession = await sessions.createSession(retention: ConversationRetention.process);
+    turns.setBusy();
+    final deferred = await processConversation.submit(
+      sessionId: busySession.id,
+      submissionId: 'temporary-deferred',
+      revisionId: 'temporary-deferred-revision',
+      message: 'Wait for capacity',
+      attachments: const [],
+      references: const [],
+    );
+    expect(deferred.submission.workState, ConversationWorkState.queued);
+    expect(Directory('${temporaryDirectory.path}/${busySession.id}').existsSync(), isFalse);
+  });
+
+  test('shutdown refuses an unrecovered session before reading or writing its state', () async {
+    final observed = _PausingApprovalSessionService(baseDir: temporaryDirectory.path);
+    final stopping = ConversationService(
+      sessions: observed,
+      ownerWorkspaceDir: observed.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+    await stopping.beginShutdown();
+    await expectLater(
+      _submit(stopping, sessionId, 'late-unseen', 'Arrived after shutdown'),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'SERVER_STOPPING')),
+    );
+    expect(observed.reads, 0, reason: 'late admission must not start recovery');
+    expect(observed.writes, 0, reason: 'late admission must not rewrite state');
+  });
+
+  test('the settlement backstop takes truncation from the record, not from the marker text', () async {
+    final admission = await _submit(conversation, sessionId, 'truncation-owner', 'Run two tools');
+    turns.complete(
+      sessionId,
+      admission.submission.turnId!,
+      toolCalls: [
+        ToolCallRecord(
+          id: 'cut-tool',
+          name: 'shell',
+          success: true,
+          durationMs: 1,
+          result: 'cut output\n[Display payload truncated]',
+          isTruncated: true,
+        ),
+        // A tool whose own output happens to carry the marker. Grepping the
+        // display text for it mislabelled this record as truncated.
+        ToolCallRecord(
+          id: 'quoting-tool',
+          name: 'shell',
+          success: true,
+          durationMs: 1,
+          result: 'grep found the string [Display payload truncated] in a log',
+        ),
+      ],
+    );
+    await conversation.drain();
+
+    final settled = await conversation.snapshot(sessionId);
+    expect(settled.records.firstWhere((record) => record.id == 'cut-tool').isTruncated, isTrue);
+    expect(settled.records.firstWhere((record) => record.id == 'quoting-tool').isTruncated, isFalse);
+  });
+
+  for (final closing in [false, true]) {
+    test('shutdown retains the complete approval ${closing ? 'close' : 'request'} callback', () async {
+      final observed = _PausingApprovalSessionService(baseDir: temporaryDirectory.path);
+      final stopping = ConversationService(
+        sessions: observed,
+        ownerWorkspaceDir: observed.baseDir,
+        messages: messages,
+        turns: turns,
+        mutations: SessionMutationCoordinator(),
+      );
+      final admission = await _submit(stopping, sessionId, 'approval-owner', 'An approval-owned attempt');
+      turns.complete(sessionId, admission.submission.turnId!);
+      await stopping.drain();
+      final request = RuntimeToolApprovalRequest(
+        sessionId: sessionId,
+        turnId: admission.submission.turnId!,
+        requestId: 'shutdown-approval',
+        action: 'Run command',
+        target: const {'command': 'pwd'},
+        expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 5)),
+      );
+      if (closing) await stopping.retainRuntimeApproval(request);
+      await stopping.beginShutdown();
+      observed.pauseState = closing ? ConversationRecordState.approved : ConversationRecordState.pending;
+      final operation = closing
+          ? stopping.closeRuntimeApproval(sessionId, request.turnId, request.requestId, true, false)
+          : stopping.retainRuntimeApproval(request);
+      await observed.writeStarted.future;
+      var drained = false;
+      final drain = stopping.drain().then((_) => drained = true);
+      await pumpEventQueue();
+      final returnedBeforeWrite = drained;
+      observed.releaseWrite.complete();
+      await operation;
+      await drain;
+      expect(returnedBeforeWrite, isFalse, reason: 'the entire approval callback belongs to the shutdown drain');
+      expect(
+        (await observed.getConversationState(sessionId)).findRecord(request.requestId)?.state,
+        observed.pauseState,
+      );
+    });
+  }
+
+  test('shutdown drains terminal persistence and holds queued work without dispatching it', () async {
+    final writingTerminal = Completer<void>();
+    final releaseWrite = Completer<void>();
+    final stopping = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      failpoint: (boundary, _) async {
+        if (boundary == 'turn_settled') {
+          writingTerminal.complete();
+          await releaseWrite.future;
+        }
+      },
+    );
+    final active = await _submit(stopping, sessionId, 'active', 'Finish before shutdown');
+    await _submit(stopping, sessionId, 'queued', 'Hold for explicit recovery');
+    await stopping.beginShutdown();
+    turns.complete(sessionId, active.submission.turnId!);
+    await writingTerminal.future;
+    var drained = false;
+    final drain = stopping.drain().then((_) => drained = true);
+    await pumpEventQueue();
+    expect(drained, isFalse, reason: 'shutdown must wait for terminal persistence');
+    releaseWrite.complete();
+    await drain;
+    final state = await stopping.snapshot(sessionId);
+    expect(state.findSubmission('active')?.workState, ConversationWorkState.completed);
+    expect(state.findSubmission('queued')?.workState, ConversationWorkState.held);
+    expect(turns.executeCount, 1, reason: 'shutdown must not dispatch queued work');
+    await expectLater(
+      _submit(stopping, sessionId, 'late', 'Arrived during shutdown'),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'SERVER_STOPPING')),
+    );
+  });
+
+  test('queue edit remove release and dispatch races converge without stale execution', () async {
+    final active = await _submit(conversation, sessionId, 'active', 'Run the first turn');
+    final firstQueued = await _submit(conversation, sessionId, 'queued-1', 'First queued message');
+    final secondQueued = await _submit(conversation, sessionId, 'queued-2', 'Second queued message');
+    expect(turns.executeCount, 1);
+    expect(firstQueued.submission.workState, ConversationWorkState.queued);
+    expect(secondQueued.submission.workState, ConversationWorkState.queued);
+
+    final edited = await conversation.editQueueItem(
+      sessionId: sessionId,
+      queueId: firstQueued.submission.queueId!,
+      expectedRevision: secondQueued.snapshot.revision,
+      revisionId: 'queued-1-edit',
+      message: 'Edited first queued message',
+      attachments: const [],
+      references: const [],
+    );
+    final removed = await conversation.removeQueueItem(
+      sessionId: sessionId,
+      queueId: firstQueued.submission.queueId!,
+      expectedRevision: edited.snapshot.revision,
+    );
+    final repeated = await conversation.removeQueueItem(
+      sessionId: sessionId,
+      queueId: firstQueued.submission.queueId!,
+      expectedRevision: removed.snapshot.revision,
+    );
+    expect(repeated.replayed, isTrue);
+    expect(repeated.submission.workState, ConversationWorkState.removed);
+
+    await expectLater(
+      conversation.releaseNext(sessionId: sessionId, expectedRevision: removed.snapshot.revision),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'DISPATCH_ACTIVE')),
+    );
+
+    turns.complete(sessionId, active.submission.turnId!);
+    await turns.secondDispatch;
+    final settled = await conversation.snapshot(sessionId);
+    expect(turns.executeCount, 2);
+    expect(turns.executedMessages.last.last['content'], 'Second queued message');
+    expect(
+      turns.executedMessages.last.where((message) => message['role'] == 'user').map((message) => message['content']),
+      ['Run the first turn', 'Second queued message'],
+    );
+    expect(settled.findSubmission('queued-1')?.workState, ConversationWorkState.removed);
+    expect(settled.findSubmission('queued-2')?.workState, ConversationWorkState.running);
+    await expectLater(
+      conversation.removeQueueItem(
+        sessionId: sessionId,
+        queueId: secondQueued.submission.queueId!,
+        expectedRevision: settled.revision,
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'QUEUE_ITEM_ALREADY_SENT')),
+    );
+    final passiveSnapshot = await conversation.snapshot(sessionId);
+    expect(passiveSnapshot.revision, settled.revision);
+    expect(passiveSnapshot.queue.map((item) => item.submissionId), settled.queue.map((item) => item.submissionId));
+  });
+
+  test('queue edit recovers through the same preparing to committed sequence', () async {
+    var crashEdits = false;
+    final interrupted = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      clock: () => DateTime.utc(2026, 9, 14, 13),
+      failpoint: (boundary, _) {
+        if (crashEdits && boundary == 'queue_edit_preparing') throw StateError('simulated edit crash');
+      },
+    );
+    await _submit(interrupted, sessionId, 'active-edit-recovery', 'Active turn');
+    final queued = await _submit(interrupted, sessionId, 'queued-edit-recovery', 'Original queued text');
+    crashEdits = true;
+
+    await expectLater(
+      interrupted.editQueueItem(
+        sessionId: sessionId,
+        queueId: queued.submission.queueId!,
+        expectedRevision: queued.snapshot.revision,
+        revisionId: 'edited-revision',
+        message: 'Recovered queued text',
+        attachments: const [],
+        references: const [],
+      ),
+      throwsStateError,
+    );
+    final preparing = await sessions.getConversationState(sessionId);
+    expect(preparing.findSubmission('queued-edit-recovery')?.commitState, SubmissionCommitState.preparing);
+    expect((await messages.getMessages(sessionId)).last.content, 'Original queued text');
+
+    final recovered = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      clock: () => DateTime.utc(2026, 9, 14, 13, 1),
+    );
+    final snapshot = await recovered.snapshot(sessionId);
+    expect(snapshot.findSubmission('queued-edit-recovery')?.commitState, SubmissionCommitState.committed);
+    expect((await messages.getMessages(sessionId)).last.content, 'Recovered queued text');
+    expect(turns.executeCount, 1);
+  });
+
+  test('competing queue mutations admit only one expected revision', () async {
+    await _submit(conversation, sessionId, 'active-queue-race', 'Active turn');
+    final queued = await _submit(conversation, sessionId, 'queued-race', 'Queued turn');
+
+    final results = await Future.wait<Object>([
+      conversation
+          .editQueueItem(
+            sessionId: sessionId,
+            queueId: queued.submission.queueId!,
+            expectedRevision: queued.snapshot.revision,
+            revisionId: 'queued-race-edited',
+            message: 'Edited by race',
+            attachments: const [],
+            references: const [],
+          )
+          .then<Object>((value) => value)
+          .catchError((Object error) => error),
+      conversation
+          .removeQueueItem(
+            sessionId: sessionId,
+            queueId: queued.submission.queueId!,
+            expectedRevision: queued.snapshot.revision,
+          )
+          .then<Object>((value) => value)
+          .catchError((Object error) => error),
+    ]);
+
+    expect(results.whereType<ConversationAdmission>(), hasLength(1));
+    expect(results.whereType<ConversationMutationException>().single.code, 'STALE_CONVERSATION_REVISION');
+    expect(turns.executeCount, 1);
+  });
+
+  test('provider control matrix keeps stop and steer truthful through completion races', () async {
+    for (final provider in const ['claude', 'codex', 'acp']) {
+      final providerSession = (await sessions.createSession(provider: provider)).id;
+      final active = await _submit(conversation, providerSession, '$provider-active', 'Work for $provider');
+      await _submit(conversation, providerSession, '$provider-queued', 'Follow up for $provider');
+      final partial = await messages.insertMessage(
+        sessionId: providerSession,
+        role: 'assistant',
+        content: 'Partial $provider output',
+      );
+      expect(turns.turnStatus(providerSession).canCancel, isTrue, reason: provider);
+
+      final stopped = await conversation.stop(sessionId: providerSession, turnId: active.submission.turnId!);
+      expect(stopped.findSubmission('$provider-active')?.workState, ConversationWorkState.cancelled, reason: provider);
+      expect(stopped.findSubmission('$provider-queued')?.workState, ConversationWorkState.held, reason: provider);
+      expect((await messages.getMessages(providerSession)).any((message) => message.id == partial.id), isTrue);
+      final repeat = await conversation.stop(sessionId: providerSession, turnId: active.submission.turnId!);
+      expect(repeat.revision, stopped.revision, reason: '$provider repeated stop changed state');
+
+      final released = await conversation.releaseNext(sessionId: providerSession, expectedRevision: stopped.revision);
+      expect(released.submission.submissionId, '$provider-queued');
+      expect(released.submission.workState, ConversationWorkState.running);
+
+      final steerSession = (await sessions.createSession(provider: provider)).id;
+      final steerActive = await _submit(conversation, steerSession, '$provider-steer-active', 'Steer from this');
+      final steerStopped = await conversation.stop(sessionId: steerSession, turnId: steerActive.submission.turnId!);
+      final steered = await _submit(conversation, steerSession, '$provider-steer', 'Steered follow-up for $provider');
+      expect(steerStopped.findSubmission('$provider-steer-active')?.workState, ConversationWorkState.cancelled);
+      expect(steered.submission.workState, ConversationWorkState.running);
+    }
+
+    final completed = await _submit(conversation, sessionId, 'completion-race', 'Finishes at stop time');
+    turns.complete(sessionId, completed.submission.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'completion-race', ConversationWorkState.completed);
+    final beforeRepeat = await conversation.snapshot(sessionId);
+    final repeat = await conversation.stop(sessionId: sessionId, turnId: completed.submission.turnId!);
+    expect(repeat.revision, beforeRepeat.revision);
+    expect(repeat.findSubmission('completion-race')?.workState, ConversationWorkState.completed);
+  });
+
+  test('steer serializes cancellation and admission against completion and queued work', () async {
+    final active = await _submit(conversation, sessionId, 'steer-active', 'Original turn');
+    final queued = await _submit(conversation, sessionId, 'steer-queued', 'Already queued');
+
+    await expectLater(
+      conversation.steer(
+        sessionId: sessionId,
+        turnId: active.submission.turnId!,
+        expectedRevision: queued.snapshot.revision,
+        submissionId: 'invalid-steer',
+        revisionId: 'invalid-steer-r1',
+        message: 'Must not cancel before validation',
+        attachments: const [
+          {'id': '00000000-0000-4000-8000-000000000099'},
+        ],
+        references: const [],
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_ATTACHMENT')),
+    );
+    final afterRejectedInput = await conversation.snapshot(sessionId);
+    expect(afterRejectedInput.revision, queued.snapshot.revision);
+    expect(afterRejectedInput.findSubmission('steer-active')?.workState, ConversationWorkState.running);
+    expect(afterRejectedInput.findSubmission('invalid-steer'), isNull);
+    expect(turns.activeTurnId(sessionId), active.submission.turnId);
+
+    final steered = await conversation.steer(
+      sessionId: sessionId,
+      turnId: active.submission.turnId!,
+      expectedRevision: queued.snapshot.revision,
+      submissionId: 'steered',
+      revisionId: 'steered-r1',
+      message: 'Replacement instruction',
+      attachments: const [],
+      references: const [],
+    );
+    expect(steered.submission.workState, ConversationWorkState.running);
+    expect(steered.snapshot.findSubmission('steer-active')?.workState, ConversationWorkState.cancelled);
+    expect(steered.snapshot.findSubmission('steer-queued')?.workState, ConversationWorkState.held);
+
+    final completionSession = (await sessions.createSession()).id;
+    final completing = await _submit(conversation, completionSession, 'completing', 'Complete first');
+    final pending = await _submit(conversation, completionSession, 'completion-queued', 'Dispatch after completion');
+    turns.complete(completionSession, completing.submission.turnId!);
+    await _waitForWorkState(conversation, completionSession, 'completion-queued', ConversationWorkState.running);
+    await expectLater(
+      conversation.steer(
+        sessionId: completionSession,
+        turnId: completing.submission.turnId!,
+        expectedRevision: pending.snapshot.revision,
+        submissionId: 'must-not-steer',
+        revisionId: 'must-not-steer-r1',
+        message: 'Stale replacement',
+        attachments: const [],
+        references: const [],
+      ),
+      throwsA(
+        isA<ConversationMutationException>().having((error) => error.code, 'code', 'STALE_CONVERSATION_REVISION'),
+      ),
+    );
+    final afterCompletion = await conversation.snapshot(completionSession);
+    expect(afterCompletion.findSubmission('completion-queued')?.workState, ConversationWorkState.running);
+    expect(afterCompletion.findSubmission('must-not-steer'), isNull);
+  });
+
+  test('conversation mutations reject no-match and stale input without side effects', () async {
+    await expectLater(
+      conversation.submit(
+        sessionId: sessionId,
+        submissionId: 'unknown-attachment',
+        revisionId: 'unknown-attachment-r1',
+        message: 'Invalid attachment',
+        attachments: const [
+          {'id': '00000000-0000-4000-8000-000000000000'},
+        ],
+        references: const [],
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_ATTACHMENT')),
+    );
+    expect((await sessions.getConversationState(sessionId)).revision, 0);
+    expect(await messages.getMessages(sessionId), isEmpty);
+
+    final accepted = await _submit(conversation, sessionId, 'plain', 'Plain message');
+    final queued = await _submit(conversation, sessionId, 'queued', 'Queued message');
+    final before = await sessions.getConversationState(sessionId);
+    await expectLater(
+      conversation.editQueueItem(
+        sessionId: sessionId,
+        queueId: queued.submission.queueId!,
+        expectedRevision: queued.snapshot.revision - 1,
+        revisionId: 'stale-edit',
+        message: 'Must not persist',
+        attachments: const [],
+        references: const [],
+      ),
+      throwsA(
+        isA<ConversationMutationException>().having((error) => error.code, 'code', 'STALE_CONVERSATION_REVISION'),
+      ),
+    );
+    await expectLater(
+      conversation.removeQueueItem(
+        sessionId: sessionId,
+        queueId: 'missing',
+        expectedRevision: queued.snapshot.revision,
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'QUEUE_ITEM_NOT_FOUND')),
+    );
+    await expectLater(
+      conversation.submit(
+        sessionId: sessionId,
+        submissionId: accepted.submission.submissionId,
+        revisionId: 'changed-revision',
+        message: 'Changed payload under the same identity',
+        attachments: const [],
+        references: const [],
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'SUBMISSION_CONFLICT')),
+    );
+    await expectLater(
+      conversation.stop(sessionId: sessionId, turnId: 'missing-turn'),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'TURN_NOT_FOUND')),
+    );
+
+    final after = await sessions.getConversationState(sessionId);
+    expect(after.revision, before.revision);
+    expect((await messages.getMessages(sessionId)).map((message) => message.content), [
+      'Plain message',
+      'Queued message',
+    ]);
+    expect(turns.executeCount, 1);
+  });
+
+  test('pre-execution reserve rejection returns dispatch-marked work to a durable queue', () async {
+    turns.setBusy();
+
+    final admission = await _submit(conversation, sessionId, 'capacity', 'Wait for capacity');
+
+    expect(admission.submission.workState, ConversationWorkState.queued);
+    expect(admission.submission.attemptId, isNull);
+    expect(admission.submission.queueId, isNotNull);
+    expect(turns.executeCount, 0);
+    expect(await conversation.visibleMessages(sessionId), isEmpty);
+    final attempts = Directory('${temporaryDirectory.path}/$sessionId/conversation/attempts');
+    expect(attempts.existsSync() ? attempts.listSync() : const [], isEmpty);
+
+    turns.clearBusy();
+    final released = await conversation.releaseNext(
+      sessionId: sessionId,
+      expectedRevision: admission.snapshot.revision,
+    );
+    expect(released.submission.workState, ConversationWorkState.running);
+    expect(turns.executeCount, 1);
+    expect((await conversation.visibleMessages(sessionId)).single.content, 'Wait for capacity');
+  });
+
+  test('committed work is held when the transcript fails the pre-dispatch integrity check', () async {
+    turns.setBusy();
+    final queued = await _submit(conversation, sessionId, 'corrupt-transcript', 'Original durable text');
+    final transcript = File('${temporaryDirectory.path}/$sessionId/messages.ndjson');
+    await transcript.writeAsString(
+      (await transcript.readAsString()).replaceFirst('Original durable text', 'Corrupted durable text'),
+    );
+    turns.clearBusy();
+
+    await expectLater(
+      conversation.releaseNext(sessionId: sessionId, expectedRevision: queued.snapshot.revision),
+      throwsA(
+        isA<ConversationMutationException>().having((error) => error.code, 'code', 'SUBMISSION_INTEGRITY_FAILED'),
+      ),
+    );
+
+    final state = await sessions.getConversationState(sessionId);
+    expect(state.findSubmission('corrupt-transcript')?.commitState, SubmissionCommitState.integrityFailed);
+    expect(state.findSubmission('corrupt-transcript')?.workState, ConversationWorkState.held);
+    expect(turns.executeCount, 0);
+  });
+
+  test('recovery refuses to overwrite a mismatched accepted attachment manifest', () async {
+    final attachmentId = '00000000-0000-4000-8000-000000000001';
+    final bytes = utf8.encode('attachment text');
+    final digest = 'sha256:${sha256.convert(bytes)}';
+    final attachmentDirectory = Directory('${temporaryDirectory.path}/$sessionId/attachments')..createSync();
+    await File('${attachmentDirectory.path}/$attachmentId.data').writeAsBytes(bytes);
+    await File('${attachmentDirectory.path}/$attachmentId.json').writeAsString(
+      jsonEncode({
+        'id': attachmentId,
+        'filename': 'notes.txt',
+        'mediaType': 'text/plain',
+        'size': bytes.length,
+        'digest': digest,
+        'state': 'ready',
+      }),
+    );
+    turns.setBusy();
+    final interrupted = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      failpoint: (boundary, _) {
+        if (boundary == 'accepted_manifest') throw StateError('simulated crash after manifest write');
+      },
+    );
+    await expectLater(
+      interrupted.submit(
+        sessionId: sessionId,
+        submissionId: 'attachment-manifest',
+        revisionId: 'attachment-manifest-revision',
+        message: 'Use the attachment',
+        attachments: [
+          {'id': attachmentId},
+        ],
+        references: const [],
+      ),
+      throwsStateError,
+    );
+    final manifest = File('${temporaryDirectory.path}/$sessionId/conversation/manifests/attachment-manifest.json');
+    await manifest.writeAsString(jsonEncode({'submissionId': 'different', 'attachments': const []}));
+
+    final recovered = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+    final state = await recovered.snapshot(sessionId);
+
+    expect(state.findSubmission('attachment-manifest')?.commitState, SubmissionCommitState.integrityFailed);
+    expect(state.findSubmission('attachment-manifest')?.workState, ConversationWorkState.held);
+    expect(jsonDecode(await manifest.readAsString()), {'submissionId': 'different', 'attachments': const []});
+    expect(turns.executeCount, 0);
+  });
+
+  test('attachment metadata uses the same bounded resolver as admission', () async {
+    final longId = '00000000-0000-4000-8000-000000000010';
+    final longBytes = utf8.encode(List.filled(21000, 'x').join());
+    await _writeReadyAttachment(temporaryDirectory, sessionId, longId, longBytes);
+
+    await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'bounded-attachment',
+      revisionId: 'bounded-attachment-revision',
+      message: 'Read this',
+      attachments: [
+        {'id': longId},
+      ],
+      references: const [],
+    );
+
+    final context = turns.executedMessages.single.last['content'] as String;
+    expect(context, contains('[Attachment content truncated]'));
+    expect(context.length, lessThan(20500));
+
+    final opaqueSession = (await sessions.createSession()).id;
+    final opaqueId = '00000000-0000-4000-8000-000000000011';
+    await _writeReadyAttachment(temporaryDirectory, opaqueSession, opaqueId, const [0xff, 0xfe, 0xfd]);
+    final opaque = await conversation.submit(
+      sessionId: opaqueSession,
+      submissionId: 'opaque-attachment',
+      revisionId: 'opaque-attachment-revision',
+      message: 'Keep opaque bytes',
+      attachments: [
+        {'id': opaqueId},
+      ],
+      references: const [],
+    );
+    expect(opaque.submission.workState, ConversationWorkState.running);
+    expect(turns.executeCount, 2);
+  });
+
+  test('one accepted attachment supports queued claims retry and restart integrity', () async {
+    const attachmentId = '00000000-0000-4000-8000-000000000012';
+    await _writeReadyAttachment(temporaryDirectory, sessionId, attachmentId, utf8.encode('shared attachment'));
+    final active = await _submit(conversation, sessionId, 'shared-active', 'Active turn');
+    final first = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'shared-first',
+      revisionId: 'shared-first-r1',
+      message: 'First claim',
+      attachments: const [
+        {'id': attachmentId},
+      ],
+      references: const [],
+    );
+    final second = await conversation.submit(
+      sessionId: sessionId,
+      submissionId: 'shared-second',
+      revisionId: 'shared-second-r1',
+      message: 'Second claim',
+      attachments: const [
+        {'id': attachmentId},
+      ],
+      references: const [],
+    );
+    expect(first.submission.workState, ConversationWorkState.queued);
+    expect(second.submission.workState, ConversationWorkState.queued);
+    final metadataFile = File('${temporaryDirectory.path}/$sessionId/attachments/$attachmentId.json');
+    final metadata = jsonDecode(await metadataFile.readAsString()) as Map<String, dynamic>;
+    expect(metadata['owner'], 'accepted');
+    expect(metadata, isNot(contains('submissionId')));
+
+    final stopped = await conversation.stop(sessionId: sessionId, turnId: active.submission.turnId!);
+    final released = await conversation.releaseNext(sessionId: sessionId, expectedRevision: stopped.revision);
+    expect(released.submission.submissionId, 'shared-first');
+    turns.complete(sessionId, released.submission.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'shared-first', ConversationWorkState.completed);
+    final afterFirst = await sessions.getConversationState(sessionId);
+    final secondRelease = await conversation.releaseNext(sessionId: sessionId, expectedRevision: afterFirst.revision);
+    expect(secondRelease.submission.submissionId, 'shared-second');
+    final runningSecond = secondRelease.submission;
+    turns.complete(sessionId, runningSecond.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'shared-second', ConversationWorkState.completed);
+    var state = await sessions.getConversationState(sessionId);
+    final failed = state
+        .findSubmission('shared-first')!
+        .copyWith(workState: ConversationWorkState.failed, updatedAt: DateTime.utc(2026, 9, 14, 15));
+    state = state.put(failed);
+    await sessions.updateConversationState(sessionId, state);
+    final retry = await conversation.retry(
+      sessionId: sessionId,
+      sourceAttemptId: failed.attemptId!,
+      mutationId: 'shared-retry',
+    );
+    expect(retry.submission.attachments.single.id, attachmentId);
+
+    turns.complete(sessionId, retry.submission.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'shared-retry', ConversationWorkState.completed);
+    final restarted = ConversationService(
+      sessions: sessions,
+      ownerWorkspaceDir: sessions.baseDir,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+    );
+    final recovered = await restarted.snapshot(sessionId);
+    expect(recovered.findSubmission('shared-first')?.commitState, SubmissionCommitState.committed);
+    expect(recovered.findSubmission('shared-second')?.commitState, SubmissionCommitState.committed);
+    expect(recovered.findSubmission('shared-retry')?.commitState, SubmissionCommitState.committed);
+    expect(
+      recovered.submissions.where((submission) => submission.attachments.any((item) => item.id == attachmentId)),
+      hasLength(3),
+    );
+  });
+}
+
+Future<void> _writeReadyAttachment(Directory root, String sessionId, String attachmentId, List<int> bytes) async {
+  final directory = Directory('${root.path}/$sessionId/attachments')..createSync(recursive: true);
+  final digest = 'sha256:${sha256.convert(bytes)}';
+  await File('${directory.path}/$attachmentId.data').writeAsBytes(bytes);
+  await File('${directory.path}/$attachmentId.json').writeAsString(
+    jsonEncode({
+      'id': attachmentId,
+      'filename': 'proof.txt',
+      'mediaType': 'text/plain',
+      'size': bytes.length,
+      'digest': digest,
+      'state': 'ready',
+    }),
+  );
+}
+
+Future<ConversationAdmission> _submit(
+  ConversationService conversation,
+  String sessionId,
+  String identity,
+  String message,
+) => conversation.submit(
+  sessionId: sessionId,
+  submissionId: identity,
+  revisionId: '$identity-revision',
+  message: message,
+  attachments: const [],
+  references: const [],
+);
+
+Future<void> _waitForWorkState(
+  ConversationService conversation,
+  String sessionId,
+  String submissionId,
+  ConversationWorkState expected,
+) async {
+  for (var attempt = 0; attempt < 100; attempt += 1) {
+    final state = await conversation.snapshot(sessionId);
+    if (state.findSubmission(submissionId)?.workState == expected) return;
+    await pumpEventQueue();
+  }
+  fail('Submission $submissionId did not reach ${expected.name}');
+}
+
+final class _CompletingTurnManager extends FakeTurnManager {
+  new(super.messages, super.worker) : super(turnIdFactory: _turnIds());
+
+  static String Function() _turnIds() {
+    var next = 0;
+    return () => 'fake-turn-${next++}';
+  }
+
+  final Map<String, Completer<TurnOutcome>> _waiting = {};
+  final List<List<Map<String, dynamic>>> executedMessages = [];
+  final Completer<void> _secondDispatch = Completer<void>();
+
+  int get executeCount => executedMessages.length;
+  Future<void> get secondDispatch => _secondDispatch.future;
+
+  @override
+  void executeTurn(
+    String sessionId,
+    String turnId,
+    List<Map<String, dynamic>> messages, {
+    String? source,
+    String agentName = 'main',
+  }) {
+    if (_waiting[turnId]?.isCompleted ?? true) _waiting[turnId] = Completer<TurnOutcome>();
+    executedMessages.add(messages);
+    if (executedMessages.length >= 2 && !_secondDispatch.isCompleted) _secondDispatch.complete();
+    super.executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
+  }
+
+  @override
+  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) => _waiting[turnId]!.future;
+
+  void complete(String sessionId, String turnId, {List<ToolCallRecord> toolCalls = const []}) {
+    final outcome = TurnOutcome(
+      turnId: turnId,
+      sessionId: sessionId,
+      status: TurnStatus.completed,
+      completedAt: DateTime.utc(2026, 9, 14, 12),
+      toolCalls: toolCalls,
+    );
+    setRecentOutcome(turnId, outcome);
+    releaseTurn(sessionId, turnId);
+    _waiting[turnId]?.complete(outcome);
+  }
+}
+
+final class _PausingApprovalSessionService extends SessionService {
+  new({required super.baseDir});
+
+  int reads = 0;
+  int writes = 0;
+  ConversationRecordState? pauseState;
+  final writeStarted = Completer<void>();
+  final releaseWrite = Completer<void>();
+
+  @override
+  Future<ConversationState> getConversationState(String id) {
+    reads += 1;
+    return super.getConversationState(id);
+  }
+
+  @override
+  Future<void> updateConversationState(String id, ConversationState state) async {
+    writes += 1;
+    if (pauseState != null && state.findRecord('shutdown-approval')?.state == pauseState && !writeStarted.isCompleted) {
+      writeStarted.complete();
+      await releaseWrite.future;
+    }
+    await super.updateConversationState(id, state);
+  }
+}

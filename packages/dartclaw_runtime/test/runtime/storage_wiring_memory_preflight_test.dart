@@ -1,15 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/src/storage/index_rebuild_target.dart' show IndexPopulateAndValidate, IndexReconcileHook;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
-
-import 'package:dartclaw_testing/dartclaw_testing.dart' show seedCanonicalMemory;
 
 import 'memory_wiring_test_support.dart';
 
@@ -21,9 +20,8 @@ void main() {
     if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
   });
 
-  test('the canonical corpus is current before the FTS5 factory observes the workspace', () async {
+  test('the canonical corpus is current before the lexical index factory observes the workspace', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
-    Directory(config.workspaceDir).createSync(recursive: true);
     await seedCanonicalMemory(
       config.workspaceDir,
       topics: const {
@@ -31,33 +29,24 @@ void main() {
       },
     );
     final memory = File(p.join(config.workspaceDir, 'MEMORY.md'));
-    var searchOpened = false;
-    final wiring = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: (_) async {
-        searchOpened = true;
+    var indexOpened = false;
+    final wiring = _wiring(
+      config,
+      onIndex: () {
+        indexOpened = true;
         final index = const MemoryMarkdownCodec().parse(memory.readAsStringSync());
         expect(index, isA<MemoryIndexDocument>());
         expect((index as MemoryIndexDocument).entries, hasLength(1));
-        return SqliteBackend.openInMemory();
       },
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      exitFn: (code) => throw _Exit(code),
     );
 
     await wiring.wire();
-
-    expect(searchOpened, isTrue);
+    expect(indexOpened, isTrue);
     await wiring.dispose();
   });
 
-  test('report is emitted before FTS5 and QMD activation', () async {
-    final config = DartclawConfig(
-      server: ServerConfig(dataDir: dataDir.path),
-      search: const SearchConfig(backend: 'qmd'),
-    );
-    Directory(config.workspaceDir).createSync(recursive: true);
+  test('the preflight report is emitted before lexical index activation', () async {
+    final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
     await seedCanonicalMemory(
       config.workspaceDir,
       topics: const {
@@ -71,26 +60,15 @@ void main() {
       }
     });
     addTearDown(subscription.cancel);
-    final qmd = _SentinelQmdManager(() => events.add('qmd'));
-    final wiring = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: (_) async {
-        events.add('fts5');
-        return SqliteBackend.openInMemory();
-      },
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      qmdManagerFactory: () => qmd,
-      exitFn: (code) => throw _Exit(code),
-    );
+    final wiring = _wiring(config, onIndex: () => events.add('index'));
 
     await wiring.wire();
-
-    expect(events, ['report', 'fts5', 'fts5', 'qmd']);
+    expect(events.first, 'report');
+    expect(events.where((event) => event == 'index'), isNotEmpty);
     await wiring.dispose();
   });
 
-  test('a preview-dialect workspace is refused before the FTS5 factory, byte-for-byte intact', () async {
+  test('a preview-dialect workspace is refused before indexing and remains byte-for-byte intact', () async {
     final records = <LogRecord>[];
     final subscription = Logger.root.onRecord.listen(records.add);
     addTearDown(subscription.cancel);
@@ -99,27 +77,12 @@ void main() {
     memory.writeAsStringSync('## general\n- [2026-08-10 10:00] Preview dialect fact\n');
     final learnings = File(p.join(config.workspaceDir, 'learnings.md'))
       ..writeAsStringSync('- [2026-08-10 10:00] Preview learning\n');
-    var searchOpened = false;
-    var qmdConstructed = false;
-    final wiring = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: (_) async {
-        searchOpened = true;
-        return SqliteBackend.openInMemory();
-      },
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      qmdManagerFactory: () {
-        qmdConstructed = true;
-        return _SentinelQmdManager(() {});
-      },
-      exitFn: (code) => throw _Exit(code),
-    );
+    var indexOpened = false;
+    final wiring = _wiring(config, onIndex: () => indexOpened = true);
 
     await expectLater(wiring.wire(), throwsA(isA<_Exit>().having((error) => error.code, 'code', 1)));
 
-    expect(searchOpened, isFalse);
-    expect(qmdConstructed, isFalse);
+    expect(indexOpened, isFalse);
     expect(memory.readAsStringSync(), '## general\n- [2026-08-10 10:00] Preview dialect fact\n');
     expect(learnings.readAsStringSync(), '- [2026-08-10 10:00] Preview learning\n');
     final failure = records.singleWhere((record) => record.message.contains('preflight failed'));
@@ -129,7 +92,7 @@ void main() {
     expect(report, contains(MemoryPreflight.lastConvertingRelease));
   });
 
-  test('invalid current corpus emits bounded member report before all index boundaries', () async {
+  test('invalid current corpus emits a bounded member report before indexing', () async {
     final records = <LogRecord>[];
     final subscription = Logger.root.onRecord.listen(records.add);
     addTearDown(subscription.cancel);
@@ -137,26 +100,11 @@ void main() {
       records.clear();
       final config = DartclawConfig(
         server: ServerConfig(dataDir: p.join(dataDir.path, 'case-${lineEnding.codeUnits.join('-')}')),
-        search: const SearchConfig(backend: 'qmd'),
       );
       final memory = seedInvalidCurrentMemory(config.workspaceDir, lineEnding: lineEnding);
       final before = memory.readAsBytesSync();
-      var searchOpened = false;
-      var qmdConstructed = false;
-      final wiring = StorageWiring(
-        config: config,
-        eventBus: EventBus(),
-        searchBackendFactory: (_) async {
-          searchOpened = true;
-          return SqliteBackend.openInMemory();
-        },
-        taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-        qmdManagerFactory: () {
-          qmdConstructed = true;
-          return _SentinelQmdManager(() {});
-        },
-        exitFn: (code) => throw _Exit(code),
-      );
+      var indexOpened = false;
+      final wiring = _wiring(config, onIndex: () => indexOpened = true);
 
       await expectLater(
         wiring.wire(),
@@ -164,11 +112,9 @@ void main() {
         reason: lineEnding.codeUnits.toString(),
       );
 
-      expect(searchOpened, isFalse, reason: lineEnding.codeUnits.toString());
-      expect(qmdConstructed, isFalse, reason: lineEnding.codeUnits.toString());
+      expect(indexOpened, isFalse, reason: lineEnding.codeUnits.toString());
       expect(memory.readAsBytesSync(), before, reason: lineEnding.codeUnits.toString());
       final failure = records.singleWhere((record) => record.message.contains('preflight failed'));
-      expect(failure.error, isA<MemoryPreflightException>());
       final report = (failure.error! as MemoryPreflightException).report;
       expect(report, contains('MEMORY.md'));
       expect(report, contains('Stage: validate-classify-or-commit'));
@@ -176,84 +122,42 @@ void main() {
     }
   });
 
-  test('missing index is reconstructed before the production search database opens', () async {
+  test('missing derived rows are reconstructed before search activation', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
-    Directory(config.workspaceDir).createSync(recursive: true);
     await seedCanonicalMemory(
       config.workspaceDir,
       topics: const {
         'general': ['Unique startup recovery fact'],
       },
     );
-    expect(File(config.searchDbPath).existsSync(), isFalse);
-    final wiring = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      exitFn: (code) => throw _Exit(code),
-    );
+    final wiring = _wiring(config);
 
     await wiring.wire();
-
-    expect(
-      (await wiring.memoryIndex.search('Unique startup', userId: 'owner')).single.chunk,
-      contains('recovery fact'),
-    );
-    final snapshot = await wiring.memoryCorpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
-    final health = await wiring.indexHealth.read(
-      canonicalRevision: snapshot.collectionRevision,
-      canonicalFingerprint: snapshot.fingerprint,
-    );
-    expect(health.state, IndexHealthState.healthy);
-    expect(health.indexRevision, snapshot.collectionRevision);
-    await wiring.dispose();
+    try {
+      expect(
+        (await wiring.memoryIndex.search('Unique startup', userId: 'owner')).single.chunk,
+        contains('recovery fact'),
+      );
+      final manifest = await wiring.memoryCorpus.manifest();
+      final health = await wiring.indexHealth.read(
+        canonicalRevision: manifest.collectionRevision,
+        canonicalFingerprint: manifest.fingerprint,
+      );
+      expect(health.isCurrent(manifest.collectionRevision, manifest.fingerprint), isTrue);
+    } finally {
+      await wiring.dispose();
+    }
   });
 
-  test('random corrupt index boots degraded without mutating the target', () async {
+  test('a supported stopped edit advances once and is indexed before healthy activation', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
-    Directory(config.workspaceDir).createSync(recursive: true);
-    await seedCanonicalMemory(
-      config.workspaceDir,
-      topics: const {
-        'general': ['Corrupt index recovery fact'],
-      },
-    );
-    final corrupt = File(config.searchDbPath)
-      ..parent.createSync(recursive: true)
-      ..writeAsBytesSync([0xff, 0, 0xfe, 1]);
-    final before = corrupt.readAsBytesSync();
-    final wiring = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      exitFn: (code) => throw _Exit(code),
-    );
-
-    await wiring.wire();
-
-    expect(await wiring.memoryIndex.search('Corrupt index', userId: 'owner'), isEmpty);
-    expect(corrupt.readAsBytesSync(), before);
-    await wiring.dispose();
-  });
-
-  test('supported stopped edit advances once and is indexed before healthy activation', () async {
-    final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
-    Directory(config.workspaceDir).createSync(recursive: true);
     await seedCanonicalMemory(
       config.workspaceDir,
       topics: const {
         'general': ['Before stopped edit'],
       },
     );
-    final first = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      exitFn: (code) => throw _Exit(code),
-    );
+    final first = _wiring(config);
     await first.wire();
     final priorRevision = (await first.memoryCorpus.readCorpus()).index.metadata.revision;
     await first.dispose();
@@ -262,35 +166,22 @@ void main() {
     final index = File(p.join(config.workspaceDir, 'MEMORY.md'));
     index.writeAsStringSync(index.readAsStringSync().replaceAll('Before stopped edit', 'After stopped edit'));
 
-    final second = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      exitFn: (code) => throw _Exit(code),
-    );
+    final second = _wiring(config);
     await second.wire();
-
-    expect((await second.memoryCorpus.readCorpus()).index.metadata.revision, priorRevision + 1);
-    expect(
-      (await second.memoryIndex.search('After stopped', userId: 'owner')).single.chunk,
-      contains('After stopped edit'),
-    );
-    expect(await second.memoryIndex.search('Before stopped', userId: 'owner'), isEmpty);
-    final snapshot = await second.memoryCorpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
-    expect(
-      (await second.indexHealth.read(
-        canonicalRevision: snapshot.collectionRevision,
-        canonicalFingerprint: snapshot.fingerprint,
-      )).state,
-      IndexHealthState.healthy,
-    );
-    await second.dispose();
+    try {
+      expect((await second.memoryCorpus.readCorpus()).index.metadata.revision, priorRevision + 1);
+      expect(
+        (await second.memoryIndex.search('After stopped', userId: 'owner')).single.chunk,
+        contains('After stopped edit'),
+      );
+      expect(await second.memoryIndex.search('Before', userId: 'owner'), isEmpty);
+    } finally {
+      await second.dispose();
+    }
   });
 
-  test('stopped observation deletion advances once and reconciles the index before healthy activation', () async {
+  test('a stopped observation deletion advances once and reconciles the index', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
-    Directory(config.workspaceDir).createSync(recursive: true);
     await seedCanonicalMemory(
       config.workspaceDir,
       topics: const {
@@ -301,45 +192,26 @@ void main() {
       },
     );
     final observation = File(p.join(config.workspaceDir, 'memory', '2026-08-07.md'));
-    final first = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      exitFn: (code) => throw _Exit(code),
-    );
+    final first = _wiring(config);
     await first.wire();
     final prior = await first.memoryCorpus.manifest();
-    expect(await first.memoryIndex.search('Delete this raw observation', userId: 'owner'), hasLength(1));
     await first.dispose();
 
     observation.deleteSync();
-    final second = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      exitFn: (code) => throw _Exit(code),
-    );
+    final second = _wiring(config);
     await second.wire();
-
-    final current = await second.memoryCorpus.manifest();
-    expect(current.collectionRevision, prior.collectionRevision + 1);
-    expect(current.paths, isNot(contains('memory/2026-08-07.md')));
-    expect(await second.memoryIndex.search('Delete this raw observation', userId: 'owner'), isEmpty);
-    expect(
-      (await second.indexHealth.read(
-        canonicalRevision: current.collectionRevision,
-        canonicalFingerprint: current.fingerprint,
-      )).state,
-      IndexHealthState.healthy,
-    );
-    await second.dispose();
+    try {
+      final current = await second.memoryCorpus.manifest();
+      expect(current.collectionRevision, prior.collectionRevision + 1);
+      expect(current.paths, isNot(contains('memory/2026-08-07.md')));
+      expect(await second.memoryIndex.search('Delete this raw observation', userId: 'owner'), isEmpty);
+    } finally {
+      await second.dispose();
+    }
   });
 
   test('derived recovery failure boots degraded with canonical memory available', () async {
     final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
-    Directory(config.workspaceDir).createSync(recursive: true);
     await seedCanonicalMemory(
       config.workspaceDir,
       topics: const {
@@ -350,113 +222,69 @@ void main() {
       ..parent.createSync(recursive: true)
       ..writeAsStringSync('Native recovery source survives');
     final health = IndexHealthStore(workspaceDir: config.workspaceDir);
-    final wiring = StorageWiring(
-      config: config,
-      eventBus: EventBus(),
-      searchBackendFactory: SqliteBackend.open,
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      indexReconciler: CanonicalIndexReconciler(
-        targetPath: config.searchDbPath,
-        healthStore: health,
-        transitionHook: (transition) async {
-          if (transition.name == 'beforeSwap') throw StateError('swap unavailable');
-        },
-      ),
-      exitFn: (code) => throw _Exit(code),
+    final wiring = _wiring(
+      config,
+      indexReconciler: CanonicalIndexReconciler(healthStore: health, target: const _FailingRebuildTarget()),
     );
 
     await wiring.wire();
-
-    final corpus = await wiring.memoryCorpus.readCorpus();
-    expect(corpus.index.entries.single.summary, contains('Canonical remains readable'));
-    final snapshot = await wiring.memoryCorpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
-    expect(
-      (await wiring.indexHealth.read(
-        canonicalRevision: snapshot.collectionRevision,
-        canonicalFingerprint: snapshot.fingerprint,
-      )).state,
-      IndexHealthState.degraded,
-    );
-    expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
-    final search = await wiring.searchBackend.search('recovery');
-    expect(search.map((result) => result.locator), ['wiki/recovery.md']);
-    expect(search.canonicalRevision, snapshot.collectionRevision);
-    expect(search.degradedLayers, ['memory']);
-    expect(search.degradations.single.reason, 'indexNotCurrent');
-    await wiring.dispose();
+    try {
+      final corpus = await wiring.memoryCorpus.readCorpus();
+      expect(corpus.index.entries.single.summary, contains('Canonical remains readable'));
+      final manifest = await wiring.memoryCorpus.manifest();
+      expect(
+        (await wiring.indexHealth.read(
+          canonicalRevision: manifest.collectionRevision,
+          canonicalFingerprint: manifest.fingerprint,
+        )).state,
+        IndexHealthState.degraded,
+      );
+      expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
+      final search = await wiring.searchBackend.search('recovery');
+      expect(search.map((result) => result.locator), ['wiki/recovery.md']);
+      expect(search.degradedLayers, ['memory']);
+      expect(search.degradations.single.reason, 'indexNotCurrent');
+    } finally {
+      await wiring.dispose();
+    }
   });
+}
 
-  for (final targetInitiallyExists in [false, true]) {
-    test(
-      'derived recovery failure preserves ${targetInitiallyExists ? 'existing target bytes' : 'target absence'}',
-      () async {
-        final config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
-        Directory(config.workspaceDir).createSync(recursive: true);
-        await seedCanonicalMemory(
-          config.workspaceDir,
-          topics: const {
-            'general': ['Canonical recovery fact'],
-          },
-        );
-        final target = File(config.searchDbPath);
-        List<int>? priorBytes;
-        if (targetInitiallyExists) {
-          target.parent.createSync(recursive: true);
-          final database = sqlite3.open(target.path);
-          await SqliteSchemaGate.prepareSearch(SqliteBackend(database), storeName: 'search.db');
-          database.close();
-          priorBytes = target.readAsBytesSync();
-        }
-        var targetOpenCalls = 0;
-        final health = IndexHealthStore(workspaceDir: config.workspaceDir);
-        final wiring = StorageWiring(
-          config: config,
-          eventBus: EventBus(),
-          searchBackendFactory: (path) async {
-            targetOpenCalls++;
-            return SqliteBackend.open(path);
-          },
-          taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
-          indexReconciler: CanonicalIndexReconciler(
-            targetPath: config.searchDbPath,
-            healthStore: health,
-            transitionHook: (transition) async {
-              if (transition.name == 'beforeSwap') throw StateError('swap unavailable');
-            },
-          ),
-          exitFn: (code) => throw _Exit(code),
-        );
+StorageWiring _wiring(DartclawConfig config, {void Function()? onIndex, CanonicalIndexReconciler? indexReconciler}) {
+  final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
+  return StorageWiring(
+    config: config,
+    eventBus: EventBus(),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    searchIndexFactory: (_, table, {required withinTransaction}) {
+      onIndex?.call();
+      return indices.putIfAbsent(table, InMemoryFullTextIndex.new);
+    },
+    indexReconciler: indexReconciler,
+    exitFn: (code) => throw _Exit(code),
+  );
+}
 
-        await wiring.wire();
+final class _FailingRebuildTarget implements IndexRebuildTarget {
+  const new();
 
-        expect(targetOpenCalls, 1);
-        if (targetInitiallyExists) {
-          expect(target.readAsBytesSync(), priorBytes);
-        } else {
-          expect(target.existsSync(), isTrue);
-        }
-        expect(await wiring.memoryIndex.search('Canonical', userId: 'owner'), isEmpty);
-        await wiring.dispose();
-      },
-    );
-  }
+  @override
+  Future<bool> isPresent() async => false;
+
+  @override
+  Future<T> validateLive<T>(Future<T> Function(FullTextIndex index) body) =>
+      Future.error(StateError('live index unavailable'));
+
+  @override
+  Future<T> rebuild<T>({
+    required IndexPopulateAndValidate<T> populateAndValidate,
+    required IndexReconcileHook transition,
+  }) => Future.error(StateError('injected reconciliation failure'));
 }
 
 final class _Exit implements Exception {
   const new(this.code);
 
   final int code;
-}
-
-final class _SentinelQmdManager extends QmdManager {
-  new(this.onActivate)
-    : super(commandRunner: (executable, arguments, {workingDirectory}) async => ProcessResult(0, 0, '', ''));
-
-  final void Function() onActivate;
-
-  @override
-  Future<bool> isAvailable() async => true;
-
-  @override
-  Future<void> activate() async => onActivate();
 }

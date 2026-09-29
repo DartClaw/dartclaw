@@ -245,8 +245,10 @@ void main() {
     setUp(() {
       clientsHandler = McpProtocolHandler();
       for (final tool in [
+        _ProfileTool('context_research', McpToolAccess.read),
         _ProfileTool('memory_search', McpToolAccess.read),
         _ProfileTool('kg_query', McpToolAccess.read),
+        _ProfileTool('kg_timeline', McpToolAccess.read),
         _ProfileTool('kg_add', McpToolAccess.write),
         _ProfileTool('brave_search', McpToolAccess.read),
       ]) {
@@ -269,11 +271,14 @@ void main() {
     });
 
     test('the gateway token still reaches every registered tool', () async {
-      expect(await toolNames(token), unorderedEquals(['memory_search', 'kg_query', 'kg_add', 'brave_search']));
+      expect(
+        await toolNames(token),
+        unorderedEquals(['context_research', 'memory_search', 'kg_query', 'kg_timeline', 'kg_add', 'brave_search']),
+      );
     });
 
     test('a client token reaches the context-engine profile only', () async {
-      expect(await toolNames(clientToken), unorderedEquals(['memory_search', 'kg_query']));
+      expect(await toolNames(clientToken), unorderedEquals(['context_research', 'kg_query', 'kg_timeline']));
     });
 
     test('a client call outside the profile is refused without reaching the tool', () async {

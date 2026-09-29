@@ -5,8 +5,8 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
-import 'package:dartclaw_workflow/testing.dart' show FakeProviderAuthPreflight;
+import 'package:dartclaw_testing/dartclaw_testing.dart';
+import 'package:dartclaw_workflow/testing.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -43,12 +43,21 @@ void main() {
       gateway: const GatewayConfig(authMode: 'none'),
       server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
     );
+    final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
     final runtime = await DartclawRuntime.build(
       runtimeConfig,
       dataDir: dataDir.path,
       port: 0,
       harnessFactory: HarnessFactory()..register('claude', (_) => FakeAgentHarness()),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
+      searchIndexFactory: (_, table, {required withinTransaction}) =>
+          indices.putIfAbsent(table, InMemoryFullTextIndex.new),
+      taskRepositoryFactory: (_) => InMemoryTaskRepository(),
+      workflowRunRepositoryFactory: (_) => InMemoryWorkflowRunRepository(),
+      agentExecutionRepositoryFactory: (_) => InMemoryAgentExecutionRepository(),
+      workflowStepExecutionRepositoryFactory: (_) => InMemoryWorkflowStepExecutionRepository(),
+      executionRepositoryTransactorFactory: (_) => const InMemoryExecutionRepositoryTransactor(),
       stderrLine: (_) {},
       exitFn: (code) => throw StateError('unexpected exit $code'),
       resolvedConfigPath: configFile.path,
@@ -58,19 +67,14 @@ void main() {
       providerAuthPreflight: FakeProviderAuthPreflight(),
     );
     await runtime.shutdown();
-    final backend = await SqliteBackend.open(config.searchDbPath);
-    try {
-      final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
-      final hits = await index.search('runtimecomposition', userId: 'owner');
-      expect(hits.map((hit) => hit.id), [messageId]);
-      expect(hits.single.metadata, {'session_id': sessionId, 'role': 'assistant'});
-    } finally {
-      await backend.close();
-    }
+    final hits = await indices[PostgresFtsTable.conversationChunks]!.search('runtimecomposition', userId: 'owner');
+    expect(hits.map((hit) => hit.id), [messageId]);
+    expect(hits.single.metadata, {'session_id': sessionId, 'role': 'assistant'});
   });
 
   test('a memory rebuild reprojects conversation rows from authoritative NDJSON', () async {
-    final first = await _wire(config);
+    final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
+    final first = await _wire(config, indices: indices);
     final session = await first.sessions.createSession();
     final message = await first.messages.insertMessage(
       sessionId: session.id,
@@ -81,7 +85,7 @@ void main() {
     await _close(first);
 
     File(IndexHealthStore(workspaceDir: config.workspaceDir).path).deleteSync();
-    final second = await _wire(config);
+    final second = await _wire(config, indices: indices);
     try {
       final hits = await second.conversationSearch.search('reprojected');
       expect(hits.map((hit) => hit.messageId), [message.id]);
@@ -91,8 +95,38 @@ void main() {
     }
   });
 
+  test('administrative search retains a removed workspace principal without exposing it through owner scope', () async {
+    final sessions = SessionService(baseDir: config.sessionsDir);
+    final messages = MessageService(baseDir: config.sessionsDir);
+    final removed = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'removed', directory: '${dataDir.path}/removed-workspace'),
+    );
+    final message = await messages.insertMessage(
+      sessionId: removed.id,
+      role: 'assistant',
+      content: 'removedworkspace conversation evidence',
+    );
+    await messages.dispose();
+
+    final wiring = await _wire(config);
+    try {
+      expect(
+        (await wiring.conversationSearch.searchAdministrative('removedworkspace')).hits.map((hit) => hit.messageId),
+        [message.id],
+      );
+      expect(await wiring.conversationIndex.search('removedworkspace', userId: 'owner'), isEmpty);
+      expect(
+        (await wiring.conversationIndex.search('removedworkspace', userId: 'agent:removed')).single.id,
+        message.id,
+      );
+    } finally {
+      await _close(wiring);
+    }
+  });
+
   test('the memory fast path leaves existing conversation rows untouched', () async {
-    final first = await _wire(config);
+    final indices = <PostgresFtsTable, InMemoryFullTextIndex>{};
+    final first = await _wire(config, indices: indices);
     await first.conversationIndex.upsert([
       SearchDocument(
         id: 'sentinel-conversation-row',
@@ -103,7 +137,7 @@ void main() {
     ], userId: 'owner');
     await _close(first);
 
-    final second = await _wire(config);
+    final second = await _wire(config, indices: indices);
     try {
       expect(
         (await second.conversationSearch.search('fastpathsentinel')).single.messageId,
@@ -114,11 +148,8 @@ void main() {
     }
   });
 
-  test('the degraded in-memory fallback still indexes appended messages', () async {
-    final wiring = await _wire(
-      config,
-      searchBackendFactory: (_) async => throw const FileSystemException('injected search-store failure'),
-    );
+  test('the conversation projection indexes appended messages independently from memory rows', () async {
+    final wiring = await _wire(config);
     try {
       final session = await wiring.sessions.createSession();
       final message = await wiring.messages.insertMessage(
@@ -136,12 +167,15 @@ void main() {
   });
 }
 
-Future<StorageWiring> _wire(DartclawConfig config, {DatabaseBackendFactory? searchBackendFactory}) async {
+Future<StorageWiring> _wire(DartclawConfig config, {Map<PostgresFtsTable, InMemoryFullTextIndex>? indices}) async {
+  final resolvedIndices = indices ?? <PostgresFtsTable, InMemoryFullTextIndex>{};
   final wiring = StorageWiring(
     config: config,
     eventBus: EventBus(),
-    searchBackendFactory: searchBackendFactory ?? SqliteBackend.open,
-    taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    searchIndexFactory: (_, table, {required withinTransaction}) =>
+        resolvedIndices.putIfAbsent(table, InMemoryFullTextIndex.new),
     exitFn: (code) => throw StateError('unexpected exit $code'),
   );
   await wiring.wire();

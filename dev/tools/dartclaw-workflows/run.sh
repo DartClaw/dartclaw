@@ -13,8 +13,7 @@
 # The spec.sh / plan.sh / review.sh wrappers run the inline variants
 # (--standalone --allow-dirty-localpath) against the current branch.
 #
-# By default the host is AOT-built (via `dart build cli`, which bundles the
-# sqlite3 native library) into a content-addressed directory under
+# By default the host is AOT-built via `dart build cli` into a content-addressed directory under
 # .cache/bin/dartclaw-<key>/ (bin/dartclaw + a sibling lib/), and the inner
 # binary is exec'd. Concurrent invocations cannot clobber a binary that a
 # running process holds open. The cache key combines HEAD sha,
@@ -162,11 +161,8 @@ ensure_binary() {
     return
   fi
 
-  # Build with `dart build cli`, which runs the sqlite3 native build hooks and
-  # emits `<tmp>/bundle/bin/dartclaw` + `<tmp>/bundle/lib/` (see ADR-048;
-  # `dart compile exe` silently omits the sqlite native-asset mapping here).
-  # bin/ and lib/ must stay siblings in the published cache entry: the binary
-  # resolves the library relative to its own resolved executable path.
+  # Build hooks emit `<tmp>/bundle/bin/dartclaw` and any selected optional
+  # native embedding libraries under `<tmp>/bundle/lib/`.
   local tmp="${versioned}.tmp.$$"
   rm -rf "$tmp"
   ( cd "$REPO_ROOT/apps/dartclaw_cli" && dart build cli -t bin/dartclaw.dart -o "$tmp" >&2 )

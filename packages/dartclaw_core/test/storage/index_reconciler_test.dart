@@ -1,133 +1,135 @@
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 void main() {
   late Directory root;
-  late String targetPath;
   late IndexHealthStore health;
+  late _MemoryRebuildTarget target;
 
   setUp(() {
     root = Directory.systemTemp.createTempSync('index_reconciler_');
-    targetPath = p.join(root.path, 'search.db');
     health = IndexHealthStore(workspaceDir: root.path, now: () => DateTime.utc(2026, 8, 12));
+    target = _MemoryRebuildTarget();
   });
 
   tearDown(() {
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
+  CanonicalIndexReconciler reconciler({
+    Future<void> Function(IndexReconcileTransition transition)? transitionHook,
+    IndexHealthStore? healthStore,
+  }) => CanonicalIndexReconciler(target: target, healthStore: healthStore ?? health, transitionHook: transitionHook);
+
   test('validated empty corpus is healthy with exact zero rows', () async {
-    final result = await CanonicalIndexReconciler(
-      targetPath: targetPath,
-      healthStore: health,
-    ).reconcile(corpus: _corpus(), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+    final result = await reconciler().reconcile(
+      corpus: _corpus(),
+      canonicalRevision: 7,
+      canonicalFingerprint: 'fingerprint-7',
+    );
 
     expect(result.rowCount, 0);
     expect(result.rebuilt, isTrue);
     expect(result.health.state, IndexHealthState.healthy);
     expect(result.health.indexRevision, 7);
-    final db = sqlite3.open(targetPath);
-    expect(db.select('SELECT COUNT(*) AS count FROM memory_chunks').single['count'], 0);
-    db.close();
+    expect(await target.live.count(userId: 'owner'), 0);
   });
 
   test('complete validation preserves canonical row identity', () async {
-    final corpus = _corpus(withEntry: true);
-
-    final result = await CanonicalIndexReconciler(
-      targetPath: targetPath,
-      healthStore: health,
-    ).reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+    final result = await reconciler().reconcile(
+      corpus: _corpus(withEntry: true),
+      canonicalRevision: 7,
+      canonicalFingerprint: 'fingerprint-7',
+    );
 
     expect(result.rowCount, 1);
-    final db = sqlite3.open(targetPath);
-    final row = db.select('SELECT * FROM memory_chunks').single;
+    final row = (await target.live.fetch(['22222222-2222-4222-8222-222222222222'], userId: 'owner')).single;
     expect(
-      (row['role'], row['locator'], row['entry_id'], row['entry_revision'], row['provenance']),
-      ('topic', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-222222222222', 3, 'manual:test'),
+      (
+        row.metadata['role'],
+        row.id,
+        row.metadata['entry_id'],
+        row.metadata['entry_revision'],
+        row.metadata['provenance'],
+      ),
+      ('topic', '22222222-2222-4222-8222-222222222222', '22222222-2222-4222-8222-222222222222', '3', 'manual:test'),
     );
-    db.close();
   });
 
-  test('current fast path rebuilds corrupt FTS data with intact canonical rows', () async {
+  test('current fast path rebuilds a target whose canonical rows were tampered', () async {
     final corpus = _corpus(withEntry: true);
-    final reconciler = CanonicalIndexReconciler(targetPath: targetPath, healthStore: health);
-    await reconciler.reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+    await reconciler().reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+    await target.live.replaceAll([
+      SearchDocument(
+        id: '22222222-2222-4222-8222-222222222222',
+        chunks: const ['tampered'],
+        metadata: const {
+          'source': '22222222-2222-4222-8222-222222222222',
+          'role': 'topic',
+          'provenance': 'manual:test',
+          'entry_id': '22222222-2222-4222-8222-222222222222',
+          'entry_revision': '3',
+        },
+        timestamp: DateTime.utc(2026, 8, 10),
+      ),
+    ], userId: 'owner');
 
-    final corruptDb = sqlite3.open(targetPath);
-    final corruptBackend = SqliteBackend(corruptDb);
-    try {
-      corruptDb.execute('DELETE FROM memory_chunks_fts_data WHERE id > 10');
-      expect(corruptDb.select('SELECT text FROM memory_chunks').single['text'], 'Durable searchable fact');
-      await SqliteSchemaGate.prepareSearch(corruptBackend, storeName: 'search.db');
-      await expectLater(
-        SqliteFtsIndex(corruptBackend, table: SqliteFtsTable.memoryChunks).verifyIntegrity(),
-        throwsStateError,
-      );
-    } finally {
-      await corruptBackend.close();
-    }
-
-    final repaired = await reconciler.ensureCurrent(
+    final repaired = await reconciler().ensureCurrent(
       corpus: corpus,
       canonicalRevision: 7,
       canonicalFingerprint: 'fingerprint-7',
     );
-    expect((repaired.rowCount, repaired.health.state), (1, IndexHealthState.healthy));
-    final repairedBackend = SqliteBackend(sqlite3.open(targetPath));
-    try {
-      final index = SqliteFtsIndex(repairedBackend, table: SqliteFtsTable.memoryChunks);
-      await index.verifyIntegrity();
-      expect((await index.search('Durable', userId: 'owner')).single.chunk, 'Durable searchable fact');
-    } finally {
-      await repairedBackend.close();
-    }
+
+    expect((repaired.rebuilt, repaired.rowCount, repaired.health.state), (true, 1, IndexHealthState.healthy));
+    expect((await target.live.search('Durable', userId: 'owner')).single.chunk, 'Durable searchable fact');
   });
 
   test('batched current fast path proves exact rows and complete canonical authentication', () async {
-    final corpus = _corpus(withEntry: true);
-    final expected = MemoryIndexProjection.documents(corpus);
-    final reconciler = CanonicalIndexReconciler(targetPath: targetPath, healthStore: health);
-    await reconciler.reconcileBatched(
+    final expected = MemoryIndexProjection.documents(_corpus(withEntry: true));
+    await reconciler().reconcileBatched(
       rowBatches: () => Stream.value(expected),
       canonicalRevision: 7,
       canonicalFingerprint: 'fingerprint-7',
     );
     var authenticated = 0;
-    final current = await reconciler.ensureCurrentBatched(
+    final current = await reconciler().ensureCurrentBatched(
       rowBatches: () => Stream.value(expected),
       canonicalRevision: 7,
       canonicalFingerprint: 'fingerprint-7',
       authenticateComplete: () async => authenticated++,
     );
-    expect((current.rowCount, authenticated), (1, 1));
-    expect(current.rebuilt, isFalse);
+    expect((current.rebuilt, current.rowCount, authenticated), (false, 1, 1));
 
-    final db = sqlite3.open(targetPath);
-    db.execute("UPDATE memory_chunks SET text = 'tampered'");
-    db.close();
+    await target.live.replaceAll([
+      SearchDocument(
+        id: expected.single.id,
+        chunks: const ['tampered'],
+        metadata: expected.single.metadata,
+        timestamp: expected.single.timestamp,
+      ),
+    ], userId: 'owner');
     authenticated = 0;
-    final repaired = await reconciler.ensureCurrentBatched(
+    final repaired = await reconciler().ensureCurrentBatched(
       rowBatches: () => Stream.value(expected),
       canonicalRevision: 7,
       canonicalFingerprint: 'fingerprint-7',
       authenticateComplete: () async => authenticated++,
     );
-    expect(repaired.rebuilt, isTrue);
-    expect((repaired.rowCount, authenticated), (1, 1));
-    final repairedDb = sqlite3.open(targetPath);
-    expect(repairedDb.select('SELECT text FROM memory_chunks').single['text'], 'Durable searchable fact');
-    repairedDb.close();
+    expect((repaired.rebuilt, repaired.rowCount, authenticated), (true, 1, 1));
+    expect((await target.live.fetch([expected.single.id], userId: 'owner')).single.chunks, expected.single.chunks);
   });
 
-  test('complete authentication failure prevents swap and healthy publication', () async {
-    final target = File(targetPath)..writeAsBytesSync([9, 1, 1]);
+  test('complete authentication failure prevents publication and healthy evidence', () async {
+    final prior = InMemoryFullTextIndex();
+    await prior.upsert([_sentinel], userId: 'owner');
+    target.liveOrNull = prior;
+
     await expectLater(
-      CanonicalIndexReconciler(targetPath: targetPath, healthStore: health).reconcileBatched(
+      reconciler().reconcileBatched(
         rowBatches: () => Stream.value(MemoryIndexProjection.documents(_corpus(withEntry: true))),
         canonicalRevision: 7,
         canonicalFingerprint: 'fingerprint-7',
@@ -135,7 +137,8 @@ void main() {
       ),
       throwsStateError,
     );
-    expect(target.readAsBytesSync(), [9, 1, 1]);
+
+    expect((await target.live.fetch([_sentinel.id], userId: 'owner')).single.chunks, _sentinel.chunks);
     expect(
       (await health.read(canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7')).state,
       IndexHealthState.degraded,
@@ -143,27 +146,26 @@ void main() {
   });
 
   test('audit records participate in canonical identity but produce no derived rows', () async {
-    final corpus = _corpus(withAudit: true);
-
-    final result = await CanonicalIndexReconciler(
-      targetPath: targetPath,
-      healthStore: health,
-    ).reconcile(corpus: corpus, canonicalRevision: 7, canonicalFingerprint: 'audit-fingerprint-7');
+    final result = await reconciler().reconcile(
+      corpus: _corpus(withAudit: true),
+      canonicalRevision: 7,
+      canonicalFingerprint: 'audit-fingerprint-7',
+    );
 
     expect(result.rowCount, 0);
-    final db = sqlite3.open(targetPath);
-    expect(db.select('SELECT COUNT(*) AS count FROM memory_chunks').single['count'], 0);
-    db.close();
+    expect(await target.live.count(userId: 'owner'), 0);
   });
 
-  for (final transition in IndexReconcileTransition.values) {
-    test('failure at ${transition.name} preserves target and converges on retry', () async {
-      final target = File(targetPath)..writeAsBytesSync([4, 2, 4, 2]);
+  for (final transition in IndexReconcileTransition.values.where(
+    (value) => value != IndexReconcileTransition.swapped,
+  )) {
+    test('failure at ${transition.name} preserves the target and converges on retry', () async {
+      final prior = InMemoryFullTextIndex();
+      await prior.upsert([_sentinel], userId: 'owner');
+      target.liveOrNull = prior;
 
       await expectLater(
-        CanonicalIndexReconciler(
-          targetPath: targetPath,
-          healthStore: health,
+        reconciler(
           transitionHook: (current) async {
             if (current == transition) throw StateError('fault ${transition.name}');
           },
@@ -171,23 +173,47 @@ void main() {
         throwsStateError,
       );
 
-      expect(target.readAsBytesSync(), [4, 2, 4, 2]);
-      expect(root.listSync().where((entity) => p.basename(entity.path).contains('dartclaw-rebuild')), isEmpty);
+      expect((await target.live.fetch([_sentinel.id], userId: 'owner')).single.chunks, _sentinel.chunks);
       expect(
         (await health.read(canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7')).state,
         IndexHealthState.degraded,
       );
 
-      final retry = await CanonicalIndexReconciler(
-        targetPath: targetPath,
-        healthStore: health,
-      ).reconcile(corpus: _corpus(), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7');
+      final retry = await reconciler().reconcile(
+        corpus: _corpus(),
+        canonicalRevision: 7,
+        canonicalFingerprint: 'fingerprint-7',
+      );
       expect(retry.health.state, IndexHealthState.healthy);
     });
   }
 
-  test('health publication failure rolls back the swapped target', () async {
-    final target = File(targetPath)..writeAsBytesSync([9, 8, 7]);
+  test('failure after publication leaves the replacement degraded and converges on retry', () async {
+    await expectLater(
+      reconciler(
+        transitionHook: (transition) async {
+          if (transition == IndexReconcileTransition.swapped) throw StateError('publication observer failed');
+        },
+      ).reconcile(corpus: _corpus(withEntry: true), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7'),
+      throwsStateError,
+    );
+
+    expect(await target.live.count(userId: 'owner'), 1);
+    expect(
+      (await health.read(canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7')).state,
+      IndexHealthState.degraded,
+    );
+    expect(
+      (await reconciler().ensureCurrent(
+        corpus: _corpus(withEntry: true),
+        canonicalRevision: 7,
+        canonicalFingerprint: 'fingerprint-7',
+      )).health.state,
+      IndexHealthState.healthy,
+    );
+  });
+
+  test('health publication failure retains the already-published derived rows', () async {
     final failingHealth = IndexHealthStore(
       workspaceDir: root.path,
       writer: (file, evidence) async {
@@ -197,34 +223,31 @@ void main() {
     );
 
     await expectLater(
-      CanonicalIndexReconciler(
-        targetPath: targetPath,
-        healthStore: failingHealth,
-      ).reconcile(corpus: _corpus(), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7'),
+      reconciler(healthStore: failingHealth)
+          .reconcile(corpus: _corpus(withEntry: true), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7'),
       throwsStateError,
     );
 
-    expect(target.readAsBytesSync(), [9, 8, 7]);
-    expect(root.listSync().where((entity) => p.basename(entity.path).contains('dartclaw-rebuild')), isEmpty);
+    expect(await target.live.count(userId: 'owner'), 1);
   });
 
-  test('replacement failure after moving the sibling restores prior target bytes', () async {
-    final target = File(targetPath)..writeAsBytesSync([6, 5, 4]);
+  test('target publication failure preserves the prior target', () async {
+    final prior = InMemoryFullTextIndex();
+    await prior.upsert([_sentinel], userId: 'owner');
+    target
+      ..liveOrNull = prior
+      ..failPublication = true;
 
     await expectLater(
-      CanonicalIndexReconciler(
-        targetPath: targetPath,
-        healthStore: health,
-        replaceFile: (sibling, destination) {
-          sibling.renameSync(destination);
-          throw StateError('replacement publication unavailable');
-        },
-      ).reconcile(corpus: _corpus(), canonicalRevision: 7, canonicalFingerprint: 'fingerprint-7'),
+      reconciler().reconcile(
+        corpus: _corpus(withEntry: true),
+        canonicalRevision: 7,
+        canonicalFingerprint: 'fingerprint-7',
+      ),
       throwsStateError,
     );
 
-    expect(target.readAsBytesSync(), [6, 5, 4]);
-    expect(root.listSync().where((entity) => p.basename(entity.path).contains('dartclaw-rebuild')), isEmpty);
+    expect((await target.live.fetch([_sentinel.id], userId: 'owner')).single.chunks, _sentinel.chunks);
   });
 
   test('persisted rebuilding evidence reopens as interrupted degradation', () async {
@@ -263,6 +286,44 @@ void main() {
     expect(reopened.failureStage, 'incremental');
   });
 }
+
+final class _MemoryRebuildTarget implements IndexRebuildTarget {
+  InMemoryFullTextIndex? liveOrNull;
+  var failPublication = false;
+
+  InMemoryFullTextIndex get live => liveOrNull ?? (throw StateError('target is absent'));
+
+  @override
+  Future<bool> isPresent() async => liveOrNull != null;
+
+  @override
+  Future<T> validateLive<T>(Future<T> Function(FullTextIndex index) body) => body(live);
+
+  @override
+  Future<T> rebuild<T>({
+    required Future<T> Function(FullTextIndex index, Future<void> Function() populated) populateAndValidate,
+    required Future<void> Function(IndexReconcileTransition transition) transition,
+  }) async {
+    final candidate = InMemoryFullTextIndex();
+    await transition(IndexReconcileTransition.siblingCreated);
+    final result = await populateAndValidate(candidate, () => transition(IndexReconcileTransition.populated));
+    await transition(IndexReconcileTransition.validated);
+    await transition(IndexReconcileTransition.beforeClose);
+    await transition(IndexReconcileTransition.closed);
+    await transition(IndexReconcileTransition.beforeSwap);
+    if (failPublication) throw StateError('target publication unavailable');
+    liveOrNull = candidate;
+    await transition(IndexReconcileTransition.swapped);
+    return result;
+  }
+}
+
+final _sentinel = SearchDocument(
+  id: 'prior',
+  chunks: const ['prior target'],
+  metadata: const {'source': 'prior', 'role': 'memory', 'provenance': 'unknown'},
+  timestamp: DateTime.utc(2025),
+);
 
 CanonicalMemoryCorpus _corpus({bool withEntry = false, bool withAudit = false}) {
   final entries = withEntry

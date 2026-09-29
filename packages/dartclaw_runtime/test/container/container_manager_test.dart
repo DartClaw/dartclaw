@@ -369,11 +369,7 @@ void main() {
       // uid-1000 `dartclaw` user or the container cannot read/write its own
       // state. Verified on a native-Linux VM: without this the writes fail with
       // permission denied; with the host dirs chowned to 1000 they succeed.
-      final stateDir = Directory(p.join(Directory.systemTemp.createTempSync('cm-chown-').path, 'authority'));
-      addTearDown(() {
-        final parent = stateDir.parent;
-        if (parent.existsSync()) parent.deleteSync(recursive: true);
-      });
+      final stateDir = Directory(_tempStateDir('cm-chown-'));
 
       final calls = <List<String>>[];
       final manager = _manager(
@@ -392,11 +388,7 @@ void main() {
     });
 
     test('start creates the generated-state directory empty and owner-only', () async {
-      final stateDir = Directory(p.join(Directory.systemTemp.createTempSync('cm-state-').path, 'authority'));
-      addTearDown(() {
-        final parent = stateDir.parent;
-        if (parent.existsSync()) parent.deleteSync(recursive: true);
-      });
+      final stateDir = Directory(_tempStateDir());
       // Residue a previous authority could have left behind.
       stateDir.createSync(recursive: true);
       File(p.join(stateDir.path, 'stale.toml')).writeAsStringSync('leftover');
@@ -417,11 +409,7 @@ void main() {
     });
 
     test('stop destroys the generated state along with the container', () async {
-      final stateDir = Directory(p.join(Directory.systemTemp.createTempSync('cm-state-').path, 'authority'));
-      addTearDown(() {
-        final parent = stateDir.parent;
-        if (parent.existsSync()) parent.deleteSync(recursive: true);
-      });
+      final stateDir = Directory(_tempStateDir());
 
       final manager = _manager(
         generatedStateDir: stateDir.path,
@@ -455,6 +443,19 @@ void main() {
         manager.containerPathForHostPath('/host/state/codex-home/config.toml'),
         '$containerGeneratedStatePath/codex-home/config.toml',
       );
+    });
+
+    test('prefers writable generated state nested under a read-only project mount', () {
+      final manager = _manager(
+        generatedStateDir: '/tmp/project/.agent_temp/runtime/containers/authority',
+        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
+      );
+
+      expect(
+        manager.containerPathForHostPath('/tmp/project/.agent_temp/runtime/containers/authority/codex-home'),
+        '$containerGeneratedStatePath/codex-home',
+      );
+      expect(manager.containerPathForHostPath('/tmp/project/README.md'), '/project/README.md');
     });
 
     test('start creates restricted container with no workspace mounts', () async {
@@ -556,7 +557,7 @@ void main() {
       ];
       expect(mounts, [
         '/tmp/dartclaw-bridge:/opt/dartclaw/dartclaw-bridge:ro',
-        '/tmp/dartclaw-state:/home/dartclaw/.dartclaw:rw',
+        '${manager.generatedStateDir}:/home/dartclaw/.dartclaw:rw',
       ]);
     });
 
@@ -825,7 +826,7 @@ void main() {
         containerName: workspaceContainerName,
         profileId: 'workspace',
         workspaceMounts: const [],
-        generatedStateDir: '/tmp/dartclaw-state',
+        generatedStateDir: _tempStateDir(),
         runCommand: (executable, arguments) async => ProcessResult(1, 0, '', ''),
       );
 
@@ -946,7 +947,7 @@ ContainerManager _manager({
   List<String> localPathAllowlist = const [],
   String? buildContextDir = '/tmp/project',
   String workingDir = '/project',
-  String generatedStateDir = '/tmp/dartclaw-state',
+  String? generatedStateDir,
   String? artifactsDir,
   bool hasMcpBridge = false,
 }) {
@@ -956,7 +957,7 @@ ContainerManager _manager({
     containerName: containerName,
     profileId: profileId,
     workspaceMounts: workspaceMounts,
-    generatedStateDir: generatedStateDir,
+    generatedStateDir: generatedStateDir ?? _tempStateDir(),
     artifactsDir: artifactsDir,
     hasMcpBridge: hasMcpBridge,
     localPathAllowlist: localPathAllowlist,
@@ -966,6 +967,16 @@ ContainerManager _manager({
     runCommand: run,
     startCommand: start ?? _defaultStart,
   );
+}
+
+// start() recreates and chmods this dir and stop() deletes it, so a path shared
+// with a concurrently running suite races; each test gets its own.
+String _tempStateDir([String prefix = 'cm-state-']) {
+  final root = Directory.systemTemp.createTempSync(prefix);
+  addTearDown(() {
+    if (root.existsSync()) root.deleteSync(recursive: true);
+  });
+  return p.join(root.path, 'authority');
 }
 
 Future<Process> _defaultStart(

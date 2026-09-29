@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.26 workflow storage backend seam, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.27 workflow error policy and resume, workflow accounting availability, Claude turn accounting, PostgreSQL-only workflow storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -190,7 +190,7 @@ The definition model encodes 0.16-era capabilities directly on the step object:
 | `maxParallel` | per-map concurrency cap |
 | `continueSession` | session continuity target |
 | `onFailure` | `fail` (default), `continue`, `retry`, or `pause` — modern step failure policy (drives workflow-owned retry budget handling for any step type) |
-| `onError` | `pause` (default) / `continue`; legacy `fail` parses as `pause`. The only path past an engine-level step error (non-zero bash exit, harness/task error) — those carry no modeled outcome, so `onFailure` never sees them |
+| `onError` | `fail` (default), `pause`, or `continue` for execution errors before a modeled outcome, including non-zero/unstartable bash and task creation/wait errors |
 | `provider` / `model` / `effort` | explicit provider, model, or reasoning-effort override |
 | `auto_frame_context` | bool, default `true` — opt out of auto-XML-framing of `inputs:` / `workflow_variables:` |
 | `emitsOwnOutcome` | bool, default `false` — skip the `<step-outcome>` framing append |
@@ -257,7 +257,7 @@ Execution semantics:
 | Timeout | `step.timeoutSeconds` (default 60s). POSIX terminates the observed tree with SIGTERM then SIGKILL after 2s. Windows hard-terminates a still-running direct root and never retargets an exited PID; uncontained descendants may continue. If cleanup cannot be confirmed, later Bash steps stay blocked until DartClaw restarts |
 | Stdout capture | Truncated at 64 KB with `[truncated]` marker |
 | Output extraction | Respects `outputs` config: `format: json` parses JSON from stdout, `format: lines` splits lines, `format: text` passes raw stdout |
-| Error handling | Non-zero exit code → failure. `onError: continue` records failure metadata and advances; `onError: pause` (default) pauses the run |
+| Error handling | Non-zero exit code → execution error. Omitted/`fail` fails the run; `pause` holds at the failed step for resume; `continue` records failure and advances without satisfying success gates |
 
 Bash steps store automatic metadata in context:
 
@@ -267,11 +267,11 @@ Bash steps store automatic metadata in context:
 - `<stepId>.stderr` — stderr output (if non-empty)
 - `<stepId>.stdoutTruncated` — `true` if output was truncated
 
-The built-in `code-review` workflow no longer hardcodes an `extract-diff` bash step. It passes review targets directly to `dartclaw-review`, then loops `remediate → re-review` until findings reach zero or the loop exhausts. The `dartclaw-remediate-findings` skill is responsible for running analysis/tests/linting on its edits before emitting a completed remediation result.
+The built-in `code-review` workflow passes review targets directly to `andthen:review`, then loops `remediate → re-review` until gating findings reach zero or the loop exhausts. The `andthen:implement-fix` skill runs analysis/tests/linting on its edits before emitting a completed remediation result.
 
-All built-in `dartclaw-review` steps pass `--output-dir "{{workflow.runtime_artifacts_dir}}/reviews"`, where `{{workflow.runtime_artifacts_dir}}` is a render-only system variable that resolves to `<dataDir>/workflows/runs/<runId>/runtime-artifacts`. The workflow engine creates that directory and its `reviews/` subdirectory at run start before any provider CLI is launched. This uses AndThen's explicit report-output override to avoid heuristic placement drift while keeping transient review reports outside the project worktree.
+Built-in `andthen:review` steps pass `--output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"`, which points to that step's host-owned artifacts directory. The output contract captures the review report path there for the remediation loop.
 
-Review report path outputs remain durable even when the review is clean. If a zero-finding review omits the report path or claims a missing path under the runtime-artifacts directory, the context extractor materializes a diagnostic clean-review markdown file there and records that path in context.
+Review report path outputs remain durable even when the review is clean. If a zero-finding review omits the report path or claims a missing path, the context extractor materializes a diagnostic clean-review markdown file in that step's artifacts directory and records that path in context.
 
 **Review output-key naming convention.** A parallel review step that feeds an `aggregate-reviews` step prefixes **all** its output keys with its own step id: `<stepId>.review_report_path` (the report path), `<stepId>.findings_count`, and `<stepId>.gating_findings_count`. Prefixing avoids context-key collisions between concurrent review branches and is always safe because the host accepts the review skill's bare-suffix emission (`review_report_path`) for the prefixed output via the filesystem-claim alias (`context_extractor.dart _fileSystemClaimKey`). The count keys carry no such alias — a step declaring `<stepId>.findings_count` must emit exactly that key, which the finalizer envelope schema declares. The aggregator derives each source's report key from the step's `outputs:` declaration (format `path` + `review_report_path` preset, via `reviewReportPathOutputKey`), so it consumes the prefixed keys without re-deriving names. The `aggregate-reviews` step's **own** outputs stay bare (`review_report_path`/`findings_count`/`gating_findings_count`) — the canonical post-aggregate keys the validator requires and the remediation loop + `re-review` read and overwrite. A single-review workflow with no aggregator (`code-review.yaml`) keeps the bare canonical keys directly, since there is no sibling step to collide with. The convention is enforced by `validation/workflow_review_source_prefix_rules.dart` (a bare/mis-prefixed review key on an aggregate source is a validation error) and contract-locked in `built_in_workflow_contracts_test.dart`. The prior key name `review_findings` is retired — the parser rejects it, naming `review_report_path`.
 
@@ -307,7 +307,7 @@ No current built-in workflow requires an `approval` step. `spec-and-implement` n
 
 `WorkflowRunStatus` distinguishes operator holds from failure states:
 
-- `paused` means an operator deliberately paused the run.
+- `paused` means an operator paused the run or a step's `onError: pause` held at its failed unit.
 - `awaitingApproval` means the run is blocked on an approval gate or a step-reported `needsInput` outcome that did not opt into `onFailure: continue`.
 - `failed` means the run hit a runtime, gate, or step failure and is eligible for explicit retry.
 
@@ -331,6 +331,8 @@ Runtime handling:
 - `failed` records the semantic outcome and applies `onFailure` (`fail`, `continue`, `retry`, `pause`).
 - `needsInput` transitions the run to `awaitingApproval` by default, reusing the same `_approval.*` metadata shape as an explicit approval step. `onFailure: continue` is the explicit best-effort policy for advisory/cleanup steps that should record the `needsInput` reason and advance.
 - Lifecycle status supplies the outcome when an `emitsOwnOutcome` step has no valid inline outcome, or when a step does not require a finalizer. Terminal `failed`/`rejected` status forces `failed`, and `cancelled` forces `cancelled`; these overrides return without fallback telemetry. An accepted task with no supplied outcome resolves to `succeeded`, emits a warning, and increments `workflow.outcome.fallback`. A finalizer-required step instead fails validation when its envelope is missing or malformed.
+
+Execution errors before a valid outcome use `onError`: omitted/`fail` ends `failed`, `pause` records the cause and holds the failed cursor, and `continue` advances with a failed step record. A completed task's failed outcome and post-task output/artifact validation remain under `onFailure` and its bounded retry. Cancellation, approval, promotion conflict, budget/security stops and unavailable required token accounting keep their own authority ahead of step continuation.
 
 The older `<stepId>.status` keys remain as lifecycle metadata. Outcome is additive rather than a replacement, so existing gates keep working while authors can now write semantic gates such as `step.review.outcome != failed`.
 
@@ -359,6 +361,8 @@ A step with `prompt:` as a list of strings (rather than a single string) is a mu
 4. The skill prefix (`"Use the '<skill>' skill."`) is applied only to the first prompt.
 
 Per-step budget enforcement applies across all prompts: `maxTokens` — host-set only, not an authoring key — is checked before each follow-up prompt. Exhausting the budget marks the step as failed; the run's terminal status then follows the step's `onFailure` policy (`fail` by default — see Section 17).
+
+Each prompt and finalizer turn contributes its normalized additive token reading to the one-shot total. The runner writes the existing `WorkflowStepExecution.stepTokenBreakdownJson` receipt after each turn and before another follow-up. It carries known contributions, the latest expected `turnId`, and sticky `tokenUsageComplete`. A failed receipt write stops the prompt chain. A failed final `session_cost` write leaves the pre-dispatch pending marker; the returned turn is incomplete, but its known token increment is retained in the step receipt. For example, a clean native snapshot at output 100, a failed final write after a 130 snapshot, and a restarted 170 snapshot with root usage 25 leave session-ledger known output 125 and workflow receipt known output 55 for the latter two turns. A later complete 180 snapshot adds 10, leaving the ledger at 135 without healing that gap. The workflow accounting reader's treatment of incomplete receipts and continuation baselines is specified separately; this section describes the producer record.
 
 Multi-prompt steps require a continuity-capable provider; the validator rejects multi-prompt steps targeting providers without session continuity (with role-alias awareness — see Section 19).
 
@@ -397,7 +401,7 @@ The `continueSession` field accepts:
 
 Resolution is chain-aware: if step C continues step B, which continues step A, the executor traces back to the root (step A) and reuses that session. The root session ID is resolved from context as `<rootStepId>.sessionId`.
 
-When executing a continuation step, the executor snapshots the session's current token count as a baseline so step-level budget accounting reflects only the tokens consumed by this step, not the entire session history.
+When executing a continuation step, the executor snapshots the session's current known token count as a baseline so step-level budget accounting reflects only the tokens consumed by this step, not the entire session history. Claude's native cumulative baseline stays scoped to that same logical session in its `session_cost` record; resuming the native identity under another logical session has no matching baseline and starts with an incomplete root-session lower bound.
 
 Validation constraints (enforced by the validator, Section 19):
 
@@ -506,11 +510,11 @@ Template references inside an iteration include:
 
 That lets a later step bind output to the Nth item without hand-written indexing logic in the authoring surface.
 
-Each iteration runs its substeps in declared order. Substeps share a per-iteration context overlay: each substep's outputs are written into the overlay under the keys declared in its `outputs:` block (bare keys), so later sibling substeps read them directly — e.g. `quick-review` reads `{{context.story_result}}` produced by `implement`. There is no automatic step-id prefixing in the overlay; if a substep needs to expose its output under a `<stepId>.<key>` form (for disambiguation when two substeps emit the same generic key), it must declare that prefixed key explicitly in its own `outputs:` block. The per-iteration overlay is isolated from the plan-level context during execution; results are aggregated back after all items complete, keyed by child step id. See the user guide's [Step-Prefixed References](../../docs/guide/workflows.md#step-prefixed-references-contextstepidkey) section for the full reference-form grammar.
+Each iteration runs its substeps in declared order. Substeps share a per-iteration context overlay: each substep's outputs are written into the overlay under the keys declared in its `outputs:` block (bare keys), so later sibling substeps read them directly — e.g. `review-story` reads `{{context.story_result}}` produced by `implement`. There is no automatic step-id prefixing in the overlay; if a substep needs to expose its output under a `<stepId>.<key>` form (for disambiguation when two substeps emit the same generic key), it must declare that prefixed key explicitly in its own `outputs:` block. The per-iteration overlay is isolated from the plan-level context during execution; results are aggregated back after all items complete, keyed by child step id. See the user guide's [Step-Prefixed References](../../docs/guide/workflows.md#step-prefixed-references-contextstepidkey) section for the full reference-form grammar.
 
 `ForeachNode` drives the shared `MapStepContext` concurrency and dependency-graph machinery (`iteration_dispatch_engine.dart`), which owns restore, in-flight tracking, wake, concurrency, dependency-ready scan, and deadlock cancellation.
 
-`plan-and-implement` uses `ForeachNode` for its `story-pipeline` step, running `implement → quick-review` per story before any plan-level review or remediation. `dartclaw-exec-spec` is responsible for running analysis/tests/linting and fixing issues before emitting the story result.
+`plan-and-implement` uses `ForeachNode` for its `story-pipeline` step, running `implement → review-story → story-remediation` per story before plan-level review or remediation. `andthen:exec-spec` is responsible for running analysis/tests/linting and fixing issues before emitting the story result.
 
 ### Concurrency and Dependency Graph
 
@@ -575,9 +579,12 @@ The engine is intentionally simple. It does not attempt to be a general-purpose 
 
 Context is persisted atomically after each step, so a crash can resume from the last committed state instead of replaying from scratch.
 
-`SqliteWorkflowRunRepository` takes a prepared `DatabaseBackend`; it performs no schema initialization or legacy status repair. Wiring prepares the store before construction, and the workflow package has no production `sqlite3` dependency. Cursor JSON, worktree bindings and list ordering retain their stored contracts.
+The workflow-run repository takes a prepared `PostgresBackend`; it performs no schema initialization or legacy status
+repair. Wiring validates the store before construction. Cursor JSON, worktree bindings and list ordering retain their
+stored contracts.
 
-Task, agent-execution and workflow-step writes share the same backend through `SqliteExecutionRepositoryTransactor`. The backend owns transaction serialization and rollback; the transactor adds no queue or transaction SQL.
+Task, agent-execution and workflow-step writes share the same backend through the execution repository transactor. The
+backend owns transaction serialization and rollback; the transactor adds no queue or transaction SQL.
 
 `stepStatusFromTask` is the single run-presentation projection shared by the workflow API, web detail page, SSE snapshot, and sidebar. Task-backed steps use their task lifecycle; taskless bash, aggregate, and approval steps use the step-owned status values inside the persisted `WorkflowContext.data` map. It also reads older flat run snapshots for compatibility.
 
@@ -587,6 +594,10 @@ Budgeting exists at two levels:
 
 - workflow-level `maxTokens`
 - agent-step `turn_timeout`, including inherited `stepDefaults`
+
+The workflow run stores `totalTokens` as the sum of known contributions and `tokenUsageComplete` as a sticky availability flag. A fresh run starts complete; a legacy run without the flag is incomplete. For agent tasks, the workflow reads the durable step receipt's latest turn ID and completeness, then accepts the session ledger only when `token_usage_complete` is true, `last_accounted_turn_id` matches, no accounting turn is pending, and the cumulative total is a valid nonnegative integer. A continued step requires a valid baseline and charges only its nonnegative increment. Known tokens from an incomplete receipt remain in the lower bound; that step's context token count is null. Bash, skipped, approval and other zero-work units keep measured zero.
+
+With `maxTokens`, incomplete required usage fails the run before the next dispatch. `onError` and `onFailure` cannot continue past this accounting stop. A transient read error leaves the settled task pending in linear, loop, parallel or foreach progress; explicit retry re-reads that task's same receipt and ledger, adds it once if complete, then checks the numeric cap before new work. Producer-declared incomplete history remains incomplete. Parallel and foreach work already in flight settles and contributes through the existing checkpoints before a stop; the cap is a dispatch guard, not a strict ceiling on concurrent spend or a rollback of work already started.
 
 `stepDefaults` applies glob-matched defaults before per-step overrides. The first match wins.
 
@@ -733,6 +744,8 @@ On server restart, `WorkflowService.recoverIncompleteRuns()` handles two categor
 - **Awaiting-approval runs with approval timeouts**: Timeout timers are rehydrated. If the deadline has already passed, the approval is expired immediately.
 
 Parallel group resume uses `_parallel.failed.stepIds` in contextJson: when a group had failures, the next resume re-runs only the failed steps (not the entire group), then merges their results with the previously successful steps.
+
+An `onError: pause` hold is resumed explicitly; a terminal `failed` run uses explicit retry. Linear and loop cursors retry the failed step, parallel groups retain settled successful members, and foreach retains settled items and completed child steps. In-flight siblings settle before a parallel or foreach hold becomes stable. Their outputs and accounted usage remain persisted; effects from the failed attempt are not rolled back.
 
 `WorkflowSerializationEnactedEvent` is fire-exactly-once across crash + resume for any given `(runId, foreachStepId)` pair (S78). The merge-resolve serialize-remaining path persists the typed `_merge_resolve.serializeRemaining` state with `eventEmitted: true` immediately after the event fires, before in-flight siblings finish settling, so a server crash mid-settle cannot re-fire the event on resume. The terminal `phase: 'drained'` marker on the same typed object remains the serial-retry-consumed persistence point.
 
@@ -919,8 +932,8 @@ The per-run SSE endpoint (`GET /api/workflows/runs/<id>/events`) streams real-ti
 
 | Event type | Payload |
 |---|---|
-| `connected` | Run state snapshot + step statuses at connection time |
-| `workflow_status_changed` | Run status transition (running → paused, etc.) |
+| `connected` | Run state, token completeness and error cause + step statuses at connection time |
+| `workflow_status_changed` | Run status transition (running → paused, etc.), current token completeness and error cause |
 | `workflow_step_completed` | Step result with token count and task ID, plus additive `outcome`/`reason` (present only when the executor recorded a semantic outcome — e.g. `failed`/`needsInput` with an operator-facing reason) |
 | `parallel_group_completed` | Group summary with success/failure counts |
 | `loop_iteration_completed` | Iteration number, max iterations, gate result |
@@ -1380,11 +1393,11 @@ The runtime rejects that rather than inventing implicit rules.
 
 ## File-Based Artifact Contract
 
-Artifact-producing skills (`andthen:spec` and `andthen:plan`) follow a **single-mode file-based contract**: they write their artifacts to disk and emit workspace-relative **paths** under their `outputs:` block, never inline artifact content. Workflow steps downstream read those paths via `file_read`.
+The artifact-producing `andthen:spec` steps write files to disk and emit workspace-relative **paths** under their `outputs:` block, never inline artifact content. Workflow steps downstream read those paths via `file_read`. Both the feature-spec step and the `plan-and-implement` plan step use `andthen:spec` to author their artifacts.
 
 The engine validates emitted paths via the generic `format: path` trust-boundary check (§11.1 — containment, existence, argument safety). The engine does not re-validate AndThen artifact schemas (`plan.json` structure, FIS markers, `spec_source` semantics, status vocabulary); those domain semantics are the skill's responsibility (ADR-041). The `story_specs` output additionally passes a data-shape contract check (`story_spec_output_validator.dart`, `story_specs_contract_validator.dart`) that validates `items` list structure and required fields — this is a workflow-data-shape invariant, not framework coupling, and contains no `andthen` literals.
 
-**Read-existing branches.** `dartclaw-discover-andthen-spec` classifies `FEATURE` as an existing FIS path or a feature description. Existing FIS inputs emit `spec_path` with `spec_source: "existing"` and skip `andthen:spec`; synthesized inputs leave the path empty until `andthen:spec` writes the FIS. `dartclaw-discover-andthen-plan` discovers an existing PRD/plan/story-spec state for `plan-and-implement`; `andthen:plan` fills only the missing plan or per-story FIS artifacts and emits `plan` plus `story_specs` paths. Skip/resume decisions are expressed as workflow-YAML `entryGate` expressions reading the skill's structured output — not re-derived in engine Dart code.
+**Read-existing branches.** `dartclaw-discover-andthen-spec` classifies `FEATURE` as an existing FIS path or an inline feature description. Existing FIS inputs emit `spec_path` with `spec_source: "existing"` and skip `andthen:spec`; inline descriptions leave the path empty until `andthen:spec` writes the FIS. Existing written sources that are not FIS files fail with a pointer to `plan-and-implement`. `dartclaw-discover-andthen-plan` discovers an existing PRD/plan/story-spec state for `plan-and-implement`; `andthen:spec` fills only the missing plan or per-story FIS artifacts and emits `plan` plus `story_specs` paths. Skip/resume decisions are expressed as workflow-YAML `entryGate` expressions reading the skill's structured output — not re-derived in engine Dart code.
 
 **`story_specs` shape.** `story_specs` is an object with an `items` list of **structured per-story records** — not bare paths. Each record carries required `{id, title, spec_path, dependencies}` fields, and may preserve optional workflow metadata such as `phase`, `wave`, or `status`. Downstream prompts read `{{map.item.title}}`, `{{map.item.id}}`, and `{{map.item.spec_path}}`; `{{map.item.spec_path}}` is the field that `andthen:exec-spec` uses with `file_read` to load the FIS body.
 
@@ -1392,7 +1405,7 @@ Every emitted `story_specs[].spec_path` must resolve to an existing file before 
 
 ### Single-step PRD/spec contract
 
-The built-in workflows no longer ship separate review-prd / review-spec steps. `andthen:spec` and `andthen:plan` are responsible for producing solid final artifacts themselves, while downstream steps consume emitted paths (`spec_path`, `prd`, `plan`, and `story_specs[].spec_path`) via `file_read`. `plan-review` remains the aggregate read-only review surface for the multi-story pipeline.
+The built-in workflows no longer ship separate document-review or spec-revision steps. `andthen:spec` is responsible for producing final feature specs, plans, and per-story specs, while downstream steps consume emitted paths (`spec_path`, `prd`, `plan`, and `story_specs[].spec_path`) via `file_read`. `plan-review` remains the aggregate read-only review surface for the multi-story pipeline.
 
 ## Generalized `entryGate`
 

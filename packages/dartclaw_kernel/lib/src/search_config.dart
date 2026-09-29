@@ -82,14 +82,8 @@ final class EmbeddingConfig {
 
 /// Configuration for the search subsystem.
 class SearchConfig {
-  /// backend.
+  /// `lexical` for PostgreSQL text search, or `hybrid` to add embeddings.
   final String backend;
-
-  /// qmdHost.
-  final String qmdHost;
-
-  /// qmdPort.
-  final int qmdPort;
 
   /// defaultDepth.
   final String defaultDepth;
@@ -102,9 +96,7 @@ class SearchConfig {
 
   /// Creates a [SearchConfig] value.
   const new({
-    this.backend = 'fts5',
-    this.qmdHost = '127.0.0.1',
-    this.qmdPort = 8181,
+    this.backend = 'lexical',
     this.defaultDepth = 'standard',
     this.providers = const {},
     this.embedding = const EmbeddingConfig(),
@@ -118,19 +110,11 @@ class SearchConfig {
       identical(this, other) ||
       other is SearchConfig &&
           backend == other.backend &&
-          qmdHost == other.qmdHost &&
-          qmdPort == other.qmdPort &&
           defaultDepth == other.defaultDepth &&
           const MapEquality<String, SearchProviderEntry>().equals(providers, other.providers) &&
           embedding == other.embedding;
 
   @override
-  int get hashCode => Object.hash(
-    backend,
-    qmdHost,
-    qmdPort,
-    defaultDepth,
-    const MapEquality<String, SearchProviderEntry>().hash(providers),
-    embedding,
-  );
+  int get hashCode =>
+      Object.hash(backend, defaultDepth, const MapEquality<String, SearchProviderEntry>().hash(providers), embedding);
 }

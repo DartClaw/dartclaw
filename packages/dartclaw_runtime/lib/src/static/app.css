@@ -1,7 +1,280 @@
 [hidden] { display: none !important; }
 
-/* Floating composer palettes compose the canonical glass card; app CSS owns placement only. */
+/* === TOPBAR ===
+   Title (inline rename) · context crumb · state badge, with the action cluster
+   and every popover anchored to it on the right. Control sizing is canon's
+   density tier; nothing here sets a height. */
+.tb-title-wrap { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; flex: 1 1 auto; }
+.tb-title-wrap > :is(.session-title, .session-title-static) { min-width: 0; }
+.crumb {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  font-size: var(--text-xs); color: var(--fg-overlay); white-space: nowrap;
+}
+.crumb .identicon { width: 14px; height: 14px; font-size: 9px; border-radius: 3px; }
+.crumb-sep { opacity: .5; }
+.tb-kbd { margin-left: 2px; }
+.topbar .status-badge { white-space: nowrap; flex: 0 0 auto; }
+/* The badge's mobile stand-in — at 390 the label costs ~76px the title needs. */
+.tb-dot { display: none; flex: 0 0 auto; }
+/* icons.css is served after app.css, so a `display` on an icon button has to
+   out-specify `.btn-icon[data-icon] { display: inline-flex }` rather than merely
+   match it. New Chat is a rail command at desktop (DESIGN.md § New Chat). */
+.topbar-actions .btn-icon.tb-newchat { display: none; }
+
+/* The overflow menu and the attention panel hang off the topbar, not off the
+   action cluster: the cluster's box is control-height, so anchoring there would
+   float both popovers inside the bar rather than under it. */
+.topbar { position: relative; }
+.tb-bell { position: relative; display: inline-flex; }
+.tb-bell-count {
+  position: absolute; top: 1px; right: 1px;
+  min-width: 13px; height: 13px; padding: 0 3px;
+  display: grid; place-items: center; border-radius: 999px;
+  background: var(--warning); color: var(--bg-crust);
+  font-size: 9px; font-weight: var(--weight-bold); line-height: 1;
+  pointer-events: none;
+}
+
+/* === POPOVERS ===
+   Placements only — the shell, the separator, the head and the menu-row
+   modifiers are canon (§ Command palette). */
+.pop-menu { top: calc(100% - 2px); right: var(--sp-3); width: 232px; }
+.pop-attention {
+  top: calc(100% - 2px); right: var(--sp-3);
+  width: min(340px, calc(100vw - var(--sp-4)));
+  max-height: 60vh; overflow-y: auto;
+}
+/* Canon sizes .theme-toggle as a 32px square; as a menu row it takes the row's
+   shape and keeps only its sun/moon glyph. */
+.pop-menu .palette-item.theme-toggle { width: 100%; height: auto; justify-content: start; font-size: inherit; }
+.attention-next { width: 100%; margin-block-start: var(--sp-2); }
+/* Resolve actions take the time's slot on hover/focus; canon's row grammar is
+   dot · body · time and has no place for a permanent action row. Faded rather
+   than removed, so Tab still reaches approve/reject/dismiss. */
+.notif-item { position: relative; }
+.notif-item-actions {
+  display: flex; align-items: center; gap: 0;
+  position: absolute; top: var(--sp-2); right: var(--sp-2);
+  opacity: 0; transition: opacity var(--transition);
+}
+.notif-item:hover .notif-item-time,
+.notif-item:focus-within .notif-item-time { visibility: hidden; }
+.notif-item:hover .notif-item-actions,
+.notif-item:focus-within .notif-item-actions { opacity: 1; }
+
+/* === CHAT COMPOSER DOCK ===
+   The composer floats over the transcript instead of sitting in a band under
+   it. `--stack-h` is the dock's measured height (published by dc-chat's
+   ResizeObserver). It buys three things at once: the scroller's bottom padding,
+   so the last turn can clear the dock; the mask stop, so the transcript fades
+   out behind the dock instead of meeting a rule; and the fade band above it. */
+.chat-area { overflow: visible; position: relative; }
+.input-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 var(--sp-4) 16px;
+  pointer-events: none;                 /* the gap beside the column stays scrollable */
+}
+.input-area .composer-stack { pointer-events: auto; }
+.chat-area > .messages {
+  padding-bottom: calc(var(--stack-h, 120px) + 24px);
+  -webkit-mask-image: linear-gradient(to bottom,
+    #000 calc(100% - var(--stack-h, 120px) - 32px),
+    transparent calc(100% - var(--stack-h, 120px)));
+  mask-image: linear-gradient(to bottom,
+    #000 calc(100% - var(--stack-h, 120px) - 32px),
+    transparent calc(100% - var(--stack-h, 120px)));
+}
+/* minmax(0, 1fr), not the implicit auto column: a grid item's automatic minimum
+   size is min-content, so the toolbar would size the column to its own
+   max-content and the send control would be clipped by .shell's overflow. */
+.composer-stack {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.composer-toolbar { gap: 2px; }
 .input-area .composer { position: relative; }
+.conversation-input-area > .composer { min-width: 0; }
+
+/* Save status lives in the toolbar row — nothing renders below the box. It is
+   the one element in the row that may shrink, so a long failure message eats
+   its own width rather than the model pill's or the send button's. */
+.composer-save {
+  min-width: 0;
+  flex: 0 1 auto;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-overlay);
+  font-size: var(--text-xs);
+}
+.composer-save--error { color: var(--error); }
+.composer-save-glyph { display: none; flex: 0 0 auto; color: var(--fg-overlay); }
+.composer-meta > .composer-model,
+.composer-meta > .composer-send-group { flex: 0 0 auto; }
+/* Queue and its caret are one split control, so they share an edge and carry no
+   gap; send/stop is a separate control and takes sp-1 off the pair. All three
+   sit on canon's 28px tier — three heights in one row read as three tiers. */
+.composer-send-group { position: relative; display: flex; align-items: center; gap: 0; }
+.composer-send-group > .composer-send { margin-left: var(--sp-1); }
+.btn-queue { padding: 0 var(--sp-2); border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-caret {
+  width: 24px;
+  min-width: 24px;
+  padding: 0;
+  margin-left: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
+}
+.split-caret::before { display: block; width: 14px; height: 14px; margin: 0; vertical-align: baseline; }
+.composer-context-chip { flex: 0 1 auto; min-width: 0; }
+.composer-context-chip .identicon {
+  width: 12px;
+  height: 12px;
+  font-size: 8px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+/* A failed upload retries on its own chip; canon chips carry no action slot. */
+.chip-action {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--error);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.chip-action:hover { text-decoration: underline; }
+.chip-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Queued / held turns — compact rows, not cards. */
+.queue-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--sp-2);
+  min-height: 28px;
+  padding: 0 var(--sp-2);
+  border: var(--border);
+  border-left: 2px solid var(--bg-surface2);
+  /* Carries a status edge, so its left corners square. */
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: color-mix(in srgb, var(--bg-base) 70%, transparent);
+  font-size: var(--text-xs);
+  color: var(--fg-sub1);
+}
+.queue-row--held { border-left-color: var(--warning); }
+.queue-label {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-overlay);
+}
+.queue-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-row .btn-sm { min-height: 22px; }
+
+/* Current-request strip — what the pending approval is asking for, plus a jump
+   to the card that carries the verdict. Never a verdict of its own (PRD E4). */
+.request-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 30px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-base));
+  font-size: var(--text-sm);
+  color: var(--fg-sub1);
+}
+.request-strip code { font-size: var(--text-xs); }
+.request-strip .strip-actions { margin-left: auto; display: flex; gap: var(--sp-1); }
+
+/* Draft-recovery notice — the request-strip pattern in the warning key: the
+   save failed and the actions below it are the way out. */
+.composer-recovery {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 30px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--bg-surface0));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-base));
+  font-size: var(--text-sm);
+  color: var(--fg-sub1);
+}
+
+/* Composer-anchored placements on the shared `.pop` vocabulary above. Each is
+   anchored under the control that opens it: the chip on the left, the model
+   pill and the steer menu on the right. */
+.pop-project { bottom: calc(100% + var(--sp-2)); left: 0; width: min(320px, 100%); }
+.pop-model { bottom: calc(100% + var(--sp-2)); right: 0; width: min(280px, 100%); }
+.pop-steer { bottom: calc(100% + var(--sp-1)); right: 0; width: 240px; }
+.pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0 0;
+}
+.pop-foot-link { margin-right: auto; font-size: var(--text-xs); color: var(--fg-sub0); }
+.pop-validation { color: var(--error); font-size: var(--text-xs); }
+
+/* Ordinary canon fields inside the card: the popover is an edit surface, so a
+   control looks like a control at rest. The bottom inset matches the sides and
+   leaves room for the last field's focus ring. */
+.pop-project form,
+.pop-model form { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-2) var(--sp-2); }
+.pop-model .banner { margin: 0; }
+
+/* Find bar: slim, pinned above the transcript. */
+.find-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  background: var(--bg-mantle);
+  border-bottom: var(--border);
+}
+.find-bar .form-input { flex: 0 1 260px; }
+.find-count { font-size: var(--text-xs); color: var(--fg-sub0); font-variant-numeric: tabular-nums; }
+.find-bar .find-close { margin-left: auto; }
+
+/* Empty state — the one claw moment in this view. */
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  flex: 1;
+}
+.suggest-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-2);
+  max-width: 560px;
+}
+
+.new-activity { position: absolute; bottom: calc(100% + var(--sp-2)); left: 50%; transform: translateX(-50%); z-index: 2; }
 
 .composer-reference-palette {
   position: absolute;
@@ -52,8 +325,9 @@
   overflow-wrap: anywhere;
 }
 
-.composer-palette-option[aria-selected="true"],
-.composer-palette-option:hover {
+/* The one cursor. Pointer movement moves it (dc-chat), so hover paints nothing
+   of its own: a second fill under a resting pointer is a second highlight. */
+.composer-palette-option[aria-selected="true"] {
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface0));
 }
 
@@ -67,29 +341,56 @@
 
 .composer-palette-empty { padding: var(--sp-3); }
 
-.composer-hints {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-  overflow: hidden;
-  color: var(--fg-overlay);
-  font-size: var(--text-xs);
-  white-space: nowrap;
+.composer textarea {
+  max-height: min(12rem, 32vh);
+  overflow-y: auto;
 }
-.composer-hints > span { flex-shrink: 0; }
+
+.composer-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* minmax(0, 1fr), not the implicit auto track — same reason as .composer-stack:
+   a grid item's automatic minimum size is min-content, so at 390 a row with a
+   Release button sized its track to max-content and pushed its own remove
+   button 15px past the viewport, clipped by .shell rather than scrollable. */
+.conversation-queue {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.conversation-queue[hidden],
+.composer-recovery-actions[hidden] { display: none; }
 
 @media (max-width: 768px) {
+  .chat-area > .messages { padding-bottom: calc(var(--stack-h, 160px) + 24px); }
+  .input-area { padding: 0 var(--sp-2) calc(12px + var(--safe-bottom)); }
+  /* The label rides the glyph; the text would cost the model pill its width. */
+  .composer-save { display: none; }
+  .composer-save-glyph { display: inline-flex; margin-left: auto; }
+  /* The toolbar line is 358px at 390. Seven touch-tier controls do not fit, so
+     the meta group wraps to its own line and stays right-aligned; without this
+     the send control is clipped by .shell's overflow rather than pushed into a
+     scroll. */
+  .composer-toolbar { flex-wrap: wrap; row-gap: var(--sp-1); }
+  .composer-meta { flex: 0 0 auto; gap: 4px; }
+  .composer-context-chip { max-width: 96px; }
+  .composer-context-chip .chip-meta { display: none; }
+  .queue-row { min-height: 44px; }
+  .queue-row .btn-sm { min-height: 44px; }
+  /* Canon's touch floor is height-only, so a narrow control that needs a square
+     target declares its own width — the caret is one, not an inline chip. */
+  .split-caret { width: 44px; min-width: 44px; }
+  .pop-project, .pop-model { width: 100%; }
   .composer-palette-option {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--sp-1);
   }
   .composer-palette-option > span { min-width: 0; }
-  .composer-hints > span:nth-child(1) { display: none; }
-  /* The quick prompts are the widest thing in the toolbar and the send button
-     must not be pushed off. */
-  .composer-toolbar > .chip-row { display: none; }
 }
 
 .session-item { padding: 0; }
@@ -121,8 +422,8 @@
   justify-content: center;
   margin-left: auto;
   margin-right: var(--sp-1);
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 24px;
+  min-height: 24px;
   padding: 0;
   border: none;
   border-radius: var(--radius);
@@ -164,8 +465,11 @@
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  min-height: 44px;
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  /* 30px, the rail row height it sits beside. The vertical padding is 0 because
+     the 28px chevron well already fills the row; keeping it made the button
+     36px, over the density tier's 32px ceiling. */
+  min-height: 30px;
+  padding: 0 var(--sp-2) 0 10px;
   border: none;
   background: none;
   color: var(--fg-sub0);
@@ -226,15 +530,18 @@
   .session-item:has(.session-action, .session-delete):is(:hover, :focus-within, .active) .provider-badge { opacity: 0; }
 }
 
-@media (max-width: 768px) {
-  .sidebar-archive-toggle { min-height: 48px; }
+/* Touch floor on the canon query (width OR coarse pointer), at canon's 44px —
+   not the 48px this row carried before the density tier. */
+@media (max-width: 768px), (pointer: coarse) {
+  .sidebar-archive-toggle { min-height: 44px; }
   .session-item-link,
   .session-item .session-action,
   .session-item .session-delete {
-    min-height: 48px;
+    min-height: 44px;
   }
+  /* A finger has no hover, so the row actions cannot stay hover-revealed. */
   .session-item :is(.session-action, .session-delete) {
-    min-width: 48px;
+    min-width: 44px;
     opacity: 1;
   }
 }
@@ -259,6 +566,9 @@
   color: var(--fg-overlay);
   text-decoration: none;
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: color var(--transition);
 }
 .topbar-back:hover { color: var(--fg); }
@@ -269,10 +579,6 @@
   margin-top: 0;
 }
 
-/* === MOBILE TOPBAR === */
-@media (max-width: 768px) {
-  .btn-reset { display: none; }
-}
 
 /* === ERROR PAGE === */
 .error-page {
@@ -449,6 +755,65 @@
 .msg-turn-failed-icon,
 .msg-turn-failed-label { color: var(--warning); }
 .msg-turn-failed-icon { font-size: var(--text-base); }
+
+/* A reserved action lane under every message. The timestamp holds the column
+   edge; the icon lane grows to its right, revealed on hover/focus so nothing
+   shifts when it appears. */
+.msg-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+.msg-head .msg-role { margin-bottom: 0; }
+.msg-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+  margin-top: var(--sp-1);
+}
+.msg-time { color: var(--fg-overlay); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.msg-actions {
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.msg:hover .msg-actions,
+.msg:focus-within .msg-actions { opacity: 1; }
+.msg-actions .btn-icon-sm { min-width: 44px; min-height: 44px; }
+
+/* Find marks each occurrence rather than outlining the message that holds it —
+   a message-wide ring says "somewhere in here" for a word the reader can see. */
+mark.find-hit {
+  background: color-mix(in srgb, var(--warning) 34%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* One disclosure per turn. Canon `.tool-call` is the per-call object; this
+   wraps a run of them so a completed turn costs one row, not four. */
+.history-records .tool-call > summary { min-height: 44px; }
+.tool-group-body { display: grid; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2) var(--sp-2); }
+.tool-group-body .tool-call { background: var(--bg-crust); }
+.chat-area :is(.approval-card-actions, .composer-recovery-actions, .strip-actions) .btn { min-height: 44px; }
+
+/* The attempt's work with no reply to sit in — an assistant block carrying only
+   its tool run, so a turn that failed before output still shows what it did. */
+.msg-assistant--records { padding-bottom: var(--sp-3); }
+.history-records { display: grid; gap: var(--sp-1); padding: var(--sp-2); }
+.history-records pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-lineage {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin: var(--sp-1) 0;
+  color: var(--fg-overlay);
+  font-size: var(--text-xs);
+}
+.message-lineage > .icon { width: 11px; height: 11px; }
+
+/* Touch tier keeps the action lane visible without hover. */
+@media (max-width: 768px) {
+  .msg-actions { opacity: 1; }
+}
 
 /* === SETTINGS === */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
@@ -771,182 +1136,6 @@
 
 .toggle-inline { margin-left: auto; }
 
-@media (max-width: 1024px) {
-  .topbar .menu-toggle,
-  .theme-toggle {
-    min-width: 44px;
-    min-height: 44px;
-    width: 44px;
-    height: 44px;
-  }
-}
-
-.custom-select {
-  position: relative;
-  width: 100%;
-}
-
-.custom-select[data-open="true"] {
-  z-index: var(--z-dropdown);
-}
-
-.custom-select .native-select-hidden {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.custom-select-trigger {
-  width: 100%;
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--bg-base);
-  color: var(--fg);
-  border: var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--inset-sm);
-  font: inherit;
-  font-size: var(--text-base);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--transition), box-shadow var(--transition-glow),
-              background var(--transition), transform var(--transition);
-}
-
-.custom-select-trigger:hover {
-  border-color: color-mix(in srgb, var(--fg-overlay) 35%, var(--bg-surface1));
-  background: color-mix(in srgb, var(--bg-base) 88%, var(--bg-surface0));
-}
-
-.custom-select-trigger:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-color: var(--accent);
-}
-
-.custom-select[data-open="true"] .custom-select-trigger {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-surface1));
-  box-shadow: var(--inset-sm), 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
-}
-
-.custom-select-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.custom-select-caret {
-  width: 1.25rem;
-  height: 1.25rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: var(--fg-sub0);
-  transition: transform var(--transition), color var(--transition);
-}
-
-.custom-select-caret::before {
-  content: '';
-  width: 0.55rem;
-  height: 0.55rem;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg) translate(-0.02rem, -0.12rem);
-  transform-origin: center;
-  transition: transform 160ms ease, opacity 160ms ease;
-}
-
-.custom-select[data-open="true"] .custom-select-caret {
-  color: var(--accent);
-}
-
-.custom-select[data-open="true"] .custom-select-caret::before {
-  transform: rotate(-135deg) translate(-0.08rem, 0);
-}
-
-.custom-select-menu {
-  position: absolute;
-  top: calc(100% + var(--sp-2));
-  left: 0;
-  right: 0;
-  display: none;
-  max-height: 18rem;
-  overflow-y: auto;
-  padding: var(--sp-2);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--fg) 4%, transparent), transparent 22%),
-    var(--bg-surface0);
-  border: var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-}
-
-.custom-select[data-open="true"] .custom-select-menu {
-  display: block;
-}
-
-.custom-select-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius);
-  color: var(--fg);
-  font: inherit;
-  font-size: var(--text-base);
-  text-align: left;
-  cursor: pointer;
-}
-
-.custom-select-option:hover,
-.custom-select-option:focus-visible {
-  outline: none;
-  background: color-mix(in srgb, var(--bg-surface0) 80%, var(--bg-base));
-}
-
-.custom-select-option[aria-selected="true"] {
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-base));
-  color: var(--accent);
-}
-
-.custom-select-option[disabled] {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.custom-select-check {
-  width: 0.9rem;
-  text-align: center;
-  color: inherit;
-  opacity: 0;
-}
-
-.custom-select-option[aria-selected="true"] .custom-select-check {
-  opacity: 1;
-}
-.restart-badge {
-  font-size: var(--text-xs); font-weight: var(--weight-medium);
-  padding: 1px var(--sp-2); border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warning) 15%, var(--bg-base));
-  color: var(--warning);
-}
-.live-badge {
-  font-size: var(--text-xs); font-weight: var(--weight-medium);
-  padding: 1px var(--sp-2); border-radius: var(--radius);
-  background: color-mix(in srgb, var(--success) 15%, var(--bg-base));
-  color: var(--success);
-}
 .settings-form { display: flex; flex-direction: column; gap: var(--sp-3); }
 .settings-form .form-actions {
   display: flex; gap: var(--sp-2); padding-top: var(--sp-2);
@@ -988,6 +1177,9 @@
 
 .memory-dashboard-section > .section-title,
 .memory-dashboard-section > .metrics-grid { margin-bottom: 0; }
+
+.memory-dashboard-section .list-toolbar > .form-field { flex: 1 1 16rem; min-width: 0; }
+.memory-dashboard-section .list-toolbar > .form-field > .form-input--search { flex: none; width: 100%; }
 
 /* Every tile takes the row's three tracks – numeral, label, meter – so the two
    tiles with no bounded ratio still align their numeral and label with the
@@ -1606,7 +1798,7 @@ select.form-select.channel-mode-select-hidden {
     display: none;
   }
 
-  /* Four columns and three 48px action buttons only fit a 375px viewport
+  /* Four columns and three 44px action buttons only fit a 375px viewport
      with sp-2 cell padding and the actions free to wrap, so the desktop
      min-width is released rather than lowered. */
   .scheduling-jobs-table,
@@ -1864,21 +2056,26 @@ select.form-select.channel-mode-select-hidden {
   translate: none;
 }
 .task-chat-embed .messages { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* A strip on the request-strip pattern, not a panel. The topbar already carries
+   "Running"; what only this surface knows is the wait reason and the deadlines,
+   and both fit one line beside the cancel control. */
 .turn-status-panel {
-  display: flex; flex-direction: column; gap: var(--sp-2);
-  padding: var(--sp-3); margin-bottom: var(--sp-3);
-  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--bg-surface0));
-  border-radius: var(--radius); background: var(--bg-base);
-}
-.turn-status-row {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
+  min-height: 30px; padding: 0 var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--bg-surface0));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-base));
+  font-size: var(--text-sm);
 }
+.turn-status-row { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.turn-status-row .meta-label { font-size: var(--text-xs); }
+.turn-status-row .btn { margin-left: var(--sp-2); }
 .turn-status-times {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2);
+  display: flex; align-items: center; gap: var(--sp-3); margin-left: auto;
   font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-overlay);
 }
 .turn-status-times span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.turn-status-time { display: flex; flex-direction: column; }
+.turn-status-time { display: flex; align-items: baseline; gap: 4px; }
 .turn-status-time-label { color: var(--fg-sub0); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
 .turn-status-time-value { color: var(--fg-sub1); }
 /* An unset time leaves its value span empty; hiding the whole slot keeps the
@@ -2006,8 +2203,10 @@ select.form-select.channel-mode-select-hidden {
 }
 
 /* Canon ships no panel primitive, so the bare `.tab-panel.active { display: block }`
-   would collapse the dialog's field stack. */
-#new-task-dialog .dialog-body .tab-panel.active {
+   would collapse the dialog's field stack. The single-task fields sit one level
+   down, inside their swappable <form>, so it stacks the same way. */
+#new-task-dialog .dialog-body .tab-panel.active,
+#new-task-panel {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
@@ -2218,13 +2417,8 @@ select.form-select.channel-mode-select-hidden {
   margin-bottom: var(--sp-1);
 }
 
-#new-task-dialog .form-input,
-#new-task-dialog .form-select,
-#new-task-dialog .custom-select-trigger,
-#add-project-dialog .form-input,
-#add-project-dialog .form-select {
-  min-height: 44px;
-}
+/* No all-width floor: these are ordinary form controls and take canon's 28px
+   tier. The touch-tier block raises the same five to 44px. */
 
 #new-task-dialog .form-textarea {
   min-height: 5.5rem;
@@ -3342,22 +3536,25 @@ input.form-input--search::-webkit-search-cancel-button {
   flex: 1 1 220px;
 }
 
-@media (max-width: 768px) {
+/* Touch floors on canon's query — width OR coarse pointer, at canon's 44px.
+   These were 48px on width alone, which both missed a touch-screen laptop at
+   desktop width and disagreed with the design system's own tier. */
+@media (max-width: 768px), (pointer: coarse) {
   /* Height only: a min-width floor here stretches narrow inline chips that
-     happen to be buttons into 48px slabs. Controls that need a square target
+     happen to be buttons into 44px slabs. Controls that need a square target
      set their own width below. */
   button,
   summary,
   [role="button"] {
-    min-height: 48px;
+    min-height: 44px;
   }
 
   .topbar .menu-toggle,
   .theme-toggle {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    min-height: 48px;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   /* Anchor-based controls. An <a> gets no touch floor from the bare `button`
@@ -3369,13 +3566,13 @@ input.form-input--search::-webkit-search-cancel-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 48px;
-    min-height: 48px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .login-input,
   .login-checkbox {
-    min-height: 48px;
+    min-height: 44px;
   }
 
   .custom-select-trigger,
@@ -3393,6 +3590,403 @@ input.form-input--search::-webkit-search-cancel-button {
   #new-task-dialog .custom-select-trigger,
   #add-project-dialog .form-input,
   #add-project-dialog .form-select {
-    min-height: 48px;
+    min-height: 44px;
   }
 }
+/* ================================================================
+   RAIL — ONE CONTENT COLUMN
+
+   The rail body is inset 6px (the row pill's gutter) and every row pads 10px
+   inside that, so the wordmark, the search and scope rows, the attention row,
+   every conversation line and the settled tail all begin at x=16 and end at
+   x=264 on a 280px rail. Nothing in the rail may set its own horizontal inset;
+   it composes .rail-controls or the row padding instead.
+   ================================================================ */
+.sidebar-header { padding: 0 16px; gap: var(--sp-2); }
+.sidebar-header .logo { font-size: var(--text-sm); }
+.sidebar-header .claw-mark ~ .rail-collapse { margin-left: auto; }
+.sidebar-body { padding-inline: 6px; padding-top: var(--sp-2); }
+.sidebar-body > .session-list { padding-inline: 0; }
+
+/* Every legacy rail row and label joins the same content column: 6px body inset
+   plus 10px row padding = one left edge at x=16 on a 280px rail. Canon's
+   --sp-4 insets predate the inset body and would sit 6px further in. */
+.sidebar-body :is(.sidebar-section-label, .sidebar-subsection-label, .sidebar-placeholder) { padding-inline: 10px; }
+.sidebar-body .session-item {
+  padding: 0;
+  border-left: none;
+  border-radius: 6px;
+}
+.sidebar-body .session-item-link,
+.sidebar-body .sidebar-running-item .session-item-link { padding: var(--sp-1) 10px; }
+/* Selection in the rail is fill and type only: a 2px edge under a 6px radius is
+   painted as a floating segment (DESIGN.md § Left-edge geometry). */
+.sidebar-body .session-item.active { border-left-color: transparent; box-shadow: none; }
+.sidebar-body .sidebar-nav-item { border-radius: 6px; }
+
+/* The rail is permanent above the drawer breakpoint; collapsing it hands the
+   width back and puts the menu toggle — hidden by canon there — in charge of
+   bringing it back. Below it the rail is a drawer, which its own close button
+   already dismisses. The base rule has to precede the query: both selectors
+   carry the same specificity, so order decides. */
+.sidebar-header .btn-icon-sm.rail-collapse { display: none; }
+@media (min-width: 769px) {
+  .sidebar-header .btn-icon-sm.rail-collapse { display: inline-flex; }
+  :root[data-rail-collapsed="true"] { --sidebar-w: 0px; }
+  :root[data-rail-collapsed="true"] .sidebar,
+  :root[data-rail-collapsed="true"] .sidebar-resize-handle { display: none; }
+  :root[data-rail-collapsed="true"] .topbar .btn-icon.menu-toggle { display: inline-flex; }
+}
+
+/* A control pair on the rail's content column: the leading control carries the
+   10px padding, the trailing icon button sits flush to the right inset. */
+.rail-controls { display: flex; align-items: center; gap: 4px; margin-bottom: var(--sp-2); padding-right: 10px; }
+
+.rail-search {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-2);
+  height: 28px; padding: 0 var(--sp-2) 0 9px;  /* 9 + the 1px border = the 10px every borderless row pads */
+  border: 1px solid color-mix(in srgb, var(--bg-surface1) 60%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-base) 55%, transparent);
+  color: var(--fg-sub0); font: inherit; font-size: var(--text-sm); cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+.rail-search:hover { background: var(--bg-surface0); color: var(--fg); border-color: var(--bg-surface2); }
+.rail-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rail-search-label { flex: 1 1 auto; min-width: 0; text-align: left; }
+.rail-search kbd { flex: 0 0 auto; }
+
+.rail-scope-row { position: relative; }
+.rail-scope {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-2);
+  height: 28px; padding: 0 4px 0 10px;
+  border: none; border-radius: 6px; background: transparent;
+  color: var(--fg); font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium);
+  cursor: pointer; transition: background var(--transition);
+}
+.rail-scope:hover { background: var(--bg-surface0); }
+.rail-scope:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rail-scope-label {
+  flex: 1 1 auto; min-width: 0; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Both rail menus clear the active-filter row rather than covering it: the chip
+   says what the menu's current Show selection is, so hiding it behind the menu
+   would hide the one thing the menu is being used to change. With no filter
+   active there is no row to clear, so the menu sits directly under its trigger. */
+.pop-view, .pop-scope { top: calc(100% + 4px); right: 0; width: 236px; max-height: 60vh; overflow-y: auto; }
+.sidebar-body:has(.rail-active-filter:not([hidden])) :is(.pop-view, .pop-scope) { top: calc(100% + 36px); }
+/* Section headers line up with the item LABELS, not with the tick column. */
+.pop-view .pop-head { padding: var(--sp-2) var(--sp-2) var(--sp-1) 32px; }
+
+.rail-active-filter {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 0 10px; margin-bottom: var(--sp-2);
+}
+.rail-clear {
+  margin-left: auto; padding: 0;
+  background: none; border: none; cursor: pointer;
+  color: var(--fg-sub0); font: inherit; font-size: var(--text-xs);
+}
+.rail-clear:hover { color: var(--fg); text-decoration: underline; }
+
+/* Attention — one quiet row, not a pill beside a section label. */
+.rail-attention {
+  display: flex; align-items: center; gap: var(--sp-2);
+  width: 100%; min-height: 28px; padding: 0 10px; margin-bottom: var(--sp-2);
+  border: none; border-radius: 6px;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  color: var(--warning); font: inherit; font-size: var(--text-sm);
+  text-align: left; cursor: pointer; transition: background var(--transition);
+}
+.rail-attention:hover { background: color-mix(in srgb, var(--warning) 15%, transparent); }
+.rail-attention:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rail-attention-label { flex: 1 1 auto; font-weight: var(--weight-medium); }
+
+[data-inbox-announcer]:empty { display: none; }
+
+/* --- conversation rows --- */
+.rail-rows { display: flex; flex-direction: column; gap: 4px; }
+.row {
+  position: relative;
+  display: flex; align-items: flex-start;
+  padding: 8px 10px; border-radius: 6px;
+  color: inherit; text-decoration: none;
+  transition: background var(--transition);
+}
+.row:hover { background: color-mix(in srgb, var(--bg-surface0) 50%, transparent); }
+.row:focus-within { outline: none; }
+.row-main {
+  flex: 1 1 auto; min-width: 0; display: grid; gap: 2px;
+  color: inherit; text-decoration: none;
+}
+.row-main:hover, .row-main:focus-visible { text-decoration: none; }
+.row-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* Selection is the fill and the type, nothing else: no edge, no pill, no ring.
+   A coloured mark on a rounded row either clips against the radius or detaches
+   from it; the fill already separates from the rail ground, and lifting the
+   title and the project line carries the rest. Hover is the same fill at half
+   strength, so the two states are one idea at two weights. */
+.row--selected { background: var(--bg-surface0); }
+.row--selected .row-title { color: var(--fg); font-weight: var(--weight-bold); }
+.row--selected .row-l1 { color: var(--fg-sub0); }
+
+.row-check { display: none; }
+
+/* Line 1 — identicon, project (or provider · model when grouped by project) and
+   a fixed 48px right cell, so the time and the two 24px hover actions share one
+   right edge and swapping them shifts nothing. The right cell is a sibling of
+   the link rather than a descendant: a button inside an <a> is not interactive
+   content the parser or a screen reader can reach. */
+.row-l1 {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) 48px;
+  align-items: center; gap: 6px;
+  font-size: var(--text-xs); line-height: var(--leading-tight); color: var(--fg-overlay);
+}
+.row-ident { width: 14px; height: 14px; font-size: 8px; border-radius: 3px; margin-right: 0; }
+/* A conversation with no project keeps line 1's shape — a neutral square and a
+   muted "No project" — rather than leaving the cell blank beside a coloured
+   identicon hashed from nothing. Same rule in the crumb and the group headers. */
+/* The mark is drawn in CSS, not written as text: applyIdenticons (shared.js)
+   overwrites the text of every identicon it touches, and its fallback for a
+   value with no letter or digit is "?", which reads as an error rather than as
+   "no project yet". font-size: 0 hides whatever it wrote. */
+.identicon--none { background: var(--bg-surface1); color: var(--fg-overlay); font-size: 0; }
+.identicon--none::after { content: '\00B7'; font-size: 12px; line-height: 1; }
+.row-project--none { color: var(--fg-overlay); font-style: italic; }
+.row-project, .row-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-model { display: none; }
+.row-l1 > .provider-badge { justify-self: start; margin-left: 0; }
+.row-right {
+  position: absolute; top: 8px; right: 10px;
+  display: flex; align-items: center; justify-content: flex-end;
+  width: 48px; height: 16px;
+}
+.row-time { flex: 1 1 auto; text-align: right; font-size: var(--text-xs); color: var(--fg-overlay); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row-time--unread  { color: var(--accent); }
+.row-time--waiting { color: var(--warning); }
+.row-time--failed  { color: var(--error); }
+/* Faded, not removed: a `display: none` control is unfocusable, so Tab would
+   never reach settle or archive. Opacity keeps both in the tab order and in the
+   a11y tree while the row is at rest. */
+.row-actions {
+  position: absolute; right: -4px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; gap: 0;
+  opacity: 0; transition: opacity var(--transition);
+}
+.row:hover .row-time, .row:focus-within .row-time { visibility: hidden; }
+.row:hover .row-actions, .row:focus-within .row-actions { opacity: 1; }
+
+/* Line 2 — the title and a fixed 16px state slot on the same right edge. */
+.row-l2 {
+  display: grid; grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center; gap: 6px;
+  font-size: var(--text-base); font-weight: var(--weight-medium);
+  line-height: var(--leading-tight); color: var(--fg-sub0);
+}
+.row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-title--unread { color: var(--fg); }
+.row-title--draft { font-style: italic; }
+.row-state { display: grid; place-items: center; width: 16px; height: 16px; }
+.row-state > .icon { display: block; width: 12px; height: 12px; color: var(--fg-overlay); }
+.row-state > .status-dot { margin: 0; }
+
+/* Line 3 — attention reason, failure reason, or fork lineage. Starts on the
+   same left x as the identicon and the title; a fork is NOT indented. */
+.row-l3 {
+  font-size: var(--text-xs); line-height: var(--leading-tight);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--fg-overlay);
+}
+.row-l3--reason  { color: var(--warning); }
+.row-l3--error   { color: var(--error); }
+.row-l3--lineage > .icon { width: 11px; height: 11px; margin-right: 4px; vertical-align: -0.1em; }
+
+/* --- grouped view --- */
+.rail-group {
+  display: flex; align-items: center; gap: 6px;
+  min-height: 28px; padding: 0 10px; margin-top: var(--sp-2);
+  border: none; border-radius: 6px; background: none;
+  color: var(--fg-sub0); font: inherit; font-size: var(--text-xs);
+  cursor: pointer; text-align: left;
+}
+.rail-group:hover { background: var(--bg-surface0); }
+.rail-group:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rail-group .identicon { width: 14px; height: 14px; font-size: 8px; border-radius: 3px; margin-right: 0; }
+.rail-group-name {
+  flex: 1 1 auto; min-width: 0; color: var(--fg-sub1); font-weight: var(--weight-bold);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rail-group-count { font-variant-numeric: tabular-nums; }
+.rail-group[aria-expanded="false"] .icon-slot { transform: rotate(-90deg); }
+[data-inbox-grouped="project"] .row-project { display: none; }
+[data-inbox-grouped="project"] .row-model { display: block; }
+
+/* --- settled tail --- */
+.rail-settled {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: var(--sp-2); padding-top: var(--sp-1);
+  border-top: 1px solid color-mix(in srgb, var(--bg-surface1) 45%, transparent);
+}
+.rail-settled > summary {
+  display: flex; align-items: center; gap: var(--sp-2);
+  height: 32px; padding: 0 10px; border-radius: 6px;
+  list-style: none; cursor: pointer;
+  font-size: var(--text-xs); color: var(--fg-sub0);
+}
+.rail-settled > summary::-webkit-details-marker { display: none; }
+.rail-settled > summary:hover { background: var(--bg-surface0); color: var(--fg); }
+.rail-settled-label { flex: 1 1 auto; }
+.rail-settled > summary .icon-slot { transition: transform var(--transition); }
+.rail-settled[open] > summary .icon-slot { transform: rotate(180deg); }
+.rail-settled-next { margin: var(--sp-1) 10px 0; }
+
+/* Select mode — a 24px leading column on every row, so the content columns move
+   together and stay aligned with each other. The cell is as tall as line 1 and
+   is the click target (it is a <label>), so the box itself matches the 14px
+   identicon beside it instead of out-weighing it. */
+[data-inbox-select-mode="true"] .row-check {
+  display: grid; place-items: center;
+  flex: 0 0 24px; width: 24px; height: 16px;
+}
+/* Only a labelled cell carries a control; the settled tail's rows keep the
+   column as a bare spacer. */
+[data-inbox-select-mode="true"] label.row-check { cursor: pointer; }
+[data-inbox-select-mode="true"] .row-check input { width: 14px; height: 14px; }
+[data-inbox-select-mode="true"] .row-actions { display: none; }
+[data-inbox-select-mode="true"] .row:hover .row-time,
+[data-inbox-select-mode="true"] .row:focus-within .row-time { display: block; }
+
+.bulk-bar { margin-inline: -6px; padding-inline: 16px; }
+
+/* --- rail resize handle ---
+   6px of hit area straddling the rail's 1px border, invisible until it is
+   wanted; the 2px accent line inside it is the whole visual. .shell is the
+   containing block because the handle is positioned against --sidebar-w. */
+.shell { position: relative; }
+.sidebar-resize-handle {
+  position: absolute; top: 0; bottom: 0;
+  left: calc(var(--sidebar-w) - 3px);
+  width: 6px; z-index: var(--z-sidebar);
+  cursor: col-resize; touch-action: none;
+  /* margin: an <hr> carries UA margins that would offset it off the border. */
+  background: none; border: none; padding: 0; margin: 0;
+}
+.sidebar-resize-handle::before {
+  content: '';
+  position: absolute; inset: 0 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.sidebar-resize-handle:hover::before,
+.sidebar-resize-handle:focus-visible::before,
+.sidebar-resize-handle[data-dragging]::before { opacity: 1; }
+.sidebar-resize-handle:focus-visible { outline: none; }
+/* While dragging, the pointer owns the whole window. */
+body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-select: none; }
+
+/* === COMMAND PALETTE ===
+   A dialog positioned like the target's overlay; the rows inside are canon
+   .palette-item, built by the conversation-command controller. */
+.command-dialog {
+  width: min(92vw, 600px);
+  max-height: min(42rem, calc(100vh - 2rem));
+  padding: 0;
+  overflow: hidden;
+  top: 12vh;
+  margin-block: 0 auto;
+}
+.command-dialog::backdrop { background: color-mix(in srgb, var(--bg-pit) 52%, transparent); }
+.palette-input-row {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3); border-bottom: var(--border);
+}
+.palette-input-row > .icon { color: var(--fg-overlay); flex: 0 0 auto; }
+/* The palette field reads as an afterthought at the desktop control tier. */
+.palette-input-row input.form-input {
+  min-height: 36px; border: none; background: transparent; box-shadow: none; padding: 0;
+  font-size: var(--text-base);
+}
+@media (max-width: 768px), (pointer: coarse) {
+  .palette-input-row input.form-input { min-height: 44px; }
+}
+/* The field is the palette: it opens focused and the caret is the indicator, so
+   a ring here only draws a second box inside the row's own border. */
+.palette-input-row input.form-input:focus { box-shadow: none; border: none; outline: none; }
+.palette-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: var(--sp-2) var(--sp-3) 0; }
+@media (max-width: 768px), (pointer: coarse) {
+  .palette-filters > .chip { min-width: 44px; }
+  .palette-project { min-height: 44px; font-size: 16px; }
+}
+.palette-project { flex: 0 1 180px; min-width: 0; }
+.command-results { max-height: 46vh; overflow-y: auto; padding: var(--sp-1) var(--sp-2) var(--sp-2); }
+.palette-item .kbd, .palette-item kbd { justify-self: end; }
+.palette-foot {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-1) var(--sp-3); border-top: var(--border);
+  font-size: var(--text-xs); color: var(--fg-overlay);
+}
+.palette-foot [data-command-status] { margin: 0; }
+.composer-command-palette { position: absolute; inset-inline: var(--sp-3); bottom: 100%; z-index: var(--z-dropdown); max-height: 18rem; overflow: auto; }
+
+@media (max-width: 768px) {
+  /* The rail is a drawer here; there is nothing to resize. */
+  .sidebar-resize-handle { display: none; }
+  /* Topbar budget at 390: menu + title + dot + new chat + search + bell +
+     overflow. The state badge becomes a dot and New chat surfaces as its own
+     icon button. The context sits on a second line in chat chrome. */
+  .topbar .status-badge { display: none; }
+  .tb-dot { display: inline-block; }
+  .tb-kbd { display: none; }
+  .crumb { display: none; }
+  body:has(.shell--chat) { --topbar-h: 60px; }
+  .shell--chat .topbar { align-items: flex-start; padding-top: 2px; }
+  .shell--chat .crumb {
+    display: inline-flex; position: absolute; left: 56px; right: 12px; bottom: 4px;
+    min-width: 0; overflow: hidden;
+  }
+  .shell--chat .crumb-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .shell--chat .crumb [data-crumb-tail] { display: none; }
+  .topbar-actions .btn-icon.tb-newchat { display: inline-flex; }
+  .topbar :is(.session-title, .session-title-static) { font-size: var(--text-sm); }
+  .topbar-actions { gap: 0; }
+  .pop-attention, .pop-menu { right: var(--sp-2); width: min(92vw, 340px); }
+
+  /* Rail, touch tier.
+     DEVIATION from "hover actions always visible at 0.6 opacity": a 44px
+     settle/archive pair inside line 1 makes that line 44px tall, so a
+     three-line row grows to ~100px and the rows stop reading as a list. The
+     alternatives are a 24px target (below WCAG 2.5.5) or floating the pair over
+     the title. So the inline per-row actions are dropped here and select mode —
+     whose bulk bar is already a 44px surface — is the touch path for settle and
+     archive. The time keeps its slot, which is the information the row loses
+     otherwise. */
+  .row { min-height: 56px; padding: 10px; align-items: center; }
+  .row-right { top: 10px; right: 10px; }
+  .row-actions { display: none; }
+  .row:hover .row-time, .row:focus-within .row-time { display: block; }
+  .rail-search, .rail-scope, .rail-attention { min-height: 44px; }
+  .rail-group { min-height: 44px; }
+  .rail-settled > summary { height: 44px; }
+  /* Select mode is this tier's path to settle and archive, so the cell is a
+     full 44px target and the box grows with it. */
+  [data-inbox-select-mode="true"] .row-check { flex-basis: 44px; width: 44px; height: 44px; }
+  [data-inbox-select-mode="true"] .row-check input { width: 22px; height: 22px; }
+}
+
+@media (max-width: 640px) {
+  .topbar [data-command-open] kbd { display: none; }
+}
+
+[data-project-controls][hidden], [data-sidebar-projects][hidden], [data-sidebar-project][hidden] { display: none !important; }
+[data-has-projects="false"] .row-project { display: none; }
+.sidebar-project-section { padding-top: var(--sp-3); }
+.sidebar-project { margin-top: var(--sp-2); }
+.sidebar-project > summary { min-height: 32px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.sidebar-project > .rail-rows { padding-left: var(--sp-2); }
+.sidebar-project-create { margin: var(--sp-2) 0 var(--sp-2) var(--sp-2); }
+.conversation-context-marker { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-5) auto; padding: var(--sp-2) var(--sp-3); width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-muted); font-size: var(--text-sm); }

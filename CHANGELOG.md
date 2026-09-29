@@ -14,6 +14,231 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.27.0] - 2026-09-29
+
+### Fixed
+
+- Claude workflow turns now wait for the last background subagent's notification turn even when that agent has already left the active task list.
+
+### Changed
+
+- AndThen 1.0 workflow compatibility: `plan-and-implement` uses `andthen:spec` for PRD breakdown, both pipelines drop retired document-review steps, and `spec-and-implement` rejects written non-FIS input with a pointer to the plan workflow.
+- Workflow token usage now distinguishes measured zero from unavailable accounting. Uncapped runs label known totals as incomplete lower bounds; capped runs stop dispatch when required usage cannot be verified.
+- Workflow event streams now include the persisted failure cause in connected snapshots, and status changes retain
+  their transition cause, so an accounting stop and a retryable execution pause remain distinguishable to live clients.
+
+- Codex launches disable the client-side native question tool and guide new threads to ask for clarification in a final reply. Structured native questions that still arrive produce redacted warning logs with their source and options; DartClaw supplies no answer and keeps the provider's real turn outcome.
+
+- Claude token and cost accounting now includes delegated model usage once per turn, including resumed sessions and workflow follow-ups. Incomplete measurements retain known tokens and expose unavailable cost instead of charging cumulative totals again.
+
+- Host Claude `dontAsk` launches now request native prompts `none` while retaining subprocess credential scrub and
+  `PreToolUse` guards. An incompatible CLI is refused before a turn, and workflow records expose the effective posture.
+
+- Agent and global New chat now use the owner workspace without a project. Named projects have explicit chat entry
+  points and separate navigation. Eligible idle owner chats can move between general and project context with a
+  revision check; history and drafts remain, while the new context applies to future turns. This pre-release change
+  uses fresh conversation state and does not migrate existing chats.
+- Web chat preserves the visible message position when loading earlier messages and navigating back, and keeps turn
+  recovery active after an SSE disconnection.
+- The `dartclaw_runtime` LOC ceiling rises from 75,596 to 77,328 under ADR-033 after the general/project context
+  implementation measured 75,828 lines. Oversized service and test files were reduced before this reviewed raise;
+  the remaining growth owns context validation, revisioned moves, API routes and projections.
+
+- Claude workflow skill preflight now uses the provider's native settings, so plugins configured through
+  `providers.<name>.settings` are visible before a step runs.
+- Bundled workflow remediation now invokes `andthen:implement-fix`, matching the current AndThen skill contract.
+- Workflow task metadata now merges through PostgreSQL without failing on SQLite-only JSON syntax.
+
+- The 0.27 LOC ceilings now reflect the joined tree: core ratchets to 32,367 lines and CLI rebaselines to 14,480.
+
+- Release checks retain commit-bound gate receipts, support local runs, status inspection and resuming unchanged
+  candidates, and include PostgreSQL and host builds. Quick checks report incomplete coverage. PowerShell validation
+  shares one script between Windows development VMs and CI.
+
+- PostgreSQL verification provisions a disposable pgvector database when no test URL is supplied and includes vector,
+  conversation, workspace and interlock suites. Native release builds default to `.agent_temp/native-cache` and verify
+  their archive before replacing build outputs.
+
+- PostgreSQL 14+ is now the sole runtime database, with built-in lexical search as the default and pgvector-backed
+  hybrid search remaining explicit. Native setup and `doctor --fix` cover an empty schema without administrator
+  credentials; `init` leaves a fresh schema for `doctor --fix` and creates an owner-only config. A bounded offline utility
+  moves the supported 0.26.1 SQLite records into an empty current schema.
+  Runtime packages and release archives no longer carry SQLite.
+
+- Server shutdown now waits for conversation outcomes and pending writes before closing storage, and holds queued
+  conversation work instead of starting another turn during shutdown.
+
+- Conversation search now spans authorized owner and configured-agent history, including exact matches outside the
+  loaded transcript, with current/global, lifecycle and project scopes and exact-message navigation. One typed catalog
+  supplies the Cmd-K and slash palettes with nine built-ins plus authorized provider-native skills; unknown slash text
+  remains ordinary provider input, unchanged. Global search controls retain 44px touch targets on mobile.
+
+- Memory dashboard refreshes leave the page in place while a confirmation dialog is open, so a pending prune action
+  keeps its trigger.
+- Chat history preserves selected tool output across conversation switches and selected message or tool text on reload.
+  Message, tool, approval, and recovery controls keep 44px targets at desktop and mobile widths.
+
+- Owner-authorized temporary conversations are implemented for the mediated Codex container row. Their session,
+  messages, history, attachments, usage context,
+  provider home, browser draft, and replay state stay within process, container, or page memory. They are excluded from
+  conversation and memory projections, daily logs, personal memory, shared wiki and KG writes, and knowledge-inbox
+  intake. Process logs omit prompt previews. Explicit end revokes the conversation after confirmed shutdown, and
+  confirmed export streams a durable Markdown copy.
+
+- Conversations now show their immutable workspace owner separately from revisioned current and next-turn project,
+  directory, provider, model and effort context. Changes are authorized and captured at admission, telemetry names its
+  session and source, and the one schema-bound automatic title attempt cannot overwrite a manual or newer title.
+
+- The conversation sidebar is now a stable inbox with independent unread, execution, attention, draft and settled
+  state. A persistent topbar attention feed links to durable history records and resolves still-pending approvals by
+  exact request identity. Settled conversations remain readable and writable, restore on new work, and can be settled
+  automatically after a configured idle period.
+
+- Conversation drafts now survive reload with file bytes intact, remain editable while a turn runs, and can be queued,
+  stopped, or steered explicitly. Stable submission claims prevent duplicate dispatch across retries and restart, while
+  passive browser views reconcile ordered queue and recovery state from one durable session snapshot. A claim a restart
+  leaves unconfirmed is reported for review and settles as failed on the next dispatch; it never blocks later sends or
+  held queue items.
+
+- Conversation history now loads in bounded, deep-linkable windows and retains grouped tool and approval records across
+  reload. Exact live Codex `on-request` and Claude native permission requests can be approved once from ordinary web
+  chats; failed inputs can be retried, edited into a linked chat, or forked without changing their source history.
+
+- Named agents now use a fixed host-managed execution home at `data_dir/agents/<id>/workspace`. Setup validates every
+  destination before mutation and writes an exact id-only `identity.json` marker before workspace content. Unsafe ids,
+  symlinks, mismatched markers, and non-empty unmarked homes are refused without adoption or deletion. The former
+  `agent.agents.<id>.workspace` key is a breaking removal: any occurrence is refused, with no replacement path or
+  sharing choice. Retained sessions keep their absolute historical binding; if its agent was removed or relocated,
+  history remains readable but branch and fork direct the operator to a new conversation.
+
+- Managed named-agent workspaces own their private canonical memory, daily logs, and lexical, vector, and conversation
+  projections only when the existing tool policy grants the relevant read or write operations. Ordinary memory tools
+  stay within the session's pinned principal. `context_research` combines that caller-private memory with the shared
+  wiki and knowledge graph while excluding other principals and the knowledge inbox. Read grants govern retrieval and
+  rebuild; write grants govern mutation, journal, and curation work. Startup keeps each eligible workspace independent.
+
+- The owner Memory page and API now inspect, search, and page canonical entries in one selected default, configured,
+  or validated retained agent corpus. Entry edits and curated removals check collection and entry revisions, report
+  index health separately, and leave source observations, transcripts, audit records, and backups in place.
+
+- Named context-engine clients now have exactly three read tools: `context_research`, `kg_query`, and `kg_timeline`.
+  This is a breaking removal of `memory_search` and `memory_read` from that profile. Clients see only the explicitly
+  published wiki and knowledge graph, while owner and named-agent research add only the caller's own personal memory.
+  Knowledge-inbox files are never research sources, and direct KG results and citations no longer reveal stored private
+  source provenance.
+
+- `dartclaw_core` and `dartclaw_runtime` `lib/` LOC ceilings rebaselined for the milestone's backend scope
+  (core 31254 → 34710, runtime 68649 → 75596), each cut to the ratchet's own maximum for the measured size.
+
+- The web UI takes a desktop density tier at ≥769px with a fine pointer: buttons and form controls drop from ~37px to
+  28px, their small variants to 24px, the topbar from 48px to 40px, chat rail rows to a 30px single line, and chrome
+  text to 13px while message bodies stay 14px. Icon-only buttons are borderless at rest and scrollbars are invisible
+  at rest. Below 769px or under a coarse pointer every control keeps its 44px touch box.
+
+- Touch targets across the whole web UI are that same 44px on the width-or-coarse-pointer query. They were a separate
+  48px regime keyed on width alone, which both disagreed with the design system and left a touch-screen laptop at
+  desktop width on 28px targets: generic controls, the topbar menu and theme toggles, tab and pager anchors, login
+  inputs, chat rail rows and the task and project dialogs.
+
+- Rebuilt the chat shell and transcript on those components: a 760px transcript column, a 240–420px resizable rail
+  (280px default) carrying project lines, an all-projects scope selector and grouping by none, project or status,
+  per-turn tool disclosures that stay expanded while running, failed or blocked, and a floating composer whose 28px
+  send icon replaces the 44px labelled button.
+
+- The chat visual gate replaces its 20% pixel diff with measured layout assertions at 1440px and 390px — control
+  heights, idle composer height, horizontal overflow, column width, and touch-tier floors — plus a pointer hit test.
+
+- Upgraded the web UI to HTMX 4.0.0 and its bundled `hx-sse` streaming extension, with Trellis 0.11.1.
+  Adapted navigation, streaming, form feedback, and confirmation handling to the new browser lifecycle.
+  The streaming extension includes a local cleanup fix for an upstream unhandled error on close.
+  All browser assets continue to load from the DartClaw instance.
+
+- Every form select in the web UI now opens a themed, keyboard-navigable option list built from the app's own menu
+  vocabulary; the native element stays the value authority and resyncs on form reset and option rewrites. Text controls
+  carry a visible resting boundary, and settings field labels show their restart, reload or read-only tier as a quiet
+  marker instead of a pill.
+
+- The composer's project chip and model pill open separate popovers: **Project** (project, directory, a link to Session
+  info) and **Provider and model** (provider, model and effort as dropdowns). The model list is what the provider
+  reports for the account, discovered at startup without a turn – Claude from its `initialize` models and
+  `get_settings`, Codex from `model/list` and an ephemeral `thread/start` – with each model under the provider's own
+  name, Default labelled by what it resolves to, and Effort offering exactly the selected model's efforts (locked for
+  a model reporting none). The pill and the topbar crumb name the model the same way. Until discovery succeeds the
+  pickers offer Default plus any staged value, and a failed provider is retried at most every 5 minutes. A change
+  applies to the next turn when it is picked (Directory on Enter or leaving the field), with no Apply button; a refused
+  change shows why and the controls return to the applied context. The context diagnostics stay on Session info.
+  Queue, its steer caret and send share one 28px control tier, and queued-turn actions rest borderless.
+
+- Enter sends a chat message and Shift+Enter starts a new line; Ctrl/Cmd+Enter still sends. On a touch screen Return
+  keeps starting a new line and the send button sends. The composer hint reads *⇧↵ for new line*.
+
+### Fixed
+
+- Dropdown menus and command palettes highlight exactly one row, moved by the pointer and the arrow keys alike, and
+  popovers no longer tint or lift under the pointer. A dropdown without room below its trigger opens upward or shrinks
+  and scrolls. Clicking inside the slash, `@` or Cmd+K palette keeps keyboard focus in its input.
+- Popovers and dropdown menus draw a visible edge, so a dropdown opened inside the composer's Provider and model
+  popover no longer merges into it, and both composer popovers keep an even bottom inset. The temporary-chat
+  confirmations use the standard dialog frame, and the New Task form spaces its fields again.
+- The 404 page's Back to Home button lost its arrow glyph and label centring to the empty-state hero rule.
+- Cancelling a turn while the Claude harness was inside a tool call never settled that turn: the stop path tore the
+  process down without completing the in-flight turn, so the session lock stayed held for the life of the server and
+  every later send hung (the browser showed "Request failed"). Stopping now settles the stranded turn, as Codex already
+  did.
+
+- Retired model identifiers no longer ship as defaults: the workflow `reviewer` role defaults to `claude-opus-5`
+  instead of the retired `claude-opus-4`, and `dartclaw init` offers `gpt-5.6-sol` instead of `gpt-5`, which a ChatGPT
+  subscription cannot serve.
+- Codex model recognition now matches by identifier shape, as Claude model recognition already did, instead of an
+  enumerated list of vendor model names that went stale on each Codex release. `sessions.model`,
+  `sessions.channels.<key>.model` and `governance.crowd_coding.model` no longer raise an unrecognized-model advisory
+  for a current Codex model; a malformed identifier still warns and is still kept as configured.
+- The inbox and attention endpoints now require operator/admin access, like the other owner conversation endpoints.
+- An agent's explicit `context_research` grant is now reachable from a container: the tool carries a canonical name, so
+  the bridged-MCP allowlist can admit it instead of denying it as unmapped.
+- Workspace maintenance rotates its internal session when an agent binding changes. Conversation vector rebuilds
+  include removed but persisted principals, and ordinary agent memory excludes wiki sources.
+- Reused attachments retain every submission claim. Steer serializes cancellation and follow-up admission, context
+  changes validate retained draft inputs, and edit/fork rejects a stale conversation revision.
+- Paged transcript history retains the owning turn's records. Search rejects a result if its authorized snapshot
+  changes during retrieval, and attention read markers cannot move backward.
+- Temporary search navigation keeps drafts in page memory. Generic deletion uses confirmed temporary teardown;
+  Markdown exports contain message text separately from generated lineage and attachment sections.
+- Configured-agent containers expose only their workspace and authorized execution path. Attachment deletion rejects
+  non-UUID identifiers before filesystem access, including Windows separators.
+- Browser qualification rejects accessibility violations and incomplete audits, resolves CSS colors through the
+  browser before computing contrast, and starts its channel fixture with the production session-key format.
+- Idle global event streams open immediately. Composer controls wrap within the viewport and retain 44px action targets
+  at the touch tier.
+- Stop and Steer follow the server's cancellable state. Live conversation updates no longer discard pending searches.
+- Rail elapsed time for a turn running past an hour reads `1h02m` instead of `62m14s`.
+- A queued or held message row no longer pushes its remove button past the right edge at 390px, where the viewport
+  clipped it out of reach; the message text ellipsizes instead.
+- The chat rail's Archived disclosure takes the density tier's 30px instead of 36px, and its touch floor is canon's
+  44px on the width-or-coarse-pointer query rather than 48px on width alone.
+- The composer's attach control is a real button; it was a `<label>` carrying `role="button"`, which ARIA does not
+  permit on that element. The queued-message list is marked up as a list.
+- The chat layout gate asserts 44px targets only at the touch tier, skips controls that are not rendered, and reads
+  the send control's stop state from the send button the rebuild folded it into. It also fails a dock control that
+  the viewport clips or that something else covers.
+- The browser accessibility gate still fails every violation and every other incomplete, but exempts a contrast result
+  whose every node reports only that axe could not resolve the element's background, and prints how many it exempted.
+  Chat controls that hit-test as topmost and in view, on an opaque ground, were reported that way.
+- `dev/tools/test_workspace.sh` runs the renamed conversation-loop visual checks test; it called the pre-rename name,
+  which aborted the whole workspace test tier at that line.
+- Search displays server errors without a success token instead of remaining on “Searching…”, and uses a consistent
+  unavailable state for network failures.
+
+### Release holds
+
+- The 0.27 release remains held until the full repository gate passes on the exact committed candidate with an empty
+  worktree, including CI, container, native Windows, and release checks.
+- Physical iOS and Android keyboard, safe-area, and paste checks; screen-reader evaluation; owner task and attention
+  evaluation; supported-provider live workflows; and temporary Codex EOF and forced-termination checks still require
+  their documented release evidence.
+
+---
+
 ## [0.26.2] - 2026-09-14
 
 ### Fixed

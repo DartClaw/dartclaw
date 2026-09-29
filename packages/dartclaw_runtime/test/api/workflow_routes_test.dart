@@ -9,11 +9,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowLoop, WorkflowRun, WorkflowStep, WorkflowVariable;
 import 'package:shelf/shelf.dart';
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'api_test_helpers.dart';
@@ -87,10 +86,7 @@ Task _makeTask({
 }
 
 void main() {
-  late SqliteBackend taskBackend;
-  late Database workflowDb;
-  late SqliteBackend workflowBackend;
-  late SqliteTaskRepository taskRepo;
+  late InMemoryTaskRepository taskRepo;
   late EventBus eventBus;
   late TaskService tasks;
   late FakeWorkflowService workflows;
@@ -100,24 +96,15 @@ void main() {
   late Directory tempDir;
 
   setUp(() async {
-    taskBackend = await openPreparedTaskBackend();
-    workflowDb = sqlite3.openInMemory();
-    workflowBackend = SqliteBackend(workflowDb);
-    await SqliteSchemaGate.prepareTasks(workflowBackend, storeName: 'tasks.db');
     eventBus = EventBus();
-    taskRepo = SqliteTaskRepository(taskBackend);
+    taskRepo = InMemoryTaskRepository();
     tasks = TaskService(taskRepo, eventBus: eventBus);
     tempDir = Directory.systemTemp.createTempSync('wf_routes_test_');
 
     final def = _makeDefinition();
     definitions = InMemoryDefinitionSource([def]);
 
-    workflows = FakeWorkflowService(
-      backend: workflowBackend,
-      taskService: tasks,
-      eventBus: eventBus,
-      dataDir: tempDir.path,
-    );
+    workflows = FakeWorkflowService(taskService: tasks, eventBus: eventBus, dataDir: tempDir.path);
     workflows.recordListCalls = true;
     workflows.startResult = _makeRun();
     workflows.getResult = _makeRun();
@@ -134,8 +121,6 @@ void main() {
     await workflows.dispose();
     await tasks.dispose();
     await eventBus.dispose();
-    await taskBackend.close();
-    workflowDb.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
@@ -533,6 +518,88 @@ void main() {
       final body = decodeObject(await response.readAsString());
       final steps = body['steps'] as List;
       expect(steps[0]['status'], 'skipped');
+    });
+
+    test('error policy states expose the failed step and cause without approval', () async {
+      for (final status in [WorkflowRunStatus.failed, WorkflowRunStatus.paused, WorkflowRunStatus.completed]) {
+        workflows.getResult = _makeRun(
+          status: status,
+          currentStepIndex: status == WorkflowRunStatus.completed ? 3 : 0,
+          contextJson: const {
+            'data': {'research.status': 'failed', 'research.error': 'shell exited 7'},
+          },
+        );
+        final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+        final body = decodeObject(await response.readAsString());
+        expect(body['status'], status.name);
+        expect(body['isApprovalPaused'], isFalse);
+        final steps = body['steps'] as List;
+        expect(steps.first['status'], 'failed');
+        expect(steps.first['reason'], 'shell exited 7');
+      }
+    });
+
+    test(
+      'accounting stop and error pause keep their persisted cause and nullable usage in status and events',
+      () async {
+        handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+        for (final status in [WorkflowRunStatus.failed, WorkflowRunStatus.paused]) {
+          final run = WorkflowRun.fromJson(
+            _makeRun(
+                  status: status,
+                  currentStepIndex: 0,
+                  contextJson: {
+                    'data': {
+                      'research.status': status == WorkflowRunStatus.failed ? 'success' : 'failed',
+                      'research.tokenCount': null,
+                      if (status == WorkflowRunStatus.paused) 'research.error': 'shell exited 7',
+                    },
+                  },
+                )
+                .copyWith(
+                  errorMessage: status == WorkflowRunStatus.failed
+                      ? "Workflow accounting unavailable for step 'research'; token usage is incomplete."
+                      : 'shell exited 7',
+                  totalTokens: 30,
+                  tokenUsageComplete: false,
+                )
+                .toJson(),
+          );
+          workflows.getResult = run;
+          final detail = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+          final body = decodeObject(await detail.readAsString());
+          expect(body['status'], status.name);
+          expect(body['errorMessage'], run.errorMessage);
+          expect(body['totalTokens'], 30);
+          expect(body['tokenUsageComplete'], isFalse);
+          expect(body['isApprovalPaused'], isFalse);
+          expect((body['steps'] as List).first['tokenCount'], isNull);
+
+          final events = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')));
+          final frame = utf8.decode(await events.read().first);
+          final payload = jsonDecode(frame.split('data: ')[1].split('\n').first) as Map<String, dynamic>;
+          final connectedRun = payload['run'] as Map<String, dynamic>;
+          expect(connectedRun['status'], status.name);
+          expect(connectedRun['errorMessage'], run.errorMessage);
+          expect(connectedRun['tokenUsageComplete'], isFalse);
+          expect((payload['steps'] as List).first['tokenCount'], isNull);
+        }
+      },
+    );
+
+    test('a modeled failed outcome beats an accepted task status', () async {
+      workflows.getResult = _makeRun(
+        status: WorkflowRunStatus.completed,
+        currentStepIndex: 3,
+        contextJson: const {
+          'data': {'step.research.outcome': 'failed', 'step.research.outcome.reason': 'review failed'},
+        },
+      );
+      await taskRepo.insert(_makeTask(id: 't-0', workflowRunId: 'run-001', stepIndex: 0));
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+      final steps = decodeObject(await response.readAsString())['steps'] as List;
+      expect(steps.first['status'], 'failed');
+      expect(steps.first['reason'], 'review failed');
     });
   });
 

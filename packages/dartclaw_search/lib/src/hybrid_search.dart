@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -37,6 +38,7 @@ final class HybridSearch {
     String query, {
     required String userId,
     int limit = 20,
+    FullTextSearchScope? scope,
     SearchDiagnosticsSink? diagnostics,
   }) async {
     _validateUserId(userId);
@@ -45,14 +47,28 @@ final class HybridSearch {
       diagnostics?.call(SearchDiagnostics(candidates: const []));
       return const [];
     }
+    final candidateLimit = max(_candidateLimit, limit);
 
-    final lexical = _deduplicate(await _lexicalIndex.search(query, userId: userId, limit: _candidateLimit));
+    final lexical = _deduplicate(
+      await (scope == null
+          ? _lexicalIndex.search(query, userId: userId, limit: candidateLimit)
+          : (_lexicalIndex as ScopedFullTextIndex).searchScoped(
+              query,
+              userId: userId,
+              scope: scope,
+              limit: candidateLimit,
+            )),
+      candidateLimit,
+    );
+    final lexicalIdentities = {
+      for (final result in lexical) VectorIdentity(documentId: result.id, chunkIndex: result.chunkIndex),
+    };
     List<double> queryVector;
     try {
       queryVector = await _embeddingProvider.embedQuery(query);
       if (!_validVector(queryVector)) throw const FormatException('invalid query vector');
     } on Object {
-      return _fallback(lexical, userId, limit, diagnostics, reason: 'embeddingFailure');
+      return _fallback(lexical, userId, limit, scope, diagnostics, reason: 'embeddingFailure');
     }
 
     List<VectorMatch> matches;
@@ -61,24 +77,25 @@ final class HybridSearch {
         queryVector,
         userId: userId,
         modelFingerprint: _embeddingProvider.modelFingerprint,
-        limit: _candidateLimit,
+        limit: candidateLimit,
       );
     } on Object {
-      return _fallback(lexical, userId, limit, diagnostics, reason: 'vectorSearchFailure');
+      return _fallback(lexical, userId, limit, scope, diagnostics, reason: 'vectorSearchFailure');
     }
 
     final eligibleMatches = <VectorMatch>[];
     final seenMatches = <VectorIdentity>{};
-    for (final match in matches.take(_candidateLimit)) {
+    for (final match in matches.take(candidateLimit)) {
       final identity = VectorIdentity(documentId: match.documentId, chunkIndex: match.chunkIndex);
+      if (scope != null && !lexicalIdentities.contains(identity)) continue;
       if (match.score >= _vectorCutoff && seenMatches.add(identity)) eligibleMatches.add(match);
     }
 
     _CorpusSnapshot authenticated;
     try {
-      authenticated = await _inventory.selected(eligibleMatches.map((match) => match.documentId), userId: userId);
+      authenticated = await _selected(eligibleMatches.map((match) => match.documentId), userId: userId, scope: scope);
     } on Object {
-      return _fallback(lexical, userId, limit, diagnostics, reason: 'vectorAuthenticationFailure');
+      return _fallback(lexical, userId, limit, scope, diagnostics, reason: 'vectorAuthenticationFailure');
     }
 
     final currentByIdentity = {for (final chunk in authenticated.chunks) chunk.identity: chunk};
@@ -112,12 +129,13 @@ final class HybridSearch {
     final ranked = candidates.values.toList(growable: false)..sort(_compareCandidates);
     List<_FusedCandidate> authenticatedRanked;
     try {
-      authenticatedRanked = await _authenticateCandidates(ranked, userId);
+      authenticatedRanked = await _authenticateCandidates(ranked, userId, scope);
     } on Object {
       return _fallback(
         lexical,
         userId,
         limit,
+        scope,
         diagnostics,
         reason: 'vectorAuthenticationFailure',
         degradations: _staleDegradations(staleCount),
@@ -129,7 +147,7 @@ final class HybridSearch {
       diagnostics(
         SearchDiagnostics(
           candidates: selected.map((candidate) => candidate.evidence(_sourceLayer)),
-          unembeddedCount: await _diagnosticMissingCount(userId),
+          unembeddedCount: await _diagnosticMissingCount(userId, scope),
           degradations: _staleDegradations(staleCount),
         ),
       );
@@ -147,6 +165,7 @@ final class HybridSearch {
     List<SearchResult> lexical,
     String userId,
     int limit,
+    FullTextSearchScope? scope,
     SearchDiagnosticsSink? diagnostics, {
     required String reason,
     List<MemorySearchDegradation> degradations = const [],
@@ -158,7 +177,7 @@ final class HybridSearch {
     ];
     List<_FusedCandidate> current;
     try {
-      current = await _authenticateCandidates(candidates, userId);
+      current = await _authenticateCandidates(candidates, userId, scope);
     } on Object {
       current = const [];
       if (reason != 'vectorAuthenticationFailure') {
@@ -170,7 +189,7 @@ final class HybridSearch {
       diagnostics(
         SearchDiagnostics(
           candidates: selected.map((candidate) => candidate.evidence(_sourceLayer)),
-          unembeddedCount: await _diagnosticMissingCount(userId),
+          unembeddedCount: await _diagnosticMissingCount(userId, scope),
           degradations: fallbackDegradations,
         ),
       );
@@ -178,8 +197,12 @@ final class HybridSearch {
     return List.unmodifiable(selected.map((candidate) => candidate.result));
   }
 
-  Future<List<_FusedCandidate>> _authenticateCandidates(List<_FusedCandidate> candidates, String userId) async {
-    final snapshot = await _inventory.selected(candidates.map((candidate) => candidate.result.id), userId: userId);
+  Future<List<_FusedCandidate>> _authenticateCandidates(
+    List<_FusedCandidate> candidates,
+    String userId,
+    FullTextSearchScope? scope,
+  ) async {
+    final snapshot = await _selected(candidates.map((candidate) => candidate.result.id), userId: userId, scope: scope);
     final currentByIdentity = {for (final chunk in snapshot.chunks) chunk.identity: chunk};
     return [
       for (final candidate in candidates)
@@ -197,16 +220,37 @@ final class HybridSearch {
     if (staleCount > 0) MemorySearchDegradation(layer: _sourceLayer, reason: 'staleVector', omittedCount: staleCount),
   ];
 
-  static List<SearchResult> _deduplicate(List<SearchResult> results) {
+  static List<SearchResult> _deduplicate(List<SearchResult> results, int limit) {
     final seen = <VectorIdentity>{};
     return [
-      for (final result in results.take(_candidateLimit))
+      for (final result in results.take(limit))
         if (seen.add(VectorIdentity(documentId: result.id, chunkIndex: result.chunkIndex))) result,
     ];
   }
 
-  Future<int?> _diagnosticMissingCount(String userId) =>
-      _inventory.diagnosticMissingCount(userId: userId, modelFingerprint: _embeddingProvider.modelFingerprint);
+  Future<_CorpusSnapshot> _selected(
+    Iterable<String> documentIds, {
+    required String userId,
+    FullTextSearchScope? scope,
+  }) async {
+    if (scope == null) return _inventory.selected(documentIds, userId: userId);
+    final ids = documentIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return const _CorpusSnapshot(chunks: [], isComplete: true, expectedCount: 0);
+    final documents = await (_lexicalIndex as ScopedFullTextIndex).fetchScoped(ids, userId: userId, scope: scope);
+    final byId = {for (final document in documents) document.id: document};
+    return _CorpusSnapshot(
+      chunks: [
+        for (final id in ids)
+          if (byId[id] case final document?) ..._CurrentCorpusInventory._chunks(document),
+      ],
+      isComplete: true,
+      expectedCount: documents.fold(0, (total, document) => total + document.chunks.length),
+    );
+  }
+
+  Future<int?> _diagnosticMissingCount(String userId, FullTextSearchScope? scope) => scope == null
+      ? _inventory.diagnosticMissingCount(userId: userId, modelFingerprint: _embeddingProvider.modelFingerprint)
+      : Future<int?>.value();
 }
 
 final class _FusedCandidate {

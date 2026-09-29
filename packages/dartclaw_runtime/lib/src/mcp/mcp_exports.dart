@@ -14,6 +14,8 @@ export 'context_research_tool.dart'
         ContextResearchSynthesizer,
         ContextResearchSynthesisRequest,
         ContextResearchCandidate,
+        ContextResearchScope,
+        ContextResearchScopeResolver,
         ContextResearchMetrics,
         ContextResearchMetricsSink;
 export 'kg_tools.dart' show KgAddTool, KgQueryTool, KgTimelineTool, KgInvalidateTool, KgContradictionsTool;

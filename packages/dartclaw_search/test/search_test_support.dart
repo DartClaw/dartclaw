@@ -1,6 +1,7 @@
 import 'package:dartclaw_search/dartclaw_search.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show FullTextSearchScope, ScopedFullTextIndex;
 
-final class FakeFullTextIndex implements FullTextIndex {
+final class FakeFullTextIndex implements ScopedFullTextIndex {
   new({Iterable<SearchDocument> documents = const [], Iterable<SearchResult> searchResults = const []})
     : documents = {for (final document in documents) document.id: document},
       searchResults = List.of(searchResults);
@@ -12,6 +13,7 @@ final class FakeFullTextIndex implements FullTextIndex {
   int listCalls = 0;
   int countCalls = 0;
   int? lastSearchLimit;
+  FullTextSearchScope? lastSearchScope;
   final owners = <String, List<String>>{};
   bool failSearch = false;
   bool failFetch = false;
@@ -24,6 +26,21 @@ final class FakeFullTextIndex implements FullTextIndex {
     lastSearchLimit = limit;
     if (failSearch) throw StateError('lexical failed');
     return searchResults.take(limit).toList(growable: false);
+  }
+
+  @override
+  Future<List<SearchResult>> searchScoped(
+    String naturalLanguageQuery, {
+    required String userId,
+    required FullTextSearchScope scope,
+    int limit = 20,
+  }) async {
+    (owners['search'] ??= []).add(userId);
+    searchCalls++;
+    lastSearchLimit = limit;
+    lastSearchScope = scope;
+    if (failSearch) throw StateError('lexical failed');
+    return searchResults.where((result) => _allows(result.metadata, scope)).take(limit).toList(growable: false);
   }
 
   @override
@@ -53,11 +70,34 @@ final class FakeFullTextIndex implements FullTextIndex {
   }
 
   @override
+  Future<List<SearchDocument>> fetchScoped(
+    Iterable<String> ids, {
+    required String userId,
+    required FullTextSearchScope scope,
+  }) async {
+    (owners['fetch'] ??= []).add(userId);
+    fetchCalls++;
+    if (failFetch) throw StateError('fetch failed');
+    return [
+      for (final id in ids)
+        if (documents[id] case final document? when _allows(document.metadata, scope)) document,
+    ];
+  }
+
+  @override
   Future<int> count({required String userId, Map<String, String> metadata = const {}}) async {
     (owners['count'] ??= []).add(userId);
     countCalls++;
     if (failCount) throw StateError('count failed');
     return documents.values.fold<int>(0, (total, document) => total + document.chunks.length);
+  }
+
+  @override
+  Future<int> countMatches(String naturalLanguageQuery, {required String userId, FullTextSearchScope? scope}) async {
+    (owners['count'] ??= []).add(userId);
+    countCalls++;
+    if (failCount) throw StateError('count failed');
+    return searchResults.where((result) => scope == null || _allows(result.metadata, scope)).length;
   }
 
   @override
@@ -84,6 +124,11 @@ final class FakeFullTextIndex implements FullTextIndex {
 
   @override
   Future<void> verifyIntegrity() async {}
+
+  static bool _allows(Map<String, String> metadata, FullTextSearchScope scope) {
+    final value = metadata[scope.metadataKey];
+    return value != null && scope.acceptedValues.contains(value);
+  }
 }
 
 final class VectorMutation {

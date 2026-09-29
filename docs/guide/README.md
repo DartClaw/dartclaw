@@ -18,8 +18,8 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Windows](windows.md) | Native Windows x64 install, provider setup, smoke validation, and capability limits |
 | [Configuration](configuration.md) | `dartclaw.yaml` reference, environment variables, CLI flags |
 | [CLI Operations](cli-operations.md) | Connected vs standalone CLI mode, authentication, server detection, headless operations |
-| [Workspace](workspace.md) | Behavior files (SOUL.md, AGENTS.md, USER.md, TOOLS.md, MEMORY.md, HEARTBEAT.md), prompt assembly, git sync |
-| [Security](security.md) | Guard chain, container isolation, host-mediated credentials, content guard |
+| [Workspace](workspace.md) | Owner and named-agent workspace bindings, behavior files, memory ownership, prompt assembly, git sync |
+| [Security](security.md) | Guard chain, workspace grants, process retention, container isolation, host-mediated credentials, content guard |
 
 ## Features
 
@@ -27,13 +27,13 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 |-------|---------------|
 | [Agents](agents.md) | Providers (Claude, Codex, ACP), logical-agent sessions, worker capacity, choosing the right model |
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
-| [Search & Memory](search.md) | Search agent, FTS5/QMD hybrid search, explicit memory curation |
+| [Search & Memory](search.md) | Search agent, principal-scoped memory and conversation search, hybrid search, explicit memory curation |
 | [Tasks](tasks.md) | Task lifecycle, review workflow, declared worktrees |
 | [Governance](governance.md) | Admin senders, rate limits, daily token budgets, loop detection, and the `/stop` / `/pause` / `/resume` emergency controls |
 | [Workflows](workflows.md) | Writing custom workflows, progressive refinement, trigger surfaces (chat, web forms, GitHub PR webhook), YAML field reference, built-in workflows |
 | [AndThen Skills](andthen-skills.md) | Canonical `andthen:<name>` workflow references, provider aliases, and DartClaw-native skill provisioning |
 | [Projects & Git](projects-and-git.md) | Project directory, git worktrees, branch management, merge strategies |
-| [Web UI & API](web-ui-and-api.md) | Interface features, REST API endpoints, SSE streaming |
+| [Web UI & API](web-ui-and-api.md) | Conversation inbox, commands, temporary chats, effective context, REST API, SSE streaming |
 | [Context Engine Mode](context-engine.md) | Sharing the knowledge surface read-only over `/mcp` with named client tokens |
 
 ## Channels
@@ -67,7 +67,8 @@ See also: [Common Patterns](recipes/_common-patterns.md) | [Troubleshooting](rec
 |-------|---------------|
 | [Customization](customization.md) | L1-L5 customization ladder: behavior files to source code |
 | [Deployment](deployment.md) | LaunchDaemon, systemd, egress firewall |
-| [PostgreSQL](postgresql.md) | Opt-in database configuration, provisioning, backups, switching, and decommissioning |
+| [PostgreSQL](postgresql.md) | Required native setup, least-privilege provisioning, backups, restore, and v0.26.1 cutover |
+| [Deprecated Configuration Keys](deprecated-config-keys.md) | Exact 0.27-only parser tolerances and replacements |
 
 ## SDK Guide
 

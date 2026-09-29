@@ -2,8 +2,17 @@
 library;
 
 export 'src/models.dart'
-    show Session, SessionType, Message, MemorySearchResult, MemorySearchDegradation, MemorySearchOutcome;
-export 'src/full_text_index.dart' show FullTextIndex, SearchDocument, SearchResult;
+    show
+        Session,
+        SessionType,
+        ConversationRetention,
+        SessionTitleProvenance,
+        Message,
+        MemorySearchResult,
+        MemorySearchDegradation,
+        MemorySearchOutcome;
+export 'src/full_text_index.dart'
+    show FullTextIndex, FullTextSearchScope, ScopedFullTextIndex, SearchDocument, SearchResult;
 export 'src/vector_search.dart'
     show
         EmbeddingProvider,
@@ -14,7 +23,7 @@ export 'src/vector_search.dart'
         VectorIndex,
         VectorMatch,
         VectorRecord;
-export 'src/agent_definition.dart' show AgentDefinition;
+export 'src/agent_definition.dart' show AgentDefinition, AgentWorkspace;
 export 'src/output_schema.dart'
     show
         decodeOutputSchemaJson,
@@ -161,7 +170,7 @@ export 'src/search_config.dart'
         SearchProviderEntry,
         isValidEmbeddingCredentialEndpoint,
         isValidEmbeddingEndpoint;
-export 'src/database_config.dart' show DatabaseBackendKind, DatabaseConfig;
+export 'src/database_config.dart' show DatabaseConfig;
 export 'src/storage_exceptions.dart'
     show
         SchemaIncompatibleException,

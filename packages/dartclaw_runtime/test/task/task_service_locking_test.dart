@@ -1,25 +1,9 @@
 import 'package:dartclaw_runtime/src/task/task_service.dart';
-import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
-import '../helpers/in_memory_agent_execution_repository.dart';
-import '../helpers/in_memory_execution_repository_transactor.dart';
-
 void main() {
   group('InMemoryTaskRepository', () => _runLockingTests(() => InMemoryTaskRepository()));
-
-  group('SqliteTaskRepository (in-memory SQLite)', () {
-    late SqliteBackend backend;
-
-    setUp(() async {
-      backend = await openPreparedTaskBackend();
-    });
-
-    tearDown(() => backend.close());
-
-    _runLockingTests(() => SqliteTaskRepository(backend));
-  });
 
   group('InMemoryTaskRepository with AgentExecution persistence', () {
     late InMemoryTaskRepository repo;

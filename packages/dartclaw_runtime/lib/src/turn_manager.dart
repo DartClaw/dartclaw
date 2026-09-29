@@ -14,7 +14,9 @@ import 'context/context_monitor.dart';
 import 'execution_coordinator.dart';
 import 'execution_policy_resolver.dart';
 import 'observability/usage_tracker.dart';
+import 'runtime_context_telemetry.dart';
 import 'session/session_reset_service.dart';
+import 'runtime_tool_history.dart';
 import 'turn_runner.dart';
 import 'turn_wait_status.dart';
 
@@ -25,6 +27,20 @@ import 'turn_wait_status.dart';
 typedef TurnStatus = core.TurnStatus;
 typedef TurnOutcome = core.TurnOutcome;
 typedef BusyTurnException = core.BusyTurnException;
+
+final class ResolvedConversationDestination {
+  final String provider;
+  final String? securityProfile;
+  final ExecutionMode executionMode;
+  final AgentWorkspace? workspace;
+
+  const new({
+    required this.provider,
+    required this.securityProfile,
+    required this.executionMode,
+    required this.workspace,
+  });
+}
 
 /// Metadata for an in-flight agent turn.
 class TurnContext {
@@ -123,9 +139,11 @@ class TurnManager implements core.TurnManager {
   final TurnLimitsConfig _turnLimits;
   final SessionService? _sessions;
   final ExecutionPolicyResolver? _policyResolver;
+  final AgentDefinitionResolver? _agentDefinitions;
   late final TurnRunner _primary = _executions.primary!;
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
+  final Map<String, String> _contextProviderOverrides = {};
 
   // Same-session reservations run one at a time in arrival order: every await
   // before the session lock (session read, governance checks, rate-limit wait)
@@ -158,6 +176,7 @@ class TurnManager implements core.TurnManager {
     required TurnLimitsConfig turnLimits,
     Duration outcomeTtl = const Duration(seconds: 30),
     ExecutionPolicy executionPolicy = const ExecutionPolicy.host(),
+    AgentDefinitionResolver? agentDefinitions,
   }) : this.fromCoordinator(
          coordinator: _singleHarnessCoordinator(
            messages: messages,
@@ -181,23 +200,34 @@ class TurnManager implements core.TurnManager {
          ),
          sessions: sessions,
          turnLimits: turnLimits,
+         agentDefinitions: agentDefinitions,
        );
 
+  /// [agentDefinitions] resolves a pinned agent id at turn time. It must be the
+  /// deployment's live resolver ([LogicalAgentSessionService.agentDefinition]),
+  /// not a configured-agent snapshot: a snapshot cannot see an internal one-shot
+  /// agent, and the turn it reserves would be refused as unknown.
   new fromCoordinator({
     required ExecutionCoordinator coordinator,
     required TurnLimitsConfig turnLimits,
     SessionService? sessions,
     ExecutionPolicyResolver? policyResolver,
+    AgentDefinitionResolver? agentDefinitions,
   }) : _executions = coordinator,
        _turnLimits = turnLimits,
        _sessions = sessions,
-       _policyResolver = policyResolver;
+       _policyResolver = policyResolver,
+       _agentDefinitions = agentDefinitions;
 
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
   ExecutionCoordinator get executions => _executions;
+
+  void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {
+    _executions.setContextTelemetryObserver(observer);
+  }
 
   /// Turn budgets enforced by every runner managed by this composition.
   TurnLimitsConfig get turnLimits => _turnLimits;
@@ -240,6 +270,68 @@ class TurnManager implements core.TurnManager {
     return null;
   }
 
+  void setToolApprovalObservers({
+    required RuntimeToolApprovalRequested? requested,
+    required RuntimeToolApprovalClosed? closed,
+  }) {
+    _executions.setToolApprovalObservers(requested: requested, closed: closed);
+  }
+
+  void setToolHistoryObserver(RuntimeToolHistoryObserved? observer) {
+    _executions.setToolHistoryObserver(observer);
+  }
+
+  ResolvedConversationDestination resolveConversationDestination(Session source) {
+    final pinned = source.workspace;
+    if (pinned == null) {
+      return ResolvedConversationDestination(
+        provider: _primary.providerId,
+        securityProfile: _primary.executionPolicy.containerProfile,
+        executionMode: _primary.executionPolicy.mode,
+        workspace: null,
+      );
+    }
+    final definition = _agentDefinitions?.call(pinned.agentId);
+    if (definition == null) {
+      throw StateError(
+        'Session "${source.id}" belongs to unknown agent "${pinned.agentId}". Create a new conversation.',
+      );
+    }
+    definition.requireWorkspaceAvailable();
+    AgentWorkspace.requireCurrent(
+      sessionId: source.id,
+      agentId: pinned.agentId,
+      pinned: pinned,
+      configured: definition.workspace,
+    );
+    final provider = definition.provider?.trim().isNotEmpty == true
+        ? ProviderIdentity.normalize(definition.provider!)
+        : _primary.providerId;
+    final policy = _policyResolver?.resolveForAgent(definition, providerId: provider) ?? _primary.executionPolicy;
+    return ResolvedConversationDestination(
+      provider: provider,
+      securityProfile: policy.containerProfile,
+      executionMode: policy.mode,
+      workspace: definition.workspace,
+    );
+  }
+
+  Future<void> resolveToolApproval({
+    required String sessionId,
+    required String turnId,
+    required String requestId,
+    required bool approved,
+  }) async {
+    final runner = _executions.runners.where((candidate) => candidate.isActiveTurn(sessionId, turnId)).firstOrNull;
+    if (runner == null) throw StateError('Approval turn is no longer active');
+    await runner.resolveToolApproval(turnId: turnId, requestId: requestId, approved: approved);
+  }
+
+  bool canResolveToolApproval({required String sessionId, required String turnId, required String requestId}) {
+    final runner = _executions.runners.where((candidate) => candidate.isActiveTurn(sessionId, turnId)).firstOrNull;
+    return runner?.canResolveToolApproval(turnId: turnId, requestId: requestId) ?? false;
+  }
+
   @override
   Future<String> reserveTurn(
     String sessionId, {
@@ -262,8 +354,80 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     TurnOrigin? origin,
+  }) => _reserveTurn(
+    sessionId,
+    providerOverride: _contextProviderOverrides[sessionId],
+    agentName: agentName,
+    directory: directory,
+    model: model,
+    effort: effort,
+    systemPromptOverride: systemPromptOverride,
+    workerPolicy: workerPolicy,
+    maxTurns: maxTurns,
+    outputSchema: outputSchema,
+    outputSchemaWhenSupported: outputSchemaWhenSupported,
+    providerSessionId: providerSessionId,
+    requestProviderSessionResume: requestProviderSessionResume,
+    taskId: taskId,
+    turnTimeout: turnTimeout,
+    isHumanInput: isHumanInput,
+    behaviorOverride: behaviorOverride,
+    promptScope: promptScope,
+    allowedTools: allowedTools,
+    readOnly: readOnly,
+    origin: origin,
+  );
+
+  /// Reserves an ordinary conversation turn against its admitted provider snapshot.
+  Future<String> reserveContextTurn(
+    String sessionId, {
+    required String provider,
+    required String directory,
+    String? model,
+    String? effort,
+    required PromptScope promptScope,
+    required TurnOrigin origin,
   }) async {
-    final lease = await _sessionReservations.run(
+    _contextProviderOverrides[sessionId] = provider;
+    try {
+      return await reserveTurn(
+        sessionId,
+        directory: directory,
+        model: model,
+        effort: effort,
+        isHumanInput: true,
+        promptScope: promptScope,
+        origin: origin,
+      );
+    } finally {
+      _contextProviderOverrides.remove(sessionId);
+    }
+  }
+
+  Future<String> _reserveTurn(
+    String sessionId, {
+    String? providerOverride,
+    String agentName = 'main',
+    String? directory,
+    String? model,
+    String? effort,
+    String? systemPromptOverride,
+    ExecutionPolicy? workerPolicy,
+    int? maxTurns,
+    Map<String, dynamic>? outputSchema,
+    bool outputSchemaWhenSupported = false,
+    String? providerSessionId,
+    bool requestProviderSessionResume = false,
+    String? taskId,
+    Duration? turnTimeout,
+    bool isHumanInput = false,
+    BehaviorFileService? behaviorOverride,
+    PromptScope? promptScope,
+    List<String>? allowedTools,
+    bool readOnly = false,
+    TurnOrigin? origin,
+  }) async {
+    final reservation = await _sessionReservations.run(
       sessionId,
       () => _reserveExecutionForSession(
         sessionId,
@@ -271,15 +435,19 @@ class TurnManager implements core.TurnManager {
         taskId: taskId,
         isHumanInput: isHumanInput,
         agentName: agentName,
+        directory: directory,
         allowedTools: allowedTools,
+        providerOverride: providerOverride,
       ),
     );
+    final lease = reservation.lease;
     final runner = lease.runner;
+    final effectiveAgentName = reservation.agentName;
     try {
       final turnId = await runner.reserveAdmittedTurn(
         sessionId,
-        agentName: agentName,
-        directory: directory,
+        agentName: effectiveAgentName,
+        directory: directory ?? reservation.workspace?.directory,
         model: model,
         effort: effort,
         systemPromptOverride: systemPromptOverride,
@@ -356,6 +524,19 @@ class TurnManager implements core.TurnManager {
       throw BusyTurnException('Cannot reset: turn in progress', isSameSession: true);
     }
     await _executions.resetSessionContinuity(sessionId, workersOnly: true);
+  }
+
+  /// Releases the idle provider authority retained for a temporary session.
+  Future<void> releaseTemporarySession(String sessionId) async {
+    if (isActive(sessionId)) {
+      throw BusyTurnException('Cannot end temporary session while its turn is running', isSameSession: true);
+    }
+    final pending = _reservedTurnLeases.entries.where((entry) => entry.value.request.sessionId == sessionId).toList();
+    for (final entry in pending) {
+      await _reservedTurnRunners[entry.key]?.waitForExecutionSettled(sessionId, entry.key);
+      await entry.value.release();
+    }
+    await _executions.releaseTemporarySession(sessionId);
   }
 
   @override
@@ -527,49 +708,97 @@ class TurnManager implements core.TurnManager {
     _primary.setTaskReadOnly(readOnly);
   }
 
-  Future<ExecutionLease> _reserveExecutionForSession(
+  Future<({ExecutionLease lease, AgentWorkspace? workspace, String agentName})> _reserveExecutionForSession(
     String sessionId, {
     ExecutionPolicy? workerPolicy,
     String? taskId,
     required bool isHumanInput,
     String? agentName,
+    String? directory,
     List<String>? allowedTools,
+    String? providerOverride,
   }) async {
     final session = await _sessions?.getSession(sessionId);
-    final provider = session?.provider ?? _primary.providerId;
+    final provider = providerOverride ?? session?.provider ?? _primary.providerId;
     final policy = workerPolicy ?? await _sessionExecutionPolicy(session);
     final isLogicalAgent = session?.type == SessionType.logicalAgent;
+    final definitions = _agentDefinitions;
+    final persistedAgent = definitions == null ? null : _persistedNamedAgent(session);
+    final effectiveAgent = persistedAgent ?? agentName ?? 'main';
+    if (persistedAgent != null) definitions?.call(persistedAgent)?.requireWorkspaceAvailable();
     // A channel session bound to a logical agent executes as that agent: the
     // channel surface would route it to the primary lane under the primary's
     // policy, discarding the pin, so it takes the logical-agent surface while
     // its admission stays the channel's waiting kind.
-    final boundChannel = session?.type == SessionType.channel && agentName != null && agentName != 'main';
-    final surface = switch (session?.type) {
-      SessionType.cron => ExecutionSurface.scheduler,
-      SessionType.channel => boundChannel ? ExecutionSurface.logicalAgent : ExecutionSurface.channel,
-      SessionType.logicalAgent => ExecutionSurface.logicalAgent,
-      SessionType.task => ExecutionSurface.task,
-      _ => ExecutionSurface.interactive,
-    };
+    final boundChannel = session?.type == SessionType.channel && effectiveAgent != 'main';
+    final workspaceAgent = isLogicalAgent || boundChannel ? effectiveAgent : null;
+    if (workspaceAgent != null && definitions != null) {
+      final definition = definitions(workspaceAgent);
+      if (definition == null) {
+        throw StateError('Session "$sessionId" belongs to unknown agent "$workspaceAgent". Create a new conversation.');
+      }
+      definition.requireWorkspaceAvailable();
+      AgentWorkspace.requireCurrent(
+        sessionId: sessionId,
+        agentId: workspaceAgent,
+        pinned: session?.workspace,
+        configured: definition.workspace,
+      );
+    }
+    final surface = session?.retention == ConversationRetention.process
+        ? ExecutionSurface.temporary
+        : switch (session?.type) {
+            SessionType.cron => ExecutionSurface.scheduler,
+            SessionType.channel => boundChannel ? ExecutionSurface.logicalAgent : ExecutionSurface.channel,
+            SessionType.logicalAgent => ExecutionSurface.logicalAgent,
+            SessionType.task => ExecutionSurface.task,
+            _ => ExecutionSurface.interactive,
+          };
     final lease = await _executions.acquire(
       ExecutionRequest(
         surface: surface,
         providerId: provider,
         policy: policy,
         sessionId: sessionId,
+        retention: session?.retention ?? ConversationRetention.durable,
         admission: isLogicalAgent ? ExecutionAdmission.failFast : ExecutionAdmission.wait,
         isHumanInput: isHumanInput,
         taskId: taskId,
-        logicalAgentId: isLogicalAgent || boundChannel ? agentName : null,
+        logicalAgentId: isLogicalAgent || boundChannel ? effectiveAgent : null,
+        workspace: session?.workspace,
+        directory: directory,
         allowedTools: allowedTools,
       ),
     );
-    if (lease != null) return lease;
+    if (lease != null) return (lease: lease, workspace: session?.workspace, agentName: effectiveAgent);
     throw BusyTurnException(
       'Provider "$provider" worker capacity unavailable for ${policy.describe()} execution; '
       'increase providers.$provider.pool_size',
       isSameSession: false,
     );
+  }
+
+  String? _persistedNamedAgent(Session? session) {
+    if (session == null || (session.type != SessionType.logicalAgent && session.type != SessionType.channel)) {
+      return null;
+    }
+    final sessionKey = session.channelKey;
+    if (sessionKey == null) {
+      throw StateError('Session "${session.id}" has no persisted ownership key. Create a new conversation.');
+    }
+    try {
+      final parsed = SessionKey.parse(sessionKey);
+      if (session.type == SessionType.logicalAgent && parsed.scope != 'logical') {
+        throw const FormatException('Logical-agent session key has the wrong scope');
+      }
+      final agentId = Uri.decodeComponent(parsed.agentId);
+      if (agentId.isEmpty) throw const FormatException('Session agent id is blank');
+      return agentId;
+    } on FormatException catch (error) {
+      throw StateError('Session "${session.id}" has invalid persisted ownership: $error. Create a new conversation.');
+    } on ArgumentError catch (error) {
+      throw StateError('Session "${session.id}" has invalid persisted ownership: $error. Create a new conversation.');
+    }
   }
 
   /// Resolves the execution policy pinned to [session].

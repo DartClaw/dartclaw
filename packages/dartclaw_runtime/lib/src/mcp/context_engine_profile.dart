@@ -16,13 +16,7 @@ const _profileGuardName = 'ContextEngineProfile';
 /// are read-classified and reach third parties on the owner's credentials, so a
 /// read classification is not by itself a reason to expose a tool to a client.
 /// (`web_fetch` is write-classified and would be excluded either way.)
-const contextEngineProfileTools = <String>{
-  'context_research',
-  'memory_search',
-  'memory_read',
-  'kg_query',
-  'kg_timeline',
-};
+const contextEngineProfileTools = <String>{'context_research', 'kg_query', 'kg_timeline'};
 
 /// The audit principal for MCP client [clientName].
 ///

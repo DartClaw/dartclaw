@@ -1,8 +1,8 @@
-<div tl:fragment="knowledgeHub" class="shell">
+<div tl:fragment="knowledgeHub" class="shell" hx-history-elt>
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in">
+  <main id="main-content" tabindex="-1" class="page-content print-in">
     <div class="page-inner knowledge-hub-page">
       <header class="pagehead">
         <div>
@@ -25,11 +25,12 @@
           <input type="hidden" name="layer" tl:attr="value=${activeLayer}">
           <button class="btn btn-primary" type="submit">Search</button>
         </form>
-        <div class="chip-row" role="list">
-          <a tl:each="chip : ${layerChips}" class="chip" role="listitem"
+        <nav class="tabs" aria-label="Knowledge layers">
+          <a tl:each="chip : ${layerChips}" class="tab t-label"
+             tl:classappend="${chip.current} ? 'active' : ''"
              tl:attr="href=${chip.href},aria-current=${chip.current}"
              tl:text="${chip.label}">All</a>
-        </div>
+        </nav>
       </section>
 
       <section aria-labelledby="knowledge-summary-heading">

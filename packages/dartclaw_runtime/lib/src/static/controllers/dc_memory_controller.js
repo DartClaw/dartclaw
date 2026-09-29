@@ -1,13 +1,19 @@
 export default class DcMemoryController extends Stimulus.Controller {
   connect() {
+    this.beforeSwapHandler = (event) => this.beforeSwap(event);
     this.afterSwapHandler = (event) => this.afterSwap(event);
-    this.element.addEventListener('htmx:afterSwap', this.afterSwapHandler);
+    document.addEventListener('htmx:before:swap', this.beforeSwapHandler);
+    this.element.addEventListener('htmx:after:swap', this.afterSwapHandler);
     this.initializeView();
   }
 
   disconnect() {
+    if (this.beforeSwapHandler) {
+      document.removeEventListener('htmx:before:swap', this.beforeSwapHandler);
+      this.beforeSwapHandler = null;
+    }
     if (this.afterSwapHandler) {
-      this.element.removeEventListener('htmx:afterSwap', this.afterSwapHandler);
+      this.element.removeEventListener('htmx:after:swap', this.afterSwapHandler);
       this.afterSwapHandler = null;
     }
   }
@@ -16,8 +22,14 @@ export default class DcMemoryController extends Stimulus.Controller {
     return window.dartclaw?.shell?.apiQs?.() || '';
   }
 
+  beforeSwap(event) {
+    if (event.detail?.ctx?.target?.id === 'memory-content' && document.querySelector('dialog:modal')) {
+      event.preventDefault();
+    }
+  }
+
   afterSwap(event) {
-    const target = event?.detail?.target;
+    const target = event?.detail?.ctx?.target;
     if (target?.id === 'memory-content' || target?.id === 'memory-inner') {
       this.initializeView();
     }
@@ -173,6 +185,25 @@ export default class DcMemoryController extends Stimulus.Controller {
     } else {
       preview.textContent = rawContent;
     }
+  }
+
+  openEditDialog(event) {
+    this.openEntryDialog('memory-edit-dialog', event.currentTarget);
+  }
+
+  openRemoveDialog(event) {
+    this.openEntryDialog('memory-remove-dialog', event.currentTarget);
+  }
+
+  openEntryDialog(id, trigger) {
+    const dialog = this.element.querySelector('#' + id);
+    if (!dialog || !trigger) return;
+    dialog.addEventListener('close', () => trigger.focus(), { once: true });
+    dialog.showModal();
+  }
+
+  closeDialog(event) {
+    event.currentTarget.closest('dialog')?.close();
   }
 
 }

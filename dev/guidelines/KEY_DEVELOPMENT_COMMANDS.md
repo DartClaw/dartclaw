@@ -64,10 +64,17 @@ dart pub get
 dart run dev/tools/embed_assets.dart
 
 # Build both binaries via `dart build cli`: build/bin/dartclaw and
-# build/bin/dartclaw-workflow, with SQLite in sibling build/lib/.
-# Keep bin/ and lib/ together. Each binary gets its own release tarball + checksum.
+# build/bin/dartclaw-workflow. Each binary gets its own release archive + checksum.
+# First build: allow the manifest-pinned native embedding archive download.
+DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1 bash dev/tools/build.sh
+# Later builds reuse .agent_temp/native-cache without downloading.
 bash dev/tools/build.sh
 ```
+
+`DARTCLAW_NATIVE_ARCHIVE_CACHE` overrides the default `.agent_temp/native-cache` directory under the repository root.
+The archive's size and SHA-256 are verified before build outputs are cleared or assets generated. On Windows, set
+`$env:DARTCLAW_NATIVE_ALLOW_DOWNLOAD = '1'` for the first `./dev/tools/build_windows.ps1` invocation; the same cache
+default and override apply. Unset the download flag for subsequent offline archive reuse.
 
 
 ## Parallels Windows VM
@@ -139,7 +146,8 @@ dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 bash dev/tools/test_workspace.sh
-# Requires PostgreSQL 14 and DARTCLAW_TEST_POSTGRES_URL with sslmode=disable.
+# Proves plain PostgreSQL 14 first, then explicit pgvector/hybrid behavior.
+# The runner may provision disposable resources with Docker in CI or use supplied disposable endpoints.
 bash dev/tools/postgres_contract.sh
 dart run dev/tools/arch_check.dart
 bash dev/tools/fitness/run_all.sh
@@ -149,6 +157,12 @@ git status --short
 
 `dart run dev/tools/embed_assets.dart` also copies `dev/design-system/{tokens,components,icons}.css`
 into the server's static assets, so canonical CSS edits need no separate sync step.
+
+For a **clean committed release candidate**, `bash dev/tools/release_check.sh --version <version> --local` runs these
+local gates plus release cleanup/version checks and the host build, retaining per-gate receipts. Add `--resume` to
+reuse eligible results, `--status` to inspect them, or `--gate <id>` to rerun one gate. The dirty development checkout
+still uses the individual commands above. See [Release Preparation](RELEASE_PREPARATION.md) for scope and exit codes.
+PowerShell validation uses `dev/tools/check_powershell.ps1` both locally in Windows and in CI; PSScriptAnalyzer is required.
 
 ## Generated Artifacts
 
@@ -217,35 +231,16 @@ substituted from a FIS proof line. Keep them in step with the commands below and
 | full | `bash dev/tools/test_workspace.sh` |
 | run one test | `dart test --reporter=failures-only {file} --name "{test}"` |
 
-Use the workspace root for package-wide server/CLI validation. On supported local/CI environments, the
-`dart test packages/dartclaw_runtime` and `dart test apps/dartclaw_cli` commands should run without manual sqlite
-bootstrap tweaks. If a host cannot load the bundled sqlite native asset, treat that environment as unsupported for
-this validation path rather than compensating with ad hoc path setup. The integration-tagged
+The `full` tier runs the default workspace suites; it does not include integration-tagged live checks or a release
+build. The CI-equivalent gate above adds PostgreSQL explicitly. Provider-dependent checks remain separate and must
+be named as unexecuted when reporting only the default or database suites.
+
+Use the workspace root for package-wide server/CLI validation. The default suites use domain fakes where database
+behavior is not the claim. SQL dialect, schema, transaction, search, interlock, migration, restore and runtime wiring
+claims require `bash dev/tools/postgres_contract.sh` or another explicitly named real-PostgreSQL proof. The integration-tagged
 `packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart` remains an explicit secondary proof surface and
 should be run intentionally with `dart test --run-skipped -t integration packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`
 when you need that extra signal.
-
-If local development on macOS is blocked by repeated `package:sqlite3` native-asset signing failures inside
-`.dart_tool/`, a temporary local-only workaround is acceptable: point `sqlite3` hooks at the system SQLite library by
-adding the following to the affected package's `pubspec.yaml` as an uncommitted local edit:
-
-```yaml
-hooks:
-  user_defines:
-    sqlite3:
-      source: system
-```
-
-Use this only to unblock local iteration. Do not commit it as the project default, and do not treat results from this
-mode as the canonical release/CI verification path. Release builds run `dart build cli` (via `dev/tools/build.sh`),
-which bundles its own SQLite library from the sqlite3 build hooks, so the `hooks.user_defines.sqlite3.source: system`
-block must stay uncommitted — committing it would make release binaries depend on the host SQLite (and Windows'
-`winsqlite3.dll` lacks FTS5). Before relying on it, confirm the host SQLite build exposes the features DartClaw uses,
-especially FTS5:
-
-```bash
-sqlite3 ':memory:' "pragma compile_options;" | rg FTS5
-```
 
 ```bash
 # Test a specific package (failures-only reporter for agent runs)

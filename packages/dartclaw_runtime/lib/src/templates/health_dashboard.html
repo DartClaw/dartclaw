@@ -1,8 +1,8 @@
-<div tl:fragment="healthDashboard" class="shell">
+<div tl:fragment="healthDashboard" class="shell" hx-history-elt>
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="content-area print-in">
+  <main id="main-content" tabindex="-1" class="content-area print-in">
     <div id="health-loading" class="poll-skeleton htmx-indicator" aria-hidden="true">
       <div class="scan-bar"></div>
     </div>

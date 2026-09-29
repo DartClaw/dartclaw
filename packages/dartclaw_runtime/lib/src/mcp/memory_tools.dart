@@ -8,15 +8,24 @@ import 'mcp_server.dart';
 /// Callback type matching the memory handler signature from
 /// `createMemoryHandlers()`.
 typedef MemoryHandler = Future<Map<String, dynamic>> Function(Map<String, dynamic>);
+typedef ContextualMemoryHandler = Future<Map<String, dynamic>> Function(
+  Map<String, dynamic> args,
+  McpCallerContext context,
+);
 
 /// MCP tool for provenance-labelled observation and learning capture.
 class MemoryObserveTool implements ContextualMcpTool {
   final MemoryHandler _handler;
   final MemoryObserveWithContext? _contextualHandler;
+  final ContextualMemoryHandler? _callerHandler;
 
-  new({required MemoryHandler handler, MemoryObserveWithContext? contextualHandler})
-    : _handler = handler,
-      _contextualHandler = contextualHandler;
+  new({
+    required MemoryHandler handler,
+    MemoryObserveWithContext? contextualHandler,
+    ContextualMemoryHandler? callerHandler,
+  }) : _handler = handler,
+       _contextualHandler = contextualHandler,
+       _callerHandler = callerHandler;
 
   @override
   String get name => 'memory_observe';
@@ -47,6 +56,8 @@ class MemoryObserveTool implements ContextualMcpTool {
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    final callerHandler = _callerHandler;
+    if (callerHandler != null) return ToolResult.text(extractMcpText(await callerHandler(args, context)));
     final handler = _contextualHandler;
     if (handler == null) return const ToolResult.error('Tool requires an authenticated contextual handler');
     return ToolResult.text(extractMcpText(await handler(args, _captureContext(name, context))));
@@ -57,10 +68,15 @@ class MemoryObserveTool implements ContextualMcpTool {
 class MemoryApplyTool implements ContextualMcpTool {
   final MemoryHandler _handler;
   final MemoryObserveWithContext? _contextualHandler;
+  final ContextualMemoryHandler? _callerHandler;
 
-  new({required MemoryHandler handler, MemoryObserveWithContext? contextualHandler})
-    : _handler = handler,
-      _contextualHandler = contextualHandler;
+  new({
+    required MemoryHandler handler,
+    MemoryObserveWithContext? contextualHandler,
+    ContextualMemoryHandler? callerHandler,
+  }) : _handler = handler,
+       _contextualHandler = contextualHandler,
+       _callerHandler = callerHandler;
 
   @override
   String get name => 'memory_apply';
@@ -90,6 +106,8 @@ class MemoryApplyTool implements ContextualMcpTool {
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    final callerHandler = _callerHandler;
+    if (callerHandler != null) return ToolResult.text(extractMcpText(await callerHandler(args, context)));
     final handler = _contextualHandler;
     if (handler == null) return const ToolResult.error('Tool requires an authenticated contextual handler');
     return ToolResult.text(extractMcpText(await handler(args, _captureContext(name, context))));
@@ -109,10 +127,13 @@ MemoryCaptureContext _captureContext(String toolName, McpCallerContext context) 
 );
 
 /// MCP tool for searching saved memories using natural language.
-class MemorySearchTool implements McpTool {
+class MemorySearchTool implements ContextualMcpTool {
   final MemoryHandler _handler;
+  final ContextualMemoryHandler? _callerHandler;
 
-  new({required MemoryHandler handler}) : _handler = handler;
+  new({required MemoryHandler handler, ContextualMemoryHandler? callerHandler})
+    : _handler = handler,
+      _callerHandler = callerHandler;
 
   @override
   String get name => 'memory_search';
@@ -145,13 +166,23 @@ class MemorySearchTool implements McpTool {
     final result = await _handler(args);
     return ToolResult.text(extractMcpText(result));
   }
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    final handler = _callerHandler;
+    if (handler == null) return const ToolResult.error('Tool requires an authenticated contextual handler');
+    return ToolResult.text(extractMcpText(await handler(args, context)));
+  }
 }
 
 /// MCP tool for bounded source-of-record reads.
-class MemoryReadTool implements McpTool {
+class MemoryReadTool implements ContextualMcpTool {
   final MemoryHandler _handler;
+  final ContextualMemoryHandler? _callerHandler;
 
-  new({required MemoryHandler handler}) : _handler = handler;
+  new({required MemoryHandler handler, ContextualMemoryHandler? callerHandler})
+    : _handler = handler,
+      _callerHandler = callerHandler;
 
   @override
   String get name => 'memory_read';
@@ -209,5 +240,12 @@ class MemoryReadTool implements McpTool {
   Future<ToolResult> call(Map<String, dynamic> args) async {
     final result = await _handler(args);
     return ToolResult.text(extractMcpText(result));
+  }
+
+  @override
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
+    final handler = _callerHandler;
+    if (handler == null) return const ToolResult.error('Tool requires an authenticated contextual handler');
+    return ToolResult.text(extractMcpText(await handler(args, context)));
   }
 }

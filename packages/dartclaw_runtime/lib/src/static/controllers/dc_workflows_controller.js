@@ -189,6 +189,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
         if (!detail) return;
         const isHidden = detail.hidden;
         detail.hidden = !isHidden;
+        stepToggle.setAttribute('aria-expanded', String(isHidden));
         const icon = stepToggle.querySelector('.icon');
         if (icon) {
           icon.classList.toggle('icon-chevron-up', isHidden);
@@ -228,7 +229,7 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     onAfterSwap: runWorkflowInitializers,
     onHistoryRestore: runWorkflowInitializers,
     onBeforeSwap(owner, event) {
-      const target = event && event.detail ? event.detail.target : null;
+      const target = event?.detail?.ctx?.target;
       if (!target || target.id === 'main-content') {
         cleanupWorkflowSSE(owner);
       }
@@ -248,7 +249,7 @@ export default class DcWorkflowsController extends Stimulus.Controller {
   }
 
   showStepDetailError(event) {
-    const source = event.detail?.elt;
+    const source = event.detail?.ctx?.sourceElement;
     if (source?.matches('.workflow-step-detail-loading')) {
       _showStepDetailError(source);
     }

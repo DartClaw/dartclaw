@@ -1,8 +1,8 @@
-<div tl:fragment="memoryDashboard" class="shell">
+<div tl:fragment="memoryDashboard" class="shell" hx-history-elt>
   <div tl:utext="${sidebar}"><!-- sidebar --></div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="page-content print-in" data-controller="dc-memory">
+  <main id="main-content" tabindex="-1" class="page-content print-in" data-controller="dc-memory">
     <div id="memory-loading" class="poll-skeleton htmx-indicator" aria-hidden="true">
       <div class="scan-bar"></div>
     </div>
@@ -10,12 +10,126 @@
 
       <tl:block tl:utext="${pageHeaderHtml}">page header</tl:block>
 
-      <div id="memory-content"
+      <section tl:if="${adminAvailable}" class="memory-dashboard-section" aria-labelledby="memory-admin-title">
+        <h2 id="memory-admin-title" class="section-title">Personal memory administration</h2>
+        <div class="card">
+          <form action="/memory" method="get" class="form-row">
+            <div class="form-field">
+              <label class="form-label t-caption tracking-caps" for="memory-corpus">Agent corpus</label>
+              <select id="memory-corpus" class="form-select" name="corpus">
+                <option tl:if="${adminUnavailableSelection}" value="" selected disabled>Unavailable selection</option>
+                <option tl:each="corpus : ${adminCorpora}" tl:attr="value=${corpus.selector},selected=${corpus.selected}" tl:text="${corpus.label}">Agent</option>
+              </select>
+            </div>
+            <button class="btn btn-ghost" type="submit">Open corpus</button>
+          </form>
+          <p class="card-detail" aria-live="polite">
+            Selected: <strong tl:text="${adminSelectedLabel}">Default agent</strong>
+            <span tl:text="${adminSelectedKind}">configured</span>
+            · Collection revision <span tl:text="${adminRevision}">0</span>
+            · Health <span tl:text="${adminHealth}">healthy</span>
+          </p>
+          <p class="card-detail card-detail-muted">This is the selected agent's private canonical memory. Shared wiki and knowledge graph stay on the Knowledge page.</p>
+          <p tl:if="${adminState == 'degraded'}" class="card-detail warning-text" role="status">Canonical entries remain available. Search may be incomplete while the derived index is degraded.</p>
+          <p tl:if="${adminNotice}" class="card-detail" role="status" tl:text="${adminNotice}">Result</p>
+          <div tl:if="${adminCanBrowse}">
+            <form action="/memory" method="get" class="list-toolbar">
+              <input type="hidden" name="corpus" tl:attr="value=${adminSelector}">
+              <div class="form-field">
+                <label class="form-label t-caption tracking-caps" for="memory-entry-query">Search selected corpus</label>
+                <input id="memory-entry-query" class="form-input form-input--search" type="search" name="q" tl:attr="value=${adminQuery}" placeholder="Search canonical entries">
+              </div>
+              <button class="btn btn-ghost" type="submit">Search</button>
+              <a class="btn btn-ghost" tl:attr="href=${adminClearUrl}">Clear</a>
+            </form>
+            <p tl:if="${adminQuery}" class="card-detail card-detail-muted">Search shows up to 50 matching entries from this corpus.</p>
+            <div tl:if="${adminHasEntries}" class="table-wrap">
+              <table class="data-table">
+                <caption>Canonical entries in the selected private corpus</caption>
+                <thead><tr><th>Topic</th><th>Content</th><th>State</th><th>Revision</th><th>Action</th></tr></thead>
+                <tbody>
+                  <tr tl:each="entry : ${adminEntries}">
+                    <td tl:text="${entry.topic}">general</td>
+                    <td tl:text="${entry.summary}">Entry summary</td>
+                    <td tl:text="${entry.state}">active</td>
+                    <td tl:text="${entry.entryRevision}">1</td>
+                    <td><a class="btn btn-ghost" tl:attr="href=${entry.detailUrl}">Inspect</a></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div tl:unless="${adminHasEntries}" class="empty-state" role="status">
+              <p class="empty-state-title" tl:text="${adminNoMatch} ? 'No matches' : 'No canonical entries'">No entries</p>
+              <p tl:text="${adminNoMatch} ? 'Clear search to return to this corpus.' : 'This agent has no curated canonical entries yet.'">No entries yet.</p>
+              <a tl:if="${adminNoMatch}" class="btn btn-primary" tl:attr="href=${adminClearUrl}">Clear search</a>
+            </div>
+            <nav class="pager" aria-label="Canonical entry pages">
+              <a tl:if="${adminHasPrev}" class="btn btn-ghost" tl:attr="href=${adminPrevUrl}">Previous</a>
+              <span class="pager-label">Page <span tl:text="${adminPage}">1</span></span>
+              <a tl:if="${adminHasNext}" class="btn btn-ghost" tl:attr="href=${adminNextUrl}">Next</a>
+            </nav>
+          </div>
+          <div tl:unless="${adminCanBrowse}" class="empty-state" role="status">
+            <p class="empty-state-title" tl:text="${adminStaleResult} ? 'Results changed' : 'Selected corpus unavailable'">Selected corpus unavailable</p>
+            <p tl:if="${adminStaleResult}">The selected corpus changed while loading. Reload it for current entries and revisions.</p>
+            <p tl:unless="${adminStaleResult}">Its canonical entries cannot be opened. Choose another available agent; no default corpus is substituted.</p>
+            <a tl:if="${adminStaleResult}" class="btn btn-primary" tl:attr="href=${adminClearUrl}">Reload selected corpus</a>
+          </div>
+        </div>
+
+        <div tl:if="${adminHasDetail}" class="card" id="memory-entry-detail">
+          <div class="card-header"><h3 class="card-title">Canonical entry</h3><span class="status-badge" tl:text="${adminDetail.state}">active</span></div>
+          <p class="card-detail">Owner: <span tl:text="${adminSelectedLabel}">Agent</span> · Entry revision <span tl:text="${adminDetail.entryRevision}">1</span> · Collection revision <span tl:text="${adminRevision}">1</span></p>
+          <p class="card-detail">Topic: <span tl:text="${adminDetail.topic}">general</span> · Source: <span tl:text="${adminDetail.provenance}">observation</span></p>
+          <pre class="memory-preview" tl:text="${adminDetail.content}">Entry content</pre>
+          <div class="card-actions">
+            <button class="btn btn-ghost" type="button" data-action="click->dc-memory#openEditDialog">Edit entry</button>
+            <button class="btn btn-danger" type="button" data-action="click->dc-memory#openRemoveDialog">Remove entry</button>
+          </div>
+        </div>
+
+        <dialog tl:if="${adminHasDetail}" id="memory-edit-dialog" class="dialog dialog--md card card-glass" aria-labelledby="memory-edit-title">
+          <form method="post" action="/memory/edit">
+            <div class="dialog-header"><h2 id="memory-edit-title" class="t-heading">Edit canonical entry</h2></div>
+            <div class="dialog-body">
+              <p>Only the selected curated entry changes. A stale revision is refused.</p>
+              <input type="hidden" name="corpus" tl:attr="value=${adminSelector}">
+              <input type="hidden" name="id" tl:attr="value=${adminDetail.id}">
+              <input type="hidden" name="expectedCollectionRevision" tl:attr="value=${adminRevision}">
+              <input type="hidden" name="expectedEntryRevision" tl:attr="value=${adminDetail.entryRevision}">
+              <input type="hidden" name="topic" tl:attr="value=${adminDetail.topic}">
+              <input type="hidden" name="state" tl:attr="value=${adminDetail.state}">
+              <div class="form-field"><label class="form-label t-caption tracking-caps" for="memory-edit-content">Content</label><textarea id="memory-edit-content" class="form-textarea" name="content" rows="6" required tl:text="${adminDetail.content}"></textarea></div>
+            </div>
+            <div class="dialog-footer"><div class="dialog-actions"><button class="btn btn-ghost" type="button" data-action="click->dc-memory#closeDialog">Cancel</button><button class="btn btn-primary" type="submit">Save revision</button></div></div>
+          </form>
+        </dialog>
+        <dialog tl:if="${adminHasDetail}" id="memory-remove-dialog" class="dialog dialog--confirm card card-glass" aria-labelledby="memory-remove-title">
+          <form method="post" action="/memory/remove">
+            <div class="dialog-header"><h2 id="memory-remove-title" class="t-heading">Remove curated entry?</h2></div>
+            <div class="dialog-body">
+              <span class="icon icon-triangle-alert" aria-hidden="true"></span>
+              <div>
+                <p>Removing this curated entry does not erase retained source observations, transcripts, audit records, or backups.</p>
+                <input type="hidden" name="corpus" tl:attr="value=${adminSelector}">
+                <input type="hidden" name="id" tl:attr="value=${adminDetail.id}">
+                <input type="hidden" name="expectedCollectionRevision" tl:attr="value=${adminRevision}">
+                <input type="hidden" name="expectedEntryRevision" tl:attr="value=${adminDetail.entryRevision}">
+                <div class="form-field"><label class="form-label t-caption tracking-caps" for="memory-remove-reason">Reason</label><textarea id="memory-remove-reason" class="form-textarea" name="reason" rows="3" required></textarea></div>
+              </div>
+            </div>
+            <div class="dialog-footer"><div class="dialog-actions"><button class="btn btn-ghost" type="button" data-action="click->dc-memory#closeDialog">Cancel</button><button class="btn btn-danger-fill" type="submit">Remove entry</button></div></div>
+          </form>
+        </dialog>
+      </section>
+
+      <div tl:if="${showDefaultLifecycle}" id="memory-content"
            hx-get="/memory/content" hx-trigger="every 30s"
            hx-indicator="#memory-loading"
            hx-swap="innerHTML" hx-select="#memory-inner">
 
         <div id="memory-inner" class="memory-dashboard-stack">
+
 
         <!-- Section 1: Overview -->
         <section class="memory-dashboard-section" aria-labelledby="memory-overview-title">
@@ -224,7 +338,7 @@
             <div class="card-row">
               <span class="card-row-label">Backend</span>
               <span class="card-row-value" tl:classappend="${searchBackendAbsent} ? 'value-absent' : ''"
-                    tl:text="${searchBackend}">fts5</span>
+                    tl:text="${searchBackend}">lexical</span>
             </div>
             <div class="card-row">
               <span class="card-row-label">Search depth</span>
@@ -248,7 +362,7 @@
       <!-- Outside the 30s poll on purpose: the swap would discard the reader's
            active tab, the preview it loaded and that preview's scroll position.
            Nothing below refreshes faster than a page load anyway. -->
-      <div class="memory-dashboard-static">
+      <div tl:if="${showDefaultLifecycle}" class="memory-dashboard-static">
 
         <!-- Section 4: Memory Files -->
         <section class="memory-dashboard-section" aria-labelledby="memory-files-title">
@@ -383,6 +497,7 @@
           Memory files stored in <code tl:text="${workspacePath}">~/.dartclaw/workspace/</code>
           &middot; Configured in <code>dartclaw.yaml</code>
         </div>
+
 
       </div>
     </div>

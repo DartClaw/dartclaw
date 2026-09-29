@@ -10,7 +10,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         ContextExtractor,
         OutputConfig,
         OutputFormat,
-        SqliteWorkflowRunRepository,
+        WorkflowRunRepository,
         WorkflowRun,
         WorkflowStep,
         WorkflowWorktreeBinding;
@@ -24,8 +24,8 @@ void main() {
   late WorkflowTaskExecutorTestContext ctx;
   late MessageService messages;
   late TaskService tasks;
-  late SqliteWorkflowRunRepository workflowRuns;
-  late SqliteWorkflowStepExecutionRepository workflowStepExecutions;
+  late WorkflowRunRepository workflowRuns;
+  late WorkflowStepExecutionRepository workflowStepExecutions;
 
   setUp(() async {
     worker = FakeTaskWorker();
@@ -66,8 +66,8 @@ void main() {
   TaskExecutor buildWorkflowExecutor({
     ProjectService? projectService,
     WorktreeManager? worktreeManager,
-    SqliteWorkflowRunRepository? workflowRunRepository,
-    SqliteWorkflowStepExecutionRepository? workflowStepExecutionRepository,
+    WorkflowRunRepository? workflowRunRepository,
+    WorkflowStepExecutionRepository? workflowStepExecutionRepository,
     String? currentDirectory,
   }) => ctx.harness.buildWorkflowExecutor(
     projectService: projectService,

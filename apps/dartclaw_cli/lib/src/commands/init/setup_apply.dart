@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show secureWriteFileSync;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigMeta, ConfigWriter;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:path/path.dart' as p;
@@ -55,12 +56,10 @@ class SetupApply {
     final created = <String>[];
 
     final instanceDir = Directory(state.instanceDir);
-    instanceDir.createSync(recursive: true);
 
     // --- Config file ---
     final configPath = state.configPath;
     final configFile = File(configPath);
-    configFile.parent.createSync(recursive: true);
     final configExists = configFile.existsSync();
 
     final String configContent;
@@ -96,6 +95,10 @@ class SetupApply {
       _set(editor, ['gateway', 'auth_mode'], state.gatewayAuthMode);
     }
     _set(editor, ['data_dir'], state.workflowTrack ? '.' : state.instanceDir);
+    if (!configExists) {
+      _set(editor, ['database', 'url'], r'${DARTCLAW_DATABASE_URL}');
+      _set(editor, ['search', 'backend'], 'lexical');
+    }
     _set(editor, ['agent', 'provider'], state.provider);
     if (state.model != null && state.model!.trim().isNotEmpty) {
       _set(editor, ['agent', 'model'], state.model!.trim());
@@ -220,10 +223,23 @@ class SetupApply {
     // New files are normalized to block style; existing files keep the surgical
     // editor output so user content and comments survive untouched.
     final body = configExists ? editor.toString() : _blockStyle(editor);
-    final tmpPath = '$configPath.tmp';
-    final tmpFile = File(tmpPath);
-    tmpFile.writeAsStringSync('$headerForNewFile$body');
-    tmpFile.renameSync(configPath);
+    final prospectiveConfig = '$headerForNewFile$body';
+    final parsedConfig = loadDartclawConfig(
+      configPath: configPath,
+      fileReader: (path) => path == configPath ? prospectiveConfig : null,
+      env: Platform.environment,
+      resolveStoredCredentials: false,
+    );
+    for (final definition in parsedConfig.agent.definitions) {
+      definition.requireWorkspaceAvailable();
+    }
+    final workspaceService = WorkspaceService(dataDir: state.instanceDir);
+    final managedWorkspaces = [for (final definition in parsedConfig.agent.definitions) ?definition.workspace];
+    workspaceService.validateManagedAgents(managedWorkspaces);
+
+    instanceDir.createSync(recursive: true);
+    configFile.parent.createSync(recursive: true);
+    secureWriteFileSync(configFile, prospectiveConfig);
 
     if (configExists) {
       created.add('$configPath (updated)');
@@ -237,6 +253,8 @@ class SetupApply {
       }
       return created;
     }
+
+    await workspaceService.prepareManagedAgents(managedWorkspaces);
 
     // --- Workspace scaffold ---
     final workspaceDir = p.join(state.instanceDir, 'workspace');

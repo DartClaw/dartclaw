@@ -70,7 +70,7 @@ Future<DartclawRuntime> _build(
     server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
   );
   Future<DatabaseBackend> openBackend() async {
-    final backend = SqliteBackend.openInMemory();
+    final backend = await openPreparedTaskBackend();
     opened.add(backend);
     return backend;
   }
@@ -80,8 +80,8 @@ Future<DartclawRuntime> _build(
     dataDir: dataDir.path,
     port: 0,
     harnessFactory: harnesses,
-    searchBackendFactory: (_) => openBackend(),
     taskBackendFactory: (_) => openBackend(),
+    taskBackendIsPrepared: true,
     stderrLine: (_) {},
     exitFn: (code) => throw StateError('unexpected exit $code'),
     resolvedConfigPath: configFile.path,

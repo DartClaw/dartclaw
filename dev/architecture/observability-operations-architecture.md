@@ -2,9 +2,8 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.26.2 session usage credits Claude subagent frames and Codex per-thread cumulative totals; 0.26 bounded retrieval provenance, two-corpus hybrid inspection and degradation diagnostics,
-worker capacity, capacity-only lane retirement, alert re-cut, kernel formation, and storage absorption. The
-authoritative SQLite store is `dartclaw.db`.
+**Current through**: 0.27 PostgreSQL-only storage, conversation invalidation, attempt records, effective-context
+telemetry, inbox attention, Codex question diagnostics and action availability; plus retrieval, capacity and alerting.
 
 ---
 
@@ -134,7 +133,7 @@ Reported metrics:
 | `uptime_s` | Process start time | Seconds since server start |
 | `worker_state` | `AgentHarness.state` | `idle` / `busy` / `stopped` / `crashed` |
 | `session_count` | Directory listing | Count of session subdirectories |
-| `db_size_bytes` | File stat | Search index SQLite file size |
+| `db_size_bytes` | Database health projection | PostgreSQL storage size when available |
 | `artifact_disk_bytes` | Recursive scan | Total size of task artifact files |
 | `version` | `dartclawVersion` constant | Current DartClaw version |
 | `daily_usage` | `UsageTracker.dailySummary()` | Today's token consumption aggregate |
@@ -297,7 +296,7 @@ Source: `packages/dartclaw_runtime/lib/src/observability/usage_tracker.dart`
 Workflow-owned harness turns treat **observability** and **persistence** as separate concerns:
 
 - Codex app-server usage arrives on `thread/tokenUsage/updated`, not on `turn/completed` (codex-cli ≥ 0.146). Its `total` is **cumulative per thread** and `last` is the most recent *model request* – a tool round-trip overwrites it several times per turn, so it is never the turn's usage. `CodexProtocolAdapter` keeps the latest `total` per `threadId` and credits a settled turn with the growth of every thread since the previous settled turn. A subagent the turn spawns runs on its own thread (the app server attaches every client to every new thread; `thread/started` carries `parentThreadId`) with a counter that starts at zero, and `CodexHarness` lets usage notifications from any thread through its turn-correlation filter while a turn is active – the process runs one turn at a time, so in-turn usage is the turn's – while a child's `turn/*` frames stay filtered. Verified on codex-cli 0.154.0 (2026-09-14) against a run whose five rollouts summed to 2.74M input tokens where the last-request reading had recorded 4.5k.
-- Claude's `result` usage covers the main conversation only (verified on 2.1.270: it equals the main transcript deduplicated by `message.id`). Subagent usage is credited by `ClaudeProtocolAdapter` from the `assistant` frames carrying `parent_tool_use_id`, the *last* frame per `message.id` – the CLI writes one frame per content block and a frame's usage is partial until the block that closes the message – and each `result` of a held turn carries what accrued since the previous one. Claude's `total_cost_usd` is still taken as reported; no DartClaw price table exists, so Codex `estimated_cost_usd` stays null.
+- Claude's `result` usage covers the main conversation only. `TurnRunner` compares the CLI's cumulative `modelUsage` snapshots to credit all models, including subagents, once per turn; a missing or incomparable snapshot leaves the known main-session tokens and marks usage incomplete. It computes cost from the provider's cumulative `total_cost_usd` when comparable. No DartClaw price table exists, so Codex `estimated_cost_usd` stays null.
 - Codex emits `cached_input_tokens`; older persisted KV records use the normalized name `cache_read_tokens`. Protocol adaptation normalizes onto the unified schema.
 - Persisted task/session usage remains cumulative and uses the unified keys `input_tokens`, `cache_read_tokens`, `cache_write_tokens`, `output_tokens`, `total_tokens`, `effective_tokens`, `estimated_cost_usd`, `cost_reported_turn_count`, `turn_count`, and `provider`. Readers expose the cost only when every recorded turn reported one; an actual zero remains available while unsupported, missing, legacy, and partially reported costs remain unavailable.
 - For Codex, fresh input is derived as `input_tokens - cache_read_tokens`; for Claude, the provider already reports fresh input directly. This keeps budget checks and per-turn attribution on the same semantic footing across harnesses.
@@ -327,7 +326,10 @@ Source: `packages/dartclaw_core/lib/src/turn/turn_trace.dart`
 
 ### TurnTraceService
 
-SQLite-backed persistence in `turns` table (co-located in dartclaw.db). Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable. Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
+PostgreSQL-backed persistence in the `turns` table. Indexed on `session_id`, `task_id`, `started_at`, `model`,
+`provider`. The `tool_calls` JSON envelope stores bounded records plus exact counts; legacy list rows remain readable.
+Query API filters by task/session/runner/model/provider/time range with pagination (max 500) and returns exact
+tool-call aggregates. Exposed via `GET /api/traces`, with single-trace detail via `GET /api/traces/<id>`.
 
 Source: `packages/dartclaw_core/lib/src/storage/turn_trace_service.dart`
 
@@ -371,6 +373,10 @@ Two implementations:
 - **JsonFormatter**: NDJSON with `level`, `time`, `logger`, `message`, optional `sessionId`, `turnId`, `error`, `stackTrace`
 
 Both apply `LogRedactor` (delegates to `MessageRedactor` from `dartclaw_core`) before output.
+Codex native questions that DartClaw cannot answer enter this standard WARNING path with selected source IDs, titles
+and options. The harness JSON-encodes untrusted fields before formatting so embedded newlines stay in one record.
+The hosted and standalone log setups retain the warning on stderr and in an enabled file sink under the configured
+level and built-in/custom redaction patterns. No rollout or full protocol frame is copied to the log.
 
 Sources: `packages/dartclaw_runtime/lib/src/logging/log_formatter.dart`, `log_redactor.dart`
 
@@ -454,7 +460,15 @@ Source: `packages/dartclaw_runtime/lib/src/api/task_sse_routes.dart`
 
 ### Chat SSE (Per-Turn Streaming)
 
-`sseStreamResponse()` creates a per-turn SSE stream for chat UI. Events: `delta` (text chunks), tool call status, turn completion. Source: `packages/dartclaw_runtime/lib/src/api/stream_handler.dart`
+`sseStreamResponse()` creates a transient per-turn stream for deltas, tool state, approvals, and completion. Durable
+messages and `ConversationState` remain the recovery authority. The global `conversation_changed` event carries the
+session and revision, and clients refetch the authoritative snapshot instead of reconstructing state from events.
+Source: `packages/dartclaw_runtime/lib/src/api/stream_handler.dart`
+
+Effective-context telemetry records its source and freshness when the adapter provides them; absence stays null and is
+never inferred. The attention feed is derived from durable completion, failure, and input-request records. Read and
+dismiss state do not make an approval actionable: action availability is recomputed from the exact live request and
+owning turn.
 
 ### SseBroadcast
 
@@ -775,7 +789,7 @@ Agent Turn Execution
 
 - **`dartclaw_core`**: `DartclawEvent` subtypes, `EventBus`, compaction events, `TurnTrace`, `TurnTraceSummary`, `ToolCallRecord`
 - **`dartclaw_kernel`**: `GuardAuditLogger`, `AuditEntry`, `AlertsConfig`, `LoggingConfig`, `UsageConfig`, `ContextConfig`, `SchedulingConfig`
-- **`dartclaw_core`**: `TurnTraceService` (SQLite persistence)
+- **`dartclaw_core`**: `TurnTraceService` (PostgreSQL persistence)
 - **`dartclaw_google_chat`**: `PubSubHealthReporter`
 - **`dartclaw_runtime`**: All other observability components (alerts, audit bridging, health, usage, logging, SSE, context, governance, scheduling)
 

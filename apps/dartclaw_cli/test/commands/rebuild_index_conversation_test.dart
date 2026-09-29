@@ -13,19 +13,38 @@ void main() {
   late Directory dataDir;
   late DartclawConfig config;
   late List<String> output;
+  late Map<PostgresFtsTable, InMemoryIndexRebuildTarget> lexicalIndexes;
+  late Map<VectorTable, _TestVectorIndex> vectorIndexes;
 
   setUp(() {
     dataDir = Directory.systemTemp.createTempSync('conversation_rebuild_');
     config = DartclawConfig(server: ServerConfig(dataDir: dataDir.path));
     output = [];
+    lexicalIndexes = {
+      PostgresFtsTable.memoryChunks: InMemoryIndexRebuildTarget(),
+      PostgresFtsTable.conversationChunks: InMemoryIndexRebuildTarget(),
+    };
+    vectorIndexes = {VectorTable.memoryChunks: _TestVectorIndex(), VectorTable.conversationChunks: _TestVectorIndex()};
   });
 
   tearDown(() {
     if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
   });
 
+  RebuildIndexCommand command({EmbeddingProvider Function()? embeddingProviderFactory}) => RebuildIndexCommand(
+    config: config,
+    writeLine: output.add,
+    exitFn: (code) => throw StateError('unexpected rebuild-index exit $code: $output'),
+    taskBackendFactory: (_) => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    embeddingProviderFactory: embeddingProviderFactory,
+    indexFactory: (_, table) => lexicalIndexes[table]!.index,
+    rebuildTargetFactory: (_, table) => lexicalIndexes[table]!,
+    vectorIndexFactory: (_, table) => vectorIndexes[table]!,
+  );
+
   Future<void> run({bool json = false}) async {
-    final runner = DartclawRunner()..addCommand(RebuildIndexCommand(config: config, writeLine: output.add));
+    final runner = DartclawRunner()..addCommand(command());
     await runner.run(['rebuild-index', if (json) '--json']);
   }
 
@@ -53,9 +72,7 @@ void main() {
       output.clear();
       final runner = DartclawRunner()
         ..addCommand(
-          RebuildIndexCommand(
-            config: config,
-            writeLine: output.add,
+          command(
             embeddingProviderFactory: () => CallbackEmbeddingProvider(
               embedDocuments: (documents) async {
                 embeddedDocuments += documents.length;
@@ -77,16 +94,11 @@ void main() {
     expect(first['vectorDegradedCorpora'], isNull);
     final initialEmbeddings = embeddedDocuments;
     expect(initialEmbeddings, greaterThan(1));
-    expect(File(config.vectorsDbPath).existsSync(), isTrue);
-    final vectors = await SqliteBackend.open(config.vectorsDbPath);
-    final memoryBefore = await SqliteVectorIndex(vectors, table: VectorTable.memoryChunks).list(userId: 'owner');
+    final memoryBefore = await vectorIndexes[VectorTable.memoryChunks]!.list(userId: 'owner');
     expect(memoryBefore, isNotEmpty);
-    expect(
-      (await SqliteVectorIndex(vectors, table: VectorTable.conversationChunks).list(userId: 'owner'))
-          .map((row) => row.documentId),
-      ['message-1'],
-    );
-    await vectors.close();
+    expect((await vectorIndexes[VectorTable.conversationChunks]!.list(userId: 'owner')).map((row) => row.documentId), [
+      'message-1',
+    ]);
 
     final second = await rebuild();
     expect(second['memoryUnembeddedCount'], 0);
@@ -98,15 +110,53 @@ void main() {
     final empty = await rebuild();
     expect(empty['memoryUnembeddedCount'], 0);
     expect(empty['conversationUnembeddedCount'], 0);
-    final cleared = await SqliteBackend.open(config.vectorsDbPath);
-    try {
-      expect(await SqliteVectorIndex(cleared, table: VectorTable.memoryChunks).list(userId: 'owner'), isEmpty);
-      expect(await SqliteVectorIndex(cleared, table: VectorTable.conversationChunks).list(userId: 'owner'), isEmpty);
-    } finally {
-      await cleared.close();
-    }
+    expect(await vectorIndexes[VectorTable.memoryChunks]!.list(userId: 'owner'), isEmpty);
+    expect(await vectorIndexes[VectorTable.conversationChunks]!.list(userId: 'owner'), isEmpty);
     expect(embeddedDocuments, initialEmbeddings);
     expect(disposals, 3);
+  });
+
+  test('hybrid rebuild reconciles conversation vectors for a removed persisted principal', () async {
+    config = DartclawConfig(
+      server: ServerConfig(dataDir: dataDir.path),
+      search: const SearchConfig(backend: 'hybrid'),
+    );
+    await seedCanonicalMemory(config.workspaceDir);
+    final removedWorkspace = AgentWorkspace.pinned(agentId: 'removed', directory: p.join(dataDir.path, 'removed'));
+    const sessionId = '00000000-0000-4000-8000-000000000002';
+    await _writeSession(
+      config,
+      id: sessionId,
+      type: SessionType.user,
+      workspace: removedWorkspace,
+      messages: [_message('removed-message', 'assistant', 'removed principal conversation')],
+    );
+    Future<void> rebuild() async {
+      output.clear();
+      final runner = DartclawRunner()
+        ..addCommand(
+          command(
+            embeddingProviderFactory: () => CallbackEmbeddingProvider(
+              embedDocuments: (documents) async => [
+                for (final _ in documents) [1.0, 0.0],
+              ],
+            ),
+          ),
+        );
+      await runner.run(['rebuild-index', '--json']);
+    }
+
+    await rebuild();
+    expect(
+      (await vectorIndexes[VectorTable.conversationChunks]!.list(userId: 'agent:removed')).map((row) => row.documentId),
+      ['removed-message'],
+    );
+    expect(await vectorIndexes[VectorTable.memoryChunks]!.list(userId: 'agent:removed'), isEmpty);
+
+    await _writeSession(config, id: sessionId, type: SessionType.user, workspace: removedWorkspace, messages: []);
+    await rebuild();
+    expect(await vectorIndexes[VectorTable.conversationChunks]!.list(userId: 'agent:removed'), isEmpty);
+    expect(await lexicalIndexes[PostgresFtsTable.conversationChunks]!.index.count(userId: 'agent:removed'), 0);
   });
 
   for (final failedBoundary in ['provider', 'vector store']) {
@@ -128,24 +178,13 @@ void main() {
         messages: [_message('message-1', 'user', 'conversationneedle likes coffee')],
       );
       if (failedBoundary == 'vector store') {
-        final vectors = await SqliteBackend.open(config.vectorsDbPath);
-        try {
-          await SqliteSchemaGate.prepareVectors(vectors, storeName: 'vectors.db');
-          for (final table in ['memory_vectors', 'conversation_vectors']) {
-            await vectors.execute(
-              'CREATE TRIGGER refuse_$table BEFORE INSERT ON $table '
-              "BEGIN SELECT RAISE(ABORT, 'injected vector insert failure'); END",
-            );
-          }
-        } finally {
-          await vectors.close();
+        for (final index in vectorIndexes.values) {
+          index.failReplace = true;
         }
       }
       final runner = DartclawRunner()
         ..addCommand(
-          RebuildIndexCommand(
-            config: config,
-            writeLine: output.add,
+          command(
             embeddingProviderFactory: () => CallbackEmbeddingProvider(
               embedDocuments: (documents) async {
                 if (failedBoundary == 'provider') throw const FileSystemException('model absent');
@@ -164,22 +203,17 @@ void main() {
       expect(result['memoryUnembeddedCount'], failedBoundary == 'provider' ? greaterThan(0) : isNull);
       expect(result['conversationUnembeddedCount'], failedBoundary == 'provider' ? equals(1) : isNull);
       expect(result['vectorDegradedCorpora'], ['memory', 'conversation']);
-      final backend = await SqliteBackend.open(config.searchDbPath);
-      try {
-        expect(
-          await SqliteFtsIndex(backend, table: SqliteFtsTable.memoryChunks).search('memoryneedle', userId: 'owner'),
-          isNotEmpty,
-        );
-        expect(
-          (await SqliteFtsIndex(
-            backend,
-            table: SqliteFtsTable.conversationChunks,
-          ).search('conversationneedle', userId: 'owner')).map((row) => row.id),
-          ['message-1'],
-        );
-      } finally {
-        await backend.close();
-      }
+      expect(
+        await lexicalIndexes[PostgresFtsTable.memoryChunks]!.index.search('memoryneedle', userId: 'owner'),
+        isNotEmpty,
+      );
+      expect(
+        (await lexicalIndexes[PostgresFtsTable.conversationChunks]!.index.search(
+          'conversationneedle',
+          userId: 'owner',
+        )).map((row) => row.id),
+        ['message-1'],
+      );
     });
   }
 
@@ -210,21 +244,16 @@ void main() {
         _message('task-2', 'assistant', 'conversationneedle task reply'),
       ],
     );
-    await _seedStaleConversation(config);
+    await lexicalIndexes[PostgresFtsTable.conversationChunks]!.index.upsert([_staleConversation], userId: 'owner');
 
     await run();
 
     expect(output[2], contains('Rebuilt index: 0 entries'));
     expect(output.last, 'Rebuilt conversation index: 3 messages from 2 sessions');
-    final backend = await SqliteBackend.open(config.searchDbPath);
-    try {
-      final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
-      final hits = await index.search('conversationneedle', userId: 'owner', limit: 10);
-      expect(hits.map((hit) => hit.id), unorderedEquals(['message-1', 'message-2', 'message-3']));
-      expect(await index.search('staleconversation', userId: 'owner'), isEmpty);
-    } finally {
-      await backend.close();
-    }
+    final index = lexicalIndexes[PostgresFtsTable.conversationChunks]!.index;
+    final hits = await index.search('conversationneedle', userId: 'owner', limit: 10);
+    expect(hits.map((hit) => hit.id), unorderedEquals(['message-1', 'message-2', 'message-3']));
+    expect(await index.search('staleconversation', userId: 'owner'), isEmpty);
 
     output.clear();
     await run(json: true);
@@ -239,18 +268,12 @@ void main() {
   });
 
   test('an absent sessions directory clears stale conversation rows', () async {
-    await _seedStaleConversation(config);
+    await lexicalIndexes[PostgresFtsTable.conversationChunks]!.index.upsert([_staleConversation], userId: 'owner');
 
     await run();
 
     expect(output.last, 'Rebuilt conversation index: 0 messages from 0 sessions');
-    final backend = await SqliteBackend.open(config.searchDbPath);
-    try {
-      final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
-      expect(await index.count(userId: 'owner'), 0);
-    } finally {
-      await backend.close();
-    }
+    expect(await lexicalIndexes[PostgresFtsTable.conversationChunks]!.index.count(userId: 'owner'), 0);
   });
 }
 
@@ -269,31 +292,76 @@ Future<void> _writeSession(
   required String id,
   required SessionType type,
   required List<Map<String, Object?>> messages,
+  AgentWorkspace? workspace,
   bool trailingMalformedLine = false,
 }) async {
   final directory = Directory(p.join(config.sessionsDir, id))..createSync(recursive: true);
   final timestamp = DateTime.utc(2026, 9, 9, 12);
-  File(p.join(directory.path, 'meta.json'))
-      .writeAsStringSync(jsonEncode(Session(id: id, type: type, createdAt: timestamp, updatedAt: timestamp).toJson()));
+  File(p.join(directory.path, 'meta.json')).writeAsStringSync(
+    jsonEncode(Session(id: id, type: type, workspace: workspace, createdAt: timestamp, updatedAt: timestamp).toJson()),
+  );
   final lines = messages.map((message) => jsonEncode({...message, 'sessionId': id})).join('\n');
   File(p.join(directory.path, 'messages.ndjson'))
       .writeAsStringSync('$lines\n${trailingMalformedLine ? 'malformed\n' : ''}');
 }
 
-Future<void> _seedStaleConversation(DartclawConfig config) async {
-  final backend = await SqliteBackend.open(config.searchDbPath);
-  try {
-    await SqliteSchemaGate.prepareSearch(backend, storeName: 'search.db');
-    final index = SqliteFtsIndex(backend, table: SqliteFtsTable.conversationChunks);
-    await index.upsert([
-      SearchDocument(
-        id: 'stale-message',
-        chunks: const ['staleconversation row'],
-        metadata: const {'session_id': 'stale-session', 'role': 'assistant'},
-        timestamp: DateTime.utc(2025),
-      ),
-    ], userId: 'owner');
-  } finally {
-    await backend.close();
+final _staleConversation = SearchDocument(
+  id: 'stale-message',
+  chunks: const ['staleconversation row'],
+  metadata: const {'session_id': 'stale-session', 'role': 'assistant'},
+  timestamp: DateTime.utc(2025),
+);
+
+final class _TestVectorIndex implements VectorIndex {
+  final Map<String, Map<VectorIdentity, VectorRecord>> _records = {};
+  bool failReplace = false;
+
+  @override
+  Future<List<VectorRecord>> list({required String userId}) async {
+    final records = (_records[userId]?.values ?? const <VectorRecord>[]).toList();
+    records.sort((left, right) {
+      final byDocument = left.documentId.compareTo(right.documentId);
+      return byDocument != 0 ? byDocument : left.chunkIndex.compareTo(right.chunkIndex);
+    });
+    return records;
   }
+
+  @override
+  Future<void> upsert(
+    Iterable<VectorRecord> records, {
+    required String userId,
+    Set<VectorIdentity> retire = const {},
+  }) async {
+    final stored = _records.putIfAbsent(userId, () => {});
+    for (final identity in retire) {
+      stored.remove(identity);
+    }
+    for (final record in records) {
+      stored[VectorIdentity(documentId: record.documentId, chunkIndex: record.chunkIndex)] = record;
+    }
+  }
+
+  @override
+  Future<void> delete(Iterable<VectorIdentity> identities, {required String userId}) async {
+    for (final identity in identities) {
+      _records[userId]?.remove(identity);
+    }
+  }
+
+  @override
+  Future<void> replaceAll(Iterable<VectorRecord> records, {required String userId}) async {
+    if (failReplace) throw Exception('injected vector replacement failure');
+    _records[userId] = {
+      for (final record in records)
+        VectorIdentity(documentId: record.documentId, chunkIndex: record.chunkIndex): record,
+    };
+  }
+
+  @override
+  Future<List<VectorMatch>> search(
+    List<double> queryVector, {
+    required String userId,
+    required String modelFingerprint,
+    int limit = 20,
+  }) async => throw UnimplementedError('search is outside rebuild command coverage');
 }

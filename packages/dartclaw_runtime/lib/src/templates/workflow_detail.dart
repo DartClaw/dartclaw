@@ -175,7 +175,7 @@ String workflowDetailPageTemplate({
     metricCardTemplate(
       color: 'warning',
       value: formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0),
-      label: 'Tokens',
+      label: run['tokenUsageComplete'] == false ? 'Tokens (incomplete lower bound)' : 'Tokens',
     ),
     metricCardTemplate(color: 'error', value: durationDisplay, label: 'Duration'),
   ].join();
@@ -317,9 +317,10 @@ String workflowStepDetailFragment({
   required List<Map<String, dynamic>> inputs,
   required List<Map<String, dynamic>> outputKeys,
   int? tokenCount,
+  bool showTokenCount = false,
   String? durationDisplay,
 }) {
-  final hasTokens = tokenCount != null && tokenCount > 0;
+  final hasTokens = showTokenCount || tokenCount != null;
   final hasDuration = durationDisplay != null && durationDisplay.isNotEmpty;
   return templateLoader.trellis.renderFragment(
     templateLoader.source('workflow_step_detail'),
@@ -336,7 +337,7 @@ String workflowStepDetailFragment({
       'hasOutputKeys': outputKeys.isNotEmpty,
       'outputKeys': outputKeys,
       'hasMetrics': hasTokens || hasDuration,
-      'tokenCount': tokenCount != null ? formatNumber(tokenCount) : '0',
+      'tokenCount': tokenCount != null ? formatNumber(tokenCount) : 'unavailable',
       'hasDuration': hasDuration,
       'durationDisplay': durationDisplay,
       'durationAbsent': absentValue(durationDisplay).isAbsent,

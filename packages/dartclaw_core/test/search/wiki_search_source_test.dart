@@ -3,24 +3,19 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 
 import 'search_test_support.dart';
 
 void main() {
   late Directory workspace;
-  late Database db;
-  late SqliteBackend databaseBackend;
-  late SqliteFtsIndex index;
+  late InMemoryFullTextIndex index;
 
   setUp(() async {
     workspace = Directory.systemTemp.createTempSync('dartclaw_wiki_search_test_');
-    db = sqlite3.openInMemory();
-    databaseBackend = SqliteBackend(db);
-    await SqliteSchemaGate.prepareSearch(databaseBackend, storeName: 'search.db');
-    index = SqliteFtsIndex(databaseBackend, table: SqliteFtsTable.memoryChunks);
+    index = InMemoryFullTextIndex();
     Directory(p.join(workspace.path, 'wiki')).createSync(recursive: true);
     File(p.join(workspace.path, 'wiki', 'dart.md')).writeAsStringSync('''
 ---
@@ -37,52 +32,24 @@ related: []
 
 Dart macros and pattern matching roadmap synthesis.
 ''');
-    db.execute(
-      'INSERT INTO memory_chunks (text, chunk_index, source, category, created_at, locator) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        'Dart macros and pattern matching raw note.',
-        0,
-        'MEMORY.md',
-        'general',
-        DateTime(2026).toIso8601String(),
-        'MEMORY.md',
-      ],
-    );
+    await index.upsert([
+      memorySearchDocument(text: 'Dart macros and pattern matching raw note.', source: 'MEMORY.md'),
+    ], userId: 'owner');
   });
 
   tearDown(() async {
-    await databaseBackend.close();
     if (workspace.existsSync()) workspace.deleteSync(recursive: true);
   });
 
-  test('S05 FTS5 wiki result outranks raw memory and is labeled synthesized knowledge', () async {
+  test('wiki result outranks raw memory and is labeled synthesized knowledge', () async {
     final backend = ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: index),
+      personal: LexicalSearchBackend(index: index),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
 
     final results = await backend.search('Dart macros', limit: 5);
 
     expect(results, hasLength(2));
-    expect(results.first.source, 'wiki/dart.md');
-    expect(results.first.category, 'synthesized knowledge');
-  });
-
-  test('S05 QMD wiki result outranks raw memory while backend stays selected', () async {
-    final qmd = FakeQmdManager();
-    qmd.nextQueryResult = [
-      {'text': 'Dart macros and pattern matching raw qmd note.', 'source': 'MEMORY.md', 'score': 0.95},
-    ];
-    final backend = ComposedSearchBackend(
-      personal: QmdSearchBackend(
-        manager: qmd,
-        fallback: Fts5SearchBackend(index: index),
-      ),
-      wiki: WikiSearchSource(workspaceDir: workspace.path),
-    );
-
-    final results = await backend.search('Dart macros', limit: 5);
-
     expect(results.first.source, 'wiki/dart.md');
     expect(results.first.category, 'synthesized knowledge');
   });
@@ -104,7 +71,7 @@ related: []
 Dart macros and pattern matching roadmap synthesis.
 ''');
     final backend = ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: index),
+      personal: LexicalSearchBackend(index: index),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
 
@@ -120,7 +87,7 @@ Dart macros and pattern matching roadmap synthesis.
   test('a CRLF page is ranked on its frontmatter, not treated as having none', () async {
     File(p.join(workspace.path, 'wiki', 'dart.md')).writeAsStringSync(_page().replaceAll('\n', '\r\n'));
     final backend = ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: index),
+      personal: LexicalSearchBackend(index: index),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
 
@@ -136,7 +103,7 @@ Dart macros and pattern matching roadmap synthesis.
     File(p.join(workspace.path, 'wiki', 'dart.md'))
         .writeAsStringSync(_page(provenance: 'llm-authored', sources: 'sources: ["inbox/dart.md","inbox/more.md"]'));
     final backend = ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: index),
+      personal: LexicalSearchBackend(index: index),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
 
@@ -159,7 +126,7 @@ Dart macros and pattern matching roadmap synthesis.
       File(p.join(workspace.path, 'wiki', 'dart.md'))
           .writeAsStringSync(_page(provenance: 'llm-authored', sources: sources));
       final backend = ComposedSearchBackend(
-        personal: Fts5SearchBackend(index: index),
+        personal: LexicalSearchBackend(index: index),
         wiki: WikiSearchSource(workspaceDir: workspace.path),
       );
 
@@ -173,7 +140,7 @@ Dart macros and pattern matching roadmap synthesis.
     File(p.join(workspace.path, 'wiki', 'dart.md'))
         .writeAsStringSync(_page(provenance: 'llm-authored', sources: 'sources: []'));
     final backend = ComposedSearchBackend(
-      personal: Fts5SearchBackend(index: index),
+      personal: LexicalSearchBackend(index: index),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
 

@@ -17,12 +17,18 @@ import 'reload_trigger_service.dart';
 
 typedef ServeFn = Future<HttpServer> Function(Handler handler, Object address, int port);
 typedef ProcessSignalWatch = Stream<ProcessSignal> Function();
+typedef ServeSearchIndexFactory = FullTextIndex Function(
+  DatabaseBackend backend,
+  PostgresFtsTable table, {
+  required bool withinTransaction,
+});
 
 /// Starts the DartClaw HTTP server with web UI.
 class ServeCommand extends Command<void> {
   final DartclawConfig? _config;
-  final DatabaseBackendFactory? _searchBackendFactory;
   final DatabaseBackendFactory? _taskBackendFactory;
+  final bool _taskBackendIsPrepared;
+  final ServeSearchIndexFactory? _searchIndexFactory;
   final HarnessFactory _harnessFactory;
   final ServerFactory? _serverFactory;
   final ServeFn _serveFn;
@@ -44,8 +50,9 @@ class ServeCommand extends Command<void> {
 
   new({
     DartclawConfig? config,
-    DatabaseBackendFactory? searchBackendFactory,
     DatabaseBackendFactory? taskBackendFactory,
+    bool taskBackendIsPrepared = false,
+    ServeSearchIndexFactory? searchIndexFactory,
     HarnessFactory? harnessFactory,
     ServerFactory? serverFactory,
     ServeFn? serveFn,
@@ -58,8 +65,9 @@ class ServeCommand extends Command<void> {
     bool runWorkflowSkillsBootstrap = true,
     bool connectChannels = true,
   }) : _config = config,
-       _searchBackendFactory = searchBackendFactory,
        _taskBackendFactory = taskBackendFactory,
+       _taskBackendIsPrepared = taskBackendIsPrepared,
+       _searchIndexFactory = searchIndexFactory,
        _harnessFactory = harnessFactory ?? HarnessFactory(),
        _serverFactory = serverFactory,
        _serveFn = serveFn ?? ((handler, address, port) => shelf_io.serve(handler, address, port)),
@@ -249,7 +257,16 @@ class ServeCommand extends Command<void> {
 
     // Workspace scaffold (before any service init)
     final workspace = WorkspaceService(dataDir: dataDir);
-    await workspace.scaffold();
+    try {
+      for (final definition in config.agent.definitions) {
+        definition.requireWorkspaceAvailable();
+      }
+      await workspace.prepareManagedAgents([for (final definition in config.agent.definitions) ?definition.workspace]);
+      await workspace.scaffold();
+    } on StateError catch (error) {
+      _stderrLine('ERROR: ${error.message}');
+      _exitFn(1);
+    }
 
     StreamSubscription<ProcessSignal>? sigintSub;
     StreamSubscription<ProcessSignal>? sigtermSub;
@@ -262,8 +279,9 @@ class ServeCommand extends Command<void> {
         port: port,
         harnessFactory: _harnessFactory,
         serverFactory: _serverFactory,
-        searchBackendFactory: _searchBackendFactory,
         taskBackendFactory: _taskBackendFactory,
+        taskBackendIsPrepared: _taskBackendIsPrepared,
+        searchIndexFactory: _searchIndexFactory,
         stderrLine: _stderrLine,
         exitFn: _exitFn,
         resolvedConfigPath: resolvedConfigPath,

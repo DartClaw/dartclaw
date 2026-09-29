@@ -34,6 +34,7 @@ void main() {
   late File configFile;
   late LogService logService;
   late MessageRedactor messageRedactor;
+  late List<FakeAgentHarness> createdHarnesses;
 
   setUpAll(() async {
     _staticDirPath = await _resolvePackageDir('src/static/app.js');
@@ -45,6 +46,7 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_scheduling_live_wiring_');
     configFile = File(p.join(tempDir.path, 'dartclaw.yaml'));
     messageRedactor = MessageRedactor();
+    createdHarnesses = [];
     logService = LogService.fromConfig(
       format: 'human',
       level: 'INFO',
@@ -56,7 +58,11 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  Future<DartclawRuntime> boot(List<Map<String, dynamic>> jobs) async {
+  Future<DartclawRuntime> boot(
+    List<Map<String, dynamic>> jobs, {
+    List<AgentDefinition> agents = const [],
+    MemoryConfig? memory,
+  }) async {
     // The file and the in-memory config must agree: boot composes from the
     // object, and the applier re-reads the file.
     final rows = jobs
@@ -77,10 +83,11 @@ scheduling:
   jobs:${rows.isEmpty ? ' []' : '\n$rows'}
 ''');
     final config = DartclawConfig(
-      agent: const AgentConfig(provider: 'claude'),
+      agent: AgentConfig(provider: 'claude', definitions: agents),
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
       providers: ProvidersConfig(entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable)}),
       gateway: const GatewayConfig(authMode: 'none'),
+      memory: memory ?? MemoryConfig(),
       scheduling: SchedulingConfig(jobs: jobs),
       server: ServerConfig(
         dataDir: tempDir.path,
@@ -90,13 +97,20 @@ scheduling:
       ),
     );
     Directory(config.workspaceDir).createSync(recursive: true);
+    await WorkspaceService(dataDir: tempDir.path)
+        .prepareManagedAgents(agents.map((agent) => agent.workspace).whereType<AgentWorkspace>());
     final runtime = await DartclawRuntime.build(
       config,
       dataDir: tempDir.path,
       port: 3000,
-      harnessFactory: HarnessFactory()..register('claude', (_) => FakeAgentHarness()),
-      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      harnessFactory: HarnessFactory()
+        ..register('claude', (_) {
+          final harness = FakeAgentHarness();
+          createdHarnesses.add(harness);
+          return harness;
+        }),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
       resolvedConfigPath: configFile.path,
@@ -118,7 +132,6 @@ scheduling:
       await runtime.requireSelfImprovement.dispose();
       await runtime.taskService.dispose();
       await runtime.eventBus.dispose();
-      await runtime.qmdManager?.stop();
       await runtime.closeStorage();
       await logService.dispose();
     });
@@ -135,6 +148,73 @@ scheduling:
       await writer.dispose();
     }
   }
+
+  test('workspace journal and curation jobs keep unique pinned owners without other fanout', () async {
+    final ownerWorkspaceDir = p.join(tempDir.path, 'workspace');
+    final agentAWorkspace = AgentWorkspace.managed(
+      agentId: 'a',
+      dataDir: tempDir.path,
+      ownerWorkspaceDir: ownerWorkspaceDir,
+    );
+    final agentBWorkspace = AgentWorkspace.managed(
+      agentId: 'b',
+      dataDir: tempDir.path,
+      ownerWorkspaceDir: ownerWorkspaceDir,
+    );
+    final runtime = await boot(
+      const [],
+      agents: [
+        AgentDefinition(id: 'a', description: 'A', prompt: 'A', workspace: agentAWorkspace),
+        AgentDefinition(id: 'b', description: 'B', prompt: 'B', workspace: agentBWorkspace),
+      ],
+      memory: MemoryConfig(journalEnabled: true, curationEnabled: true),
+    );
+
+    final jobs = runtime.scheduleService!.jobsForTesting;
+    final memoryJobs = jobs.where((job) => job.id.startsWith('memory-journal') || job.id.startsWith('memory-curation'));
+    expect(memoryJobs.map((job) => job.id).toSet(), {
+      'memory-journal',
+      'memory-journal:a',
+      'memory-journal:b',
+      'memory-curation',
+      'memory-curation:a',
+      'memory-curation:b',
+    });
+    expect(
+      memoryJobs.where((job) => job.workspace != null).map((job) => (job.id, job.workspace!.storagePrincipal)).toSet(),
+      {
+        ('memory-journal:a', 'agent:a'),
+        ('memory-journal:b', 'agent:b'),
+        ('memory-curation:a', 'agent:a'),
+        ('memory-curation:b', 'agent:b'),
+      },
+    );
+    expect(jobs.where((job) => job.id == heartbeatJobId), hasLength(1));
+    expect(jobs.where((job) => job.workspace != null && !memoryJobs.contains(job)), isEmpty);
+
+    runtime.scheduleService!.start();
+    expect(runtime.scheduleService!.runJobNow('memory-journal:a'), RunScheduledJobResult.started);
+    for (var attempt = 0; attempt < 100 && !createdHarnesses.any((harness) => harness.hasPendingTurn); attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    final running = createdHarnesses.singleWhere((harness) => harness.hasPendingTurn);
+    expect(running.lastAgentId, 'cron:memory-journal:a');
+    running.completeSuccess(const TurnResult(finalText: 'journal complete'));
+    for (var attempt = 0; attempt < 100; attempt++) {
+      final cronSessions = await runtime.sessionService.listSessions(type: SessionType.cron);
+      if (cronSessions.any((session) => session.workspace?.storagePrincipal == 'agent:a')) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    final cronSessions = await runtime.sessionService.listSessions(type: SessionType.cron);
+    expect(
+      cronSessions,
+      contains(
+        isA<Session>()
+            .having((session) => session.workspace?.storagePrincipal, 'principal', 'agent:a')
+            .having((session) => session.workspace?.directory, 'directory', agentAWorkspace.directory),
+      ),
+    );
+  });
 
   test('S09 a one-time entry whose instant has passed is removed at boot, not left to warn', () async {
     final runtime = await boot([

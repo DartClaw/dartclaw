@@ -27,18 +27,51 @@ DartClaw stores all agent state in `~/.dartclaw/`. The workspace directory (`~/.
   sessions/          # Authoritative per-session message history (NDJSON)
   logs/              # Daily logs and structured logs
   agents/
-    search/
-      sessions/      # Search agent session store (isolated)
+    <id>/
+      identity.json  # Exact host-owned id-only marker, ending with LF
+      workspace/     # Managed behavior, skills, and eligible personal memory
   kv.json            # Key-value store (cost tracking, etc.)
-  search.db          # SQLite memory and conversation FTS5 indexes (rebuildable)
 ```
 
-This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), the authoritative database (`dartclaw.db`), turn recovery (`turn_state.json`), webhook dedup markers (`webhook_deliveries/`), audit logs, task worktrees, and project clones -- see [Architecture](architecture.md) for the full layout.
+This view focuses on the workspace behavior files. The instance directory also holds config (`dartclaw.yaml`), turn
+recovery (`turn_state.json`), webhook dedup markers (`webhook_deliveries/`), audit logs, task worktrees, and project
+clones. Authoritative relational records and derived search rows live in PostgreSQL. See
+[Architecture](architecture.md) for the full layout.
 
 Conversation indexing reads eligible user and assistant messages from `sessions/<id>/messages.ndjson`.
-Memory and conversation rows share `search.db` on SQLite, or the configured PostgreSQL database, in separate tables.
-With DartClaw stopped, `dartclaw rebuild-index` reconstructs both projections without rewriting the message files.
+Memory and conversation rows use separate PostgreSQL tables. With DartClaw stopped, `dartclaw rebuild-index`
+reconstructs both projections without rewriting the message files.
 See [Conversation Search](search.md#conversation-search) for inclusion and lifecycle rules.
+
+## Owner and Named-Agent Workspaces
+
+The default workspace belongs to the instance owner. Every configured named agent has one derived workspace:
+
+```text
+<data_dir>/agents/<id>/workspace
+```
+
+`dartclaw init` and `dartclaw serve` validate every managed destination before changing any of them. A new home gets an
+exact `identity.json` containing only `{"agentId":"<id>"}` plus a trailing newline before the workspace is scaffolded.
+Setup refuses symlinks, malformed or mismatched markers, and a non-empty unmarked home. It never adopts, backs up,
+empties, moves, or copies an old directory. Back up and move an unsafe destination aside yourself, rerun setup, then
+deliberately copy retained content into its managed `workspace/` if appropriate.
+
+Agent ids must be 1–64 lowercase letters, digits, hyphens, or underscores, start with a letter or digit, and cannot be
+`main`. The old `agent.agents.<id>.workspace` key is rejected even when blank or null. Remove it; there is no replacement
+path or sharing setting.
+
+The binding is pinned when a conversation is created. It owns that agent's behavior files, native skills, and
+`agent:<id>` storage principal. Existing tool policy decides whether its personal memory corpus is wired: read tools and
+`context_research` grant local retrieval, while `memory_apply` and `memory_observe` grant local writes and maintenance.
+A project or staged directory selects where a turn works; it does not replace the workspace binding or principal.
+`context_research` combines the caller's private memory with the shared wiki and knowledge graph; it excludes other
+agents' memory and the knowledge inbox.
+
+Durable sessions keep the absolute workspace binding they were created with, so retained history stays readable after
+the configured agent is removed or its derived root relocates. Such a stale session is not reclassified or silently
+moved. Branching or forking it refuses the unavailable destination and tells the operator to create a new conversation
+for the current managed workspace.
 
 ## Behavior Files
 
@@ -204,7 +237,7 @@ curated stores are updated only by their listed agent or job path:
 | Canonical topic pruning into `MEMORY.archive.md` | Scheduled pruning job | `memory.pruning.schedule` (default `0 3 * * *`), archiving old topic entries and removing exact replays in one corpus transaction, then regenerating the bounded index |
 | `wiki/` | Knowledge-inbox job (`knowledge.inbox`, disabled by default) | Files dropped into `workspace/inbox/` – see [Knowledge Inbox](recipes/04-knowledge-inbox.md) |
 | Temporal knowledge graph | Knowledge-inbox job (extracted facts), or the agent via `kg_add` | Inbox processing, or a turn that calls `kg_add` – see [KG tools](web-ui-and-api.md#temporal-knowledge-graph-mcp-tools) |
-| `memory/YYYY-MM-DD.md` | DartClaw, through `memory_observe`, qualifying human-facing turn capture, and announced scheduled results (one record per fire) | Canonical observation partitions – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded from automatic turn capture, but a scheduled job delivering `announce` writes one record per fire because a human received that text. Each record retains bounded, redacted input/tool/result details. Records are capped at 512 KiB and each partition at 8 MiB; an overflowing append is rejected without deleting prior observations. Observations participate in the canonical fingerprint and default FTS5 projection; opt-in QMD also indexes workspace Markdown. |
+| `memory/YYYY-MM-DD.md` | DartClaw, through `memory_observe`, qualifying human-facing turn capture, and announced scheduled results (one record per fire) | Canonical observation partitions – heartbeat, scheduled, task, logical-agent, and archived sessions are excluded from automatic turn capture, but a scheduled job delivering `announce` writes one record per fire because a human received that text. Each record retains bounded, redacted input/tool/result details. Records are capped at 512 KiB and each partition at 8 MiB; an overflowing append is rejected without deleting prior observations. Observations participate in the canonical fingerprint and PostgreSQL lexical projection; explicit hybrid mode adds the optional vector projection. |
 
 Host-side memory APIs and maintenance reject canonical workspace text files larger than 64 MiB. Daily logs use the
 tighter 8 MiB per-file limit before reading existing content.

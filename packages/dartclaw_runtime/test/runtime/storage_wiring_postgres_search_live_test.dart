@@ -31,7 +31,6 @@ void main() {
       Logger.root.level = Level.ALL;
       final subscription = Logger.root.onRecord.listen(records.add);
       var taskOpens = 0;
-      var searchOpens = 0;
       var serverCompositions = 0;
       Object? error;
       DartclawRuntime? runtime;
@@ -44,10 +43,6 @@ void main() {
           taskBackendFactory: (_) async {
             taskOpens++;
             return backend;
-          },
-          searchBackendFactory: (_) async {
-            searchOpens++;
-            throw StateError('PostgreSQL search must not open a separate backend');
           },
           serverFactory: (server) {
             serverCompositions++;
@@ -76,7 +71,6 @@ void main() {
       ].join('\n');
       expect(error, isA<_RuntimeExit>().having((value) => value.code, 'code', 1));
       expect(taskOpens, 1);
-      expect(searchOpens, 0);
       expect(serverCompositions, 0);
       expect(observable, contains('database.fts_language'));
       expect(observable, contains('klingon'));
@@ -96,7 +90,6 @@ void main() {
       final config = _config(dataDir, _configuredDsn);
       await seedCanonicalMemory(config.workspaceDir);
       final configFile = File('${dataDir.path}/dartclaw.yaml')..writeAsStringSync('# test\n');
-      var searchOpens = 0;
       DartclawRuntime? runtime;
       try {
         runtime = await DartclawRuntime.build(
@@ -105,10 +98,6 @@ void main() {
           port: 0,
           harnessFactory: _harnessFactory(),
           taskBackendFactory: (_) async => backend,
-          searchBackendFactory: (_) async {
-            searchOpens++;
-            throw StateError('PostgreSQL search must use the authoritative backend');
-          },
           stderrLine: (_) {},
           exitFn: _unexpectedExit,
           resolvedConfigPath: configFile.path,
@@ -147,7 +136,6 @@ void main() {
         expect(knowledgeResponse.statusCode, 200);
         expect(knowledgeHtml, contains(memoryText));
         expect(knowledgeHtml, contains('layer-badge--memory'));
-        expect(searchOpens, 0);
         _expectNoDatabaseFiles(dataDir);
       } finally {
         await runtime?.shutdown();
@@ -166,7 +154,7 @@ void main() {
           'replacement': ['A replacement corpus row that must not publish after the injected failure.'],
         },
       );
-      await prepareAuthoritativeStore(backend, storeName: 'postgres-live-test');
+      await PostgresSchemaGate.prepare(backend, databaseIdentity: 'postgres-live-test');
       await validatePostgresFtsLanguage(backend, config.database.ftsLanguage);
       final persistentIndex = PostgresFtsIndex(
         backend,
@@ -202,7 +190,6 @@ void main() {
       ''');
 
       final configFile = File('${dataDir.path}/dartclaw.yaml')..writeAsStringSync('# test\n');
-      var searchOpens = 0;
       DartclawRuntime? runtime;
       try {
         runtime = await DartclawRuntime.build(
@@ -211,10 +198,6 @@ void main() {
           port: 0,
           harnessFactory: _harnessFactory(),
           taskBackendFactory: (_) async => backend,
-          searchBackendFactory: (_) async {
-            searchOpens++;
-            throw StateError('PostgreSQL search must use the authoritative backend');
-          },
           stderrLine: (_) {},
           exitFn: _unexpectedExit,
           resolvedConfigPath: configFile.path,
@@ -238,7 +221,6 @@ void main() {
         final status = jsonDecode(await statusResponse.readAsString()) as Map<String, dynamic>;
         expect(statusResponse.statusCode, 200);
         expect(status['index'], containsPair('state', 'degraded'));
-        expect(searchOpens, 0);
         _expectNoDatabaseFiles(dataDir);
       } finally {
         await runtime?.shutdown();
@@ -273,7 +255,6 @@ DartclawConfig _config(Directory dataDir, String dsn, {String ftsLanguage = 'eng
   providers: ProvidersConfig(entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)}),
   gateway: const GatewayConfig(authMode: 'none'),
   database: DatabaseConfig(
-    backend: DatabaseBackendKind.postgres,
     url: dsn,
     urlEnvVars: const ['DARTCLAW_TEST_POSTGRES_URL'],
     poolSize: 3,

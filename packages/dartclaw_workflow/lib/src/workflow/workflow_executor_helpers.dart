@@ -61,13 +61,14 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     final reasonKey = 'step.${step.id}.outcome.reason';
     context[outcomeKey] = 'skipped';
     context[reasonKey] = expr;
+    context['${step.id}.tokenCount'] = 0;
 
     WorkflowExecutor._log.info("Workflow '${run.id}': step '${step.id}' skipped: entryGate='$expr' evaluated false");
     _eventBus.fire(StepSkippedEvent(runId: run.id, stepId: step.id, reason: expr, timestamp: now));
 
     final updated = run.copyWith(
       currentStepIndex: stepIndex + 1,
-      contextJson: {...run.contextJson, outcomeKey: 'skipped', reasonKey: expr},
+      contextJson: {...run.contextJson, outcomeKey: 'skipped', reasonKey: expr, '${step.id}.tokenCount': 0},
       updatedAt: now,
     );
     await _persistContextThenRun(updated, context);
@@ -114,6 +115,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     WorkflowStep step,
     ResolvedStepConfig resolved,
     WorkflowContext context, {
+    required String? taskProvider,
     required String resolvedWorktreeMode,
     required String effectivePromotion,
     Map<String, OutputConfig>? effectiveOutputs,
@@ -123,9 +125,11 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     step,
     resolved,
     context,
+    taskProvider: taskProvider,
     resolvedWorktreeMode: resolvedWorktreeMode,
     effectivePromotion: effectivePromotion,
     workflowWorkspaceDir: _resolveWorkflowWorkspaceDir(),
+    providerConfig: _skillPreflightConfig,
     effectiveOutputs: effectiveOutputs,
   );
 
@@ -282,6 +286,13 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
 
   Future<WorkflowRun?> _budgetPreflight(WorkflowRun run, WorkflowDefinition definition) async {
     var refreshedRun = await _repository.getById(run.id) ?? run;
+    if (definition.maxTokens != null && !refreshedRun.tokenUsageComplete) {
+      const msg =
+          'Workflow accounting unavailable: token usage is incomplete; retry only after the settled task has complete matching usage.';
+      _logRun(refreshedRun, msg, level: Level.INFO);
+      await _failRun(refreshedRun, msg);
+      return null;
+    }
     refreshedRun = await _checkWorkflowBudgetWarning(refreshedRun, definition);
     if (!_workflowBudgetExceeded(refreshedRun, definition)) return refreshedRun;
 
@@ -289,6 +300,98 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     _logRun(refreshedRun, msg, level: Level.INFO);
     await _failRun(refreshedRun, msg);
     return null;
+  }
+
+  Future<WorkflowRun?> _reconcilePendingAccounting(WorkflowRun run, WorkflowContext context) async {
+    final taskId = run.contextJson['_accounting.pendingTaskId'];
+    final stepId = run.contextJson['_accounting.pendingStepId'];
+    if (taskId is! String || stepId is! String) return run;
+    final task = await _taskService.get(taskId);
+    if (task == null) {
+      await _failRun(run, "Workflow accounting unavailable: settled task '$taskId' cannot be read.");
+      return null;
+    }
+    final usage = await _readStepTokenCount(task);
+    if (usage.readError) {
+      await _failRun(run, "Workflow accounting unavailable: session usage for settled task '$taskId' cannot be read.");
+      return null;
+    }
+    final knownBefore = run.contextJson['_accounting.pendingKnownTokens'] as int? ?? 0;
+    final baseComplete = run.contextJson['_accounting.baseComplete'] as bool? ?? run.tokenUsageComplete;
+    final scope = run.contextJson['_accounting.pendingScope'] as String?;
+    context['$stepId.tokenCount'] = baseComplete && usage.complete ? knownBefore + usage.knownTokens : null;
+    var nextCursor = run.executionCursor;
+    if (scope == 'foreach' && baseComplete && usage.complete) {
+      final controllerId = run.contextJson['_accounting.pendingControllerId'] as String?;
+      final iterationIndex = run.contextJson['_accounting.pendingIterationIndex'] as int?;
+      final contextKey = run.contextJson['_accounting.pendingContextKey'] as String?;
+      if (controllerId != null && iterationIndex != null && contextKey != null) {
+        context[contextKey] = knownBefore + usage.knownTokens;
+        if (run.contextJson['_accounting.pendingTaskSucceeded'] == true) {
+          context['$stepId[$iterationIndex].status'] = 'accepted';
+          final completed = _completedForeachSubStepIds(context, controllerId, iterationIndex)..add(stepId);
+          _writeCompletedForeachSubStepIds(context, controllerId, iterationIndex, completed);
+          final cursor = run.executionCursor;
+          if (cursor != null) {
+            final slots = List<dynamic>.from(cursor.resultSlots);
+            if (iterationIndex < slots.length) slots[iterationIndex] = null;
+            // The controller cancelled these items before dispatch when accounting stopped it.
+            final accountingCancelled = cursor.cancelledIndices.where((index) {
+              if (index >= slots.length) return false;
+              final slot = slots[index];
+              return slot is Map && slot['message'] == 'Cancelled: budget exhausted';
+            }).toSet();
+            for (final index in accountingCancelled) {
+              slots[index] = null;
+            }
+            nextCursor = WorkflowExecutionCursor.foreach(
+              stepId: cursor.nodeId,
+              stepIndex: cursor.stepIndex,
+              totalItems: cursor.totalItems ?? 0,
+              completedIndices: cursor.completedIndices
+                  .where((index) => index != iterationIndex && !accountingCancelled.contains(index))
+                  .toList(),
+              failedIndices: cursor.failedIndices.where((index) => index != iterationIndex).toList(),
+              cancelledIndices: cursor.cancelledIndices.where((index) => !accountingCancelled.contains(index)).toList(),
+              resultSlots: slots,
+              completedSubStepIdsByIndex: _completedForeachSubStepsByIndex(context, controllerId),
+            );
+          }
+        }
+      }
+    }
+    final contextJson = {
+      for (final entry in run.contextJson.entries)
+        if (!entry.key.startsWith('_accounting.pending') && entry.key != '_accounting.baseComplete')
+          entry.key: entry.value,
+      ...context.toJson(),
+    };
+    if (scope == 'foreach') {
+      contextJson['_accounting.foreachCommittedTokens'] =
+          (run.contextJson['_accounting.foreachCommittedTokens'] as int? ?? 0) + usage.knownTokens;
+    }
+    var nextStepIndex = run.currentStepIndex;
+    if (scope == 'parallel' && baseComplete && usage.complete) {
+      final failedIds = (contextJson['_parallel.failed.stepIds'] as List?)?.whereType<String>().toList() ?? [];
+      if (run.contextJson['_accounting.pendingTaskSucceeded'] == true) failedIds.remove(stepId);
+      if (failedIds.isEmpty) {
+        contextJson.remove('_parallel.failed.stepIds');
+        contextJson.remove('_parallel.current.stepIds');
+        nextStepIndex = run.contextJson['_accounting.pendingNextStepIndex'] as int? ?? run.currentStepIndex;
+      } else {
+        contextJson['_parallel.failed.stepIds'] = failedIds;
+      }
+    }
+    final updated = run.copyWith(
+      totalTokens: run.totalTokens + usage.knownTokens,
+      tokenUsageComplete: baseComplete && usage.complete,
+      currentStepIndex: nextStepIndex,
+      executionCursor: nextCursor,
+      contextJson: contextJson,
+      updatedAt: DateTime.now(),
+    );
+    await _persistContextThenRun(updated, context);
+    return updated;
   }
 
   void _fireStepCompletedEvent({
@@ -299,6 +402,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
     required String taskId,
     required bool success,
     required int tokenCount,
+    bool tokenUsageComplete = true,
     String? outcome,
     String? reason,
     String? displayScope,
@@ -314,7 +418,7 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
         success: success,
         outcome: outcome,
         reason: reason,
-        tokenCount: tokenCount,
+        tokenCount: tokenUsageComplete ? tokenCount : null,
         timestamp: DateTime.now(),
         displayScope: displayScope,
       ),
@@ -453,10 +557,11 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   /// For [continueSession] steps, subtracts the baseline stored in
   /// [Task.configJson]['_sessionBaselineTokens'] so workflow totals only reflect
   /// new turns, not the full shared-session history.
-  Future<int> _readStepTokenCount(Task task) => workflow_budget_monitor.readStepTokenCount(task, _kvService);
+  Future<workflow_budget_monitor.WorkflowTokenUsage> _readStepTokenCount(Task task) =>
+      workflow_budget_monitor.readStepTokenCount(task, _kvService, _workflowStepExecutionRepository);
 
   /// Reads the raw cumulative token total for [sessionId] from KV store.
-  Future<int> _readSessionTokens(String sessionId) => workflow_budget_monitor.readSessionTokens(_kvService, sessionId);
+  Future<int?> _readSessionTokens(String sessionId) => workflow_budget_monitor.readSessionTokens(_kvService, sessionId);
 
   void dispose() {
     approval_step_runner.cancelApprovalTimers(_approvalTimers);

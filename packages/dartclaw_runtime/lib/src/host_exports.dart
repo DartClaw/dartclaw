@@ -17,3 +17,4 @@ export 'workspace/workspace_git_sync.dart' show WorkspaceGitSync;
 export 'workspace/workspace_git_sync_job.dart' show buildWorkspaceGitSyncJob, workspaceGitSyncJobId;
 export 'workspace/workspace_path_guard.dart' show WorkspacePathGuard, WorkspacePathVerdict;
 export 'workspace/workspace_service.dart' show WorkspaceService;
+export 'workspace/managed_memory_policy.dart' show ManagedMemoryPolicy;

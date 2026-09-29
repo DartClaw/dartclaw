@@ -35,42 +35,62 @@ void main() {
     expectReviewOutputDir(trace.tasksForStep('integrated-review').single);
   });
 
-  test('spec-and-implement: revise-spec is skipped when spec reuses an existing FIS (spec_confidence == 0)', () async {
+  test('spec-and-implement reuses an existing FIS without synthesis', () async {
     final trace = await driver.executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'dev/specs/test/s01-pre-authored.md', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async => specAndImplementCommonStub(
-        queued,
-        specPath: 'dev/specs/test/s01-pre-authored.md',
-        specSource: 'existing',
-        specConfidence: 0,
-      ),
+      responseForStep: (queued) async =>
+          specAndImplementCommonStub(queued, specPath: 'dev/specs/test/s01-pre-authored.md', specSource: 'existing'),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    // Reuse path: spec emitted confidence 0; revise-spec must not run.
-    expect(trace.tasksForStep('revise-spec'), isEmpty);
-    // Downstream steps still execute against the reused spec.
+    expect(trace.tasksForStep('spec'), isEmpty);
     expect(trace.tasksForStep('implement').single.description, contains('dev/specs/test/s01-pre-authored.md'));
     expect(trace.tasksForStep('integrated-review'), isNotEmpty);
   });
 
-  test('spec-and-implement: revise-spec runs when synthesized spec has low confidence', () async {
+  test('spec-and-implement synthesizes an inline description before implementation', () async {
     final trace = await driver.executeBuiltInWorkflow(
       workflowFileName: 'spec-and-implement.yaml',
       variables: {'FEATURE': 'A vague feature description', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async => specAndImplementCommonStub(queued, specConfidence: 4, includeReviseSpec: true),
+      responseForStep: (queued) async => specAndImplementCommonStub(queued),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
-    expect(trace.tasksForStep('revise-spec'), hasLength(1));
-    // Downstream pipeline must still execute after the revise-spec detour.
+    expect(trace.tasksForStep('spec'), hasLength(1));
     expect(trace.tasksForStep('implement'), hasLength(1));
     expect(trace.tasksForStep('integrated-review'), hasLength(1));
-    // Step order: revise-spec runs after spec and before implement.
     final order = trace.queuedStepOrder;
-    expect(order.indexOf('spec'), lessThan(order.indexOf('revise-spec')));
-    expect(order.indexOf('revise-spec'), lessThan(order.indexOf('implement')));
+    expect(order.indexOf('spec'), lessThan(order.indexOf('implement')));
+  });
+
+  test('spec-and-implement stops before synthesis and implementation when a written PRD is rejected', () async {
+    const feature = 'docs/specs/test/prd.md';
+    final projectDir = Directory(p.join(driver.tempDir.path, 'projects', 'demo-project'));
+    final prd = File(p.join(projectDir.path, feature));
+    prd.parent.createSync(recursive: true);
+    prd.writeAsStringSync(
+      '# Product Requirements\n\n## Acceptance Scenarios\n\nShip every story.\n\n## Implementation Plan\n\nBuild two stories.\n',
+    );
+
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'spec-and-implement.yaml',
+      variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      detectResponseForFeature: (value) {
+        expect(value, feature);
+        return const StubResponse(
+          outputs: {},
+          outcome: 'failed',
+          reason: 'Written requirements belong in plan-and-implement',
+        );
+      },
+      responseForStep: (queued) async => specAndImplementCommonStub(queued),
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.failed);
+    expect(trace.finalRun?.errorMessage, contains('Written requirements belong in plan-and-implement'));
+    expect(trace.tasksForStep('spec'), isEmpty);
+    expect(trace.tasksForStep('implement'), isEmpty);
   });
 
   test('spec-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
@@ -117,9 +137,7 @@ void main() {
       variables: {'FEATURE': 'Simplify-code workflows', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
-          'spec' => StubResponse(
-            outputs: {'spec_path': 'docs/specs/test/spec-loop.md', 'spec_source': 'synthesized', 'spec_confidence': 9},
-          ),
+          'spec' => StubResponse(outputs: {'spec_path': 'docs/specs/test/spec-loop.md', 'spec_source': 'synthesized'}),
           'implement' => StubResponse(outputs: {'diff_summary': 'LOOP_DIFF_MARKER'}),
           'integrated-review' => StubResponse(
             outputs: reviewReportContext(
@@ -162,11 +180,7 @@ void main() {
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
             'spec' => StubResponse(
-              outputs: {
-                'spec_path': 'docs/specs/test/spec-loop.md',
-                'spec_source': 'synthesized',
-                'spec_confidence': 9,
-              },
+              outputs: {'spec_path': 'docs/specs/test/spec-loop.md', 'spec_source': 'synthesized'},
             ),
             'implement' => StubResponse(outputs: {'diff_summary': 'FIRST_PASS_DIFF'}),
             'integrated-review' => StubResponse(
@@ -269,7 +283,7 @@ void main() {
               specFile.parent.createSync(recursive: true);
               specFile.writeAsStringSync('Local-path spec artifact\n');
               return StubResponse(
-                outputs: {'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized', 'spec_confidence': 9},
+                outputs: {'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'},
                 worktreeJson: {
                   'path': repoDir.path,
                   'branch': workflowBranch ?? 'workflow/spec-and-implement-run',

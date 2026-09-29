@@ -45,52 +45,6 @@ void main() {
     expect(outcome.first.provenance, 'llm-authored');
   });
 
-  test('collapses a QMD wiki copy by native path but keeps unmatched QMD native identity', () async {
-    final personal = _S07RecordingBackend()
-      ..results = const [
-        MemorySearchResult(
-          text: 'duplicate',
-          source: 'qmd://memory/wiki/falcon.md',
-          score: -2,
-          role: 'wiki',
-          provenance: 'qmd',
-          locator: 'qmd:/wiki/falcon.md',
-        ),
-        MemorySearchResult(
-          text: 'uncited native result',
-          source: 'qmd://memory/inbox/note.md',
-          score: -1,
-          role: 'knowledge-inbox',
-          provenance: 'qmd',
-          locator: 'qmd:/inbox/note.md',
-        ),
-        MemorySearchResult(
-          text: 'unmatched wiki-shaped QMD result',
-          source: 'qmd://memory/wiki/unmatched.md',
-          score: 0,
-          role: 'wiki',
-          provenance: 'qmd',
-          locator: 'qmd:/wiki/unmatched.md',
-        ),
-      ];
-    final wiki = _RecordingWiki()
-      ..results = const [
-        MemorySearchResult(
-          text: 'native wiki',
-          source: 'wiki/falcon.md',
-          score: -1000,
-          role: 'wiki',
-          provenance: 'human-authored',
-          locator: 'wiki/falcon.md',
-        ),
-      ];
-
-    final outcome = await ComposedSearchBackend(personal: personal, wiki: wiki).search('Falcon');
-
-    expect(outcome.map((result) => result.locator), ['wiki/falcon.md', 'qmd:/inbox/note.md', 'qmd:/wiki/unmatched.md']);
-    expect(outcome.last.entryId, isNull);
-  });
-
   test('keeps healthy results and names each failed constituent once', () async {
     final wiki = _RecordingWiki()
       ..results = const [MemorySearchResult(text: 'wiki survives', source: 'wiki/falcon.md', score: -1, role: 'wiki')];
@@ -191,6 +145,26 @@ void main() {
     expect(personal.calls, [('Falcon', 'owner')]);
     expect(outcome.map((result) => result.text), ['wiki survives']);
     expect(outcome.canonicalRevision, 42);
+    expect(outcome.degradations.single.reason, 'indexChangedDuringSearch');
+  });
+
+  test('wiki-less composition retains the double-probe current-index guard', () async {
+    final personal = _S07RecordingBackend()
+      ..results = const [MemorySearchResult(text: 'raced memory', source: 'memory-id', score: 0)];
+    final evidence = [_health(IndexHealthState.healthy, 41), _health(IndexHealthState.healthy, 42)].iterator;
+    final backend = ComposedSearchBackend(
+      personal: personal,
+      indexHealthProbe: () async {
+        evidence.moveNext();
+        return evidence.current;
+      },
+    );
+
+    final outcome = await backend.search('Falcon');
+
+    expect(personal.calls, [('Falcon', 'owner')]);
+    expect(outcome, isEmpty);
+    expect(outcome.degradedLayers, ['memory']);
     expect(outcome.degradations.single.reason, 'indexChangedDuringSearch');
   });
 

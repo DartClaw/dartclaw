@@ -4,8 +4,8 @@ import 'controller_test_support.dart';
 
 /// The guard audit refreshes every 30s by replacing its whole container, so the
 /// reader's expanded row only survives if the controller re-finds it by the
-/// server's presentation key. Driven by synthetic `htmx:beforeSwap` /
-/// `htmx:afterSwap` payloads – no clock, no network, no htmx.
+/// server's presentation key. Driven by synthetic `htmx:before:swap` /
+/// `htmx:after:swap` payloads – no clock, no network, no htmx.
 void main() {
   final controller = controllerAsset('dc_shell_controller.js');
 
@@ -121,9 +121,9 @@ function expandedKeys() {
 }
 
 function poll(nextKeys) {
-  controller.handleBeforeSwap({ detail: { target: table.container } });
+  controller.handleBeforeSwap({ detail: { ctx: { target: table.container } } });
   table = makeTable(nextKeys);
-  controller.handleAfterSwap({ detail: { target: table.container } });
+  controller.handleAfterSwap({ detail: { ctx: { target: table.container } } });
 }
 
 // A real button click, not a row click: the <tr> carries no handler any more.
@@ -166,7 +166,7 @@ assert(expandedKeys().length === 0, 'a collapsed row re-opened after a poll');
 // page's own status region refreshes on its own 30s timer, so this fires
 // routinely while the reader is looking at the table.
 controller.toggleAuditRow(table.toggles[0]);
-controller.handleAfterSwap({ detail: { target: { id: 'health-live' } } });
+controller.handleAfterSwap({ detail: { ctx: { target: { id: 'health-live' } } } });
 assert(expandedKeys().join(',') === 'a|bc', 'an unrelated swap collapsed the audit row');
 
 // ...and the reader's collapse must stick. The restore key is only written by
@@ -174,7 +174,7 @@ assert(expandedKeys().join(',') === 'a|bc', 'an unrelated swap collapsed the aud
 // would make the next unrelated swap re-open the row they just closed.
 controller.toggleAuditRow(table.toggles[0]);
 assert(expandedKeys().length === 0, 'toggle did not collapse the row');
-controller.handleAfterSwap({ detail: { target: { id: 'health-live' } } });
+controller.handleAfterSwap({ detail: { ctx: { target: { id: 'health-live' } } } });
 assert(expandedKeys().length === 0, 'an unrelated swap re-opened a row the reader closed: ' + expandedKeys());
 poll(['a|bc']);
 assert(expandedKeys().length === 0, 'a poll re-opened a row the reader closed: ' + expandedKeys());

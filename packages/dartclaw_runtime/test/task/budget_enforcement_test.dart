@@ -6,7 +6,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryGoalRepository;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -15,7 +15,6 @@ import 'task_executor_test_support.dart';
 void main() {
   late FakeTaskWorker worker;
   late TaskExecutorTestHarness h;
-  late SqliteBackend goalBackend;
   late GoalService goals;
   late KvService kvService;
 
@@ -25,14 +24,12 @@ void main() {
       ..outputTokens = 10;
     h = TaskExecutorTestHarness(worker);
     await h.setUp(tempPrefix: 'dartclaw_budget_test_');
-    goalBackend = await openPreparedTaskBackend();
-    goals = GoalService(SqliteGoalRepository(goalBackend));
+    goals = GoalService(InMemoryGoalRepository());
     kvService = KvService(filePath: p.join(h.tempDir.path, 'kv.json'));
   });
 
   tearDown(() async {
     await goals.dispose();
-    await goalBackend.close();
     await kvService.dispose();
     await h.tearDown(workerDispose: worker.dispose);
   });
@@ -50,6 +47,7 @@ void main() {
       ),
       runners: TaskExecutorRunners(turns: h.turns),
       limits: TaskExecutorLimits(budgetConfig: budgetConfig),
+      currentDirectory: h.workspaceDir,
       dataDir: h.tempDir.path,
       pollInterval: const Duration(milliseconds: 10),
     );

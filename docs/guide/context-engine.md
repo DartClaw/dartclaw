@@ -1,9 +1,13 @@
 # Context Engine Mode
 
+Context Engine retrieval is separate from a conversation's effective context. It selects sources from the authenticated
+caller, returns citation-backed packets, and does not change any conversation's project, directory, provider, model,
+effort, workspace binding, or storage principal.
+
 Context-engine mode lets other tools — an IDE, a second agent, a scratch script — read your DartClaw knowledge surface
 over MCP under their own name, without giving them your gateway token.
 
-A named client can call exactly five read tools. It cannot write anything, cannot reach the web through DartClaw, and
+A named client can call exactly three read tools. It cannot write anything, cannot reach the web through DartClaw, and
 cannot reach any DartClaw surface other than `/mcp`. Every call it makes, allowed or refused, is written to the guard
 audit trail under that client's name.
 
@@ -44,11 +48,9 @@ warning on purpose: an empty token would otherwise match an empty or malformed b
 
 | Tool | What it reads |
 |---|---|
-| `memory_search` | The configured search backend across canonical memory, wiki and the knowledge inbox |
-| `memory_read` | One record or native source by the stable locator `memory_search` returns |
 | `kg_query` | The temporal knowledge graph as of a point in time |
 | `kg_timeline` | A single entity's fact history |
-| `context_research` | A synthesized, cited answer over memory and the knowledge graph |
+| `context_research` | A synthesized, cited answer over the shared wiki and knowledge graph |
 
 Everything else answers as if it did not exist — same JSON-RPC error code, same message, whether the tool is a write
 tool, a tool DartClaw registers but keeps out of the profile, or a name that was never registered. A client cannot use
@@ -58,14 +60,22 @@ The profile is an allowlist, not "everything read-only". The web-search tools ch
 read, but they reach third parties on your credentials, so a client cannot call them — a read classification is not by
 itself a reason to expose a tool. `web_fetch` is classified write and is excluded either way.
 
-## What a client sees
+## What each caller sees
 
-A client reads **your** view of the knowledge surface. The knowledge graph and canonical memory have no per-record
-visibility model — `kg_facts.owner` records who may invalidate a fact, not who may read it — so a configured client
-sees every fact and every reachable page, exactly as you do.
+| Caller | Private source | Shared sources | Excluded sources |
+|---|---|---|---|
+| Owner/default conversation | Owner personal memory | Wiki and temporal knowledge graph | Named-agent memory, knowledge inbox |
+| Named agent A | Agent A personal memory, when its tool policy grants `context_research` | Wiki and temporal knowledge graph | Owner memory, agent B memory, knowledge inbox |
+| Named agent B | Agent B personal memory, when granted | Wiki and temporal knowledge graph | Owner memory, agent A memory, knowledge inbox |
+| Named MCP client | None | Wiki and temporal knowledge graph | Every personal-memory corpus, knowledge inbox |
 
-Enabling context-engine mode therefore shares the whole knowledge surface with every configured client. Configure a
-client only for something you would let read your notes.
+The wiki and knowledge graph are explicit publication surfaces. A named agent publishes there only through separately
+granted write tools, and the knowledge-inbox job publishes accepted synthesized outputs only after validation. Raw inbox
+files, rejected inputs, personal-memory provenance, and another principal's source locators are not research sources.
+Direct KG reads and research citations describe published facts without exposing the original private `source` field.
+
+Every configured client sees that same shared published surface. `kg_facts.owner` remains write authority rather than a
+read ACL, so configure a client only for something you would let read the wiki and knowledge graph.
 
 ## Cost
 

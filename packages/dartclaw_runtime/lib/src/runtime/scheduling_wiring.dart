@@ -10,6 +10,8 @@ import 'package:path/path.dart' as p;
 
 import '../config/runtime_toggle_applier.dart';
 import '../config/scheduling_jobs_applier.dart';
+import '../concurrency/session_mutation_coordinator.dart';
+import '../conversation/inbox_service.dart';
 import 'channel_wiring.dart';
 import 'security_wiring.dart';
 import 'storage_wiring.dart';
@@ -35,6 +37,7 @@ class SchedulingWiring {
     required SecurityWiring security,
     required SseBroadcast sseBroadcast,
     required MemoryHandlers memoryHandlers,
+    Map<String, MemoryHandlers> memoryHandlersByPrincipal = const {},
     required CredentialHealthMonitor credentialHealth,
     required MessageRedactor messageRedactor,
     BehaviorFileService? behavior,
@@ -45,6 +48,7 @@ class SchedulingWiring {
        _security = security,
        _sseBroadcast = sseBroadcast,
        _memoryHandlers = memoryHandlers,
+       _memoryHandlersByPrincipal = memoryHandlersByPrincipal,
        _credentialHealth = credentialHealth,
        _messageRedactor = messageRedactor,
        _behavior = behavior,
@@ -57,6 +61,7 @@ class SchedulingWiring {
   final SecurityWiring _security;
   final SseBroadcast _sseBroadcast;
   final MemoryHandlers _memoryHandlers;
+  final Map<String, MemoryHandlers> _memoryHandlersByPrincipal;
   final CredentialHealthMonitor _credentialHealth;
   final MessageRedactor _messageRedactor;
   final BehaviorFileService? _behavior;
@@ -78,6 +83,7 @@ class SchedulingWiring {
   late List<String> _missedOneTimeJobIds;
   late final DeliveryService _deliveryService;
   late final PendingScheduleChangeStore _pendingScheduleChanges;
+  late final ConversationInboxService _inboxService;
 
   /// The single writer of per-provider credential health. Detecting paths other
   /// than the scheduled probe report through this instance rather than firing
@@ -108,6 +114,7 @@ class SchedulingWiring {
   /// [wire] has run — it is constructed independently of whether any job was
   /// registered, so a tool that needs it never has to be conditionally omitted.
   DeliveryService get deliveryService => _deliveryService;
+  ConversationInboxService get inboxService => _inboxService;
   WorkspaceGitSync? get gitSync => _gitSync;
   MemoryPruner? get memoryPruner => _memoryPruner;
   MemoryStatusService? get memoryStatusService => _memoryStatusService;
@@ -129,6 +136,7 @@ class SchedulingWiring {
     required ContextMonitor contextMonitor,
     required ExecutionPolicyResolver policyResolver,
     required ConfigWriter configWriter,
+    required ProjectService projects,
   }) async {
     // Scheduled prompts, heartbeat, and knowledge extraction carry neither
     // logical-agent identity nor a task execution declaration, so they take the deployment
@@ -140,6 +148,18 @@ class SchedulingWiring {
     final taskService = _storage.taskService;
     final kvService = _storage.kvService;
     final memoryIndex = _storage.memoryIndex;
+
+    _inboxService = ConversationInboxService(
+      sessions: sessions,
+      messages: _storage.messages,
+      mutations: SessionMutationCoordinator(),
+      updates: _sseBroadcast,
+      projects: projects,
+      isSessionRunning: turns.isActive,
+      autoSettleIdleDays: config.sessions.autoSettleIdleDays,
+    );
+    _storage.messages.registerObserver(_inboxService);
+    _inboxService.subscribeToTaskCompletion(_eventBus, taskService);
 
     // Mutable display list for scheduling UI. Starts as a copy of raw config
     // maps, excluding task-type entries (those appear in scheduledTasks section).
@@ -161,45 +181,58 @@ class SchedulingWiring {
     _scheduledJobs = [...composed.jobs];
 
     if (config.memory.journalEnabled) {
-      _scheduledJobs.add(
-        ScheduledJob(
-          id: 'memory-journal',
-          prompt: MemoryJournal.prompt,
-          scheduleType: ScheduleType.cron,
-          cronExpression: journalCron,
-          deliveryMode: DeliveryMode.none,
-          allowedTools: const ['file_read', 'memory_observe'],
-        ),
-      );
-      _displayJobs.add({
-        'name': 'memory-journal',
-        'schedule': config.memory.journalSchedule,
-        'delivery': 'none',
-        'status': 'active',
-        'runnable': true,
-      });
-      _systemJobNames.add('memory-journal');
-      _log.info('Memory journal scheduled (${config.memory.journalSchedule})');
+      for (final context in _storage.memoryContexts.where((context) => context.allowsWrite)) {
+        final id = context.workspace == null ? 'memory-journal' : 'memory-journal:${context.workspace!.agentId}';
+        _scheduledJobs.add(
+          ScheduledJob(
+            id: id,
+            prompt: MemoryJournal.prompt,
+            scheduleType: ScheduleType.cron,
+            cronExpression: journalCron,
+            deliveryMode: DeliveryMode.none,
+            allowedTools: const ['file_read', 'memory_observe'],
+            workspace: context.workspace,
+          ),
+        );
+        _displayJobs.add({
+          'name': id,
+          'schedule': config.memory.journalSchedule,
+          'delivery': 'none',
+          'status': 'active',
+          'runnable': true,
+        });
+        _systemJobNames.add(id);
+        _log.info('$id scheduled (${config.memory.journalSchedule})');
+      }
     }
 
     if (curationCron != null) {
-      _scheduledJobs.add(
-        buildMemoryCurationJob(
-          cronExpression: curationCron,
-          corpus: _storage.memoryCorpus,
-          applyService: _memoryHandlers.applyService,
-          maxIndexBytes: config.memory.maxBytes,
-        ),
-      );
-      _displayJobs.add({
-        'name': memoryCurationJobId,
-        'schedule': config.memory.curationSchedule,
-        'delivery': 'none',
-        'status': 'active',
-        'runnable': true,
-      });
-      _systemJobNames.add(memoryCurationJobId);
-      _log.info('Memory curation scheduled (${config.memory.curationSchedule})');
+      for (final context in _storage.memoryContexts.where((context) => context.allowsWrite)) {
+        final id = context.workspace == null
+            ? memoryCurationJobId
+            : '$memoryCurationJobId:${context.workspace!.agentId}';
+        final handlers = context.workspace == null ? _memoryHandlers : _memoryHandlersByPrincipal[context.principal];
+        if (handlers == null) continue;
+        _scheduledJobs.add(
+          buildMemoryCurationJob(
+            cronExpression: curationCron,
+            corpus: context.corpus,
+            applyService: handlers.applyService,
+            maxIndexBytes: config.memory.maxBytes,
+            jobId: id,
+            workspace: context.workspace,
+          ),
+        );
+        _displayJobs.add({
+          'name': id,
+          'schedule': config.memory.curationSchedule,
+          'delivery': 'none',
+          'status': 'active',
+          'runnable': true,
+        });
+        _systemJobNames.add(id);
+        _log.info('$id scheduled (${config.memory.curationSchedule})');
+      }
     }
 
     // Register memory pruner as a built-in scheduled job.
@@ -343,6 +376,7 @@ class SchedulingWiring {
                 taskService: taskService,
                 artifactRetentionDays: config.tasks.artifactRetentionDays,
                 dataDir: config.server.dataDir,
+                inbox: _inboxService,
               );
               final report = await maintenance.run();
               _log.info(

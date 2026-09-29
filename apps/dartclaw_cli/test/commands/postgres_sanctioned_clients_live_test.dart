@@ -12,7 +12,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SqliteWorkflowRunRepository, WorkflowRun;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show DatabaseWorkflowRunRepository, WorkflowRun;
 import 'package:dartclaw_workflow/testing.dart' show FakeProviderAuthPreflight;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -33,6 +33,7 @@ void main() {
         await withPostgresBackend((cleanupBackend, _) async {
           final dataDir = Directory.systemTemp.createTempSync('postgres_cleanup_client_');
           try {
+            await PostgresSchemaGate.prepare(cleanupBackend, databaseIdentity: 'postgres-live-test');
             final lines = <String>[];
             var exitCode = -1;
             final config = _config(
@@ -63,9 +64,9 @@ void main() {
         await withPostgresBackend((statusBackend, _) async {
           final dataDir = Directory.systemTemp.createTempSync('postgres_status_client_');
           try {
-            await prepareAuthoritativeStore(statusBackend, storeName: 'postgres-live-test');
+            await PostgresSchemaGate.prepare(statusBackend, databaseIdentity: 'postgres-live-test');
             final now = DateTime.utc(2026, 9, 9);
-            await SqliteWorkflowRunRepository(statusBackend).insert(
+            await DatabaseWorkflowRunRepository(statusBackend).insert(
               WorkflowRun(
                 id: 'concurrent-status-run',
                 definitionName: 'live-status',
@@ -153,7 +154,6 @@ Future<DartclawRuntime> _buildOwner(Directory dataDir, PostgresBackend backend, 
     port: 0,
     harnessFactory: HarnessFactory()..register('claude', (_) => FakeAgentHarness()),
     taskBackendFactory: (_) async => backend,
-    searchBackendFactory: (_) async => throw StateError('PostgreSQL must not open a SQLite search backend'),
     stderrLine: (_) {},
     exitFn: (code) => throw StateError('Unexpected serving exit($code)'),
     resolvedConfigPath: configFile.path,
@@ -173,12 +173,7 @@ DartclawConfig _config(Directory dataDir, {WorkflowConfig workflow = const Workf
         entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
       ),
       gateway: const GatewayConfig(authMode: 'none'),
-      database: const DatabaseConfig(
-        backend: DatabaseBackendKind.postgres,
-        url: _injectedDsn,
-        urlEnvVars: ['DARTCLAW_TEST_POSTGRES_URL'],
-        poolSize: 3,
-      ),
+      database: const DatabaseConfig(url: _injectedDsn, urlEnvVars: ['DARTCLAW_TEST_POSTGRES_URL'], poolSize: 3),
       workflow: workflow,
       server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
     );

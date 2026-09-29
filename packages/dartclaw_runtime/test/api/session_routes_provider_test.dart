@@ -65,7 +65,7 @@ void main() {
         providerId: 'codex',
       ),
     ], sessions: sessions);
-    handler = sessionRoutes(sessions, messages, turns, primaryWorker).call;
+    handler = sessionRoutes(sessions, messages, turns, primaryWorker, ownerWorkspaceDir: sessions.baseDir).call;
   });
 
   tearDown(() async {

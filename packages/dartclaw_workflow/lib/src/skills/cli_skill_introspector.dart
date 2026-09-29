@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show ClaudeSettingsBuilder;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../workflow/skill_introspector.dart';
@@ -22,7 +23,7 @@ typedef SkillProbeRunner = Future<ProcessResult> Function(
 /// call [ProviderProbeEnvironment.dispose] after either success or failure.
 typedef SkillProbeEnvironmentBuilder = Future<ProviderProbeEnvironment> Function(String provider);
 
-/// CLI-backed [SkillIntrospector] with per-provider/executable in-flight caching.
+/// CLI-backed [SkillIntrospector] with in-flight probe coalescing.
 final class CliSkillIntrospector implements SkillIntrospector {
   final SkillProbeRunner _runner;
   final Map<String, String> _environment;
@@ -51,11 +52,19 @@ final class CliSkillIntrospector implements SkillIntrospector {
         : _defaultExecutable(provider);
     final inheritUserSettings = ClaudeProviderOptions.inheritUserSettings(providerOptions);
     final probeProvider = _probeProvider(provider, resolvedExecutable, providerOptions);
+    final settings = probeProvider == 'claude'
+        ? ClaudeSettingsBuilder.buildSettings(
+            providerOptions,
+            containerManager: null,
+            hostWorkingDirectory: Directory.current.path,
+          )
+        : null;
     final key = _SkillProbeKey(
       providerId: provider,
       probeProvider: probeProvider,
       executable: resolvedExecutable,
       inheritUserSettings: inheritUserSettings,
+      settings: settings,
     );
     final cached = _cache[key];
     if (cached != null) return cached;
@@ -65,6 +74,7 @@ final class CliSkillIntrospector implements SkillIntrospector {
       providerId: provider,
       executable: resolvedExecutable,
       inheritUserSettings: inheritUserSettings,
+      settings: settings,
     );
     _cache[key] = probe;
     // Drop the cache entry once the probe settles. Use statement bodies so the
@@ -89,6 +99,7 @@ final class CliSkillIntrospector implements SkillIntrospector {
     required String providerId,
     required String executable,
     required bool inheritUserSettings,
+    required String? settings,
   }) async {
     final args = switch (provider) {
       'claude' => <String>[
@@ -96,6 +107,7 @@ final class CliSkillIntrospector implements SkillIntrospector {
         '--allowedTools',
         '',
         if (!inheritUserSettings) ...['--setting-sources', 'project'],
+        if (settings != null) ...['--settings', settings],
         '-p',
         skillIntrospectionPrompt,
       ],
@@ -188,12 +200,14 @@ final class _SkillProbeKey {
   final String probeProvider;
   final String executable;
   final bool inheritUserSettings;
+  final String? settings;
 
   const new({
     required this.providerId,
     required this.probeProvider,
     required this.executable,
     required this.inheritUserSettings,
+    required this.settings,
   });
 
   @override
@@ -203,8 +217,9 @@ final class _SkillProbeKey {
           other.providerId == providerId &&
           other.probeProvider == probeProvider &&
           other.executable == executable &&
-          other.inheritUserSettings == inheritUserSettings;
+          other.inheritUserSettings == inheritUserSettings &&
+          other.settings == settings;
 
   @override
-  int get hashCode => Object.hash(providerId, probeProvider, executable, inheritUserSettings);
+  int get hashCode => Object.hash(providerId, probeProvider, executable, inheritUserSettings, settings);
 }

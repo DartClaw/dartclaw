@@ -25,7 +25,7 @@ import 'package:dartclaw_runtime/src/task/task_review_service.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
 import 'package:dartclaw_runtime/src/workspace/workspace_path_guard.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show InMemorySessionService, InMemoryTaskRepository, openPreparedTaskBackend;
+    show InMemorySessionService, InMemoryTaskRepository, InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:test/test.dart';
 
@@ -60,12 +60,12 @@ LogicalAgentSessionService _stubSessions() => LogicalAgentSessionService(
 
 void main() {
   group('MCP tool schema compliance — additionalProperties: false', () {
-    late SqliteBackend kgBackend;
+    late DatabaseBackend kgBackend;
     late TemporalKnowledgeGraphService kg;
 
     setUpAll(() async {
       kgBackend = await openPreparedTaskBackend();
-      kg = TemporalKnowledgeGraphService(kgBackend);
+      kg = InMemoryTemporalKnowledgeGraphService();
     });
 
     tearDownAll(() => kgBackend.close());
@@ -82,8 +82,13 @@ void main() {
       );
     }
 
-    ContextResearchTool contextResearchTool() =>
-        ContextResearchTool(memorySearch: _StubSearchBackend(), kg: kg, synthesizer: (_) async => '{}');
+    ContextResearchTool contextResearchTool() => ContextResearchTool(
+      scopeResolver: (_) async =>
+          ContextResearchScope.private(principal: 'owner', memorySearch: _StubSearchBackend(), memoryCorpus: null),
+      wiki: WikiSearchSource(workspaceDir: '.'),
+      kg: kg,
+      synthesizer: (_) async => '{}',
+    );
 
     /// The six orchestration and content tools, built over throwaway
     /// collaborators — only their declared schemas are under test here.
@@ -97,7 +102,6 @@ void main() {
         WorkflowRunTool(
           definitions: definitions,
           workflows: FakeWorkflowService(
-            backend: kgBackend,
             taskService: TaskService(InMemoryTaskRepository()),
             eventBus: EventBus(),
             dataDir: tempDir.path,

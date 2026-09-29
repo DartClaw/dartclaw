@@ -8,7 +8,7 @@ enum CitationLayer {
   /// Temporal knowledge graph fact source.
   kg('kg'),
 
-  /// FTS5/QMD memory chunk source.
+  /// Lexical memory chunk source.
   memory('memory'),
 
   /// Knowledge inbox file source.

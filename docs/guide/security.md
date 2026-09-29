@@ -2,6 +2,29 @@
 
 DartClaw uses defense-in-depth: multiple independent layers so that no single compromise breaks all boundaries.
 
+## Workspace and Retention Boundaries
+
+A named agent receives one host-managed filesystem and storage identity derived from its id:
+`data_dir/agents/<id>/workspace` and principal `agent:<id>`. Projects and staged working directories do not grant that
+workspace or change its principal. Ordinary memory and conversation search stay within the pinned principal.
+`context_research` adds the caller's private memory to the shared wiki and knowledge graph; it never reads another
+principal's personal memory or the knowledge inbox.
+
+The host writes `data_dir/agents/<id>/identity.json` before workspace content and validates its exact id-only bytes on
+later starts. Workspace-profile containers mount only the `workspace/` child, so the marker is neither mounted nor
+writable; required container confinement refuses execution if that boundary is unavailable. On unrestricted host
+execution, excluding the marker from declared writable roots and tool grants is policy, not an OS boundary: a provider
+process running as the same host user may still reach host files outside those declarations. Choose an enforced
+container profile when the marker and neighboring homes must be protected from provider filesystem access.
+
+Supported temporary conversations keep DartClaw session state, messages, attachments, usage context, provider home,
+browser draft, and replay state in process, page, or volatile container storage. They are excluded from conversation and
+memory lexical/vector projections, daily logs, personal memory, shared wiki and KG writes, and knowledge-inbox intake;
+audit and process logs record opaque operation metadata without prompt or result content. Explicit end revokes the link
+only after cleanup is confirmed. This retention boundary cannot undo provider processing or writes through external or
+unmediated provider tools, and release support remains conditional on the documented real-provider EOF and
+forced-termination qualification.
+
 ## Architecture
 
 ```
@@ -30,6 +53,14 @@ call passes the host `PreToolUse` gate. On Codex it is bounded to the approval h
 `approval: on-request`, partial under a granular approval mode, and inactive under `approval: never`, because the
 upstream approval flow deadlocks otherwise ([codex#11816](https://github.com/openai/codex/issues/11816)).
 
+The web approval card is a narrower projection of a live provider-native request. It appears only for an ordinary
+human web turn after guard evaluation succeeds: Codex requires `approval: on-request`, and Claude requires an explicit
+native `permissionMode` of `default`, `acceptEdits`, or `plan` that emits `can_use_tool`. The active harness owns the
+pending wire response; the retained conversation record only displays its exact request, turn, and attempt identity.
+Claude `PreToolUse` stays an automatic security hook, so a guard block never becomes a human approval prompt. Channel,
+cron, task, workflow, ACP, restarted turns, Claude `dontAsk`/`bypassPermissions`, and other Codex approval modes expose
+no operator decision.
+
 Provider-native plugins are trusted code. Claude may activate a skill through native hooks or inline preprocessing
 outside an ordinary tool callback; the tool filter governs the ordinary callbacks that follow, not the plugin code
 itself. Install only plugins you trust, and use `providers.claude.inherit_user_settings: false` when a host turn must
@@ -39,7 +70,7 @@ What this does **not** cover, named rather than omitted: the content classifier'
 guard chain at all. Two neighbouring surfaces are bounded rather than excluded — inbound MCP `tools/call` dispatch **is**
 guard-evaluated against the same base chain and audited, but it is not a runner turn, so per-task tool policy and
 read-only mode do not apply there (this holds for a named MCP client too — see
-[Context Engine Mode](context-engine.md), whose bound is the five-tool profile plus that base chain); and an ACP-backed provider carries only its own reverse-call mediation, which is
+[Context Engine Mode](context-engine.md), whose bound is the three-tool shared-knowledge profile plus that base chain); and an ACP-backed provider carries only its own reverse-call mediation, which is
 weaker than the host tool gate. DartClaw does not today refuse an ACP provider named by a workflow step, so treat
 "workflow steps are guarded" as bounded by whichever provider the step names. Do not read "the same guarded path" as
 "every model-spawning path is guard-evaluated" — that is a broader claim this release does not make.
@@ -290,8 +321,9 @@ probe step that failed — and links back here.
 
 Container isolation costs the agent no host tool it reaches on the host lane: a containerized primary agent is granted
 the same bridged MCP surface (web, memory, and the task, review and binding tools) minus the session-spawning tools,
-which are excluded on both lanes. Tools with no canonical mapping — `kg_*`, `context_research`, `onboarding_complete`
-and the outbound MCP adapters — are unreachable from a container, as they were before this became the default.
+which are excluded on both lanes. An agent's explicit `context_research` grant carries across the same way. Tools with
+no canonical mapping — `kg_*`, `onboarding_complete` and the outbound MCP adapters — are unreachable from a container,
+as they were before this became the default.
 
 ### Emergency Stop Without a Channel
 
@@ -512,9 +544,15 @@ a scoped API key. Read this before making subscription the credential your deplo
 
 - **Host-mode exposure.** The container boundary protects container mode only. In host mode the credential is present to
   the agent's own subprocess – Claude as `CLAUDE_CODE_OAUTH_TOKEN` in its environment, Codex as the dedicated
-  `CODEX_HOME` on disk – so a host-mode agent with shell access can read and exfiltrate it. **Use an API key for
+  `CODEX_HOME` on disk. Non-bypass host Claude runs retain subprocess environment scrub, including `dontAsk`: the
+  requested mode uses native `default` with prompts `none` while `PreToolUse` guards still run. A child tool does not
+  inherit the provider key through the CLI environment, but host execution is not an OS isolation boundary. A CLI
+  rejecting `--permission-prompts none` refuses the turn; install a compatible CLI or select another mode. Container
+  workers instead carry only a placeholder key with scrub `0`, under their separate host-mediated boundary. **Use an API key for
   host-mode deployments running less-trusted agents**: losing a scoped, individually revocable key is a far smaller
   event than losing a year-long full-account token.
+  The [bounded workflow example](workflows-reference.md#onfailure-and-onerror-policies) shows how this permission
+  posture composes with token availability and recovery policy.
 - **Blast radius.** A subscription Bearer authenticates as your whole account, is long-lived (~1 year for Claude), and
   is harder to revoke than a scoped API key. Container isolation and execution-scoped authorities bound the window, but
   a compromise anywhere drives calls under the broader credential. Choose an API key when you want least privilege or

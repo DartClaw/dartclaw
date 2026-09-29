@@ -45,6 +45,19 @@ void main() {
       expect(withNull.workspaceMounts, equals(withoutParam.workspaceMounts));
       expect(withNull.workspaceMounts.any((m) => m.contains('/projects:')), isFalse);
     });
+
+    test('an unconfigured agent receives no workspace mount', () {
+      final profile = SecurityProfile.workspace(workspaceDir: null, projectDir: '/project');
+
+      expect(profile.workspaceMounts, ['/project:/project:ro']);
+    });
+
+    test('an authorized project does not replace the pinned workspace mount', () {
+      final profile = SecurityProfile.workspace(workspaceDir: '/agents/researcher', projectDir: '/projects/report');
+
+      expect(profile.workspaceMounts, contains('/agents/researcher:/workspace:rw'));
+      expect(profile.workspaceMounts, contains('/projects/report:/project:ro'));
+    });
   });
 
   group('SecurityProfile.restricted', () {

@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.26.2/schemas/dartclaw.schema.json",
+  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.27.0/schemas/dartclaw.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -57,7 +57,7 @@
                 "type": "object"
               },
               "prompt": {
-                "description": "System prompt used for this agent turns. Empty leaves the agent unguided. (restart required)",
+                "description": "Explicit SOUL prompt for this agent. Empty reads SOUL.md from its managed workspace. (restart required)",
                 "type": "string"
               },
               "provider": {
@@ -89,7 +89,7 @@
             },
             "type": "object"
           },
-          "description": "Logical agents keyed by the id the session tools address them with. The built-in search agent is defined here too. (restart required)",
+          "description": "Logical agents keyed by the id the session tools address them with. Each configured id receives the managed workspace data_dir/agents/<id>/workspace; the built-in search agent is defined here too. (restart required)",
           "type": "object"
         },
         "disallowed_tools": {
@@ -1165,14 +1165,6 @@
     "database": {
       "additionalProperties": false,
       "properties": {
-        "backend": {
-          "description": "Authoritative database engine. Defaults to sqlite; postgres requires a URL or named credential. (restart required)",
-          "enum": [
-            "postgres",
-            "sqlite"
-          ],
-          "type": "string"
-        },
         "credential": {
           "description": "Named generic API-key credential containing the PostgreSQL connection URL. Read-only: credential references are configured in YAML. (file-only, not settable via API or CLI)",
           "type": [
@@ -2202,6 +2194,13 @@
               "string"
             ]
           },
+          "name": {
+            "description": "Optional display name. Surfaces fall back to the project ID when absent. (restart required)",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "pr": {
             "additionalProperties": false,
             "properties": {
@@ -2593,11 +2592,10 @@
       "additionalProperties": false,
       "properties": {
         "backend": {
-          "description": "Engine behind memory and conversation retrieval: fts5 is lexical, hybrid adds embeddings, and qmd is deprecated. (restart required)",
+          "description": "PostgreSQL lexical search, optionally extended with embeddings. (restart required)",
           "enum": [
-            "fts5",
             "hybrid",
-            "qmd"
+            "lexical"
           ],
           "type": "string"
         },
@@ -2664,25 +2662,6 @@
           },
           "description": "Web-search vendors keyed by provider id; brave and tavily are the recognized ids. Read-only: each entry carries or names a credential, which is never editable through the API. (file-only, not settable via API or CLI)",
           "type": "object"
-        },
-        "qmd": {
-          "additionalProperties": false,
-          "properties": {
-            "host": {
-              "description": "Loopback address of the qmd daemon. Only localhost, 127.x.x.x and ::1 are accepted. (restart required)",
-              "type": "string"
-            },
-            "port": {
-              "description": "TCP port the qmd daemon listens on. Default 8181. (restart required)",
-              "maximum": 65535,
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          "type": [
-            "null",
-            "object"
-          ]
         }
       },
       "type": [
@@ -2725,6 +2704,12 @@
     "sessions": {
       "additionalProperties": false,
       "properties": {
+        "auto_settle_idle_days": {
+          "description": "Whole idle days before an eligible completed conversation is settled. 0 turns automatic settling off. (restart required)",
+          "maximum": 3650,
+          "minimum": 0,
+          "type": "integer"
+        },
         "channels": {
           "additionalProperties": {
             "additionalProperties": false,

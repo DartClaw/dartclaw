@@ -1,7 +1,7 @@
 # DartClaw Testing Strategy
 
 > **Status**: Active
-> **Current through**: 0.24
+> **Current through**: 0.27; verification scope revised 2026-09-19
 > **Scope**: All packages in the DartClaw pub workspace
 
 ---
@@ -38,6 +38,35 @@
 **BDD frameworks: evaluated, not adopted.** Dart BDD packages either target Flutter/widget tests or mostly rename `group`/`test` without removing DartClaw's real friction (fixture/harness setup, route requests, filesystem and workflow matrices). Use BDD *language* — behavior-first test names, scenario grouping, and small table- or `Given/When/Then`-shaped helpers — where it improves scanning. Do not add a BDD framework dependency.
 
 ---
+
+## Verification Scope at the Experimental Stage
+
+This is the default for development, reviews, and experimental releases. It supersedes older blanket accessibility
+qualification requirements, including the 0.27 Q10/E11 matrices. An explicit accessibility or compatibility task can
+select a broader scope; do not infer one from a generic request for review, integration tests, or E2E verification.
+
+| Required for the affected surface | Deferred unless explicitly requested or needed to reproduce a defect |
+|---|---|
+| Security boundaries, data integrity, persistence/recovery, public contracts | Full WCAG conformance audits and scanner-wide zero-finding targets |
+| Core user journeys through the assembled app, including relevant failure/recovery paths | Screen-reader and physical-device/browser matrices |
+| Basic keyboard operation, focus/labels, readable text, usable controls and no blocking overflow | Exhaustive contrast measurements, gradient adjudication, zoom/theme/viewport combinations |
+
+Basic usability remains part of ordinary UI work: fix an observed keyboard trap, unreadable control, or inaccessible
+primary action. A scanner's incomplete result alone is not a functional defect or an experimental-release blocker.
+Retain audit output as advisory evidence; deferred checks are not passes and confer no accessibility claim.
+
+Run focused regressions, affected integration/API tests, then a few browser journeys for wiring and interactions
+lower layers cannot prove. Use one desktop browser by default; add a narrow viewport for layout changes and other
+environments only for a named risk. Keep the mandatory gates in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md).
+This policy does not waive security or data-loss checks.
+
+During diagnosis, rerun the failing step, not every previously passing journey or crash test. Repeat broader checks
+when subsequent changes invalidate their evidence, and run the required final gate after implementation settles.
+Documentation-only strategy edits need document/diff checks, not application builds or browser sweeps.
+
+Keep functional assertions separate from optional audits in runners and reports. Existing strict profiles may still
+combine them: select an affected journey or separate the phases before execution; never suppress a command failure
+or manufacture a full-suite receipt. Report functional results, unexecuted checks, and advisory audits separately.
 
 ## Test Layers
 
@@ -89,13 +118,16 @@ group('SessionKey', () {
 
 ### Layer 2 — Component / Integration Tests
 
-**What**: Behavioral tests that need infrastructure — temp directories, in-memory SQLite, or fakes for external boundaries (harness, channels, third-party APIs). May involve one service or several wired together.
+**What**: Behavioral tests that need infrastructure — temp directories, domain fakes, or fakes for external boundaries
+(harness, channels, third-party APIs). SQL dialect, schema, transaction, interlock, search and restore behavior uses
+real disposable PostgreSQL instead. May involve one service or several wired together.
 
-**Targets**: Services with file-based or SQLite storage, multi-service interactions, EventBus subscriber chains, channel message routing, task lifecycle flows, workflow execution with fake harnesses, CLI/server wiring seams, and repository contracts.
+**Targets**: Services with file-based storage, multi-service interactions, EventBus subscriber chains, channel message
+routing, task lifecycle flows, workflow execution with fake harnesses, CLI/server wiring seams, and repository contracts.
 
 **Characteristics**:
 - Temp directories for file-based storage (`Directory.systemTemp.createTempSync`)
-- In-memory SQLite (`sqlite3.openInMemory()`) for search/task tests
+- Domain repository/backend fakes when SQL behavior is not the claim
 - Shared fakes from `dartclaw_testing` for external boundaries (harness, channels, processes)
 - Per-test isolation — `setUp` creates fresh state, `tearDown` cleans up
 - When testing real local resources (TCP ports, process wiring, working-directory behavior, static-asset lookup), isolate them per test: bind port `0`, use per-test temp directories, and inject the working directory rather than assigning `Directory.current`. Serialization (`-j 1`) is a last resort — it costs 3–5× wall time across the package.
@@ -113,8 +145,7 @@ late TaskService taskService;
 
 setUp(() {
   tempDir = Directory.systemTemp.createTempSync('task_test_');
-  final db = sqlite3.openInMemory();
-  taskService = TaskService(repository: SqliteTaskRepository(db));
+  taskService = TaskService(repository: InMemoryTaskRepository());
 });
 
 tearDown(() => tempDir.deleteSync(recursive: true));
@@ -160,42 +191,14 @@ test('GET /api/tasks returns task list', () async {
 
 **What**: Tests that require real external systems, real binaries, or the fully assembled runtime wiring.
 
-**Characteristics**:
-- Tagged with `@Tags(['integration'])` — skipped by default in `dart_test.yaml`
-- Run explicitly with the package/profile command that selects real files and opts into skipped tests
-- Long timeouts (`Timeout(Duration(seconds: 60))`)
-- Require environment setup (API keys, binaries, hardware)
+Tagged `@Tags(['integration'])` and skipped by default in `dart_test.yaml`; run explicit files through their package/profile command with skipped tests enabled.
+Allow long timeouts (`Timeout(Duration(seconds: 60))`) and prepare required API keys, binaries or hardware.
 
 **When to write**: For protocol-level verification (JSONL round-trip with real binary), channel E2E pairing flows, deployment smoke tests, live workflow canaries, and server-builder wiring that must exercise the real package composition.
 
 **When to skip**: Almost always — prefer Layer 2 integration tests with `FakeAgentHarness` / `FakeProcess`. Only write Layer 4 tests when the real binary's behavior cannot be faithfully simulated.
 
-```dart
-@Tags(['integration'])
-test('real harness completes a turn', () async {
-  await harness.start();
-  final result = await harness.turn(
-    sessionId: 'test',
-    messages: [{'role': 'user', 'content': 'Reply with: OK'}],
-  );
-  expect(result['stop_reason'], isNotNull);
-}, timeout: Timeout(Duration(seconds: 60)));
-```
-
-The composition-root E2E coverage lives in [`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`](../../packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart), which boots the real `DartclawRuntime`, uses `FakeAgentHarness` plus in-memory SQLite, and verifies that the assembled server serves `/` and `/health`.
-
-```dart
-@Tags(['integration'])
-test('DartclawRuntime builds a server that serves / and /health', () async {
-  final result = await DartclawRuntime.build(config, /* … */);
-
-  final rootResponse = await result.server!.handler(Request('GET', Uri.parse('http://localhost/')));
-  expect(rootResponse.statusCode, equals(302));
-
-  final healthResponse = await result.server!.handler(Request('GET', Uri.parse('http://localhost/health')));
-  expect(healthResponse.statusCode, equals(200));
-});
-```
+The composition-root E2E coverage lives in [`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`](../../packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart), which boots the real `DartclawRuntime`, uses `FakeAgentHarness` plus prepared domain fakes, and verifies that the assembled server serves `/` and `/health`. Separate live PostgreSQL probes prove production storage wiring.
 
 ### Workflow Validation Ladder
 
@@ -270,18 +273,11 @@ DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-5 \
 
 **What**: Browser-based visual validation of the HTMX web UI. Manual or agent-driven via `chrome-devtools` MCP / `agent-browser`.
 
-**Targets**: Page layout, navigation, real-time updates (SSE), responsive behavior, error states.
-
-**Characteristics**:
-- Defined in [`dev/testing/UI-SMOKE-TEST.md`](../testing/UI-SMOKE-TEST.md) (18+ numbered test cases)
-- Run against a testing profile (`plain` or `channels`)
-- Not part of the `dart test` suite — triggered manually or via visual validation workflow
-
-**When to run**: Before releases, after UI changes, after template/CSS modifications.
+Select affected journeys from [`UI-SMOKE-TEST.md`](../testing/UI-SMOKE-TEST.md) against `plain` or `channels`.
+These are explicit browser checks, outside `dart test`. After UI changes, inspect the changed flow; before releases,
+smoke the core flows. Apply the experimental-stage scope above rather than every optional audit in the inventory.
 
 **Note**: Template rendering correctness (HTML structure, XSS escaping) is tested at Layer 2/3 via string assertions on rendered output. Browser tests cover layout and interactivity that string assertions cannot verify.
-
-**Future automation**: A strategy for automating 13 of 24 smoke TCs as Dart `puppeteer` browser E2E tests (tagged `@Tags(['e2e'])`) is documented in [`docs/research/e2e-test-strategy/research.md`](../research/e2e-test-strategy/research.md). This would add a Layer 4 sub-tier for browser automation without introducing Node.js. Tracked in the [product backlog](../PRODUCT-BACKLOG.md#automated-browser-e2e-tests).
 
 ---
 
@@ -363,8 +359,8 @@ Shared fakes for core-and-below boundaries live in `packages/dartclaw_testing/`.
 | `FakeTurnManager` | Turn lifecycle control | Reserve/execute/cancel hooks and configurable outcomes |
 | `NullIoSink` | Discard-all IOSink for subprocess tests | No-op `write`, `add`, `close` — silences stdout/stderr |
 | `InMemorySessionService` | Session storage without filesystem | Full API mirror, zero I/O |
-| `InMemoryTaskRepository` | Task storage without SQLite | Full CRUD, in-memory |
-| `InMemoryWorkflowStepExecutionRepository` | Workflow-step storage without SQLite | Full kernel repository contract, in-memory |
+| `InMemoryTaskRepository` | Task storage without a database | Full CRUD, in-memory |
+| `InMemoryWorkflowStepExecutionRepository` | Workflow-step storage without a database | Full kernel repository contract, in-memory |
 | `RecordingMessageQueue` | Queue routing assertions | Enqueued-message recording, optional forwarding |
 | `TaskOps` | Channel/task test scaffolding | Shared create/transition/update helpers |
 | `TestEventBus` | Event bus with recording | Event capture, subscription verification |
@@ -548,24 +544,25 @@ dart test --run-skipped -t integration packages/dartclaw_core
 
 #### PostgreSQL contract
 
-Start PostgreSQL 14, point the live suites at it, and run the same explicit contract command as CI:
+```bash
+# With Docker running, locally and in CI:
+bash dev/tools/postgres_contract.sh
+```
+
+The script proves two separate resources: plain PostgreSQL 14 first with no `public.vector`, then a pgvector-capable
+database for explicit hybrid behavior. It removes disposable resources on success, failure or interruption. A
+container may provision test resources in CI, but that does not make a container engine the operator setup default.
+
+Alternatively, supply the runner's documented disposable PostgreSQL URLs. Fixtures create/drop schemas, roles and
+databases and terminate test connections, so never point them at a retained deployment. The vector lane creates its
+own restricted role; a supplied database needs no container engine.
+
+Coverage: backend/repository contracts, schema/vector preparation, lexical/vector search, serving interlocks,
+hybrid/runtime wiring, workspace isolation and CLI rebuilds. The `full` workspace tier skips these live suites.
+Provider-dependent retention is excluded. Run it from the workspace root with `DARTCLAW_POSTGRES_URL` and `CODEX_API_KEY`:
 
 ```bash
-docker run -d --rm --name dartclaw-postgres-contract \
-  -e POSTGRES_PASSWORD=dartclaw_dev \
-  -e POSTGRES_DB=dartclaw_test \
-  -p 5432:5432 pgvector/pgvector:pg14
-
-until docker exec dartclaw-postgres-contract pg_isready --username postgres --dbname dartclaw_test; do
-  sleep 1
-done
-
-docker exec dartclaw-postgres-contract \
-  psql --username postgres --dbname dartclaw_test --set ON_ERROR_STOP=1 \
-  --command 'CREATE EXTENSION vector WITH SCHEMA public'
-
-export DARTCLAW_TEST_POSTGRES_URL='postgres://postgres:dartclaw_dev@localhost:5432/dartclaw_test?sslmode=disable'
-bash dev/tools/postgres_contract.sh
+dart test --run-skipped -t integration packages/dartclaw_runtime/test/integration/temporary_retention_postgres_live_test.dart
 ```
 
 Every contract group name starts with `[contract:<id>]`, and the same change must classify that id in
@@ -596,7 +593,7 @@ When implementing a new feature (FIS), determine test requirements by asking:
 
 1. **Is it security-critical?** (guards, auth, sanitization, access control) → Exhaustive Layer 1 + Layer 2 tests including false-positive coverage
 2. **Does it manage state transitions?** (task lifecycle, session scoping, binding lifecycle) → Layer 1 for the state machine (if no infrastructure needed), Layer 2 for service integration with storage
-3. **Does it persist data?** (storage, config, thread bindings) → Layer 2 with temp dirs or in-memory SQLite
+3. **Does it persist data?** (storage, config, thread bindings) → Layer 2 with temp dirs or domain fakes; real PostgreSQL for SQL behavior
 4. **Does it expose an API?** (HTTP routes, slash commands, config API) → Layer 3 handler tests
 5. **Does it interact with external systems?** (channels, claude binary, Google Chat API) → Layer 2 with fakes for external boundaries, Layer 4 only if fake coverage is insufficient
 6. **Is it pure logic or multi-class domain behavior?** (parsing, validation, rate calculation, guard chain orchestration) → Layer 1, letting real collaborators participate where practical

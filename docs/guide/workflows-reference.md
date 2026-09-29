@@ -48,7 +48,7 @@ Rules of thumb:
 | `variables` | map | `{}` | Input variable declarations |
 | `steps` | list | required | Ordered step definitions |
 | `gitStrategy` | map | none | Workflow-owned integration branch, promotion, publish, artifact, and cleanup policy |
-| `maxTokens` | int | none | Global per-workflow token budget |
+| `maxTokens` | int | none | Global per-workflow token budget. If completed agent work has unavailable accounting, the run stops before dispatching more work; an explicit retry rechecks durable accounting. Already running parallel work can still settle, so this is not an absolute concurrent spend ceiling. |
 | `stepDefaults` | list | none | Default config entries applied by glob pattern |
 
 Unknown top-level fields fail at parse time. Use inline `type: loop` steps for loops.
@@ -98,7 +98,7 @@ relevant declarations directly. The table below presents that declaration for au
 | `exitGate` | string | required for loops | Loop early-exit condition |
 | `onMaxIterations` | string | `fail` | Loop exhaustion policy: `fail`, top-level-only `continue`, or foreach/map-nested-only `escalate` |
 | `onFailure` / `on_failure` | string | `fail` | Step outcome policy: `fail`, `continue`, `retry`, or `pause` |
-| `onError` / `on_error` | string | `pause` | Engine-level error policy: `pause` or `continue`; legacy `fail` parses as `pause` |
+| `onError` / `on_error` | string | `fail` | Execution error policy: `fail`, `pause`, or `continue` |
 | `workdir` | string | workspace root | Working directory for `bash` steps |
 | `auto_frame_context` / `autoFrameContext` | bool | `true` | Disable XML auto-framing of declared inputs and workflow variables when false |
 | `emitsOwnOutcome` / `emits_own_outcome` | bool | `false` | Skip automatic step-outcome framing; the skill emits its own marker |
@@ -142,7 +142,7 @@ Compound expressions split on `||` into OR groups and on `&&` inside each group.
 | `memory_apply` | Curating personal memory with collection CAS |
 | `memory_observe` | Capturing observations or learnings |
 | `memory_search` | Searching memory |
-| `memory_read` | Reading canonical memory or native wiki/KG/inbox/QMD sources by stable locator |
+| `memory_read` | Reading canonical memory or native wiki/KG/inbox sources by stable locator |
 | `task_create` | Creating a task |
 | `task_review` | Accepting, rejecting or pushing back a task in review |
 | `task_list` | Listing tasks |
@@ -229,9 +229,44 @@ restarts. Commands that require process-tree containment belong on POSIX.
 | `retry` | Re-attempts the workflow step up to `maxRetries` times, then fails |
 | `pause` | Transitions the run to `awaitingApproval` |
 
-`onError` covers **engine-level** errors – a non-zero bash exit, a harness or task error – which carry no modeled outcome at all, so no `onFailure` branch ever sees them. `onError: continue` is therefore the only way to advance a run past a step that errored; it accepts `pause` (default) and `continue`, and the legacy `fail` spelling parses as `pause`. The two fields are complementary, not alternatives: author `onFailure` for outcomes the step reports and `onError` for errors it cannot.
+`onError` covers execution errors before a modeled outcome: a non-zero or unstartable bash command, or task creation/wait failure. Omission or `fail` terminally fails the run and offers explicit `retry`; `pause` records the cause and holds the failed unit for explicit `resume`; `continue` records a failed step and advances without satisfying success gates. A completed task's failed/rejected status, a model-declared failure, and output/artifact validation use `onFailure` and its retry budget even when `onError: continue` is set. `needsInput` retains its approval path.
+
+Resume restarts the failed step, loop body position, parallel member, or foreach child. Settled successful siblings and items keep their outputs and accounted usage. A failed attempt can have external side effects; resume does not undo them.
 
 A cancelled step pauses at its cursor ahead of either policy – cancellation is an interruption, never a failure.
+
+For a host Claude workflow, `providers.claude.options.permissionMode: dontAsk` in the server configuration requests
+the no-prompt posture. DartClaw starts a compatible CLI with native prompts `none`, retains subprocess credential
+scrubbing and host guards, and records the effective native mode as `default`. This is separate from a workflow's
+step policies. For example:
+
+```yaml
+name: bounded-review
+description: Review and report under a token cap
+maxTokens: 200
+steps:
+  - id: review
+    name: Review
+    provider: claude
+    prompt: Review the change
+    onError: continue
+    onFailure: continue
+  - id: report
+    name: Report
+    type: bash
+    script: printf 'Review finished\n'
+```
+
+Claude reports cumulative native-session totals across the root turn and delegated models; DartClaw charges only
+each turn's additive increment. If a prior turn has 100 output tokens and the next reports 130, the known increment
+is 30. If that turn's final ledger write fails, its durable receipt is incomplete. A complete 100-token ledger from
+the prior turn cannot certify the new turn: with `maxTokens`, the run fails before `report` despite both `continue`
+policies. The status and event stream carry the accounting reason, and `workflow retry <runId>` rechecks the same
+receipt. A transient read fault can clear on retry and count settled work once; a failed write leaves its gap
+incomplete. Without a cap, the workflow may advance, but that step's tokens remain unavailable (`null`) and the
+numeric run total is labelled an incomplete lower bound. A measured bash step reports zero. A genuine execution
+error under `onError: pause` instead holds its failed unit for `workflow resume <runId>`; a modeled failure follows
+`onFailure`.
 
 ### `outputs` Fields
 
@@ -276,7 +311,7 @@ outputs:
 stepDefaults:
   - match: "implement*"
     provider: claude
-    model: claude-sonnet-4
+    model: claude-sonnet-5
     maxRetries: 2
     turn_timeout: 1800
     allowedTools: [shell, file_read, file_write, file_edit]
@@ -326,7 +361,7 @@ Templates in `prompt`, `project`, and similar fields resolve through these names
 | `{{VARIABLE}}` | Declared workflow variable |
 | `{{context.key}}` | Workflow context key from prior outputs or auto-written metadata |
 | `{{context.<stepId>.status}}` | Per-step lifecycle outcome |
-| `{{context.<stepId>.tokenCount}}` | Per-step token usage |
+| `{{context.<stepId>.tokenCount}}` | Per-step token usage, numeric `0` for measured zero or null when unavailable |
 | `{{context.<stepId>.branch}}` / `{{context.<stepId>.worktree_path}}` | Worktree metadata |
 | `{{context.<stepId>.<key>}}` | Step-prefixed author-declared key |
 | `{{map.item}}` / `{{map.item.field}}` | Current mapped item or field |
@@ -335,6 +370,8 @@ Templates in `prompt`, `project`, and similar fields resolve through these names
 | `{{workflow.runtime_artifacts_dir}}` | Absolute runtime-artifacts root for the run |
 
 Use the `context.` prefix when reading another step's output. Without it, the engine treats the name as a workflow variable.
+
+Run `totalTokens` and the workflow status displays sum known contributions. When `tokenUsageComplete` is false, that number is an incomplete lower bound. An uncapped workflow can continue with unavailable step usage; later measured steps do not make the earlier gap complete.
 
 Each workflow task also receives `DARTCLAW_STEP_ARTIFACTS_DIR`, an environment variable pointing at a host-created per-step artifacts directory. Built-in review steps pass this to their review skill as `--output-dir` so the host can capture review reports deterministically.
 

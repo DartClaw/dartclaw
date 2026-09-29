@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -13,6 +14,7 @@ import 'agent_harness.dart';
 import 'base_harness.dart';
 import 'canonical_tool.dart';
 import 'codex_environment.dart';
+import 'codex_config_generator.dart';
 import 'codex_protocol_adapter.dart';
 import 'codex_protocol_utils.dart';
 import 'codex_settings.dart';
@@ -57,7 +59,12 @@ String? _sandboxPermissions(String sandboxValue) => switch (sandboxValue.trim())
 };
 
 /// Thin subprocess lifecycle manager for `codex app-server`.
-class CodexHarness extends BaseHarness {
+class CodexHarness extends BaseHarness
+    implements
+        HarnessToolApprovalResponder,
+        EffectiveContextCapabilityProvider,
+        ModelCatalogueProvider,
+        NativeSkillCapabilityProvider {
   /// Codex executable path or name.
   final String executable;
 
@@ -83,6 +90,12 @@ class CodexHarness extends BaseHarness {
   /// A configured container must execute there or fail; placement is never inferred.
   final ContainerExecutor? containerManager;
 
+  /// Pinned configured-agent workspace used for provider-native skill discovery.
+  final String? skillWorkspaceDir;
+
+  /// Additional roots allowed by Codex workspace-write sandbox policy.
+  final List<String> declaredWritableRoots;
+
   /// Makes the DartClaw-dedicated `CODEX_HOME` usable and returns its path, or
   /// `null` when this deployment presents an API key instead. Awaited before
   /// every host spawn so the vendor CLI starts on a token that is not about to
@@ -91,20 +104,27 @@ class CodexHarness extends BaseHarness {
   final Future<String?> Function()? prepareSubscriptionHome;
 
   static final _log = Logger('CodexHarness');
+  static const _userInputGuidance =
+      'DartClaw cannot collect answers from native mid-turn question tools. '
+      'If clarification is necessary, ask in your final reply so the user can answer in a subsequent turn. '
+      'A queued acknowledgement or recommended option is not a user answer.';
 
   final Map<String, ({String threadId, String? instructions})> _threads = {};
   String? _activeSessionId;
   String? _activeAgentId;
   int _nextRequestId = 0;
   Object? _initializeRequestId;
+  ({Object id, String method, Completer<Map<String, dynamic>> completer})? _setupRequest;
   ({Object id, String method, Completer<String> completer})? _threadRequest;
   Completer<Map<String, dynamic>>? _initializeCompleter;
   Completer<TurnResult>? _turnCompleter;
   final Set<String> _agentMessageDeltaIds = <String>{};
+  final Set<String> _reportedQuestionItems = <String>{};
   CodexEnvironment? _environment;
   String? _activeProviderSessionId;
   String? _activeThreadId;
   String? _activeTurnId;
+  final Map<String, ({String turnId, Timer timer})> _pendingOperatorApprovals = {};
 
   static const _turnResponseNotificationMethods = <String>{
     'turn/started',
@@ -136,6 +156,8 @@ class CodexHarness extends BaseHarness {
     PlatformCapabilities? platformCapabilities,
     this.containerManager,
     this.prepareSubscriptionHome,
+    this.skillWorkspaceDir,
+    this.declaredWritableRoots = const <String>[],
     Duration killGracePeriod = const Duration(seconds: 2),
     Duration initializeTimeout = const Duration(seconds: 10),
   }) : environment = environment ?? Platform.environment,
@@ -154,6 +176,51 @@ class CodexHarness extends BaseHarness {
 
   @override
   PromptStrategy get promptStrategy => PromptStrategy.append;
+
+  @override
+  EffectiveContextCapabilities get effectiveContextCapabilities =>
+      const EffectiveContextCapabilities(model: true, effort: true);
+
+  /// Bounds `model/list` paging against a provider that never ends the list.
+  static const _modelListPageLimit = 50;
+
+  /// Set while [discoverModelCatalogue] runs: the probe uses a dedicated home as
+  /// prepared and writes none of its configuration.
+  bool _discovering = false;
+
+  /// Sends `initialize`/`initialized`, every `model/list` page and one
+  /// ephemeral `thread/start` for the resolved default; never a turn.
+  @override
+  Future<ModelCatalogue> discoverModelCatalogue() async {
+    _discovering = true;
+    try {
+      await start();
+      final pages = <Map<String, dynamic>>[];
+      String? cursor;
+      do {
+        if (pages.length == _modelListPageLimit) {
+          throw StateError('Codex model/list did not end within $_modelListPageLimit pages');
+        }
+        final pageCursor = cursor;
+        final page = await _setupCall((id) => adapter.buildModelListRequest(id: id, cursor: pageCursor));
+        pages.add(page);
+        cursor = codexModelListNextCursor(page);
+      } while (cursor != null);
+      // The configured model rides along exactly as a turn sends it, so the
+      // resolved default is the model this deployment's turns run.
+      final configured = harnessConfig.model?.trim();
+      final threadStart = await _setupCall(
+        (id) => adapter.buildThreadStartRequest(
+          id: id,
+          params: {'ephemeral': true, if (configured != null && configured.isNotEmpty) 'model': configured},
+        ),
+      );
+      return codexModelCatalogue(pages: pages, threadStart: threadStart);
+    } finally {
+      _discovering = false;
+      await stop();
+    }
+  }
 
   @override
   bool get supportsCostReporting => false;
@@ -182,6 +249,9 @@ class CodexHarness extends BaseHarness {
   @override
   String skillActivationLine(String skill) => '\$$skill';
 
+  @override
+  bool get supportsNativeSkillInvocation => true;
+
   String? get _effectiveSandbox => containerManager == null ? _stringProviderOption('sandbox') : 'danger-full-access';
 
   @override
@@ -200,6 +270,7 @@ class CodexHarness extends BaseHarness {
         await _environment!.setup();
         await _spawnProcess();
         await _initialize();
+        await _configureSkillRoots();
         currentState = WorkerState.idle;
       } catch (_) {
         // Any startup step failed — release env/process resources before bubbling the cause.
@@ -224,6 +295,7 @@ class CodexHarness extends BaseHarness {
           ? CodexEnvironment.dedicated(
               developerInstructions: harnessConfig.appendSystemPrompt ?? '',
               homePath: dedicatedHome,
+              writesConfig: !_discovering,
               mcpServerUrl: harnessConfig.mcpServerUrl,
               mcpGatewayToken: harnessConfig.mcpGatewayToken,
               platformCapabilities: platformCapabilities,
@@ -241,6 +313,27 @@ class CodexHarness extends BaseHarness {
     await container.start();
     if (!await containerExecutableRuns(container, _containerExecutable)) {
       _throwMissingCodexExecutable('$_containerExecutable (container ${container.profileId})');
+    }
+    if (container case final VolatileContainerGeneratedState volatile when volatile.volatileGeneratedState) {
+      final home = p.posix.join(volatile.generatedStateContainerPath, 'codex-home');
+      await volatile.writeGeneratedStateFile(
+        'codex-home/config.toml',
+        CodexConfigGenerator.generate(
+          developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+          mcpServerUrl: container.mcpBridgeUrl,
+          gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+          nativeWebSearch: false,
+        ),
+      );
+      _environment = CodexEnvironment.containerAuthCleanPrepared(
+        developerInstructions: harnessConfig.appendSystemPrompt ?? '',
+        containerHomePath: home,
+        gatewayBaseUrl: '${container.providerBridgeUrl}/v1',
+        nativeWebSearch: false,
+        mcpServerUrl: container.mcpBridgeUrl,
+        platformCapabilities: platformCapabilities,
+      );
+      return;
     }
     final hostHome = p.join(container.generatedStateDir, 'codex-home');
     final containerHome = container.containerPathForHostPath(hostHome);
@@ -346,7 +439,9 @@ class CodexHarness extends BaseHarness {
     final deadline = effectiveTimeout > Duration.zero ? DateTime.now().add(effectiveTimeout) : null;
 
     try {
-      final scopedInstructions = systemPrompt.trim().isEmpty ? null : systemPrompt;
+      final scopedInstructions = systemPrompt.trim().isEmpty
+          ? _userInputGuidance
+          : '$systemPrompt\n\n$_userInputGuidance';
       var thread = _threads[sessionId];
       thread = providerSessionId != null && thread?.threadId != providerSessionId ? null : thread;
       if (providerSessionId == null && thread != null && thread.instructions != scopedInstructions) {
@@ -377,18 +472,17 @@ class CodexHarness extends BaseHarness {
           cwd: directory == null || directory.trim().isEmpty ? null : _resolveRequestedWorkingDirectory(directory),
           sandbox: _effectiveSandbox,
           approval: _stringProviderOption('approval'),
+          writableRoots: _providerWritableRoots(),
         ),
         outputSchema: outputSchema,
       );
       payload['id'] = ++_nextRequestId;
-      final promptPreview = stringifyMessageContent(messages.last['content']);
       final params = payload['params'] as Map<String, dynamic>?;
       final sandboxPolicy = params?['sandboxPolicy'] as Map<String, dynamic>?;
       _log.info(
         'Turn start: session=$sessionId, thread=$threadId, '
         'model=${model ?? harnessConfig.model}, '
-        'sandbox=${sandboxPolicy?['type'] ?? 'not-set'}, '
-        'prompt=${promptPreview.length > 120 ? '${promptPreview.substring(0, 120)}...' : promptPreview}',
+        'sandbox=${sandboxPolicy?['type'] ?? 'not-set'}',
       );
       stopwatch.start();
       _writeLine(payload);
@@ -417,7 +511,11 @@ class CodexHarness extends BaseHarness {
       }
       rethrow;
     } finally {
+      for (final requestId in _pendingOperatorApprovals.keys.toList(growable: false)) {
+        _declineOperatorApproval(requestId, expired: false);
+      }
       _agentMessageDeltaIds.clear();
+      _reportedQuestionItems.clear();
       _threadRequest = null;
       _turnCompleter = null;
       _activeSessionId = null;
@@ -515,7 +613,7 @@ class CodexHarness extends BaseHarness {
     // Build app-server args with sandbox permissions from provider options.
     // The per-turn `sandbox` JSON-RPC parameter is ignored in app-server mode;
     // sandbox must be configured at process startup via `-c sandbox_permissions`.
-    final args = ['app-server'];
+    final args = ['app-server', '-c', 'tools.experimental_request_user_input.enabled=false'];
     final container = containerManager;
     // Containerized spawns always run danger-full-access: the container is the
     // isolation boundary, and Codex's own sandbox tooling can neither ship in
@@ -568,6 +666,7 @@ class CodexHarness extends BaseHarness {
       await _environment!.setup();
       await _spawnProcess();
       await _initialize();
+      await _configureSkillRoots();
       currentState = WorkerState.idle;
     } catch (_) {
       await shutdownCurrentProcess(
@@ -616,6 +715,52 @@ class CodexHarness extends BaseHarness {
     _writeLine(adapter.buildInitializedNotification());
   }
 
+  Future<void> _configureSkillRoots() async {
+    final workspace = skillWorkspaceDir;
+    if (workspace == null) return;
+    final hostRoot = p.join(workspace, '.agents', 'skills');
+    final container = containerManager;
+    final root = container == null
+        ? hostRoot
+        : container.containerPathForHostPath(hostRoot) ??
+              (throw StateError('Configured agent skill root is not mounted in the container: $hostRoot'));
+    await _setupCall(
+      (id) => {
+        'id': id,
+        'method': 'skills/extraRoots/set',
+        'params': {
+          'extraRoots': [root],
+        },
+      },
+    );
+  }
+
+  /// Sends one request outside any turn and awaits its result, bounded by the
+  /// initialize timeout.
+  Future<Map<String, dynamic>> _setupCall(Map<String, dynamic> Function(int id) build) async {
+    final id = ++_nextRequestId;
+    final request = build(id);
+    final method = request['method'] as String;
+    final completer = Completer<Map<String, dynamic>>();
+    _setupRequest = (id: id, method: method, completer: completer);
+    _writeLine(request);
+    try {
+      return await completer.future.timeout(_initializeTimeout);
+    } on TimeoutException {
+      throw StateError('Codex $method timed out after ${_initializeTimeout.inSeconds}s');
+    }
+  }
+
+  List<String> _providerWritableRoots() {
+    final container = containerManager;
+    if (container == null) return declaredWritableRoots;
+    return [
+      for (final root in declaredWritableRoots)
+        container.containerPathForHostPath(root) ??
+            (throw StateError('Declared writable root is not mounted in the container: $root')),
+    ];
+  }
+
   Future<String> _openThread(String sessionId, String? developerInstructions, String? providerSessionId) async {
     final id = ++_nextRequestId;
     final completer = Completer<String>();
@@ -646,6 +791,7 @@ class CodexHarness extends BaseHarness {
     if (_isUnrelatedTurnNotification(decoded)) {
       return;
     }
+    _recordUserInputQuestion(decoded);
     _emitCompletedAgentMessageFallback(line);
     _handlePendingResponse(line);
 
@@ -664,13 +810,13 @@ class CodexHarness extends BaseHarness {
 
       case proto.ToolResultMessage(:final toolId, :final output, :final isError):
         if (isError) {
-          _log.warning('Tool error (id=$toolId): ${output.length > 200 ? '${output.substring(0, 200)}...' : output}');
+          _log.warning('Tool error (id=$toolId)');
         }
         emitEvent(ToolResultEvent(toolId: toolId, output: output, isError: isError));
 
       case proto.ProgressMessage(:final text, :final kind):
         if (kind == 'provider_setup_warning') {
-          _log.warning(text);
+          _log.warning('Provider setup warning');
         }
         emitEvent(ProviderProgressBridgeEvent(kind: kind, text: text));
 
@@ -678,9 +824,9 @@ class CodexHarness extends BaseHarness {
       case proto.BackgroundTasksChanged():
         break;
 
-      case proto.ProtocolDiagnostic(:final message, :final method, :final updateType):
+      case proto.ProtocolDiagnostic(:final method, :final updateType):
         if (method == 'mcpServer/startupStatus/updated' && updateType == 'failed') {
-          _log.warning(message);
+          _log.warning('MCP server startup failed');
         }
 
       case proto.ControlRequest(:final requestId, :final subtype, :final data):
@@ -721,6 +867,7 @@ class CodexHarness extends BaseHarness {
                     outputTokens: outputTokens ?? 0,
                     cacheReadTokens: cacheReadTokens ?? 0,
                     cacheWriteTokens: cacheWriteTokens ?? 0,
+                    tokenUsageComplete: inputTokens != null && outputTokens != null,
                   ),
           );
         }
@@ -793,6 +940,78 @@ class CodexHarness extends BaseHarness {
     return false;
   }
 
+  void _recordUserInputQuestion(Map<String, dynamic>? decoded) {
+    final method = stringValue(decoded?['method']);
+    final params = mapValue(decoded?['params']);
+    final isRequest = method == 'item/tool/requestUserInput';
+    final item = isRequest ? params : mapValue(params?['item']);
+    final isMessage =
+        (method == 'item/started' || method == 'item/completed') &&
+        (stringValue(item?['type']) == 'agentMessage' || stringValue(item?['type']) == 'agent_message');
+    final isSummary = method == 'turn/completed';
+    if (!isRequest && !isMessage && !isSummary) return;
+
+    final completer = _turnCompleter;
+    final threadId = stringValue(params?['threadId']);
+    final turnId = stringValue(params?['turnId']) ?? stringValue(mapValue(params?['turn'])?['id']);
+    if (completer == null ||
+        completer.isCompleted ||
+        threadId == null ||
+        threadId != _activeThreadId ||
+        turnId == null ||
+        turnId != _activeTurnId) {
+      return;
+    }
+
+    final items = isSummary ? listValue(mapValue(params?['turn'])?['items']) : null;
+    if (isSummary) {
+      if (items == null) return;
+      for (final raw in items) {
+        final summaryItem = mapValue(raw);
+        final type = stringValue(summaryItem?['type']);
+        if (type == 'agentMessage' || type == 'agent_message') {
+          _reportQuestionItem(summaryItem, threadId, turnId);
+        }
+      }
+      return;
+    }
+    _reportQuestionItem(item, threadId, turnId, itemId: isRequest ? stringValue(params?['itemId']) : null);
+  }
+
+  void _reportQuestionItem(Map<String, dynamic>? item, String threadId, String turnId, {String? itemId}) {
+    final rawQuestions = item?['questions'];
+    if (rawQuestions == null) return;
+    final id = itemId ?? stringValue(item?['id']);
+    final source = 'thread=${jsonEncode(threadId)} turn=${jsonEncode(turnId)} item=${jsonEncode(id ?? 'unknown')}';
+    if (id != null && _reportedQuestionItems.contains(id)) return;
+
+    final questions = <Map<String, dynamic>>[];
+    if (rawQuestions is List && rawQuestions.isNotEmpty) {
+      for (final raw in rawQuestions) {
+        final question = mapValue(raw);
+        final title = question?['title'];
+        final options = question?['options'];
+        if (title is! String ||
+            title.trim().isEmpty ||
+            options is! List ||
+            !options.every((option) => option is String && option.trim().isNotEmpty)) {
+          questions.clear();
+          break;
+        }
+        questions.add({'title': title, 'options': options});
+      }
+    }
+    if (questions.isEmpty) {
+      _log.warning('Malformed Codex user input: $source; invalid questions metadata');
+      return;
+    }
+    if (id != null) _reportedQuestionItems.add(id);
+    _log.warning(
+      'Unsupported Codex user input: $source questions=${jsonEncode(questions)}. '
+      'No answer was supplied through DartClaw.',
+    );
+  }
+
   @override
   void handleProcessStderrLine(String line) {
     _log.warning('stderr: $line');
@@ -858,6 +1077,10 @@ class CodexHarness extends BaseHarness {
     String? sessionId,
     String? agentId,
   }) async {
+    if (subtype == 'unsupported_user_input_request') {
+      _tryWriteApprovalResponse(requestId, allow: false, reason: 'Unsupported Codex request');
+      return;
+    }
     if (subtype == 'unsupported_elicitation' ||
         subtype == 'unsupported_permission_request' ||
         subtype == 'unsupported_command_request' ||
@@ -893,7 +1116,11 @@ class CodexHarness extends BaseHarness {
     String? agentId,
   }) async {
     final rawToolName = data['tool_name'] as String? ?? '';
-    emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
+    final operatorActionable =
+        (activeTurnContext?.allowOperatorApproval ?? false) && _stringProviderOption('approval') == 'on-request';
+    if (!operatorActionable) {
+      emitEvent(ToolApprovalWaitEvent(requestId: requestId, toolName: rawToolName));
+    }
     final providerToolInput = Map<String, dynamic>.from(mapValue(data['tool_input']) ?? const <String, dynamic>{});
     final evaluations = rawToolName == 'file_change'
         ? _fileChangeGuardEvaluations(providerToolInput)
@@ -932,9 +1159,64 @@ class CodexHarness extends BaseHarness {
       }
     }
 
+    if (operatorActionable) {
+      final context = activeTurnContext!;
+      if (_pendingOperatorApprovals.containsKey(requestId)) {
+        _tryWriteApprovalResponse(requestId, allow: false, reason: 'Duplicate approval request');
+        return;
+      }
+      final expiresAt = DateTime.now().toUtc().add(const Duration(minutes: 5));
+      final timer = Timer(expiresAt.difference(DateTime.now().toUtc()), () {
+        _declineOperatorApproval(requestId, expired: true);
+      });
+      _pendingOperatorApprovals[requestId] = (turnId: context.turnId, timer: timer);
+      emitEvent(
+        ToolApprovalWaitEvent(
+          requestId: requestId,
+          toolName: rawToolName,
+          input: providerToolInput,
+          operatorActionable: true,
+          expiresAt: expiresAt,
+        ),
+      );
+      return;
+    }
+
     if (_tryWriteApprovalResponse(requestId, allow: true)) {
       emitEvent(ToolApprovalResolvedEvent(requestId: requestId));
     }
+  }
+
+  @override
+  bool canResolveToolApproval({required String turnId, required String requestId}) {
+    final pending = _pendingOperatorApprovals[requestId];
+    return pending?.turnId == turnId && activeTurnContext?.turnId == turnId;
+  }
+
+  @override
+  Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved}) async {
+    final pending = _pendingOperatorApprovals[requestId];
+    if (pending == null || pending.turnId != turnId || activeTurnContext?.turnId != turnId) {
+      throw StateError('Approval request is not owned by the active Codex turn');
+    }
+    _pendingOperatorApprovals.remove(requestId);
+    pending.timer.cancel();
+    if (!_tryWriteApprovalResponse(requestId, allow: approved, reason: approved ? null : 'Rejected by operator')) {
+      throw StateError('Codex approval response could not be written');
+    }
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: approved));
+  }
+
+  void _declineOperatorApproval(String requestId, {required bool expired}) {
+    final pending = _pendingOperatorApprovals.remove(requestId);
+    if (pending == null) return;
+    pending.timer.cancel();
+    _tryWriteApprovalResponse(
+      requestId,
+      allow: false,
+      reason: expired ? 'Approval request expired' : 'Approval request closed with the turn',
+    );
+    emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: false, expired: expired));
   }
 
   (String, Map<String, dynamic>) _guardEvaluation(String rawToolName, Map<String, dynamic> providerToolInput) {
@@ -1023,6 +1305,16 @@ class CodexHarness extends BaseHarness {
       }
       _threadRequest = null;
     }
+
+    final setupRequest = _setupRequest;
+    if (setupRequest != null && !setupRequest.completer.isCompleted && id == setupRequest.id) {
+      if (error != null) {
+        setupRequest.completer.completeError(StateError('Codex ${setupRequest.method} failed: $error'));
+      } else {
+        setupRequest.completer.complete(result ?? const <String, dynamic>{});
+      }
+      _setupRequest = null;
+    }
   }
 
   void _completePendingWithError(Object error) {
@@ -1032,6 +1324,10 @@ class CodexHarness extends BaseHarness {
     }
     _initializeCompleter = null;
     _initializeRequestId = null;
+
+    final setupRequest = _setupRequest;
+    if (setupRequest != null && !setupRequest.completer.isCompleted) setupRequest.completer.completeError(error);
+    _setupRequest = null;
 
     final threadRequest = _threadRequest;
     if (threadRequest != null && !threadRequest.completer.isCompleted) threadRequest.completer.completeError(error);

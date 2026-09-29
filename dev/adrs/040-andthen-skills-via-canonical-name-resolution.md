@@ -22,7 +22,7 @@ That model carried two structural problems:
 **Depend on AndThen as already installed for the active provider, and resolve canonical skill names to provider-native names at workflow-load time. Do not clone, install, or rebrand.**
 
 1. **The git-source provisioning surface is retired.** `SkillProvisioner` has no `git_url`, `ref`, `network`, cached-source, or git-subprocess path. Legacy `andthen.*` keys in `dartclaw.yaml` are ignored with a warning and control nothing.
-2. **Workflow YAMLs reference AndThen skills by canonical logical name** — `skill: andthen:spec`, `andthen:review`, `andthen:remediate-findings`, etc. — not by a `dartclaw-`-branded name. This reverses ADR-025 §Decision 2: DartClaw *does* reference the `andthen:`/`andthen-*` names at runtime.
+2. **Workflow YAMLs reference AndThen skills by canonical logical name** — `skill: andthen:spec`, `andthen:review`, `andthen:implement-fix`, etc. — not by a `dartclaw-`-branded name. This reverses ADR-025 §Decision 2: DartClaw *does* reference the `andthen:`/`andthen-*` names at runtime.
 3. **DartClaw resolves the canonical reference to the provider-native skill name:**
    - Claude Code → `andthen:spec` (plugin namespace, bound by the harness)
    - Codex → `andthen-spec` (hyphenated skill directory)

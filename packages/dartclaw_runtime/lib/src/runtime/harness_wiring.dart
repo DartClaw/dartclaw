@@ -8,11 +8,16 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../concurrency/session_lock_manager.dart' show SessionLockNow, SessionLockTimerFactory;
+import '../mcp/mcp_server.dart' show McpCallerContext;
+import 'model_catalogue_discovery.dart';
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
 import 'provider_resolution.dart' show sanitizeProviderRequestEnvironment;
 
 part 'harness_wiring_guards.dart';
+part 'harness_wiring_memory.dart';
+part 'harness_wiring_model_catalogue.dart';
+part 'harness_wiring_provider_support.dart';
 
 /// Constructs and exposes harness-layer services.
 ///
@@ -265,11 +270,16 @@ class HarnessWiring {
   late HarnessLaunchOptions _harnessConfig;
   late List<AgentDefinition> _agentDefs;
   late Map<String, AgentDefinition> _agentMap;
+  late String _ownerWorkerPrompt;
+  late Map<String, ({String task, String restricted})> _agentWorkerPrompts;
+  late BehaviorFileService _ownerWorkerBehavior;
+  late Map<String, ({BehaviorFileService task, BehaviorFileService restricted})> _agentWorkerBehaviors;
   late List<McpTool> _semanticMcpTools;
   late Map<String, CanonicalTool> _ownMcpToolCanonicals;
   late BehaviorFileService _behavior;
   late String _defaultProviderId;
   SelfImprovementService? _selfImprovement;
+  final Map<String, SelfImprovementService> _selfImprovementByPrincipal = {};
   late LogicalAgentSessionService _logicalAgentSessions;
   late UsageTracker _usageTracker;
   HealthService? _healthService;
@@ -279,6 +289,7 @@ class HarnessWiring {
   late SessionLockManager _lockManager;
   late SessionResetService _resetService;
   MemoryHandlers? _memoryHandlers;
+  final Map<String, MemoryHandlers> _workspaceMemoryHandlers = {};
   BudgetEnforcer? _budgetEnforcer;
   Map<String, ProviderEntry> _providerStatusEntries = const {};
   bool _authEnabled = false;
@@ -298,6 +309,31 @@ class HarnessWiring {
   /// `agent.provider`, normalized – the provider a definition without one inherits.
   String get defaultProviderId => _defaultProviderId;
   ProviderExecutionInventory get executionInventory => _executionInventory;
+  TemporaryConversationCapability get temporaryConversationCapability {
+    const policy = ExecutionPolicy.container('workspace');
+    final providerId = defaultProviderId;
+    final support = _executionInventory.supports[ProviderIdentity.normalize(providerId)];
+    final verdict = _executionInventory.verdictFor(providerId: providerId, policy: policy);
+    final codex = ProviderIdentity.family(providerId) == ProviderIdentity.codex;
+    final container = _security.containersEnabled && _security.availableContainerProfiles.contains('workspace');
+    final available = codex && support != null && verdict.isSupported && container;
+    final reason = !codex
+        ? 'The effective interactive provider is not Codex'
+        : support == null
+        ? 'The effective provider has no executable built-in support row'
+        : !verdict.isSupported
+        ? verdict.message
+        : !container
+        ? 'The workspace container profile is unavailable on this host'
+        : '';
+    return TemporaryConversationCapability(
+      providerId: providerId,
+      policy: policy,
+      available: available,
+      reason: reason,
+    );
+  }
+
   HarnessLaunchOptions get harnessConfig => _harnessConfig;
   List<AgentDefinition> get agentDefs => _agentDefs;
   Map<String, AgentDefinition> get agentMap => _agentMap;
@@ -306,6 +342,17 @@ class HarnessWiring {
   BehaviorFileService get behavior => _behavior;
   SelfImprovementService? get selfImprovement => _selfImprovement;
   LogicalAgentSessionService get logicalAgentSessions => _logicalAgentSessions;
+  Map<String, EffectiveContextCapabilities> get effectiveContextCapabilities {
+    final declared = _harnessFactory.probeEffectiveContextCapabilities();
+    final executable = {defaultProviderId, ..._executions.snapshot.providers.keys};
+    final capabilities = <String, EffectiveContextCapabilities>{};
+    for (final providerId in executable) {
+      final providerCapabilities = declared[providerId];
+      if (providerCapabilities != null) capabilities[providerId] = providerCapabilities;
+    }
+    return Map.unmodifiable(capabilities);
+  }
+
   UsageTracker get usageTracker => _usageTracker;
 
   /// The health probe over the primary harness, or `null` when there is none.
@@ -323,13 +370,22 @@ class HarnessWiring {
   SessionResetService get resetService => _resetService;
   MemoryHandlers get memoryHandlers =>
       _memoryHandlers ?? (throw StateError('This runtime has no personal-memory handlers'));
+  Map<String, MemoryHandlers> get memoryHandlersByPrincipal => Map.unmodifiable(_workspaceMemoryHandlers);
   BudgetEnforcer? get budgetEnforcer => _budgetEnforcer;
   Map<String, ProviderEntry> get providerStatusEntries => _providerStatusEntries;
   bool get authEnabled => _authEnabled;
   TokenService? get tokenService => _tokenService;
   String? get resolvedGatewayToken => _resolvedGatewayToken;
 
+  /// The model catalogue [providerId] reported, or `null` before or without one.
+  ModelCatalogue? modelCatalogueFor(String providerId) => _modelCatalogues?.catalogueFor(providerId);
+  ModelCatalogueDiscovery? _modelCatalogues;
+
   Future<void> startPrimary() async => _harness?.start();
+
+  /// Discovers model catalogues in the background; the composition root calls
+  /// it once the chat-serving runtime has started.
+  void startModelCatalogueDiscovery() => (_modelCatalogues ??= _buildModelCatalogueDiscovery()).start();
 
   /// Wires harness services. [turnManagerGetter] is resolved lazily for
   /// the logical-agent session dispatch closure, and answers `null` in a
@@ -349,35 +405,55 @@ class HarnessWiring {
     final staticPrompt = await _behavior.composeStaticPrompt(
       scope: _primaryLaneEnabled ? PromptScope.primary : PromptScope.task,
     );
+    _ownerWorkerPrompt = _primaryLaneEnabled
+        ? await _behavior.composeStaticPrompt(scope: PromptScope.task)
+        : staticPrompt;
 
     final memoryCorpus = _storage.personalMemoryCorpus;
     if (memoryCorpus != null) {
-      final selfImprovement = _selfImprovement = SelfImprovementService(
-        workspaceDir: config.workspaceDir,
-        corpusService: memoryCorpus,
-      );
-      _memoryHandlers = createMemoryHandlers(
-        memoryIndex: _storage.memoryIndex,
-        memoryFile: _storage.memoryFile,
-        corpusService: memoryCorpus,
-        searchBackend: _storage.searchBackend,
-        nativeSourceResolver: LiveMemorySourceResolver(
-          wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
-          kg: _storage.kg,
-          inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
-        ),
-        selfImprovement: selfImprovement,
-      );
+      for (final context in _storage.memoryContexts) {
+        final selfImprovement = SelfImprovementService(workspaceDir: context.directory, corpusService: context.corpus);
+        _selfImprovementByPrincipal[context.principal] = selfImprovement;
+        if (context.principal == 'owner') _selfImprovement = selfImprovement;
+        final handlers = createMemoryHandlers(
+          memoryIndex: _storage.memoryIndex,
+          memoryFile: context.file,
+          corpusService: context.corpus,
+          searchBackend: _storage.searchBackendFor(context.principal),
+          nativeSourceResolver: context.principal == 'owner'
+              ? LiveMemorySourceResolver(
+                  wiki: WikiSearchSource(workspaceDir: config.workspaceDir),
+                  kg: _storage.kg,
+                  inbox: KnowledgeInboxReadService(workspaceDir: config.workspaceDir),
+                )
+              : null,
+          selfImprovement: selfImprovement,
+        );
+        _workspaceMemoryHandlers[context.principal] = handlers;
+        if (context.principal == 'owner') _memoryHandlers = handlers;
+      }
     }
 
     final semanticMcpTools = <McpTool>[WebFetchTool(scan: _security.contentScan)];
     final memoryHandlers = _memoryHandlers;
     if (memoryHandlers != null) {
       semanticMcpTools.addAll([
-        MemoryApplyTool(handler: memoryHandlers.onApply, contextualHandler: memoryHandlers.apply),
-        MemoryObserveTool(handler: memoryHandlers.onObserve, contextualHandler: memoryHandlers.observe),
-        MemorySearchTool(handler: memoryHandlers.onSearch),
-        MemoryReadTool(handler: memoryHandlers.onRead),
+        MemoryApplyTool(
+          handler: memoryHandlers.onApply,
+          callerHandler: (args, caller) => _callScopedMemory('memory_apply', args, caller),
+        ),
+        MemoryObserveTool(
+          handler: memoryHandlers.onObserve,
+          callerHandler: (args, caller) => _callScopedMemory('memory_observe', args, caller),
+        ),
+        MemorySearchTool(
+          handler: memoryHandlers.onSearch,
+          callerHandler: (args, caller) => _callScopedMemory('memory_search', args, caller),
+        ),
+        MemoryReadTool(
+          handler: memoryHandlers.onRead,
+          callerHandler: (args, caller) => _callScopedMemory('memory_read', args, caller),
+        ),
       ]);
     }
     for (final entry in config.search.providers.entries) {
@@ -421,6 +497,7 @@ class HarnessWiring {
       'schedule_list': CanonicalTool.scheduleList,
       'attach_media': CanonicalTool.attachMedia,
       'wiki_write': CanonicalTool.wikiWrite,
+      'context_research': CanonicalTool.contextResearch,
       for (final tool in _semanticMcpTools)
         tool.name: switch (tool.name) {
           'web_fetch' => CanonicalTool.webFetch,
@@ -473,6 +550,22 @@ class HarnessWiring {
       }
     }
     _agentMap = {for (final a in _agentDefs) a.id: a};
+    final agentBehaviors = {
+      for (final definition in _agentDefs)
+        definition.id: _behavior.forAgentDefinition(definition, workspace: definition.workspace),
+    };
+    _agentWorkerPrompts = {
+      for (final entry in agentBehaviors.entries)
+        entry.key: (
+          task: await entry.value.composeStaticPrompt(scope: PromptScope.task),
+          restricted: await entry.value.composeStaticPrompt(scope: PromptScope.restricted),
+        ),
+    };
+    _ownerWorkerBehavior = _snapshotBehavior(_ownerWorkerPrompt);
+    _agentWorkerBehaviors = {
+      for (final entry in _agentWorkerPrompts.entries)
+        entry.key: (task: _snapshotBehavior(entry.value.task), restricted: _snapshotBehavior(entry.value.restricted)),
+    };
     // Bridged MCP authorization resolves registered tool names through the
     // same canonical taxonomy the guard cascade uses.
     _security.mcpToolCanonicals = _ownMcpToolCanonicals;
@@ -704,9 +797,8 @@ class HarnessWiring {
 
     _logicalAgentSessions = LogicalAgentSessionService(
       dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
-        final definition = _agentMap[agentId] ?? (throw StateError('Unknown agent: $agentId'));
-        final personaPrompt = definition.personaPrompt;
-        final persona = personaPrompt.trim().isEmpty ? null : personaPrompt;
+        final definition =
+            _logicalAgentSessions.agentDefinition(agentId) ?? (throw StateError('Unknown agent: $agentId'));
         final trimmedModel = definition.model?.trim();
         final trimmedEffort = definition.effort?.trim();
         final configuredProvider = definition.provider?.trim();
@@ -722,6 +814,7 @@ class HarnessWiring {
             provider: agentProviderId,
             securityProfile: policy.containerProfile,
             executionMode: policy.mode,
+            workspace: definition.workspace,
           );
         } else {
           session = await _storage.sessions.getByKey(sessionId);
@@ -740,18 +833,31 @@ class HarnessWiring {
           executionMode: session.executionMode,
           securityProfile: session.securityProfile,
         );
+        AgentWorkspace.requireCurrent(
+          sessionId: session.id,
+          agentId: agentId,
+          pinned: session.workspace,
+          configured: definition.workspace,
+        );
 
         final turns = turnManagerGetter() ?? (throw StateError(_noServerSurface));
+        final agentScope = sessionPolicy.containerProfile == SecurityProfile.restricted.id
+            ? PromptScope.restricted
+            : PromptScope.task;
+        final agentBehavior = _agentMap.containsKey(agentId)
+            ? agentWorkerBehavior(agentId, agentScope)
+            : _snapshotBehavior(definition.prompt);
         final turnId = await turns.reserveTurn(
           session.id,
           agentName: agentId,
           model: trimmedModel == null || trimmedModel.isEmpty ? null : trimmedModel,
           effort: trimmedEffort == null || trimmedEffort.isEmpty ? null : trimmedEffort,
-          systemPromptOverride: persona,
+          behaviorOverride: agentBehavior,
+          allowedTools: definition.allowedTools.toList(growable: false),
           workerPolicy: sessionPolicy,
           outputSchema: definition.outputSchema,
           outputSchemaWhenSupported: true,
-          promptScope: PromptScope.task,
+          promptScope: agentScope,
         );
         try {
           await _storage.messages.insertMessage(sessionId: session.id, role: 'user', content: message);
@@ -824,13 +930,23 @@ class HarnessWiring {
       required TaskToolFilterGuard toolFilter,
       required String providerId,
       required ExecutionPolicy executionPolicy,
+      required SelfImprovementService? selfImprovement,
+      BehaviorFileService? behavior,
     }) => TurnRunner(
       harness: harness,
       messages: _storage.messages,
-      behavior: _behavior,
+      behavior: behavior ?? _behavior,
       memoryFile: _storage.personalMemoryFile,
+      memoryFileForSession: (session, agentName) {
+        if (session.workspace == null && agentName != null && agentName != 'main' && !agentName.startsWith('cron:')) {
+          return null;
+        }
+        final memory = _storage.memoryContextForWorkspace(session.workspace);
+        return memory?.allowsWrite == true ? memory!.file : null;
+      },
       sessions: _storage.sessions,
       turnState: _storage.turnStateStore,
+      dailyLogEligible: (session) => session.retention.isDurable,
       kv: _storage.kvService,
       guardChain: guardChain,
       taskToolFilterGuard: toolFilter,
@@ -838,7 +954,7 @@ class HarnessWiring {
       resetService: _resetService,
       contextMonitor: _contextMonitor,
       redactor: _messageRedactor,
-      selfImprovement: _selfImprovement,
+      selfImprovement: selfImprovement,
       usageTracker: _usageTracker,
       sseBroadcast: _sseBroadcast,
       globalRateLimiter: globalRateLimiter,
@@ -853,11 +969,6 @@ class HarnessWiring {
       providerId: providerId,
     );
 
-    // Append-mode providers receive behavior content when their process starts.
-    // Snapshot the task prompt once so all workers in this coordinator share the
-    // same construction inputs and are safe to reuse.
-    final workerPrompt = await _behavior.composeStaticPrompt(scope: PromptScope.task);
-
     // Build the primary lane and on-demand worker authority.
     final primaryHarnessForRunner = _harness;
     final primaryRunner = primaryHarnessForRunner == null
@@ -868,6 +979,7 @@ class HarnessWiring {
             toolFilter: primaryFilter,
             providerId: defaultProviderId,
             executionPolicy: _primaryPolicy,
+            selfImprovement: _selfImprovement,
           );
     _executions = ExecutionCoordinator(
       primary: primaryRunner,
@@ -909,6 +1021,21 @@ class HarnessWiring {
         final nativeGrants =
             executionAllowedTools ??
             (request.surface == ExecutionSurface.workflow ? _undeclaredStepNativeGrants : null);
+        final exposesWorkspace = containerProfile != SecurityProfile.restricted.id;
+        final skillWorkspaceDir = exposesWorkspace ? request.workspace?.directory : null;
+        final workerDefinition = request.logicalAgentId == null ? null : _agentMap[request.logicalAgentId];
+        final promptSnapshot = workerDefinition == null ? null : _agentWorkerPrompts[workerDefinition.id]!;
+        final workerPrompt = promptSnapshot == null
+            ? _ownerWorkerPrompt
+            : request.policy.containerProfile == SecurityProfile.restricted.id
+            ? promptSnapshot.restricted
+            : promptSnapshot.task;
+        final behaviorSnapshot = workerDefinition == null ? null : _agentWorkerBehaviors[workerDefinition.id]!;
+        final workerBehavior = behaviorSnapshot == null
+            ? _ownerWorkerBehavior
+            : request.policy.containerProfile == SecurityProfile.restricted.id
+            ? behaviorSnapshot.restricted
+            : behaviorSnapshot.task;
         final bridgedMcpTools = _bridgedMcpToolsFor(
           agentId: request.logicalAgentId,
           allowedTools: request.allowedTools,
@@ -924,10 +1051,15 @@ class HarnessWiring {
                 policy: request.policy,
                 sourceSessionId: request.sessionId,
                 logicalAgentId: request.logicalAgentId,
+                workspacePrincipal: request.workspace?.storagePrincipal,
                 taskId: request.taskId,
               ),
               allowedMcpTools: bridgedMcpTools,
               artifactsDir: request.artifactsDir,
+              workspaceDir: request.workspace?.directory,
+              executionDir: request.directory,
+              useOwnerWorkspace: request.logicalAgentId == null,
+              volatileGeneratedState: request.retention == ConversationRetention.process,
             );
           } catch (error) {
             throw WorkerCreationException(
@@ -972,7 +1104,11 @@ class HarnessWiring {
               providerOptions: entry.options,
               // Native allow rules supplement the task's guard policy.
               declaredCanonicalTools: nativeGrants,
-              declaredWritableRoots: [?request.artifactsDir],
+              declaredWritableRoots: [
+                if (exposesWorkspace && request.workspace != null) request.workspace!.directory,
+                ?request.artifactsDir,
+              ],
+              skillWorkspaceDir: skillWorkspaceDir,
               containerManager: containerManager,
               guardChain: workerGuardChain,
               environment: {
@@ -1004,6 +1140,11 @@ class HarnessWiring {
             toolFilter: workerFilter,
             executionPolicy: request.policy,
             providerId: request.providerId,
+            selfImprovement: switch (_storage.memoryContextForWorkspace(request.workspace)) {
+              WorkspaceMemoryContext(allowsWrite: true, :final principal) => _selfImprovementByPrincipal[principal],
+              _ => null,
+            },
+            behavior: workerBehavior,
           );
           if (lease != null) _workerContainers[runner] = lease;
           return runner;
@@ -1017,6 +1158,19 @@ class HarnessWiring {
       },
     );
   }
+
+  /// Immutable behavior composed for one configured agent when wiring completed.
+  BehaviorFileService agentWorkerBehavior(String agentId, PromptScope scope) {
+    final behavior = _agentWorkerBehaviors[agentId] ?? (throw StateError('Unknown agent: $agentId'));
+    return scope == PromptScope.restricted ? behavior.restricted : behavior.task;
+  }
+
+  BehaviorFileService _snapshotBehavior(String prompt) => BehaviorFileService(
+    workspaceDir: _behavior.workspaceDir,
+    personalMemoryEnabled: false,
+    soulOverride: prompt,
+    workspaceFilesEnabled: false,
+  );
 
   /// Creates the container backing the primary harness, or returns `null` when
   /// the primary agent's resolved policy places it on the host.
@@ -1228,6 +1382,7 @@ class HarnessWiring {
     required Map<String, String> environment,
     List<String>? declaredCanonicalTools,
     List<String> declaredWritableRoots = const <String>[],
+    String? skillWorkspaceDir,
     Map<String, String> containerEnvironment = const {},
     Future<String?> Function()? prepareSubscriptionHome,
   }) {
@@ -1235,6 +1390,7 @@ class HarnessWiring {
     return HarnessFactoryConfig(
       declaredCanonicalTools: declaredCanonicalTools,
       declaredWritableRoots: declaredWritableRoots,
+      skillWorkspaceDir: skillWorkspaceDir,
       cwd: Directory.current.path,
       executable: executable,
       turnTimeout: config.governance.turnLimits.turnTimeout > Duration.zero
@@ -1244,10 +1400,16 @@ class HarnessWiring {
       onMemoryObserve: memoryHandlers?.onObserve,
       onContextualMemoryApply: memoryHandlers == null
           ? null
-          : (arguments, context) => memoryHandlers.apply(arguments, _memoryCaptureContext('memory_apply', context)),
+          : (arguments, context) => _callScopedHarnessMemory('memory_apply', arguments, context),
       onContextualMemoryObserve: memoryHandlers == null
           ? null
-          : (arguments, context) => memoryHandlers.observe(arguments, _memoryCaptureContext('memory_observe', context)),
+          : (arguments, context) => _callScopedHarnessMemory('memory_observe', arguments, context),
+      onContextualMemorySearch: memoryHandlers == null
+          ? null
+          : (arguments, context) => _callScopedHarnessMemory('memory_search', arguments, context),
+      onContextualMemoryRead: memoryHandlers == null
+          ? null
+          : (arguments, context) => _callScopedHarnessMemory('memory_read', arguments, context),
       onMemorySearch: memoryHandlers?.onSearch,
       onMemoryRead: memoryHandlers?.onRead,
       onPermissionDenied: (toolName, reason) {
@@ -1266,24 +1428,12 @@ class HarnessWiring {
     );
   }
 
-  MemoryCaptureContext _memoryCaptureContext(String toolName, HarnessTurnContext context) {
-    final cronAgent = context.source == 'cron' ? context.agentName : null;
-    var originKind = MemoryOriginKind.turn;
-    var sourceLocator = 'session:${context.sessionId}';
-    if (cronAgent == 'cron:memory-journal') {
-      originKind = MemoryOriginKind.journal;
-      sourceLocator = 'memory-journal';
-    } else if (cronAgent == 'cron:$memoryCurationJobId') {
-      originKind = MemoryOriginKind.curation;
-      sourceLocator = memoryCurationJobId;
+  Future<void> _refuseTemporaryMemoryWrite(String toolName, String? sessionId) async {
+    if (sessionId == null || (toolName != 'memory_apply' && toolName != 'memory_observe')) return;
+    final session = await _storage.sessions.getSession(sessionId);
+    if (session?.retention == ConversationRetention.process) {
+      throw StateError('Temporary conversations cannot write memory');
     }
-    return MemoryCaptureContext(
-      originKind: originKind,
-      sourceLocator: sourceLocator,
-      sourceEvent: 'turn:${context.turnId}',
-      caller: context.agentName == 'main' ? toolName : context.agentName,
-      sessionRef: context.sessionId,
-    );
   }
 
   void _warnToolPolicyEnforcementBoundaries(String defaultProviderId) {
@@ -1340,158 +1490,4 @@ class HarnessWiring {
       '(see docs/guide/security.md § Hardening the primary agent for untrusted channels).',
     );
   }
-
-  /// Wires compaction EventBus callbacks onto a [ClaudeCodeHarness] instance.
-  ///
-  /// No-op for other harness types — only [ClaudeCodeHarness] exposes the
-  /// compaction callback fields.
-  void _wireCompactionCallbacks(AgentHarness harness) {
-    if (harness is! ClaudeCodeHarness || _memoryHandlers == null) return;
-    harness.onCompactionStarting = (sessionId, trigger) async {
-      try {
-        await _capturePreCompactObservation(sessionId, trigger);
-      } finally {
-        _eventBus.fire(CompactionStartingEvent(sessionId: sessionId, trigger: trigger, timestamp: DateTime.now()));
-      }
-    };
-    harness.onCompactionCompleted = (trigger, preTokens) {
-      final sessionId = harness.sessionId ?? '';
-      _eventBus.fire(
-        CompactionCompletedEvent(
-          sessionId: sessionId,
-          trigger: trigger,
-          preTokens: preTokens,
-          timestamp: DateTime.now(),
-        ),
-      );
-    };
-  }
-
-  Future<void> _capturePreCompactObservation(String sessionId, String trigger) async {
-    final memoryHandlers = _memoryHandlers;
-    if (memoryHandlers == null) return;
-    final messages = await _storage.messages.getMessagesTail(sessionId, count: _preCompactMessageCount);
-    if (messages.isEmpty) return;
-    final triggerLabel = trigger == 'manual' ? 'manual' : 'auto';
-    final tail = messages.map((message) => '[${message.role}] ${_messageRedactor.redact(message.content)}').join('\n');
-    final text = truncateUtf8Bytes(
-      'Pre-compaction conversation context ($triggerLabel):\n$tail',
-      _preCompactObservationMaxBytes,
-    );
-    await memoryHandlers.observe(
-      {'text': text, 'role': 'observation'},
-      MemoryCaptureContext(
-        originKind: MemoryOriginKind.turn,
-        sourceLocator: 'session:$sessionId',
-        sourceEvent: 'pre-compact:${messages.last.id}',
-        caller: 'claude:PreCompact',
-        sessionRef: sessionId,
-      ),
-    );
-  }
-}
-
-/// Tools a worker must refuse, resolved against the MCP surface it will really
-/// have.
-///
-/// On the host a provider-native web tool is suppressed only where the
-/// deployment MCP endpoint replaces it, already folded into
-/// [hostDisallowedTools]. Every container loses both of them regardless of what
-/// its bridge serves: they run at the provider rather than in the container, so
-/// `network:none` cannot contain them and the host gateway refuses any request
-/// declaring one. Keeping a native tool the gateway would 403 buys no
-/// capability — it only moves the failure to the agent's first call.
-List<String> workerDisallowedTools({
-  required String? containerProfile,
-  required List<String> hostDisallowedTools,
-  required List<String> userDisallowedTools,
-}) {
-  if (containerProfile == null) return hostDisallowedTools;
-  return [...userDisallowedTools, 'WebFetch', 'WebSearch'];
-}
-
-/// Why [providerId] cannot present the credential selected for it, or `null`
-/// when it can — the credential half of every execution-admission verdict.
-///
-/// [CredentialUnavailableReason.noneConfigured] is not a refusal: nothing was
-/// selected, DartClaw presents nothing, and the vendor CLI's own login stays
-/// admissible. Every other reason means the operator forced a credential this
-/// deployment cannot present, and spawning anyway would authenticate the turn on
-/// the ambient login they ruled out — not injecting one is not the same as
-/// refusing one. A provider that declares it supplies its own credentials is
-/// left alone, matching the startup gate; so is a registrar-owned provider,
-/// which is credential-isolated and therefore has no first-party selection to
-/// fail.
-String? _credentialRefusalFor(
-  DartclawConfig config,
-  CredentialRegistry registry,
-  String providerId,
-  Map<String, ProviderEntry> registeredProviders,
-) {
-  final target = resolveProviderTarget(config, providerId, registeredProviders: registeredProviders);
-  if (target.options['credentials_required'] == false || target.isRegistered) return null;
-  final family = target.family;
-  final reason = registry.resolve(providerId, family: family).reason;
-  if (reason == null || reason == CredentialUnavailableReason.noneConfigured) return null;
-  return credentialRemediationFor(
-    reason,
-    providerId: providerId,
-    family: family,
-    credentialsDir: config.credentialsDir,
-  );
-}
-
-/// The configured provider entries, with the registrar-owned validation options
-/// an operator must not be able to forge stripped out.
-///
-/// A registrar layers its own entries — validation options included — over this
-/// through `HarnessRegistration.providerEntries`; what an operator wrote under
-/// `providers.<id>.options` never counts as a registrar's verdict.
-Map<String, ProviderEntry> _effectiveWorkerProviderEntries(DartclawConfig config) {
-  final entries = <String, ProviderEntry>{
-    for (final entry in ProviderIdentity.normalizeKeys(config.providers.entries).entries)
-      entry.key: entry.value.copyWith(options: _withoutRegistrarValidationOptions(entry.value.options)),
-  };
-  entries.putIfAbsent(
-    ProviderIdentity.normalize(config.agent.provider),
-    () => ProviderEntry(
-      executable: resolveProviderTarget(config, ProviderIdentity.normalize(config.agent.provider)).executable,
-    ),
-  );
-  return entries;
-}
-
-Map<String, dynamic> _withoutRegistrarValidationOptions(Map<String, dynamic> options) {
-  final sanitized = Map<String, dynamic>.from(options);
-  sanitized.remove('registration_validation_result');
-  sanitized.remove('registration_validation_owned');
-  sanitized.remove('security_classification');
-  sanitized.remove('validation_evidence');
-  return sanitized;
-}
-
-Map<String, ProviderEntry> _effectiveValidationProviderEntries(
-  DartclawConfig config,
-  Map<String, ProviderEntry> workerEntries, {
-  required bool hasRegisteredProviders,
-}) {
-  if (config.providers.isEmpty && !hasRegisteredProviders) {
-    final defaultProviderId = ProviderIdentity.normalize(config.agent.provider);
-    return {defaultProviderId: ProviderEntry(executable: resolveProviderTarget(config, defaultProviderId).executable)};
-  }
-  return workerEntries;
-}
-
-/// Returns built-in tool names to suppress when the MCP server is active.
-///
-/// `WebFetch` is always suppressed when MCP is enabled (replaced by the
-/// `web_fetch` MCP tool which includes ContentGuard scanning).
-/// `WebSearch` is only suppressed when at least one search provider is
-/// configured — otherwise the agent loses search capability entirely.
-List<String> mcpDisallowedTools({
-  required bool mcpEnabled,
-  required bool searchEnabled,
-  required List<String> userDisallowed,
-}) {
-  return [...userDisallowed, if (mcpEnabled) 'WebFetch', if (mcpEnabled && searchEnabled) 'WebSearch'];
 }

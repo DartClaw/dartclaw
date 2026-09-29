@@ -8,6 +8,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/../postgres.sh"
 SEED_DIR="${SCRIPT_DIR}/data"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
@@ -25,15 +26,17 @@ if [ -n "${DARTCLAW_GOVERNANCE_DATA_DIR:-}" ]; then
   if [ ! -e "${DATA_DIR}/dartclaw.yaml" ]; then
     cp -R "${SEED_DIR}/." "${DATA_DIR}/"
   fi
+  trap profile_postgres_stop EXIT
 else
   DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dartclaw-governance-XXXXXX")"
-  trap 'rm -rf "${DATA_DIR}"' EXIT
+  trap 'profile_postgres_stop; rm -rf "${DATA_DIR}"' EXIT
   cp -R "${SEED_DIR}/." "${DATA_DIR}/"
 fi
 
 CONFIG="${DATA_DIR}/dartclaw.yaml"
 KV_FILE="${DATA_DIR}/kv.json"
 chmod 600 "${DATA_DIR}/gateway_token" 2>/dev/null || true
+profile_postgres_start
 
 # Seed the current UTC day near the 80% warning threshold so the governance
 # scenario can deterministically trigger a budget warning on the next turn.
@@ -68,14 +71,15 @@ if [ "${DARTCLAW_TEST_USE_SNAPSHOT:-0}" = "1" ]; then
     SNAPSHOT="$(ls -1t "${REPO_ROOT}/.dart_tool/pub/bin/dartclaw_cli/dartclaw.dart-"*.snapshot 2>/dev/null | head -n 1 || true)"
   fi
   if [ -n "${SNAPSHOT}" ] && [ -f "${SNAPSHOT}" ]; then
-    exec dart "${SNAPSHOT}" --config "${CONFIG}" serve --dev --data-dir "${DATA_DIR}" --source-dir "${REPO_ROOT}" "$@"
+    dart "${SNAPSHOT}" --config "${CONFIG}" serve --dev --data-dir "${DATA_DIR}" --source-dir "${REPO_ROOT}" "$@"
+    exit $?
   fi
 fi
 
 # Generated asset libraries are gitignored; emit them before running from source.
 dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
 
-exec dart \
+dart \
   --packages="${REPO_ROOT}/.dart_tool/package_config.json" \
   "${REPO_ROOT}/apps/dartclaw_cli/bin/dartclaw.dart" \
   --config "${CONFIG}" serve --dev --data-dir "${DATA_DIR}" --source-dir "${REPO_ROOT}" "$@"

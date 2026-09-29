@@ -43,6 +43,12 @@ void main() {
     final fakeHome = Directory(p.join(tempDir.path, 'home'))..createSync(recursive: true);
     final projectA = Directory(p.join(tempDir.path, 'project-a'))..createSync(recursive: true);
     final projectB = Directory(p.join(tempDir.path, 'project-b'))..createSync(recursive: true);
+    final agentWorkspace = AgentWorkspace.managed(
+      agentId: 'configured',
+      dataDir: dataDir,
+      ownerWorkspaceDir: p.join(dataDir, 'workspace'),
+    );
+    await WorkspaceService(dataDir: dataDir).prepareManagedAgents([agentWorkspace]);
     final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'))..writeAsStringSync('');
     addTearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
@@ -53,14 +59,19 @@ void main() {
     logService.install();
     addTearDown(logService.dispose);
 
-    final config = _baseConfig(dataDir, projectA: projectA.path, projectB: projectB.path);
+    final config = _baseConfig(
+      dataDir,
+      projectA: projectA.path,
+      projectB: projectB.path,
+      agentWorkspace: agentWorkspace,
+    );
     final result = await DartclawRuntime.build(
       config,
       dataDir: dataDir,
       port: 3001,
       harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
-      searchBackendFactory: (_) async => SqliteBackend.openInMemory(),
-      taskBackendFactory: (_) async => SqliteBackend.openInMemory(),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
       stderrLine: (_) {},
       exitFn: _unexpectedExit,
       resolvedConfigPath: configFile.path,
@@ -93,6 +104,14 @@ void main() {
         Link(p.join(projectB.path, '.claude', 'skills', name)).targetSync(),
         p.join(dataDir, '.claude', 'skills', name),
       );
+      expect(
+        Link(p.join(agentWorkspace.directory, '.agents', 'skills', name)).targetSync(),
+        p.join(dataDir, '.agents', 'skills', name),
+      );
+      expect(
+        Link(p.join(agentWorkspace.directory, '.claude', 'skills', name)).targetSync(),
+        p.join(dataDir, '.claude', 'skills', name),
+      );
     }
     expect(File(p.join(dataDir, '.dartclaw-native-skills')).existsSync(), isTrue);
     expect(_findDartclawEntries(fakeHome.path), isEmpty);
@@ -122,7 +141,7 @@ const _shippedDartclawSkillRefs = <String>[
   'andthen:exec-spec',
   'andthen:review',
   'andthen:quick-review',
-  'andthen:remediate-findings',
+  'andthen:implement-fix',
 ];
 
 Never _unexpectedExit(int code) {
@@ -154,9 +173,16 @@ List<String> _unexpectedDataDirSkillEntries(String dataDir) {
   ];
 }
 
-DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB}) {
+DartclawConfig _baseConfig(String dataDir, {String? projectA, String? projectB, AgentWorkspace? agentWorkspace}) {
   return DartclawConfig(
-    agent: const AgentConfig(provider: 'claude'),
+    agent: AgentConfig(
+      provider: 'claude',
+      definitions: [
+        if (agentWorkspace != null)
+          AgentDefinition(id: 'configured', description: 'Configured', prompt: '', workspace: agentWorkspace),
+        const AgentDefinition(id: 'absent', description: 'Absent', prompt: ''),
+      ],
+    ),
     credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'k')}),
     providers: ProvidersConfig(
       entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},

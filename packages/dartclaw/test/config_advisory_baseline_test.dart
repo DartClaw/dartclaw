@@ -280,6 +280,7 @@ void main() {
         unorderedEquals({
           'ANTHROPIC_API_KEY',
           'CODEX_API_KEY',
+          'DARTCLAW_POSTGRES_URL',
           'DARTCLAW_TOKEN',
           'GITHUB_TOKEN',
           'GOOGLE_CHAT_SERVICE_ACCOUNT',

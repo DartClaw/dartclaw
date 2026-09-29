@@ -1,8 +1,8 @@
-<div tl:fragment="signalPairing" class="shell">
+<div tl:fragment="signalPairing" class="shell" hx-history-elt>
   <div tl:utext="${sidebar}">sidebar</div>
   <div class="shell-main">
   <tl:block tl:utext="${topbar}"></tl:block>
-  <main id="main-content" tabindex="-1" hx-history-elt class="pairing-main print-in">
+  <main id="main-content" tabindex="-1" class="pairing-main print-in">
     <div class="pairing-inner">
 
       <div tl:if="${error}" class="banner banner-warning">

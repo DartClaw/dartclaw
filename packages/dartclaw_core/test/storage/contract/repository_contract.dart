@@ -1,7 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show SqliteWorkflowRunRepository, WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
+    show DatabaseWorkflowRunRepository, WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
 import 'package:test/test.dart';
 
 import 'database_backend_contract.dart';
@@ -11,7 +11,7 @@ final _instant = DateTime.parse('2026-09-09T10:11:12.000Z');
 void repositoryContractGroups(ContractBackend Function() current) {
   group('[contract:repository.task] production repository', () {
     test('round-trips a task and artifact', () async {
-      final repository = SqliteTaskRepository(current().backend);
+      final repository = DatabaseTaskRepository(current().backend);
       final task = _task();
       await repository.insert(task);
       expect((await repository.getById(task.id))?.toJson(), task.toJson());
@@ -27,11 +27,50 @@ void repositoryContractGroups(ContractBackend Function() current) {
       expect((await repository.getArtifactById(artifact.id))?.toJson(), artifact.toJson());
       await repository.dispose();
     });
+
+    test('merges task config atomically while preserving disjoint and nested keys', () async {
+      final repository = DatabaseTaskRepository(current().backend);
+      final task = _task(
+        id: 'task-merge',
+        configJson: const {
+          'first': 1,
+          'nested': {'keep': true, 'replace': 'old'},
+          'remove': 'old',
+        },
+      );
+      await repository.insert(task);
+
+      expect(
+        await repository.mergeConfigJsonIfStatus(task.id, const {
+          'nested': {'replace': 'new', 'added': 2},
+          'remove': null,
+        }, expectedStatus: TaskStatus.queued),
+        isTrue,
+      );
+      expect(
+        await Future.wait([
+          repository.mergeConfigJsonIfStatus(task.id, const {'second': 2}, expectedStatus: TaskStatus.queued),
+          repository.mergeConfigJsonIfStatus(task.id, const {'third': 3}, expectedStatus: TaskStatus.queued),
+        ]),
+        everyElement(isTrue),
+      );
+      expect((await repository.getById(task.id))!.configJson, {
+        'first': 1,
+        'nested': {'keep': true, 'replace': 'new', 'added': 2},
+        'second': 2,
+        'third': 3,
+      });
+      expect(
+        await repository.mergeConfigJsonIfStatus(task.id, const {'blocked': true}, expectedStatus: TaskStatus.running),
+        isFalse,
+      );
+      expect((await repository.getById(task.id))!.configJson.containsKey('blocked'), isFalse);
+    });
   });
 
   group('[contract:repository.goal] production repository', () {
     test('round-trips the complete goal value', () async {
-      final repository = SqliteGoalRepository(current().backend);
+      final repository = DatabaseGoalRepository(current().backend);
       final goal = Goal(
         id: 'goal-1',
         title: 'Portable goal',
@@ -48,7 +87,7 @@ void repositoryContractGroups(ContractBackend Function() current) {
 
   group('[contract:repository.agent_execution] production repository', () {
     test('round-trips scalar and timestamp fields', () async {
-      final repository = SqliteAgentExecutionRepository(current().backend);
+      final repository = DatabaseAgentExecutionRepository(current().backend);
       const id = 'execution-1';
       final execution = AgentExecution(
         id: id,
@@ -72,11 +111,11 @@ void repositoryContractGroups(ContractBackend Function() current) {
   group('[contract:repository.workflow_step_execution] production repository', () {
     test('round-trips the workflow link', () async {
       final backend = current().backend;
-      final agentRepository = SqliteAgentExecutionRepository(backend);
+      final agentRepository = DatabaseAgentExecutionRepository(backend);
       await agentRepository.create(AgentExecution(id: 'step-agent', startedAt: _instant));
-      final taskRepository = SqliteTaskRepository(backend);
+      final taskRepository = DatabaseTaskRepository(backend);
       await taskRepository.insert(_task(id: 'step-task', agentExecutionId: 'step-agent'));
-      final repository = SqliteWorkflowStepExecutionRepository(backend);
+      final repository = DatabaseWorkflowStepExecutionRepository(backend);
       const execution = WorkflowStepExecution(
         taskId: 'step-task',
         agentExecutionId: 'step-agent',
@@ -94,7 +133,7 @@ void repositoryContractGroups(ContractBackend Function() current) {
 
   group('[contract:repository.workflow_run] production repository', () {
     test('round-trips workflow state from the workflow package', () async {
-      final repository = SqliteWorkflowRunRepository(current().backend);
+      final repository = DatabaseWorkflowRunRepository(current().backend);
       final run = WorkflowRun(
         id: 'run-1',
         definitionName: 'contract',
@@ -144,6 +183,13 @@ void repositoryContractGroups(ContractBackend Function() current) {
       );
       await repository.insert(run);
       expect((await repository.getById(run.id))?.toJson(), run.toJson());
+
+      final incomplete = run.copyWith(totalTokens: 12, tokenUsageComplete: false);
+      await repository.update(incomplete);
+      final reloaded = await repository.getById(run.id);
+      expect(reloaded?.totalTokens, 12);
+      expect(reloaded?.tokenUsageComplete, isFalse);
+      expect(reloaded?.contextJson, run.contextJson);
     });
   });
 
@@ -209,15 +255,16 @@ void repositoryContractGroups(ContractBackend Function() current) {
   });
 }
 
-Task _task({String id = 'task-1', String? agentExecutionId}) => Task(
-  id: id,
-  title: 'Portable task',
-  description: 'Round-trip through the selected backend',
-  status: TaskStatus.queued,
-  acceptanceCriteria: 'Stored and loaded',
-  configJson: const {'tokens': 100},
-  createdAt: _instant,
-  createdBy: 'contract',
-  agentExecutionId: agentExecutionId,
-  projectId: 'project-1',
-);
+Task _task({String id = 'task-1', String? agentExecutionId, Map<String, dynamic> configJson = const {'tokens': 100}}) =>
+    Task(
+      id: id,
+      title: 'Portable task',
+      description: 'Round-trip through the selected backend',
+      status: TaskStatus.queued,
+      acceptanceCriteria: 'Stored and loaded',
+      configJson: configJson,
+      createdAt: _instant,
+      createdBy: 'contract',
+      agentExecutionId: agentExecutionId,
+      projectId: 'project-1',
+    );

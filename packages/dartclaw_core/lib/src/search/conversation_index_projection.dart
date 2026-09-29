@@ -6,19 +6,28 @@ import '../storage/session_service.dart';
 /// Counts produced while projecting the authoritative conversation corpus.
 final class ConversationProjectionResult {
   /// Creates projection counts.
-  const new({required this.messageCount, required this.sessionCount});
+  new({required this.messageCount, required this.sessionCount, required Iterable<String> principals})
+    : principals = Set.unmodifiable(principals);
 
   /// Number of indexed messages.
   final int messageCount;
 
   /// Number of chat-facing sessions containing indexed messages.
   final int sessionCount;
+
+  /// Principals reconciled from configured and persisted session ownership.
+  final Set<String> principals;
 }
 
 /// Maps authoritative session NDJSON messages into the conversation index.
 final class ConversationIndexProjection {
   /// Creates a projection over the session and message stores.
-  new({required this.sessions, required this.messages, this.userId = 'owner'});
+  new({
+    required this.sessions,
+    required this.messages,
+    this.userId = 'owner',
+    this.configuredPrincipals = const {'owner'},
+  });
 
   /// Session metadata authority.
   final SessionService sessions;
@@ -26,14 +35,21 @@ final class ConversationIndexProjection {
   /// Message NDJSON authority.
   final MessageService messages;
 
-  /// Instance owner scope used for every index operation.
+  /// Fallback scope for sessions without pinned workspace ownership.
   final String userId;
+
+  /// Principals whose stale rows must be cleared during a complete rebuild.
+  final Set<String> configuredPrincipals;
 
   Map<String, int>? _projectedCounts;
 
   /// Maps one eligible persisted message to its index document.
-  static SearchDocument? document({required Message message, required SessionType sessionType}) {
-    if (!sessionType.isChatFacing || (message.role != 'user' && message.role != 'assistant')) {
+  static SearchDocument? document({
+    required Message message,
+    required SessionType sessionType,
+    ConversationRetention retention = ConversationRetention.durable,
+  }) {
+    if (!retention.isDurable || !sessionType.isChatFacing || (message.role != 'user' && message.role != 'assistant')) {
       return null;
     }
     return SearchDocument(
@@ -45,31 +61,38 @@ final class ConversationIndexProjection {
   }
 
   /// Streams one bounded document batch per chat-facing session.
-  Stream<List<SearchDocument>> documents() async* {
+  Stream<({String principal, List<SearchDocument> documents})> documents() async* {
     final chatTypes = SessionType.values.where((type) => type.isChatFacing).toList(growable: false);
     final selected = await sessions.listSessions(types: chatTypes);
     for (final session in selected) {
+      final state = await sessions.getConversationState(session.id);
       final batch = (await messages.getMessages(session.id))
-          .map((message) => document(message: message, sessionType: session.type))
+          .where((message) => state.includesMessage(message.id))
+          .map((message) => document(message: message, sessionType: session.type, retention: session.retention))
           .whereType<SearchDocument>()
           .toList(growable: false);
-      yield batch;
+      yield (principal: _principal(session), documents: batch);
     }
   }
 
-  /// Replaces the owner's corpus and populates it from session NDJSON.
+  /// Replaces every known principal corpus and populates them from session NDJSON.
   Future<ConversationProjectionResult> populate(FullTextIndex index) async {
-    await index.replaceAll(const [], userId: userId);
+    final selected = await sessions.listSessions(types: SessionType.values.where((type) => type.isChatFacing).toList());
+    final principals = {...configuredPrincipals, userId, for (final session in selected) _principal(session)};
+    for (final principal in principals) {
+      await index.replaceAll(const [], userId: principal);
+    }
     final counts = <String, int>{};
     await for (final batch in documents()) {
-      if (batch.isEmpty) continue;
-      await index.upsert(batch, userId: userId);
-      counts[batch.first.metadata['session_id']!] = batch.length;
+      if (batch.documents.isEmpty) continue;
+      await index.upsert(batch.documents, userId: batch.principal);
+      counts['${batch.principal}\u0000${batch.documents.first.metadata['session_id']!}'] = batch.documents.length;
     }
     _projectedCounts = Map.unmodifiable(counts);
     return ConversationProjectionResult(
       messageCount: counts.values.fold(0, (total, count) => total + count),
       sessionCount: counts.length,
+      principals: principals,
     );
   }
 
@@ -91,8 +114,12 @@ final class ConversationIndexProjection {
   Future<Map<String, int>> _sourceCounts() async {
     final counts = <String, int>{};
     await for (final batch in documents()) {
-      if (batch.isNotEmpty) counts[batch.first.metadata['session_id']!] = batch.length;
+      if (batch.documents.isNotEmpty) {
+        counts['${batch.principal}\u0000${batch.documents.first.metadata['session_id']!}'] = batch.documents.length;
+      }
     }
     return counts;
   }
+
+  String _principal(Session session) => SessionService.persistedPrincipal(session, fallbackUserId: userId);
 }

@@ -123,4 +123,24 @@ void main() {
       expect(validateMemoryCurationConfig(config)!.hours, {4});
     });
   });
+
+  group('managed memory policy', () {
+    test('empty allowlist retains the existing allow-all cascade semantics', () {
+      const definition = AgentDefinition(id: 'generalist', description: '', prompt: '');
+      final policy = ManagedMemoryPolicy(const DartclawConfig(agent: AgentConfig(definitions: [definition])));
+
+      expect(policy.allowsRead(definition), isTrue);
+      expect(policy.allowsWrite(definition), isTrue);
+    });
+
+    test('an explicit helper allowlist grants only its resolved memory capability', () {
+      const readOnly = AgentDefinition(id: 'reader', description: '', prompt: '', allowedTools: {'memory_read'});
+      const webOnly = AgentDefinition(id: 'web', description: '', prompt: '', allowedTools: {'web_search'});
+      final policy = ManagedMemoryPolicy(const DartclawConfig(agent: AgentConfig(definitions: [readOnly, webOnly])));
+
+      expect(policy.allowsRead(readOnly), isTrue);
+      expect(policy.allowsWrite(readOnly), isFalse);
+      expect(policy.allowsCorpus(webOnly), isFalse);
+    });
+  });
 }

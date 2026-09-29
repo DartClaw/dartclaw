@@ -86,19 +86,41 @@ final class ToolApprovalWaitEvent extends BridgeEvent {
   /// Tool name requiring approval.
   final String toolName;
 
+  /// Provider-supplied request target after host redaction.
+  final Map<String, dynamic> input;
+
+  /// Whether an ordinary web owner may resolve this exact live request.
+  final bool operatorActionable;
+
+  /// Host deadline for an actionable request.
+  final DateTime? expiresAt;
+
   /// Creates a tool-approval wait event.
-  new({required this.requestId, required this.toolName});
+  new({
+    required this.requestId,
+    required this.toolName,
+    this.input = const {},
+    this.operatorActionable = false,
+    this.expiresAt,
+  });
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is ToolApprovalWaitEvent && other.requestId == requestId && other.toolName == toolName;
+      other is ToolApprovalWaitEvent &&
+          other.requestId == requestId &&
+          other.toolName == toolName &&
+          const MapEquality<String, dynamic>().equals(other.input, input) &&
+          other.operatorActionable == operatorActionable &&
+          other.expiresAt == expiresAt;
 
   @override
-  int get hashCode => Object.hash(requestId, toolName);
+  int get hashCode =>
+      Object.hash(requestId, toolName, const MapEquality<String, dynamic>().hash(input), operatorActionable, expiresAt);
 
   @override
-  String toString() => 'ToolApprovalWaitEvent(requestId: $requestId, toolName: $toolName)';
+  String toString() =>
+      'ToolApprovalWaitEvent(requestId: $requestId, toolName: $toolName, operatorActionable: $operatorActionable)';
 }
 
 /// Provider approval request has been answered by the host.
@@ -106,18 +128,28 @@ final class ToolApprovalResolvedEvent extends BridgeEvent {
   /// Provider-specific approval request identifier.
   final String requestId;
 
+  /// Accepted decision when operator-driven, or null for automatic resolution.
+  final bool? approved;
+
+  /// Whether the live provider request expired before a decision.
+  final bool expired;
+
   /// Creates a tool-approval resolved event.
-  new({required this.requestId});
+  new({required this.requestId, this.approved, this.expired = false});
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is ToolApprovalResolvedEvent && other.requestId == requestId;
+      identical(this, other) ||
+      other is ToolApprovalResolvedEvent &&
+          other.requestId == requestId &&
+          other.approved == approved &&
+          other.expired == expired;
 
   @override
-  int get hashCode => requestId.hashCode;
+  int get hashCode => Object.hash(requestId, approved, expired);
 
   @override
-  String toString() => 'ToolApprovalResolvedEvent(requestId: $requestId)';
+  String toString() => 'ToolApprovalResolvedEvent(requestId: $requestId, approved: $approved, expired: $expired)';
 }
 
 /// Non-response progress emitted by an agent provider.

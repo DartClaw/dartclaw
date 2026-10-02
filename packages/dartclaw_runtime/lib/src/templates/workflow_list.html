@@ -47,7 +47,7 @@
                hx-push-url="true" hx-select-oob="#topbar,#restart-banner-slot,#sidebar">
               <div class="card-header">
                 <span class="status-dot" tl:classappend="${run.dotClass}" aria-hidden="true"></span>
-                <span class="t-heading" tl:text="${run.definitionName}">spec-and-implement</span>
+                <span class="t-heading" tl:text="${run.definitionName}">story-and-implement</span>
                 <span class="run-card-step t-caption">
                   <tl:block tl:if="${run.hasStepCount}"><span tl:text="${run.completedSteps}">3</span>/<span tl:text="${run.totalSteps}">6</span> steps</tl:block>
                   <span tl:unless="${run.hasStepCount}" class="value-absent"></span>
@@ -81,7 +81,7 @@
             <div class="workflow-definition-header">
               <span class="workflow-definition-icon" data-icon="workflow" aria-hidden="true"></span>
               <div class="workflow-definition-heading">
-                <h3 class="workflow-definition-name t-heading" tl:text="${def.name}">spec-and-implement</h3>
+                <h3 class="workflow-definition-name t-heading" tl:text="${def.name}">story-and-implement</h3>
                 <div class="workflow-definition-meta">
                   <span class="workflow-definition-step-count t-caption"
                         tl:text="${def.stepCount} + ' steps'">6 steps</span>

@@ -104,3 +104,10 @@
   - **Verify**: `cmd: ! git grep -n -i -e 'andthen-some:' -e 'andthen:ops' -e 'andthen:prd' -e 'andthen:quick-review' -e 'exec-spec' -e 'spec-and-implement' -e 'spec-ready' -e '--mode trade-off' -- packages/dartclaw_runtime` – no retired literal remains in tracked runtime files.
   - **Verify**: `inspect: ../dartclaw-public/packages/dartclaw_runtime/lib/src/runtime/service_wiring.dart:146` – compare the runtime-owned diff with the work areas and confirm no skill resolver, provisioner, registry, or preflight mechanism changed.
   - **SATISFIES**: SC01, SC02
+
+## Implementation Observations
+
+- **Chain attestation**: OC01's connected/headless registry (S01, TI01), API/SSE name behavior (S02, TI03), and rendered UI (S03, TI04) passed their respective focused proofs. OC02's shipped skill references (S04, TI02) and mechanism-preserving retired-name sweep (TI05) passed.
+- **Visual interpretation**: ASSUMPTION: A representative failed run closes S03's rendered run-card identity, because S03 claims display rather than successful execution – an acceptance requirement for successful execution would require a git-backed visual profile or the S03 live qualification.
+- **NOTICED BUT NOT TOUCHING**: The visual profile seeds definitions but no run. Its default project cannot start a workflow without a GitHub token, and its disposable local directory lacks `.git`, so the created run failed before provider execution. The focused rendered evidence is in `.agent_temp/andthen-rc4-runtime-visual-validation.md`; live provider qualification belongs to S03.
+- Independent quick code/gap review and visual review returned no findings.

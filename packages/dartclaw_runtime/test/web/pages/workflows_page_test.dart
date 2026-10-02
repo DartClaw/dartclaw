@@ -21,7 +21,7 @@ import '../../test_utils.dart';
 // Helpers
 // ---------------------------------------------------------------------------
 
-WorkflowDefinition _makeDefinition({String name = 'spec-and-implement'}) {
+WorkflowDefinition _makeDefinition({String name = 'story-and-implement'}) {
   return WorkflowDefinition(
     name: name,
     description: 'test',
@@ -170,7 +170,7 @@ void main() {
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows'), context);
       final body = await response.readAsString();
-      expect(body, contains('spec-and-implement'));
+      expect(body, contains('story-and-implement'));
     });
 
     test('S03 malformed stored definition reports an absent step count on list and detail', () async {
@@ -212,7 +212,7 @@ void main() {
 
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       // Filter for a different definition — should return no runs.
-      final response = await page.handler(_get('/workflows?definition=spec-and-implement'), context);
+      final response = await page.handler(_get('/workflows?definition=story-and-implement'), context);
       final body = await response.readAsString();
       expect(body, contains('No workflow runs found'));
     });
@@ -260,7 +260,7 @@ void main() {
       final response = await page.handler(_get('/workflows'), context);
       final body = await response.readAsString();
       expect(body, contains('workflow-definitions-section'));
-      expect(body, contains('spec-and-implement'));
+      expect(body, contains('story-and-implement'));
     });
 
     test('definition browser renders variable hints without loading prompt bodies', () async {
@@ -324,7 +324,7 @@ void main() {
       expect(response.statusCode, 200);
       final body = await response.readAsString();
       expect(body, contains('workflow-detail-page'));
-      expect(body, contains('spec-and-implement'));
+      expect(body, contains('story-and-implement'));
     });
 
     test('renders step cards for all definition steps', () async {

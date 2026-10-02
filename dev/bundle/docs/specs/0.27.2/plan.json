@@ -78,9 +78,19 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "pending",
+      "status": "done",
       "fis": "s02-runtime-rc4-alignment.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05"
+      ],
+      "verified": {
+        "at": "2026-10-02T17:24Z",
+        "summary": "dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart -> exit=0, +17: All tests passed!"
+      },
       "scope": "Deliver C12 and runtime-side C1: runtime integration stubs expose only shipped skills without duplicates, and runtime composition, API/UI test fixtures and displayed workflow names consume the new one-story identity. Keep runtime skill resolution and provisioning mechanisms unchanged.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27.2/andthen-rc4-alignment.md#outcome",

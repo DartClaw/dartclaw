@@ -336,12 +336,9 @@ class FakeProvisionerProcessRunner {
 }
 
 const shippedDartclawSkillRefs = <String>[
-  'andthen:prd',
-  'andthen:plan',
   'andthen:plan',
   'andthen:exec-plan',
   'andthen:review',
-  'andthen:quick-review',
   'andthen:implement-fix',
 ];
 

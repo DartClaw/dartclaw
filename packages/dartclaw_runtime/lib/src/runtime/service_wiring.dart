@@ -143,7 +143,7 @@ class DartclawRuntime {
 
   /// Workflow registry populated by [build]. Exposed so tests can assert that
   /// the shipped built-in workflow definitions (`plan-and-implement`,
-  /// `spec-and-implement`, `code-review`) register against the runtime skill
+  /// `story-and-implement`, `code-review`) register against the runtime skill
   /// registry.
   final WorkflowRegistry workflowRegistry;
 

@@ -73,6 +73,10 @@
 - **Constraint**: API and UI test names are fixture input as well as expected output; retain the non-name assertions for validation errors, SSE events, and page states when changing them.
 - **Constraint**: The private FIS and plan are canonical; execution uses the exported bundle paths in the public checkout.
 
+## Discovered Requirements
+
+- S01's mandatory fast tier exercises the runtime registry before S02 can start. Its rename made the workflow-name expectations in `service_wiring_andthen_skills_test.dart` and `headless_runtime_test.dart` fail. S01 owns the minimum literal updates needed to unblock that gate under the repository's minimum gate-fix rule and records them as a Drift Note. S02 retains TI01's proofs and all remaining runtime fixture, skill-stub, and UI work.
+
 ## Implementation Plan
 
 ### Implementation Tasks

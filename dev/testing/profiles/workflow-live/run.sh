@@ -28,7 +28,7 @@ Modes:
                        multi-minute real-provider agent e2e (tag: live-e2e),
                        keeping the fast integration tests as a quick gate.
   --e2e                Run only the heavy real-provider agent e2e
-                       (spec-and-implement, plan-and-implement, merge-resolve;
+                       (story-and-implement, plan-and-implement, merge-resolve;
                        tag: live-e2e).
   --canary <name>      Single targeted canary (see below).
   --skip-preflight     Skip the fail-fast provider preflight (version, codex
@@ -47,7 +47,7 @@ Canaries:
   background-subagent  Turn-boundary probe: a workflow step that leaves an
                        Agent running in the background must still succeed
                        with the agent's marker present (Claude only).
-  spec-and-implement   Single spec workflow E2E.
+  story-and-implement   Single spec workflow E2E.
   plan-and-implement   Multi-story plan workflow E2E.
   merge-resolve        Live merge-resolve conflict workflow.
   server               Server integration files.
@@ -193,10 +193,10 @@ case "${MODE}:${CANARY:-}" in
     NAME_FILTER="backgrounded subagent survives"
     LOG_LABEL="canary-background-subagent"
     ;;
-  canary:spec-and-implement)
+  canary:story-and-implement)
     FILES=("packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart")
-    NAME_FILTER="spec-and-implement e2e"
-    LOG_LABEL="canary-spec-and-implement"
+    NAME_FILTER="story-and-implement e2e"
+    LOG_LABEL="canary-story-and-implement"
     ;;
   canary:plan-and-implement)
     FILES=("packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart")
@@ -266,7 +266,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 if [ "${MODE}" = "e2e" ] || { [ "${MODE}" = "full" ] && [ "${SKIP_E2E}" -eq 0 ]; } || \
-  { [ "${MODE}" = "canary" ] && { [ "${CANARY}" = "spec-and-implement" ] || [ "${CANARY}" = "plan-and-implement" ] || [ "${CANARY}" = "merge-resolve" ]; }; }; then
+  { [ "${MODE}" = "canary" ] && { [ "${CANARY}" = "story-and-implement" ] || [ "${CANARY}" = "plan-and-implement" ] || [ "${CANARY}" = "merge-resolve" ]; }; }; then
   if [ -n "${DARTCLAW_TEST_POSTGRES_URL:-}" ]; then
     echo "Using supplied disposable PostgreSQL database for live workflow E2E."
   else

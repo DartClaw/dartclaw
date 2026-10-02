@@ -145,3 +145,15 @@
 - **TI11** Every retired literal in S01-owned files is mapped to a corrected contract, current fixture, or equivalent negative case, with no old-name alias.
   - **Verify**: `cmd: ! git grep -n -i -e 'andthen-some:' -e 'andthen:ops' -e 'andthen:prd' -e 'andthen:quick-review' -e 'exec-spec' -e 'spec-and-implement' -e 'spec-ready' -e '--mode trade-off' -- packages/dartclaw_workflow/lib packages/dartclaw_workflow/skills packages/dartclaw_workflow/test apps/dartclaw_cli/lib apps/dartclaw_cli/test .dartclaw/workflows/custom dev/tools/dartclaw-workflows/run.sh dev/tools/dartclaw-workflows/story.sh dev/tools/dartclaw-workflows/review.sh dev/testing/profiles/workflow-contract/run.sh dev/testing/profiles/workflow-live/run.sh` – no match in tracked owned files; inspect renamed untracked files before staging.
   - **SATISFIES**: SC01, SC03
+
+## Implementation Observations
+
+All TI01–TI11 Verify targets passed. The fast tier passed with 11,166 tests, 58 configured skips, and no analyzer issues; the post-review workflow package rerun passed 2,036 tests with 11 configured skips. Formatting checked 2,119 files with no changes. The contract profile passed 213 tests, the affected CLI suites passed 46, and shell syntax and the retired-literal scan passed.
+
+Reviewed: Independent quick code review found one low-severity contradiction between the producer's path description and its `minLength: 1` schema; the reviewer fixed both shared descriptions and the affected contract assertion, then passed 76 affected tests. No findings remain open.
+
+Chain attestation: OC01 is covered by S01/S02/S06 through TI01–TI04 and TI08–TI10: the renamed pipelines resolve, classify both input forms, and stop on an empty synthesis handoff. OC02 is covered by S03/S04 through TI04–TI06 and TI08: the three custom workflows aggregate their surviving review source and the inline plan passes `--no-full-tier`. OC03 is covered by S05 through TI07: discovery omits blocked dependents, prunes raw `done` dependencies only, and retains the plan path with an empty runnable catalog.
+
+#### DRIFT
+
+- spec-stale: S01 updated the two S02-owned runtime fixture name expectations in `service_wiring_andthen_skills_test.dart` and `headless_runtime_test.dart` after their old-name assertions failed the required fast tier; no runtime mechanism changed. | Stale targets: S01 Scope & Boundaries, S02 runtime fixture assignment | –

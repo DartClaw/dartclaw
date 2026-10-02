@@ -33,7 +33,7 @@ WorkflowDefinition _load(String fileName) {
   return WorkflowDefinitionParser().parse(yaml);
 }
 
-const _builtIns = ['spec-and-implement.yaml', 'plan-and-implement.yaml', 'code-review.yaml'];
+const _builtIns = ['story-and-implement.yaml', 'plan-and-implement.yaml', 'code-review.yaml'];
 
 void main() {
   group('declared-key consistency across built-in workflows', () {

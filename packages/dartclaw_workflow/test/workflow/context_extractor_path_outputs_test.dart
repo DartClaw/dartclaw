@@ -52,6 +52,36 @@ void main() {
     );
   });
 
+  test('a constrained scalar path rejects an empty resolved value', () async {
+    final task = await harness.buildTaskWithContext('task-empty-constrained-path', const {'spec_path': ''});
+    final step = harness.makeStep(
+      outputs: const {
+        'spec_path': OutputConfig(format: OutputFormat.path, schema: {'type': 'string', 'minLength': 1}),
+      },
+    );
+
+    await expectLater(
+      extractor.extract(step, task),
+      throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('minLength 1'))),
+    );
+  });
+
+  test('a constrained scalar path accepts a captured artifact after a null claim', () async {
+    const runId = 'run-constrained-capture';
+    final captured = harness.writeStepReview(runId, 'step1', 'generated-fis.md', content: '# FIS\n');
+    final task = await harness.buildTaskWithContext('task-constrained-capture', const {
+      'spec_path': null,
+    }, workflowRunId: runId);
+    final step = harness.makeStep(
+      outputs: const {
+        'spec_path': OutputConfig(format: OutputFormat.path, schema: {'type': 'string', 'minLength': 1}),
+      },
+    );
+
+    final outputs = await extractor.extract(step, task);
+    expect(outputs['spec_path'], captured);
+  });
+
   test('resolves a relative path from a standalone inline task execution workspace', () async {
     final executionWorkspace = Directory(p.join(tempDir.path, 'inline-execution-workspace'))..createSync();
     const reportPath = 'docs/architecture-report.md';

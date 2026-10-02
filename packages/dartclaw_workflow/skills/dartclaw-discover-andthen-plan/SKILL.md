@@ -39,7 +39,7 @@ post-processing is assumed. Status normalization (rule 6), resume filtering (rul
 (rule 7) are the skill's responsibility; the engine trusts the emitted payload verbatim.
 
 `story_specs.items[]` records use `spec_path` for executable FIS paths, `dependencies` for the pruned
-`dependsOn` (closed-story entries removed), and the normalized `status` value.
+`dependsOn` (only raw `done` entries removed), and the normalized `status` value.
 
 Use workspace-relative paths. Never emit paths containing `..` or paths outside the project root.
 
@@ -74,7 +74,7 @@ kept with no deps):
 }
 ```
 
-Envelope `outputs` for an all-closed plan (every fis-bearing story is done or skipped; no stories to run):
+Envelope `outputs` for a plan with no story left to run (done or blocked behind skipped):
 
 ```json
 {

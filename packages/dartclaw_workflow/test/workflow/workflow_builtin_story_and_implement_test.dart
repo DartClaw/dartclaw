@@ -16,9 +16,9 @@ void main() {
   setUp(driver.setUp);
   tearDown(driver.tearDown);
 
-  test('spec-and-implement integration preserves the step context chain when validation passes', () async {
+  test('story-and-implement integration preserves the step context chain when validation passes', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
+      workflowFileName: 'story-and-implement.yaml',
       variables: {'FEATURE': 'Add validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async => specAndImplementCommonStub(
         queued,
@@ -35,9 +35,9 @@ void main() {
     expectReviewOutputDir(trace.tasksForStep('integrated-review').single);
   });
 
-  test('spec-and-implement reuses an existing FIS without synthesis', () async {
+  test('story-and-implement reuses an existing FIS without synthesis', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
+      workflowFileName: 'story-and-implement.yaml',
       variables: {'FEATURE': 'dev/specs/test/s01-pre-authored.md', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async =>
           specAndImplementCommonStub(queued, specPath: 'dev/specs/test/s01-pre-authored.md', specSource: 'existing'),
@@ -49,9 +49,9 @@ void main() {
     expect(trace.tasksForStep('integrated-review'), isNotEmpty);
   });
 
-  test('spec-and-implement synthesizes an inline description before implementation', () async {
+  test('story-and-implement synthesizes an inline description before implementation', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
+      workflowFileName: 'story-and-implement.yaml',
       variables: {'FEATURE': 'A vague feature description', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async => specAndImplementCommonStub(queued),
     );
@@ -64,7 +64,19 @@ void main() {
     expect(order.indexOf('spec'), lessThan(order.indexOf('implement')));
   });
 
-  test('spec-and-implement stops before synthesis and implementation when a written PRD is rejected', () async {
+  test('story-and-implement stops before implementation when synthesis emits an empty path', () async {
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'story-and-implement.yaml',
+      variables: {'FEATURE': 'A feature requiring a FIS', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async => specAndImplementCommonStub(queued, specPath: ''),
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.failed);
+    expect(trace.tasksForStep('spec'), hasLength(1));
+    expect(trace.tasksForStep('implement'), isEmpty);
+  });
+
+  test('story-and-implement stops before synthesis and implementation when a written PRD is rejected', () async {
     const feature = 'docs/specs/test/prd.md';
     final projectDir = Directory(p.join(driver.tempDir.path, 'projects', 'demo-project'));
     final prd = File(p.join(projectDir.path, feature));
@@ -74,7 +86,7 @@ void main() {
     );
 
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
+      workflowFileName: 'story-and-implement.yaml',
       variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       detectResponseForFeature: (value) {
         expect(value, feature);
@@ -93,9 +105,9 @@ void main() {
     expect(trace.tasksForStep('implement'), isEmpty);
   });
 
-  test('spec-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
+  test('story-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
+      workflowFileName: 'story-and-implement.yaml',
       variables: {'FEATURE': 'Project binding check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async => specAndImplementCommonStub(queued, includeRemediation: true),
     );
@@ -115,10 +127,10 @@ void main() {
     expect(trace.tasksForStep('re-review'), isEmpty);
   });
 
-  test('spec-and-implement: spec step receives FEATURE but does not leak BRANCH text', () async {
+  test('story-and-implement: spec step receives FEATURE but does not leak BRANCH text', () async {
     const feature = 'FEATURE_SENTINEL_VALUE';
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
+      workflowFileName: 'story-and-implement.yaml',
       variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'feature/discovery-baseline'},
       responseForStep: (queued) async => specAndImplementCommonStub(queued, includeRemediation: true),
     );
@@ -131,9 +143,9 @@ void main() {
     expect(spec, isNot(contains('feature/discovery-baseline')));
   });
 
-  test('spec-and-implement integration enters remediation when integrated-review finds issues and exits after re-review is clean', () async {
+  test('story-and-implement integration enters remediation when integrated-review finds issues and exits after re-review is clean', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'spec-and-implement.yaml',
+      workflowFileName: 'story-and-implement.yaml',
       variables: {'FEATURE': 'Simplify-code workflows', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
@@ -172,10 +184,10 @@ void main() {
   });
 
   test(
-    'spec-and-implement narrows to the re-review report after the first remediation pass clears the aggregate',
+    'story-and-implement narrows to the re-review report after the first remediation pass clears the aggregate',
     () async {
       final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'spec-and-implement.yaml',
+        workflowFileName: 'story-and-implement.yaml',
         variables: {'FEATURE': 'Harden remediation loop', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
@@ -224,7 +236,7 @@ void main() {
   );
 
   test(
-    'spec-and-implement commits generated artifacts to a local-path workflow branch and publishes to origin',
+    'story-and-implement commits generated artifacts to a local-path workflow branch and publishes to origin',
     () async {
       final tempDir = driver.tempDir;
       final projectId = 'local-path-project';
@@ -273,7 +285,7 @@ void main() {
       );
 
       final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'spec-and-implement.yaml',
+        workflowFileName: 'story-and-implement.yaml',
         variables: {'FEATURE': 'Local-path workflow publish', 'PROJECT': projectId, 'BRANCH': 'main'},
         turnAdapter: turnAdapter,
         responseForStep: (queued) async {
@@ -286,7 +298,7 @@ void main() {
                 outputs: {'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'},
                 worktreeJson: {
                   'path': repoDir.path,
-                  'branch': workflowBranch ?? 'workflow/spec-and-implement-run',
+                  'branch': workflowBranch ?? 'workflow/story-and-implement-run',
                   'createdAt': DateTime.now().toIso8601String(),
                 },
               );

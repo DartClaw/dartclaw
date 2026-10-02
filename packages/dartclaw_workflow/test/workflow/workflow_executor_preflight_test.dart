@@ -468,13 +468,13 @@ steps:
           id: 'review',
           name: 'Review',
           provider: 'claude',
-          skill: 'andthen:quick-review',
+          skill: 'andthen:review',
           continueSession: 'implement',
         ),
       ],
     );
     final introspector = FakeSkillIntrospector({
-      'codex': {'andthen-exec-plan', 'andthen-quick-review'},
+      'codex': {'andthen-exec-plan', 'andthen-review'},
     });
     final executor = h.makeExecutor(
       skillIntrospector: introspector,
@@ -503,7 +503,7 @@ steps:
 
     expect(introspector.calls, [(provider: 'codex', executable: '/bin/codex')]);
     expect(capturedTasks, hasLength(2));
-    expect(capturedTasks.last.description, startsWith(r'$andthen-quick-review'));
+    expect(capturedTasks.last.description, startsWith(r'$andthen-review'));
     expect(capturedTasks.last.provider, 'codex');
   });
 

@@ -290,7 +290,7 @@ void main() {
     fixtureTemplateDir = _stepIsolationFixtureTemplateDir(fixturesRoot);
     final parser = WorkflowDefinitionParser();
     planDefinition = await parser.parseFile(p.join(workflowDefinitionsDir(), 'plan-and-implement.yaml'));
-    specDefinition = await parser.parseFile(p.join(workflowDefinitionsDir(), 'spec-and-implement.yaml'));
+    specDefinition = await parser.parseFile(p.join(workflowDefinitionsDir(), 'story-and-implement.yaml'));
 
     // `SafeProcess.start` runs with `includeParentEnvironment: false`, so the
     // spawned `claude` binary only sees whatever environment the harness config
@@ -732,7 +732,7 @@ void main() {
     expect(resolvedStorySpec.trim(), isNot(contains('"acceptance_criteria"')));
   }, timeout: const Timeout(Duration(minutes: 22)));
 
-  // Live authoring probe for spec-and-implement. The heavy spec-and-implement
+  // Live authoring probe for story-and-implement. The heavy story-and-implement
   // e2e feeds a pre-authored FIS and skips the `spec` step, so the one live
   // authoring turn that used to run there is relocated here as a single thin
   // probe: run `spec` on a free-text feature and assert it produces an on-disk

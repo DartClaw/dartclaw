@@ -111,6 +111,13 @@ void main() {
         expect(validator.validate(42, {'type': 'string'}), hasLength(1));
       });
 
+      test('string minLength rejects empty values and accepts the boundary', () {
+        const schema = {'type': 'string', 'minLength': 1};
+        expect(validator.checkUnsupportedKeywords(schema), isEmpty);
+        expect(validator.validate('', schema).single, contains('minLength 1'));
+        expect(validator.validate('a', schema), isEmpty);
+      });
+
       test('integer type accepts int', () {
         expect(validator.validate(5, {'type': 'integer'}), isEmpty);
       });

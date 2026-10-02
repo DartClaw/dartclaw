@@ -120,7 +120,7 @@ void main() {
     // without filesystem skill-reference validation at load time.
     final workflowRegistry = result.workflowRegistry;
     final registeredNames = workflowRegistry.listAll().map((w) => w.name).toSet();
-    for (final builtIn in const ['plan-and-implement', 'spec-and-implement', 'code-review']) {
+    for (final builtIn in const ['plan-and-implement', 'story-and-implement', 'code-review']) {
       expect(
         registeredNames,
         contains(builtIn),

@@ -1,7 +1,7 @@
-name: spec-and-implement
+name: story-and-implement
 description: >-
   Full feature pipeline – write a specification, implement it with
-  exec-spec, and run integrated review in authored order.
+  exec-plan, and run integrated review in authored order.
 variables:
   FEATURE:
     required: true
@@ -63,7 +63,7 @@ steps:
         pathPattern: '**/*.md'
         schema:
           type: string
-        description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
+        description: Workspace-relative path to the active implementation specification on disk.
       spec_source:
         schema: narrative_text
         description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
@@ -82,7 +82,8 @@ steps:
         pathPattern: '**/*.md'
         schema:
           type: string
-        description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
+          minLength: 1
+        description: Workspace-relative path to the active implementation specification on disk.
       spec_source:
         schema: narrative_text
         description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
@@ -96,9 +97,7 @@ steps:
     maxRetries: 1
     prompt: "--auto {{context.spec_path}}"
 
-  # exec-spec already ran analysis/tests/linting and fixed issues before this
-  # review inspects the change set holistically and hands any remaining
-  # findings to the remediation loop.
+  # The implementation skill runs its story checks before this review.
   - id: integrated-review
     name: Integrated Review
     skill: andthen:review
@@ -119,8 +118,6 @@ steps:
 
   # The aggregator normalizes the prefixed review keys to the bare keys the
   # remediation loop reads and writes the report the remediate step consumes.
-  # A multi-perspective council pass is the optional `andthen-some:council`
-  # skill; the inline maintainer variants add it as a second source.
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews

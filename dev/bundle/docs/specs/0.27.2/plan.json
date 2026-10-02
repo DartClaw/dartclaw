@@ -43,9 +43,25 @@
       "id": "S01",
       "name": "Workflow rc4 alignment",
       "dependsOn": [],
-      "status": "pending",
+      "status": "done",
       "fis": "s01-workflow-rc4-alignment.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11"
+      ],
+      "verified": {
+        "at": "2026-10-02T17:06Z",
+        "summary": "dart test --reporter=failures-only packages/dartclaw_workflow -> exit=0, +2036 ~11: All other tests passed!"
+      },
       "scope": "Deliver C1-C4, workflow-side C7, C13 and C14: rename the one-story pipeline through workflow/CLI contracts and runners, remove custom council stages, use the inline-only execution flag, and correct discover-plan resume prose. Enforce Done when's nonempty producing-spec path through the existing generic output/schema authority while preserving detection's temporary empty value, output names and configured failure policies. Assign runtime surfaces to S02 and remaining documentation to S03.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.27.2/andthen-rc4-alignment.md#problem",

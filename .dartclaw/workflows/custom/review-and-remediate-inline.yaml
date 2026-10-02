@@ -2,8 +2,7 @@ name: review-and-remediate-inline
 description: >-
   Inline review + remediate for an already-implemented milestone, version, or
   feature. Reviews all changes on the current branch (diffed against
-  BASE_BRANCH) with the same multi-lens depth as plan-and-implement (gap review
-  + Claude `andthen-some:council` code/security pass), runs a bounded
+  BASE_BRANCH) with an AndThen gap review, runs a bounded
   remediation loop, then closes with the deterministic CI-equivalent
   verification gate. Unlike the built-in single-methodology code-review, nothing
   is implemented here – it only reviews existing changes and fixes what the
@@ -55,28 +54,18 @@ stepDefaults:
     model: "@workflow"
 
 steps:
-  # gap-review and review-council form a parallel group: consecutive
-  # `parallel: true` steps run concurrently and merge outputs back
-  # into context before the workflow continues serially. Each writes distinct
-  # context keys so the merge is conflict-free. TARGET is operator-supplied and
-  # is meant to direct the review, so it is interpolated inline (same contract
-  # as the built-in code-review's review target). Lenses are split to mirror
-  # plan/spec: a cheap @reviewer gap pass + a deep Claude code/security council
-  # pass – disjoint lenses, so each adds coverage the
-  # other doesn't. When BRANCH is empty the `({{BRANCH}})` clause renders as empty
+  # TARGET is operator-supplied and directs the review, so it is interpolated
+  # inline. When BRANCH is empty the `({{BRANCH}})` clause renders as empty
   # parens `()`; the review skill tolerates the empty value, so the rendering is
   # left as-is (no template/engine conditional surface).
   - id: gap-review
     name: Gap Review
     skill: andthen:review
-    parallel: true
     onFailure: retry
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    # Requirements-vs-implementation fit (the gating PASS/FAIL lens the council
-    # cannot run – it refuses a single gap/doc lens). The gap lens
-    # discovers the milestone's requirements baseline from the repo specs;
-    # TARGET directs scope. Runs on the @reviewer role (no provider pin).
+    # The gap lens discovers the milestone's requirements baseline from the
+    # repo specs; TARGET directs scope.
     prompt: >-
       --mode gap --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
@@ -88,39 +77,10 @@ steps:
       gap-review.findings_count: findings_count
       gap-review.gating_findings_count: gating_findings_count
 
-  - id: review-council
-    name: Code & Security Council Review
-    skill: andthen-some:council
-    parallel: true
-    # Advisory extra-perspective pass: the gap-review carries the gating
-    # signal, and the council writes its report to the reviews
-    # output-dir regardless. A council flake (provider stall, output-capture edge
-    # case) must not abort the whole run, so continue past its failure rather
-    # than failing the parallel barrier; its real findings still gate via the
-    # aggregator. Pinned to Claude opus – a multi-perspective adversarial review
-    # the @reviewer (codex) default cannot run (inherit_user_settings: true in
-    # the maintainer profile).
-    onFailure: continue
-    maxRetries: 1
-    provider: claude
-    model: opus[1m]
-    effort: xhigh
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode code,security --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      Review the implementation of: {{TARGET}}. Scope the review to all changes
-      on the current branch ({{BRANCH}}) versus {{BASE_BRANCH}} – skip files and
-      packages untouched by these changes.
-    outputs:
-      review-council.review_report_path: review_report_path
-      review-council.findings_count: findings_count
-      review-council.gating_findings_count: gating_findings_count
-
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [gap-review, review-council]
+    aggregateReviews: [gap-review]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count

@@ -1,6 +1,6 @@
-name: spec-and-implement-inline
+name: story-and-implement-inline
 description: >-
-  Inline variant of spec-and-implement – same pipeline, but runs directly on
+  Inline variant of story-and-implement – same pipeline, but runs directly on
   the current branch in the live checkout: no integration branch, no worktree,
   no merge-back at the end. Use when you want the workflow to operate on the
   branch you are already working on.
@@ -73,6 +73,7 @@ steps:
         format: path
         schema:
           type: string
+          minLength: 1
         description: Workspace-relative path to the implementation specification on disk.
       spec_source:
         schema: narrative_text
@@ -93,7 +94,6 @@ steps:
   - id: integrated-review
     name: Integrated Review
     skill: andthen:review
-    parallel: true
     onFailure: retry
     maxRetries: 1
     allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
@@ -108,36 +108,10 @@ steps:
       integrated-review.findings_count: findings_count
       integrated-review.gating_findings_count: gating_findings_count
 
-  - id: integrated-review-council
-    name: Integrated Review with Council
-    skill: andthen-some:council
-    parallel: true
-    # Advisory extra-perspective pass: the gap + architecture reviews carry the
-    # gating signal, and the council writes its report to the reviews
-    # output-dir regardless. A council flake (provider stall, output-capture
-    # edge case) must not abort the parallel barrier, so continue past its
-    # failure; its real findings still gate via the aggregator.
-    onFailure: continue
-    maxRetries: 1
-    provider: claude
-    model: opus[1m]
-    effort: xhigh
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode code,security --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      Review implementation of {{context.spec_path}}. Scope by the FIS –
-      assess only the working-tree state implementing this spec; the live
-      checkout may contain unrelated operator work, so do not flag it.
-    outputs:
-      integrated-review-council.review_report_path: review_report_path
-      integrated-review-council.findings_count: findings_count
-      integrated-review-council.gating_findings_count: gating_findings_count
-
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [integrated-review, integrated-review-council]
+    aggregateReviews: [integrated-review]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count

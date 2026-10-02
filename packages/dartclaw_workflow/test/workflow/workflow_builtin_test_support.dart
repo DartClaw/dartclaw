@@ -1,6 +1,6 @@
 // Shared driver + stub helpers for the built-in workflow integration suites.
 //
-// The three per-workflow files (spec-and-implement / plan-and-implement /
+// The three per-workflow files (story-and-implement / plan-and-implement /
 // code-review) each create a [BuiltInWorkflowDriver], call its setUp/tearDown
 // from the test hooks, and invoke [BuiltInWorkflowDriver.executeBuiltInWorkflow]
 // to run a shipped definition against a stubbed turn loop.

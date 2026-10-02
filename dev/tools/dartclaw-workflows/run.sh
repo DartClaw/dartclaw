@@ -7,10 +7,10 @@
 # `bash examples/run.sh` instead.
 #
 #   bash dev/tools/dartclaw-workflows/run.sh workflow list
-#   bash dev/tools/dartclaw-workflows/run.sh workflow run spec-and-implement -v 'FEATURE=...'
+#   bash dev/tools/dartclaw-workflows/run.sh workflow run story-and-implement -v 'FEATURE=...'
 #   bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement -v 'FEATURE=...'
 #
-# The spec.sh / plan.sh / review.sh wrappers run the inline variants
+# The story.sh / plan.sh / review.sh wrappers run the inline variants
 # (--standalone --allow-dirty-localpath) against the current branch.
 #
 # By default the host is AOT-built via `dart build cli` into a content-addressed directory under

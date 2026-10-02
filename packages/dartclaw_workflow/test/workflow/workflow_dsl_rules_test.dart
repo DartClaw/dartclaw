@@ -800,12 +800,12 @@ void main() {
   test('shipped and maintainer workflows preserve reports including warnings', () {
     final root = resolveRepoRoot();
     final paths = <(String, String)>[
-      for (final name in ['plan-and-implement', 'spec-and-implement', 'code-review'])
+      for (final name in ['plan-and-implement', 'story-and-implement', 'code-review'])
         (
           'built-in/$name',
           p.join(root, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions', '$name.yaml'),
         ),
-      for (final name in ['plan-and-implement', 'spec-and-implement', 'review-and-remediate', 'multi-agent-review'])
+      for (final name in ['plan-and-implement', 'story-and-implement', 'review-and-remediate', 'multi-agent-review'])
         ('maintainer/$name-inline', p.join(root, '.dartclaw', 'workflows', 'custom', '$name-inline.yaml')),
     ];
     final rendered = <String>[];

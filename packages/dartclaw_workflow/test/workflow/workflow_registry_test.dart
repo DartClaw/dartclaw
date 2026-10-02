@@ -115,17 +115,17 @@ void main() {
       expect(registry.listCustom(), isEmpty);
     });
 
-    test('getByName("spec-and-implement") returns the definition', () async {
+    test('getByName("story-and-implement") returns the definition', () async {
       final registry = _makeRegistry();
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
-      final def = registry.getByName('spec-and-implement');
+      final def = registry.getByName('story-and-implement');
       expect(def, isNotNull);
-      expect(def!.name, equals('spec-and-implement'));
+      expect(def!.name, equals('story-and-implement'));
     });
 
     test('bootstrap built-ins leave BRANCH empty so project resolution can infer the base ref', () async {
       final parser = WorkflowDefinitionParser();
-      for (final name in ['spec-and-implement.yaml', 'plan-and-implement.yaml']) {
+      for (final name in ['story-and-implement.yaml', 'plan-and-implement.yaml']) {
         final definition = await parser.parseFile(p.join(workflowDefinitionsDir(), name));
         expect(
           definition.variables['BRANCH']?.defaultValue,
@@ -165,10 +165,10 @@ steps:
       expect(registry.authoredYaml('hot-wf'), contains('Reloaded workflow for testing.'));
     });
 
-    test('sourceOf("spec-and-implement") returns WorkflowSource.materialized', () async {
+    test('sourceOf("story-and-implement") returns WorkflowSource.materialized', () async {
       final registry = _makeRegistry();
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
-      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
+      expect(registry.sourceOf('story-and-implement'), equals(WorkflowSource.materialized));
     });
 
     test('listAll() returns all materialized definitions', () async {
@@ -193,7 +193,7 @@ steps:
       final registry = _makeRegistry();
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final names = registry.listAll().map((d) => d.name).toSet();
-      expect(names, containsAll(['spec-and-implement', 'plan-and-implement', 'code-review']));
+      expect(names, containsAll(['story-and-implement', 'plan-and-implement', 'code-review']));
     });
 
     test('logs one Codex allowedTools warning through the registry load path', () async {
@@ -228,7 +228,7 @@ steps:
       final parser = WorkflowDefinitionParser();
       final definitionsDir = workflowDefinitionsDir();
       final defs = await Future.wait([
-        parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml')),
+        parser.parseFile(p.join(definitionsDir, 'story-and-implement.yaml')),
         parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml')),
         parser.parseFile(p.join(definitionsDir, 'code-review.yaml')),
       ]);
@@ -240,7 +240,7 @@ steps:
     test('built-ins adopt the shared project/branch contract and direct specialist review routing', () async {
       final parser = WorkflowDefinitionParser();
       final definitionsDir = workflowDefinitionsDir();
-      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
+      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'story-and-implement.yaml'));
       final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
       final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
 
@@ -254,7 +254,7 @@ steps:
         }
       }
 
-      // spec-and-implement: BRANCH variable, gitStrategy, and no retired review step.
+      // story-and-implement: BRANCH variable, gitStrategy, and no retired review step.
       expect(specAndImplement.variables.containsKey('BRANCH'), isTrue);
       expect(specAndImplement.variables.containsKey('BASE_BRANCH'), isFalse);
       expect(specAndImplement.gitStrategy, isNotNull);
@@ -277,10 +277,10 @@ steps:
       assertSkills(
         planAndImplement,
         ['andthen:review', 'andthen:plan', 'dartclaw-discover-andthen-plan'],
-        // quick-review was replaced by the per-story review + nested loop.
+        // The per-story review and nested loop are the active review path.
         [
-          'andthen:quick-review',
-          'andthen-quick-review',
+          'andthen:obsolete-review',
+          'andthen-obsolete-review',
           'andthen-review',
           'andthen-plan',
           'andthen:spec',
@@ -321,7 +321,7 @@ steps:
     test('implementation built-ins gate remediation loops on active review findings', () async {
       final parser = WorkflowDefinitionParser();
       final definitionsDir = workflowDefinitionsDir();
-      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'spec-and-implement.yaml'));
+      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'story-and-implement.yaml'));
       final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
       final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
 
@@ -330,7 +330,7 @@ steps:
         expect(def.steps.any((s) => s.id == 'verify-refine'), isFalse);
       }
 
-      // spec-and-implement / plan-and-implement aggregate parallel reviews into
+      // story-and-implement / plan-and-implement aggregate parallel reviews into
       // simple context keys, then re-review overwrites the same keys inside the loop.
       final specRemLoop = specAndImplement.loops.single;
       expect(specRemLoop.entryGate, 'gating_findings_count > 0');
@@ -368,7 +368,7 @@ steps:
         'multi-agent-review-inline',
         'plan-and-implement-inline',
         'review-and-remediate-inline',
-        'spec-and-implement-inline',
+        'story-and-implement-inline',
       });
     });
 
@@ -626,7 +626,7 @@ steps:
   // ------------------------------------------------------------------
   group('name collision', () {
     test('custom with materialized name: materialized kept, custom skipped', () async {
-      File(p.join(tempDir.path, 'spec-and-implement.yaml')).writeAsStringSync(_validCustomYaml('spec-and-implement'));
+      File(p.join(tempDir.path, 'story-and-implement.yaml')).writeAsStringSync(_validCustomYaml('story-and-implement'));
 
       final previousHierarchicalLoggingEnabled = hierarchicalLoggingEnabled;
       hierarchicalLoggingEnabled = true;
@@ -641,7 +641,7 @@ steps:
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
-      expect(registry.sourceOf('spec-and-implement'), equals(WorkflowSource.materialized));
+      expect(registry.sourceOf('story-and-implement'), equals(WorkflowSource.materialized));
       expect(registry.length, equals(3));
       expect(
         records.any(
@@ -674,7 +674,7 @@ steps:
       await registry.loadFromDirectory(tempDir.path);
 
       expect(registry.getByName('unique-wf'), isNotNull);
-      expect(registry.getByName('spec-and-implement'), isNotNull);
+      expect(registry.getByName('story-and-implement'), isNotNull);
       expect(registry.length, equals(4));
     });
   });

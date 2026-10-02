@@ -219,8 +219,6 @@ steps:
 
   # The aggregator normalizes the prefixed review keys to the bare keys the
   # remediation loop reads and writes the report the remediate step consumes.
-  # A multi-perspective council pass is the optional `andthen-some:council`
-  # skill; the inline maintainer variants add it as a second source.
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews

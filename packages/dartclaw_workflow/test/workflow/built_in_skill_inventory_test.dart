@@ -114,7 +114,7 @@ void main() {
       expect(content, contains('every story that depends on a `skipped` story, directly or transitively'));
       expect(content, contains('`pending, in-progress, done, skipped`'));
       expect(content, contains('A `skipped` dependency is never pruned'));
-      expect(content, isNot(contains('spec-ready')));
+      expect(content, isNot(contains('status: queued')));
       expect(content, isNot(contains('blocked`')));
       expect(content, contains('missing or not in the enum are normalized to `pending`'));
       expect(content, contains('Do not emit a separate warning, log, or context key for normalization'));
@@ -152,7 +152,7 @@ void main() {
       const retired = <String>[
         // Ported skills removed by ADR-025 migration (S51)
         'dartclaw-spec',
-        'dartclaw-exec-spec',
+        'dartclaw-exec-plan',
         'dartclaw-prd',
         'dartclaw-plan',
         'dartclaw-review',

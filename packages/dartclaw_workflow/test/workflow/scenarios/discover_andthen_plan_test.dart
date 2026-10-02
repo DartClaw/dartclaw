@@ -221,7 +221,7 @@ void main() {
         _planWithStories([
           _story('S01', fis: 'fis/s01-story.md'),
           _story('S02', status: 'frozen', fis: 'fis/s02-story.md'),
-          _story('S03', status: 'spec-ready', fis: 'fis/s03-story.md'),
+          _story('S03', status: 'queued', fis: 'fis/s03-story.md'),
         ]),
         planDir: 'docs/specs/demo',
       );

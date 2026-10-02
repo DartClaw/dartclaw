@@ -8,7 +8,7 @@
     "dev/guidelines/TRELLIS-GUIDELINES.md"
   ],
   "overview": {
-    "summary": "DartClaw 0.16.6 adopts Stimulus as the Web UI browser interaction layer while preserving the existing HTMX, Trellis, static-asset, and zero-Node architecture. The plan keeps the migration sequential because the foundation contract drives every later page migration, and the completion story removes legacy patterns only after the high-traffic surfaces have moved.\n\nAll FIS files already exist and are preserved as spec-ready during this migration from legacy plan.md to plan.json. The markdown plan remains a human-facing companion only; plan.json is the runtime ledger for downstream workflow skills.",
+    "summary": "DartClaw 0.16.6 adopts Stimulus as the Web UI browser interaction layer while preserving the existing HTMX, Trellis, static-asset, and zero-Node architecture. The plan keeps the migration sequential because the foundation contract drives every later page migration, and the completion story removes legacy patterns only after the high-traffic surfaces have moved.\n\nAll FIS files already exist and are preserved as pending during this migration from legacy plan.md to plan.json. The markdown plan remains a human-facing companion only; plan.json is the runtime ledger for downstream workflow skills.",
     "phases": [
       {
         "id": "P1",
@@ -235,7 +235,7 @@
       "mitigation": "Make doc/spec synchronization and final smoke verification part of the milestone, not a follow-up."
     }
   ],
-  "executionNotes": "Migrated from legacy plan.md to plan.json on 2026-05-08 13:00 CEST. Existing FIS files were preserved and all stories remain spec-ready.\n\nExecution order is sequential: S01 -> S02 -> S04 -> S05. Run each story with dartclaw-exec-spec against its FIS file, and route future status or FIS changes through andthen-ops rather than editing plan.json directly.",
+  "executionNotes": "Migrated from legacy plan.md to plan.json on 2026-05-08 13:00 CEST. Existing FIS files were preserved and all stories remain pending.\n\nExecution order is sequential: S01 -> S02 -> S04 -> S05. Run each story with andthen:exec-plan against its FIS file, and route future status or FIS changes through the plan ledger rather than editing plan.json directly.",
   "metadata": {
     "immutableDigest": "sha256:95c77e3f7cf22b3d5505aecbadf4ee2d2cfce3dff0677e4bda22fa40eda6459d"
   }

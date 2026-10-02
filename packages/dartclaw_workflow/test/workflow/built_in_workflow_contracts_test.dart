@@ -552,7 +552,7 @@ void main() {
       expect(checked, greaterThan(0), reason: 'built-ins must include file-backed andthen:review steps');
     });
 
-    test('parallel review source steps prefix every output key with the step id', () {
+    test('aggregated review sources prefix every output key with the step id', () {
       // Convention: a review step that feeds an aggregate-reviews step prefixes
       // ALL its output keys with its step id (`<stepId>.review_report_path`,
       // `<stepId>.findings_count`, `<stepId>.gating_findings_count`). The host
@@ -606,7 +606,7 @@ void main() {
       expect(checked, greaterThan(0), reason: 'workflows must include aggregated review source steps');
     });
 
-    test('parallel review workflows aggregate first-pass findings and re-review overwrites simple names', () {
+    test('review workflows aggregate first-pass findings and re-review overwrites simple names', () {
       final expectedSources = {
         'story-and-implement.yaml': ['integrated-review'],
         'plan-and-implement.yaml': ['plan-review'],

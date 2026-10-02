@@ -151,7 +151,7 @@ steps:
       spec_source: spec_source
   - id: spec
     name: Generate Specification
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "spec_source == synthesized"
     workflowVariables: [FEATURE]
     outputs:
@@ -514,7 +514,7 @@ Each iteration runs its substeps in declared order. Substeps share a per-iterati
 
 `ForeachNode` drives the shared `MapStepContext` concurrency and dependency-graph machinery (`iteration_dispatch_engine.dart`), which owns restore, in-flight tracking, wake, concurrency, dependency-ready scan, and deadlock cancellation.
 
-`plan-and-implement` uses `ForeachNode` for its `story-pipeline` step, running `implement → review-story → story-remediation` per story before plan-level review or remediation. `andthen:exec-spec` is responsible for running analysis/tests/linting and fixing issues before emitting the story result.
+`plan-and-implement` uses `ForeachNode` for its `story-pipeline` step, running `implement → review-story → story-remediation` per story before plan-level review or remediation. `andthen:exec-plan` is responsible for running analysis/tests/linting and fixing issues before emitting the story result.
 
 ### Concurrency and Dependency Graph
 
@@ -652,7 +652,7 @@ DartClaw ships four DC-native workflow skills as package assets: `dartclaw-disco
 
 DartClaw does not clone AndThen, run its installer, or create a `dartclaw-*` branded copy (the earlier clone + `install-skills.sh` model was retired in 0.17 as the SP-1/SP-2 security remediation — see ADR-040). AndThen is an **operator-installed prerequisite** for whichever provider runs the workflow.
 
-- **AndThen-derived skills** are referenced in workflow YAML by canonical logical name (`andthen:spec`, `andthen:review`, …) and resolved during execution preflight to the provider-native name: Claude Code → `andthen:spec` (plugin namespace), Codex → the exact authored name when visible, then `andthen-spec` for a legacy hyphenated installation, unknown providers → the authored name verbatim. A missing skill is surfaced at run preflight by the harness-introspection probe (ADR-026), not by a filesystem scan.
+- **AndThen-derived skills** are referenced in workflow YAML by canonical logical name (`andthen:plan`, `andthen:review`, …) and resolved during execution preflight to the provider-native name: Claude Code → `andthen:plan` (plugin namespace), Codex → the exact authored name when visible, then `andthen-plan` for a legacy hyphenated installation, unknown providers → the authored name verbatim. A missing skill is surfaced at run preflight by the harness-introspection probe (ADR-026), not by a filesystem scan.
 - **DC-native skills only** are copied by `SkillProvisioner` at `dartclaw serve` startup and before `dartclaw workflow run --standalone`: the manifest-listed package-root skill payloads go into `<dataDir>/.agents/skills/` (Codex) and `<dataDir>/.claude/skills/` (Claude Code), with configured project workspaces receiving links or managed fallback copies for those directories only. There is no git-subprocess, cached-source, or `andthen.git_url`/`ref`/`network` path; those legacy config keys are ignored with warnings.
 
 See [`025-andthen-as-runtime-prerequisite.md`](../adrs/025-andthen-as-runtime-prerequisite.md) for the original runtime-prerequisite decision, [`040-andthen-skills-via-canonical-name-resolution.md`](../adrs/040-andthen-skills-via-canonical-name-resolution.md) for the current resolution model, and [`../../docs/guide/andthen-skills.md`](../../docs/guide/andthen-skills.md) for operator usage.
@@ -1396,19 +1396,19 @@ The runtime rejects that rather than inventing implicit rules.
 
 ## File-Based Artifact Contract
 
-The artifact-producing `andthen:spec` steps write files to disk and emit workspace-relative **paths** under their `outputs:` block, never inline artifact content. Workflow steps downstream read those paths via `file_read`. Both the feature-spec step and the `plan-and-implement` plan step use `andthen:spec` to author their artifacts.
+The artifact-producing `andthen:plan` steps write files to disk and emit workspace-relative **paths** under their `outputs:` block, never inline artifact content. Workflow steps downstream read those paths via `file_read`. Both the feature-spec step and the `plan-and-implement` plan step use `andthen:plan` to author their artifacts.
 
 The engine validates emitted paths via the generic `format: path` trust-boundary check (§11.1 — containment, existence, argument safety). The engine does not re-validate AndThen artifact schemas (`plan.json` structure, FIS markers, `spec_source` semantics, status vocabulary); those domain semantics are the skill's responsibility (ADR-041). The `story_specs` output additionally passes a data-shape contract check (`story_spec_output_validator.dart`, `story_specs_contract_validator.dart`) that validates `items` list structure and required fields — this is a workflow-data-shape invariant, not framework coupling, and contains no `andthen` literals.
 
-**Read-existing branches.** `dartclaw-discover-andthen-spec` classifies `FEATURE` as an existing FIS path or an inline feature description. Existing FIS inputs emit `spec_path` with `spec_source: "existing"` and skip `andthen:spec`; inline descriptions leave the path empty until `andthen:spec` writes the FIS. Existing written sources that are not FIS files fail with a pointer to `plan-and-implement`. `dartclaw-discover-andthen-plan` discovers an existing PRD/plan/story-spec state for `plan-and-implement`; `andthen:spec` fills only the missing plan or per-story FIS artifacts and emits `plan` plus `story_specs` paths. Skip/resume decisions are expressed as workflow-YAML `entryGate` expressions reading the skill's structured output — not re-derived in engine Dart code.
+**Read-existing branches.** `dartclaw-discover-andthen-spec` classifies `FEATURE` as an existing FIS path or an inline feature description. Existing FIS inputs emit `spec_path` with `spec_source: "existing"` and skip `andthen:plan`; inline descriptions leave the path empty until `andthen:plan` writes the FIS. Existing written sources that are not FIS files fail with a pointer to `plan-and-implement`. `dartclaw-discover-andthen-plan` discovers an existing PRD/plan/story-spec state for `plan-and-implement`; `andthen:plan` fills only the missing plan or per-story FIS artifacts and emits `plan` plus `story_specs` paths. Skip/resume decisions are expressed as workflow-YAML `entryGate` expressions reading the skill's structured output — not re-derived in engine Dart code.
 
-**`story_specs` shape.** `story_specs` is an object with an `items` list of **structured per-story records** — not bare paths. Each record carries required `{id, title, spec_path, dependencies}` fields, and may preserve optional workflow metadata such as `phase`, `wave`, or `status`. Downstream prompts read `{{map.item.title}}`, `{{map.item.id}}`, and `{{map.item.spec_path}}`; `{{map.item.spec_path}}` is the field that `andthen:exec-spec` uses with `file_read` to load the FIS body.
+**`story_specs` shape.** `story_specs` is an object with an `items` list of **structured per-story records** — not bare paths. Each record carries required `{id, title, spec_path, dependencies}` fields, and may preserve optional workflow metadata such as `phase`, `wave`, or `status`. Downstream prompts read `{{map.item.title}}`, `{{map.item.id}}`, and `{{map.item.spec_path}}`; `{{map.item.spec_path}}` is the field that `andthen:exec-plan` uses with `file_read` to load the FIS body.
 
 Every emitted `story_specs[].spec_path` must resolve to an existing file before the plan step succeeds. The executor validates those paths after extraction against the producing task's `worktree.path` when present, falling back to the active workflow root for inline/no-worktree steps. Missing FIS files convert the step to a workflow failure and, when `onFailure: retry` is configured, the retry prompt includes the validation failure.
 
 ### Single-step PRD/spec contract
 
-The built-in workflows no longer ship separate document-review or spec-revision steps. `andthen:spec` is responsible for producing final feature specs, plans, and per-story specs, while downstream steps consume emitted paths (`spec_path`, `prd`, `plan`, and `story_specs[].spec_path`) via `file_read`. `plan-review` remains the aggregate read-only review surface for the multi-story pipeline.
+The built-in workflows no longer ship separate document-review or spec-revision steps. `andthen:plan` is responsible for producing final feature specs, plans, and per-story specs, while downstream steps consume emitted paths (`spec_path`, `prd`, `plan`, and `story_specs[].spec_path`) via `file_read`. `plan-review` remains the aggregate read-only review surface for the multi-story pipeline.
 
 ## Generalized `entryGate`
 

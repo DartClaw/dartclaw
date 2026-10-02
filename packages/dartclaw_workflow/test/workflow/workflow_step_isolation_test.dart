@@ -632,7 +632,7 @@ void main() {
               'title': 'Existing Story',
               'fis': 'fis/s01-existing-story.md',
               'dependsOn': <String>[],
-              'status': 'spec-ready',
+              'status': 'pending',
             },
           ],
         }),

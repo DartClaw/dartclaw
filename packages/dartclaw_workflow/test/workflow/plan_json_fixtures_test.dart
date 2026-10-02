@@ -30,7 +30,7 @@ void main() {
           containsPair('wave', 'W1'),
           containsPair('phase', 'P1'),
           containsPair('risk', 'medium'),
-          containsPair('status', 'spec-ready'),
+          containsPair('status', 'pending'),
           containsPair('fis', 'fis/s01-parallel-foundation.md'),
         ),
       );

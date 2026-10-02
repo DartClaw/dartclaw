@@ -104,12 +104,18 @@ void main() {
 
       expect(content, contains('PRD'));
       expect(content, contains('story_specs'));
-      // Resume-filter rule 6 contract – pin the full semantics so prompt-text
-      // regression (dropping the exclusion clause, the enum, or the
-      // defensive-normalization clause) fails this test.
+      // Resume-filter rules 6 and 7 – pin the full semantics so prompt-text
+      // regression (dropping the exclusion clause, the skipped-dependent
+      // omission, the enum, done-only pruning, or the defensive-normalization
+      // clause) fails this test. A skipped story blocks its dependents
+      // (AndThen ADR-024), so pruning a skipped dependency would run a story on
+      // code that was never built.
       expect(content, contains('closed set `{done, skipped}`'));
-      expect(content, contains('skipped/done stories are not re-emitted'));
-      expect(content, contains('pending, spec-ready, in-progress, done, skipped, blocked'));
+      expect(content, contains('every story that depends on a `skipped` story, directly or transitively'));
+      expect(content, contains('`pending, in-progress, done, skipped`'));
+      expect(content, contains('A `skipped` dependency is never pruned'));
+      expect(content, isNot(contains('spec-ready')));
+      expect(content, isNot(contains('blocked`')));
       expect(content, contains('missing or not in the enum are normalized to `pending`'));
       expect(content, contains('Do not emit a separate warning, log, or context key for normalization'));
       expect(content, isNot(contains('project_index')));

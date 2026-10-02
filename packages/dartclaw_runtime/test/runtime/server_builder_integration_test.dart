@@ -39,8 +39,8 @@ void _stageProviderAndThenSkillStubs(String searchRoot) {
   const refs = [
     'andthen:prd',
     'andthen:plan',
-    'andthen:spec',
-    'andthen:exec-spec',
+    'andthen:plan',
+    'andthen:exec-plan',
     'andthen:review',
     'andthen:implement-fix',
     'andthen:quick-review',

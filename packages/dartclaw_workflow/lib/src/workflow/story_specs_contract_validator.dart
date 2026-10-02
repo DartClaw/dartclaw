@@ -69,16 +69,19 @@ import 'workflow_runner_types.dart';
 /// Appends skill-actionable guidance to the generic DAG error when a
 /// dependency names a story absent from the emitted catalog.
 ///
-/// The skill owns resume-pruning (ADR-041): it omits done/skipped stories from
-/// `items` and must drop dependencies on them. Without this hint the bare
-/// "Unknown dependency IDs" message can misdirect a retry into re-adding the
-/// closed story to `items` (re-running completed work) instead of pruning the
-/// dependency.
+/// The skill owns resume-pruning (ADR-041): it omits done and skipped stories
+/// from `items`, drops dependencies on done ones, and omits every story that
+/// depends on a skipped one, since a skipped story was never built. Without
+/// this hint the bare "Unknown dependency IDs" message can misdirect a retry
+/// into re-adding the done story to `items` (re-running completed work), or
+/// into dropping a skipped dependency (running a story on missing code).
 String _dependencyErrorWithRemediation(String message) {
   if (!message.startsWith('Unknown dependency IDs')) return message;
   return '$message. If a dependency names a story you intentionally omitted '
-      'because it is already done or skipped, drop that dependency from the '
-      "story's `dependencies` array — do not re-add the closed story to `items`.";
+      'because it is already done, drop that dependency from the '
+      "story's `dependencies` array — do not re-add the done story to `items`. "
+      'A story that depends on a skipped story is omitted from `items` instead, '
+      'its dependency never dropped.';
 }
 
 /// Item keys the `story_specs` data-shape contract recognizes.

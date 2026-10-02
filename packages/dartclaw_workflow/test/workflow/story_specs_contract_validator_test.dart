@@ -67,9 +67,10 @@ void main() {
     });
 
     test('the unknown-dependency failure carries skill-actionable pruning guidance', () {
-      // ADR-041 moved resume-pruning to the skill. A dependency on a closed
-      // (omitted) story surfaces as "unknown"; the retry feedback must tell the
-      // skill to drop the dependency, not re-add the closed story to `items`.
+      // ADR-041 moved resume-pruning to the skill. A dependency on an omitted
+      // story surfaces as "unknown"; the retry feedback must tell the skill to
+      // drop a done dependency, not re-add the done story to `items`, and to
+      // omit a skipped story's dependent rather than drop its dependency.
       final storySpecs = {
         'items': [
           _item('S01'),
@@ -81,7 +82,9 @@ void main() {
 
       final reason = result.validationFailure!.reason;
       expect(reason, contains('drop that dependency'));
-      expect(reason, contains('do not re-add the closed story'));
+      expect(reason, contains('do not re-add the done story'));
+      expect(reason, contains('depends on a skipped story is omitted'));
+      expect(reason, isNot(contains('done or skipped')));
     });
 
     test('a cycle failure stays generic (no story-pruning guidance)', () {

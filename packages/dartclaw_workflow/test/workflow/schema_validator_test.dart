@@ -211,7 +211,7 @@ void main() {
               'wave': 'W1',
               'phase': 'P1',
               'risk': 'medium',
-              'status': 'spec-ready',
+              'status': 'pending',
             },
           ],
         };

@@ -136,9 +136,9 @@ void main() {
 /// AndThen-owned skills referenced by the shipped workflow definitions.
 const _shippedDartclawSkillRefs = <String>[
   'andthen:prd',
-  'andthen:spec',
   'andthen:plan',
-  'andthen:exec-spec',
+  'andthen:plan',
+  'andthen:exec-plan',
   'andthen:review',
   'andthen:quick-review',
   'andthen:implement-fix',

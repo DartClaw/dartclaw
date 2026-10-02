@@ -113,7 +113,7 @@
       "dependsOn": [],
       "parallel": false,
       "risk": "medium",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s01-stimulus-foundation.md",
       "scope": "Integrate Stimulus into the current static asset model without Node/npm tooling and define the controller contract for the Web UI. This story includes asset loading, vendoring and pinning policy, controller bootstrapping, HTMX lifecycle coordination, naming conventions, and migration rules for server-rendered templates. It excludes page-by-page migration, which happens in later stories.",
       "sourceRefs": [
@@ -141,7 +141,7 @@
       ],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s02-core-migration.md",
       "scope": "Migrate shell-level, feature-level, and admin/ops interactions to Stimulus in one coordinated pass. Covers shared shell behavior, chat, tasks, workflows, projects, settings, channel detail, scheduling, memory, and health. It excludes remaining special surfaces and final legacy cleanup from S04.",
       "sourceRefs": [
@@ -168,7 +168,7 @@
       ],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s04-special-surfaces-legacy-removal.md",
       "scope": "Migrate the remaining browser-facing pages with JavaScript behavior, including special and standalone surfaces, and remove the legacy page-global interaction pattern as the primary implementation model. Any unavoidable exclusion must be explicit, narrow, and documented. This story is the completion gate for full adoption.",
       "sourceRefs": [
@@ -194,7 +194,7 @@
       ],
       "parallel": false,
       "risk": "medium",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s05-docs-sync-verification.md",
       "scope": "Update the private docs and downstream specs affected by the migration, then run the final verification pass for the milestone. This story includes architecture and documentation sync, roadmap and state consistency, and an explicit update to the 0.17 composer FIS so future work reflects the migrated UI reality. It excludes new UI feature work beyond proof and synchronization.",
       "sourceRefs": [

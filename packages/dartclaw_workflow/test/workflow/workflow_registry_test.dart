@@ -276,14 +276,14 @@ steps:
       expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
         planAndImplement,
-        ['andthen:review', 'andthen:spec', 'dartclaw-discover-andthen-plan'],
+        ['andthen:review', 'andthen:plan', 'dartclaw-discover-andthen-plan'],
         // quick-review was replaced by the per-story review + nested loop.
         [
           'andthen:quick-review',
           'andthen-quick-review',
           'andthen-review',
           'andthen-plan',
-          'andthen:plan',
+          'andthen:spec',
           'andthen-prd',
           'dartclaw-spec-plan',
         ],

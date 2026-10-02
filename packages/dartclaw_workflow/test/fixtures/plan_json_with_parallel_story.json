@@ -20,7 +20,7 @@
       "dependsOn": [],
       "parallel": true,
       "risk": "medium",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s01-parallel-foundation.md",
       "scope": "Parallel fixture story with all optional fields populated."
     }

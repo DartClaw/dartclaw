@@ -1,6 +1,6 @@
 # AndThen Skills
 
-DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:spec`, `andthen:exec-spec`, and `andthen:review`. The `plan-and-implement` workflow uses `andthen:spec` to author the plan and per-story specs.
+DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:plan`, `andthen:exec-plan`, and `andthen:review`. The `plan-and-implement` workflow uses `andthen:plan` to author the plan and per-story specs.
 
 AndThen 1.0 split the distribution into two plugins, `andthen` and `andthen-some`. The workflows do not require an `andthen-some` skill. The `simplify-code` step remains removed from the built-in workflows even though `andthen:simplify-code` is now a core skill. The retired document-review and spec-revision steps are also removed. No `architecture-review` step is included because `andthen:architecture` offers `advise` and `trade-off` modes; review moved to `andthen-some:architecture-analysis`.
 
@@ -8,8 +8,8 @@ DartClaw does not clone AndThen, run AndThen's installer, or create DartClaw-bra
 
 | Provider | Canonical reference | Provider-native name |
 |---|---|---|
-| Codex | `andthen:spec` | `andthen:spec` for a native plugin; `andthen-spec` for a legacy skill installation |
-| Claude Code | `andthen:spec` | `andthen:spec` |
+| Codex | `andthen:plan` | `andthen:plan` for a native plugin; `andthen-plan` for a legacy skill installation |
+| Claude Code | `andthen:plan` | `andthen:plan` |
 
 Unknown providers use the authored skill name exactly.
 

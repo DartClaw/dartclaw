@@ -190,7 +190,7 @@ void main() {
       final plan = def.steps.singleWhere((step) => step.id == 'plan');
       expect(
         plan.skill,
-        'andthen:spec',
+        'andthen:plan',
         reason: 'AndThen 1.0 authors the plan and per-story FIS files through one skill',
       );
       expect(plan.entryGate, isNot(contains('story_specs.items isEmpty')));
@@ -401,7 +401,7 @@ void main() {
     // with --fix. Re-review steps are read-only re-runs of the original review
     // (no --fix), so they are NOT mutating and hold review-only grants.
     test('mutation steps that grant file_write also grant file_edit', () {
-      const mutatorSkills = {'andthen:exec-spec', 'andthen:implement-fix', 'andthen:triage'};
+      const mutatorSkills = {'andthen:exec-plan', 'andthen:implement-fix', 'andthen:triage'};
       var checked = 0;
       for (final file in _builtInWorkflows) {
         final def = _load(file);

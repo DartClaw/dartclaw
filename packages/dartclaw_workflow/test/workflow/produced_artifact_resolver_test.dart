@@ -96,7 +96,7 @@ void main() {
       final resolution = resolveStorySpecPaths({
         'story_specs': {
           'items': [
-            {'id': 'S01', 'dependencies': <String>[], 'spec_path': 'fis/s01.md', 'status': 'spec-ready'},
+            {'id': 'S01', 'dependencies': <String>[], 'spec_path': 'fis/s01.md', 'status': 'pending'},
             {'id': 'S02', 'dependencies': <String>[], 'spec_path': 'fis/s02.md', 'status': 'done'},
             {'id': 'S03', 'dependencies': <String>[], 'spec_path': 'fis/s03.md'},
           ],

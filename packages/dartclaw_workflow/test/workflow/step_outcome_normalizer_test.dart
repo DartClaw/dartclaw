@@ -234,7 +234,7 @@ void main() {
                 'wave': 'W1',
                 'phase': 'P1',
                 'risk': 'medium',
-                'status': 'spec-ready',
+                'status': 'pending',
               },
             ],
           },
@@ -253,7 +253,7 @@ void main() {
           containsPair('wave', 'W1'),
           containsPair('phase', 'P1'),
           containsPair('risk', 'medium'),
-          containsPair('status', 'spec-ready'),
+          containsPair('status', 'pending'),
         ),
       );
     });

@@ -63,7 +63,7 @@ steps:
 
   - id: spec
     name: Generate Specification
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "spec_source == synthesized"
     # FEATURE is interpolated inline by design – the spec skill acts on the
     # feature description, so it is a direct argument, not auto-framed.
@@ -80,7 +80,7 @@ steps:
 
   - id: implement
     name: Implement
-    skill: andthen:exec-spec
+    skill: andthen:exec-plan
     # No allowedTools grant here (unlike the built-in): the maintainer profile
     # runs under a broader permission mode, so mutating steps in the inline
     # customs deliberately omit per-tool allowlists rather than mirror the

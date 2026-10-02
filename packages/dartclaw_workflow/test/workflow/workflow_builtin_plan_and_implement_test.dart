@@ -813,7 +813,7 @@ final List<_DiscoveryRow> _discoveryMatrix = [
             'title': 'Open Story',
             'spec_path': 'docs/specs/resume/fis/s03-open-story.md',
             'dependencies': <String>[],
-            'status': 'spec-ready',
+            'status': 'pending',
           },
         ],
       },

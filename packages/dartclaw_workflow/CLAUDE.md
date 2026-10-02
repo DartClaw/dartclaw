@@ -6,11 +6,11 @@
 
 Three YAMLs in `lib/src/workflow/definitions/` load into the registry at startup:
 
-- **`spec-and-implement`** – `FEATURE` (inline description or existing FIS path). `dartclaw-discover-andthen-spec` rejects existing written sources that are not FIS files and points to `plan-and-implement`; otherwise `andthen:spec` authors a FIS for inline descriptions. Then `andthen:exec-spec` → integrated review → bounded remediation.
-- **`plan-and-implement`** – `FEATURE` (PRD path or hint). `dartclaw-discover-andthen-plan` requires a PRD; emits flat `prd` / optional `plan` / optional `story_specs`. `andthen:spec` authors the plan and per-story specs when needed. Foreach: implement → review → nested remediation loop per story. Plan-level review → bounded remediation.
+- **`spec-and-implement`** – `FEATURE` (inline description or existing FIS path). `dartclaw-discover-andthen-spec` rejects existing written sources that are not FIS files and points to `plan-and-implement`; otherwise `andthen:plan` authors a FIS for inline descriptions. Then `andthen:exec-plan` → integrated review → bounded remediation.
+- **`plan-and-implement`** – `FEATURE` (PRD path or hint). `dartclaw-discover-andthen-plan` requires a PRD; emits flat `prd` / optional `plan` / optional `story_specs`. `andthen:plan` authors the plan and per-story specs when needed. Foreach: implement → review → nested remediation loop per story. Plan-level review → bounded remediation.
 - **`code-review`** – `TARGET` (PR/branch/module) → single-methodology review → bounded remediation.
 
-Built-ins author provider-agnostic skill refs (`andthen:spec`); runtime preflight prefers the exact visible name, with a legacy Codex alias such as `andthen-spec` when needed. DC-native skills use exact `dartclaw-*` names; canonical inventory lives in `packages/dartclaw_workflow/skills/dartclaw-native-skills.txt` – never wildcard-add or rename without updating it. Editing any definition affects `built_in_workflow_contracts_test.dart`. For maintainer runs see root `CLAUDE.md` § Built-in DartClaw Workflows and `dev/tools/dartclaw-workflows/README.md`.
+Built-ins author provider-agnostic skill refs (`andthen:plan`); runtime preflight prefers the exact visible name, with a legacy Codex alias such as `andthen-plan` when needed. DC-native skills use exact `dartclaw-*` names; canonical inventory lives in `packages/dartclaw_workflow/skills/dartclaw-native-skills.txt` – never wildcard-add or rename without updating it. Editing any definition affects `built_in_workflow_contracts_test.dart`. For maintainer runs see root `CLAUDE.md` § Built-in DartClaw Workflows and `dev/tools/dartclaw-workflows/README.md`.
 
 ## Registry load tiers
 

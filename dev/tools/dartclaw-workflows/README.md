@@ -10,8 +10,8 @@ Three built-in workflows ship in `packages/dartclaw_workflow/lib/src/workflow/de
 
 | Workflow | Required variable | Purpose |
 |----------|-------------------|---------|
-| `spec-and-implement` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts an inline description or a path to an existing FIS; an existing written source that is not a FIS is rejected with a pointer to `plan-and-implement`. `andthen:spec` authors a FIS for inline descriptions. |
-| `plan-and-implement` | `FEATURE` | Multi-story milestone pipeline. Requires an existing PRD. `dartclaw-discover-andthen-plan` emits flat `prd`, optional `plan`, and optional `story_specs`; `andthen:spec` authors missing plan/spec artifacts. |
+| `spec-and-implement` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts an inline description or a path to an existing FIS; an existing written source that is not a FIS is rejected with a pointer to `plan-and-implement`. `andthen:plan` authors a FIS for inline descriptions. |
+| `plan-and-implement` | `FEATURE` | Multi-story milestone pipeline. Requires an existing PRD. `dartclaw-discover-andthen-plan` emits flat `prd`, optional `plan`, and optional `story_specs`; `andthen:plan` authors missing plan/spec artifacts. |
 | `code-review` | `TARGET` | Single-methodology review of a PR / branch / module + bounded remediation loop. |
 
 Three custom **inline** variants ship in `.dartclaw/workflows/custom/`:

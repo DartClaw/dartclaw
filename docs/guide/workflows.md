@@ -604,9 +604,9 @@ Key runtime behavior:
 
 #### File-Based Artifact Contract
 
-Artifact-producing skills write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. The built-in `plan-and-implement` authoring step uses `andthen:spec` for plan and story-spec artifacts. Workflow steps downstream read the paths via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
+Artifact-producing skills write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. The built-in `plan-and-implement` authoring step uses `andthen:plan` for plan and story-spec artifacts. Workflow steps downstream read the paths via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
 
-Built-in `plan-and-implement` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `plan` step, using `andthen:spec`, to author or republish the plan bundle. An empty `story_specs.items: []` is a successful resume signal – every story is already `done`/`skipped`, so the foreach iterates zero times and the workflow proceeds to plan-level review.
+Built-in `plan-and-implement` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `plan` step, using `andthen:plan`, to author or republish the plan bundle. An empty `story_specs.items: []` is a successful resume signal – every story is already `done`/`skipped`, so the foreach iterates zero times and the workflow proceeds to plan-level review.
 
 #### Artifact Auto-Commit
 
@@ -971,10 +971,10 @@ To wire it up end-to-end, expose the server publicly (or via a tunnel for local 
 
 ### `spec-and-implement` – Feature Pipeline
 
-Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `plan-and-implement`. Inline descriptions produce a FIS with `andthen:spec`; existing FIS files are reused. The workflow then implements via `andthen:exec-spec`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. The maintainer inline variant adds a parallel council review.
+Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `plan-and-implement`. Inline descriptions produce a FIS with `andthen:plan`; existing FIS files are reused. The workflow then implements via `andthen:exec-plan`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. The maintainer inline variant adds a parallel council review.
 
 Notable patterns:
-- **Narrow input guard**: FIS-path reuse is decided by `dartclaw-discover-andthen-spec`, not by relying on `andthen:spec` inference.
+- **Narrow input guard**: FIS-path reuse is decided by `dartclaw-discover-andthen-spec`, not by relying on `andthen:plan` inference.
 - **Inline prompts and schemas**: shipped built-ins carry per-step `prompts:` and `outputs:` explicitly in the workflow YAML – no reliance on skill frontmatter defaults for load-bearing behavior.
 - **Dedicated workflow workspace**: execution steps use the workflow workspace behavior files rather than the main interactive workspace.
 - **Runtime review reports**: `andthen:review` invocations use `--output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"`. The engine exports that host-owned per-step directory into each task's environment and captures the report from it when the step emits no usable path, so transient reports stay out of the project worktree.
@@ -987,11 +987,11 @@ Role usage:
 
 ### `plan-and-implement` – Story Fan-Out
 
-Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:spec`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop`. The maintainer inline variant adds a council review.
+Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop`. The maintainer inline variant adds a council review.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `discover-plan-state` requires an existing PRD and does not re-emit `done` or `skipped` stories; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer.
-- **Single-step artifact producers**: `andthen:spec` in the `plan` step authors the plan and story specs, and the `spec` step authors a feature FIS. Downstream steps consume emitted paths (`prd`, `plan`, `spec_path`) via `file_read` instead of inserting separate document-review or revision steps.
+- **Single-step artifact producers**: `andthen:plan` in the `plan` step authors the plan and story specs, and the `spec` step authors a feature FIS. Downstream steps consume emitted paths (`prd`, `plan`, `spec_path`) via `file_read` instead of inserting separate document-review or revision steps.
 - **Merged plan + specs**: `plan` emits the plan path and `story_specs` together in a single pass; downstream steps consume both directly.
 - **File-backed story specs**: every `story_specs.items[].spec_path` emitted by `plan` must exist on disk. Post-extraction validation checks the producing task worktree when one exists, falls back to the active workflow root otherwise, rejects missing FIS files, and sends that validation failure into the retry prompt.
 - **Cross-map binding**: implementation reads per-iteration data directly via `{{map.item.spec_path}}` (the FIS body is already on disk in the story's worktree, carried there by the artifact auto-commit on the workflow branch), while later plan-level review and remediation steps consume the aggregated `story_results` list exported by the `story-pipeline` controller. The `story_specs` records also carry `id` and `dependencies`, so the foreach runtime can gate later stories on prerequisite promotions without consulting a second graph output. The `{{context.key[map.index]}}` form is still available when a prior step produced a parallel list and you want to correlate by position.
@@ -1057,8 +1057,8 @@ DartClaw ships four DC-native skills and resolves all other workflow steps throu
 
 **AndThen provider skills**:
 
-- `andthen:spec` – feature specifications, plans, and per-story specifications
-- `andthen:exec-spec` – spec execution / implementation driver
+- `andthen:plan` – feature specifications, plans, and per-story specifications
+- `andthen:exec-plan` – spec execution / implementation driver
 - `andthen:review` – implementation, code, security, and outcome review
 - `andthen:implement-fix` – remediation loop driver
 - `andthen:triage` – failure investigation

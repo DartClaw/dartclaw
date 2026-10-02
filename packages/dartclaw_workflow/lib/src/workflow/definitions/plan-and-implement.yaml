@@ -90,7 +90,7 @@ steps:
   # plan.json + per-story FIS files; emits file paths, not inline bodies.
   - id: plan
     name: Plan Stories and Specs
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
     # `prd` is interpolated inline as the skill argument; only `plan` needs
     # auto-framing (reuse-vs-synthesize signal, not referenced in the prompt).
@@ -131,7 +131,7 @@ steps:
     steps:
       - id: implement
         name: Implement Story
-        skill: andthen:exec-spec
+        skill: andthen:exec-plan
         allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
         # Transient Codex CLI exits (exit 1 with only `thread.started` on
         # stdout, typically under memory pressure with parallel runners) get

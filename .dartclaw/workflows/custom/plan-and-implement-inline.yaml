@@ -75,7 +75,7 @@ steps:
 
   - id: plan
     name: Plan Stories and Specs
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
     # `prd` is interpolated inline as the skill argument; only `plan` needs
     # auto-framing (reuse-vs-synthesize signal, not referenced in the prompt).
@@ -103,7 +103,7 @@ steps:
     steps:
       - id: implement
         name: Implement Story
-        skill: andthen:exec-spec
+        skill: andthen:exec-plan
         # No allowedTools grant here (unlike the built-in): the maintainer profile
         # runs under a broader permission mode, so mutating steps in the inline
         # customs deliberately omit per-tool allowlists.

@@ -70,7 +70,7 @@ steps:
 
   - id: spec
     name: Generate Specification
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "spec_source == synthesized"
     # FEATURE is interpolated inline by design – the spec skill is meant to act
     # on the feature description, so it is a direct argument, not auto-framed
@@ -89,7 +89,7 @@ steps:
 
   - id: implement
     name: Implement
-    skill: andthen:exec-spec
+    skill: andthen:exec-plan
     allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
     # Task-level retry covers transient provider/CLI exits without retrying an
     # explicit semantic failed step outcome.

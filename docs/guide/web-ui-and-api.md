@@ -709,7 +709,7 @@ Returns a single persisted turn trace, including token totals, duration, bounded
 POST /api/workflows/run
 Content-Type: application/json
 
-{"definition": "spec-and-implement", "variables": {"FEATURE": "Add trace UI"}}
+{"definition": "story-and-implement", "variables": {"FEATURE": "Add trace UI"}}
 ```
 
 #### Start workflow from the workflows page
@@ -718,7 +718,7 @@ Content-Type: application/json
 POST /api/workflows/run-form
 Content-Type: application/x-www-form-urlencoded
 
-definition=spec-and-implement&var_FEATURE=Add+trace+UI
+definition=story-and-implement&var_FEATURE=Add+trace+UI
 ```
 
 On success the response includes `HX-Location: /workflows/<runId>`.
@@ -1022,7 +1022,7 @@ Common request shape for `POST /api/workflows/run`:
 
 ```json
 {
-  "definition": "spec-and-implement",
+  "definition": "story-and-implement",
   "variables": {
     "FEATURE": "Add pagination"
   },

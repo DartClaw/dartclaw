@@ -136,7 +136,7 @@ The model deliberately keeps string-based fields where the workflow authoring su
 ### Top-Level Shape
 
 ```yaml
-name: spec-and-implement
+name: story-and-implement
 description: Write a specification, implement it, and run integrated review.
 variables:
   FEATURE:
@@ -301,7 +301,7 @@ Resolution paths:
 | Cancel | `POST /api/workflows/runs/<id>/cancel` | Marks approval as `rejected` with optional `feedback`, fires `WorkflowApprovalResolvedEvent`, cancels run and child tasks |
 | Timeout | Timer expiry | Marks approval as `timed_out`, cancels run |
 
-No current built-in workflow requires an `approval` step. `spec-and-implement` now follows a single-step spec flow: `spec` writes the FIS to disk, `implement` reads it via `file_read`, then validation, integrated review, and the bounded remediation loop operate against that on-disk baseline. Approval steps remain available for custom workflows that truly need a human checkpoint.
+No current built-in workflow requires an `approval` step. `story-and-implement` now follows a single-step spec flow: `spec` writes the FIS to disk, `implement` reads it via `file_read`, then validation, integrated review, and the bounded remediation loop operate against that on-disk baseline. Approval steps remain available for custom workflows that truly need a human checkpoint.
 
 ### 4.2.1 Workflow Run Status Model
 
@@ -788,7 +788,7 @@ the persisted `Task.agentExecution.workspaceDir` and continuation-turn adapter.
 
 The shipped built-in workflow library contains 3 workflows:
 
-- `spec-and-implement`
+- `story-and-implement`
 - `plan-and-implement`
 - `code-review`
 

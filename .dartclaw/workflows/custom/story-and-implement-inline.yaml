@@ -171,7 +171,7 @@ steps:
     type: bash
     timeout: 90m
     script: >-
-      bash ../workflows/custom/scripts/verify-gate.sh all
+      ../workflows/custom/scripts/verify-gate.sh all
       {{workflow.runtime_artifacts_dir}}
     outputs:
       verify-all.result: text
@@ -201,7 +201,7 @@ steps:
         type: bash
         timeout: 90m
         script: >-
-          bash ../workflows/custom/scripts/verify-gate.sh all
+          ../workflows/custom/scripts/verify-gate.sh all
           {{workflow.runtime_artifacts_dir}}
         outputs:
           verify-recheck.result: text

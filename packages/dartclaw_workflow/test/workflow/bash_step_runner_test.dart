@@ -18,6 +18,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowContext,
+        WorkflowDefinitionParser,
         WorkflowStep,
         WorkflowTaskType;
 import 'package:dartclaw_workflow/src/workflow/bash_step_runner.dart';
@@ -27,6 +28,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
+import '_support/workflow_test_paths.dart';
 
 void main() {
   group('bash_step_runner unit', () {
@@ -421,6 +423,41 @@ void main() {
     final h = WorkflowExecutorHarness();
     setUp(h.setUp);
     tearDown(h.tearDown);
+
+    test('maintained inline verification commands pass the substituted artifacts path as one argument', () async {
+      final customDir = findAncestorDir(['.dartclaw/workflows/custom']);
+      for (final file in const [
+        'story-and-implement-inline.yaml',
+        'plan-and-implement-inline.yaml',
+        'review-and-remediate-inline.yaml',
+      ]) {
+        final definition = WorkflowDefinitionParser().parse(File(p.join(customDir, file)).readAsStringSync());
+        for (final id in const ['verify-all', 'verify-recheck']) {
+          final authored = definition.steps.singleWhere((step) => step.id == id).prompts!.single;
+          const executable = '../workflows/custom/scripts/verify-gate.sh';
+          expect(authored, startsWith('$executable all '));
+          final step = WorkflowStep(
+            id: id,
+            name: id,
+            taskType: WorkflowTaskType.bash,
+            prompts: [authored.replaceFirst(executable, "printf '%s\\n'")],
+            outputs: const {'out': OutputConfig()},
+          );
+          final run = h.makeRun(h.makeDefinition(steps: [step]));
+          final artifactsDir = p.join(h.tempDir.path, 'artifacts with spaces');
+          final outcome = await executeBashStep(
+            run: run,
+            step: step,
+            context: WorkflowContext(systemVariables: {'workflow.runtime_artifacts_dir': artifactsDir}),
+            dataDir: h.tempDir.path,
+            templateEngine: WorkflowTemplateEngine(),
+            capabilities: PlatformCapabilities(operatingSystem: 'linux'),
+          );
+          expect(outcome.success, isTrue, reason: '$file $id: ${outcome.error}');
+          expect(outcome.outputs['out'], 'all\n$artifactsDir\n');
+        }
+      }
+    });
 
     test('POSIX bash step executes through /bin/sh and captures stdout', () async {
       const step = WorkflowStep(

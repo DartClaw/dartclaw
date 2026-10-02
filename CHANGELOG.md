@@ -14,6 +14,13 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.27.2] - 2026-10-02
+
+### Changed
+
+- Built-in implementation workflows use AndThen 1.0's `andthen:plan` and `andthen:exec-plan`; a skipped story blocks its dependents from runnable discovery.
+- Renamed the one-story workflow to `story-and-implement` and removed retired council steps from the maintainer inline workflows. Running these workflows requires the single AndThen 1.0 plugin.
+
 ## [0.27.1] - 2026-09-29
 
 ### Fixed

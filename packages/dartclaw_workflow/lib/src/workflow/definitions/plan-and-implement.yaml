@@ -132,7 +132,7 @@ steps:
       - id: implement
         name: Implement Story
         skill: andthen:exec-plan
-        allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call, 'claude:Agent']
         # Transient Codex CLI exits (exit 1 with only `thread.started` on
         # stdout, typically under memory pressure with parallel runners) get
         # one retry. Explicit failed step outcomes remain story results.

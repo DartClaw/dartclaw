@@ -225,6 +225,8 @@ abstract final class ClaudeSettingsBuilder {
           rules.add('WebSearch');
         case 'mcp_call':
           rules.add('mcp__dartclaw');
+        case 'claude:Agent':
+          rules.add('Agent');
       }
     }
     return rules.toSet().toList();

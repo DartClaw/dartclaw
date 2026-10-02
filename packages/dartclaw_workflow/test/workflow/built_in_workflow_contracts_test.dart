@@ -419,6 +419,16 @@ void main() {
       expect(checked, greaterThan(0), reason: 'built-ins must include file_edit-granting mutation steps');
     });
 
+    test('built-in exec-plan steps permit the Claude reviewer and simplifier subagents', () {
+      for (final file in const ['story-and-implement.yaml', 'plan-and-implement.yaml']) {
+        final steps = _flattenedSteps(_load(file)).where((step) => step.skill == 'andthen:exec-plan');
+        expect(steps, isNotEmpty);
+        for (final step in steps) {
+          expect(step.allowedTools, contains('claude:Agent'), reason: '$file ${step.id} delegates required reviews');
+        }
+      }
+    });
+
     test('re-review steps hold review-only grants (no file_edit)', () {
       // A re-review re-runs the original review (no --fix), so it must not carry
       // the file_edit mutation grant.

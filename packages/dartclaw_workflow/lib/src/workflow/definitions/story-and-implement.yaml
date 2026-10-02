@@ -91,7 +91,7 @@ steps:
   - id: implement
     name: Implement
     skill: andthen:exec-plan
-    allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
+    allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call, 'claude:Agent']
     # Task-level retry covers transient provider/CLI exits without retrying an
     # explicit semantic failed step outcome.
     maxRetries: 1

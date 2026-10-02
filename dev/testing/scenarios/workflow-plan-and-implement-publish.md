@@ -39,7 +39,7 @@ workflow_cli() {
 - The app loads without showing a login form
 - The workflows page loads successfully
 - A workflow card or list entry for `plan-and-implement` is visible
-- A workflow card or list entry for `spec-and-implement` is visible
+- A workflow card or list entry for `story-and-implement` is visible
 - No authentication error or generic error banner is visible
 
 

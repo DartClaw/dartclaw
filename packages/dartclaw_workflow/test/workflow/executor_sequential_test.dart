@@ -88,7 +88,7 @@ void main() {
       ..writeAsStringSync(
         jsonEncode({
           'stories': [
-            {'id': 'S01', 'status': 'spec-ready', 'fis': 'docs/specs/demo/fis/s01.md'},
+            {'id': 'S01', 'status': 'pending', 'fis': 'docs/specs/demo/fis/s01.md'},
           ],
         }),
       );

@@ -36,16 +36,7 @@ void _runGit(String workingDirectory, List<String> args) {
 /// Stages skeletal provider-owned AndThen skills under [searchRoot] so
 /// provider-native skill roots exist for tests that exercise invocation paths.
 void _stageProviderAndThenSkillStubs(String searchRoot) {
-  const refs = [
-    'andthen:prd',
-    'andthen:plan',
-    'andthen:spec',
-    'andthen:exec-spec',
-    'andthen:review',
-    'andthen:implement-fix',
-    'andthen:quick-review',
-    'andthen:ops',
-  ];
+  const refs = ['andthen:plan', 'andthen:exec-plan', 'andthen:review', 'andthen:implement-fix'];
   for (final ref in refs) {
     final codexAlias = ref.replaceFirst('andthen:', 'andthen-');
     for (final entry in [(tier: '.claude/skills', name: ref), (tier: '.agents/skills', name: codexAlias)]) {
@@ -898,7 +889,7 @@ mcp_servers:
         'POST',
         Uri.parse('http://localhost/api/workflows/run'),
         body: jsonEncode({
-          'definition': 'spec-and-implement',
+          'definition': 'story-and-implement',
           'variables': {'FEATURE': 'Missing ref regression', 'PROJECT': 'alpha', 'BRANCH': 'missing/ref'},
         }),
         headers: {'content-type': 'application/json', 'host': 'localhost'},

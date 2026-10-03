@@ -159,7 +159,7 @@ void main() {
     expect(response.statusCode, 200);
     expect(response.headers['content-type'], startsWith('text/css'));
     expect(started.logs.any((record) => record.message == 'Assets: embedded'), isTrue);
-    for (final name in ['code-review.yaml', 'plan-and-implement.yaml', 'spec-and-implement.yaml']) {
+    for (final name in ['code-review.yaml', 'plan-and-implement.yaml', 'story-and-implement.yaml']) {
       expect(File(p.join(dataDir, 'workflows', 'built-in', name)).existsSync(), isTrue, reason: name);
     }
     expect(File(p.join(dataDir, '.agents', 'skills', 'dartclaw-validate-workflow', 'SKILL.md')).existsSync(), isTrue);

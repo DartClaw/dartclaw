@@ -21,7 +21,7 @@ final SidebarData _emptySidebar = (
 
 Map<String, dynamic> _makeRun({
   String id = 'run-001',
-  String definitionName = 'spec-and-implement',
+  String definitionName = 'story-and-implement',
   String status = 'running',
   String statusLabel = 'Running',
   String statusBadgeClass = 'status-badge-running',
@@ -54,7 +54,7 @@ Map<String, dynamic> _makeRun({
 }
 
 Map<String, dynamic> _makeDefinition({
-  String name = 'spec-and-implement',
+  String name = 'story-and-implement',
   String description = 'Full feature pipeline',
   int stepCount = 6,
   bool hasLoops = false,
@@ -140,7 +140,7 @@ void main() {
       final html = _render(runs: [_makeRun(completedSteps: 3, totalSteps: 6)]);
       expect(html, contains('class="workflow-runs-stack"'));
       expect(html, contains('card run-card print-in'));
-      expect(html, contains('spec-and-implement'));
+      expect(html, contains('story-and-implement'));
       // The positive half of the S03 pair below: a known step count renders the
       // counts and the meter, so that case's two absences cannot be satisfied
       // by a template that emits neither for any run.
@@ -206,8 +206,8 @@ void main() {
       expect(html, contains('workflow-definitions-section'));
       expect(html, contains('class="workflow-definition-card card"'));
       expect(html, contains('data-icon="workflow"'));
-      expect(html, contains('<h3 class="workflow-definition-name t-heading">spec-and-implement</h3>'));
-      expect(html, contains('spec-and-implement'));
+      expect(html, contains('<h3 class="workflow-definition-name t-heading">story-and-implement</h3>'));
+      expect(html, contains('story-and-implement'));
     });
 
     test('definition cards include launch forms', () {
@@ -240,7 +240,7 @@ void main() {
       expect(requiredVariableInput, isNotNull);
       expect(requiredVariableInput, contains('aria-required="true"'));
       expect(requiredVariableInput, isNot(contains(' required')));
-      expect(html, contains('id="workflow-error-spec-and-implement"'));
+      expect(html, contains('id="workflow-error-story-and-implement"'));
     });
 
     test('renders definition description', () {
@@ -294,20 +294,20 @@ void main() {
     });
 
     test('renders definition select dropdown', () {
-      final html = _render(filters: _makeFilters(definitionOptions: ['spec-and-implement', 'fix-bug']));
+      final html = _render(filters: _makeFilters(definitionOptions: ['story-and-implement', 'fix-bug']));
       expect(html, contains('workflow-definition-filter'));
-      expect(html, contains('spec-and-implement'));
+      expect(html, contains('story-and-implement'));
       expect(html, contains('fix-bug'));
     });
 
     test('multiple runs rendered correctly', () {
       final html = _render(
         runs: [
-          _makeRun(id: 'run-001', definitionName: 'spec-and-implement'),
+          _makeRun(id: 'run-001', definitionName: 'story-and-implement'),
           _makeRun(id: 'run-002', definitionName: 'fix-bug'),
         ],
       );
-      expect(html, contains('spec-and-implement'));
+      expect(html, contains('story-and-implement'));
       expect(html, contains('fix-bug'));
       expect(html, contains('/workflows/run-001'));
       expect(html, contains('/workflows/run-002'));

@@ -75,7 +75,7 @@ steps:
 
   - id: plan
     name: Plan Stories and Specs
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
     # `prd` is interpolated inline as the skill argument; only `plan` needs
     # auto-framing (reuse-vs-synthesize signal, not referenced in the prompt).
@@ -103,17 +103,12 @@ steps:
     steps:
       - id: implement
         name: Implement Story
-        skill: andthen:exec-spec
+        skill: andthen:exec-plan
         # No allowedTools grant here (unlike the built-in): the maintainer profile
         # runs under a broader permission mode, so mutating steps in the inline
         # customs deliberately omit per-tool allowlists.
         maxRetries: 1
-        prompt: >-
-          --auto {{map.item.spec_path}}
-          Verification scope: run fast tests for the packages this story
-          changed only, deferring the repo-wide suite, integration/e2e/slow
-          tiers, and arch/fitness gates to the deterministic verify-all gate
-          after all stories.
+        prompt: "--auto --no-full-tier {{map.item.spec_path}}"
         outputs:
           story_result:
             schema: narrative_text
@@ -126,7 +121,7 @@ steps:
       - id: review-story
         name: Review Story
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [story_result]
         prompt: >-
           --mode gap,code,security --auto
@@ -164,7 +159,7 @@ steps:
           - id: re-review-story
             name: Re-review Story
             skill: andthen:review
-            allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+            allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
             inputs: [story_result, remediation_summary]
             prompt: >-
               --mode gap,code,security --auto
@@ -180,11 +175,10 @@ steps:
   - id: plan-review
     name: Review Full Implementation
     skill: andthen:review
-    parallel: true
     onFailure: retry
     maxRetries: 1
     inputs: [story_specs, story_results]
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
     prompt: >-
       --mode gap --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
@@ -197,38 +191,10 @@ steps:
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
 
-  - id: plan-review-council
-    name: Review Full Implementation with Council
-    skill: andthen-some:council
-    parallel: true
-    # Advisory extra-perspective pass: the codex plan-review carries the gating
-    # signal, and the council writes its report to the reviews
-    # output-dir regardless. A council flake (provider stall, output-capture edge
-    # case) must not abort the whole milestone, so continue past its failure
-    # rather than failing the parallel barrier.
-    onFailure: continue
-    maxRetries: 1
-    provider: claude
-    model: opus[1m]
-    effort: xhigh
-    inputs: [story_specs, story_results]
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
-    prompt: >-
-      --mode code,security --auto
-      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
-      Review implementation of {{context.plan}}. Scope by the plan and
-      per-story FIS – assess only the working-tree state implementing this
-      plan; the live checkout may contain unrelated operator work, so do
-      not flag it.
-    outputs:
-      plan-review-council.review_report_path: review_report_path
-      plan-review-council.findings_count: findings_count
-      plan-review-council.gating_findings_count: gating_findings_count
-
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
-    aggregateReviews: [plan-review, plan-review-council]
+    aggregateReviews: [plan-review]
     outputs:
       review_report_path: review_report_path
       findings_count: findings_count
@@ -259,7 +225,7 @@ steps:
       - id: re-review
         name: Re-review After Remediation
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [story_specs, story_results, remediation_summary]
         prompt: >-
           --mode gap,code,security --auto
@@ -288,7 +254,7 @@ steps:
     type: bash
     timeout: 90m
     script: >-
-      bash ../workflows/custom/scripts/verify-gate.sh all
+      ../workflows/custom/scripts/verify-gate.sh all
       {{workflow.runtime_artifacts_dir}}
     outputs:
       verify-all.result: text
@@ -318,7 +284,7 @@ steps:
         type: bash
         timeout: 90m
         script: >-
-          bash ../workflows/custom/scripts/verify-gate.sh all
+          ../workflows/custom/scripts/verify-gate.sh all
           {{workflow.runtime_artifacts_dir}}
         outputs:
           verify-recheck.result: text

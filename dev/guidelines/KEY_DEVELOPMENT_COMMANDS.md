@@ -158,8 +158,11 @@ git status --short
 `dart run dev/tools/embed_assets.dart` also copies `dev/design-system/{tokens,components,icons}.css`
 into the server's static assets, so canonical CSS edits need no separate sync step.
 
-For a **clean committed release candidate**, `bash dev/tools/release_check.sh --version <version> --local` runs these
-local gates plus release cleanup/version checks and the host build, retaining per-gate receipts. Add `--resume` to
+For release preparation, reuse completed review evidence with the input comparisons required by
+[Release Preparation](RELEASE_PREPARATION.md), and run only missing or affected checks. Obtain GitHub CI once on the
+final squash commit. For a **clean committed release candidate** missing that local coverage,
+`bash dev/tools/release_check.sh --version <version> --local` runs these local gates plus release cleanup/version
+checks and the host build, retaining per-gate receipts. Add `--resume` to
 reuse eligible results, `--status` to inspect them, or `--gate <id>` to rerun one gate. The dirty development checkout
 still uses the individual commands above. See [Release Preparation](RELEASE_PREPARATION.md) for scope and exit codes.
 PowerShell validation uses `dev/tools/check_powershell.ps1` both locally in Windows and in CI; PSScriptAnalyzer is required.
@@ -222,7 +225,7 @@ dart analyze
 >
 > **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager(currentDirectory:)`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
 
-Tier rows the AndThen completion transition (`andthen:ops complete-story`) executes; `{file}` and `{test}` are
+Tier rows used by `andthen:exec-plan`; `{file}` and `{test}` are
 substituted from a FIS proof line. Keep them in step with the commands below and with `test_workspace.sh`.
 
 | Tier | Command |
@@ -284,18 +287,18 @@ bash dev/testing/profiles/workflow-contract/run.sh
 
 # Targeted live workflow canaries (requires real provider binary + credentials)
 bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
-bash dev/testing/profiles/workflow-live/run.sh --canary spec-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary story-and-implement
 bash dev/testing/profiles/workflow-live/run.sh --canary plan-and-implement
 bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
 
-# Full live workflow sweep, final gate only
+# Full live workflow sweep when affected coverage requires the whole matrix
 bash dev/testing/profiles/workflow-live/run.sh --full
 
 # Full live sweep WITHOUT the heavy multi-minute agent e2e (tag: live-e2e).
 # Fast iteration gate — keeps server/CLI/merge-resolve/fixture/step-isolation live tests.
 bash dev/testing/profiles/workflow-live/run.sh --full --skip-e2e
 
-# Only the heavy real-provider agent e2e (spec-and-implement + plan-and-implement).
+# Only the heavy real-provider agent e2e (story-and-implement + plan-and-implement).
 # Long-running — launch detached (e.g. nohup … & disown) and poll the log.
 bash dev/testing/profiles/workflow-live/run.sh --e2e
 

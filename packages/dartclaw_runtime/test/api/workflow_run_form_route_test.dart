@@ -26,7 +26,7 @@ void main() {
     workflows = FakeWorkflowService(taskService: tasks, eventBus: eventBus, dataDir: '/tmp/workflow-run-form-data');
     workflows.startResult = WorkflowRun(
       id: 'run-1',
-      definitionName: 'spec-and-implement',
+      definitionName: 'story-and-implement',
       status: WorkflowRunStatus.running,
       startedAt: DateTime.utc(2026, 1, 1, 12),
       updatedAt: DateTime.utc(2026, 1, 1, 12),
@@ -34,7 +34,7 @@ void main() {
     );
     final definitions = InMemoryDefinitionSource([
       WorkflowDefinition(
-        name: 'spec-and-implement',
+        name: 'story-and-implement',
         description: 'Demo',
         variables: const {'FEATURE': WorkflowVariable(required: true, description: 'Feature to build')},
         steps: const [
@@ -56,7 +56,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=spec-and-implement&var_FEATURE=Ship+CLI',
+        body: 'definition=story-and-implement&var_FEATURE=Ship+CLI',
       ),
     );
 
@@ -70,7 +70,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=spec-and-implement',
+        body: 'definition=story-and-implement',
       ),
     );
 
@@ -117,8 +117,8 @@ void main() {
   });
 
   test('a missing required variable is named by the same validation on both encodings', () async {
-    final jsonResult = await postJson({'definition': 'spec-and-implement'});
-    final formResult = await postForm('definition=spec-and-implement');
+    final jsonResult = await postJson({'definition': 'story-and-implement'});
+    final formResult = await postForm('definition=story-and-implement');
 
     expect(jsonResult.statusCode, 400);
     final error = (jsonDecode(await jsonResult.readAsString()) as Map<String, dynamic>)['error'] as Map;
@@ -137,7 +137,7 @@ void main() {
         Uri.parse('http://localhost/api/workflows/run'),
         headers: {'content-type': 'application/json'},
         body: Stream<List<int>>.fromIterable([
-          utf8.encode('{"definition":"spec-and-implement","variables":{"FEATURE":"'),
+          utf8.encode('{"definition":"story-and-implement","variables":{"FEATURE":"'),
           utf8.encode('x' * (256 * 1024)),
           utf8.encode('"}}'),
         ]),
@@ -156,7 +156,7 @@ void main() {
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
         body: Stream<List<int>>.fromIterable([
-          utf8.encode('definition=spec-and-implement&var_FEATURE='),
+          utf8.encode('definition=story-and-implement&var_FEATURE='),
           utf8.encode('x' * (256 * 1024)),
         ]),
       ),
@@ -192,7 +192,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=spec-and-implement&var_FEATURE=Ship+CLI',
+        body: 'definition=story-and-implement&var_FEATURE=Ship+CLI',
       ),
     );
 
@@ -211,7 +211,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=spec-and-implement&var_FEATURE=Ship+CLI',
+        body: 'definition=story-and-implement&var_FEATURE=Ship+CLI',
       ),
     );
 

@@ -1,15 +1,17 @@
 # AndThen Skills
 
-DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:spec`, `andthen:exec-spec`, and `andthen:review`. The `plan-and-implement` workflow uses `andthen:spec` to author the plan and per-story specs.
+DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:plan`, `andthen:exec-plan`, and `andthen:review`. The `plan-and-implement` workflow uses `andthen:plan` to author the plan and per-story specs.
 
-AndThen 1.0 split the distribution into two plugins, `andthen` and `andthen-some`. The workflows do not require an `andthen-some` skill. The `simplify-code` step remains removed from the built-in workflows even though `andthen:simplify-code` is now a core skill. The retired document-review and spec-revision steps are also removed. No `architecture-review` step is included because `andthen:architecture` offers `advise` and `trade-off` modes; review moved to `andthen-some:architecture-analysis`.
+Install the single `andthen` plugin at version 1.0 or later for the provider that runs workflows. Built-ins use its core skills. The one-story route is `story-and-implement` (or `story-and-implement-inline` for the maintained inline variant). Its `spec` step and `spec_path` output retain their names because AndThen calls a Feature Implementation Specification a FIS or spec.
+
+When `andthen:exec-plan` completes a plan's last unfinished story and every story is `done`, it invokes `andthen:simplify-code` once inside the implement step. A newly authored one-story plan qualifies. Reusing a FIS from an unfinished multi-story plan does not. There is no separate built-in simplify step.
 
 DartClaw does not clone AndThen, run AndThen's installer, or create DartClaw-branded copies of AndThen skills. Install AndThen for the provider you run workflows with, then DartClaw resolves the canonical workflow reference to the provider-native skill name:
 
 | Provider | Canonical reference | Provider-native name |
 |---|---|---|
-| Codex | `andthen:spec` | `andthen:spec` for a native plugin; `andthen-spec` for a legacy skill installation |
-| Claude Code | `andthen:spec` | `andthen:spec` |
+| Codex | `andthen:plan` | `andthen:plan` for a native plugin; `andthen-plan` for a legacy skill installation |
+| Claude Code | `andthen:plan` | `andthen:plan` |
 
 Unknown providers use the authored skill name exactly.
 

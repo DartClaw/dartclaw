@@ -237,7 +237,7 @@ steps:
     final definition = const WorkflowDefinition(
       name: 'preflight-codex-missing-alias',
       description: 'preflight codex missing alias test',
-      steps: [WorkflowStep(id: 'implement', name: 'Implement', provider: 'codex', skill: 'andthen:exec-spec')],
+      steps: [WorkflowStep(id: 'implement', name: 'Implement', provider: 'codex', skill: 'andthen:exec-plan')],
     );
     final introspector = FakeSkillIntrospector({'codex': const <String>{}});
     final executor = h.makeExecutor(
@@ -251,7 +251,7 @@ steps:
 
     final failedRun = await h.repository.getById(run.id);
     expect(failedRun?.status, WorkflowRunStatus.failed);
-    expect(failedRun?.errorMessage, contains('andthen:exec-spec (searched as andthen-exec-spec)'));
+    expect(failedRun?.errorMessage, contains('andthen:exec-plan (searched as andthen-exec-plan)'));
     expect(await h.taskService.list(), isEmpty);
     expect(introspector.calls, [(provider: 'codex', executable: '/bin/codex')]);
   });
@@ -463,18 +463,18 @@ steps:
       name: 'preflight-continue-session-provider',
       description: 'preflight continue session provider test',
       steps: [
-        WorkflowStep(id: 'implement', name: 'Implement', provider: 'codex', skill: 'andthen:exec-spec'),
+        WorkflowStep(id: 'implement', name: 'Implement', provider: 'codex', skill: 'andthen:exec-plan'),
         WorkflowStep(
           id: 'review',
           name: 'Review',
           provider: 'claude',
-          skill: 'andthen:quick-review',
+          skill: 'andthen:review',
           continueSession: 'implement',
         ),
       ],
     );
     final introspector = FakeSkillIntrospector({
-      'codex': {'andthen-exec-spec', 'andthen-quick-review'},
+      'codex': {'andthen-exec-plan', 'andthen-review'},
     });
     final executor = h.makeExecutor(
       skillIntrospector: introspector,
@@ -503,7 +503,7 @@ steps:
 
     expect(introspector.calls, [(provider: 'codex', executable: '/bin/codex')]);
     expect(capturedTasks, hasLength(2));
-    expect(capturedTasks.last.description, startsWith(r'$andthen-quick-review'));
+    expect(capturedTasks.last.description, startsWith(r'$andthen-review'));
     expect(capturedTasks.last.provider, 'codex');
   });
 

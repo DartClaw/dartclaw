@@ -5,7 +5,7 @@ Workflow control plane for the DartClaw agent runtime — YAML parsing, validati
 `dartclaw_workflow` owns the full lifecycle of declarative multi-step workflows: loading built-in and custom
 YAML definitions, validating their structure, executing steps (sequential, parallel, loop, foreach), managing
 execution context, and provisioning skills to agent harnesses. The three built-in workflows
-(`spec-and-implement`, `plan-and-implement`, `code-review`) ship inside this package.
+(`story-and-implement`, `plan-and-implement`, `code-review`) ship inside this package.
 
 > **Status: Pre-1.0**. APIs may be refined before 1.0.
 

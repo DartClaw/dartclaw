@@ -2,9 +2,8 @@
 
 <!-- Traps only, one bullet each: `- **{title}** – …`, trap + pointer, under 200 chars; postmortem depth lives in
      the spec archive, an ADR, or an architecture doc. Bar: "Would a competent developer with code and git access
-     still get bitten?" Skills read this document whole. Maintain via the `andthen:ops` skill
-     (`update-learnings dev/state/LEARNINGS.md add <topic> <entry>`); the ceiling is the Project Document Index
-     row – at the ceiling, `ops prune` this file, never shard it. Delete entries once encoded as checks or stale. -->
+     still get bitten?" Skills read this document whole. Maintain it directly; the ceiling is the Project Document Index
+     row – at the ceiling, prune this file, never shard it. Delete entries once encoded as checks or stale. -->
 
 ## Dart Language
 
@@ -167,7 +166,7 @@
 - **Workflow git cleanup must run after child-task shutdown and walk the full run-owned set.** Shared-key cleanup is insufficient for `per-map-item` workflows; standalone teardown must preserve non-terminal (approval-held, paused, running) git state for resume.
 - **Artifact auto-commit must verify task worktree paths are real git worktrees, and use output resolver semantics, not raw output formats.** List-shaped filesystem outputs can be `lines` yet still be load-bearing artifacts.
 - **Dependency-aware fan-out is explicit, not inferred from object shape.** The scheduler engages only when items declare `dependencies`; root records still need `dependencies: []`.
-- **Resume `story_specs` prune deps by completion status, not absence.** `validateStorySpecsContract(completedStoryIds:)` drops a dep only when it names a `done`/`skipped` story; other absences stay so typos and incomplete prereqs are still rejected.
+- **Resume discovery distinguishes done from skipped dependencies.** Done stories leave the runnable catalog; dependents of skipped stories are omitted because they cannot run. An empty catalog means no story remains runnable.
 - **Promotion-conflict retries need the iteration cursor preserved on failure.** Clearing `executionCursor` after a blocked promotion makes downstream items permanently undispatchable.
 - **Every task-completion listener shares the same async-listener / SQLite-teardown race.** Each needs the synchronous-listener pattern: filter `failed + retry-in-progress` and `queued|running` re-emissions, then fire-and-forget `_taskService.get` for terminal events. Fixing one dispatcher and not its siblings leaves the others ticking.
 - **A `mapOver` step without per-item steps is no longer executable.** `foreach` is the only iteration controller since 0.25; tests must use `type: foreach` + `foreachSteps: [...]`.

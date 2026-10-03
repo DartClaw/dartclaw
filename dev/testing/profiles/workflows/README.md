@@ -81,7 +81,7 @@ If you want lifecycle controls and the `/workflows/<run-id>` UI, start the serve
 When you need `workflow run ... --json` output for a scenario, prefer a dedicated foreground shell plus `tee`:
 
 ```bash
-workflow_cli run spec-and-implement ... --json | tee /tmp/workflow-run.jsonl
+workflow_cli run story-and-implement ... --json | tee /tmp/workflow-run.jsonl
 ```
 
 Background redirection from the agent shell is currently non-authoritative. Use it only after you have reproduced it in a normal terminal outside the agent shell.
@@ -114,42 +114,42 @@ workflow_cli validate path/to/workflow.yaml
 Use `--standalone` when you explicitly want an in-process local run with no server dependency:
 
 ```bash
-workflow_cli run spec-and-implement --standalone \
+workflow_cli run story-and-implement --standalone \
   -v 'FEATURE=Add a small note to the workflow-test-todo-app fixture README'
 ```
 
-### Execute A Single Feature (`spec-and-implement`)
+### Execute A Single Feature (`story-and-implement`)
 
-The `spec-and-implement` workflow is the right choice for implementing a single feature in the fixture repository. It runs: discover project → spec → review spec → implement → validate → integrated review → remediation loop → update state, with deterministic publish handled by `gitStrategy`.
+The `story-and-implement` workflow is the right choice for implementing a single feature in the fixture repository. It runs: detect spec input → spec (when needed) → implement → integrated review → review aggregation → remediation loop, with deterministic publish handled by `gitStrategy`.
 
 ```bash
-workflow_cli run spec-and-implement \
+workflow_cli run story-and-implement \
   -v 'FEATURE=<description of the small fixture-repo change to build>'
 ```
 
 **Example — small fixture change:**
 
 ```bash
-workflow_cli run spec-and-implement \
+workflow_cli run story-and-implement \
   -v 'FEATURE=Add a short release note section to the fixture README and a matching note under docs/'
 ```
 
-The workflow no longer relies on a manual spec approval checkpoint. Spec review/remediation is automated in-flow.
+The workflow has no manual spec approval checkpoint. Implementation is reviewed and remediated in-flow.
 
 ### Execute a plan (`plan-and-implement`)
 
-The `plan-and-implement` workflow is for implementing a multi-story scope in the fixture repository. It runs: discover project → plan stories → spec-plan (refine story set and produce per-story specs) → per-story foreach pipeline (revise-story-spec → implement → review-story → story-remediation for each story) → plan-level review → remediation loop, with deterministic publish handled by `gitStrategy`. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
+The `plan-and-implement` workflow is for implementing a multi-story scope from an existing PRD in the fixture repository. It runs: discover plan state → plan and story specs (when needed) → per-story foreach pipeline (implement → review-story → story-remediation for each story) → plan-level review → review aggregation → remediation loop, with deterministic publish handled by `gitStrategy`. All orchestration is declared in the workflow definition; no hidden runtime steps are synthesized.
 
 ```bash
 workflow_cli run plan-and-implement \
-  -v 'REQUIREMENTS=<small multi-step fixture-repo scope>'
+  -v 'FEATURE=<path to the committed fixture-repo PRD>'
 ```
 
 **Example — small batch scope:**
 
 ```bash
 workflow_cli run plan-and-implement \
-  -v 'REQUIREMENTS=Add a tiny release note, a follow-up docs page, and one consistency cleanup in the workflow-test-todo-app fixture repo.'
+  -v 'FEATURE=docs/prd.md'
 ```
 
 ### Review a PR (`code-review`)
@@ -166,7 +166,7 @@ workflow_cli run code-review \
 Add `-p <project-id>` to run coding steps in a project worktree:
 
 ```bash
-workflow_cli run spec-and-implement \
+workflow_cli run story-and-implement \
   -v 'FEATURE=...' \
   -p my-project-id
 ```
@@ -204,11 +204,11 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 With the server running, these commands use the live instance state:
 
 ```bash
-workflow_cli run spec-and-implement \
+workflow_cli run story-and-implement \
   -v 'FEATURE=Add a tiny documentation note under dev/testing/profiles/workflows/'
 
 workflow_cli runs
-workflow_cli runs --definition spec-and-implement
+workflow_cli runs --definition story-and-implement
 workflow_cli status <run-id>
 workflow_cli pause <run-id>
 workflow_cli resume <run-id>
@@ -228,7 +228,7 @@ Open http://localhost:3333 — navigate to the **Workflows** page for:
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   http://localhost:3333/api/workflows/run \
-  -d '{"definition": "spec-and-implement", "variables": {"FEATURE": "..."}}' | jq
+  -d '{"definition": "story-and-implement", "variables": {"FEATURE": "..."}}' | jq
 ```
 
 ### Workflow controls
@@ -244,10 +244,10 @@ curl -sX POST -H "Authorization: Bearer $TOKEN" http://localhost:3333/api/workfl
 
 There is one live scenario per built-in workflow. Each drives a real run to a clean `completed` state with the smallest possible documentation-only prompt, then closes the published PR as cleanup. Their job is the operator-facing surface — the Web UI and the connected CLI → server → SSE path — not the engine mechanics:
 
-- `dev/testing/scenarios/workflow-spec-and-implement-publish.md` — runs `spec-and-implement` end to end, verifies the workflows list, the run detail page, live progress and a clean completion state, then closes the published PR
+- `dev/testing/scenarios/workflow-story-and-implement-publish.md` — runs `story-and-implement` end to end, verifies the workflows list, the run detail page, live progress and a clean completion state, then closes the published PR
 - `dev/testing/scenarios/workflow-plan-and-implement-publish.md` — runs `plan-and-implement` end to end (`MAX_PARALLEL=2`, two thin stories so the parallel per-story path executes), verifies the same UI surface, then closes the published PR
 
-Engine mechanics — per-task/per-story worktree creation, branch push, GitHub PR creation and PR diff contents — are **not** re-asserted here. They are owned by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (TI03 spec-and-implement, TI04 plan-and-implement), which runs the same workflows against this same repository with a real harness, distinct per-story worktrees, real `gh pr create`, and automatic PR cleanup. Run it with `dart test --run-skipped -t integration`.
+Engine mechanics — per-task/per-story worktree creation, branch push, GitHub PR creation and PR diff contents — are **not** re-asserted here. They are owned by the automated integration test `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` (TI03 story-and-implement, TI04 plan-and-implement), which runs the same workflows against this same repository with a real harness, distinct per-story worktrees, real `gh pr create`, and automatic PR cleanup. Run it with `dart test --run-skipped -t integration`.
 
 Cancellation and operator-interruption coverage should live in explicit, named cancellation scenarios rather than in the live completion scenario.
 
@@ -260,8 +260,8 @@ It also sets `projects.workflow-test-todo-app.credentials: github-main`, so publ
 
 | Workflow | Use case | Required variables | Optional variables |
 |----------|----------|--------------------|--------------------|
-| `spec-and-implement` | Single feature / FIS | `FEATURE` | `PROJECT`, `BRANCH` |
-| `plan-and-implement` | Multi-story milestone / PRD | `REQUIREMENTS` | `PROJECT`, `BRANCH`, `MAX_PARALLEL` |
+| `story-and-implement` | Single feature / FIS | `FEATURE` | `PROJECT`, `BRANCH` |
+| `plan-and-implement` | Multi-story milestone / PRD | `FEATURE` | `PROJECT`, `BRANCH`, `MAX_PARALLEL` |
 | `code-review` | PR or branch review | `TARGET` | `BRANCH`, `PR_NUMBER`, `BASE_BRANCH`, `PROJECT` |
 | `research-and-evaluate` | Research with evaluation | See definition | |
 

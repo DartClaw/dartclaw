@@ -206,6 +206,9 @@ Map<String, dynamic>? _envelopeOutputSchema(String key, OutputConfig config) {
           }
         : {
             'type': ['string', 'null'],
+            if ((config.inlineSchema ?? schemaPresets[config.presetName]?.schema)?['minLength']
+                case final int minLength)
+              'minLength': minLength,
           };
   }
   switch (config.format) {

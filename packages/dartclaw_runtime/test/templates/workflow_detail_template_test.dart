@@ -165,7 +165,7 @@ void main() {
 
   Map<String, dynamic> makeRun({
     String id = 'run-001',
-    String definitionName = 'spec-and-implement',
+    String definitionName = 'story-and-implement',
     String status = 'running',
     String? errorMessage,
   }) {

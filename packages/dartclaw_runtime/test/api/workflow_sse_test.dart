@@ -19,7 +19,7 @@ import 'workflow_test_support.dart';
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-WorkflowDefinition _makeDefinition({String name = 'spec-and-implement'}) {
+WorkflowDefinition _makeDefinition({String name = 'story-and-implement'}) {
   return WorkflowDefinition(
     name: name,
     description: 'test',
@@ -297,7 +297,7 @@ void main() {
       eventBus.fire(
         WorkflowRunStatusChangedEvent(
           runId: 'run-001',
-          definitionName: 'spec-and-implement',
+          definitionName: 'story-and-implement',
           oldStatus: WorkflowRunStatus.running,
           newStatus: WorkflowRunStatus.awaitingApproval,
           timestamp: DateTime.now(),
@@ -342,7 +342,7 @@ void main() {
           eventBus.fire(
             WorkflowRunStatusChangedEvent(
               runId: 'run-001',
-              definitionName: 'spec-and-implement',
+              definitionName: 'story-and-implement',
               oldStatus: WorkflowRunStatus.running,
               newStatus: WorkflowRunStatus.paused,
               errorMessage: 'Step failed',
@@ -367,7 +367,7 @@ void main() {
           eventBus.fire(
             WorkflowRunStatusChangedEvent(
               runId: 'run-001',
-              definitionName: 'spec-and-implement',
+              definitionName: 'story-and-implement',
               oldStatus: WorkflowRunStatus.failed,
               newStatus: WorkflowRunStatus.running,
               timestamp: DateTime.now(),

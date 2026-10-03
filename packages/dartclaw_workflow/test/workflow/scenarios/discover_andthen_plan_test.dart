@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show OutputConfig, OutputFormat, WorkflowStep;
+import 'package:dartclaw_workflow/src/workflow/story_specs_contract_validator.dart' show validateStorySpecsContract;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -25,7 +26,7 @@ void main() {
       expect(skill, contains('stories[]'));
       expect(skill, contains('Always emit `dependencies` as an array'));
       expect(skill, contains('Do not emit `spec_source` or `spec_confidence` from discovery'));
-      expect(skill, contains('skipped/done stories are not re-emitted'));
+      expect(skill, contains('every story that depends on a `skipped` story, directly or transitively'));
       expect(skill, contains('normalized to `pending`'));
       expect(skill, isNot(contains('project_index')));
       // Examples for DC-native skills live in SKILL.md alongside the contract –
@@ -140,11 +141,11 @@ void main() {
     // mirrors the SKILL.md resume-filter rule. The production-side regression
     // gate for the prompt text lives in `built_in_skill_inventory_test.dart`
     // (`discover-andthen-plan documents flat PRD/plan/story-spec contract`),
-    // which greps the SKILL.md for `closed set {done, skipped}`,
-    // `pending, spec-ready, in-progress, done, skipped, blocked`, and the
+    // which greps the SKILL.md for `closed set {done, skipped}`, the
+    // skipped-dependent omission, `pending, in-progress, done, skipped`, and the
     // missing/unknown → pending clause. If those drift apart, both tests must
     // be updated in lockstep.
-    test('filter excludes done and skipped but keeps blocked resumable', () async {
+    test('filter excludes done and skipped, and retired statuses resume as pending', () async {
       final harness = await ScenarioTaskHarness.create();
       addTearDown(harness.dispose);
       final projectRoot = harness.createTempProjectRoot('resume-project');
@@ -165,11 +166,11 @@ void main() {
           'story_specs': _storySpecsFromPlan(
             _planWithStories([
               _story('S01', status: 'done', fis: 'fis/s01-story.md'),
-              _story('S02', status: 'spec-ready', fis: 'fis/s02-story.md'),
+              _story('S02', status: 'pending', fis: 'fis/s02-story.md'),
               _story('S03', status: 'in-progress', fis: 'fis/s03-story.md'),
               _story('S04', status: 'skipped', fis: 'fis/s04-story.md'),
-              // `blocked` is an AndThen status enum member but remains
-              // resumable; only terminal statuses are filtered.
+              // `blocked` left AndThen's enum: an old plan's row still resumes,
+              // normalized to `pending`; only terminal statuses are filtered.
               _story('S05', status: 'blocked', fis: 'fis/s05-story.md'),
             ]),
             planDir: 'docs/specs/demo',
@@ -180,7 +181,27 @@ void main() {
       final items = ((outputs['story_specs'] as Map<String, dynamic>)['items'] as List<dynamic>)
           .cast<Map<String, dynamic>>();
       expect(items.map((item) => item['id']), ['S02', 'S03', 'S05']);
-      expect(items.map((item) => item['status']), ['spec-ready', 'in-progress', 'blocked']);
+      expect(items.map((item) => item['status']), ['pending', 'in-progress', 'pending']);
+    });
+
+    test('stories depending on a skipped story are omitted, transitively', () async {
+      // A skipped story was never built, so its dependents cannot run. Emitting
+      // them would leave a dependency no item satisfies, which fails the whole
+      // plan at `Unknown dependency IDs` instead of just the blocked chain.
+      final storySpecs = _storySpecsFromPlan(
+        _planWithStories([
+          _story('S01', status: 'skipped', fis: 'fis/s01-story.md'),
+          _story('S02', status: 'pending', fis: 'fis/s02-story.md', dependsOn: ['S01']),
+          _story('S03', status: 'pending', fis: 'fis/s03-story.md', dependsOn: ['S02']),
+          _story('S04', status: 'pending', fis: 'fis/s04-story.md'),
+          _story('S05', status: 'pending', fis: 'fis/s05-story.md', dependsOn: ['S04']),
+        ]),
+        planDir: 'docs/specs/demo',
+      );
+
+      final items = (storySpecs['items'] as List<dynamic>).cast<Map<String, dynamic>>();
+      expect(items.map((item) => item['id']), ['S04', 'S05']);
+      expect(validateStorySpecsContract(storySpecs).validationFailure, isNull);
     });
 
     test('all-done plan emits empty items', () async {
@@ -200,14 +221,14 @@ void main() {
         _planWithStories([
           _story('S01', fis: 'fis/s01-story.md'),
           _story('S02', status: 'frozen', fis: 'fis/s02-story.md'),
-          _story('S03', status: 'spec-ready', fis: 'fis/s03-story.md'),
+          _story('S03', status: 'queued', fis: 'fis/s03-story.md'),
         ]),
         planDir: 'docs/specs/demo',
       );
 
       final items = (storySpecs['items'] as List<dynamic>).cast<Map<String, dynamic>>();
       expect(items.map((item) => item['id']), ['S01', 'S02', 'S03']);
-      expect(items.map((item) => item['status']), ['pending', 'pending', 'spec-ready']);
+      expect(items.map((item) => item['status']), ['pending', 'pending', 'pending']);
     });
   });
 }
@@ -244,14 +265,30 @@ Future<Map<String, dynamic>> _extractDiscoverAndthenPlanOutputs(
 }
 
 Map<String, dynamic> _storySpecsFromPlan(Map<String, dynamic> plan, {required String planDir}) {
-  const statusEnum = {'pending', 'spec-ready', 'in-progress', 'done', 'skipped', 'blocked'};
+  const statusEnum = {'pending', 'in-progress', 'done', 'skipped'};
+  final stories = (plan['stories'] as List<dynamic>).cast<Map<String, dynamic>>();
+  // Skipped stories and everything that depends on one, directly or transitively.
+  final blocked = {
+    for (final story in stories)
+      if (story['status'] == 'skipped') story['id'],
+  };
+  for (var grew = true; grew;) {
+    grew = false;
+    for (final story in stories) {
+      final deps = (story['dependsOn'] as List<dynamic>?) ?? const <dynamic>[];
+      if (!blocked.contains(story['id']) && deps.any(blocked.contains)) {
+        blocked.add(story['id']);
+        grew = true;
+      }
+    }
+  }
   final items = <Map<String, dynamic>>[];
-  for (final story in (plan['stories'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+  for (final story in stories) {
     final fis = story['fis'];
     if (fis is! String || fis.trim().isEmpty) continue;
     final rawStatus = story['status'];
     final status = rawStatus is String && statusEnum.contains(rawStatus) ? rawStatus : 'pending';
-    if (status == 'done' || status == 'skipped') continue;
+    if (status == 'done' || blocked.contains(story['id'])) continue;
     items.add({
       'id': story['id'],
       'title': story['name'],
@@ -269,8 +306,9 @@ Map<String, dynamic> _storySpecsFromPlan(Map<String, dynamic> plan, {required St
 
 Map<String, dynamic> _planWithStories(List<Map<String, dynamic>> stories) => {'stories': stories};
 
-Map<String, dynamic> _story(String id, {String? status, required String fis}) {
+Map<String, dynamic> _story(String id, {String? status, required String fis, List<String>? dependsOn}) {
   final story = <String, dynamic>{'id': id, 'name': 'Story $id', 'fis': fis};
   if (status != null) story['status'] = status;
+  if (dependsOn != null) story['dependsOn'] = dependsOn;
   return story;
 }

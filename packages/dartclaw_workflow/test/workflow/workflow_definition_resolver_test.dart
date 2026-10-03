@@ -76,7 +76,7 @@ steps:
     });
 
     test('round-trips the three built-in workflows through emitYaml → parser', () async {
-      for (final name in ['plan-and-implement.yaml', 'spec-and-implement.yaml', 'code-review.yaml']) {
+      for (final name in ['plan-and-implement.yaml', 'story-and-implement.yaml', 'code-review.yaml']) {
         final def = await parser.parseFile(builtInWorkflowPath(name));
         final resolved = resolver.resolve(def);
         final yaml = resolver.emitYaml(resolved);

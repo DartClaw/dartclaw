@@ -15,6 +15,7 @@ class SchemaValidator {
     'enum',
     'minimum',
     'maximum',
+    'minLength',
     r'$schema',
     'description',
     'title',
@@ -35,7 +36,6 @@ class SchemaValidator {
     'else',
     r'$ref',
     'pattern',
-    'minLength',
     'maxLength',
     'minItems',
     'maxItems',
@@ -83,7 +83,7 @@ class SchemaValidator {
   /// Validates [value] against [schema].
   ///
   /// [schema] is a JSON Schema-like Map with `type`, `required`, `properties`.
-  List<String> validate(Object value, Map<String, dynamic> schema) {
+  List<String> validate(Object? value, Map<String, dynamic> schema) {
     final warnings = <String>[];
     _validateValue(value, schema, '', warnings);
     return warnings;
@@ -127,6 +127,10 @@ class SchemaValidator {
     }
     if (expectedTypes.contains('string') && value is String) {
       _validateEnum(value, schema, path, warnings);
+      final minLength = schema['minLength'];
+      if (minLength is int && value.runes.length < minLength) {
+        warnings.add('${_at(path)}String length ${value.runes.length} is less than minLength $minLength');
+      }
       return;
     }
     if (expectedTypes.contains('integer') && (value is int || (value is double && value == value.toInt()))) {

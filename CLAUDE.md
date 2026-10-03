@@ -46,23 +46,23 @@ Keep this root file lean – cross-cutting rules here, package-specific ones in 
 
 ## Project Document Index
 
-This table is the main registry of document locations relevant to development and project management, read by AndThen skills and other skills / commands. Ceilings are starting budgets per read: `andthen:ops` refuses an append at the ceiling, and the answer is `andthen:ops prune <document>`, never a shard; raise one only when pruning finds nothing dispensable. Transient rows carry `–`.
+This table is the main registry of document locations relevant to development and project management, read by AndThen skills and other skills / commands. Ceilings are starting budgets per read. At the ceiling, prune dispensable entries before raising it; never split the document into shards. Transient rows carry `–`.
 
 | Document Type | Location | Ceiling | When to read |
 |---------------|----------|---------|--------------|
-| Learnings | `dev/state/LEARNINGS.md` | 300 lines | Known traps, one bullet each; read whole at task start. Add via `andthen:ops update-learnings dev/state/LEARNINGS.md add <topic> <entry>` after the admission test (unknown to a frontier model, absent from code and history, outlives the initiative); at the ceiling `andthen:ops prune`, never shard |
+| Learnings | `dev/state/LEARNINGS.md` | 300 lines | Known traps, one bullet each; read whole at task start. Add after the admission test (unknown to a frontier model, absent from code and history, outlives the initiative); at the ceiling prune, never shard |
 | Product | `dev/state/PRODUCT.md` | 700 words | **Canonical.** Vision, philosophy, scope, architecture, Proportionality (stage, scale, standing non-goals). Read before clarifying or specifying a feature |
 | Roadmap (private) | `../dartclaw-private/docs/ROADMAP.md` | 450 lines | Sole roadmap: active milestone, follow-ups and future scope. Maintainers update it when milestones open or ship. Public-only work uses the assigned requirements or exported plan; do not create a public mirror |
 | Tech stack | `dev/state/STACK.md` | 150 lines | Languages, packages, external services. Read before choosing a library or runtime |
 | Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | 300 lines | Domain glossary – use these terms in code, docs, naming; update when a term changes |
 | Prompt surfaces | `dev/state/PROMPT-SURFACES.md` | 150 lines | Before adding or re-contracting a host-authored model-facing prompt, a schema over model output, or a parser of a model reply: the inventory of every prompt surface with its output contract and validating component. Keep it current in the same change |
 | Architecture reference | `dev/architecture/` (`system-`, `security-`, `configuration-`, `control-protocol`, `task-execution-`, `workflow-`, `session-state-`, `data-model`, `channel-messaging-`, `cli-api-`, `observability-operations-architecture.md`) | 1600 lines/file | Canonical deep-dive per subsystem – e.g. `control-protocol.md` for harness spawn/CLI flags/provider protocols, `security-architecture.md` for container/setting isolation + guards, `configuration-architecture.md` for the config schema. Read before changing or reasoning about a subsystem; don't reverse-engineer from source when a doc exists |
-| Context Map | `dev/architecture/context-map.md` | 300 lines | Strategic-design view: bounded contexts, subdomain classification, context-mapping patterns. Written by `andthen-some:architecture-analysis --mode strategic-design`; canonical source for context names in models and glossary grouping |
-| Architecture Model | `.agent_temp/models/architecture-model.json` | – | Transient typed projection for atlas rendering; regenerate with `andthen-some:describe --mode codebase --model`, render with `andthen-some:visualize`. The code is the record |
-| Domain Model | `.agent_temp/models/domain-model.json` | – | Transient typed projection of the Ubiquitous Language for atlas rendering; regenerate with `andthen-some:describe --mode domain --model`. The UL document is the record |
-| Decisions | `dev/state/DECISIONS.md` | 150 lines | Index of record: ADRs (ID, title, status, scope) + load-bearing non-ADR decisions ("Still Current") + supersession lineage. Read before proposing or changing a design choice. § Still Current bullets are hand-written; `andthen:ops close-plan` appends FIS design-change lines |
+| Context Map | `dev/architecture/context-map.md` | 300 lines | Strategic-design view: bounded contexts, subdomain classification, context-mapping patterns. `andthen:architecture` supports this analysis; canonical source for context names in models and glossary grouping |
+| Architecture Model | `.agent_temp/models/architecture-model.json` | – | Transient typed projection for atlas rendering; regenerate with `andthen:describe --model`. The code is the record |
+| Domain Model | `.agent_temp/models/domain-model.json` | – | Transient typed projection of the Ubiquitous Language for atlas rendering; regenerate with `andthen:describe --model`. The UL document is the record |
+| Decisions | `dev/state/DECISIONS.md` | 150 lines | Index of record: ADRs (ID, title, status, scope) + load-bearing non-ADR decisions ("Still Current") + supersession lineage. Read before proposing or changing a design choice. § Still Current bullets are hand-written; maintain FIS design-change lines directly when closing a plan |
 | ADRs | `dev/adrs/` (+ public-safe research appendices in `dev/adrs/research/`) | 600 lines/file | Full ADR text; status/scope inventory lives in `DECISIONS.md` |
-| Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | 400 lines | Known debt requiring requirements input or an architecture decision – a last resort, never a cleanup list. Read when working in an area with a listed item; add via `andthen:ops update-tech-debt` |
+| Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | 400 lines | Known debt requiring requirements input or an architecture decision – a last resort, never a cleanup list. Read when working in an area with a listed item; maintain directly after a qualifying decision |
 | Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | 100 lines | When exported implementation bundle files appear or disappear |
 | Specs & plans | `dev/bundle/docs/specs/` (support docs in `dev/bundle/docs/`, private `docs/` layout preserved) | 700 lines/file | PRDs, implementation plans, FIS, story breakdowns per `<version-or-feature>`. Transient copies for public workflow runs; canonical in private. ADRs are not bundled. A FIS past the ceiling is a story too big: decompose it, never prune it |
 | User-facing docs | `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `workflows-reference`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) + `docs/sdk/` (`quick-start`, `packages`) | 1200 lines/file | Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface – e.g. `configuration.md` documents `providers.*`, `workflows-reference.md` documents workflow YAML fields. **Keep them current** in the same change (same currency discipline as package `AGENTS.md`) |
@@ -75,7 +75,7 @@ This table is the main registry of document locations relevant to development an
 | HTMX patterns | `dev/guidelines/HTMX-GUIDELINES.md` | 250 lines | Before writing web UI fragments: attributes, server-side rendering, streaming updates, error handling, security |
 | Trellis templates | `dev/guidelines/TRELLIS-GUIDELINES.md` | 150 lines | Before writing templates: escaping rules, fragment patterns, HTMX integration, security |
 | Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | 1450 lines | Single source of truth for visual design; YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Before any UI/CSS/template work |
-| Key dev commands | `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | 350 lines | Before/after modifying code; the Testing section declares the `fast` and `full` tiers and the run-one-test row that `andthen:ops complete-story` executes |
+| Key dev commands | `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | 350 lines | Before/after modifying code; the Testing section declares the `fast` and `full` tiers and the run-one-test row used by `andthen:exec-plan` |
 
 
 ---
@@ -83,7 +83,7 @@ This table is the main registry of document locations relevant to development an
 
 ## Built-in DartClaw Workflows
 
-DartClaw ships three end-to-end YAML workflows – `spec-and-implement`, `plan-and-implement`, `code-review` – in `packages/dartclaw_workflow/lib/src/workflow/definitions/`. They use a branded version of AndThen with the **`dartclaw-*` skill namespace**.
+DartClaw ships three end-to-end YAML workflows – `story-and-implement`, `plan-and-implement`, `code-review` – in `packages/dartclaw_workflow/lib/src/workflow/definitions/`. They call skills from the AndThen 1.0 `andthen` plugin and use `dartclaw-*` only for four bundled discovery, validation, and merge skills.
 
 Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documentation in `dev/tools/dartclaw-workflows/README.md`.
 
@@ -119,6 +119,8 @@ See `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` – read before/after modifying
 **Formatting is a hard CI gate**, and CI stops there before analyze/tests, so format drift hides later failures. Before committing, pushing, or declaring a CI fix done, run `dart format --line-length=120 --output=none --set-exit-if-changed .`. If it reports changed files, run `dart format --line-length=120` on them, include the formatting diff, then rerun the check.
 
 Run the full CI-equivalent gate from `KEY_DEVELOPMENT_COMMANDS.md` before pushing shared branches, before declaring a CI fix done, and after changes touching package boundaries, tests, build tooling, workflow definitions, or cross-package behavior.
+For release preparation, the evidence-reuse procedure in `RELEASE_PREPARATION.md` satisfies this gate: retain completed
+review proof, verify unchanged inputs, and run affected checks. GitHub CI runs on the final squash commit.
 
 Example configs: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), data in `.dartclaw-example/`. Pick a config with `bash examples/run.sh production --port 8080`.
 
@@ -178,5 +180,5 @@ routine releases; audit it only after token rotation/widening or a relevant envi
 
 ## Spec-Driven Development (e.g. AndThen) process and SDLC guidelines
 
-- **Release gates are never story scope.** The candidate-wide gates – full workspace suites, PostgreSQL, architecture, fitness, build, CI – belong to release preparation, which runs them against one commit-bound candidate and keeps the receipts (`dev/guidelines/RELEASE_PREPARATION.md`). A story proves itself with its own tests plus the `fast`/`full` tiers in `KEY_DEVELOPMENT_COMMANDS.md`; a plan task that re-runs a release gate is duplicated scope, and its evidence expires the moment the tree moves.
+- **Release gates are never story scope.** Release preparation owns candidate-wide gate coverage and retains receipts or eligible review evidence with input comparisons (`dev/guidelines/RELEASE_PREPARATION.md`). A story proves itself with its own tests plus the `fast`/`full` tiers in `KEY_DEVELOPMENT_COMMANDS.md`; a plan task that re-runs a release gate is duplicated scope.
 - **Keep stories package-scoped.** When breaking a plan into many stories, aim for each story to stay within one `packages/<name>/` (or `apps/<name>/`); reach across packages only for genuinely cross-cutting seams. A single-package scope keeps stories focused and keeps the implementing agent's context to one package's `CLAUDE.md` / `AGENTS.md`, source, and tests instead of several.

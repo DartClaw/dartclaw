@@ -27,8 +27,8 @@ Connected mode is the right choice when you are already running `dartclaw serve`
 Standalone mode is available for workflow execution, lifecycle control, and status inspection:
 
 ```bash
-dartclaw workflow run spec-and-implement --standalone --force --var FEATURE="Add alerts"
-dartclaw workflow run spec-and-implement --standalone --json --var FEATURE="Add alerts"
+dartclaw workflow run story-and-implement --standalone --force --var FEATURE="Add alerts"
+dartclaw workflow run story-and-implement --standalone --json --var FEATURE="Add alerts"
 dartclaw workflow resume <run-id> --standalone
 dartclaw workflow cancel <run-id> --standalone --feedback "wrong approach"
 dartclaw workflow status <run-id> --standalone
@@ -62,10 +62,10 @@ When a run settles (completed / paused / awaiting-approval / failed / cancelled)
 
 ```bash
 # Standalone: run on the checked-out branch, work lands directly there
-dartclaw workflow run spec-and-implement --standalone --inline --var FEATURE="Add alerts"
+dartclaw workflow run story-and-implement --standalone --inline --var FEATURE="Add alerts"
 
 # Connected: the CLI sends inline:true; the server applies the same override
-dartclaw workflow run spec-and-implement --inline --var FEATURE="Add alerts"
+dartclaw workflow run story-and-implement --inline --var FEATURE="Add alerts"
 ```
 
 - `--inline` applies identically in standalone and connected mode (one shared seam in `WorkflowService.start`).
@@ -207,7 +207,7 @@ Per-command `--json` remains local to individual command surfaces.
 
 ```bash
 # Run a workflow against the live server
-dartclaw workflow run spec-and-implement --var FEATURE="Add project commands"
+dartclaw workflow run story-and-implement --var FEATURE="Add project commands"
 
 # Inspect and control active workflow runs
 dartclaw workflow runs

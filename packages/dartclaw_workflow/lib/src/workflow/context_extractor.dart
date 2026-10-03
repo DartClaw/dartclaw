@@ -139,6 +139,9 @@ class ContextExtractor {
             claimPayload: claimPayload,
           );
           _assertArgumentSafeFileSystemOutput(resolvedFsOutput, outputKey);
+          if (config != null && !resolver.listMode) {
+            on_.validateSchema(resolvedFsOutput, config, _schemaValidator, step.id, outputKey, strict: true);
+          }
           outputs[outputKey] = resolvedFsOutput;
           continue;
         case InlineOutput():

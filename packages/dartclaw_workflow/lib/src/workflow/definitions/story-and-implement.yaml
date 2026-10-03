@@ -1,7 +1,7 @@
-name: spec-and-implement
+name: story-and-implement
 description: >-
   Full feature pipeline – write a specification, implement it with
-  exec-spec, and run integrated review in authored order.
+  exec-plan, and run integrated review in authored order.
 variables:
   FEATURE:
     required: true
@@ -63,14 +63,14 @@ steps:
         pathPattern: '**/*.md'
         schema:
           type: string
-        description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
+        description: Workspace-relative path to the active implementation specification on disk.
       spec_source:
         schema: narrative_text
         description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
 
   - id: spec
     name: Generate Specification
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "spec_source == synthesized"
     # FEATURE is interpolated inline by design – the spec skill is meant to act
     # on the feature description, so it is a direct argument, not auto-framed
@@ -82,23 +82,22 @@ steps:
         pathPattern: '**/*.md'
         schema:
           type: string
-        description: Workspace-relative path to the active implementation specification on disk; empty only while synthesis is pending.
+          minLength: 1
+        description: Workspace-relative path to the active implementation specification on disk.
       spec_source:
         schema: narrative_text
         description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
 
   - id: implement
     name: Implement
-    skill: andthen:exec-spec
-    allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
+    skill: andthen:exec-plan
+    allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call, 'claude:Agent']
     # Task-level retry covers transient provider/CLI exits without retrying an
     # explicit semantic failed step outcome.
     maxRetries: 1
     prompt: "--auto {{context.spec_path}}"
 
-  # exec-spec already ran analysis/tests/linting and fixed issues before this
-  # review inspects the change set holistically and hands any remaining
-  # findings to the remediation loop.
+  # The implementation skill runs its story checks before this review.
   - id: integrated-review
     name: Integrated Review
     skill: andthen:review
@@ -106,7 +105,7 @@ steps:
     # + verify tail.
     onFailure: retry
     maxRetries: 1
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
     prompt: >-
       --mode gap --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
@@ -119,8 +118,6 @@ steps:
 
   # The aggregator normalizes the prefixed review keys to the bare keys the
   # remediation loop reads and writes the report the remediate step consumes.
-  # A multi-perspective council pass is the optional `andthen-some:council`
-  # skill; the inline maintainer variants add it as a second source.
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
@@ -152,7 +149,7 @@ steps:
       - id: re-review
         name: Re-review Gaps
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [remediation_summary]
         prompt: >-
           --mode gap,code,security --auto

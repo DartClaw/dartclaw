@@ -31,7 +31,7 @@ Apply in order:
 1. If `FEATURE` is an inline description, classify `synthesized`. A missing path that looks like a file path is an error, not a feature description.
 2. If `FEATURE` is an existing file or directory, first reject any document identified as a PRD, intent, or requirements source, regardless of FIS-like headings. A heading such as `## Implementation Plan` does not make a PRD a FIS.
 3. For an existing `.md` file, classify `existing` only if both `**Plan**:` and `**Story-ID**:` appear between its H1 and first `##` heading, and it has both an `## Acceptance Scenarios` section with `**S01 …**` / **Given** / **When** / **Then**, and an `## Implementation Plan` section with `**TI01**` tasks. Scan all `##` headings and the relevant sections; their markers may be far past the opening lines. A filename alone never qualifies a file.
-4. Otherwise fail the step with: "Written requirements belong in plan-and-implement; pass its PRD path as FEATURE. spec-and-implement accepts an inline description or an existing FIS." Do not invoke `andthen:spec` on this input. If classification is ambiguous, fail rather than treating a written source as inline text.
+4. Otherwise fail the step with: "Written requirements belong in plan-and-implement; pass its PRD path as FEATURE. story-and-implement accepts an inline description or an existing FIS." Do not invoke `andthen:plan` on this input. If classification is ambiguous, fail rather than treating a written source as inline text.
 
 Maintainer note: the provenance and story markers above mirror AndThen's `references/fis-template.md`. When that
 template changes, update this contract. Do **not** read that file (or any plugin file) at runtime —

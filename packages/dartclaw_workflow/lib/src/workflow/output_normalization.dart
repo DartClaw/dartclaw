@@ -19,9 +19,10 @@ void validateSchema(
   OutputConfig config,
   SchemaValidator schemaValidator,
   String stepId,
-  String outputKey,
-) {
-  if (parsed == null) return;
+  String outputKey, {
+  bool strict = false,
+}) {
+  if (parsed == null && !strict) return;
 
   Map<String, dynamic>? schema;
   if (config.presetName != null) {
@@ -32,7 +33,7 @@ void validateSchema(
   if (schema == null) return;
 
   final warnings = schemaValidator.validate(parsed, schema);
-  if (warnings.isNotEmpty && requiresStrictSchema(config, outputKey)) {
+  if (warnings.isNotEmpty && (strict || requiresStrictSchema(config, outputKey))) {
     throw FormatException(
       'Structured output "$outputKey" from step "$stepId" failed schema validation: ${warnings.join('; ')}',
     );

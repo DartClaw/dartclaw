@@ -1,6 +1,6 @@
 # DartClaw Maintainer Workflows
 
-Run the built-in `spec-and-implement`, `plan-and-implement`, and `code-review` workflows directly against this `dartclaw-public` checkout.
+Run the built-in `story-and-implement`, `plan-and-implement`, and `code-review` workflows directly against this `dartclaw-public` checkout.
 
 This is maintainer tooling, not an end-user example profile. It is for day-to-day DartClaw development when you want DartClaw to implement public-repo specs and plans without launching it from the private testing profile. Workflows run **server-less** via the standalone CLI path, operating on this checkout (the cwd repo) and keeping runtime state under `.dartclaw/` (config committed, execution files and worktrees gitignored). AndThen skills are resolved from your existing per-provider AndThen install (ADR-040) — this profile does not clone or cache AndThen.
 
@@ -10,26 +10,26 @@ Three built-in workflows ship in `packages/dartclaw_workflow/lib/src/workflow/de
 
 | Workflow | Required variable | Purpose |
 |----------|-------------------|---------|
-| `spec-and-implement` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts an inline description or a path to an existing FIS; an existing written source that is not a FIS is rejected with a pointer to `plan-and-implement`. `andthen:spec` authors a FIS for inline descriptions. |
-| `plan-and-implement` | `FEATURE` | Multi-story milestone pipeline. Requires an existing PRD. `dartclaw-discover-andthen-plan` emits flat `prd`, optional `plan`, and optional `story_specs`; `andthen:spec` authors missing plan/spec artifacts. |
+| `story-and-implement` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts an inline description or a path to an existing FIS; an existing written source that is not a FIS is rejected with a pointer to `plan-and-implement`. `andthen:plan` authors a FIS for inline descriptions. |
+| `plan-and-implement` | `FEATURE` | Multi-story milestone pipeline. Requires an existing PRD. `dartclaw-discover-andthen-plan` emits flat `prd`, optional `plan`, and optional `story_specs`; `andthen:plan` authors missing plan/spec artifacts. |
 | `code-review` | `TARGET` | Single-methodology review of a PR / branch / module + bounded remediation loop. |
 
-Three custom **inline** variants ship in `.dartclaw/workflows/custom/`:
+Four custom **inline** variants ship in `.dartclaw/workflows/custom/`:
 
 | Workflow | Required variable | Purpose |
 |----------|-------------------|---------|
-| `spec-and-implement-inline` | `FEATURE` | Same pipeline as `spec-and-implement`, but runs on the current branch in the live checkout (`gitStrategy.integrationBranch: false`, `worktree: inline`). No integration branch, no worktree, no merge-back. Adds a deterministic verification gate after remediation (see below). |
+| `story-and-implement-inline` | `FEATURE` | Same pipeline as `story-and-implement`, but runs on the current branch in the live checkout (`gitStrategy.integrationBranch: false`, `worktree: inline`). No integration branch, no worktree, no merge-back. Adds a deterministic verification gate after remediation (see below). |
 | `plan-and-implement-inline` | `FEATURE` | Same pipeline as `plan-and-implement`, but inline. Per-story worktrees are disabled and `MAX_PARALLEL` defaults to `1` because parallel sessions in a shared checkout would clobber each other. Adds a deterministic verification gate after remediation (see below). |
-| `review-and-remediate-inline` | `TARGET` | Review + remediate for an already-implemented milestone, version, or feature – nothing is implemented. Reviews all changes on the current branch (diffed against `BASE_BRANCH`, default `main`) with the same multi-lens depth as `plan-and-implement` – a gap review and a Claude opus code/security council pass in parallel – then runs a bounded remediation loop and the deterministic verification gate. The fuller counterpart to the built-in single-methodology `code-review`. Runs inline on the current branch. |
-| `multi-agent-review-inline` | `TARGET` | Parallel multi-agent review: Codex (Sol 5.6) and Claude Code (Fable 5), both at xhigh effort, each run a full `andthen:review` pass with no pinned mode, aggregated into one report, then the bounded remediation loop (codex remediates, Claude re-reviews) and the deterministic verification gate. `TARGET` carries the whole framing, including scope (e.g. branch vs base). Runs inline on the current branch. |
+| `review-and-remediate-inline` | `TARGET` | Review + remediate for an already-implemented milestone, version, or feature – nothing is implemented. Reviews all changes on the current branch (diffed against `BASE_BRANCH`, default `main`) through `andthen:review`, then runs a bounded remediation loop and the deterministic verification gate. The fuller counterpart to the built-in `code-review`. Runs inline on the current branch. |
+| `multi-agent-review-inline` | `TARGET` | Parallel multi-agent review: Codex (Sol 5.6) and Claude Code (Fable 5), both at xhigh effort, each run a full `andthen:review` pass with no pinned mode, aggregated into one report, then the bounded remediation loop (codex remediates, Claude re-reviews). Its configured verification gate is currently blocked by the invocation described below. `TARGET` carries the whole framing, including scope (e.g. branch vs base). Runs inline on the current branch. |
 
-**Deterministic verification gate.** After the review/remediation loop, both inline variants run format (`dart format --set-exit-if-changed`), static analysis (`dart analyze --fatal-infos`), the full test suite (`dev/tools/test_workspace.sh`), architecture checks, fitness checks, `git diff --check`, and `git status --short` via `.dartclaw/workflows/custom/scripts/verify-gate.sh`. The script captures each gate's output under the run's artifacts dir (`<run>/verify/*.log`) and prints `pass`/`fail`; a bounded `verify-fix-loop` then dispatches `andthen:triage` to fix any failures and re-runs the combined gate until green or the iteration cap is hit. This is the deterministic counterpart to the skill-driven verification the worktree-isolated built-ins rely on.
+**Deterministic verification gate.** After the review/remediation loop, `story-and-implement-inline`, `plan-and-implement-inline`, and `review-and-remediate-inline` run format (`dart format --set-exit-if-changed`), static analysis (`dart analyze --fatal-infos`), the full test suite (`dev/tools/test_workspace.sh`), architecture checks, fitness checks, `git diff --check`, and `git status --short` via `.dartclaw/workflows/custom/scripts/verify-gate.sh`. The script captures each gate's output under the run's artifacts dir (`<run>/verify/*.log`) and prints `pass`/`fail`; a bounded `verify-fix-loop` then dispatches `andthen:triage` to fix any failures and re-runs the combined gate until green or the iteration cap is hit. `multi-agent-review-inline` declares the same gate, but its current `bash` invocation with a substituted artifacts path is rejected by BashStepRunner before the script runs. This is the deterministic counterpart to the skill-driven verification the worktree-isolated built-ins rely on.
 
 > **Git-strategy half is now built in.** The inline *git strategy* itself (`integrationBranch: false` + `worktree: inline`, sequential multi-story execution) no longer needs a duplicate YAML — any built-in runs inline via `dartclaw workflow run <builtin> --inline`. These custom variants remain because of the **deterministic verification gate** above, which is DartClaw-repo-specific (hardcoded `dev/tools` paths, `test_workspace.sh`, repo arch/fitness checks). Full retirement of the `*-inline` YAMLs is deferred pending generalization of that verify-gate into a portable, configurable step.
 
 The inline variants live at `.dartclaw/workflows/custom/` — the standard instance-scoped custom-workflow drop folder (`<dataDir>/workflows/custom/`, with `<dataDir>` = `.dartclaw/`). The host loads them automatically as `WorkflowSource.custom`. They are git-tracked via `.dartclaw/.gitignore`'s allowlist; edit the YAMLs in place to tweak step config – changes take effect on the next run.
 
-The `spec.sh` / `plan.sh` / `review.sh` / `multi-review.sh` convenience scripts run the **inline** variants. To get the worktree-isolated pipeline (separate workflow branch + merge-back), invoke `run.sh workflow run` directly with the unsuffixed name (`spec-and-implement`, `plan-and-implement`); for a single-methodology worktree-isolated review use the built-in `code-review`.
+The `story.sh` / `plan.sh` / `review.sh` / `multi-review.sh` convenience scripts run the **inline** variants. To get the worktree-isolated pipeline (separate workflow branch + merge-back), invoke `run.sh workflow run` directly with the unsuffixed name (`story-and-implement`, `plan-and-implement`); for a single-methodology worktree-isolated review use the built-in `code-review`.
 
 After updating from an older checkout that provisioned the pre-rename discovery skill directories, start the workflow profile normally. `SkillProvisioner.ensureCacheCurrent` removes stale discovery skill directories from the profile data dir and reprovisions the renamed `dartclaw-discover-andthen-*` skills on the next workflow start.
 
@@ -62,17 +62,17 @@ List workflows:
 bash dev/tools/dartclaw-workflows/run.sh workflow list
 ```
 
-Run `spec-and-implement` from a feature description:
+Run `story-and-implement` from a feature description:
 
 ```bash
-bash dev/tools/dartclaw-workflows/run.sh workflow run spec-and-implement \
+bash dev/tools/dartclaw-workflows/run.sh workflow run story-and-implement \
   -v 'FEATURE=Add a /health endpoint returning service uptime and version'
 ```
 
-Run `spec-and-implement` from an existing FIS:
+Run `story-and-implement` from an existing FIS:
 
 ```bash
-bash dev/tools/dartclaw-workflows/run.sh workflow run spec-and-implement \
+bash dev/tools/dartclaw-workflows/run.sh workflow run story-and-implement \
   -v 'FEATURE=dev/bundle/docs/specs/0.16.5/fis/s13-pre-decomposition-helpers.md'
 ```
 
@@ -85,10 +85,10 @@ bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement \
 
 For planned milestones authored in the companion private repo, first export the implementation bundle from `dartclaw-private` with `/dartclaw-export-implementation-bundle`. The exported `dev/bundle/` directory is disposable workflow input; remove it before squash-merging the public branch.
 
-For inline runs against the current branch (no separate workflow branch / worktree), use the `spec.sh` / `plan.sh` shorthands:
+For inline runs against the current branch (no separate workflow branch / worktree), use the `story.sh` / `plan.sh` shorthands:
 
 ```bash
-bash dev/tools/dartclaw-workflows/spec.sh 'Add a /health endpoint returning service uptime and version'
+bash dev/tools/dartclaw-workflows/story.sh 'Add a /health endpoint returning service uptime and version'
 bash dev/tools/dartclaw-workflows/plan.sh 'Implement the next planned DartClaw milestone from the active PRD and plan'
 ```
 
@@ -105,7 +105,7 @@ For the parallel two-agent variant (Codex + Claude Code), use `multi-review.sh`.
 bash dev/tools/dartclaw-workflows/multi-review.sh 'the 0.22 milestone changes on this branch versus main'
 ```
 
-These wrap `run.sh workflow run --standalone --allow-dirty-localpath spec-and-implement-inline|plan-and-implement-inline|review-and-remediate-inline|multi-agent-review-inline …`. `--allow-dirty-localpath` is required because inline mode mutates the live working tree by design.
+These wrap `run.sh workflow run --standalone --allow-dirty-localpath story-and-implement-inline|plan-and-implement-inline|review-and-remediate-inline|multi-agent-review-inline …`. `--allow-dirty-localpath` is required because inline mode mutates the live working tree by design.
 
 ## Injected Variables
 
@@ -144,7 +144,7 @@ Examples:
 ```bash
 DARTCLAW_WORKFLOWS_HOST=system bash dev/tools/dartclaw-workflows/run.sh workflow list
 DARTCLAW_WORKFLOWS_HOST=cached bash dev/tools/dartclaw-workflows/plan.sh 'Implement the active PRD'
-DARTCLAW_WORKFLOWS_BINARY=/opt/dartclaw/bin/dartclaw bash dev/tools/dartclaw-workflows/spec.sh 'Add health checks'
+DARTCLAW_WORKFLOWS_BINARY=/opt/dartclaw/bin/dartclaw bash dev/tools/dartclaw-workflows/story.sh 'Add health checks'
 ```
 
 To wipe the cached binaries: `rm -rf dev/tools/dartclaw-workflows/.cache`.

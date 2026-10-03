@@ -8,7 +8,7 @@
     "dev/guidelines/TRELLIS-GUIDELINES.md"
   ],
   "overview": {
-    "summary": "DartClaw 0.16.6 adopts Stimulus as the Web UI browser interaction layer while preserving the existing HTMX, Trellis, static-asset, and zero-Node architecture. The plan keeps the migration sequential because the foundation contract drives every later page migration, and the completion story removes legacy patterns only after the high-traffic surfaces have moved.\n\nAll FIS files already exist and are preserved as spec-ready during this migration from legacy plan.md to plan.json. The markdown plan remains a human-facing companion only; plan.json is the runtime ledger for downstream workflow skills.",
+    "summary": "DartClaw 0.16.6 adopts Stimulus as the Web UI browser interaction layer while preserving the existing HTMX, Trellis, static-asset, and zero-Node architecture. The plan keeps the migration sequential because the foundation contract drives every later page migration, and the completion story removes legacy patterns only after the high-traffic surfaces have moved.\n\nAll FIS files already exist and are preserved as pending during this migration from legacy plan.md to plan.json. The markdown plan remains a human-facing companion only; plan.json is the runtime ledger for downstream workflow skills.",
     "phases": [
       {
         "id": "P1",
@@ -113,7 +113,7 @@
       "dependsOn": [],
       "parallel": false,
       "risk": "medium",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s01-stimulus-foundation.md",
       "scope": "Integrate Stimulus into the current static asset model without Node/npm tooling and define the controller contract for the Web UI. This story includes asset loading, vendoring and pinning policy, controller bootstrapping, HTMX lifecycle coordination, naming conventions, and migration rules for server-rendered templates. It excludes page-by-page migration, which happens in later stories.",
       "sourceRefs": [
@@ -141,7 +141,7 @@
       ],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s02-core-migration.md",
       "scope": "Migrate shell-level, feature-level, and admin/ops interactions to Stimulus in one coordinated pass. Covers shared shell behavior, chat, tasks, workflows, projects, settings, channel detail, scheduling, memory, and health. It excludes remaining special surfaces and final legacy cleanup from S04.",
       "sourceRefs": [
@@ -168,7 +168,7 @@
       ],
       "parallel": false,
       "risk": "high",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s04-special-surfaces-legacy-removal.md",
       "scope": "Migrate the remaining browser-facing pages with JavaScript behavior, including special and standalone surfaces, and remove the legacy page-global interaction pattern as the primary implementation model. Any unavoidable exclusion must be explicit, narrow, and documented. This story is the completion gate for full adoption.",
       "sourceRefs": [
@@ -194,7 +194,7 @@
       ],
       "parallel": false,
       "risk": "medium",
-      "status": "spec-ready",
+      "status": "pending",
       "fis": "fis/s05-docs-sync-verification.md",
       "scope": "Update the private docs and downstream specs affected by the migration, then run the final verification pass for the milestone. This story includes architecture and documentation sync, roadmap and state consistency, and an explicit update to the 0.17 composer FIS so future work reflects the migrated UI reality. It excludes new UI feature work beyond proof and synchronization.",
       "sourceRefs": [
@@ -235,7 +235,7 @@
       "mitigation": "Make doc/spec synchronization and final smoke verification part of the milestone, not a follow-up."
     }
   ],
-  "executionNotes": "Migrated from legacy plan.md to plan.json on 2026-05-08 13:00 CEST. Existing FIS files were preserved and all stories remain spec-ready.\n\nExecution order is sequential: S01 -> S02 -> S04 -> S05. Run each story with dartclaw-exec-spec against its FIS file, and route future status or FIS changes through andthen-ops rather than editing plan.json directly.",
+  "executionNotes": "Migrated from legacy plan.md to plan.json on 2026-05-08 13:00 CEST. Existing FIS files were preserved and all stories remain pending.\n\nExecution order is sequential: S01 -> S02 -> S04 -> S05. Run each story with andthen:exec-plan against its FIS file, and route future status or FIS changes through the plan ledger rather than editing plan.json directly.",
   "metadata": {
     "immutableDigest": "sha256:95c77e3f7cf22b3d5505aecbadf4ee2d2cfce3dff0677e4bda22fa40eda6459d"
   }

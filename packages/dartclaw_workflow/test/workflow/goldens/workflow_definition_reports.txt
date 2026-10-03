@@ -1,12 +1,12 @@
 [built-in/plan-and-implement]
 <clean>
-[built-in/spec-and-implement]
+[built-in/story-and-implement]
 <clean>
 [built-in/code-review]
 <clean>
 [maintainer/plan-and-implement-inline]
 <clean>
-[maintainer/spec-and-implement-inline]
+[maintainer/story-and-implement-inline]
 contextInconsistency|||Output "spec_path" is produced by multiple steps with different descriptions (detect-spec-input, spec). The first producer wins in context-summary rendering.
 [maintainer/review-and-remediate-inline]
 <clean>

@@ -21,7 +21,7 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-WorkflowDefinition _makeDef({String name = 'spec-and-implement', int steps = 3}) {
+WorkflowDefinition _makeDef({String name = 'story-and-implement', int steps = 3}) {
   return WorkflowDefinition(
     name: name,
     description: 'test',
@@ -145,7 +145,7 @@ void main() {
       expect(activeWorkflows, hasLength(1));
 
       final wf = activeWorkflows.first as Map<String, dynamic>;
-      expect(wf['definitionName'], 'spec-and-implement');
+      expect(wf['definitionName'], 'story-and-implement');
       expect(wf['status'], 'running');
       expect(wf['totalSteps'], 4);
       expect(wf['completedSteps'], isA<int>());
@@ -199,7 +199,7 @@ void main() {
       final activeWorkflows = payload['activeWorkflows'] as List<dynamic>;
       expect(activeWorkflows, hasLength(1));
       final wf = activeWorkflows.first as Map<String, dynamic>;
-      expect(wf['definitionName'], 'spec-and-implement');
+      expect(wf['definitionName'], 'story-and-implement');
       expect(wf['status'], 'running');
     });
   });
@@ -241,7 +241,7 @@ void main() {
       expect(activeWorkflows, isNotEmpty);
       final wf = activeWorkflows.first as Map<String, dynamic>;
       expect(wf['id'], run.id);
-      expect(wf['definitionName'], 'spec-and-implement');
+      expect(wf['definitionName'], 'story-and-implement');
     });
   });
 

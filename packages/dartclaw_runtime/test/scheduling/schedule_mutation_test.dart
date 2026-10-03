@@ -27,6 +27,7 @@ void main() {
   late List<_ManualTimer> timers;
   late FakeTurnManager turns;
   late DateTime clock;
+  Completer<void>? oneTimePersistence;
 
   void writeConfig(String jobsBlock) {
     File(configPath).writeAsStringSync('''
@@ -46,6 +47,7 @@ scheduling:
 
   setUp(() {
     clock = DateTime(2026, 9, 2, 12);
+    oneTimePersistence = null;
     tempDir = Directory.systemTemp.createTempSync('dartclaw_schedule_mutation_');
     configPath = p.join(tempDir.path, 'dartclaw.yaml');
     dataDir = p.join(tempDir.path, 'data');
@@ -73,7 +75,11 @@ scheduling:
         timers.add(timer);
         return timer;
       },
-      onOneTimeComplete: (id) => jobsStore.removeJobs([id]),
+      onOneTimeComplete: (id) {
+        final removal = jobsStore.removeJobs([id]);
+        oneTimePersistence?.complete(removal);
+        return removal;
+      },
     )..start();
     applier = SchedulingJobsApplier(
       configPath: configPath,
@@ -394,11 +400,10 @@ scheduling:
       expect(service.hasJob('remind-dentist'), isTrue);
       final armed = timers.singleWhere((timer) => timer.duration == const Duration(minutes: 10));
 
+      oneTimePersistence = Completer<void>();
       clock = at;
       armed.fire();
-      // The removal is the runtime telling the seam to persist an unload it has
-      // already performed, so the YAML write settles after the fire returns.
-      await _until(() async => (await mutations.readJobs()).isEmpty);
+      await oneTimePersistence!.future;
 
       expect(turns.startTurnCallCount, 1, reason: 'the one-time job must actually have fired');
       expect(service.hasJob('remind-dentist'), isFalse);
@@ -1099,14 +1104,4 @@ class _ManualTimer implements Timer {
 
   @override
   void cancel() => _isActive = false;
-}
-
-/// Pumps the event queue until [condition] holds, so a test can wait on the
-/// config write the runtime kicked off without pinning a turn count to it.
-Future<void> _until(Future<bool> Function() condition, {int attempts = 100}) async {
-  for (var attempt = 0; attempt < attempts; attempt++) {
-    if (await condition()) return;
-    await pumpEventQueue();
-  }
-  fail('condition never held after $attempts pumps');
 }

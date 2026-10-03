@@ -249,7 +249,7 @@ void main() {
     test('create dialog is rendered on demand with independent forms', () async {
       final definitions = InMemoryDefinitionSource([
         WorkflowDefinition(
-          name: 'spec-and-implement',
+          name: 'story-and-implement',
           description: 'Feature pipeline',
           variables: const {'FEATURE': WorkflowVariable(description: 'Feature name', required: true)},
           steps: const [
@@ -274,7 +274,7 @@ void main() {
       expect(body, contains('hx-post="/tasks/create"'));
       expect(body, contains('role="tab" aria-selected="true"'));
       expect(body, contains('role="tabpanel" aria-labelledby="new-task-tab-single"'));
-      expect(body, contains('spec-and-implement'));
+      expect(body, contains('story-and-implement'));
       expect(body, contains('hx-post="/api/workflows/run-form"'));
       expect(RegExp(r'<input[^>]*name="var_FEATURE"[^>]*aria-required="true"').hasMatch(body), isTrue);
       expect(RegExp(r'<input[^>]*name="var_FEATURE"[^>]* required').hasMatch(body), isFalse);

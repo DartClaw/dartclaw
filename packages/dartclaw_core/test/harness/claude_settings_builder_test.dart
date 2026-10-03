@@ -94,6 +94,10 @@ void main() {
 
     test('mcp_call maps to the bridged MCP prefix', () => expect(rulesFor(['mcp_call']), ['mcp__dartclaw']));
 
+    test('an explicit Claude Agent grant reaches native permissions', () {
+      expect(rulesFor(['claude:Agent']), ['Agent']);
+    });
+
     test('file_write emits an Edit rule per root, absolutely anchored', () {
       // Verified live 2026-08-28: the CLI consults Edit(path) and Read(path)
       // rules only, and a single leading slash anchors at the settings source

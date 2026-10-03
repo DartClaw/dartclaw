@@ -629,7 +629,7 @@ steps:
     );
     expect(unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
     final registeredNames = wired.workflowRegistry.listAll().map((workflow) => workflow.name).toSet();
-    expect(registeredNames, containsAll(['plan-and-implement', 'spec-and-implement', 'code-review']));
+    expect(registeredNames, containsAll(['plan-and-implement', 'story-and-implement', 'code-review']));
     expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), isEmpty);
   });
 
@@ -801,7 +801,7 @@ steps:
       ..writeAsStringSync(
         jsonEncode({
           'stories': [
-            {'id': 'S01', 'status': 'spec-ready', 'fis': 'docs/specs/demo/fis/s01.md'},
+            {'id': 'S01', 'status': 'pending', 'fis': 'docs/specs/demo/fis/s01.md'},
           ],
         }),
       );

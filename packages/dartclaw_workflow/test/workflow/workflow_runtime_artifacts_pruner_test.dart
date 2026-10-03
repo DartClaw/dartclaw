@@ -25,7 +25,7 @@ void main() {
   }) {
     return WorkflowRun(
       id: id,
-      definitionName: 'spec-and-implement',
+      definitionName: 'story-and-implement',
       status: status,
       startedAt: completedAt.subtract(const Duration(hours: 1)),
       updatedAt: completedAt,
@@ -126,7 +126,7 @@ void main() {
     final artifacts = seedRun('run-running');
     final run = WorkflowRun(
       id: 'run-running',
-      definitionName: 'spec-and-implement',
+      definitionName: 'story-and-implement',
       status: WorkflowRunStatus.running,
       startedAt: DateTime.now().subtract(const Duration(days: 10)),
       updatedAt: DateTime.now().subtract(const Duration(days: 10)),

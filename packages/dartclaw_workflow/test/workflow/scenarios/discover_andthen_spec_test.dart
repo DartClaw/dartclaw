@@ -40,7 +40,7 @@ void main() {
       expect(skill, contains('regardless of FIS-like headings'));
       expect(skill, contains('both `**Plan**:` and `**Story-ID**:`'));
       expect(skill, contains('Written requirements belong in plan-and-implement'));
-      expect(skill, contains('Do not invoke `andthen:spec` on this input'));
+      expect(skill, contains('Do not invoke `andthen:plan` on this input'));
       expect(skill, contains('existing'));
       expect(skill, contains('synthesized'));
       // The brittle filename gate and the stale section markers it keyed on are gone.

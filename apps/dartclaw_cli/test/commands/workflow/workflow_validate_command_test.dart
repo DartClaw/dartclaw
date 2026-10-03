@@ -226,7 +226,7 @@ void main() {
     });
 
     test('--skills: unresolvable skill ref warns naming step id, skill, and provider', () async {
-      final introspector = _FakeSkillIntrospector({'andthen:review', 'andthen:spec'});
+      final introspector = _FakeSkillIntrospector({'andthen:review', 'andthen:plan'});
       final config = DartclawConfig(server: ServerConfig(dataDir: tempDir.path));
       final skillCommand = WorkflowValidateCommand(config: config, writeLine: output.add, introspector: introspector);
       final skillRunner = CommandRunner<void>('dartclaw', 'DartClaw CLI')..addCommand(skillCommand);

@@ -5,7 +5,7 @@ void main() {
   group('FakeSkillIntrospector', () {
     test('returns configured skills and tracks calls', () async {
       final introspector = FakeSkillIntrospector({
-        'claude': {'andthen:spec'},
+        'claude': {'andthen:plan'},
       });
 
       final result = await introspector.listAvailable(
@@ -14,7 +14,7 @@ void main() {
         providerOptions: const {'inherit_user_settings': false},
       );
 
-      expect(result, {'andthen:spec'});
+      expect(result, {'andthen:plan'});
       expect(introspector.calls, [(provider: 'claude', executable: '/bin/claude')]);
       expect(introspector.providerOptionsByProvider['claude'], {'inherit_user_settings': false});
     });

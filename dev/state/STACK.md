@@ -89,7 +89,7 @@ Themes: Catppuccin Mocha (dark) + Catppuccin Latte (light) for highlight.js.
 
 ## AndThen Skills
 
-DartClaw built-in workflows reference AndThen-owned skills by canonical names such as `andthen:spec`. The workflow registry resolves those names to provider-native aliases (`andthen-spec` for Codex, `andthen:spec` for Claude Code). DartClaw no longer clones AndThen or creates DartClaw-branded copies of AndThen skills.
+DartClaw built-in workflows reference AndThen-owned skills by canonical names such as `andthen:plan`. The workflow registry resolves those names to provider-native aliases (`andthen-plan` for Codex, `andthen:plan` for Claude Code). DartClaw no longer clones AndThen or creates DartClaw-branded copies of AndThen skills.
 
 `SkillProvisioner` only copies the four DartClaw-native skills (`dartclaw-detect-spec-input`, `dartclaw-discover-plan-state`, `dartclaw-validate-workflow`, `dartclaw-merge-resolve`) into the data-dir native skill roots and links those exact names into configured project workspaces.
 

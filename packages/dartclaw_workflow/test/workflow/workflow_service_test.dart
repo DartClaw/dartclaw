@@ -1234,8 +1234,11 @@ void main() {
     final createdTaskTitles = <String>[];
     autoCompleteNewTasks(createdTaskTitles);
 
+    final terminal = eventBus.on<WorkflowRunStatusChangedEvent>().firstWhere(
+      (event) => event.runId == 'recover-loop-step' && event.newStatus.terminal,
+    );
     await workflowService.recoverIncompleteRuns();
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    await terminal;
 
     expect(createdTaskTitles, hasLength(1));
     expect(createdTaskTitles.first, contains('Loop B'));

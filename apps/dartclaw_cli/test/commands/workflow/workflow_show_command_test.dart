@@ -41,7 +41,7 @@ void main() {
 
     test('connected raw mode prints authored YAML', () async {
       final transport = FakeApiTransport(
-        sendResponses: [yamlResponse(200, 'name: spec-and-implement\ndescription: Demo\n')],
+        sendResponses: [yamlResponse(200, 'name: story-and-implement\ndescription: Demo\n')],
       );
       final apiClient = DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport);
 
@@ -56,10 +56,10 @@ void main() {
           ),
         );
 
-      await runner.run(['show', 'spec-and-implement']);
+      await runner.run(['show', 'story-and-implement']);
 
-      expect(stdoutBuffer.toString(), startsWith('name: spec-and-implement'));
-      expect(transport.requests.single.uri.path, '/api/workflows/definitions/spec-and-implement');
+      expect(stdoutBuffer.toString(), startsWith('name: story-and-implement'));
+      expect(transport.requests.single.uri.path, '/api/workflows/definitions/story-and-implement');
     });
 
     test('standalone raw mode prints authored YAML from the local workspace registry', () async {

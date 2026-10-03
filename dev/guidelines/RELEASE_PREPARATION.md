@@ -1,9 +1,23 @@
 # Release Preparation
 
-Use `bash dev/tools/release_check.sh --version <version> --local` for local preparation. It requires a clean committed
-candidate and records each gate under `.agent_temp/releases/<version>/<gate>/<attempt>/`. No GitHub request is made.
-Before tagging, qualify the **final squash commit**, which must also be pushed. Either run the default full command,
-or finish an unchanged local run with the `ci` gate and inspect all receipts as shown below.
+Start with the completed review evidence. Preparation normally consists of version pins and CHANGELOG, spec
+consolidation and cleanup, focused checks for subsequent changes, squash to `main`, and one push-triggered Checks
+run on that final commit. Do not repeat the full local or live suites merely because preparation or squashing
+creates a new SHA. Do not push intermediate candidates just to obtain more GitHub CI runs.
+
+Keep a qualification ledger under `.agent_temp/releases/<version>/` mapping every gate below to its command,
+source SHA or saved reviewed diff, environment, result and log. Reuse a passing result only after comparing its
+relevant inputs with the final candidate: source, tests, assets, lockfiles, tooling and configuration. Record the
+comparison and both candidate identities. For subsequent changes, run the affected checks; run a full gate again
+when its affected scope cannot be bounded. Version changes require version/schema checks and a build of the new
+version; documentation and bundle cleanup alone do not invalidate runtime test evidence. Database and provider
+evidence also requires the same relevant environment. Missing evidence remains a hold.
+
+`bash dev/tools/release_check.sh --version <version> --local` runs all local gates when that coverage is missing.
+It requires a clean committed candidate and records each gate under
+`.agent_temp/releases/<version>/<gate>/<attempt>/`. No GitHub request is made. The runner's receipts and `--resume`
+remain exact-commit checks: it does not import earlier review evidence or the ledger. Do not rerun everything
+solely to make `--status` green when the ledger establishes coverage through recorded reuse.
 
 ```bash
 # Run the local automated gates; stop at the first failure.
@@ -22,16 +36,17 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | Gate ID | Proof | Execution |
 |---|---|---|
 | `cleanup`, `versions` | No exported bundle; all version pins agree | Host |
-| `dependencies`, `assets` | Tracked enforced lockfiles; generated embedded assets | Host; always refreshed |
+| `dependencies`, `assets` | Tracked enforced lockfiles; generated embedded assets | Host |
 | `format`, `analyze`, `tests` | Formatting, static analysis, default workspace suites | Host |
-| `postgres` | Plain PostgreSQL, explicit pgvector/hybrid, migration and restore contracts | Disposable live databases; always refreshed |
+| `postgres` | Plain PostgreSQL, explicit pgvector/hybrid, migration and restore contracts | Disposable live databases |
 | `architecture`, `fitness` | Package rules, schemas, architecture fitness | Host |
-| `build` | Both host release bundles through `build.sh` | Host; always refreshed |
+| `build` | Both host release bundles through `build.sh` | Host |
 | `whitespace` | Whitespace errors in the candidate commit | Host |
 | `ci` | All four named jobs in the latest push-triggered Checks run | GitHub; always refreshed |
 
-These gates are release preparation's alone. A story or spec never carries a task that re-runs one: its receipts are
-bound to a single committed candidate and stop meaning anything once the tree moves. Story-level proof is the story's
+Release preparation owns coverage of these gates and reuses completed review proof where eligible. A story or spec
+never carries a task that re-runs a release gate. Runner receipts are bound to a single committed candidate;
+cross-commit reuse belongs in the qualification ledger with the input comparison. Story-level proof is the story's
 own tests plus the `fast` / `full` tiers in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing).
 
 For the first host build, populate the verified native archive cache using the command in
@@ -45,7 +60,7 @@ values are not persisted. A `receipt.hash` sidecar protects the complete receipt
 CI receipts also retain the run ID, URL and job results in the log. Attempts are retained;
 a failed retry never falls back to an older pass. Preserve the final evidence directory with the release record.
 
-`--resume` reuses only intact successful receipts for the same clean commit, commands and environment. Dependencies,
+Within the runner, `--resume` reuses only intact successful receipts for the same clean commit, commands and environment. Dependencies,
 assets, cleanup, database, build and CI run again because their outputs or external state can change independently of
 Git. A changed commit, dirty checkout, changed environment or missing/modified evidence makes a receipt `stale`.
 An interrupted attempt remains `incomplete`. `--status` reports recorded results, not current external service health.
@@ -64,6 +79,11 @@ The final CI gate requires `Check`, `Container boundary`, `PowerShell scripts`, 
 by name on the full HEAD SHA. It excludes pull-request runs whose Check job may intentionally skip. Local checks can
 run before pushing; GitHub is consulted only by `ci`. Linux-native container posture and native Windows x64 release
 qualification remain distinct from successful macOS checks.
+
+Use one final push-triggered Checks run. Inspect failures before retrying. For a confirmed infrastructure failure,
+rerun only the failed jobs in that run. A test failure requires diagnosis and focused local verification; if source
+changes, re-squash and push the corrected candidate, then obtain its exact-SHA checks. Do not repeat passed local
+gates or live journeys whose inputs are unchanged. A failure is never waived as flaky without evidence.
 
 ## Checks on this machine and its VMs
 
@@ -94,8 +114,10 @@ required by this release workflow. Maintainers record milestone status in the pr
 
 ## Pre-tag gates
 
-- Run live provider or workflow tests for changed protocol and workflow paths. Use the focused integration file; use
-  `bash dev/testing/profiles/workflow-live/run.sh --full` when the shipped workflow definitions change. A failing
+- Run live provider or workflow tests for changed protocol and workflow paths, reusing qualifying review evidence.
+  Select focused integration files or canaries for the affected journeys. A workflow definition change does not
+  automatically require `workflow-live/run.sh --full`; use the full sweep only when changes affect the whole matrix
+  or focused evidence cannot cover them. A failing
   scenario prompts a focused investigation, not a repeat of the whole live matrix.
 - When Claude subscription authentication changes, run
   `dart test --run-skipped -t integration packages/dartclaw_runtime/test/integration/anthropic_setup_token_bearer_wire_check_test.dart`.
@@ -151,8 +173,8 @@ generator's `--check`, which the fitness suite runs.
 
 Development happens directly on `feat/<version>` — no nested sub-branches for individual fixes/stories; the branch squash-merges as one unit.
 
-1. **Scope-frozen** commit on `feat/<version>` – final version pins and CHANGELOG entry. Complete focused preflight and required branch checks. The dry run above is required if this release touched the release-workflow surface. To avoid repeating the full local suite across two SHAs, reserve final qualification for the squash commit.
-2. **Squash-merge** to `main` with the release-style message; that commit *is* the release. Run `release_check.sh --version <version> --local`, then `--gate ci` once the pushed squash commit's Checks run is green, and require `--status` to exit 0. Complete selected manual checks and record their evidence; maintainers mark the milestone "release-ready, awaiting tag" in the private roadmap. Reuse earlier manual evidence only with the path comparison above; automated receipts remain bound to their exact commit.
+1. **Scope-frozen** commit on `feat/<version>` – final version pins and CHANGELOG entry, consolidated private PRD and exported-bundle cleanup. Assemble review evidence and run only missing or affected checks. The dry run above is required if this release touched the release-workflow surface. Do not push each preparation fix for CI.
+2. **Squash-merge** to `main` with the release-style message; that commit *is* the release. Compare the final candidate with the evidence inputs, run cleanup/version/whitespace checks, and fill any coverage gaps. Push once, then run `release_check.sh --version <version> --gate ci` after its Checks run is green. Require coverage of every gate in the ledger, all selected manual checks, and an exact-SHA green CI receipt. `--status` must exit 0 only when using the runner for all gate evidence; reused review evidence is recorded in the ledger, never relabelled as a fresh receipt. Maintainers mark the milestone "release-ready, awaiting tag" in the private roadmap.
 3. **Tag** annotated `v<version>` from the squash commit; push tag.
    The release workflow stages ten archives across five native targets privately. Only after every build and the staged Windows
    installer test pass does one job publish the archives, their checksums, and aggregate `SHA256SUMS.txt`. Homebrew and

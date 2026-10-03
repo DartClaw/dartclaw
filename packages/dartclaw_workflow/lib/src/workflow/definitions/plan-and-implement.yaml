@@ -90,7 +90,7 @@ steps:
   # plan.json + per-story FIS files; emits file paths, not inline bodies.
   - id: plan
     name: Plan Stories and Specs
-    skill: andthen:spec
+    skill: andthen:plan
     entryGate: "plan == null || plan == '' || story_specs == null || story_specs.items == null"
     # `prd` is interpolated inline as the skill argument; only `plan` needs
     # auto-framing (reuse-vs-synthesize signal, not referenced in the prompt).
@@ -131,8 +131,8 @@ steps:
     steps:
       - id: implement
         name: Implement Story
-        skill: andthen:exec-spec
-        allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call]
+        skill: andthen:exec-plan
+        allowedTools: [shell, file_read, file_write, file_edit, web_fetch, mcp_call, 'claude:Agent']
         # Transient Codex CLI exits (exit 1 with only `thread.started` on
         # stdout, typically under memory pressure with parallel runners) get
         # one retry. Explicit failed step outcomes remain story results.
@@ -150,7 +150,7 @@ steps:
       - id: review-story
         name: Review Story
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [story_result]
         prompt: >-
           --mode gap,code,security --auto
@@ -184,7 +184,7 @@ steps:
           - id: re-review-story
             name: Re-review Story
             skill: andthen:review
-            allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+            allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
             inputs: [story_result, remediation_summary]
             prompt: >-
               --mode gap,code,security --auto
@@ -206,7 +206,7 @@ steps:
     # File-backed review: step writes a report artifact and emits its path,
     # so it needs file_write. shell/web_fetch/mcp_call cover git diff, dart
     # analyze, doc lookup, MCP-routed checks.
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
     prompt: >-
       --mode gap --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
@@ -219,8 +219,6 @@ steps:
 
   # The aggregator normalizes the prefixed review keys to the bare keys the
   # remediation loop reads and writes the report the remediate step consumes.
-  # A multi-perspective council pass is the optional `andthen-some:council`
-  # skill; the inline maintainer variants add it as a second source.
   - id: review-aggregate
     name: Aggregate Review Findings
     type: aggregate-reviews
@@ -254,7 +252,7 @@ steps:
       - id: re-review
         name: Re-review After Remediation
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [story_specs, story_results, remediation_summary]
         prompt: >-
           --mode gap,code,security --auto

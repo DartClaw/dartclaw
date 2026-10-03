@@ -747,12 +747,12 @@ void main() {
     return completer.future;
   }
 
-  // Primary spec-and-implement live-e2e scenario. It feeds a pre-authored FIS
+  // Primary story-and-implement live-e2e scenario. It feeds a pre-authored FIS
   // so the run exercises the orchestration-critical steps (detect → implement →
   // reviews → merge → git → PR) without paying for a live authoring turn — the
   // synthesize scenario's only unique live value. The synthesize/existing/
   // low-confidence branch matrix stays covered deterministically by the stubbed
-  // workflow_builtin_spec_and_implement_test.dart; live authoring coverage lives
+  // workflow_builtin_story_and_implement_test.dart; live authoring coverage lives
   // in the spec step-isolation probe.
   //
   // TD-114 existing-spec-reuse canary: when FEATURE is a path to an existing
@@ -761,11 +761,11 @@ void main() {
   // model to emit it) so the `spec` step's `spec_source == synthesized` gate is
   // false and the step is skipped, rather than re-synthesizing the reused spec.
   test(
-    'spec-and-implement e2e reuses an existing FIS and skips the spec step',
+    'story-and-implement e2e reuses an existing FIS and skips the spec step',
     () async {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final w = await wireUp(prTitle: 'E2E spec-and-implement reuse $timestamp');
-      final artifactDir = createPreservedArtifactDir('spec-and-implement-reuse-e2e');
+      final w = await wireUp(prTitle: 'E2E story-and-implement reuse $timestamp');
+      final artifactDir = createPreservedArtifactDir('story-and-implement-reuse-e2e');
       Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
       // Seed a reusable implementation spec for BUG-001 into the fixture so the
@@ -803,7 +803,7 @@ void main() {
         fail('Failed to commit reusable spec fixture: ${commitSpec.stderr}');
       }
 
-      final definition = w.workflowRegistry.getByName('spec-and-implement')!;
+      final definition = w.workflowRegistry.getByName('story-and-implement')!;
 
       final recorder = WorkflowExecutionRecorder(
         w.eventBus,
@@ -916,7 +916,7 @@ void main() {
       // to the plan step-isolation probe. Every seed file must be committed: the
       // workflow runs in a worktree off the base branch, so an uncommitted seed
       // is invisible there (the R6 root cause) and discovery would (correctly)
-      // report no plan — mirrors the spec-and-implement reuse-seed commit above.
+      // report no plan — mirrors the story-and-implement reuse-seed commit above.
       const planDir = 'docs/specs/e2e-plan-and-implement';
       const prdPath = '$planDir/prd.md';
       const planJsonPath = '$planDir/plan.json';
@@ -946,7 +946,7 @@ void main() {
                 'id': 'S01',
                 'name': 'Fix BUG-002 due-date persistence',
                 'dependsOn': <String>[],
-                'status': 'spec-ready',
+                'status': 'pending',
                 'fis': 's01-fix-bug-002-due-date-persistence.md',
                 'completedTaskIds': <String>[],
                 'owner': null,
@@ -960,7 +960,7 @@ void main() {
                 'id': 'S02',
                 'name': 'Fix BUG-003 default priority',
                 'dependsOn': <String>[],
-                'status': 'spec-ready',
+                'status': 'pending',
                 'fis': 's02-fix-bug-003-default-priority.md',
                 'completedTaskIds': <String>[],
                 'owner': null,

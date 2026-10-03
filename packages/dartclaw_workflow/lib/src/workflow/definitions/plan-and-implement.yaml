@@ -150,7 +150,7 @@ steps:
       - id: review-story
         name: Review Story
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [story_result]
         prompt: >-
           --mode gap,code,security --auto
@@ -184,7 +184,7 @@ steps:
           - id: re-review-story
             name: Re-review Story
             skill: andthen:review
-            allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+            allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
             inputs: [story_result, remediation_summary]
             prompt: >-
               --mode gap,code,security --auto
@@ -206,7 +206,7 @@ steps:
     # File-backed review: step writes a report artifact and emits its path,
     # so it needs file_write. shell/web_fetch/mcp_call cover git diff, dart
     # analyze, doc lookup, MCP-routed checks.
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
     prompt: >-
       --mode gap --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
@@ -252,7 +252,7 @@ steps:
       - id: re-review
         name: Re-review After Remediation
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [story_specs, story_results, remediation_summary]
         prompt: >-
           --mode gap,code,security --auto

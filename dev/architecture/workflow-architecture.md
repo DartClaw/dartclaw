@@ -721,14 +721,15 @@ The `PromptAugmenter` resolves the preset and appends its `promptFragment` to th
 
 For inline schemas (arbitrary JSON Schema objects), `PromptAugmenter` walks the schema properties and generates a prompt fragment automatically.
 
-Schema validation is soft: `SchemaValidator` parses the agent's JSON output, validates against the preset or inline schema, and logs warnings on mismatches. The parsed object is kept in context regardless. This preserves deterministic downstream access while avoiding false "hard fail" behavior on useful-but-imperfect model output.
+`SchemaValidator` validates an already parsed value against the preset or inline schema and returns diagnostics. Output normalization logs these diagnostics for soft outputs, retaining the value. It throws for strict structured count outputs and resolved scalar filesystem outputs with schema violations, failing the producing step. Scalar path validation runs after artifact resolution, so a nullable claim can still capture a valid artifact; an authored `minLength: 1` rejects an empty resolved path. List filesystem outputs retain their existing validation behavior.
 
-Validation checks (all produce warnings, not errors):
+Validation checks include:
 
 - Type mismatches (expected object, got array, etc.)
 - Missing required fields
 - Nested property type mismatches
 - Array item schema violations
+- String `minLength` violations
 
 The validator is used both at extraction time and for `dartclaw workflow validate` pre-flight checks.
 
@@ -1228,6 +1229,8 @@ User-declared outputs are then extracted by `ContextExtractor`. The pipeline dri
 4. Empty string with warning when no source supplies the declared value.
 
 When `format: json` and `schema` are both present, the parser infers structured mode — provider-enforced schema extraction. Agent steps read `structuredOutput.outputs` from the no-tools execution-envelope turn (Section 4.4a); no assistant-prose fallback exists. File and path values extracted this way are still claims: `FileSystemOutput` validation (existence, containment, argument safety) runs after finalization, so a claimed `succeeded` `step_outcome` cannot bypass a missing required artifact — the step becomes a workflow validation failure eligible for the existing retry path instead.
+
+After filesystem resolution and argument-safety checks, scalar outputs are validated against any declared schema through output normalization. A violation fails the producing step; unconstrained outputs still permit an empty resolved value. The execution envelope projects the scalar path's authored `minLength` while retaining nullable no-claim capture.
 
 **One resolution rule for every `format: path` output.** An existing,
 symlink-contained claim wins, whatever its filename and wherever it sits in the

@@ -105,7 +105,7 @@ steps:
     # + verify tail.
     onFailure: retry
     maxRetries: 1
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
     prompt: >-
       --mode gap --auto
       --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
@@ -149,7 +149,7 @@ steps:
       - id: re-review
         name: Re-review Gaps
         skill: andthen:review
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [remediation_summary]
         prompt: >-
           --mode gap,code,security --auto

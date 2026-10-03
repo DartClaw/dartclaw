@@ -429,6 +429,34 @@ void main() {
       }
     });
 
+    test('review steps permit independent Claude passes without granting file edits', () {
+      final definitions = <String, WorkflowDefinition>{
+        for (final file in _builtInWorkflows) file: _load(file),
+        for (final file in const [
+          'story-and-implement-inline.yaml',
+          'plan-and-implement-inline.yaml',
+          'review-and-remediate-inline.yaml',
+        ])
+          file: _loadInline(file),
+      };
+      for (final entry in definitions.entries) {
+        final reviews = _flattenedSteps(entry.value).where((step) => step.skill == 'andthen:review');
+        expect(reviews, isNotEmpty, reason: entry.key);
+        for (final step in reviews) {
+          expect(
+            step.allowedTools,
+            contains('claude:Agent'),
+            reason: '${entry.key} ${step.id} delegates review passes',
+          );
+          expect(
+            step.allowedTools,
+            isNot(contains('file_edit')),
+            reason: '${entry.key} ${step.id} writes reports only',
+          );
+        }
+      }
+    });
+
     test('re-review steps hold review-only grants (no file_edit)', () {
       // A re-review re-runs the original review (no --fix), so it must not carry
       // the file_edit mutation grant.
@@ -756,6 +784,21 @@ void main() {
 
       final reReview = _flattenedSteps(def).firstWhere((s) => s.id == 're-review');
       expect(_allPromptText(reReview), contains('--mode gap,code,security'));
+    });
+
+    test('only inline plan execution requests the reduced verification tier', () {
+      for (final file in const ['plan-and-implement.yaml', 'plan-and-implement-inline.yaml']) {
+        final def = file.endsWith('-inline.yaml') ? _loadInline(file) : _load(file);
+        final implement = _flattenedSteps(def).singleWhere((step) => step.id == 'implement');
+        expect(implement.skill, 'andthen:exec-plan', reason: file);
+        expect(
+          _allPromptText(implement).trim(),
+          file.endsWith('-inline.yaml')
+              ? '--auto --no-full-tier {{map.item.spec_path}}'
+              : '--auto {{map.item.spec_path}}',
+          reason: '$file preserves the FIS argument and its verification scope',
+        );
+      }
     });
 
     test('all shipped and inline workflows use the installed review skill', () {

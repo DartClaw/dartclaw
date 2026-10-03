@@ -51,7 +51,7 @@ steps:
     # File-backed review: the remediation skill consumes a report path, so
     # this step writes the review artifact under the workflow runtime artifacts
     # directory and emits its absolute path.
-    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
     # TARGET/BRANCH/PR_NUMBER/BASE_BRANCH are interpolated inline by design –
     # they direct the review target, so they are direct arguments, not
     # auto-framed. An empty BRANCH renders a dangling `branch=`; the review
@@ -99,7 +99,7 @@ steps:
         name: Re-review
         skill: andthen:review
         # File-backed review: later remediation iterations consume this report path.
-        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call]
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
         inputs: [remediation_summary]
         prompt: |
           --auto --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR" {{TARGET}}

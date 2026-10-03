@@ -12,6 +12,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         HarnessLaunchOptions,
         ProcessFactory,
         SubscriptionCredentialStore,
+        ToolResultEvent,
         ToolUseEvent,
         ToolApprovalWaitEvent;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show GuardChain, GuardVerdict, TaskToolFilterGuard;
@@ -235,6 +236,12 @@ void main() {
     );
     String? finalText;
     String? turnError;
+    final toolUses = <ToolUseEvent>[];
+    final toolResults = <ToolResultEvent>[];
+    final subscription = harness.events.listen((event) {
+      if (event is ToolUseEvent) toolUses.add(event);
+      if (event is ToolResultEvent) toolResults.add(event);
+    });
     try {
       await harness.start();
       final result = await harness.turn(
@@ -243,10 +250,10 @@ void main() {
           {
             'role': 'user',
             'content':
-                "Invoke the 'andthen:now-what' skill in --auto mode. This is a fresh project with no setup docs. "
-                'I want to add a CLI hello command that prints hello. '
-                'After that skill returns, report its recommendation without invoking the recommended next skill or '
-                'writing files.',
+                "Use the Skill tool to invoke 'andthen:now-what' for this request: "
+                "'I want to add a CLI hello command that prints hello in a fresh project with no setup docs.' "
+                'Wait for the skill to return, then report its recommended first step. '
+                'Do not invoke that next skill or write files.',
           },
         ],
         systemPrompt: '',
@@ -255,6 +262,7 @@ void main() {
       finalText = result.finalText;
       turnError = result.error;
     } finally {
+      await subscription.cancel();
       await harness.stop();
       await harness.dispose();
     }
@@ -262,7 +270,13 @@ void main() {
     expect(spawns, isNotEmpty);
     expect(spawns.every((args) => !args.contains('--setting-sources')), isTrue);
     expect(turnError, isNull);
-    expect(finalText, contains('andthen:init'));
+    expect(
+      finalText,
+      contains('andthen:init'),
+      reason:
+          'toolUses=${toolUses.map((event) => (event.toolName, event.toolId)).toList()} '
+          'toolResults=${toolResults.map((event) => (event.toolId, event.isError, event.output.length)).toList()}',
+    );
     expect(parentGuardCalls, contains((canonical: 'claude:Skill', raw: 'Skill')));
     expect(executionDir.listSync(), isEmpty, reason: 'recommendation-only AndThen proof must not modify the workspace');
   }, timeout: const Timeout(Duration(minutes: 5)));

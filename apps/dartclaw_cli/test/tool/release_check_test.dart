@@ -157,7 +157,8 @@ fi
     expect(run(['--gate', 'versions', '--resume']).exitCode, 0);
     final latest = receipts('versions')..sort((a, b) => a.path.compareTo(b.path));
     File(p.join(latest.last.parent.path, 'output.log')).writeAsStringSync('tampered');
-    expect(run(['--gate', 'versions', '--status']).stdout, contains('versions: stale'));
+    final status = run(['--gate', 'versions', '--status']);
+    expect(status.stdout, contains('versions: stale'), reason: 'exit=${status.exitCode} stderr=${status.stderr}');
   });
 
   test('source changes during a successful command invalidate the attempt', () {

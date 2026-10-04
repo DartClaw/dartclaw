@@ -2,40 +2,39 @@
 
 ## Vision
 
-**DartClaw** is an experimental, security-conscious AI agent runtime built with Dart. It brings a personal assistant, persistent knowledge, and automated work together in a self-hosted system under one owner's control.
+**DartClaw** is an experimental, security-conscious AI agent runtime built with Dart. It brings a personal assistant, a team assistant, persistent knowledge, and automated work together in a self-hosted system under one administrator's control.
 
 ## Core Philosophy
 
-**Pragmatic, efficient, lean, lightweight, adaptable, and approachable.** These product requirements guide features, architecture, dependencies, and user experience.
+**Pragmatic, efficient, lean, lightweight, adaptable, and approachable.** They guide features, architecture, dependencies, and user experience.
 
 - **Solve the real problem simply.** Choose the smallest solution that meets the need. Avoid over-engineering, speculative features, and unnecessary layers or configuration knobs. Cut scope before adding complexity; fix root causes instead of adding workarounds.
 - **Keep it lean and efficient.** Use few, justified dependencies. Minimize runtime overhead and unnecessary model calls; bound concurrency and model spending. Measure before adding performance machinery.
-- **Make setup and daily use straightforward.** Require little initial configuration, provide sensible defaults and actionable errors, and make permissions and operating state understandable. Keep the code easy to extend.
-- **Build security into the system.** Prefer OS-enforced isolation where supported, least privilege, scoped credentials, and auditable actions. Guards add enforcement where the provider permits it. Make weaker execution modes explicit: isolation and guard coverage depend on the provider, environment, and configuration.
+- **Make setup and daily use straightforward.** Require little initial configuration, provide sensible defaults and actionable errors, and make permissions and operating state understandable.
+- **Build security into the system.** Prefer OS-enforced isolation where supported, least privilege, scoped credentials, and auditable actions. Guards add enforcement where the provider permits. Make weaker execution modes explicit, since coverage depends on provider, environment, and configuration.
 - **Build on each harness's strengths.** Use each harness's native protocols, tools, and skill conventions. Reuse their capabilities instead of rebuilding them in DartClaw.
 - **Delegate judgment; keep enforcement deterministic.** Models interpret content through declared schema or tool contracts. The host validates once and fails closed on invalid output, without repairing or inventing answers. Security decisions, resource limits, persistence invariants, protocols, channel formatting, and stop controls remain deterministic.
 - **Keep one authority per concern.** Extend the existing owner of a concern instead of adding competing parsers, validators, schemas, or policies. Keep ownership explicit and the codebase small enough to inspect.
 
-[ADR-054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md) defines the model/host boundary and validation exemption. Keep the architecture auditable through dependency checks, prompt-surface tracking, and per-package size ceilings. Justified ceiling increases follow [ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md).
+[ADR-054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md) defines the model/host boundary and validation exemption. Dependency checks, prompt-surface tracking and per-package size ceilings ([ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md)) keep the architecture auditable.
 
 ## Product Scope
 
-- **Personal assistant:** conversations through the web UI and messaging channels, web research, memory across sessions, and scheduled jobs.
-- **Automated work:** background tasks, code changes, and validated workflows. Runtime composition of declarative, schema-validated workflow definitions by agents is planned.
-- **Inspectable knowledge:** memory, a wiki, and a temporal knowledge graph, with read-only access for trusted clients over MCP. A broader knowledge steward loop is planned.
+One runtime serves several use cases, alone or combined:
 
-**Single-owner, multi-client.** One person administers one assistant through the main conversation. Named agents are narrower execution identities of that assistant, not additional users or personas: each has a host-managed workspace and private personal-memory principal selected by its existing tool policy. Explicit publication puts accepted knowledge into the shared wiki or temporal graph; `context_research` combines a caller's own private memory with those shared sources and never another agent's memory or raw inbox inputs. Other people use the assistant through channel-bound agents, or as read-only clients of the shared knowledge surface. Nobody but the administrator owns configuration. Multi-tenant deployment, per-sender chat arbitration, and team/crowd features are out of scope; trusted group-chat use remains a recipe.
+- **Personal assistant:** conversations through the web UI and messaging channels, web research, memory across sessions, and scheduled jobs.
+- **Automated work:** background tasks, code changes, and validated workflows. Agent-composed, schema-validated workflow definitions are planned.
+- **Inspectable knowledge:** memory, a wiki, and a temporal knowledge graph, with read-only access for trusted clients over MCP. A broader knowledge steward loop is planned.
+- **Team assistant:** one shared session per thread in allowlisted channels, chat-started workflow runs, and shared knowledge via the context engine. Slack is in progress; knowledge visibility per channel or MCP client is planned.
+
+**One administrator, many users.** One person administers the instance through the main conversation and alone owns configuration. Named agents are narrower execution identities of that assistant, not additional users or personas: each has a host-managed workspace and private personal-memory principal. Explicit publication puts accepted knowledge into the shared wiki or temporal graph; `context_research` combines a caller's own private memory with those shared sources and never another agent's memory or raw inbox inputs. Other people use it through channel-bound agents, team channels, or read-only access to the shared knowledge surface. Multi-tenant deployment, multiple administrators, and per-sender chat arbitration are out of scope.
 
 ## Architecture
 
-An AOT-compiled Dart host owns state, APIs, security enforcement, and execution coordination. It drives Claude Code, Codex, and ACP agents through provider-specific adapters. Standalone workflows persist execution state in local files and require no database service. The server uses PostgreSQL. DartClaw itself requires no npm or Node.js runtime; external harnesses and optional integrations have their own prerequisites.
-
-## Development Stage
-
-DartClaw remains early, experimental software. Breaking changes to APIs, configuration, protocols, and storage are acceptable. Correctness, security, and simple design take priority over backward compatibility.
+An AOT-compiled Dart host owns state, APIs, security enforcement, and execution coordination. It drives Claude Code, Codex, and ACP agents through provider-specific adapters. The server uses PostgreSQL; standalone workflows need only local files. DartClaw itself requires no npm or Node.js runtime; external harnesses and optional integrations have their own prerequisites.
 
 ## Proportionality
 
-- **Stage:** prototype. Experimental, soft-published; breaking changes to APIs, configuration, protocols and storage are acceptable.
-- **Scale:** one owner per instance and a handful of instances in use (personal deployments plus development); one process on one host; server PostgreSQL or standalone execution files with data in the megabytes; one maintainer.
+- **Stage:** prototype. Experimental, soft-published; breaking changes are acceptable, because correctness, security, and simple design come before backward compatibility.
+- **Scale:** one administrator per instance, used alone or by a small team; a handful of instances in use (personal deployments plus development); one process on one host; server PostgreSQL or standalone execution files with data in the megabytes; one maintainer.
 - **Standing technical non-goals:** multi-tenant or multi-user administration; horizontal scaling or a distributed runtime; isolates or worker pools without a profiled bottleneck; an ORM or a second storage authority beside the existing backends; a plugin or extension system beyond harness providers, skills and workflow definitions; backward-compatibility layers; full accessibility conformance — keyboard reach, focus order, labels and touch targets are held, but a gate is not blocked on an audit finding no measurement reproduces.

@@ -526,6 +526,12 @@ class TurnManager implements core.TurnManager {
     await _executions.resetSessionContinuity(sessionId, workersOnly: true);
   }
 
+  /// Completes when the global turn cap has room for another session.
+  ///
+  /// Reserves nothing: a caller deferred by a global-cap [BusyTurnException]
+  /// re-attempts admission and may have to wait again.
+  Future<void> whenAdmissionCapacityAvailable() => _executions.whenAdmissionCapacityAvailable();
+
   /// Releases the idle provider authority retained for a temporary session.
   Future<void> releaseTemporarySession(String sessionId) async {
     if (isActive(sessionId)) {
@@ -870,6 +876,7 @@ ExecutionCoordinator _singleHarnessCoordinator({
     allowPrimaryBackgroundFallback: true,
     admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
     releaseAdmission: primary.releaseAdmission,
+    whenAdmissionCapacityAvailable: primary.whenAdmissionCapacityAvailable,
     outcomeTtl: outcomeTtl,
   );
 }

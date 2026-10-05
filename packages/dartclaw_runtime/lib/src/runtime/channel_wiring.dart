@@ -15,6 +15,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import '../config/message_queue_reconfigurer.dart';
 import 'channel_agent_binding.dart';
 import 'channel_session_title.dart';
 import 'feedback_observer_factory.dart';
@@ -93,6 +94,7 @@ class ChannelWiring {
     required SseBroadcast sseBroadcast,
     required MessageRedactor? messageRedactor,
     required HealthService healthService,
+    required ConfigNotifier configNotifier,
     BudgetEnforcer? budgetEnforcer,
   }) async {
     final sessions = _storage.sessions;
@@ -184,6 +186,7 @@ class ChannelWiring {
           threadBindingEnabled: threadBindingEnabled,
         ),
       );
+      configNotifier.register(MessageQueueReconfigurer(_channelManager!.queue));
     }
 
     if (waEnabled && _channelManager != null) {
@@ -662,27 +665,33 @@ Future<String> dispatchChannelTurn({
   final origin = (channel: channelType.name, contact: senderDisplayName ?? senderJid, group: groupJid != null);
   final String turnId;
   if (binding == null) {
-    turnId = await turns.startTurn(
-      session.id,
-      messagesList,
-      source: 'channel',
-      isHumanInput: true,
-      model: model,
-      effort: effort,
-      promptScope: PromptScope.primary,
-      origin: origin,
+    turnId = await _untilAdmitted(
+      turns,
+      () => turns.startTurn(
+        session.id,
+        messagesList,
+        source: 'channel',
+        isHumanInput: true,
+        model: model,
+        effort: effort,
+        promptScope: PromptScope.primary,
+        origin: origin,
+      ),
     );
   } else {
     final agent = binding.definition;
-    turnId = await turns.reserveTurn(
-      session.id,
-      agentName: agent.id,
-      model: model ?? _nonBlank(agent.model),
-      effort: effort ?? _nonBlank(agent.effort),
-      isHumanInput: true,
-      behaviorOverride: binding.behavior,
-      promptScope: binding.promptScope,
-      origin: origin,
+    turnId = await _untilAdmitted(
+      turns,
+      () => turns.reserveTurn(
+        session.id,
+        agentName: agent.id,
+        model: model ?? _nonBlank(agent.model),
+        effort: effort ?? _nonBlank(agent.effort),
+        isHumanInput: true,
+        behaviorOverride: binding.behavior,
+        promptScope: binding.promptScope,
+        origin: origin,
+      ),
     );
     try {
       turns.executeTurn(session.id, turnId, messagesList, source: 'channel', agentName: agent.id);
@@ -693,6 +702,21 @@ Future<String> dispatchChannelTurn({
   }
   final outcome = await turns.waitForOutcome(session.id, turnId);
   return outcome.responseText ?? '';
+}
+
+/// Runs [start], waiting for a free slot whenever the global turn cap rejects it.
+///
+/// The inbound message is already persisted, so the caller's own retry would
+/// duplicate it. Same-session busy and every other failure propagate.
+Future<String> _untilAdmitted(TurnManager turns, Future<String> Function() start) async {
+  while (true) {
+    try {
+      return await start();
+    } on BusyTurnException catch (busy) {
+      if (busy.isSameSession) rethrow;
+      await turns.whenAdmissionCapacityAvailable();
+    }
+  }
 }
 
 String? _nonBlank(String? value) {

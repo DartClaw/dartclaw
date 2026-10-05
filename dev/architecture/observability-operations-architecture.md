@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.27 PostgreSQL-only storage, conversation invalidation, attempt records, effective-context
+**Current through**: 0.28 governance admission order; 0.27 PostgreSQL-only storage, conversation invalidation, attempt records, effective-context
 telemetry, inbox attention, Codex question diagnostics and action availability; plus retrieval, capacity and alerting.
 
 ---
@@ -704,12 +704,15 @@ Inbound turn request
 │  1. checkBudget(sessionId)        │──► BudgetEnforcer.check()
 │     → BudgetExhaustedException    │    → BudgetWarningEvent (SSE)
 │                                   │    → Channel notification
-│  2. awaitRateLimitWindow()        │──► SlidingWindowRateLimiter
-│     → rate_limit_warning (SSE)    │    → Backpressure (1s delay loop)
+│  (SessionLockManager.acquire:     │──► BusyTurnException at the cap,
+│   session lock + global cap)      │    before anything is recorded
 │                                   │
-│  3. checkLoopPreTurn(sessionId)   │──► LoopDetector
+│  2. checkLoopPreTurn(sessionId)   │──► LoopDetector
 │     → LoopDetectedEvent (EventBus)│    → loop_detected (SSE)
 │     → LoopDetectedException       │    → Channel notification
+│                                   │
+│  3. awaitRateLimitWindow()        │──► SlidingWindowRateLimiter
+│     → rate_limit_warning (SSE)    │    → Backpressure (1s delay loop)
 │                                   │
 │  4. recordToolCall(...)           │──► Per-tool fingerprint detection
 │  5. recordTokensAndCheckVelocity  │──► Token velocity monitoring

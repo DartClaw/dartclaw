@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.27.2/schemas/dartclaw.schema.json",
+  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.28.0/schemas/dartclaw.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -618,7 +618,7 @@
           ]
         },
         "max_queue_depth": {
-          "description": "Messages held per session key while a turn is running. Default 100; beyond it, the oldest are dropped. (restart required)",
+          "description": "Messages held per session key while a turn is running. Default 100; a message beyond it is refused with a busy reply. (restart required)",
           "minimum": 1,
           "type": "integer"
         },
@@ -637,7 +637,7 @@
               "type": "number"
             },
             "max_attempts": {
-              "description": "Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3. (restart required)",
+              "description": "Send attempts for each chunk of a reply before the reply is dead-lettered; a failed turn is never re-run. Google Chat reports no send failure, so its replies are sent once. Default 3. (restart required)",
               "minimum": 1,
               "type": "integer"
             }

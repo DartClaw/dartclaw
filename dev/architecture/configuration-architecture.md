@@ -2,7 +2,7 @@
 
 Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
 
-**Current through**: 0.27 PostgreSQL-only database and lexical/hybrid configuration, managed named-agent workspace
+**Current through**: 0.28 reloadable channel queue cap; 0.27 PostgreSQL-only database and lexical/hybrid configuration, managed named-agent workspace
 derivation, versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load;
 0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
 and kernel/channel loader constraint derivation, the declared per-section reload tiers, the schema-driven settings
@@ -700,9 +700,10 @@ Services implement `Reconfigurable` and register with `ConfigNotifier`. Currentl
 |---------|------------|---------------------|
 | `SecurityWiring` | `{'security.*'}` | Rebuilds the guard chain from the new declarations |
 | `_MessageRedactorAdapter` (in `security_wiring.dart`) | `{'logging.*'}` | Replaces the redactor's pattern set |
-| `WorkspaceGitSync` | `{'workspace.*'}` | Updates push-enabled state |
+| `WorkspaceGitSyncReconfigurer` (in `runtime_toggle_applier.dart`) | `{'workspace.*'}` | Updates push-enabled state through `RuntimeToggleApplier` |
 | `SessionResetService` | `{'sessions.*'}` | Updates reset hour and idle timeout |
-| `SessionLockManager` | `{'server.*'}` | Updates max parallel turns |
+| `SessionLockManager` | `{'server.*'}` | Updates max parallel turns; a raise wakes callers waiting for admission capacity |
+| `MessageQueueReconfigurer` | `{'server.*'}` | Applies max parallel turns to the channel `MessageQueue`'s own slot cap; registered only when a channel is enabled |
 | `ContextMonitor` | `{'context.*'}` | Updates reserve tokens and warning threshold |
 | `ResultTrimmer` | `{'context.*'}` | Updates the host tool-result byte cap |
 | `AlertRouter` | `{'alerts.*'}` | Rebuilds alert targets, cooldowns |

@@ -271,6 +271,24 @@ void main() {
     await expectLater(() => wireHarness(fakeFactory(['claude'])), throwsStateError);
   });
 
+  test('the coordinator reports admission capacity from the shared global lock manager', () async {
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude']));
+    final locks = harnessWiring!.lockManager;
+    for (var slot = 0; slot < locks.maxParallel; slot++) {
+      await locks.acquire('slot-$slot');
+    }
+
+    var signalled = false;
+    final waiting = harnessWiring!.executions.whenAdmissionCapacityAvailable().then((_) => signalled = true);
+    await pumpEventQueue();
+    expect(signalled, isFalse);
+
+    locks.release('slot-0');
+    await waiting;
+    expect(signalled, isTrue);
+  });
+
   test('primary runner keeps interactive prompt while spawned worker gets lean task prompt', () async {
     config = config.copyWith(
       providers: ProvidersConfig(

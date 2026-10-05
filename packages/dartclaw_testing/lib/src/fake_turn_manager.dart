@@ -155,6 +155,7 @@ class FakeTurnManager implements TurnManager {
   final Map<String, String> _activeTurns;
   final Map<String, TurnOutcome> _recentOutcomes;
   final Map<String, Completer<TurnOutcome>> _pendingOutcomes = {};
+  final List<Completer<void>> _capacityWaiters = [];
 
   int reserveTurnCallCount = 0;
   int executeTurnCallCount = 0;
@@ -185,6 +186,20 @@ class FakeTurnManager implements TurnManager {
   /// Clears a previously configured busy state.
   void clearBusy() {
     isBusy = false;
+    final waiters = List.of(_capacityWaiters);
+    _capacityWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.complete();
+    }
+  }
+
+  /// Mirrors the runtime turn manager's admission-capacity signal: immediate
+  /// unless [isBusy], otherwise completes on [clearBusy].
+  Future<void> whenAdmissionCapacityAvailable() {
+    if (!isBusy) return Future<void>.value();
+    final waiter = Completer<void>();
+    _capacityWaiters.add(waiter);
+    return waiter.future;
   }
 
   /// Adds [sessionId] to the active session set.

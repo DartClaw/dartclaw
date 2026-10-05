@@ -72,20 +72,92 @@ extension _ConversationServicePersistence on ConversationService {
       await _persist(sessionId, state, terminal, 'turn_settled');
       if (outcome.status == TurnStatus.completed) {
         if (!_stopping && !temporaryEnding) unawaited(_trackWork(generateTitleAfterFirstExchange(sessionId)));
-        final queued = state.queue.where((item) => item.workState == ConversationWorkState.queued).firstOrNull;
-        if (queued != null && !_stopping && !temporaryEnding) {
-          final accepted = queued.copyWith(
-            attemptId: ConversationService._uuid.v4(),
-            workState: ConversationWorkState.accepted,
-            updatedAt: clock().toUtc(),
-          );
-          state = state.put(accepted);
-          await _writeWorkRecords(sessionId, accepted, allowUpdate: true);
-          await _persist(sessionId, state, accepted, 'queue_release');
-          await _dispatch(sessionId, state, accepted, replayed: false);
-        }
+        if (!_stopping && !temporaryEnding) await _dispatchFirstQueued(sessionId, state);
       }
     });
+  }
+
+  /// Takes a submission marked `dispatching` back out of dispatch after its turn reservation failed.
+  ///
+  /// The attempt record is discarded and the item rejoins the queue in [workState], so it no longer
+  /// blocks later sends.
+  Future<({ConversationSubmissionClaim submission, ConversationState snapshot})> _undispatch(
+    String sessionId,
+    ConversationState state,
+    ConversationSubmissionClaim dispatching, {
+    required ConversationWorkState workState,
+    required String detail,
+    required String boundary,
+  }) async {
+    final attemptId = dispatching.attemptId;
+    if (attemptId != null && await _usesDurableFiles(sessionId)) {
+      final attemptFile = File(p.join(sessions.baseDir, sessionId, 'conversation', 'attempts', '$attemptId.json'));
+      if (attemptFile.existsSync()) await attemptFile.delete();
+    }
+    final undone = dispatching.copyWith(
+      attemptId: null,
+      queueId: dispatching.queueId ?? ConversationService._uuid.v4(),
+      workState: workState,
+      detail: detail,
+      updatedAt: clock().toUtc(),
+    );
+    final next = state.put(undone);
+    await _writeWorkRecords(sessionId, undone, allowUpdate: true);
+    await _persist(sessionId, next, undone, boundary);
+    return (submission: undone, snapshot: next);
+  }
+
+  /// Dispatches the oldest `queued` item, if any. Runs inside the session's mutation chain.
+  Future<void> _dispatchFirstQueued(String sessionId, ConversationState state) async {
+    final queued = state.queue.where((item) => item.workState == ConversationWorkState.queued).firstOrNull;
+    if (queued == null) return;
+    final accepted = queued.copyWith(
+      attemptId: ConversationService._uuid.v4(),
+      workState: ConversationWorkState.accepted,
+      updatedAt: clock().toUtc(),
+    );
+    state = state.put(accepted);
+    await _writeWorkRecords(sessionId, accepted, allowUpdate: true);
+    await _persist(sessionId, state, accepted, 'queue_release');
+    await _dispatch(sessionId, state, accepted, replayed: false);
+  }
+
+  /// Resumes work deferred on the global turn cap once a slot frees.
+  ///
+  /// The capacity wait stays out of `_pendingWork` so shutdown never waits for
+  /// capacity; only the redispatch is tracked. Losing the race for the freed
+  /// slot re-defers the item, which starts the next wait.
+  Future<void> _redispatchWhenCapacityFrees(String sessionId) async {
+    try {
+      await turns.whenAdmissionCapacityAvailable();
+    } catch (error, stackTrace) {
+      ConversationService._log.warning(
+        'Capacity wait failed for deferred work in session $sessionId',
+        error,
+        stackTrace,
+      );
+      return;
+    }
+    if (_stopping) return;
+    await _trackWork(
+      mutations
+          .run(sessionId, () async {
+            final state = await sessions.getConversationState(sessionId);
+            // A running turn releases the queue itself when it settles.
+            if (_stopping || _hasBlockingDispatch(state) || turns.isActive(sessionId)) return;
+            await _dispatchFirstQueued(sessionId, state);
+          })
+          .then<void>(
+            (_) {},
+            onError: (Object error, StackTrace stackTrace) {
+              ConversationService._log.warning(
+                'Redispatch of deferred work failed in session $sessionId',
+                error,
+                stackTrace,
+              );
+            },
+          ),
+    );
   }
 
   Future<Map<String, dynamic>> _metadataFor(String sessionId, ConversationSubmissionClaim submission) async {
@@ -710,6 +782,9 @@ extension _ConversationServicePersistence on ConversationService {
         item.workState == ConversationWorkState.running ||
         item.workState == ConversationWorkState.stopping,
   );
+
+  bool _hasQueuedWork(ConversationState state) =>
+      state.queue.any((item) => item.workState == ConversationWorkState.queued);
 
   ConversationSubmissionClaim? _submissionForTurn(ConversationState state, String turnId) {
     for (final submission in state.submissions) {

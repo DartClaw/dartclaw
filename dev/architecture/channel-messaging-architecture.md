@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.25.2 channel agent binding.
+**Current through**: 0.28 turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
 
 ---
 
@@ -237,7 +237,7 @@ scheduled work, workflows, and logical-agent turns use non-conversational scopes
 7. **ChannelTaskBridge** -- Evaluates reserved commands, thread bindings, and per-sender rate limits, then routes a bound
    thread when present. Returns `true` if consumed.
 
-8. **MessageQueue** -- If not consumed by the bridge, the message enters a per-session FIFO queue with debounce coalescing (default 1s window), global concurrency cap, retry with exponential backoff, and dead-letter handling.
+8. **MessageQueue** -- If not consumed by the bridge, the message enters a per-session FIFO queue with debounce coalescing (default 1s window), global concurrency cap, and reply-delivery retry with backoff and dead-letter handling.
 
 
 ---
@@ -763,9 +763,9 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
 
 **Queue strategies** -- `fifo` is strict per-session ordering; `fair` uses round-robin sender rotation to prevent a single user from monopolizing the queue.
 
-**Concurrency and backpressure** -- Global concurrency cap with `Completer`-based wait queue. Per-session FIFO (one turn at a time). Per-sender queue limit (admin-exempt). Queue depth limit per session -- excess messages receive a "busy" response. `BudgetExhaustedError` triggers a polite budget notification instead of retry.
+**Concurrency and backpressure** -- Global concurrency cap with `Completer`-based wait queue; a released slot is handed to the next waiter at release, so no caller in between can take it too. The cap follows `concurrency.max_parallel_turns` reloads through the runtime's `MessageQueueReconfigurer` (registered by `ChannelWiring.wire`; core's queue only exposes the setter): a raise admits waiting sessions at once, a lowering admits nothing new until in-flight turns drop below it, and nothing is cancelled. Per-session FIFO (one turn at a time). Per-sender queue limit (admin-exempt). Queue depth limit per session -- excess messages receive a "busy" response. `BudgetExhaustedError` triggers a polite budget notification instead of retry.
 
-**Retry and dead-letter** -- Failed turns retry with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`). After `maxAttempts` (default 3), the message is dead-lettered and the sender receives an error notification.
+**Retry and dead-letter** -- The queue dispatches each message once. A failed turn is never re-run, because a re-dispatch persists the inbound message again and starts a second agent turn: the sender gets one error notification and the failure is logged severe. Only reply delivery retries: each chunk's `sendMessage` is retried with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`) up to `maxAttempts` (default 3) while the session keeps its slot; an exhausted chunk dead-letters the reply with a severe log and its remaining chunks are not sent. The queue is the only delivery retrier, and it sees only failures a channel throws: WhatsApp and Signal throw on a failed text send (WhatsApp swallows media errors, so a retried chunk can resend its media), while Google Chat logs a failed send and returns, so its replies are never retried. A full global turn cap never reaches this path: `dispatchChannelTurn` persists the inbound message once, and when the turn start is refused with a non-same-session `BusyTurnException` it waits on `TurnManager.whenAdmissionCapacityAvailable()` and retries the start only.
 
 **Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping` by delegating to core's `TypingLeaseTracker` (`src/channel/typing_lease_tracker.dart`), which owns per-recipient lease counting, update serialization, the single START retry and the shutdown latch for every adopter; WhatsApp and Signal differ only in the three constructor arguments -- sendability predicate, transport call and refresh interval. The queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` remains the richer progress-feedback interface used by Google Chat. `NoFeedbackStrategy` is its default no-op.
 

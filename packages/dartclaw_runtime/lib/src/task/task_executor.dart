@@ -13,6 +13,7 @@ import '../behavior/behavior_file_service.dart';
 import '../execution_coordinator.dart';
 import '../execution_policy_resolver.dart';
 import '../governance/budget_engine.dart';
+import '../governance/budget_exhausted_exception.dart';
 import '../turn_runner.dart' show TurnRunner;
 import 'artifact_collector.dart';
 import 'goal_service.dart';
@@ -215,6 +216,16 @@ class TaskExecutor {
     retryable: false,
   );
 
+  Future<void> _failLoopDetected(Task task, String message) {
+    _log.warning('Loop detected during task ${task.id}: $message');
+    return _failureHandler.markFailedOrRetry(
+      task,
+      errorSummary: 'Loop detected: $message',
+      kind: TaskFailureReason.loopDetected,
+      retryable: false,
+    );
+  }
+
   Future<void> _recordProviderUnavailable(Task task, String message) async {
     await _eventRecorder?.recordError(task.id, message: message);
   }
@@ -224,6 +235,8 @@ class TaskExecutor {
     if (queued.isEmpty) return false;
     var didWork = false;
     final unavailableWorkerProfiles = <String>{};
+    // The turn cap is global: once admission reports it full, every later attempt in this pass fails the same way.
+    var admissionCapFull = false;
     for (final task in queued) {
       if (task.legacyRefusal == TaskLegacyRefusal.securityProfileUndeclared) {
         await _failureHandler.markFailedOrRetry(
@@ -289,7 +302,7 @@ class TaskExecutor {
         continue;
       }
       final workerProfileKey = '$provider\u0000${policy.describe()}';
-      if (unavailableWorkerProfiles.contains(workerProfileKey)) {
+      if (unavailableWorkerProfiles.contains(workerProfileKey) || admissionCapFull) {
         continue;
       }
       final isWorkflow = _isWorkflowOrchestrated(preparedTask);
@@ -310,6 +323,22 @@ class TaskExecutor {
             spawnEnvironment: workflowInputs?.spawnEnvironment,
           ),
         );
+      } on BusyTurnException {
+        admissionCapFull = true;
+        continue;
+      } on LoopDetectedException catch (error) {
+        await _failLoopDetected(preparedTask, error.message);
+        didWork = true;
+        continue;
+      } on BudgetExhaustedException catch (error) {
+        await _failureHandler.markFailedOrRetry(
+          preparedTask,
+          errorSummary: error.toString(),
+          kind: TaskFailureReason.budgetExceeded,
+          retryable: false,
+        );
+        didWork = true;
+        continue;
       } on StateError catch (error) {
         unavailableWorkerProfiles.add(workerProfileKey);
         if (_providerUnavailableTaskIds.add(preparedTask.id)) {
@@ -864,13 +893,7 @@ class TaskExecutor {
 
       // Mid-turn loop detection (tool fingerprinting) sets loopDetection on outcome.
       if (outcome.loopDetection != null) {
-        _log.warning('Loop detected during task ${task.id}: ${outcome.loopDetection!.message}');
-        await _failureHandler.markFailedOrRetry(
-          task,
-          errorSummary: 'Loop detected: ${outcome.loopDetection!.message}',
-          kind: TaskFailureReason.loopDetected,
-          retryable: false,
-        );
+        await _failLoopDetected(task, outcome.loopDetection!.message);
         return;
       }
 
@@ -878,16 +901,6 @@ class TaskExecutor {
         task,
         errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status),
         kind: TaskFailureReason.turnFailure,
-      );
-      return;
-    } on LoopDetectedException catch (e) {
-      // Pre-turn loop detection (turn chain depth or token velocity).
-      _log.warning('Loop detected during task ${task.id}: ${e.message}');
-      await _failureHandler.markFailedOrRetry(
-        task,
-        errorSummary: 'Loop detected: ${e.message}',
-        kind: TaskFailureReason.loopDetected,
-        retryable: false,
       );
       return;
     } catch (error, stackTrace) {

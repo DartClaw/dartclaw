@@ -30,6 +30,7 @@ export 'src/execution_coordinator.dart'
         ExecutionSurface,
         ProviderCapacitySnapshot,
         ReleaseExecutionAdmission,
+        WhenAdmissionCapacityAvailable,
         WorkerCreationException;
 export 'src/execution_policy_resolver.dart' show ExecutionPolicyException, ExecutionPolicyResolver;
 export 'src/security/security_exports.dart' show buildGuardsFromConfig;

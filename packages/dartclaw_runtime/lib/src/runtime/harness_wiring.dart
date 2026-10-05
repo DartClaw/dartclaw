@@ -992,6 +992,7 @@ class HarnessWiring {
             )
           : (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
       releaseAdmission: primaryRunner?.releaseAdmission ?? _lockManager.release,
+      whenAdmissionCapacityAvailable: _lockManager.whenCapacityAvailable,
       createWorker: (request) async {
         final entry = providerEntries[request.providerId];
         final allowedProfiles = providerProfiles[request.providerId];

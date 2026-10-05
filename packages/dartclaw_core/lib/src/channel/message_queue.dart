@@ -50,19 +50,18 @@ class _QueueEntry {
   final Channel sourceChannel;
   final String sessionKey;
   final String senderJid;
-  int attempt = 0;
 
   new({required this.message, required this.sourceChannel, required this.sessionKey, required this.senderJid});
 }
 
 /// Channel-agnostic message queue with debounce, per-session FIFO, global
-/// concurrency cap, and retry with dead-letter.
+/// concurrency cap, and reply-delivery retry with dead-letter. A turn is
+/// dispatched once; only sending its reply is retried.
 class MessageQueue {
   static final _log = Logger('MessageQueue');
   static const _typingOperationTimeout = Duration(seconds: 3);
 
   final Duration debounceWindow;
-  final int maxConcurrentTurns;
   final int maxQueueDepth;
   final int maxQueued;
   final RetryPolicy defaultRetryPolicy;
@@ -91,7 +90,10 @@ class MessageQueue {
   /// Per-session processing flag — true while a turn is executing for that session.
   final Map<String, bool> _processing = {};
 
-  /// Global active turn count.
+  int _maxConcurrentTurns;
+
+  /// Slots in use: running turns plus slots already handed to a waiter that
+  /// has not resumed yet.
   int _activeCount = 0;
 
   /// Entries waiting for a concurrency slot.
@@ -101,7 +103,7 @@ class MessageQueue {
 
   new({
     this.debounceWindow = const Duration(milliseconds: 1000),
-    this.maxConcurrentTurns = 3,
+    int maxConcurrentTurns = 3,
     this.maxQueueDepth = 100,
     this.maxQueued = 0,
     this.defaultRetryPolicy = const RetryPolicy(),
@@ -111,11 +113,22 @@ class MessageQueue {
     MessageRedactor? redactor,
     Random? random,
     bool Function(String senderId)? isAdmin,
-  }) : _dispatcher = dispatcher,
+  }) : _maxConcurrentTurns = maxConcurrentTurns,
+       _dispatcher = dispatcher,
        _turnObserver = turnObserver,
        _redactor = redactor,
        _random = random ?? Random.secure(),
        _isAdmin = isAdmin;
+
+  int get maxConcurrentTurns => _maxConcurrentTurns;
+
+  /// Raising the cap admits waiting entries up to the new cap at once. Lowering
+  /// it admits nothing new until in-flight turns drop below it; running turns
+  /// are never cancelled.
+  set maxConcurrentTurns(int value) {
+    _maxConcurrentTurns = value;
+    _admitWaiters();
+  }
 
   /// Enqueue an inbound channel message for processing.
   ///
@@ -162,8 +175,10 @@ class MessageQueue {
     _activeFairSender.clear();
     _lastFairSender.clear();
     _processing.clear();
+    // Normal completion: each waiter's loop sees `_disposed` and stops, where an
+    // error would escape its unawaited future.
     for (final c in _waitQueue) {
-      c.completeError(StateError('MessageQueue disposed'));
+      c.complete();
     }
     _waitQueue.clear();
   }
@@ -302,7 +317,7 @@ class MessageQueue {
                 ),
               );
           for (final chunk in formatted) {
-            await entry.sourceChannel.sendMessage(recipientJid, chunk);
+            if (!await _deliverChunk(entry, recipientJid, chunk)) break;
           }
         } on BudgetExhaustedError catch (e) {
           // Budget exhausted — no retry; send a polite rejection.
@@ -325,33 +340,17 @@ class MessageQueue {
             _log.warning('Failed to send budget-exhaustion notification', sendErr);
           }
         } catch (e, st) {
-          entry.attempt++;
-          if (entry.attempt < defaultRetryPolicy.maxAttempts) {
-            final delay = _retryDelay(entry.attempt);
-            _log.warning(
-              'Dispatch failed for ${entry.sessionKey} (attempt ${entry.attempt}/${defaultRetryPolicy.maxAttempts}), retrying in ${delay.inMilliseconds}ms',
-              e,
+          // The turn ran (or failed to start) exactly once; re-running it would
+          // persist the user message again and repeat the agent turn's cost.
+          _log.severe('Turn failed for ${entry.sessionKey} (message ${entry.message.id}); not retrying', e, st);
+          try {
+            final recipientJid = resolveRecipientId(entry.message);
+            await entry.sourceChannel.sendMessage(
+              recipientJid,
+              const ChannelResponse(text: 'Sorry, I was unable to process your message. Please try again later.'),
             );
-            await Future<void>.delayed(delay);
-            if (!_disposed) {
-              // Re-enqueue at front for retry
-              queue.addFirst(entry);
-            }
-          } else {
-            _log.severe(
-              'Dead-letter: message ${entry.message.id} for ${entry.sessionKey} after ${entry.attempt} attempts',
-              e,
-              st,
-            );
-            try {
-              final recipientJid = resolveRecipientId(entry.message);
-              await entry.sourceChannel.sendMessage(
-                recipientJid,
-                const ChannelResponse(text: 'Sorry, I was unable to process your message. Please try again later.'),
-              );
-            } catch (sendErr) {
-              _log.severe('Failed to send dead-letter notification', sendErr);
-            }
+          } catch (sendErr) {
+            _log.severe('Failed to send dispatch-failure notification', sendErr);
           }
         } finally {
           _onTurnComplete(sessionKey, entry.senderJid, queue);
@@ -440,21 +439,56 @@ class MessageQueue {
   }
 
   Future<void> _acquireSlot() async {
-    if (_activeCount < maxConcurrentTurns) {
+    if (_activeCount < _maxConcurrentTurns) {
       _activeCount++;
       return;
     }
     final completer = Completer<void>();
     _waitQueue.add(completer);
     await completer.future;
-    _activeCount++;
   }
 
   void _releaseSlot() {
     _activeCount--;
-    if (_waitQueue.isNotEmpty) {
-      final next = _waitQueue.removeFirst();
-      if (!next.isCompleted) next.complete();
+    _admitWaiters();
+  }
+
+  /// Counts the slot for each admitted waiter at completion, so no caller that
+  /// runs before the waiter resumes can see it as free.
+  void _admitWaiters() {
+    while (_activeCount < _maxConcurrentTurns && _waitQueue.isNotEmpty) {
+      _activeCount++;
+      _waitQueue.removeFirst().complete();
+    }
+  }
+
+  /// Sends one reply chunk, retrying under [defaultRetryPolicy]. Returns false
+  /// when the chunk is dead-lettered or the queue is disposed mid-backoff, so
+  /// the caller stops sending the rest of the reply.
+  Future<bool> _deliverChunk(_QueueEntry entry, String recipientJid, ChannelResponse chunk) async {
+    for (var attempt = 1; ; attempt++) {
+      try {
+        await entry.sourceChannel.sendMessage(recipientJid, chunk);
+        return true;
+      } catch (e, st) {
+        if (attempt >= defaultRetryPolicy.maxAttempts) {
+          _log.severe(
+            'Dead-letter: reply to message ${entry.message.id} for ${entry.sessionKey} '
+            'undeliverable after $attempt attempts',
+            e,
+            st,
+          );
+          return false;
+        }
+        final delay = _retryDelay(attempt);
+        _log.warning(
+          'Reply delivery failed for ${entry.sessionKey} (attempt $attempt/${defaultRetryPolicy.maxAttempts}), '
+          'retrying in ${delay.inMilliseconds}ms',
+          e,
+        );
+        await Future<void>.delayed(delay);
+        if (_disposed) return false;
+      }
     }
   }
 

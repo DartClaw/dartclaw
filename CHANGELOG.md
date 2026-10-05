@@ -14,6 +14,18 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.28.0] - 2026-10-05
+
+### Fixed
+
+- A full `concurrency.max_parallel_turns` cap no longer crashes the task poll. The task stays queued and starts on a later poll. A daily-budget block or loop abort at admission now fails the task without retry instead of escaping as an unhandled error.
+- A web chat message deferred on a full turn cap ("Waiting for provider capacity") now starts on its own once a slot frees, without a manual Release. A later message in the same conversation queues behind it instead of overtaking it. A message whose dispatch fails for another reason, such as an exhausted daily budget, is held with the reason instead of blocking every later send until restart.
+- A turn rejected by the full turn cap no longer counts toward loop detection's turn chain or the global rate limit. Loop and rate-limit checks now run after the cap admits the turn, so a rate-limited turn waits while holding its slot.
+- Channel messages no longer dead-letter after about 3 s of a full turn cap. The turn waits for a free slot, and the inbound message is recorded once rather than once per retry.
+- The channel message queue now follows `concurrency.max_parallel_turns` reloads; before, it kept the startup value. A freed queue slot is no longer taken by a second turn alongside its waiter, and stopping the queue while a session waits for a slot no longer raises an unhandled error.
+- A queued task or workflow step polled every 2 s behind a full worker pool (`providers.<id>.pool_size`) no longer counts toward loop detection or the global rate limit. Under `governance.loop_detection` action `abort`, such a task could fail as a detected loop without ever running.
+- A WhatsApp or Signal reply that fails to send is now retried on its own under `channels.retry_policy`; before, the queue re-ran the whole agent turn, recording the inbound message again and possibly answering twice. A failed turn now gets one apology and is not re-run.
+
 ## [0.27.2] - 2026-10-02
 
 ### Changed

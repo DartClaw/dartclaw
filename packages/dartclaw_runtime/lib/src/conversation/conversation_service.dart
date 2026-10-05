@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -59,6 +60,7 @@ final class ConversationAdmission {
 /// Owns recoverable ordinary-conversation admission and serialized queue/control transitions.
 final class ConversationService {
   static const _uuid = Uuid();
+  static final _log = Logger('ConversationService');
   static final _attachmentIdPattern = RegExp(r'^[0-9a-fA-F-]{36}$');
   static const _maxAttachmentContextChars = 20000;
   static const _maxDisplayPayloadChars = 64 * 1024;
@@ -959,7 +961,7 @@ final class ConversationService {
     }
 
     final now = clock().toUtc();
-    final queued = turns.isActive(sessionId) || _hasBlockingDispatch(state);
+    final queued = turns.isActive(sessionId) || _hasBlockingDispatch(state) || _hasQueuedWork(state);
     var submission = ConversationSubmissionClaim(
       submissionId: submissionId,
       revisionId: revisionId,
@@ -1256,22 +1258,26 @@ final class ConversationService {
         origin: (channel: ChannelType.web.name, contact: null, group: false),
       );
     } on BusyTurnException {
-      final attemptId = dispatching.attemptId;
-      if (attemptId != null && await _usesDurableFiles(sessionId)) {
-        final attemptFile = File(p.join(sessions.baseDir, sessionId, 'conversation', 'attempts', '$attemptId.json'));
-        if (attemptFile.existsSync()) await attemptFile.delete();
-      }
-      final queued = dispatching.copyWith(
-        attemptId: null,
-        queueId: dispatching.queueId ?? _uuid.v4(),
+      final (:submission, :snapshot) = await _undispatch(
+        sessionId,
+        next,
+        dispatching,
         workState: ConversationWorkState.queued,
         detail: 'Waiting for provider capacity',
-        updatedAt: clock().toUtc(),
+        boundary: 'dispatch_deferred',
       );
-      next = next.put(queued);
-      await _writeWorkRecords(sessionId, queued, allowUpdate: true);
-      await _persist(sessionId, next, queued, 'dispatch_deferred');
-      return ConversationAdmission(submission: queued, snapshot: next, replayed: replayed);
+      unawaited(_redispatchWhenCapacityFrees(sessionId));
+      return ConversationAdmission(submission: submission, snapshot: snapshot, replayed: replayed);
+    } catch (error) {
+      await _undispatch(
+        sessionId,
+        next,
+        dispatching,
+        workState: ConversationWorkState.held,
+        detail: '$error',
+        boundary: 'dispatch_failed',
+      );
+      rethrow;
     }
     dispatching = dispatching.copyWith(
       workState: ConversationWorkState.running,

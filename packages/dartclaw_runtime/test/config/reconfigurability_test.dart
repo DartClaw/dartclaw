@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/concurrency/session_lock_manager.dart';
+import 'package:dartclaw_runtime/src/config/message_queue_reconfigurer.dart';
 import 'package:dartclaw_runtime/src/context/context_monitor.dart';
 import 'package:dartclaw_runtime/src/context/result_trimmer.dart';
 import 'package:dartclaw_runtime/src/scheduling/schedule_service.dart';
@@ -156,6 +157,30 @@ void main() {
       final newConfig = DartclawConfig(server: const ServerConfig(maxParallelTurns: 3));
       manager.reconfigure(_delta(newConfig, {'server.*'}));
       expect(manager.maxParallel, 3);
+    });
+  });
+
+  group('MessageQueueReconfigurer', () {
+    MessageQueue buildQueue() => MessageQueue(
+      maxConcurrentTurns: 3,
+      dispatcher: (
+        sessionKey,
+        message, {
+        required ChannelType channelType,
+        String? senderJid,
+        String? senderDisplayName,
+        String? groupJid,
+      }) async => 'ok',
+    );
+
+    test('registers for server.* so a notifier reload reaches it', () {
+      final queue = buildQueue();
+      addTearDown(queue.dispose);
+      final notifier = ConfigNotifier(const DartclawConfig.defaults())..register(MessageQueueReconfigurer(queue));
+
+      notifier.reload(DartclawConfig(server: const ServerConfig(maxParallelTurns: 6)));
+
+      expect(queue.maxConcurrentTurns, 6);
     });
   });
 

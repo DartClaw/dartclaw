@@ -31,7 +31,7 @@ Workflow-owned agent steps lease a coordinator worker and run their complete bou
 
 ### Execution allocation boundary
 
-Global turn governance runs before execution allocation. After it admits a request, `ExecutionCoordinator` is the sole authority for lane selection, queue/fail-fast admission, per-provider capacity permits, reusable worker lookup, worker creation, replacement, quarantine, and release. Callers never inspect provider identity to choose an execution mechanism; provider-specific behavior is confined to adapters and composition/wiring.
+Global turn governance runs before execution allocation, except that a fail-fast task or workflow request first takes its lane permit without waiting and skips governance when none is free, so a request the lane cannot run records no loop or rate-limit state. After governance admits a request, `ExecutionCoordinator` is the sole authority for lane selection, queue/fail-fast admission, per-provider capacity permits, reusable worker lookup, worker creation, replacement, quarantine, and release. Callers never inspect provider identity to choose an execution mechanism; provider-specific behavior is confined to adapters and composition/wiring.
 
 ```
 ┌─────────────────────────────────────┐

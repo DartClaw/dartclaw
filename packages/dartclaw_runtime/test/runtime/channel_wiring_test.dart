@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast;
 import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_runtime/src/concurrency/session_lock_manager.dart';
 import 'package:dartclaw_runtime/src/config/config_load.dart';
 import 'package:dartclaw_runtime/src/execution_policy_resolver.dart';
 import 'package:dartclaw_runtime/src/governance/pause_controller.dart';
@@ -23,6 +24,7 @@ import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
 
 import '../execution_coordinator_test_support.dart';
+import '../turn_manager_test_support.dart';
 import '../turn_runner_test_support.dart';
 import 'harness_wiring_fixture.dart';
 
@@ -67,6 +69,14 @@ class _RecordingTurnManager extends TurnManager {
   Completer<void>? reservation;
   var _nextTurn = 0;
 
+  /// Busy rejections thrown, one per call, before [startTurn] / [reserveTurn] succeed.
+  final busyOnStart = <BusyTurnException>[];
+  final busyOnReserve = <BusyTurnException>[];
+  var capacityWaits = 0;
+
+  @override
+  Future<void> whenAdmissionCapacityAvailable() async => capacityWaits++;
+
   @override
   Future<String> startTurn(
     String sessionId,
@@ -89,6 +99,7 @@ class _RecordingTurnManager extends TurnManager {
     PromptScope? promptScope,
     TurnOrigin? origin,
   }) async {
+    if (busyOnStart.isNotEmpty) throw busyOnStart.removeAt(0);
     started.add((
       sessionId: sessionId,
       source: source,
@@ -124,6 +135,7 @@ class _RecordingTurnManager extends TurnManager {
     bool readOnly = false,
     TurnOrigin? origin,
   }) async {
+    if (busyOnReserve.isNotEmpty) throw busyOnReserve.removeAt(0);
     reserved.add((
       sessionId: sessionId,
       agentName: agentName,
@@ -203,6 +215,116 @@ void main() {
     expect(turn.isHumanInput, isTrue);
     expect(turn.promptScope, PromptScope.primary);
     expect(turn.origin, (channel: 'signal', contact: 'Alice', group: false));
+  });
+
+  group('global turn cap', () {
+    const sessionKey = 'agent:main:signal:dm:alice';
+    late SessionService sessions;
+    late MessageService messages;
+
+    setUp(() {
+      sessions = SessionService(baseDir: tempDir.path);
+      messages = MessageService(baseDir: tempDir.path);
+    });
+
+    Future<String> dispatch(TurnManager turns) => dispatchChannelTurn(
+      sessions: sessions,
+      messages: messages,
+      turnManagerGetter: () => turns,
+      sessionKey: sessionKey,
+      message: 'hello',
+      channelType: ChannelType.signal,
+      senderJid: '+46701234567',
+      senderDisplayName: 'Alice',
+    );
+
+    Future<List<String>> userMessages() async {
+      final session = await sessions.getByKey(sessionKey);
+      final history = await messages.getMessages(session!.id);
+      return [
+        for (final message in history)
+          if (message.role == 'user') message.content,
+      ];
+    }
+
+    test('a message deferred on the full cap waits for a slot and persists once', () async {
+      final lockManager = SessionLockManager(maxParallel: 1);
+      final worker = FakeWorkerService();
+      final turns = TurnManager(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        messages: messages,
+        sessions: sessions,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        lockManager: lockManager,
+      );
+      addTearDown(turns.executions.dispose);
+      await lockManager.acquire('another-session');
+
+      var settled = false;
+      final dispatched = dispatch(turns).then<Object?>((response) => response, onError: (Object error) => error);
+      unawaited(dispatched.whenComplete(() => settled = true));
+      while ((await userMessages().catchError((_) => const <String>[])).isEmpty) {
+        await pumpEventQueue();
+      }
+      await pumpEventQueue(times: 200);
+
+      expect(settled, isFalse, reason: 'a full global cap defers the turn instead of failing the dispatch');
+
+      lockManager.release('another-session');
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('Pong'));
+      worker.completeSuccess();
+
+      expect(await dispatched, 'Pong');
+      expect(await userMessages(), ['hello']);
+    });
+
+    test('a bound turn deferred on the cap re-reserves once capacity frees', () async {
+      final turns = _RecordingTurnManager();
+      addTearDown(turns.executions.dispose);
+      final binding = ChannelAgentBinder(
+        agents: const {
+          'ana': AgentDefinition(id: 'ana', description: 'Ana', prompt: 'You are Ana.', provider: 'claude'),
+        },
+        policyResolver: ExecutionPolicyResolver(
+          config: DartclawConfig.defaults(),
+          availableContainerProfiles: const {},
+        ),
+        defaultProviderId: 'claude',
+        behavior: BehaviorFileService(workspaceDir: tempDir.path),
+      ).bind(const GroupEntry(id: 'alice', agent: 'ana'))!;
+      turns.busyOnReserve.addAll([
+        BusyTurnException('Global concurrency limit reached (1)', isSameSession: false),
+        BusyTurnException('Global concurrency limit reached (1)', isSameSession: false),
+      ]);
+
+      final response = await dispatchChannelTurn(
+        sessions: sessions,
+        messages: messages,
+        turnManagerGetter: () => turns,
+        sessionKey: SessionKey.dmPerChannelContact(agentId: 'ana', channelType: 'signal', peerId: 'alice'),
+        message: 'hello',
+        channelType: ChannelType.signal,
+        senderJid: 'alice',
+        binding: binding,
+      );
+
+      expect(response, 'reply');
+      expect(turns.capacityWaits, 2);
+      expect(turns.reserved, hasLength(1));
+      expect(turns.executed, hasLength(1));
+    });
+
+    test('a same-session busy is not a capacity wait and still propagates', () async {
+      final turns = _RecordingTurnManager();
+      addTearDown(turns.executions.dispose);
+      turns.busyOnStart.add(BusyTurnException('Session is busy', isSameSession: true));
+
+      await expectLater(dispatch(turns), throwsA(isA<BusyTurnException>()));
+
+      expect(turns.capacityWaits, 0);
+    });
   });
 
   group('bound channel turn', () {
@@ -598,6 +720,7 @@ agent:
         sessionsDir: config.sessionsDir,
         tasksDir: p.join(config.server.dataDir, 'tasks'),
       ),
+      configNotifier: ConfigNotifier(config),
     );
     final manager = channels.channelManager!;
     expect(channels.signalChannel, isNotNull);
@@ -638,6 +761,65 @@ agent:
     expect(prompt, isNot(contains('PAUSE OWNER MEMORY MARKER')));
     expect(turns.executed.single.agentName, 'ana');
     expect(turns.executed.single.source, 'channel');
+  });
+
+  test('a reloaded max_parallel_turns reaches the channel queue', () async {
+    // The queue copies the cap at construction; without a registration with the
+    // notifier the documented-reloadable key kept the boot value here.
+    DartclawConfig loadWithCap(int cap) => loadDartclawConfig(
+      configPath: 'dartclaw.yaml',
+      fileReader: (path) => path == 'dartclaw.yaml'
+          ? 'data_dir: ${tempDir.path}\n'
+                'concurrency:\n'
+                '  max_parallel_turns: $cap\n'
+                'channels:\n'
+                '  signal:\n'
+                '    enabled: true\n'
+          : null,
+      env: {'HOME': tempDir.path},
+    );
+    final config = loadWithCap(2);
+    final notifier = ConfigNotifier(config);
+    final eventBus = EventBus();
+    addTearDown(eventBus.dispose);
+    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+    final task = TaskWiring(
+      config: config,
+      dataDir: config.server.dataDir,
+      runtimeCwd: tempDir.path,
+      eventBus: eventBus,
+      storage: storage,
+    );
+    await task.wirePreServer();
+    final channels = ChannelWiring(
+      config: config,
+      dataDir: config.server.dataDir,
+      port: 0,
+      eventBus: eventBus,
+      storage: storage,
+      task: task,
+      resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
+    );
+    await channels.wire(
+      serverRefGetter: () => throw StateError('no server in this test'),
+      turnManagerGetter: () => throw StateError('no turn manager in this test'),
+      sseBroadcast: SseBroadcast(),
+      messageRedactor: null,
+      healthService: HealthService(
+        worker: FakeAgentHarness(),
+        searchDbPath: config.searchDbPath,
+        sessionsDir: config.sessionsDir,
+        tasksDir: p.join(config.server.dataDir, 'tasks'),
+      ),
+      configNotifier: notifier,
+    );
+    final queue = channels.channelManager!.queue;
+    addTearDown(queue.dispose);
+    expect(queue.maxConcurrentTurns, 2);
+
+    notifier.reload(loadWithCap(5));
+
+    expect(queue.maxConcurrentTurns, 5);
   });
 
   test('parses each channel section through the shared channel config resolver', () async {
@@ -689,6 +871,7 @@ agent:
         sessionsDir: config.sessionsDir,
         tasksDir: p.join(config.server.dataDir, 'tasks'),
       ),
+      configNotifier: ConfigNotifier(config),
     );
 
     expect(config.warnings.where((w) => w.contains('Invalid type for signal.port')), hasLength(1));

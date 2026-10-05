@@ -333,7 +333,8 @@ const Map<String, FieldMeta> _channelFields = {
     type: ConfigFieldType.int_,
     mutability: ConfigMutability.restart,
     description:
-        'Messages held per session key while a turn is running. Default 100; beyond it, the oldest are dropped.',
+        'Messages held per session key while a turn is running. Default 100; a message beyond it is refused with a '
+        'busy reply.',
     min: 1,
   ),
   'channels.retry_policy.max_attempts': FieldMeta(
@@ -341,7 +342,9 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.retryPolicy.maxAttempts',
     type: ConfigFieldType.int_,
     mutability: ConfigMutability.restart,
-    description: 'Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3.',
+    description:
+        'Send attempts for each chunk of a reply before the reply is dead-lettered; a failed turn is never re-run. '
+        'Google Chat reports no send failure, so its replies are sent once. Default 3.',
     min: 1,
   ),
   'channels.retry_policy.base_delay_ms': FieldMeta(

@@ -348,10 +348,12 @@ class TurnRunner implements core.TurnRunner {
   }
 
   /// Applies deployment governance and session admission before execution allocation.
+  ///
+  /// The session lock is taken before the loop-chain and rate-limit checks:
+  /// both record state, so an attempt the global cap rejects must not have
+  /// counted. Only the read-only budget check precedes the lock.
   Future<void> admitTurn(String sessionId, {required bool isHumanInput}) async {
     await _governanceEnforcer.checkBudget(sessionId);
-    await _governanceEnforcer.checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
-    await _governanceEnforcer.awaitRateLimitWindow();
 
     await _lockManager.acquire(
       sessionId,
@@ -360,6 +362,13 @@ class TurnRunner implements core.TurnRunner {
       onWaiting: () => _emitWaitState(sessionId, TurnWaitState.waiting),
       onStuck: () => _emitWaitState(sessionId, TurnWaitState.stuck),
     );
+    try {
+      await _governanceEnforcer.checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
+      await _governanceEnforcer.awaitRateLimitWindow();
+    } catch (_) {
+      _lockManager.release(sessionId);
+      rethrow;
+    }
   }
 
   /// Reserves turn-local state after the coordinator has admitted the session.
@@ -512,6 +521,8 @@ class TurnRunner implements core.TurnRunner {
   }
 
   void releaseAdmission(String sessionId) => _lockManager.release(sessionId);
+
+  Future<void> whenAdmissionCapacityAvailable() => _lockManager.whenCapacityAvailable();
 
   /// Launches async execution for a previously [reserveTurn]'d turn.
   @override

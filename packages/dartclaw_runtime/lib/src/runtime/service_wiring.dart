@@ -1031,6 +1031,7 @@ class _RuntimeAssembly {
       sseBroadcast: harness.sseBroadcast!,
       messageRedactor: ctx.messageRedactor,
       healthService: harness.primaryHealthService,
+      configNotifier: ctx.configNotifier,
       budgetEnforcer: harness.budgetEnforcer,
     );
     _configureBudgetWarningNotifiers(

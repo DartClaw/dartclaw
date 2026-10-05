@@ -39,7 +39,11 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  TurnRunner buildRunner({SlidingWindowRateLimiter? globalRateLimiter, RecordingSseBroadcast? sse}) {
+  TurnRunner buildRunner({
+    SlidingWindowRateLimiter? globalRateLimiter,
+    RecordingSseBroadcast? sse,
+    SessionLockManager? lockManager,
+  }) {
     return TurnRunner(
       turnLimits: const TurnLimitsConfig.defaults(),
       harness: worker,
@@ -49,6 +53,7 @@ void main() {
       turnState: turnState,
       globalRateLimiter: globalRateLimiter,
       sseBroadcast: sse,
+      lockManager: lockManager,
     );
   }
 
@@ -110,6 +115,25 @@ void main() {
       await runner.waitForOutcome(session.id, turnId);
 
       expect(sse.events, contains('rate_limit_warning'));
+    });
+
+    test('an attempt rejected at the global turn cap spends no rate-limit token', () async {
+      final locks = SessionLockManager(maxParallel: 1);
+      final limiter = SlidingWindowRateLimiter(limit: 5, window: const Duration(minutes: 1));
+      final runner = buildRunner(globalRateLimiter: limiter, lockManager: locks);
+      final session = await sessions.getOrCreateMainSession();
+      await locks.acquire('another-session');
+
+      for (var attempt = 0; attempt < 3; attempt++) {
+        await expectLater(runner.admitTurn(session.id, isHumanInput: false), throwsA(isA<BusyTurnException>()));
+      }
+
+      expect(limiter.currentCount('global'), 0);
+
+      locks.release('another-session');
+      await runner.admitTurn(session.id, isHumanInput: false);
+      expect(limiter.currentCount('global'), 1);
+      runner.releaseAdmission(session.id);
     });
 
     test('turns at limit — deferred until window slides', () async {

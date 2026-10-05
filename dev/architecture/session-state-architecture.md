@@ -2,7 +2,7 @@
 
 How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
 
-**Current through**: 0.27 conversation attempts, effective context, inbox and attention state, temporary retention,
+**Current through**: 0.28 turn-cap deferral and admission order; 0.27 conversation attempts, effective context, inbox and attention state, temporary retention,
 managed named-agent workspace ownership and cutover, and principal-scoped conversation search.
 
 ---
@@ -146,7 +146,12 @@ an eligible idle durable owner web conversation and its revision; they change fu
 marker without rewriting past attempts. The session's `AgentWorkspace` and `agent:<id>` storage principal remain pinned
 across these changes.
 Queue accepts ordinary input in order; steer first confirms cancellation of the displayed turn and then uses ordinary
-admission. Channel and cron snapshots disable these browser controls.
+admission. Channel and cron snapshots disable these browser controls. A dispatch refused with `BusyTurnException` (web turns
+use waiting admission, so in practice the global turn cap) returns to the queue as `queued` and waits on
+`TurnManager.whenAdmissionCapacityAvailable()` outside the drained background work; once a slot frees, the session's
+mutation chain dispatches the oldest `queued` item unless a turn is active, whose settlement releases the queue
+instead. A queued item blocks a later submission, so a capacity-deferred message is never overtaken. Restart recovery
+still turns `queued` into `held`.
 
 New named-agent sessions pin the derived absolute `data_dir/agents/<id>/workspace` binding after its host marker passes
 admission. `meta.json` remains authoritative for an existing session's absolute binding: moving `data_dir`, removing the
@@ -793,10 +798,19 @@ is empty, all senders are treated as admins (suitable for single-user deployment
 Defined in `packages/dartclaw_runtime/lib/src/turn_governance_enforcer.dart`.
 Orchestrates pre-turn and in-turn governance checks:
 
-**Pre-turn checks** (called before `SessionLockManager.acquire()`):
-1. `checkBudget()` -- consult `BudgetEnforcer` for daily token budget
-2. `awaitRateLimitWindow()` -- defer if global rate limit reached
-3. `checkLoopPreTurn()` -- turn chain depth + token velocity
+**Pre-turn checks** (`TurnRunner.admitTurn`, before execution allocation):
+1. `checkBudget()` -- consult `BudgetEnforcer` for daily token budget (read-only, before the session lock)
+2. `SessionLockManager.acquire()` -- session lock and global cap; a cap rejection has recorded nothing yet
+3. `checkLoopPreTurn()` -- turn chain depth + token velocity (records the turn start)
+4. `awaitRateLimitWindow()` -- defer if global rate limit reached (records an event; waits while holding the
+   session's cap slot)
+
+A throw from 3 or 4 releases the lock taken in 2. Because 3 and 4 record state, they run only once the cap admitted the
+attempt. For the same reason a failFast task or workflow request takes its lane permit before admission: one that
+finds no permit returns without running these checks, so a queued task polled behind a full worker pool counts
+nothing. It then holds that permit through the rate-limit wait, so `wait` requests on the same gate queue behind it.
+Every other request is admitted first and then takes its permit; a failFast logical-agent turn must not, because its
+admission may wait on a same-session lock while an earlier turn of that session holds the permit.
 
 **In-turn checks** (called during turn execution):
 4. `recordToolCall()` -- tool fingerprint loop detection

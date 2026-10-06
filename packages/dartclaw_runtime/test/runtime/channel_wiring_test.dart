@@ -19,6 +19,8 @@ import 'package:dartclaw_runtime/src/runtime/task_wiring.dart';
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
+import 'package:dartclaw_slack/testing.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -589,6 +591,76 @@ void main() {
       expect(turns.reserved.single.promptScope, PromptScope.restricted);
     });
 
+    test('Slack feedback started before the dispatch leaves the bound session to the dispatch', () async {
+      const agent = AgentDefinition(
+        id: 'ana',
+        description: 'Ana',
+        prompt: 'You are Ana.',
+        provider: 'codex',
+        securityProfile: 'restricted',
+        profileIsOperatorConfigured: true,
+        execution: ExecutionMode.container,
+      );
+      final binding = binderFor(agent).bind(const GroupEntry(id: 'C1', agent: 'ana'));
+      final slackApi = FakeSlackWebApi();
+      final channel = SlackChannel(
+        config: const SlackConfig(enabled: true),
+        api: slackApi,
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: MentionGating(requireMention: false, mentionPatterns: const [], ownJid: ''),
+        channelManager: ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults()),
+      );
+      final observer = FeedbackObserverFactory.build(
+        googleChatConfig: const GoogleChatConfig(),
+        slackConfig: const SlackConfig(enabled: true),
+        sessions: sessions,
+        turnManagerGetter: () => turns,
+      )!;
+      const sessionKey = 'agent:ana:slack:group:C1:thread:1.1';
+      final inbound = ChannelMessage(
+        id: 'C1:1.1',
+        channelType: ChannelType.slack,
+        senderJid: 'U1',
+        groupJid: 'C1',
+        text: 'hello',
+        metadata: const {'spaceName': 'C1', threadIdMetadataKey: '1.1'},
+      );
+      final response = Completer<String>();
+
+      // The queue starts the observer right after invoking the dispatcher, before the session exists.
+      final observed = observer(sessionKey, inbound, channel, 'C1', response.future);
+      await pumpEventQueue();
+      expect(await sessions.getByKey(sessionKey), isNull, reason: 'feedback must not create the session');
+      response.complete(
+        await dispatchChannelTurn(
+          sessions: sessions,
+          messages: messages,
+          turnManagerGetter: () => turns,
+          sessionKey: sessionKey,
+          message: inbound.text,
+          channelType: ChannelType.slack,
+          senderJid: inbound.senderJid,
+          groupJid: 'C1',
+          binding: binding,
+          provenance: _signalProvenance,
+        ),
+      );
+      await observed;
+
+      final session = await sessions.getByKey(sessionKey);
+      expect(session?.provider, 'codex');
+      expect(session?.securityProfile, 'restricted');
+      expect(session?.executionMode, ExecutionMode.container);
+      expect(
+        await sessions.listSessions(type: SessionType.channel),
+        hasLength(1),
+        reason: 'created once, by the dispatch',
+      );
+      expect(turns.started, isEmpty);
+      expect(turns.reserved.single.agentName, 'ana', reason: 'the turn runs on the logical-agent surface');
+      expect(slackApi.statuses.map((status) => status.status), ['is working...', '']);
+    });
+
     test('pause replay does not reconstruct a bound session as a primary turn', () async {
       final sessionKey = SessionKey.dmPerChannelContact(agentId: 'ana', channelType: 'signal', peerId: '+1');
       const agent = AgentDefinition(
@@ -615,6 +687,7 @@ void main() {
               groupJid,
               recipientId,
               threadId,
+              attachments = const [],
             }) async {
               try {
                 return await dispatchChannelTurn(

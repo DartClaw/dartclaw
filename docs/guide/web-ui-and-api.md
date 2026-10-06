@@ -95,7 +95,7 @@ brings it back.
 - **Tool calls**: A turn's tool calls collapse into one disclosure naming their count, tools and elapsed time. It stays
   open while any call is running, failed or blocked, and closes once every call in the run has succeeded. Opening it
   shows each call's retained arguments and result.
-- **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
+- **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata. Text files are inlined into the turn (up to 20,000 characters). PNG, JPEG, GIF and WebP images up to 5 MiB also reach the model as image input on the Claude Code and Codex harnesses, so it can describe them; other files, larger images, earlier messages' images, and any image on an ACP harness stay named in the turn context.
 - **Context references**: Type `@` to resolve sessions, files, tools, and memory into explicit removable chips. A project reference is suggested only when the chat is in that explicit project.
 - **Effective context**: The context chip and the model pill open one popover each, anchored under the control that
   opens them. An eligible idle owner web chat can move between General chat and a ready named project. The move retains
@@ -307,7 +307,7 @@ Content-Type: application/json
 {"filename":"notes.md","mediaType":"text/markdown","size":8,"contentBase64":"IyBOb3Rlcwo="}
 ```
 
-Stores an attachment under the session and returns structured metadata for the composer chip. Size and payload limits are enforced before storage.
+Stores an attachment under the session and returns structured metadata for the composer chip. Size and payload limits are enforced before storage. Eligible images (PNG, JPEG, GIF, WebP, at most 5 MiB) attached to a sent message reach the Claude Code and Codex harnesses as image input; the stored message and transcript never hold the image bytes.
 
 The composer reads the server limit from `GET /api/sessions/:id/attachments/limits`. An unclaimed draft attachment can be removed with `DELETE /api/sessions/:id/attachments/:attachment_id`; a handle owned by accepted work is retained.
 

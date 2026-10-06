@@ -168,6 +168,7 @@ void main() {
             String? groupJid,
             String? recipientId,
             String? threadId,
+            List<ChannelAttachment> attachments = const [],
           }) async {
             final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
             final turnId = await turns.startTurn(session.id, [

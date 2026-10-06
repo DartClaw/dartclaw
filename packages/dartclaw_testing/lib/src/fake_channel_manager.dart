@@ -22,6 +22,7 @@ class FakeChannelManager extends ChannelManager {
             groupJid,
             recipientId,
             threadId,
+            attachments = const [],
           }) async => '',
           maxConcurrentTurns: 1,
         ),

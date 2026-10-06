@@ -5,12 +5,13 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         Channel,
         ChannelInboundDecision,
         ChannelInboundGate,
+        ChannelAttachment,
         ChannelManager,
         ChannelMessage,
         ChannelResponse,
         DmAccessController,
         MentionGating,
-        chunkNativeChatMarkup,
+        resolveRecipientId,
         sourceMessageIdMetadataKey,
         threadIdMetadataKey;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ChannelType;
@@ -18,11 +19,12 @@ import 'package:logging/logging.dart';
 
 import 'slack_config.dart';
 import 'slack_envelope.dart';
+import 'slack_feedback_strategy.dart';
+import 'slack_file_intake.dart';
 import 'slack_markdown.dart';
 import 'slack_web_api_client.dart';
 import 'socket_mode_client.dart';
 
-const _maxChunkSize = 4000;
 const _maxTrackedThreads = 2000;
 const _maxTrackedSlashCommands = 200;
 
@@ -125,10 +127,26 @@ class SlackChannel extends Channel {
   @override
   bool ownsJid(String jid) => _slackIdPattern.hasMatch(jid);
 
+  /// The feedback for one turn of [message]: assistant status, and the reply streamed
+  /// into its thread unless `channels.slack.streaming` is off or the message has no thread.
+  ///
+  /// [redact] masks secrets in the text before any of it is streamed.
+  SlackFeedbackStrategy feedbackStrategyFor(ChannelMessage message, {String Function(String)? redact}) {
+    final inChannel = message.groupJid != null;
+    return SlackFeedbackStrategy(
+      api: api,
+      channel: resolveRecipientId(message),
+      threadTs: message.threadId,
+      streaming: config.streaming,
+      recipientTeamId: inChannel ? api.teamId : null,
+      recipientUserId: inChannel ? message.senderJid : null,
+      redact: redact,
+    );
+  }
+
   @override
   List<ChannelResponse> formatResponse(String text) {
-    final chunks = chunkNativeChatMarkup(markdownToSlackMrkdwn(text.trimLeft()), maxSize: _maxChunkSize);
-    return [for (final chunk in chunks) ChannelResponse(text: chunk)];
+    return [for (final chunk in slackReplyChunks(text)) ChannelResponse(text: chunk)];
   }
 
   @override
@@ -187,13 +205,18 @@ class SlackChannel extends Channel {
     final mentioned = _mentionedUserIds(event);
     final botUserId = _botUserId;
     final text = _cleanText(rawText is String ? rawText : '', botUserId);
-    if (text.isEmpty) return;
+    final files = [
+      if (event['files'] case final List<dynamic> listed)
+        for (final file in listed)
+          if (file is Map) Map<String, dynamic>.from(file),
+    ];
+    if (text.isEmpty && files.isEmpty) return;
 
     final isDm = event['channel_type'] == 'im' || channel.startsWith('D');
     final threadTs = event['thread_ts'] is String ? event['thread_ts'] as String : null;
     final isThreadReply = threadTs != null && threadTs != ts;
 
-    ChannelMessage build(String? displayName) => ChannelMessage(
+    ChannelMessage build(String? displayName, {List<ChannelAttachment> attachments = const []}) => ChannelMessage(
       id: '$channel:$ts',
       channelType: ChannelType.slack,
       senderJid: user,
@@ -207,6 +230,7 @@ class SlackChannel extends Channel {
         'senderDisplayName': ?displayName,
         'messageTs': ts,
       },
+      attachments: attachments,
     );
 
     final unnamed = build(null);
@@ -226,7 +250,50 @@ class SlackChannel extends Channel {
     if (!await _admit(decision, message, displayName: named)) return;
 
     if (!isDm) _noteParticipation(channel, threadTs ?? ts);
-    channelManager.handleInboundMessage(message);
+    if (files.isEmpty) {
+      channelManager.handleInboundMessage(message);
+      return;
+    }
+    // The envelope is acknowledged and later ones are handled while the files download.
+    unawaited(
+      _takeFilesAndAdmit(
+        files,
+        text: text,
+        channel: channel,
+        replyThreadTs: threadTs ?? ts,
+        build: (attachments) => build(named, attachments: attachments),
+      ),
+    );
+  }
+
+  /// Fetches [files], names every refusal and failure in one thread reply, then admits the message
+  /// with the files that arrived. A message with neither text nor a file has nothing to process.
+  Future<void> _takeFilesAndAdmit(
+    List<Map<String, dynamic>> files, {
+    required String text,
+    required String channel,
+    required String replyThreadTs,
+    required ChannelMessage Function(List<ChannelAttachment> attachments) build,
+  }) async {
+    try {
+      final intake = await takeSlackFiles(api, files);
+      if (intake.problems.isNotEmpty) {
+        final list = intake.problems.map((problem) => '- $problem').join('\n');
+        try {
+          await api.postMessage(
+            channel: channel,
+            text: "I couldn't use ${intake.problems.length == 1 ? 'a file' : 'some files'} you sent:\n$list",
+            threadTs: replyThreadTs,
+          );
+        } on SlackApiException catch (error) {
+          _log.warning('Could not tell Slack channel $channel which files were refused: $error');
+        }
+      }
+      if (text.isEmpty && intake.attachments.isEmpty) return;
+      channelManager.handleInboundMessage(build(intake.attachments));
+    } catch (error, stackTrace) {
+      _log.warning('Slack file intake failed in $channel', error, stackTrace);
+    }
   }
 
   Future<void> _handleSlashCommand(SlackEnvelope envelope) async {

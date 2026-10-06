@@ -126,6 +126,9 @@ import 'loc_target.dart';
 // dispatch are the whole package; later Slack stories raise it with their own
 // reviewed-necessity line. The shared thread seam added to core, kernel and
 // runtime stays inside their bands.
+// Reviewed necessity, 2026-10-06 (0.28 streaming and inbound files): dartclaw_slack 1257 -> 2073 (measured 2073).
+// The per-turn feedback strategy (status and streamed reply with its failure fallbacks), the bounded file
+// download in the Web API client and the file intake each own behaviour the adapter did not have.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -138,7 +141,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
-  'dartclaw_slack': 1257,
+  'dartclaw_slack': 2073,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25631,

@@ -20,6 +20,7 @@ import 'package:path/path.dart' as p;
 import '../config/message_queue_reconfigurer.dart';
 import 'channel_agent_binding.dart';
 import 'channel_session_title.dart';
+import 'channel_turn_attachments.dart';
 import 'feedback_observer_factory.dart';
 import 'model_resolver.dart';
 import 'reserved_command_handler.dart';
@@ -166,6 +167,7 @@ class ChannelWiring {
       _channelManager = _buildChannelManager(
         config: config,
         googleChatConfig: googleChatConfig,
+        slackConfig: slackConfig,
         liveScopeConfig: liveScopeConfig,
         rows: rows,
         sessions: sessions,
@@ -553,6 +555,7 @@ class ChannelWiring {
   ChannelManager _buildChannelManager({
     required DartclawConfig config,
     required GoogleChatConfig googleChatConfig,
+    required SlackConfig slackConfig,
     required LiveScopeConfig liveScopeConfig,
     required GroupConfigResolver rows,
     required SessionService sessions,
@@ -573,6 +576,8 @@ class ChannelWiring {
       isAdmin: config.governance.isAdmin,
       turnObserver: FeedbackObserverFactory.build(
         googleChatConfig: googleChatConfig,
+        slackConfig: slackConfig,
+        redactor: redactor,
         sessions: sessions,
         turnManagerGetter: turnManagerGetter,
       ),
@@ -586,6 +591,7 @@ class ChannelWiring {
             String? groupJid,
             String? recipientId,
             String? threadId,
+            List<ChannelAttachment> attachments = const [],
           }) async {
             final row = rows.resolveRow(channelType, groupId: groupJid, peerId: senderJid);
             final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config, row: row);
@@ -609,6 +615,7 @@ class ChannelWiring {
               model: overrides.model,
               effort: overrides.effort,
               binding: _agentBinder?.bind(row),
+              attachments: attachments,
             );
           },
     );
@@ -696,6 +703,7 @@ Future<String> dispatchChannelTurn({
   String? model,
   String? effort,
   ChannelAgentBinding? binding,
+  List<ChannelAttachment> attachments = const [],
 }) async {
   final session = binding == null
       ? await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel)
@@ -707,8 +715,13 @@ Future<String> dispatchChannelTurn({
           executionMode: binding.policy.mode,
           workspace: binding.definition.workspace,
         );
-  final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
-  await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
+  final staged = await stageChannelAttachments(messages, session.id, attachments);
+  final persisted = await messages.insertMessage(
+    sessionId: session.id,
+    role: 'user',
+    content: message,
+    metadata: channelMessageMetadata(senderDisplayName, staged),
+  );
 
   if (session.title == null && senderJid != null) {
     await sessions.updateTitle(session.id, channelSessionTitle(channelType, senderJid));
@@ -717,7 +730,7 @@ Future<String> dispatchChannelTurn({
   // The current message is already persisted; pass full history so channel
   // continuity matches the web route.
   final history = await messages.getMessages(session.id);
-  final messagesList = history.map((m) => <String, dynamic>{'role': m.role, 'content': m.content}).toList();
+  final messagesList = await channelTurnEntries(messages, session.id, history, activeId: persisted.id, staged: staged);
 
   final turns = turnManagerGetter();
   final origin = (channel: channelType.name, contact: senderDisplayName ?? senderJid, group: groupJid != null);

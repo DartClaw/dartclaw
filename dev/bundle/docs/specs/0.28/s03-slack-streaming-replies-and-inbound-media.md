@@ -278,3 +278,31 @@ Decisions the source leaves open, each also stated where it bites:
 ## Final Validation Checklist
 
 - Workspace-wide, not package-scoped: `dart format --line-length=120 --output=none --set-exit-if-changed .`, `dart analyze --fatal-infos`, `bash dev/tools/test_workspace.sh`, `dart run dev/tools/arch_check.dart` (a lib LOC ceiling this diff moves past its band gets a re-measured target with a reviewed-necessity line), `bash dev/tools/fitness/run_all.sh`, `git diff --check`.
+
+
+## Implementation Observations
+
+#### DRIFT
+
+- spec-stale: SC06 says Google Chat feedback behaves as before; `FeedbackObserverFactory` now resolves the session lazily and attaches to a runner acquired later (the FIS Constraint), so the first turn of a new Google Chat conversation also gets feedback. Existing Google Chat cases pass unchanged. | Stale targets: SC06 wording | –
+- design-changed: `SlackAuthInfo` keeps its shape (a client test pins it); `SlackWebApiClient.teamId` carries the `auth.test` team ID, set by `authTest()`, for the channel stream's `recipient_team_id`. | Stale targets: TI04 | –
+- design-changed: `SlackFeedbackStrategy` and the file download take injected `now`/`delay` (the package's existing seam) instead of `fake_async`; the core `ChannelFeedbackStrategy` interface is unchanged and the factory tells the strategy a turn failed through the concrete `onTurnFailed`. | Stale targets: TI06 | –
+
+#### Assumptions
+
+- ASSUMPTION: image eligibility is media type, size at most 5 MiB and a digest match against the staged bytes, not a literal `state == ready` check – a resolved attachment's state becomes `accepted` once merged with its message manifest, and `readStagedAttachment` already verified `ready` – a requirement to test the state literally would change this.
+- ASSUMPTION: channel-staged files use `owner: accepted` and manifest state `accepted`, as the web path does once a draft is sent – a different ownership model for channel files would change this.
+- ASSUMPTION: a file that fails to stage in `dispatchChannelTurn` is logged by exception type and skipped, the turn runs on the text – a requirement to name it in the thread would change this (see F4).
+- ASSUMPTION: the streamed text equals the final reply when its escaped accumulation equals `markdownToSlackMrkdwn` of the redacted reply, compared trimmed, so a plain reply is left alone and a Markdown-formatted one is edited with `chat.update` – a live check that Slack renders streamed `markdown_text` and mrkdwn identically would remove the edit.
+- ASSUMPTION: the file-count bound counts by position (the sixth file onward is refused, whatever happened to earlier ones), a zero-byte download is refused as empty, and a `text/html` answer is a missing-scope failure only when the file's own declared type is not `text/html` – a live Slack answer pattern would change them.
+- ASSUMPTION: download redirects are followed by hand, only inside `slack.com`, at most 3 hops, so the bot token never follows a redirect off Slack – a live qualification showing a cross-host redirect would change the host rule.
+- The FIS's own unconfirmed Slack and provider-image assumptions (stream identification by `ts`, `chat.update` after `chat.stopStream`, stream rate limit, `<`/`>`/`&` escaping in `markdown_text`, `setStatus` in channel threads, the Claude Code and Codex image forms) are untouched and still wait for the owner-led live qualification.
+
+#### Review notes (independent quick review, no Fix-routed findings)
+
+- F1 MEDIUM, `packages/dartclaw_slack/lib/src/slack_channel.dart` (`_handleMessage`, the `unawaited(_takeFilesAndAdmit(...))` branch): a message with files is admitted only after its downloads finish, so a later text-only message in the same thread can be queued before it and answered without the file. Fix is not unique (serialize admission per conversation without breaking S17). Routing: Note, for a follow-up Slack story.
+- F2 MEDIUM, `packages/dartclaw_slack/lib/src/slack_web_api_client.dart` (`downloadFile`, `_call`) and `feedback_observer_factory.dart`: no request timeout, so a stalled download never admits the message and a hung status call can hold the observer. The bound is specified nowhere and `_call` is the shared seam. Routing: Note.
+- F3 LOW, `slack_feedback_strategy.dart` (`formatted.isEmpty`): a turn that streamed interim text and ends with an empty final reply leaves the interim text as the visible message. Routing: Note.
+- F4 LOW, `packages/dartclaw_runtime/lib/src/runtime/channel_turn_attachments.dart`: a file that cannot be staged is not named to the sender. Routing: Note.
+
+NOTICED BUT NOT TOUCHING: `dart test packages/dartclaw_runtime/test/runtime/service_wiring_andthen_skills_test.dart` logs a PostgreSQL FTS "Bad state: No element" stack trace while passing; not caused by this change.

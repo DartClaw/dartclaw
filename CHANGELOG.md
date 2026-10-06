@@ -25,6 +25,9 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - Every refusal of a reserved command to a non-admin sender, on any channel, is now written to the audit log.
 - With `base_url` set, each wiki and knowledge graph source in a `context_research` packet carries a signed `url` that opens that one source read-only at `GET /knowledge/source`, with no DartClaw login. A link works until the gateway token rotates or it is 30 days old; every failure answers the same 404, and a graph fact's private `source` is never shown.
 - A chat-channel turn changes the shared wiki or knowledge graph (`wiki_write`, `kg_add`, `kg_invalidate`) only for a sender in `governance.admin_senders`, on every channel; every channel-origin attempt is audited with channel and sender. Other callers write as before.
+- Slack replies to a thread or DM stream in as the agent writes them and end as one message holding exactly the turn's reply, with an assistant status while the turn runs. A stream that cannot start or fails midway still delivers the complete reply once; `channels.slack.streaming: false` keeps chunked posts. Streaming needs the `chat:write` scope and the status `assistant:write`.
+- Files posted to the agent in Slack (up to 20 MB each, 5 per message) reach its turn, stored in the session like a web attachment, with text files inlined in the turn context. A refused or failed file is named in the thread and the message text is still processed.
+- Images attached in Slack or in the web composer (PNG, JPEG, GIF, WebP up to 5 MiB) reach the model as image input on the Claude Code and Codex harnesses, so the reply can describe them; a harness without image input still receives the image named.
 
 ### Fixed
 

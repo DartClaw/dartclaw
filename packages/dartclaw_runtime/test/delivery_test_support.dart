@@ -38,4 +38,5 @@ Future<String> _noopTestChannelDispatch(
   String? groupJid,
   String? recipientId,
   String? threadId,
+  List<ChannelAttachment> attachments = const [],
 }) async => '';

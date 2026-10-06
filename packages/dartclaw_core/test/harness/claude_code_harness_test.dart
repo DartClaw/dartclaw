@@ -856,6 +856,79 @@ void main() {
       });
     });
 
+    group('image input', () {
+      Future<Map<String, dynamic>> turnPayload(List<Map<String, dynamic>> messages) async {
+        late CapturingFakeProcess fake;
+        final h = buildClaudeHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() => fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}})));
+            Future.delayed(const Duration(milliseconds: 20), () {
+              fake.emitStdout(
+                jsonEncode({
+                  'type': 'result',
+                  'result': 'ok',
+                  'cost_usd': 0.01,
+                  'duration_ms': 100,
+                  'duration_api_ms': 50,
+                  'num_turns': 1,
+                  'is_error': false,
+                  'session_id': 'test-session',
+                }),
+              );
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+        await h.turn(sessionId: 'test', messages: messages, systemPrompt: '');
+        return fake.capturedStdinJson.lastWhere((entry) => entry['type'] == 'user');
+      }
+
+      test('the last entry\'s images are written as image blocks after the text block', () async {
+        final payload = await turnPayload([
+          {
+            'role': 'user',
+            'content': 'what is this?',
+            'images': [
+              {'mediaType': 'image/png', 'data': 'UE5H'},
+            ],
+          },
+        ]);
+
+        expect(payload['message'], {
+          'role': 'user',
+          'content': [
+            {'type': 'text', 'text': 'what is this?'},
+            {
+              'type': 'image',
+              'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'UE5H'},
+            },
+          ],
+        });
+      });
+
+      test('an entry without images writes the string content, malformed images included', () async {
+        final plain = await turnPayload([
+          {'role': 'user', 'content': 'hello'},
+        ]);
+        final malformed = await turnPayload([
+          {
+            'role': 'user',
+            'content': 'hello',
+            'images': [
+              'nope',
+              {'mediaType': 3},
+            ],
+          },
+        ]);
+
+        expect(plain['message'], {'role': 'user', 'content': 'hello'});
+        expect(malformed['message'], {'role': 'user', 'content': 'hello'});
+      });
+    });
+
     group('hook callbacks', () {
       test('can_use_tool denies when dontAsk mode unexpectedly emits a native permission request', () async {
         late CapturingFakeProcess fake;

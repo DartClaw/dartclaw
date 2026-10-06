@@ -1020,6 +1020,10 @@
             "require_mention": {
               "description": "Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention. (restart required)",
               "type": "boolean"
+            },
+            "streaming": {
+              "description": "Stream a reply into its Slack thread or DM as the agent writes it. When false, the reply is posted in chunks once the turn ends. Streaming needs the chat:write scope. (restart required)",
+              "type": "boolean"
             }
           },
           "type": [

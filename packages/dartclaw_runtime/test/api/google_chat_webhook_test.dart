@@ -73,6 +73,7 @@ ChannelManager _buildChannelManager({
           groupJid,
           recipientId,
           threadId,
+          attachments = const [],
         }) async {
           final dispatched = ChannelMessage(
             id: sessionKey,

@@ -41,6 +41,13 @@ class ChannelMessage {
   }) : id = id ?? const Uuid().v4(),
        timestamp = timestamp ?? DateTime.now();
 
+  /// Identifier of the thread this message belongs to ([threadIdMetadataKey]),
+  /// or `null` outside a thread.
+  String? get threadId => switch (metadata[threadIdMetadataKey]) {
+    final String id when id.isNotEmpty => id,
+    _ => null,
+  };
+
   /// Extracts a human-readable sender display name from channel-specific
   /// [metadata] keys.
   ///
@@ -99,6 +106,14 @@ class ChannelResponse {
 
 /// Metadata key used to retain the originating inbound message id per response.
 const sourceMessageIdMetadataKey = 'sourceMessageId';
+
+/// Metadata key an adapter stamps on an inbound [ChannelMessage] with the id of
+/// the thread it belongs to.
+///
+/// [ChannelManager.deriveSessionKey] gives each thread its own session, and the
+/// key is copied onto every reply to that message so the adapter can post it
+/// into the same thread.
+const threadIdMetadataKey = 'threadId';
 
 /// Abstract base class for messaging channel integrations.
 ///

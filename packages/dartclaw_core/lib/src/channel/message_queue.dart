@@ -141,7 +141,7 @@ class MessageQueue {
     final queue = _sessionQueues[sessionKey];
     if (queue != null && queue.length >= maxQueueDepth) {
       _log.warning('Queue full for $sessionKey (${queue.length}/$maxQueueDepth) — sending busy response');
-      _sendBusy(sourceChannel, resolveRecipientId(message));
+      _sendBusy(sourceChannel, message);
       return;
     }
 
@@ -219,7 +219,7 @@ class MessageQueue {
 
     if (queue.length >= maxQueueDepth) {
       _log.warning('Queue full for ${entry.sessionKey} — sending busy response');
-      _sendBusy(entry.sourceChannel, resolveRecipientId(entry.message));
+      _sendBusy(entry.sourceChannel, entry.message);
       return;
     }
 
@@ -230,7 +230,7 @@ class MessageQueue {
           'Per-sender queue limit reached for ${entry.senderJid} in ${entry.sessionKey} '
           '($senderCount/$maxQueued) — rejecting',
         );
-        _sendQueueFull(entry.sourceChannel, resolveRecipientId(entry.message));
+        _sendQueueFull(entry.sourceChannel, entry.message);
         return;
       }
     }
@@ -306,6 +306,7 @@ class MessageQueue {
                   metadata: {
                     ...chunk.metadata,
                     sourceMessageIdMetadataKey: entry.message.id,
+                    ..._threadMetadata(entry.message),
                     if (entry.message.metadata['messageName'] case final String messageName) 'messageName': messageName,
                     if (entry.message.metadata['messageCreateTime'] case final String createTime)
                       'messageCreateTime': createTime,
@@ -334,6 +335,7 @@ class MessageQueue {
                     'Daily token budget exhausted (${e.tokensUsed}/${e.budget} tokens, 100%). '
                     'New turns are blocked until the daily budget resets. '
                     'An admin can increase the budget via the web dashboard.',
+                metadata: _threadMetadata(entry.message),
               ),
             );
           } catch (sendErr) {
@@ -347,7 +349,10 @@ class MessageQueue {
             final recipientJid = resolveRecipientId(entry.message);
             await entry.sourceChannel.sendMessage(
               recipientJid,
-              const ChannelResponse(text: 'Sorry, I was unable to process your message. Please try again later.'),
+              ChannelResponse(
+                text: 'Sorry, I was unable to process your message. Please try again later.',
+                metadata: _threadMetadata(entry.message),
+              ),
             );
           } catch (sendErr) {
             _log.severe('Failed to send dispatch-failure notification', sendErr);
@@ -499,11 +504,11 @@ class MessageQueue {
     return Duration(milliseconds: delayMs.round());
   }
 
-  Future<void> _sendBusy(Channel channel, String recipientJid) async {
+  Future<void> _sendBusy(Channel channel, ChannelMessage message) async {
     try {
       await channel.sendMessage(
-        recipientJid,
-        const ChannelResponse(text: 'I\'m currently busy. Please try again shortly.'),
+        resolveRecipientId(message),
+        ChannelResponse(text: 'I\'m currently busy. Please try again shortly.', metadata: _threadMetadata(message)),
       );
     } catch (e) {
       _log.warning('Failed to send busy response', e);
@@ -524,12 +529,21 @@ class MessageQueue {
     }
   }
 
-  Future<void> _sendQueueFull(Channel channel, String recipientJid) async {
+  Future<void> _sendQueueFull(Channel channel, ChannelMessage message) async {
     try {
-      await channel.sendMessage(recipientJid, const ChannelResponse(text: 'Queue full -- try again shortly.'));
+      await channel.sendMessage(
+        resolveRecipientId(message),
+        ChannelResponse(text: 'Queue full -- try again shortly.', metadata: _threadMetadata(message)),
+      );
     } catch (e) {
       _log.warning('Failed to send queue-full response', e);
     }
+  }
+
+  /// What lets a channel post a reply into the thread [message] arrived in.
+  static Map<String, dynamic> _threadMetadata(ChannelMessage message) {
+    final threadId = message.threadId;
+    return {threadIdMetadataKey: ?threadId};
   }
 }
 

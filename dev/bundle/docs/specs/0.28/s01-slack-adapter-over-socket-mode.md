@@ -251,3 +251,26 @@ Further decisions, each also stated where it bites:
 ## Final Validation Checklist
 
 - Workspace-wide, not package-scoped: `dart format --line-length=120 --output=none --set-exit-if-changed .`, `dart analyze --fatal-infos`, `bash dev/tools/test_workspace.sh`, `dart run dev/tools/arch_check.dart`, `bash dev/tools/fitness/run_all.sh`, `git diff --check`.
+
+## Implementation Observations
+
+- ASSUMPTION: `app_mention` events are acknowledged and ignored; the `message` event of the same mention is the one processed. The FIS names that rule (S06) but not what happens when only `app_mention` is subscribed. Reading taken: the app must subscribe `message.channels`, `message.groups` and `message.im` (the manifest in story S02 declares them). Would change if the manifest drops the `message.*` subscriptions: process `app_mention` as a fallback.
+- ASSUMPTION: Slack `dm_access` defaults to `allowlist`, not `pairing` as on Google Chat. `pairing` still creates a code and replies with it (S08), but no settings page or allowlist API confirms a Slack pairing (both are out of scope here), so a `pairing` default would send every unknown DM sender to a code nobody can approve. Would change if a later story adds Slack to `ChannelAccessService` and the pairing routes.
+- ASSUMPTION: a thread reply that needs a participation lookup and whose `conversations.replies` call fails is ignored, and the "not participating" answer is remembered for that thread until the bot is mentioned in it or posts into it. Would change if Slack lookups are found to fail transiently often enough to make a retry-on-next-reply worth its extra calls.
+- ASSUMPTION: `governance.admin_senders` IDs are not validated against `^[UW][A-Z0-9]+$` at load: the list is shared by every channel (WhatsApp JIDs, Signal numbers, Google Chat users), so one regex would refuse valid entries. Only `channels.slack.dm_allowlist` carries the user-ID check. Would change if admin senders become per-channel.
+- ASSUMPTION: the TI11 clause "`connect()` on a rejected token throws while a socket failure does not" is proved in `packages/dartclaw_slack/test/slack_inbound_test.dart` (group `ownership`), not in `channel_wiring_test.dart`: wiring builds the real HTTP client from the resolved tokens, so a wiring test would call slack.com. Would change if `ChannelWiring` gains an HTTP-client seam for another reason.
+- ASSUMPTION: `SessionKey` factories in `dartclaw_kernel` gained an optional `threadId` (appended as `:thread:<encoded id>`) instead of core building the suffix itself, because the factories are the one authority for key encoding. The FIS Work Areas name only core for TI07.
+- The pause acknowledgement in `ChannelManager` and the rate-limit rejection in `ChannelTaskBridgeSupport` also copy the thread key, beyond the three reply paths TI07 names, so those replies land in the thread too.
+- `ReservedCommandHandler` replies now carry `sourceMessageId` on every channel. On Google Chat that lets a reply to a plain-text reserved command replace its typing placeholder, and under `quote_reply: native` quote the command message.
+
+#### DRIFT
+
+- spec-stale: TI11 Verify places the rejected-token/socket-failure proof in `channel_wiring_test.dart`; it lives in `slack_inbound_test.dart` (see the assumption above) | Stale targets: this FIS, TI11 Verify | –
+
+NOTICED BUT NOT TOUCHING:
+
+- Slack pairing has no confirmation surface: `ChannelAccessService.controllerFor` and the `dm-pairing` routes know only WhatsApp, Signal and Google Chat. Routing: a later story or follow-up that adds Slack to the allowlist API; until then `dm_access: pairing` dead-ends.
+- Two readers of session keys split `identifiers` by position and do not understand the `:thread:<id>` suffix: `packages/dartclaw_runtime/lib/src/scheduling/delivery.dart` (`_parseDmTarget`, requires two parts) and `packages/dartclaw_runtime/lib/src/runtime/service_wiring_notifications.dart` (`_resolveChannelRoute`, DM arm requires two parts). Effect: scheduled-job announce skips Slack thread sessions (right, since one announcement per contact is wanted), and loop-detection notices find no route for a Slack DM thread session and post at channel top level for a Slack channel thread. Routing: story S05 (threaded-notification capability), ideally through one `SessionKey` decoder rather than a third positional split.
+- A `/bind` slash command with no argument reaches the reserved-command handler as the text `/bind`, which it does not recognise (it matches `/bind ` with an argument; `/unbind` has no such gap), so the command falls through to an agent turn in a channel-level session with no thread. The same text typed on another channel behaves identically. Routing: the reserved-command handler's owner.
+- `SlackChannel.connectionState`, `lastConnectedAt` and `ChannelWiring.slackChannel` have no production reader yet; `dartclaw doctor` (story S02) is their consumer, as the FIS states.
+- The `serve` startup banner, sidebar feature visibility and the settings channel list do not mention Slack; the FIS scopes out a settings page, allowlist API and config serializer for Slack.

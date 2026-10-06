@@ -837,6 +837,196 @@
             "object"
           ]
         },
+        "slack": {
+          "additionalProperties": false,
+          "properties": {
+            "app_token_credential": {
+              "description": "Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. The token itself is never written here. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "bot_token_credential": {
+              "description": "Name of the credentials entry holding the bot token (xoxb-). The token itself is never written here. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "dm_access": {
+              "description": "Who may open a one-to-one Slack conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open",
+                "pairing"
+              ],
+              "type": "string"
+            },
+            "dm_allowlist": {
+              "description": "Approved one-to-one Slack senders by user ID (U… or W…), used while direct access is allowlist-based. Plain IDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "enabled": {
+              "description": "Run the Slack integration. Off leaves its transport unstarted. (restart required)",
+              "type": "boolean"
+            },
+            "group_access": {
+              "description": "Which Slack channels may reach the agent: allowlist checks the listed channels, open accepts any, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open"
+              ],
+              "type": "string"
+            },
+            "group_allowlist": {
+              "description": "Approved Slack channels by channel ID (C… or G…), used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "mention_patterns": {
+              "description": "Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "mode": {
+              "description": "How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token. (restart required)",
+              "enum": [
+                "socket"
+              ],
+              "type": "string"
+            },
+            "require_mention": {
+              "description": "Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention. (restart required)",
+              "type": "boolean"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
         "whatsapp": {
           "additionalProperties": false,
           "properties": {

@@ -340,6 +340,16 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `channels.signal.port` | integer | 1–65535 | Port the signal-cli daemon listens on. Default 8080. (restart required) |
 | `channels.signal.require_mention` | boolean |  | Only act on Signal group messages that name the bot. Off answers every message in the group. (restart required) |
 | `channels.signal.response_prefix` | string |  | Accepted and discarded — Signal applies no outbound prefix. Registered because the shared channel parser reads the key for every channel, so a config carrying it must still load. (restart required) |
+| `channels.slack.app_token_credential` | null or string |  | Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. The token itself is never written here. (restart required) |
+| `channels.slack.bot_token_credential` | null or string |  | Name of the credentials entry holding the bot token (xoxb-). The token itself is never written here. (restart required) |
+| `channels.slack.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Slack conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `channels.slack.dm_allowlist` | array or null |  | Approved one-to-one Slack senders by user ID (U… or W…), used while direct access is allowlist-based. Plain IDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
+| `channels.slack.enabled` | boolean |  | Run the Slack integration. Off leaves its transport unstarted. (restart required) |
+| `channels.slack.group_access` | string | one of "allowlist", "disabled", "open" | Which Slack channels may reach the agent: allowlist checks the listed channels, open accepts any, disabled ignores them. (restart required) |
+| `channels.slack.group_allowlist` | array or null |  | Approved Slack channels by channel ID (C… or G…), used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
+| `channels.slack.mention_patterns` | array |  | Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention. (restart required) |
+| `channels.slack.mode` | string | one of "socket" | How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token. (restart required) |
+| `channels.slack.require_mention` | boolean |  | Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention. (restart required) |
 | `channels.whatsapp.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
 | `channels.whatsapp.dm_allowlist` | array |  | Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.whatsapp.enabled` | boolean |  | Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required) |

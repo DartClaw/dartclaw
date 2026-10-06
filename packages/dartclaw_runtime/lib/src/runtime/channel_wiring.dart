@@ -10,6 +10,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
@@ -27,7 +28,7 @@ import 'task_wiring.dart';
 /// Constructs and exposes channel-layer services.
 ///
 /// Owns channel manager, WhatsApp, Signal, Google Chat (including Space Events),
-/// task notification subscriber, and the dispatch helpers used by channel turns.
+/// Slack, task notification subscriber, and the dispatch helpers used by channel turns.
 class ChannelWiring {
   new({
     required this.config,
@@ -38,13 +39,15 @@ class ChannelWiring {
     required TaskWiring task,
     required String resolvedConfigPath,
     ChannelAgentBinder? agentBinder,
+    GuardAuditLogger? auditLogger,
   }) : _dataDir = dataDir,
        _port = port,
        _eventBus = eventBus,
        _storage = storage,
        _task = task,
        _resolvedConfigPath = resolvedConfigPath,
-       _agentBinder = agentBinder;
+       _agentBinder = agentBinder,
+       _auditLogger = auditLogger;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -54,12 +57,14 @@ class ChannelWiring {
   final TaskWiring _task;
   final String _resolvedConfigPath;
   final ChannelAgentBinder? _agentBinder;
+  final GuardAuditLogger? _auditLogger;
 
   static final _log = Logger('ChannelWiring');
 
   ChannelManager? _channelManager;
   WhatsAppChannel? _whatsAppChannel;
   SignalChannel? _signalChannel;
+  SlackChannel? _slackChannel;
   GoogleChatChannel? _googleChatChannel;
   GoogleChatWebhookHandler? _googleChatWebhookHandler;
   GoogleChatSpaceEventsWiring? _spaceEventsWiring;
@@ -73,6 +78,7 @@ class ChannelWiring {
   ChannelManager? get channelManager => _channelManager;
   WhatsAppChannel? get whatsAppChannel => _whatsAppChannel;
   SignalChannel? get signalChannel => _signalChannel;
+  SlackChannel? get slackChannel => _slackChannel;
   GoogleChatChannel? get googleChatChannel => _googleChatChannel;
   GoogleChatWebhookHandler? get googleChatWebhookHandler => _googleChatWebhookHandler;
   GoogleChatSpaceEventsWiring? get spaceEventsWiring => _spaceEventsWiring;
@@ -106,10 +112,12 @@ class ChannelWiring {
     final googleChatConfig = resolveChannelConfig<GoogleChatConfig>(config, ChannelType.googlechat);
     final whatsAppConfig = resolveChannelConfig<WhatsAppConfig>(config, ChannelType.whatsapp);
     final signalConfig = resolveChannelConfig<SignalConfig>(config, ChannelType.signal);
+    final slackConfig = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
 
     final googleChatEnabled = googleChatConfig.enabled;
     final waEnabled = whatsAppConfig.enabled;
     final sigEnabled = signalConfig.enabled;
+    final slackEnabled = slackConfig.enabled;
 
     final liveScopeConfig = LiveScopeConfig(config.sessions.scopeConfig);
 
@@ -120,11 +128,13 @@ class ChannelWiring {
         ChannelType.whatsapp: whatsAppConfig.groupAllowlist,
         ChannelType.signal: signalConfig.groupAllowlist,
         ChannelType.googlechat: googleChatConfig.groupAllowlist,
+        ChannelType.slack: slackConfig.groupAllowlist,
       },
       dms: {
         ChannelType.whatsapp: whatsAppConfig.dmAllowlist,
         ChannelType.signal: signalConfig.dmAllowlist,
         ChannelType.googlechat: googleChatConfig.dmAllowlist,
+        ChannelType.slack: slackConfig.dmAllowlist,
       },
     );
 
@@ -138,7 +148,7 @@ class ChannelWiring {
       _log.info('ThreadBindingStore initialized (features.thread_binding.enabled)');
     }
 
-    if (waEnabled || sigEnabled || googleChatEnabled) {
+    if (waEnabled || sigEnabled || googleChatEnabled || slackEnabled) {
       // Build per-sender rate limiter from governance config.
       final governance = config.governance;
       final perSenderLimiter = governance.rateLimits.perSender.enabled
@@ -178,6 +188,7 @@ class ChannelWiring {
             replayPausedTurns: (collapsed) =>
                 ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: _channelManager!.queue),
             threadBindingStore: _threadBindingStore,
+            auditLogger: _auditLogger,
           ),
           perSenderRateLimiter: perSenderLimiter,
           isAdmin: governance.isAdmin,
@@ -459,6 +470,32 @@ class ChannelWiring {
         _log.info('Signal channel registered');
       } catch (e) {
         _log.warning('Failed to initialize Signal channel: $e');
+      }
+    }
+
+    if (slackEnabled && _channelManager != null) {
+      try {
+        final botToken = config.credentials[slackConfig.botTokenCredential ?? '']?.secret;
+        final appToken = config.credentials[slackConfig.appTokenCredential ?? '']?.secret;
+        if (botToken == null || botToken.isEmpty || appToken == null || appToken.isEmpty) {
+          throw StateError('channels.slack token credentials do not resolve to a value');
+        }
+        final slackChannel = SlackChannel(
+          config: slackConfig,
+          api: SlackWebApiClient(botToken: botToken, appToken: appToken),
+          dmAccess: DmAccessController(mode: slackConfig.dmAccess, allowlist: slackConfig.dmIds.toSet()),
+          mentionGating: MentionGating(
+            requireMention: slackConfig.requireMention,
+            mentionPatterns: slackConfig.mentionPatterns,
+            ownJid: '',
+          ),
+          channelManager: _channelManager!,
+        );
+        _channelManager!.registerChannel(slackChannel);
+        _slackChannel = slackChannel;
+        _log.info('Slack channel registered');
+      } catch (e) {
+        _log.warning('Failed to initialize Slack channel: $e');
       }
     }
 

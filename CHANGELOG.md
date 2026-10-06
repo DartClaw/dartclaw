@@ -16,6 +16,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ## [0.28.0] - 2026-10-05
 
+### Added
+
+- Slack channel over Socket Mode, in the new `dartclaw_slack` package. Allowlisted DMs and channels talk to a bound agent in threads: a mention opens a thread, each thread is one session, and replies are posted into it as Slack mrkdwn, chunked at 4,000 characters. `/stop`, `/pause`, `/resume`, `/bind` and `/unbind` work as Slack slash commands, answered ephemerally. Configure `channels.slack` with `bot_token_credential` and `app_token_credential`, which name `credentials` entries; a literal token is refused at load, and Slack tokens are masked in logs and audit text. The connection reconnects by itself with backoff up to 60 s.
+- Every refusal of a reserved command to a non-admin sender, on any channel, is now written to the audit log.
+
 ### Fixed
 
 - A full `concurrency.max_parallel_turns` cap no longer crashes the task poll. The task stays queued and starts on a later poll. A daily-budget block or loop abort at admission now fails the task without retry instead of escaping as an unhandled error.

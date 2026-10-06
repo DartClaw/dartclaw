@@ -25,6 +25,8 @@ bool isReservedChannelCommand(String text) => _reservedChannelCommand(text) != n
 /// which skips per-sender rate limiting and pause queueing.
 bool _isCommand(String lower, String command) => lower == command || lower.startsWith('$command ');
 
+const _adminOnlyRefusal = 'Only admin senders can use this command.';
+
 /// Handles reserved channel commands: `/stop`, `/pause`, `/resume`, `/bind`, `/unbind`.
 class ReservedCommandHandler {
   static final _log = Logger('ReservedCommandHandler');
@@ -33,6 +35,11 @@ class ReservedCommandHandler {
   ///
   /// Returns a non-null string when the command was consumed (handled or
   /// rejected). Returns null when the message is not a recognized reserved command.
+  ///
+  /// Every reply carries the id of the message it answers and its thread, so a
+  /// channel can answer a command in the place it was issued. A non-admin
+  /// refusal writes one entry through [auditLogger] before the reply is sent;
+  /// a failing write is logged and never withholds the reply.
   static Future<String?> handle(
     ChannelMessage message,
     Channel channel, {
@@ -44,6 +51,7 @@ class ReservedCommandHandler {
     required PauseController pauseController,
     required Future<void> Function(List<PausedChannelTurn>) replayPausedTurns,
     required ThreadBindingStore? threadBindingStore,
+    GuardAuditLogger? auditLogger,
   }) async {
     final command = _reservedChannelCommand(message.text);
     if (command == null) return null;
@@ -54,8 +62,9 @@ class ReservedCommandHandler {
 
     // Admin check — same for all reserved commands.
     if (!governance.isAdmin(senderId)) {
+      await _auditRefusal(auditLogger, message);
       try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: 'Only admin senders can use this command.'));
+        await channel.sendMessage(recipientId, _replyTo(message, _adminOnlyRefusal));
       } catch (e) {
         _log.warning('Failed to send reserved command rejection to $senderId', e);
       }
@@ -80,7 +89,7 @@ class ReservedCommandHandler {
           : 'No active tasks or turns to stop.';
 
       try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: responseText));
+        await channel.sendMessage(recipientId, _replyTo(message, responseText));
       } catch (e) {
         _log.warning('Failed to send stop confirmation to $senderId', e);
       }
@@ -88,17 +97,11 @@ class ReservedCommandHandler {
     }
 
     if (command == _ReservedChannelCommand.bind) {
-      return _handleBind(
-        message,
-        channel,
-        taskService: taskService,
-        threadBindingStore: threadBindingStore,
-        recipientId: recipientId,
-      );
+      return _handleBind(message, channel, taskService: taskService, threadBindingStore: threadBindingStore);
     }
 
     if (command == _ReservedChannelCommand.unbind) {
-      return _handleUnbind(message, channel, threadBindingStore: threadBindingStore, recipientId: recipientId);
+      return _handleUnbind(message, channel, threadBindingStore: threadBindingStore);
     }
 
     if (command == _ReservedChannelCommand.pause) {
@@ -107,7 +110,7 @@ class ReservedCommandHandler {
           ? 'Agent paused by $senderName. Incoming messages will be queued. Send /resume to continue.'
           : 'Agent is already paused by ${pauseController.pausedBy ?? senderName}.';
       try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: responseText));
+        await channel.sendMessage(recipientId, _replyTo(message, responseText));
       } catch (e) {
         _log.warning('Failed to send pause confirmation to $senderId', e);
       }
@@ -116,7 +119,7 @@ class ReservedCommandHandler {
 
     if (!pauseController.isPaused) {
       try {
-        await channel.sendMessage(recipientId, ChannelResponse(text: 'Agent is not paused.'));
+        await channel.sendMessage(recipientId, _replyTo(message, 'Agent is not paused.'));
       } catch (e) {
         _log.warning('Failed to send resume response to $senderId', e);
       }
@@ -135,7 +138,7 @@ class ReservedCommandHandler {
         : 'Agent resumed by $senderName. $queueDepth queued message${queueDepth == 1 ? '' : 's'} '
               'from $sessionCount session${sessionCount == 1 ? '' : 's'} delivered.';
     try {
-      await channel.sendMessage(recipientId, ChannelResponse(text: responseText));
+      await channel.sendMessage(recipientId, _replyTo(message, responseText));
     } catch (e) {
       _log.warning('Failed to send resume confirmation to $senderId', e);
     }
@@ -147,12 +150,11 @@ class ReservedCommandHandler {
     Channel channel, {
     required TaskService taskService,
     required ThreadBindingStore? threadBindingStore,
-    required String recipientId,
   }) async {
     if (threadBindingStore == null) {
       await _sendResponse(
         channel,
-        recipientId,
+        message,
         'Thread binding is not enabled. Set features.thread_binding.enabled: true.',
       );
       return 'rejected';
@@ -160,26 +162,26 @@ class ReservedCommandHandler {
 
     final parts = message.text.trim().split(RegExp(r'\s+'));
     if (parts.length < 2 || parts[1].trim().isEmpty) {
-      await _sendResponse(channel, recipientId, 'Usage: /bind <taskId>');
+      await _sendResponse(channel, message, 'Usage: /bind <taskId>');
       return 'rejected';
     }
     final taskId = parts[1].trim();
 
     final threadId = extractThreadId(message);
     if (threadId == null) {
-      await _sendResponse(channel, recipientId, 'Cannot bind — this message is not in a thread.');
+      await _sendResponse(channel, message, 'Cannot bind — this message is not in a thread.');
       return 'rejected';
     }
 
     final task = await taskService.get(taskId);
     if (task == null) {
-      await _sendResponse(channel, recipientId, 'Task $taskId not found.');
+      await _sendResponse(channel, message, 'Task $taskId not found.');
       return 'rejected';
     }
     if (task.status.terminal) {
       await _sendResponse(
         channel,
-        recipientId,
+        message,
         'Task ${task.id} is ${task.status.name} — cannot bind to a completed task.',
       );
       return 'rejected';
@@ -189,10 +191,10 @@ class ReservedCommandHandler {
     final existing = threadBindingStore.lookupByThread(channelType, threadId);
     if (existing != null) {
       if (existing.taskId == task.id) {
-        await _sendResponse(channel, recipientId, 'Already bound to task ${task.id}.');
+        await _sendResponse(channel, message, 'Already bound to task ${task.id}.');
         return 'executed';
       }
-      await _sendResponse(channel, recipientId, 'Already bound to task ${existing.taskId} — /unbind first.');
+      await _sendResponse(channel, message, 'Already bound to task ${existing.taskId} — /unbind first.');
       return 'rejected';
     }
 
@@ -208,7 +210,7 @@ class ReservedCommandHandler {
       ),
     );
 
-    await _sendResponse(channel, recipientId, 'Bound to task ${task.id}. Messages here now route to the task session.');
+    await _sendResponse(channel, message, 'Bound to task ${task.id}. Messages here now route to the task session.');
     return 'executed';
   }
 
@@ -216,39 +218,67 @@ class ReservedCommandHandler {
     ChannelMessage message,
     Channel channel, {
     required ThreadBindingStore? threadBindingStore,
-    required String recipientId,
   }) async {
     if (threadBindingStore == null) {
-      await _sendResponse(channel, recipientId, 'Thread binding is not enabled.');
+      await _sendResponse(channel, message, 'Thread binding is not enabled.');
       return 'rejected';
     }
 
     final threadId = extractThreadId(message);
     if (threadId == null) {
-      await _sendResponse(channel, recipientId, 'Cannot unbind — this message is not in a thread.');
+      await _sendResponse(channel, message, 'Cannot unbind — this message is not in a thread.');
       return 'rejected';
     }
 
     final existing = threadBindingStore.lookupByThread(message.channelType.name, threadId);
     if (existing == null) {
-      await _sendResponse(channel, recipientId, 'No binding found for this thread.');
+      await _sendResponse(channel, message, 'No binding found for this thread.');
       return 'executed';
     }
 
     await threadBindingStore.delete(message.channelType.name, threadId);
     await _sendResponse(
       channel,
-      recipientId,
+      message,
       'Unbound from task ${existing.taskId}. Messages here return to normal routing.',
     );
     return 'executed';
   }
 
-  static Future<void> _sendResponse(Channel channel, String recipientId, String text) async {
+  static ChannelResponse _replyTo(ChannelMessage message, String text) => ChannelResponse(
+    text: text,
+    metadata: {sourceMessageIdMetadataKey: message.id, threadIdMetadataKey: ?message.threadId},
+  );
+
+  static Future<void> _sendResponse(Channel channel, ChannelMessage message, String text) async {
+    final recipientId = resolveRecipientId(message);
     try {
-      await channel.sendMessage(recipientId, ChannelResponse(text: text));
+      await channel.sendMessage(recipientId, _replyTo(message, text));
     } catch (e) {
       _log.warning('Failed to send reserved command response to $recipientId', e);
+    }
+  }
+
+  static Future<void> _auditRefusal(GuardAuditLogger? auditLogger, ChannelMessage message) async {
+    if (auditLogger == null) return;
+    final senderId = message.senderJid;
+    try {
+      await auditLogger.writeEntry(
+        AuditEntry(
+          timestamp: DateTime.now(),
+          guard: 'ReservedCommand',
+          hook: 'channel_command',
+          verdict: 'block',
+          reason: _adminOnlyRefusal,
+          channel: message.channelType.name,
+          peerId: senderId,
+          tool: message.text.trim().split(RegExp(r'\s+')).first.toLowerCase(),
+          decision: 'deny',
+          principal: senderId,
+        ),
+      );
+    } catch (e) {
+      _log.warning('Failed to audit reserved command refusal for $senderId', e);
     }
   }
 

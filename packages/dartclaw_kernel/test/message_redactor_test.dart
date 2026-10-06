@@ -121,6 +121,34 @@ void main() {
       }
     });
 
+    group('Slack tokens', () {
+      test('bot, user and app-level tokens are masked inside surrounding text', () {
+        const botSecret = 'AbCdEfGhIjKlMnOpQrStUvWx';
+        const userSecret = 'ZyXwVuTsRqPoNmLkJiHgFeDc';
+        const appSecret = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4';
+        final result = redactor.redact(
+          'auth failed for xoxb-1111111111-2222222222-$botSecret then xoxp-3333-4444-$userSecret '
+          'and xapp-1-A0123456789-5555555555-$appSecret, retrying',
+        );
+
+        for (final secret in [botSecret, userSecret, appSecret]) {
+          expect(result, isNot(contains(secret)));
+        }
+        expect(result, startsWith('auth failed for '));
+        expect(result, endsWith(', retrying'));
+      });
+
+      test('a Socket Mode URL is masked because its ticket authorises a connection', () {
+        final result = redactor.redact('connecting to wss://wss-primary.slack.com/link/?ticket=abc123secret&app_id=A1');
+
+        expect(result, isNot(contains('abc123secret')));
+      });
+
+      test('ordinary words that merely start with xox are left alone', () {
+        expect(redactor.redact('the xox game, xoxo'), 'the xox game, xoxo');
+      });
+    });
+
     group('DSN userinfo', () {
       test('redacts URL, missing-scheme, keyword, environment, and JSON forms', () {
         final cases = <({String input, String expected})>[

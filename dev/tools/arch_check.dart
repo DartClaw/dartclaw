@@ -121,6 +121,11 @@ import 'loc_target.dart';
 // Reviewed necessity, 2026-09-26 (ADR-033): runtime 75596 -> 77328
 // (measured 75828 after S13 general/project context). The context authority,
 // API and projection growth remains after reducing oversized service and test files.
+// Package admission, 2026-10-06 (ADR-056 amendment, 0.28): dartclaw_slack 1257
+// (measured). The adapter, Web API client, Socket Mode client and envelope
+// dispatch are the whole package; later Slack stories raise it with their own
+// reviewed-necessity line. The shared thread seam added to core, kernel and
+// runtime stays inside their bands.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -133,14 +138,14 @@ const _libLocCeilings = <String, int>{
   'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
+  'dartclaw_slack': 1257,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25631,
 };
-// 2026-09-09: raised 12 -> 13 for the ADR-050 hybrid-search package. The
-// ceiling equals the shipped package count, with no spare slot for an
-// unreviewed boundary. `dartclaw_bridge` counts as its own package.
-const _workspacePackageCeiling = 13;
+// Tracks the approved package inventory (ADR-056), including Slack and bridge.
+// Update with approved additions; this guards unrecorded packages, not growth.
+const _workspacePackageCeiling = 14;
 
 final class _CheckResult {
   final String name;

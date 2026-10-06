@@ -107,6 +107,14 @@ class _FakeGoogleChatChannel extends Channel {
   }
 }
 
+class _Exhausted implements BudgetExhaustedError, Exception {
+  @override
+  final int tokensUsed = 100;
+
+  @override
+  final int budget = 100;
+}
+
 ChannelMessage _msg({String sender = 'user@test', String text = 'hello', String? groupJid}) {
   return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: sender, text: text, groupJid: groupJid);
 }
@@ -823,6 +831,88 @@ void main() {
 
       expect(googleChatChannel.sentMessages, hasLength(1));
       expect(googleChatChannel.sentMessages.single.$2, startsWith('*@Alice Smith* – '));
+    });
+
+    group('thread metadata on replies', () {
+      ChannelMessage threaded({String text = 'hi'}) => ChannelMessage(
+        channelType: ChannelType.whatsapp,
+        senderJid: 'user@test',
+        text: text,
+        metadata: const {threadIdMetadataKey: 't1'},
+      );
+
+      MessageQueue queueWith(Future<String> Function() turn, {int maxDepth = 100}) {
+        final queue = MessageQueue(
+          debounceWindow: Duration.zero,
+          maxQueueDepth: maxDepth,
+          defaultRetryPolicy: const RetryPolicy(maxAttempts: 1),
+          random: Random(42),
+          dispatcher: (
+            sessionKey,
+            message, {
+            required ChannelType channelType,
+            String? senderJid,
+            String? senderDisplayName,
+            String? groupJid,
+          }) => turn(),
+        );
+        addTearDown(queue.dispose);
+        return queue;
+      }
+
+      test('the answer carries the thread beside the source message id, and only when the message had one', () async {
+        final queue = queueWith(() async => 'answer');
+
+        final withThread = threaded();
+        queue.enqueue(withThread, channel, 'session-1');
+        queue.enqueue(_msg(sender: 'other@test'), channel, 'session-2');
+        await pumpEventQueue(times: 100);
+
+        final replies = {
+          for (final (_, response) in channel.sent) response.metadata[sourceMessageIdMetadataKey]: response,
+        };
+        expect(replies[withThread.id]!.metadata[threadIdMetadataKey], 't1');
+        final unthreaded = replies.entries.singleWhere((entry) => entry.key != withThread.id).value;
+        expect(unthreaded.metadata, isNot(contains(threadIdMetadataKey)));
+      });
+
+      test('the apology after a failed turn carries the thread', () async {
+        final queue = queueWith(() async => throw Exception('boom'));
+
+        queue.enqueue(threaded(), channel, 'session-1');
+        await pumpEventQueue(times: 100);
+
+        expect(channel.sent.single.$2.text, contains('unable to process'));
+        expect(channel.sent.single.$2.metadata[threadIdMetadataKey], 't1');
+      });
+
+      test('the budget rejection carries the thread', () async {
+        final queue = queueWith(() async => throw _Exhausted());
+
+        queue.enqueue(threaded(), channel, 'session-1');
+        await pumpEventQueue(times: 100);
+
+        expect(channel.sent.single.$2.text, contains('budget exhausted'));
+        expect(channel.sent.single.$2.metadata[threadIdMetadataKey], 't1');
+      });
+
+      test('the busy reply carries the thread', () async {
+        final gate = Completer<String>();
+        final queue = queueWith(() => gate.future, maxDepth: 1);
+        addTearDown(() {
+          if (!gate.isCompleted) gate.complete('');
+        });
+
+        queue.enqueue(threaded(text: '1'), channel, 'session-1');
+        await pumpEventQueue(times: 50);
+        queue.enqueue(threaded(text: '2'), channel, 'session-1');
+        await pumpEventQueue(times: 50);
+        queue.enqueue(threaded(text: '3'), channel, 'session-1');
+        await pumpEventQueue(times: 50);
+
+        final busy = channel.sent.where((sent) => sent.$2.text.contains('busy')).single.$2;
+        expect(busy.metadata[threadIdMetadataKey], 't1');
+      });
     });
   });
 

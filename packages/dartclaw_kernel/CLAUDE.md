@@ -76,7 +76,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   omits both workspace fields; a partial pair is malformed. `Session.titleRevision`, `titleProvenance`, and
   `automaticTitleAttempted` are the persisted title race authority; manual and newer revisions beat automatic
   generation.
-- `SessionKey` factories encode components. Callers never construct encoded session identifiers by hand.
+- `SessionKey` factories encode components. Callers never construct encoded session identifiers by hand. The DM and group factories take an optional `threadId`, appended as `:thread:<encoded id>`, so a channel thread is its own session.
 - Domain-specific models stay with their owning package. A type sinks here only when independent packages need one and
   no lower owner exists.
 

@@ -124,10 +124,14 @@ class ChannelManager {
   /// factory; per-channel overrides are resolved via [SessionScopeConfig.forChannel].
   /// The key's agent component is the row's `agent`, else `main`, so a bound
   /// row opens that agent's session under the same scope rule.
+  ///
+  /// A message carrying [threadIdMetadataKey] adds that thread to the key under
+  /// every scope, so each thread is its own session.
   String deriveSessionKey(ChannelMessage message) {
     final channelType = message.channelType.name;
     final resolved = liveScopeConfig.current.forChannel(channelType);
     final agentId = resolveRow(message)?.agent ?? 'main';
+    final threadId = message.threadId;
 
     if (message.groupJid != null) {
       final groupScope = resolved.groupScope ?? liveScopeConfig.current.groupScope;
@@ -136,24 +140,27 @@ class ChannelManager {
           agentId: agentId,
           channelType: channelType,
           groupId: message.groupJid!,
+          threadId: threadId,
         ),
         GroupScope.perMember => SessionKey.groupPerMember(
           agentId: agentId,
           channelType: channelType,
           groupId: message.groupJid!,
           peerId: message.senderJid,
+          threadId: threadId,
         ),
       };
     }
 
     final dmScope = resolved.dmScope ?? liveScopeConfig.current.dmScope;
     return switch (dmScope) {
-      DmScope.shared => SessionKey.dmShared(agentId: agentId),
-      DmScope.perContact => SessionKey.dmPerContact(agentId: agentId, peerId: message.senderJid),
+      DmScope.shared => SessionKey.dmShared(agentId: agentId, threadId: threadId),
+      DmScope.perContact => SessionKey.dmPerContact(agentId: agentId, peerId: message.senderJid, threadId: threadId),
       DmScope.perChannelContact => SessionKey.dmPerChannelContact(
         agentId: agentId,
         channelType: channelType,
         peerId: message.senderJid,
+        threadId: threadId,
       ),
     };
   }
@@ -213,7 +220,9 @@ class ChannelManager {
     final text = queued
         ? 'Agent is paused by $adminName. Your message has been queued and will be delivered on resume.'
         : 'Agent is paused. Queue is full — message could not be queued.';
-    channel.sendMessage(recipientId, ChannelResponse(text: text)).catchError((Object e) {
+    final threadId = message.threadId;
+    final response = ChannelResponse(text: text, metadata: {threadIdMetadataKey: ?threadId});
+    channel.sendMessage(recipientId, response).catchError((Object e) {
       _log.warning('Failed to send pause acknowledgment to ${message.senderJid}', e);
     });
   }

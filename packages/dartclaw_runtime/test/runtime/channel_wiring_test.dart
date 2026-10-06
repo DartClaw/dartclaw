@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast;
@@ -876,6 +877,167 @@ agent:
 
     expect(config.warnings.where((w) => w.contains('Invalid type for signal.port')), hasLength(1));
     expect(config.warnings.where((w) => w.contains('Invalid type for whatsapp.gowa_port')), hasLength(1));
+  });
+
+  group('Slack and the reserved-command audit', () {
+    const slackCredentials = '''
+credentials:
+  slack_bot:
+    api_key: \${SLACK_BOT_TOKEN}
+  slack_app:
+    api_key: \${SLACK_APP_TOKEN}
+''';
+    const slackSection = '''
+  slack:
+    enabled: true
+    bot_token_credential: slack_bot
+    app_token_credential: slack_app
+    dm_access: allowlist
+    group_access: allowlist
+    group_allowlist:
+      - id: C0123ABC
+        agent: ana
+      - C0456DEF
+''';
+    const agents = '''
+agent:
+  agents:
+    ana:
+      description: Ana
+      prompt: You are Ana.
+      provider: claude
+      execution: host
+''';
+
+    Future<({ChannelWiring channels, _RecordingTurnManager turns})> wireChannels(
+      String yaml, {
+      GuardAuditLogger? auditLogger,
+    }) async {
+      final config = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: (path) => path == 'dartclaw.yaml' ? 'data_dir: ${tempDir.path}\n$yaml' : null,
+        env: {'HOME': tempDir.path, 'SLACK_BOT_TOKEN': 'xoxb-1-2-bot', 'SLACK_APP_TOKEN': 'xapp-1-2-app'},
+      );
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+      final task = TaskWiring(
+        config: config,
+        dataDir: config.server.dataDir,
+        runtimeCwd: tempDir.path,
+        eventBus: eventBus,
+        storage: storage,
+      );
+      await task.wirePreServer();
+      final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+      final turns = _RecordingTurnManager();
+      addTearDown(turns.executions.dispose);
+      final channels = ChannelWiring(
+        config: config,
+        dataDir: config.server.dataDir,
+        port: 0,
+        eventBus: eventBus,
+        storage: storage,
+        task: task,
+        resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
+        agentBinder: config.agent.definitions.isEmpty
+            ? null
+            : ChannelAgentBinder(
+                agents: {for (final agent in config.agent.definitions) agent.id: agent},
+                policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {}),
+                defaultProviderId: 'claude',
+                behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
+              ),
+        auditLogger: auditLogger,
+      );
+      await channels.wire(
+        serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
+        turnManagerGetter: () => turns,
+        sseBroadcast: SseBroadcast(),
+        messageRedactor: null,
+        healthService: HealthService(
+          worker: FakeAgentHarness(),
+          searchDbPath: config.searchDbPath,
+          sessionsDir: config.sessionsDir,
+          tasksDir: p.join(config.server.dataDir, 'tasks'),
+        ),
+        configNotifier: ConfigNotifier(config),
+      );
+      addTearDown(() => channels.channelManager?.queue.dispose());
+      return (channels: channels, turns: turns);
+    }
+
+    test('an enabled Slack section registers the channel with the manager', () async {
+      final wired = await wireChannels(
+        '$slackCredentials${'channels:\n  debounce_window_ms: 0\n$slackSection'}$agents',
+      );
+
+      final slack = wired.channels.slackChannel!;
+      expect(wired.channels.channelManager!.channels, contains(slack));
+      expect(slack.type, ChannelType.slack);
+      expect(wired.channels.channelGroupConfigs.map((c) => c.channelType), isNot(contains('slack')));
+    });
+
+    test('a disabled section registers nothing, and no channel manager is built for it alone', () async {
+      final wired = await wireChannels('channels:\n  slack:\n    enabled: false\n');
+
+      expect(wired.channels.slackChannel, isNull);
+      expect(wired.channels.channelManager, isNull);
+    });
+
+    test('a bound allowlist row runs on the bound dispatch and an unbound row on the primary', () async {
+      final wired = await wireChannels(
+        '$slackCredentials${'channels:\n  debounce_window_ms: 0\n$slackSection'}$agents',
+      );
+      final manager = wired.channels.channelManager!;
+      final replies = FakeChannel(type: ChannelType.slack, ownsAllJids: true);
+
+      ChannelMessage inChannel(String channel) => ChannelMessage(
+        channelType: ChannelType.slack,
+        senderJid: 'U1',
+        groupJid: channel,
+        text: 'hello',
+        metadata: {'spaceName': channel, threadIdMetadataKey: '1.5'},
+      );
+      final bound = inChannel('C0123ABC');
+      final unbound = inChannel('C0456DEF');
+
+      expect(manager.deriveSessionKey(bound), startsWith('agent:ana:group:slack:C0123ABC'));
+      expect(manager.deriveSessionKey(unbound), startsWith('agent:main:group:slack:C0456DEF'));
+      manager.queue.enqueue(bound, replies, manager.deriveSessionKey(bound));
+      manager.queue.enqueue(unbound, replies, manager.deriveSessionKey(unbound));
+      while (wired.turns.executed.isEmpty || wired.turns.started.isEmpty) {
+        await pumpEventQueue();
+      }
+
+      expect(wired.turns.reserved.single.agentName, 'ana', reason: 'the logical-agent surface, never the primary lane');
+      expect(wired.turns.started.single.promptScope, PromptScope.primary);
+    });
+
+    test('a refused reserved command reaches the audit entry through the wired channel manager', () async {
+      final auditDir = Directory(p.join(tempDir.path, 'audit'))..createSync();
+      final auditLogger = GuardAuditLogger(dataDir: auditDir.path);
+      final wired = await wireChannels('''
+governance:
+  admin_senders: ["+46700000001"]
+channels:
+  signal:
+    enabled: true
+''', auditLogger: auditLogger);
+
+      wired.channels.channelManager!.handleInboundMessage(
+        ChannelMessage(channelType: ChannelType.signal, senderJid: '+46700000999', text: '/stop now'),
+      );
+      await pumpEventQueue(times: 200);
+      await auditLogger.flush();
+
+      final entries = File(auditLogger.auditFilePath).readAsLinesSync().map(jsonDecode).cast<Map<String, dynamic>>();
+      expect(entries, hasLength(1));
+      expect(entries.single, containsPair('guard', 'ReservedCommand'));
+      expect(entries.single, containsPair('tool', '/stop'));
+      expect(entries.single, containsPair('channel', 'signal'));
+      expect(entries.single, containsPair('peerId', '+46700000999'));
+    });
   });
 }
 

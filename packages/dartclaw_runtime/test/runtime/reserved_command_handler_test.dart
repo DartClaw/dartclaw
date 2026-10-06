@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -349,4 +350,223 @@ void main() {
       expect(channel.sentMessages.first.$2.text, contains('not enabled'));
     });
   });
+
+  group('replies carry where they belong', () {
+    ChannelMessage slackMessage(String text, {String? thread}) => ChannelMessage(
+      id: 'C1:1.5',
+      channelType: ChannelType.slack,
+      senderJid: 'U1',
+      groupJid: 'C1',
+      text: text,
+      metadata: {'spaceName': 'C1', threadIdMetadataKey: ?thread},
+    );
+
+    test('every reply names the message it answers, and the thread when it came from one', () async {
+      for (final text in ['stop!', '/pause', '/resume']) {
+        channel.sentMessages.clear();
+
+        await handle(slackMessage(text, thread: '1.0'));
+
+        final response = channel.sentMessages.single.$2;
+        expect(response.metadata[sourceMessageIdMetadataKey], 'C1:1.5', reason: text);
+        expect(response.metadata[threadIdMetadataKey], '1.0', reason: text);
+      }
+    });
+
+    test('a message outside a thread yields a reply with no thread key', () async {
+      await handle(slackMessage('/pause'));
+
+      expect(channel.sentMessages.single.$2.metadata, {sourceMessageIdMetadataKey: 'C1:1.5'});
+    });
+
+    test('/bind and /unbind refusals reach the same place, since a slash payload has no thread', () async {
+      final store = await createBindingStore();
+
+      await handle(slackMessage('/bind task-1'), threadBindingStore: store);
+      await handle(slackMessage('/unbind'), threadBindingStore: store);
+
+      expect(channel.sentMessages.map((sent) => sent.$2.text), [
+        'Cannot bind — this message is not in a thread.',
+        'Cannot unbind — this message is not in a thread.',
+      ]);
+      for (final (_, response) in channel.sentMessages) {
+        expect(response.metadata[sourceMessageIdMetadataKey], 'C1:1.5');
+      }
+    });
+
+    test('a non-admin refusal carries them as well', () async {
+      await handle(
+        slackMessage('/stop', thread: '1.0'),
+        governance: GovernanceConfig(adminSenders: ['admin']),
+      );
+
+      expect(channel.sentMessages.single.$2.metadata, {
+        sourceMessageIdMetadataKey: 'C1:1.5',
+        threadIdMetadataKey: '1.0',
+      });
+    });
+  });
+
+  group('refusal audit', () {
+    final governance = GovernanceConfig(adminSenders: ['admin@s.whatsapp.net', 'UADMIN']);
+    const commands = ['/stop', '/pause', '/resume', '/bind task-1', '/unbind', 'stop!'];
+
+    late Directory auditDir;
+    late GuardAuditLogger auditLogger;
+
+    setUp(() async {
+      auditDir = await Directory.systemTemp.createTemp('reserved-audit-test-');
+      addTearDown(() => auditDir.delete(recursive: true));
+      auditLogger = GuardAuditLogger(dataDir: auditDir.path);
+    });
+
+    Future<String?> handleAudited(ChannelMessage message, {GuardAuditLogger? logger}) => ReservedCommandHandler.handle(
+      message,
+      channel,
+      governance: governance,
+      turnManagerGetter: () => FakeTurnManager(),
+      taskService: taskService,
+      eventBus: eventBus,
+      sseBroadcast: SseBroadcast(),
+      pauseController: pauseController,
+      replayPausedTurns: (_) async {},
+      threadBindingStore: null,
+      auditLogger: logger ?? auditLogger,
+    );
+
+    Future<List<Map<String, dynamic>>> entries() async {
+      await auditLogger.flush();
+      final file = File(auditLogger.auditFilePath);
+      if (!file.existsSync()) return const [];
+      return [
+        for (final line in file.readAsLinesSync())
+          if (line.isNotEmpty) jsonDecode(line) as Map<String, dynamic>,
+      ];
+    }
+
+    ChannelMessage from(ChannelType type, String sender, String text) => ChannelMessage(
+      channelType: type,
+      senderJid: sender,
+      groupJid: type == ChannelType.slack ? 'C1' : null,
+      text: text,
+    );
+
+    for (final (type, sender, admin) in [
+      (ChannelType.slack, 'U9', 'UADMIN'),
+      (ChannelType.whatsapp, 'user@s.whatsapp.net', 'admin@s.whatsapp.net'),
+    ]) {
+      test('every refused command on ${type.name} writes exactly one entry, and the admin writes none', () async {
+        for (final command in commands) {
+          expect(await handleAudited(from(type, sender, command)), 'rejected', reason: command);
+        }
+        expect(await handleAudited(from(type, admin, '/pause')), 'executed');
+
+        final written = await entries();
+        expect(written, hasLength(commands.length));
+        for (final (index, entry) in written.indexed) {
+          expect(entry['guard'], 'ReservedCommand');
+          expect(entry['hook'], 'channel_command');
+          expect(entry['verdict'], 'block');
+          expect(entry['decision'], 'deny');
+          expect(entry['tool'], commands[index].split(' ').first, reason: 'the command without its arguments');
+          expect(entry['channel'], type.name);
+          expect(entry['peerId'], sender);
+          expect(entry['principal'], sender);
+          expect(entry['reason'], 'Only admin senders can use this command.');
+        }
+        expect(channel.sentMessages.where((sent) => sent.$2.text.contains('Only admin senders')), hasLength(6));
+      });
+    }
+
+    test('arguments never reach the audit entry', () async {
+      await handleAudited(from(ChannelType.slack, 'U9', '/bind secret-task-id'));
+
+      expect((await entries()).single.toString(), isNot(contains('secret-task-id')));
+    });
+
+    test('a failing audit write is logged and the refusal reply is still sent', () async {
+      final failing = _FailingAuditLogger();
+
+      final result = await handleAudited(from(ChannelType.slack, 'U9', '/stop'), logger: failing);
+
+      expect(result, 'rejected');
+      expect(failing.attempts, 1);
+      expect(channel.sentMessages.single.$2.text, contains('Only admin senders'));
+    });
+
+    test('the audit entry is written before the refusal is sent', () async {
+      final order = <String>[];
+      final ordered = _OrderRecordingAuditLogger(order);
+      final recordingChannel = _OrderRecordingChannel(order);
+
+      await ReservedCommandHandler.handle(
+        from(ChannelType.slack, 'U9', '/stop'),
+        recordingChannel,
+        governance: governance,
+        turnManagerGetter: () => FakeTurnManager(),
+        taskService: taskService,
+        eventBus: eventBus,
+        sseBroadcast: SseBroadcast(),
+        pauseController: pauseController,
+        replayPausedTurns: (_) async {},
+        threadBindingStore: null,
+        auditLogger: ordered,
+      );
+
+      expect(order, ['audit', 'send']);
+    });
+
+    test('with no logger the refusal behaves as before', () async {
+      final result = await ReservedCommandHandler.handle(
+        from(ChannelType.slack, 'U9', '/stop'),
+        channel,
+        governance: governance,
+        turnManagerGetter: () => FakeTurnManager(),
+        taskService: taskService,
+        eventBus: eventBus,
+        sseBroadcast: SseBroadcast(),
+        pauseController: pauseController,
+        replayPausedTurns: (_) async {},
+        threadBindingStore: null,
+      );
+
+      expect(result, 'rejected');
+      expect(channel.sentMessages, hasLength(1));
+    });
+  });
+}
+
+class _FailingAuditLogger extends GuardAuditLogger {
+  new() : super();
+
+  int attempts = 0;
+
+  @override
+  Future<void> writeEntry(AuditEntry entry) async {
+    attempts++;
+    throw const FileSystemException('disk full');
+  }
+}
+
+class _OrderRecordingAuditLogger extends GuardAuditLogger {
+  new(this.order) : super();
+
+  final List<String> order;
+
+  @override
+  Future<void> writeEntry(AuditEntry entry) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    order.add('audit');
+  }
+}
+
+class _OrderRecordingChannel extends FakeChannel {
+  new(this.order) : super(ownsAllJids: true);
+
+  final List<String> order;
+
+  @override
+  Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
+    order.add('send');
+  }
 }

@@ -1024,6 +1024,7 @@ class _RuntimeAssembly {
       task: task,
       resolvedConfigPath: resolvedConfigPath,
       agentBinder: ChannelAgentBinder.forHarness(harness),
+      auditLogger: ctx.auditLogger,
     );
     await channel.wire(
       serverRefGetter: ctx.composedServerGetter,

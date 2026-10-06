@@ -1,20 +1,21 @@
 # DartClaw Channel Messaging Architecture
 
-How inbound messages from WhatsApp, Signal, Google Chat, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
+How inbound messages from WhatsApp, Signal, Google Chat, Slack, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.28 turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
+**Current through**: 0.28 Slack adapter over Socket Mode (thread-in-session-key, ephemeral reserved-command replies, reserved-command refusal audit), turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
 
 ---
 
 ## 1. Overview and Design Philosophy
 
-DartClaw supports four messaging channels as entry points for human-to-agent interaction:
+DartClaw supports five messaging channels as entry points for human-to-agent interaction:
 
 | Channel | Transport | Sidecar / Integration | Package |
 |---------|-----------|----------------------|---------|
 | **WhatsApp** | GOWA webhook | Go binary (`gowa`) | `dartclaw_whatsapp` |
 | **Signal** | signal-cli SSE | External binary (`signal-cli`) | `dartclaw_signal` |
 | **Google Chat** | REST API + Pub/Sub | Direct HTTP (no sidecar) | `dartclaw_google_chat` |
+| **Slack** | Socket Mode WebSocket + Web API | Direct HTTP/WebSocket (no sidecar) | `dartclaw_slack` |
 | **Web UI** | Direct HTTP / SSE | Built into `dartclaw_runtime` | `dartclaw_runtime` |
 
 Three principles govern channel design:
@@ -23,7 +24,7 @@ Three principles govern channel design:
 
 2. **Outpost pattern** -- WhatsApp and Signal use external binaries (GOWA and signal-cli) managed as subprocesses. No shared runtime, no dependency contamination. The Dart host communicates with these sidecars via their native REST/RPC APIs.
 
-3. **Core abstractions, platform packages** -- The abstract `Channel` base class, `ChannelManager`, `MessageQueue`, thread binding, and the `ChannelTaskBridge` live in `dartclaw_core`. Per-platform adapters (`WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`) live in dedicated packages that depend on core. The Web channel is served directly by `dartclaw_runtime`.
+3. **Core abstractions, platform packages** -- The abstract `Channel` base class, `ChannelManager`, `MessageQueue`, thread binding, and the `ChannelTaskBridge` live in `dartclaw_core`. Per-platform adapters (`WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`, `SlackChannel`) live in dedicated packages that depend on core. The Web channel is served directly by `dartclaw_runtime`.
 
 
 ---
@@ -36,7 +37,7 @@ All channel types are defined in `dartclaw_kernel`:
 
 ```
 // packages/dartclaw_kernel/lib/src/channel_type.dart
-enum ChannelType { web, whatsapp, signal, googlechat }
+enum ChannelType { web, whatsapp, signal, googlechat, slack }
 ```
 
 ### 2.2 ChannelMessage (Normalized Inbound)
@@ -61,8 +62,11 @@ Key metadata keys by channel:
 - **Google Chat**: `spaceName`, `spaceType`, `senderDisplayName`, `senderAvatarUrl`, `messageName`, `messageCreateTime`, `threadName`
 - **WhatsApp**: `pushname`, `repliedToId`
 - **Signal**: `sourceName`, `sourceUuid`
+- **Slack**: `spaceName` (the conversation ID, `D…` for a DM), `threadId`, `senderDisplayName`, `messageTs`
 
-The `senderDisplayName` getter checks metadata keys in priority order: `senderDisplayName` (Google Chat), `pushname` (WhatsApp), `sourceName` (Signal).
+The `senderDisplayName` getter checks metadata keys in priority order: `senderDisplayName` (Google Chat, Slack), `pushname` (WhatsApp), `sourceName` (Signal).
+
+`threadId` (`threadIdMetadataKey` in core) is the one platform-neutral thread key. An adapter that has threads stamps it on the inbound message; `ChannelManager.deriveSessionKey` adds it to the DM and group session key under every scope, so each thread is its own session; and `MessageQueue`, the reserved-command handler and the bridge's rate-limit and pause replies copy it onto every reply to that message, so the adapter posts the reply into the same thread. A message without it derives the key it always did and its replies carry no new metadata. It is distinct from `threadName`, the Google Chat key thread bindings are built on.
 
 ### 2.3 ChannelResponse (Outbound)
 
@@ -104,6 +108,7 @@ abstract class Channel {
 - **WhatsApp**: ends with `@s.whatsapp.net` or `@g.us`
 - **Signal**: strict E.164 or case-insensitive UUIDv4 identifiers are direct recipients; every other outbound identifier is a group ID
 - **Google Chat**: starts with `spaces/`
+- **Slack**: a user, channel or DM ID, `[UWCGD][A-Z0-9]+`; `ChannelManager` also tries `metadata['spaceName']`, so the DM channel ID finds the adapter
 
 ### 2.5 ChannelManager
 
@@ -130,7 +135,7 @@ class ChannelManager {
 
 ## 3. Inbound Message Pipeline
 
-The full inbound flow from raw platform event to agent turn. Access control runs on every path: the WhatsApp webhook, Signal SSE and the Google Chat webhook run the gate in full, and the Google Chat Space Events Pub/Sub dispatch runs it with the mention stage off (un-mentioned space traffic is that feature's purpose) before reaching `ChannelManager.handleInboundMessage`:
+The full inbound flow from raw platform event to agent turn. Access control runs on every path: the WhatsApp webhook, Signal SSE, the Slack envelope dispatch and the Google Chat webhook run the gate in full, and the Google Chat Space Events Pub/Sub dispatch runs it with the mention stage off (un-mentioned space traffic is that feature's purpose) before reaching `ChannelManager.handleInboundMessage`:
 
 ```
                      Webhook POST / Pub/Sub Pull / SSE Event
@@ -219,11 +224,11 @@ The full inbound flow from raw platform event to agent turn. Access control runs
 
 ### 3.1 Step-by-Step
 
-1. **Raw event arrives** -- Platform-specific: webhook POST (WhatsApp, Google Chat), Pub/Sub pull (Google Chat Space Events), SSE stream event (Signal).
+1. **Raw event arrives** -- Platform-specific: webhook POST (WhatsApp, Google Chat), Pub/Sub pull (Google Chat Space Events), SSE stream event (Signal), Socket Mode envelope (Slack).
 
 2. **Channel adapter normalizes** -- Each channel implementation parses the raw payload and produces a `ChannelMessage`. Bot-originated messages are filtered at this stage.
 
-3. **Access control** -- WhatsApp, Signal and the Google Chat webhook all run the same `ChannelInboundGate.evaluate` in `dartclaw_core`: DM messages pass through `DmAccessController` (modes: `pairing`, `allowlist`, `open`, `disabled`), group messages pass through `GroupAccessMode` checks, and group messages are then checked against `MentionGating`. The gate is pure -- it returns a `ChannelInboundDecision` naming the admitting or dropping stage, and each channel keeps its own drop logging and pairing effect (WhatsApp and Signal log, Google Chat posts a pairing code into the space). An absent `DmAccessController` or `MentionGating` admits at that stage rather than denying. The Google Chat Space Events Pub/Sub dispatch (§7) runs the same gate with the mention stage off and acks a refused message rather than nacking it.
+3. **Access control** -- WhatsApp, Signal, Slack and the Google Chat webhook all run the same `ChannelInboundGate.evaluate` in `dartclaw_core`: DM messages pass through `DmAccessController` (modes: `pairing`, `allowlist`, `open`, `disabled`), group messages pass through `GroupAccessMode` checks, and group messages are then checked against `MentionGating`. The gate is pure -- it returns a `ChannelInboundDecision` naming the admitting or dropping stage, and each channel keeps its own drop logging and pairing effect (WhatsApp and Signal log, Google Chat posts a pairing code into the space). An absent `DmAccessController` or `MentionGating` admits at that stage rather than denying. The Google Chat Space Events Pub/Sub dispatch (§7) runs the same gate with the mention stage off and acks a refused message rather than nacking it.
 
 4. **Mention gating** -- Applied inside the gate, to group messages only. If `requireMention` is true and the bot's JID is not in `mentionedJids` or text patterns, the message is dropped.
 
@@ -331,6 +336,7 @@ The manager serializes its cleanup operations. Runtime shutdown awaits `dispose(
     - WhatsApp: shared Markdown-to-native conversion with WhatsApp links and attribution prefix
     - Signal: Markdown-to-text + native UTF-16 style ranges, style-aware chunking
     - Google Chat: shared Markdown-to-native conversion with Chat links, table normalization, chunk at 4000 chars
+    - Slack: shared Markdown-to-native conversion with `<url|label>` links after `&`, `<` and `>` are escaped, chunk at 4000 chars
     - Web: Markdown rendered client-side with Marked and sanitized by DOMPurify
          |
          v
@@ -338,6 +344,7 @@ The manager serializes its cleanup operations. Runtime shutdown awaits `dispose(
     - WhatsApp: GOWA REST API (sendText, sendMedia, chat presence)
     - Signal: signal-cli JSON-RPC (send, sendTyping)
     - Google Chat: REST API (one queued send for text/card/threaded messages, editMessage)
+    - Slack: Web API `chat.postMessage` into the reply's thread, or the ephemeral `response_url` answer to a slash command
     - Web: SSE event stream
 ```
 
@@ -354,6 +361,8 @@ String resolveRecipientId(ChannelMessage message) {
   // 3. senderJid -- Direct message fallback
 }
 ```
+
+Reply metadata. A reply to an inbound message carries `sourceMessageId` (the message's `id`) and, when the message had one, `threadId`. `MessageQueue` sets both on answers and on its apology, budget, busy and queue-full replies; the reserved-command handler sets both on every reply, so an adapter can tell which message a reply answers and where it belongs. Slack uses `sourceMessageId` to turn the reply to a slash command into the ephemeral `response_url` answer and `threadId` as `thread_ts`; the other channels ignore `threadId`, and Google Chat's reply to a reserved text command now carries `sourceMessageId`, which it already read for placeholder replacement and native quoting.
 
 ### 5.3 Text Chunking
 
@@ -376,6 +385,8 @@ chat presence uses `POST /send/chat-presence` with `start` / `stop` actions for 
 shared `TypingLeaseTracker` with no refresh interval.
 
 **Signal** -- Standard Markdown is parsed into readable text plus signal-cli `textStyle` ranges (`BOLD`, `ITALIC`, `STRIKETHROUGH`, `MONOSPACE`). Style offsets use UTF-16 code units and are remapped when text is chunked. Replies use signal-cli JSON-RPC `send`; DMs use `recipient` and groups use `groupId`. Typing uses bounded `sendTyping` calls through core's shared `TypingLeaseTracker`, refreshed every 10 seconds before Signal's 15-second expiry, with a best-effort STOP before delivery or disconnect.
+
+**Slack** -- See §9A. Replies are mrkdwn chunked at 4,000 characters, posted into the thread of the message they answer, at least one second apart per channel; a failed chunk is logged and dropped (the channel never throws a send failure, so the queue's delivery retry never runs for it).
 
 Scheduled announcements also pass through `Channel.formatResponse`, so interactive and proactive model output use the same platform formatting and chunking rules.
 
@@ -407,6 +418,8 @@ class ChannelTaskBridge {
 | 3 | **Bound-thread routing** -- route to bound session via enqueue | Yes, if bound |
 
 If no step consumes the message, `tryHandle()` returns `false` and the message falls through to `MessageQueue` for normal session processing.
+
+A non-admin sender's reserved command is refused by the shared `ReservedCommandHandler`, on every channel, and each refusal writes one `AuditEntry` through the guard audit owner (`GuardAuditLogger.writeEntry`) before the refusal reply is sent: guard `ReservedCommand`, hook `channel_command`, verdict `block`, decision `deny`, the command name without its arguments as `tool`, the channel type name as `channel`, and the sender ID as `peerId` and `principal`. The logger reaches the handler through `ChannelWiring`'s `auditLogger` constructor parameter (the instance `SecurityWiring` uses); a missing logger writes nothing, a failing write is logged as a warning, and the refusal is always sent. Admin commands write no entry.
 
 ### 6.2 Task Origin
 
@@ -649,6 +662,37 @@ Sealed-sender complication: Signal's own call site reacts to the gate's DM-denie
 
 ---
 
+## 9A. Slack Specifics
+
+### 9A.1 Transport and envelope dispatch
+
+`SocketModeClient` (`packages/dartclaw_slack/lib/src/socket_mode_client.dart`) opens `apps.connections.open` with the app-level token, connects a WebSocket to the returned single-use URL at once (never logged), acknowledges every envelope by its ID before doing anything with it, and reconnects with backoff (1 s doubling to 60 s, a warning from the third consecutive failure, immediately on `disconnect` with `refresh_requested`). It exposes its state and last connect time for diagnostics. Slack does not replay an envelope after a disconnect, so the acknowledgement comes first and processing runs afterwards, one envelope at a time in arrival order.
+
+Every envelope, whatever transport delivered it, becomes a `SlackEnvelope` (kind: event, slash command, block action, view submission, unknown; plus the decoded payload) and enters one `SlackEnvelopeDispatch`. The dispatch knows no socket: features register a handler per kind, an unhandled kind is logged at debug and dropped, and a failing handler is logged and swallowed. `SlackChannel` registers the event and slash-command handlers; interactions are acknowledged and dropped until a feature registers for them.
+
+### 9A.2 Inbound events
+
+`SlackChannel` normalizes `message` events into `ChannelMessage`s: sender is the user ID, group is the channel ID (null for a DM, `channel_type: im`), `metadata['spaceName']` is the conversation ID (so `resolveRecipientId` yields the `D…` or `C…` ID), `metadata['threadId']` is `thread_ts` or, for a top-level message, the message's own `ts`. Mentions come from the `user` elements of the event's blocks, or from `<@U…>` text tokens when there are no blocks; the bot's own token is removed from the turn text and `&amp;`, `&lt;`, `&gt;` are decoded. The sender name comes from `users.info`, cached for the process lifetime, falling back to the user ID.
+
+Dropped without a turn: any message carrying `bot_id` (this app's own included), any subtype other than a plain message, `file_share` or `thread_broadcast` (so edits, deletions and joins), and unknown event types. An `app_mention` event is acknowledged and ignored: the same message arrives as a `message` event, which alone carries `files`, so exactly one turn runs per message.
+
+Access runs through `ChannelInboundGate` as on the other channels. A reply in a channel thread needs no mention when the bot took part in the thread: participation is a bounded in-memory record (the bot was mentioned in the thread or posted into it), and a miss, such as after a restart, asks `conversations.replies` once per thread and remembers the answer.
+
+### 9A.3 Slash commands
+
+The five reserved commands are Slack slash commands. The envelope is acknowledged with no body, becomes a `ChannelMessage` whose text is `/command args` (no thread: a slash payload carries none, so `/bind` and `/unbind` give the handler's "not in a thread" refusal), and passes access gating but not mention gating. The adapter keeps the command's `response_url` by message ID, so the handler's reply, which carries that ID as `sourceMessageId`, is delivered as an ephemeral `response_url` answer. `stop!` typed in a thread or DM is an ordinary message and its reply is posted into that thread.
+
+### 9A.4 Outbound
+
+`formatResponse` converts Markdown to mrkdwn through the shared converter after escaping `&`, `<` and `>`, so only the links the converter builds contain `<`; text over 4,000 characters is chunked with `chunkNativeChatMarkup`. `SlackWebApiClient` posts with `thread_ts`, keeps posts to one channel at least one second apart, retries an HTTP 429 once after `Retry-After` (bounded at 60 s), and puts only the method and Slack's error code into an error: never a token, a header, a response URL or the Socket Mode ticket URL. The channel logs and drops a chunk Slack refuses.
+
+### 9A.5 Wiring and configuration
+
+`channels.slack` is parsed by `SlackConfig.fromYaml` through the shared channel config path. Tokens are never configured inline: `bot_token_credential` and `app_token_credential` name `credentials` entries, and `loadDartclawConfig` refuses an enabled section with a literal or unresolvable reference, a missing reference, both access modes disabled or a malformed channel or user ID (`refuseUnusableSlackConfig`). `ChannelWiring` builds the channel from the resolved tokens and includes its allowlist rows in the one `GroupConfigResolver`, so a row's `agent` binds the thread's session to that agent and its turns run through the bound-agent dispatch. `connect()` verifies the bot token with `auth.test` and throws on refusal, then starts Socket Mode in the background, so a transient outage never blocks the other channels. Slack sessions are per thread, so `GroupSessionInitializer` pre-creates none. `dm_access` defaults to `allowlist`: `pairing` creates a code, but the settings page and the allowlist API do not know Slack yet, so nothing confirms it.
+
+
+---
+
 ## 10. Crowd Coding Integration (0.12)
 
 Multi-user collaborative agent steering via channel Spaces. Adds governance ordering, per-sender rate limiting, emergency controls, and pause handling on top of the bridge pipeline.
@@ -727,7 +771,7 @@ The key's `agentId` component comes from the message's structured allowlist row:
 
 ### 11.3 Session Key Generation
 
-`SessionKey` static factories in `dartclaw_kernel`: `dmShared()`, `dmPerContact(peerId)`, `dmPerChannelContact(channelType, peerId)`, `groupShared(channelType, groupId)`, `groupPerMember(channelType, groupId, peerId)`.
+`SessionKey` static factories in `dartclaw_kernel`: `dmShared()`, `dmPerContact(peerId)`, `dmPerChannelContact(channelType, peerId)`, `groupShared(channelType, groupId)`, `groupPerMember(channelType, groupId, peerId)`. Each takes an optional `threadId`, appended to the identifiers as `:thread:<encoded id>`; `ChannelManager.deriveSessionKey` passes the message's `threadId`, so a threaded conversation is one session per thread (per member and thread under `per_member`) and an unthreaded message keeps its key.
 
 
 ---
@@ -736,7 +780,7 @@ The key's `agentId` component comes from the message's structured allowlist row:
 
 ### 12.1 Channel Config
 
-Top-level `channels:` YAML section with `debounce_window_ms`, `max_queue_depth`, `retry_policy` (max_attempts, base_delay_ms, jitter_factor), and per-channel subsections (`whatsapp`, `signal`, `googlechat`). Typed models live in `dartclaw_kernel/lib/src/channel_config.dart`; per-channel sections are resolved by `resolveChannelConfig` in `dartclaw_runtime`.
+Top-level `channels:` YAML section with `debounce_window_ms`, `max_queue_depth`, `retry_policy` (max_attempts, base_delay_ms, jitter_factor), and per-channel subsections (`whatsapp`, `signal`, `google_chat`, `slack`). Typed models live in `dartclaw_kernel/lib/src/channel_config.dart`; per-channel sections are resolved by `resolveChannelConfig` in `dartclaw_runtime`.
 
 ### 12.2 DM Access and Groups
 
@@ -765,7 +809,7 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
 
 **Concurrency and backpressure** -- Global concurrency cap with `Completer`-based wait queue; a released slot is handed to the next waiter at release, so no caller in between can take it too. The cap follows `concurrency.max_parallel_turns` reloads through the runtime's `MessageQueueReconfigurer` (registered by `ChannelWiring.wire`; core's queue only exposes the setter): a raise admits waiting sessions at once, a lowering admits nothing new until in-flight turns drop below it, and nothing is cancelled. Per-session FIFO (one turn at a time). Per-sender queue limit (admin-exempt). Queue depth limit per session -- excess messages receive a "busy" response. `BudgetExhaustedError` triggers a polite budget notification instead of retry.
 
-**Retry and dead-letter** -- The queue dispatches each message once. A failed turn is never re-run, because a re-dispatch persists the inbound message again and starts a second agent turn: the sender gets one error notification and the failure is logged severe. Only reply delivery retries: each chunk's `sendMessage` is retried with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`) up to `maxAttempts` (default 3) while the session keeps its slot; an exhausted chunk dead-letters the reply with a severe log and its remaining chunks are not sent. The queue is the only delivery retrier, and it sees only failures a channel throws: WhatsApp and Signal throw on a failed text send (WhatsApp swallows media errors, so a retried chunk can resend its media), while Google Chat logs a failed send and returns, so its replies are never retried. A full global turn cap never reaches this path: `dispatchChannelTurn` persists the inbound message once, and when the turn start is refused with a non-same-session `BusyTurnException` it waits on `TurnManager.whenAdmissionCapacityAvailable()` and retries the start only.
+**Retry and dead-letter** -- The queue dispatches each message once. A failed turn is never re-run, because a re-dispatch persists the inbound message again and starts a second agent turn: the sender gets one error notification and the failure is logged severe. Only reply delivery retries: each chunk's `sendMessage` is retried with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`) up to `maxAttempts` (default 3) while the session keeps its slot; an exhausted chunk dead-letters the reply with a severe log and its remaining chunks are not sent. The queue is the only delivery retrier, and it sees only failures a channel throws: WhatsApp and Signal throw on a failed text send (WhatsApp swallows media errors, so a retried chunk can resend its media), while Google Chat and Slack log a failed send and return, so their replies are never retried by the queue (Slack retries a rate-limited post once itself). A full global turn cap never reaches this path: `dispatchChannelTurn` persists the inbound message once, and when the turn start is refused with a non-same-session `BusyTurnException` it waits on `TurnManager.whenAdmissionCapacityAvailable()` and retries the start only.
 
 **Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping` by delegating to core's `TypingLeaseTracker` (`src/channel/typing_lease_tracker.dart`), which owns per-recipient lease counting, update serialization, the single START retry and the shutdown latch for every adopter; WhatsApp and Signal differ only in the three constructor arguments -- sendability predicate, transport call and refresh interval. The queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` remains the richer progress-feedback interface used by Google Chat. `NoFeedbackStrategy` is its default no-op.
 
@@ -806,11 +850,16 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
        |      PubSubHealthReporter, Markdown link/plain-text wrappers)
        |     deps: dartclaw_core, dartclaw_kernel, shelf
        |
+       +---> dartclaw_slack
+       |     (SlackChannel, SlackConfig, SlackWebApiClient,
+       |      SocketModeClient, SlackEnvelopeDispatch)
+       |     deps: dartclaw_core, dartclaw_kernel
+       |
        v
   dartclaw_runtime
   (webhookRoutes, SlashCommandHandler, PauseController, ChannelWiring)
   deps: dartclaw_core, dartclaw_whatsapp, dartclaw_signal,
-        dartclaw_google_chat, dartclaw_kernel
+        dartclaw_google_chat, dartclaw_slack, dartclaw_kernel
 ```
 
 Dependency direction is strictly downward: platform packages depend on core, never on each other. The server package depends on all platform packages for webhook routing and lifecycle management.

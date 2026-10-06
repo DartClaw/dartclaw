@@ -525,6 +525,87 @@ const Map<String, FieldMeta> _channelFields = {
         'reads the key for every channel, so a config carrying it must still load.',
   ),
 
+  // --- Channels — Slack ---
+  'channels.slack.enabled': FieldMeta(
+    yamlPath: 'channels.slack.enabled',
+    jsonKey: 'channels.slack.enabled',
+    type: ConfigFieldType.bool_,
+    mutability: ConfigMutability.restart,
+    description: 'Run the Slack integration. Off leaves its transport unstarted.',
+  ),
+  'channels.slack.mode': FieldMeta(
+    yamlPath: 'channels.slack.mode',
+    jsonKey: 'channels.slack.mode',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description: 'How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token.',
+    allowedValues: ['socket'],
+  ),
+  'channels.slack.bot_token_credential': FieldMeta(
+    yamlPath: 'channels.slack.bot_token_credential',
+    jsonKey: 'channels.slack.botTokenCredential',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'Name of the credentials entry holding the bot token (xoxb-). The token itself is never written here.',
+    nullable: true,
+  ),
+  'channels.slack.app_token_credential': FieldMeta(
+    yamlPath: 'channels.slack.app_token_credential',
+    jsonKey: 'channels.slack.appTokenCredential',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. The token itself is never written here.',
+    nullable: true,
+  ),
+  'channels.slack.dm_access': FieldMeta(
+    yamlPath: 'channels.slack.dm_access',
+    jsonKey: 'channels.slack.dmAccess',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description: 'Who may open a one-to-one Slack conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them.',
+    allowedValues: ['open', 'disabled', 'allowlist', 'pairing'],
+  ),
+  'channels.slack.dm_allowlist': FieldMeta(
+    yamlPath: 'channels.slack.dm_allowlist',
+    jsonKey: 'channels.slack.dmAllowlist',
+    type: ConfigFieldType.stringList,
+    entry: _channelAllowlistEntry,
+    mutability: ConfigMutability.restart,
+    description: 'Approved one-to-one Slack senders by user ID (U… or W…), used while direct access is allowlist-based. Plain IDs, or maps carrying an id plus optional name, project, model, effort and agent.',
+    nullable: true,
+  ),
+  'channels.slack.group_access': FieldMeta(
+    yamlPath: 'channels.slack.group_access',
+    jsonKey: 'channels.slack.groupAccess',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description: 'Which Slack channels may reach the agent: allowlist checks the listed channels, open accepts any, disabled ignores them.',
+    allowedValues: ['open', 'disabled', 'allowlist'],
+  ),
+  'channels.slack.group_allowlist': FieldMeta(
+    yamlPath: 'channels.slack.group_allowlist',
+    jsonKey: 'channels.slack.groupAllowlist',
+    type: ConfigFieldType.stringList,
+    entry: _channelAllowlistEntry,
+    mutability: ConfigMutability.restart,
+    description: 'Approved Slack channels by channel ID (C… or G…), used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent.',
+    nullable: true,
+  ),
+  'channels.slack.require_mention': FieldMeta(
+    yamlPath: 'channels.slack.require_mention',
+    jsonKey: 'channels.slack.requireMention',
+    type: ConfigFieldType.bool_,
+    mutability: ConfigMutability.restart,
+    description: 'Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention.',
+  ),
+  'channels.slack.mention_patterns': FieldMeta(
+    yamlPath: 'channels.slack.mention_patterns',
+    jsonKey: 'channels.slack.mentionPatterns',
+    type: ConfigFieldType.stringList,
+    mutability: ConfigMutability.restart,
+    description: 'Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention.',
+  ),
+
   // --- Google Chat: the shared channel keys it parses and discards ---
   // The one reader in `CommonChannelFields` runs for every channel, so these
   // load and warn on a bad value while changing nothing Google Chat does.

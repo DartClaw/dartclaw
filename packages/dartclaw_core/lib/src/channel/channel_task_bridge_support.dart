@@ -39,6 +39,7 @@ class ChannelTaskBridgeSupport {
     Channel channel,
     SlidingWindowRateLimiter limiter,
   ) async {
+    final threadId = message.threadId;
     try {
       await channel.sendMessage(
         resolveRecipientId(message),
@@ -46,6 +47,7 @@ class ChannelTaskBridgeSupport {
           text:
               'Rate limit reached (${limiter.limit} messages per ${_formatRateLimitWindow(limiter.window)}). '
               'Please wait before trying again.',
+          metadata: {threadIdMetadataKey: ?threadId},
         ),
       );
     } catch (_) {

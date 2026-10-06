@@ -289,7 +289,7 @@ Common infrastructure:
 
 Design rationale: [ADR-005 (WhatsApp Integration)](../adrs/005-whatsapp-integration.md)
 
-**Package**: `dartclaw_core` (interfaces, `DmAccessController`, `ChannelManager`), `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat` (channel implementations), `dartclaw_runtime` (webhook routes, pairing UI)
+**Package**: `dartclaw_core` (interfaces, `DmAccessController`, `ChannelManager`), `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat`, `dartclaw_slack` (channel implementations), `dartclaw_runtime` (webhook routes, pairing UI)
 
 #### Inbound Message Pipeline
 
@@ -782,8 +782,8 @@ Design rationale: [ADR-009 (Internal MCP Server)](../adrs/009-internal-mcp-serve
 
 DartClaw uses a Dart pub workspace with strict dependency layering.
 
-The shipped `packages/` inventory contains 13 packages. The application and non-shipping fitness member bring the
-root workspace to 15 members; `dev/package_tiers.txt` is the sole dependency-direction authority.
+The shipped `packages/` inventory contains 14 packages. The application and non-shipping fitness member bring the
+root workspace to 16 members; `dev/package_tiers.txt` is the sole dependency-direction authority.
 
 ### Dependency DAG
 
@@ -795,6 +795,7 @@ dartclaw_workflow    → core, kernel
 dartclaw_whatsapp    → core, kernel
 dartclaw_signal      → core, kernel
 dartclaw_google_chat → core, kernel
+dartclaw_slack       → core, kernel
 dartclaw_testing     → core, kernel
 dartclaw_client      → kernel
 dartclaw             → client, kernel
@@ -818,6 +819,7 @@ The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client`
 | `dartclaw_whatsapp` | `WhatsAppChannel`, `GowaManager`, response formatting, WhatsApp config registration | Depends on kernel + core – WhatsApp-specific logic isolated |
 | `dartclaw_signal` | `SignalChannel`, `SignalCliManager`, sender mapping, Signal config registration | Depends on kernel + core – Signal-specific logic isolated |
 | `dartclaw_google_chat` | `GoogleChatChannel`, REST client, GCP auth, Google Chat config registration | Depends on kernel + core – Google auth + HTTP isolated from core. Owns `FakeGoogleChatRestClient` behind `lib/testing.dart` |
+| `dartclaw_slack` | `SlackChannel`, Web API client, Socket Mode client, envelope dispatch, Slack config parsing | Depends on kernel + core – Slack transport and formatting isolated from core. Owns `FakeSlackWebApi` and `FakeSocketModeServer` behind `lib/testing.dart` |
 | `dartclaw_bridge` | Framed bridge protocol, codec, runner, and the executable delivered into `network:none` containers | Standing zero-dependency leaf; keeping the graph hook-free preserves `dart compile exe` cross-compilation for both Linux targets |
 | `dartclaw_runtime` | `DartclawServer`, `TurnManager`, `TurnRunner`, `ExecutionCoordinator`, `TaskService`, `TaskExecutor`, `ProjectService`, `TaskEventRecorder`, `AlertRouter`, container orchestration, scheduling, behavior/workspace/maintenance/observability services, project API routes, trace query API, workflow HTTP routes, MCP server, web routes, templates, auth | shelf, http, workflow — server-only, not Flutter-compatible |
 | `dartclaw_testing` | Shared test doubles and in-memory test helpers for core-and-below boundaries (`FakeAgentHarness`, `FakeGuard`, `InMemorySessionService`, `InMemoryTaskRepository`, `TestEventBus`) | Test-only support package, production-depending on kernel + core only. A double for a port owned above core lives in that port's package under `lib/src/testing/`, behind an opt-in `lib/testing.dart` the package barrel does not re-export |
@@ -835,7 +837,7 @@ The critical boundaries are **`dartclaw_kernel` has no workspace dependency**, *
 `dartclaw_bridge` stays a standing zero-dependency leaf because `dart compile exe` refuses build-hook graphs, while a
 different hook-free host would only preserve cross-compilation until its next dependency change (ADR-051).
 
-Channel packages (`dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat`) isolate their heavy transitive dependencies — a consumer using only WhatsApp does not pull in Google Cloud libraries.
+Channel packages (`dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat`, `dartclaw_slack`) isolate their heavy transitive dependencies — a consumer using only WhatsApp does not pull in Google Cloud libraries.
 
 `dartclaw_runtime` is `publish_to: none` — it contains the HTTP server, templates, and application logic that SDK consumers don't need.
 
@@ -1084,7 +1086,7 @@ search unavailable. Runtime disposal and shutdown close the owned task and searc
 10. Execution coordinator (primary lane + per-provider capacity gates; workers remain lazy)
 11. Execution observers derived from coordinator leases and snapshots
 12. Event bus + subscribers
-13. Channels (dartclaw_whatsapp, dartclaw_signal, dartclaw_google_chat — if configured)
+13. Channels (dartclaw_whatsapp, dartclaw_signal, dartclaw_google_chat, dartclaw_slack — if configured)
 14. Scheduling (ScheduleService, including the built-in heartbeat and git-sync jobs)
 15. Task orchestrator (TaskService, TaskExecutor)
 16. Project management (ProjectService, RemotePushService)

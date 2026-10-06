@@ -1,0 +1,209 @@
+import 'dart:async';
+
+import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
+import 'package:dartclaw_slack/testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show RecordingMessageQueue;
+import 'package:logging/logging.dart';
+
+const botUserId = 'UBOT';
+
+/// A connected [SlackChannel] wired to a fake Socket Mode server, a fake Web API
+/// and a real [ChannelManager] over a recording queue.
+///
+/// Everything an envelope does is observable on [queue] (admitted turns) and
+/// [api] (posts), and [deliver] returns only once every envelope sent before it
+/// has been processed.
+class SlackHarness {
+  new _({
+    required this.server,
+    required this.api,
+    required this.queue,
+    required this.manager,
+    required this.channel,
+    required this.dmAccess,
+  });
+
+  final FakeSocketModeServer server;
+  final FakeSlackWebApi api;
+  final RecordingMessageQueue queue;
+  final ChannelManager manager;
+  final SlackChannel channel;
+  final DmAccessController dmAccess;
+  final List<LogRecord> logs = [];
+
+  static Future<SlackHarness> start({
+    SlackConfig? config,
+    SessionScopeConfig scopes = const SessionScopeConfig.defaults(),
+    List<GroupEntry> groupRows = const [],
+    List<GroupEntry> dmRows = const [],
+    String Function(String text)? answer,
+    ReservedCommandDispatch? reservedCommands,
+  }) async {
+    final slackConfig =
+        config ??
+        SlackConfig(
+          enabled: true,
+          dmAccess: DmAccessMode.allowlist,
+          dmAllowlist: [
+            const GroupEntry(id: 'U1'),
+            const GroupEntry(id: 'U2'),
+            const GroupEntry(id: 'UZ'),
+          ],
+          groupAccess: GroupAccessMode.allowlist,
+          groupAllowlist: [
+            const GroupEntry(id: 'C1'),
+            ...groupRows,
+          ],
+        );
+    final server = FakeSocketModeServer();
+    await server.start();
+    final api = FakeSlackWebApi(botUserId: botUserId, socketUrl: server.url);
+    final queue = RecordingMessageQueue(
+      forwardToSuper: answer != null,
+      debounceWindow: Duration.zero,
+      dispatcher: (
+        sessionKey,
+        message, {
+        required ChannelType channelType,
+        String? senderJid,
+        String? senderDisplayName,
+        String? groupJid,
+        String? recipientId,
+        String? threadId,
+      }) async => answer?.call(message) ?? 'ok',
+    );
+    final dmAccess = DmAccessController(mode: slackConfig.dmAccess, allowlist: slackConfig.dmIds.toSet());
+    final manager = ChannelManager(
+      queue: queue,
+      config: const ChannelConfig.defaults(),
+      liveScopeConfig: LiveScopeConfig(scopes),
+      taskBridge: reservedCommands == null
+          ? null
+          : ChannelTaskBridge(
+              reservedCommandHandler: reservedCommands,
+              isReservedCommand: (text) => text.trim().startsWith('/') || text.trim() == 'stop!',
+            ),
+      groupConfigResolver: GroupConfigResolver.fromChannelEntries(
+        {ChannelType.slack: slackConfig.groupAllowlist},
+        dms: {ChannelType.slack: slackConfig.dmAllowlist},
+      ),
+    );
+    final channel = SlackChannel(
+      config: slackConfig,
+      api: api,
+      dmAccess: dmAccess,
+      mentionGating: MentionGating(
+        requireMention: slackConfig.requireMention,
+        mentionPatterns: slackConfig.mentionPatterns,
+        ownJid: '',
+      ),
+      channelManager: manager,
+      reconnectDelay: (_) => Future<void>.delayed(const Duration(milliseconds: 5)),
+    );
+    manager.registerChannel(channel);
+    final harness = SlackHarness._(
+      server: server,
+      api: api,
+      queue: queue,
+      manager: manager,
+      channel: channel,
+      dmAccess: dmAccess,
+    );
+    Logger.root.level = Level.ALL;
+    final subscription = Logger.root.onRecord.listen(harness.logs.add);
+    harness._unsubscribe = subscription.cancel;
+    channel.dispatch.register(SlackEnvelopeKind.unknown, (envelope) => harness._sentinelsSeen++);
+    await channel.connect();
+    await harness.until(() => channel.connectionState == SocketModeState.connected);
+    return harness;
+  }
+
+  Future<void> Function()? _unsubscribe;
+
+  /// Admitted turns, in arrival order.
+  List<RecordedTurn> get turns => [
+    for (final enqueued in queue.enqueued) (message: enqueued.message, sessionKey: enqueued.sessionKey),
+  ];
+
+  var _sentinelsSent = 0;
+  var _sentinelsSeen = 0;
+
+  /// Sends each [events] entry as an Events API envelope, then waits until all are processed.
+  ///
+  /// Envelopes are processed in order, so a trailing envelope of an unhandled
+  /// kind reaching its handler proves every earlier one has been fully handled,
+  /// including the ones that start no turn.
+  Future<void> deliver(List<Map<String, dynamic>> events) async {
+    for (final event in events) {
+      server.sendEvent(eventCallback(event));
+    }
+    _sentinelsSent++;
+    server.sendInteractive({'type': 'sentinel'});
+    await until(() => _sentinelsSeen == _sentinelsSent);
+  }
+
+  /// Waits for [condition], failing after five seconds.
+  Future<void> until(bool Function() condition) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!condition()) {
+      if (DateTime.now().isAfter(deadline)) throw TimeoutException('Condition not reached');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+  }
+
+  Future<void> close() async {
+    await channel.disconnect();
+    await server.stop();
+    queue.dispose();
+    await _unsubscribe?.call();
+  }
+}
+
+typedef RecordedTurn = ({ChannelMessage message, String sessionKey});
+
+Map<String, dynamic> eventCallback(Map<String, dynamic> event) => {
+  'type': 'event_callback',
+  'event_id': 'Ev${event['ts']}',
+  'event': event,
+};
+
+/// A `message` event as Slack delivers it, mentioning the bot when [mention] is set.
+Map<String, dynamic> message({
+  required String channel,
+  required String user,
+  required String text,
+  required String ts,
+  String? threadTs,
+  bool mention = false,
+  String? channelType,
+  String? subtype,
+  String? botId,
+  List<Map<String, dynamic>>? files,
+}) => {
+  'type': 'message',
+  'channel': channel,
+  'channel_type': channelType ?? (channel.startsWith('D') ? 'im' : 'channel'),
+  'user': user,
+  'text': mention ? '<@$botUserId> $text' : text,
+  'ts': ts,
+  'thread_ts': ?threadTs,
+  'subtype': ?subtype,
+  'bot_id': ?botId,
+  'files': ?files,
+  'blocks': [
+    {
+      'type': 'rich_text',
+      'elements': [
+        {
+          'type': 'rich_text_section',
+          'elements': [
+            if (mention) {'type': 'user', 'user_id': botUserId},
+            {'type': 'text', 'text': mention ? ' $text' : text},
+          ],
+        },
+      ],
+    },
+  ],
+};

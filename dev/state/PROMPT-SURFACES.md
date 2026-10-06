@@ -126,4 +126,4 @@ Each agent step's `prompt:` is host-authored text, augmented by `PromptAugmenter
 
 ## Packages with no model-facing prompt surface
 
-`dartclaw` (umbrella re-exports), `dartclaw_kernel`, `dartclaw_bridge`, `dartclaw_signal`, `dartclaw_google_chat`, `dartclaw_whatsapp`, `dartclaw_testing`.
+`dartclaw` (umbrella re-exports), `dartclaw_kernel`, `dartclaw_bridge`, `dartclaw_signal`, `dartclaw_google_chat`, `dartclaw_slack`, `dartclaw_whatsapp`, `dartclaw_testing`.

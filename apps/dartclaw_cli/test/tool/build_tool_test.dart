@@ -193,6 +193,7 @@ exec "\$DARTCLAW_TEST_REAL_DART" "\$@"
         'package:dartclaw_whatsapp/src/gowa_manager.dart',
         'package:dartclaw_signal/src/signal_channel.dart',
         'package:dartclaw_signal/src/signal_cli_manager.dart',
+        'package:dartclaw_slack/src/slack_channel.dart',
         'package:dartclaw_google_chat/src/google_chat_channel.dart',
         'package:dartclaw_google_chat/src/google_chat_webhook.dart',
         'package:dartclaw_google_chat/src/workspace_events_manager.dart',

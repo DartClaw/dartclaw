@@ -11,6 +11,7 @@ const _runtimePackages = [
   'dartclaw_bridge',
   'dartclaw_whatsapp',
   'dartclaw_signal',
+  'dartclaw_slack',
   'dartclaw_google_chat',
 ];
 

@@ -22,7 +22,7 @@ const _pinnedEnvironment = {
   'GITHUB_TOKEN': 'pinned-github-token',
   'DARTCLAW_TOKEN': 'pinned-dartclaw-token',
 };
-const _channelOrder = [ChannelType.whatsapp, ChannelType.signal, ChannelType.googlechat];
+const _channelOrder = [ChannelType.whatsapp, ChannelType.signal, ChannelType.googlechat, ChannelType.slack];
 const _corpusPaths = [
   'examples/dev.yaml',
   'examples/personal-assistant.yaml',

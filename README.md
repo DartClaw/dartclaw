@@ -203,6 +203,7 @@ packages/
   dartclaw_whatsapp/            WhatsApp channel (GOWA sidecar)
   dartclaw_signal/              Signal channel (signal-cli sidecar)
   dartclaw_google_chat/         Google Chat channel (Workspace Events + Pub/Sub)
+  dartclaw_slack/               Slack channel (Socket Mode)
   dartclaw_testing/             Shared test fakes and utilities
 docs/                           User guide and SDK guide
 dev/                            Contributor / agent docs, dev tools, testing profiles

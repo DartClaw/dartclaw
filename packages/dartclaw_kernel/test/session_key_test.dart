@@ -37,6 +37,41 @@ void main() {
         expected: 'agent:main:group:whatsapp:group%40g.us:123%40s.whatsapp.net',
       ),
       (
+        name: 'dmShared with a thread',
+        actual: SessionKey.dmShared(threadId: '1700000000.000100'),
+        expected: 'agent:main:dm:shared:thread:1700000000.000100',
+      ),
+      (
+        name: 'dmPerContact with a thread',
+        actual: SessionKey.dmPerContact(peerId: 'U1', threadId: '1700000000.000100'),
+        expected: 'agent:main:dm:contact:U1:thread:1700000000.000100',
+      ),
+      (
+        name: 'dmPerChannelContact with a thread',
+        actual: SessionKey.dmPerChannelContact(channelType: 'slack', peerId: 'U1', threadId: '1700000000.000100'),
+        expected: 'agent:main:dm:slack:U1:thread:1700000000.000100',
+      ),
+      (
+        name: 'groupShared with a thread',
+        actual: SessionKey.groupShared(channelType: 'slack', groupId: 'C1', threadId: '1700000000.000100'),
+        expected: 'agent:main:group:slack:C1:thread:1700000000.000100',
+      ),
+      (
+        name: 'groupPerMember with a thread',
+        actual: SessionKey.groupPerMember(
+          channelType: 'slack',
+          groupId: 'C1',
+          peerId: 'U1',
+          threadId: '1700000000.000100',
+        ),
+        expected: 'agent:main:group:slack:C1:U1:thread:1700000000.000100',
+      ),
+      (
+        name: 'a thread id is encoded like every other component',
+        actual: SessionKey.groupShared(channelType: 'slack', groupId: 'C1', threadId: 'a:b/c'),
+        expected: 'agent:main:group:slack:C1:thread:a%3Ab%2Fc',
+      ),
+      (
         name: 'cronSession format',
         actual: SessionKey.cronSession(jobId: 'daily-summary'),
         expected: 'agent:main:cron:daily-summary',
@@ -83,6 +118,10 @@ void main() {
       (
         name: 'groupPerMember empty peerId',
         build: () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: ''),
+      ),
+      (
+        name: 'groupShared empty threadId',
+        build: () => SessionKey.groupShared(channelType: 'slack', groupId: 'C1', threadId: ''),
       ),
       (name: 'taskSession empty taskId', build: () => SessionKey.taskSession(taskId: '')),
       (

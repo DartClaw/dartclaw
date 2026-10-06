@@ -105,7 +105,7 @@ The protocol supports:
 
 ## Package Structure
 
-DartClaw's public package tree contains thirteen packages under `packages/` plus a CLI app. The repo-wide Dart workspace
+DartClaw's public package tree contains fourteen packages under `packages/` plus a CLI app. The repo-wide Dart workspace
 also includes the development-only `dev/fitness` package. Each public package has a focused role:
 
 ```
@@ -128,6 +128,8 @@ packages/
   dartclaw_signal/       Signal integration and config registration.
 
   dartclaw_google_chat/  Google Chat integration and config registration.
+
+  dartclaw_slack/        Slack integration over Socket Mode and config registration.
 
   dartclaw_workflow/     Unified workflow parsing, validation, registry, and
                          execution support for DartClaw.

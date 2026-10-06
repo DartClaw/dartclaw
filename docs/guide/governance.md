@@ -20,6 +20,7 @@ governance:
 
 - Exemption from `governance.rate_limits.per_sender.*` checks.
 - Permission to invoke reserved commands without rate-limit blocking.
+- Permission to change the shared wiki and knowledge graph from a channel turn (`wiki_write`, `kg_add`, `kg_invalidate`). A turn by any other sender is refused, and every channel-origin attempt is audited with its channel and sender (guard `KnowledgeWriteGate`). Web chat, scheduled turns and the gateway token are not gated, and neither are the memory tools. See [Context Engine Mode](context-engine.md#channel-members).
 
 **What it does *not* grant**:
 

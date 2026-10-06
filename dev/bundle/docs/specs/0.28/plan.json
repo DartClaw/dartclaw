@@ -350,9 +350,20 @@
       "dependsOn": [
         "S04"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s09-openable-citation-sources-and-gated-shared-writes.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06"
+      ],
+      "verified": {
+        "at": "2026-10-06T20:16Z",
+        "summary": "fast tier (dart analyze --fatal-infos; dart test packages/dartclaw_{kernel,core,search,workflow,runtime} and -x slow apps/dartclaw_cli) -> exit=0, runtime +5326 ~25: All other tests passed!; bash dev/tools/fitness/run_all.sh -> exit=0, +122: All tests passed!"
+      },
       "scope": "Make cited sources openable and shared-knowledge writes from channels admin-gated, on every channel. Host-minted `url` on resolved wiki and graph citation references when `base_url` is set, signed with the session cookie's HMAC and key; one exact auth-exempt read-only route rendering the wiki page through the existing contained read or the single graph fact without its private source; one indistinguishable 404. The existing contextual write guard of `wiki_write`, `kg_add` and `kg_invalidate` reads S04's trusted turn context and refuses channel turns by non-admin senders, auditing every channel-origin call with channel and sender. Guide statements on what a channel member reads, spends, opens and writes. No DDL, no new config key, no stored link state.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr12-openable-citation-sources",

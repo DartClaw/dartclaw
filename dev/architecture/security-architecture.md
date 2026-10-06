@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
+**Current through**: 0.28 openable citation sources and the channel shared-write gate, 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
 temporary conversation sink exclusion and confirmed cleanup, exact-request approval actions, principal-scoped search,
 the restricted-role connection posture, and owner Memory administration.
 
@@ -837,7 +837,7 @@ shelf Pipeline
   2. securityHeadersMiddleware()
   3. corsMiddleware()
   4. authMiddleware()
-     ├── Skip: /health, /login, /static/, /favicon.ico, /webhook/*
+     ├── Skip: /health, /login, /static/, /favicon.ico, /webhook/*, /knowledge/source
      ├── Check: Cookie (HMAC-signed) → valid session → pass
      ├── Check: Authorization: Bearer <token> → pass
      ├── Check: ?token= on GET → validate → set cookie → redirect
@@ -852,6 +852,10 @@ shelf Pipeline
 - Rotation: `dartclaw token rotate` generates new token, invalidates all sessions
 
 **Inbound MCP authentication**: `/mcp` authenticates its own callers and is exempt from the gateway auth middleware, on the webhook precedent — the middleware knows only the gateway token, so a client bearer could never reach the route. `mcpRoute` compares the bearer constant-time against `gateway.token` and then against every `gateway.mcp_clients` token, and carries the same `AuthRateLimiter` instance the middleware uses, so a failed `/mcp` attempt is throttled on the same per-remote window as a failed API attempt and fires the same `FailedAuthEvent` (`source: 'mcp'`).
+
+**Source-link authentication**: `GET /knowledge/source?t=<token>` is an exact auth-exempt path, not a prefix. The token is `{layer, locator, issued}` signed with the session cookie's HMAC (`hmac_signature.dart`, key = gateway token), so `token rotate` revokes every link, and it expires at the session-cookie age limit. The route verifies the token before any file or database read, serves only `wiki` pages (through the same contained read as the authenticated wiki view) and graph facts (entity, predicate, value and validity window; never the private `source`), and answers every refusal with the wiki view's one 404. Under `auth_mode: none` the token carries no signature. Links are minted only when `base_url` is set, only for wiki and graph references the citation resolver confirmed, and never from model output.
+
+**Shared-write gate**: `wiki_write`, `kg_add` and `kg_invalidate` share one contextual guard (`KnowledgeWriteGate`). After the temporary-conversation refusal, a turn whose provenance names a chat channel changes shared knowledge only for a sender `GovernanceConfig.isAdmin` accepts, and each such call writes one `KnowledgeWriteGate` audit entry (channel, sender in `peerId` and `principal`, tool, decision). The sender comes only from the host's turn record (`McpCallerContext.turn`), never from arguments. A channel turn that names no sender (a task push-back feedback turn) is an admin only where every sender is. Web chat, scheduled turns, the gateway token and named clients carry no channel provenance and are not gated.
 
 - The gateway token reaches the unscoped handler: every registered tool, and `mcpStewardPrincipal` in the dispatch audit — it authenticates the deployment, not a person.
 - A configured client token reaches a `scopedTo` handler carrying `ContextEngineCallerPolicy` (deny-by-default over the five context-engine read tools) and an `McpCallerIdentity` of `mcp-client:<name>`. Discovery and dispatch both filter through it; a denied name and an unregistered name answer with the same JSON-RPC code and message, so a client cannot enumerate what it may not call. The policy audits each refusal; the guarded dispatch seam audits each permitted call. Client tokens are configured as `${VAR}` references only, and a list the route cannot enforce is refused at load (§ `gateway.mcp_clients`).
@@ -1092,7 +1096,7 @@ All governance features are configured under the `governance:` YAML section and 
 
 `governance.admin_senders` lists sender IDs exempt from per-sender rate limits. When the list is empty (default), **all senders are treated as admins** — suitable for single-user deployments. When non-empty, only the listed IDs are exempt. Admin status is checked via `GovernanceConfig.isAdmin(senderId)`.
 
-Admin exemptions apply to per-sender rate limiting only. Global turn rate limits and budget enforcement apply to all senders equally, including admins.
+Admin status exempts a sender from per-sender rate limiting and permits it to change shared knowledge from a channel turn (§ Shared-write gate). Global turn rate limits and budget enforcement apply to all senders equally, including admins.
 
 **Source**: `packages/dartclaw_kernel/lib/src/governance_config.dart`
 

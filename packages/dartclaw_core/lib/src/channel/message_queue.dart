@@ -7,7 +7,6 @@ import 'package:logging/logging.dart';
 
 import 'channel.dart';
 import 'recipient_resolver.dart';
-import 'thread_binding.dart' show extractThreadId;
 
 // ---------------------------------------------------------------------------
 // BudgetExhaustedError
@@ -286,7 +285,7 @@ class MessageQueue {
               senderDisplayName: entry.message.senderDisplayName,
               groupJid: entry.message.groupJid,
               recipientId: recipientJid,
-              threadId: extractThreadId(entry.message),
+              threadId: entry.sourceChannel.threadedNotifications?.extractThread(entry.message.metadata),
               attachments: entry.message.attachments,
             );
             final redactedResponseFuture = responseFuture.then((response) => _redactor?.redact(response) ?? response);

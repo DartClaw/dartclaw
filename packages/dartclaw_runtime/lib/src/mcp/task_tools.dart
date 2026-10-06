@@ -235,10 +235,14 @@ class ReviewListTool implements McpTool {
 
 /// MCP tool that binds an explicit channel thread to a task's session.
 class TaskBindTool implements McpTool {
-  new({required TaskService tasks, required ThreadBindingStore? bindings}) : _tasks = tasks, _bindings = bindings;
+  new({required TaskService tasks, required ThreadBindingStore? bindings, required ChannelManager? channels})
+    : _tasks = tasks,
+      _bindings = bindings,
+      _channels = channels;
 
   final TaskService _tasks;
   final ThreadBindingStore? _bindings;
+  final ChannelManager? _channels;
 
   @override
   String get name => 'task_bind';
@@ -248,18 +252,27 @@ class TaskBindTool implements McpTool {
       'Route a named channel thread to a task\'s session. The thread must be named explicitly — a tool call carries '
       'no channel context, so this tool cannot bind "the current thread".';
 
+  /// The registered channel types that declare a thread capability, read at each use: a channel registers
+  /// after the tool does, and one that declares none has no thread identity to bind.
+  List<String> get _threadingChannelTypes => {
+    for (final channel in _channels?.channels ?? const <Channel>[])
+      if (channel.threadedNotifications != null) channel.type.name,
+  }.toList(growable: false);
+
   @override
-  Map<String, dynamic> get inputSchema => toolSchema(
-    {
-      'task_id': {'type': 'string', 'description': 'Full task ID.'},
-      'channel_type': {
-        'type': 'string',
-        'enum': ChannelType.values.map((channel) => channel.name).where(supportsThreadBinding).toList(growable: false),
+  Map<String, dynamic> get inputSchema {
+    final threading = _threadingChannelTypes;
+    return toolSchema(
+      {
+        'task_id': {'type': 'string', 'description': 'Full task ID.'},
+        // An empty `enum` is not a valid schema, so a deployment with no threading channel advertises none
+        // and `call` refuses every channel type instead.
+        'channel_type': {'type': 'string', if (threading.isNotEmpty) 'enum': threading},
+        'thread_id': {'type': 'string', 'description': 'Channel-assigned thread identifier.'},
       },
-      'thread_id': {'type': 'string', 'description': 'Channel-assigned thread identifier.'},
-    },
-    const ['task_id', 'channel_type', 'thread_id'],
-  );
+      const ['task_id', 'channel_type', 'thread_id'],
+    );
+  }
 
   @override
   McpToolAccess get access => McpToolAccess.write;
@@ -275,6 +288,9 @@ class TaskBindTool implements McpTool {
     final taskId = args['task_id'] as String;
     final channelType = args['channel_type'] as String;
     final threadId = args['thread_id'] as String;
+    if (!_threadingChannelTypes.contains(channelType)) {
+      return toolError('invalid_request', 'channel_type $channelType carries no thread identity to bind');
+    }
 
     final task = await _tasks.get(taskId);
     if (task == null) return toolError('not_found', 'No task with ID $taskId', {'task_id': taskId});
@@ -286,9 +302,16 @@ class TaskBindTool implements McpTool {
     }
 
     final existing = bindings.lookupByThread(channelType, threadId);
-    if (existing != null && existing.taskId != taskId) {
-      return toolError('thread_conflict', 'Thread is already bound to task ${existing.taskId}', {
-        'bound_task_id': existing.taskId,
+    if (existing != null && existing.kind == ThreadBindingKind.run) {
+      return toolError('thread_conflict', 'Thread is held by workflow run ${existing.targetId}', {
+        'bound_run_id': existing.targetId,
+        'channel_type': channelType,
+        'thread_id': threadId,
+      });
+    }
+    if (existing != null && existing.targetId != taskId) {
+      return toolError('thread_conflict', 'Thread is already bound to task ${existing.targetId}', {
+        'bound_task_id': existing.targetId,
         'channel_type': channelType,
         'thread_id': threadId,
       });
@@ -306,7 +329,7 @@ class TaskBindTool implements McpTool {
     final now = DateTime.now();
     final sessionKey = task.sessionId ?? SessionKey.taskSession(taskId: taskId);
     await bindings.create(
-      ThreadBinding(
+      ThreadBinding.task(
         channelType: channelType,
         threadId: threadId,
         taskId: taskId,

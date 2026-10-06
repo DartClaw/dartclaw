@@ -3,7 +3,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, FakeThreadedNotifications;
 import 'package:test/test.dart';
 
 void main() {
@@ -18,7 +18,7 @@ void main() {
       String sessionKey = 'bound-session-key',
     }) {
       final now = DateTime.now();
-      return ThreadBinding(
+      return ThreadBinding.task(
         channelType: channelType,
         threadId: threadId,
         taskId: taskId,
@@ -38,7 +38,10 @@ void main() {
     }
 
     setUp(() async {
-      channel = FakeChannel(ownedJids: {'users/sender1', 'spaces/AAAA'});
+      channel = FakeChannel(
+        ownedJids: {'users/sender1', 'spaces/AAAA'},
+        threadedNotifications: FakeThreadedNotifications(threadMetadataKey: 'threadName'),
+      );
       tempDir = await Directory.systemTemp.createTemp('bridge_thread_test_');
     });
 
@@ -177,6 +180,50 @@ void main() {
 
       final after = store.lookupByThread('googlechat', 'spaces/AAAA/threads/CCCC')!.lastActivity;
       expect(after.isAfter(before), isTrue);
+    });
+
+    test('a channel declaring no capability never routes, even when a binding is stored for its type', () async {
+      final setup = await setupWithBinding();
+      final undeclared = FakeChannel(ownedJids: {'users/sender1', 'spaces/AAAA'});
+      final msg = makeGchatMessage(threadName: 'spaces/AAAA/threads/CCCC');
+
+      final handled = await setup.bridge.tryHandle(
+        msg,
+        undeclared,
+        sessionKey: 'default-session',
+        enqueue: (msg, ch, sessionKey) => fail('must not route'),
+      );
+
+      expect(handled, isFalse);
+      expect(setup.bridge.lookupThreadBinding(msg, undeclared), isNull);
+    });
+
+    test('a run binding holds its thread but never routes a message to a session', () async {
+      final file = File('${tempDir.path}/bindings.json');
+      final store = ThreadBindingStore(file);
+      final now = DateTime.now();
+      await store.create(
+        ThreadBinding.run(
+          channelType: 'googlechat',
+          threadId: 'spaces/AAAA/threads/RUN',
+          runId: 'run-1',
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+      final bridge = ChannelTaskBridge(threadBindings: store, threadBindingEnabled: true);
+      final msg = makeGchatMessage(threadName: 'spaces/AAAA/threads/RUN');
+
+      final handled = await bridge.tryHandle(
+        msg,
+        channel,
+        sessionKey: 'default-session',
+        enqueue: (msg, ch, sessionKey) => fail('a run binding carries no session'),
+      );
+
+      expect(handled, isFalse);
+      expect(bridge.lookupThreadBinding(msg, channel), isNull);
+      expect(store.lookupByThread('googlechat', 'spaces/AAAA/threads/RUN')!.lastActivity, now);
     });
 
     test('non-thread messages with bridge wired but no bindings fall through (regression)', () async {

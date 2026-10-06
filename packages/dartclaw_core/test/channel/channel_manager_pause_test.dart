@@ -149,7 +149,7 @@ void main() {
       sent.clear();
       queue = makeQueue();
       final spyChannel = _SpyChannel(ownedJids: {'spaces/AAAA', 'users/123'}, sentOut: sent);
-      final binding = ThreadBinding(
+      final binding = ThreadBinding.task(
         channelType: ChannelType.googlechat.name,
         threadId: 'spaces/AAAA/threads/THREAD-1',
         taskId: 'task-123',
@@ -225,7 +225,7 @@ class _BoundThreadBridge extends ChannelTaskBridge {
   bool isReservedCommand(String text) => false;
 
   @override
-  ThreadBinding? lookupThreadBinding(ChannelMessage message) => binding;
+  ThreadBinding? lookupThreadBinding(ChannelMessage message, Channel channel) => binding;
 
   @override
   Future<bool> tryHandle(

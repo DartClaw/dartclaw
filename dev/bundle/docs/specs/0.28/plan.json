@@ -274,9 +274,27 @@
         "S01",
         "S04"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s05-threaded-channels-and-run-lifecycle-posts.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13"
+      ],
+      "verified": {
+        "at": "2026-10-06T20:55Z",
+        "summary": "dart test --reporter=failures-only packages/dartclaw_runtime -> exit=0, +5379 ~25: All other tests passed!; dart analyze --fatal-infos -> No issues found!; bash dev/tools/fitness/run_all.sh -> exit=0; dart run dev/tools/arch_check.dart -> PASS summary: 18/18 checks passed."
+      },
       "scope": "Replace the Google Chat instance check in the task notifier with the declared threaded-notification capability (architecture F2), implemented by Google Chat and Slack, with thread bindings keyed by task or run and preserved across channel registration order. Add the channel-agnostic run subscriber posting started, awaiting-approval and finished or failed to the origin thread or to the configured notification channel, with plain posts on WhatsApp and Signal.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr6-threaded-channel-seam",

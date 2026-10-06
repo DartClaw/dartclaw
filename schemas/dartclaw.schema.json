@@ -1399,7 +1399,7 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "description": "Route messages in a bound thread straight to that task session, and post task notifications as new threads. Google Chat only — it is the one channel that carries a thread identity to bind. (restart required)",
+              "description": "Route messages in a bound thread straight to that task session, enable /bind, and post task notifications as new threads. Applies on every channel that threads (Google Chat, Slack). The one thread per workflow run in the workflow.chat_notifications channel does not depend on it. (restart required)",
               "type": "boolean"
             },
             "idle_timeout_minutes": {
@@ -3173,6 +3173,46 @@
             "manual"
           ],
           "type": "string"
+        },
+        "chat_notifications": {
+          "additionalProperties": false,
+          "properties": {
+            "channel": {
+              "description": "Channel that receives the lifecycle of workflow runs started without a chat origin. Read at startup. A run started from a chat thread posts into that thread instead and never also here. Needs recipient; with neither set, such runs post nothing. (restart required)",
+              "enum": [
+                "googlechat",
+                "signal",
+                "slack",
+                "whatsapp",
+                null
+              ],
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "events": {
+              "description": "Run lifecycle events to post: started, awaiting_approval, finished, failed, step_completed. Defaults to all but step_completed. Any unknown name ignores the whole chat_notifications block. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "recipient": {
+              "description": "Conversation identifier on the notification channel, such as a Slack channel ID. Each run opens one thread here where the channel threads. Needs channel. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
         },
         "cleanup": {
           "additionalProperties": false,

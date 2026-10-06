@@ -11,6 +11,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
   SecurityWiring security,
   TaskWiring task,
   ThreadBindingStore? threadBindingStore,
+  ChannelManager? channelManager,
   SchedulingWiring scheduling,
   WorkflowDefinitionSource workflowDefinitions,
   WorkflowService workflowService,
@@ -25,7 +26,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
   server.registerTool(ReviewListTool(tasks: storage.taskService));
   // The binding tools register unconditionally: an absent store is reported at
   // call time, so their availability does not change with an operator toggle.
-  server.registerTool(TaskBindTool(tasks: storage.taskService, bindings: threadBindingStore));
+  server.registerTool(TaskBindTool(tasks: storage.taskService, bindings: threadBindingStore, channels: channelManager));
   server.registerTool(TaskUnbindTool(bindings: threadBindingStore));
   // Orchestration and content tools. They take no session, channel or caller
   // argument, which is what makes them answer the same way to a chat turn and a

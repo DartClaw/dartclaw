@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ChannelConfig, ChannelType;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:shelf/shelf.dart';
@@ -15,6 +16,7 @@ void main() {
   late Handler handler;
   late Directory tempDir;
   late ThreadBindingStore bindings;
+  late ChannelManager channels;
 
   setUp(() async {
     eventBus = EventBus();
@@ -27,7 +29,12 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('task_bindings_routes_test_');
     bindings = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
     await bindings.load();
-    handler = taskRoutes(tasks, dataDir: tempDir.path, threadBindingStore: bindings).call;
+    channels = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults())
+      ..registerChannel(
+        FakeChannel(name: 'gchat', type: ChannelType.googlechat, threadedNotifications: FakeThreadedNotifications()),
+      )
+      ..registerChannel(FakeChannel(name: 'wa', type: ChannelType.whatsapp));
+    handler = taskRoutes(tasks, dataDir: tempDir.path, threadBindingStore: bindings, channelManager: channels).call;
   });
 
   tearDown(() async {
@@ -49,7 +56,7 @@ void main() {
     final now = DateTime.parse('2026-03-10T10:00:00Z');
     for (final binding in [('googlechat', 'spaces/AAA/threads/BBB'), ('googlechat', 'spaces/AAA/threads/CCC')]) {
       await bindings.create(
-        ThreadBinding(
+        ThreadBinding.task(
           channelType: binding.$1,
           threadId: binding.$2,
           taskId: 'task-bindings',
@@ -87,6 +94,40 @@ void main() {
     expect(bindings.lookupByThread('whatsapp', '120363000@g.us'), isNull);
   });
 
+  test('POST a channel type that is not registered returns 400 as carrying no thread identity', () async {
+    await createTask('task-bind');
+    final response = await handler(
+      jsonRequest('POST', '/api/tasks/task-bind/bindings', const {'channelType': 'slack', 'threadId': 'C1:1.5'}),
+    );
+    expect(response.statusCode, 400);
+    expect(bindings.lookupByThread('slack', 'C1:1.5'), isNull);
+  });
+
+  test('POST on a thread a workflow run holds returns 409 naming the run, and DELETE never removes it', () async {
+    await createTask('task-bind');
+    final now = DateTime.parse('2026-03-10T10:00:00Z');
+    await bindings.create(
+      ThreadBinding.run(
+        channelType: 'googlechat',
+        threadId: 'spaces/AAA/threads/BBB',
+        runId: 'run-3',
+        createdAt: now,
+        lastActivity: now,
+      ),
+    );
+
+    final conflict = await _postBinding(handler);
+    final deleted = await handler(
+      jsonRequest('DELETE', '/api/tasks/run-3/bindings/googlechat/spaces/AAA/threads/BBB', null),
+    );
+
+    expect(conflict.statusCode, 409);
+    expect(await conflict.readAsString(), contains('run-3'));
+    expect(deleted.statusCode, 404);
+    expect(bindings.lookupByRun('run-3'), hasLength(1));
+    expect(bindings.lookupByTask('task-bind'), isEmpty);
+  });
+
   test('POST duplicate binding returns 409', () async {
     await createTask('task-bind');
     await _postBinding(handler);
@@ -107,7 +148,7 @@ void main() {
   test('POST binding updates the shared runtime store immediately', () async {
     await createTask('task-bind');
     expect((await _postBinding(handler)).statusCode, 201);
-    expect(bindings.lookupByThread('googlechat', 'spaces/AAA/threads/BBB')?.taskId, 'task-bind');
+    expect(bindings.lookupByThread('googlechat', 'spaces/AAA/threads/BBB')?.targetId, 'task-bind');
   });
 }
 

@@ -275,29 +275,21 @@ class DeliveryService {
   ({ChannelType? channelType, String peerId})? _parseDmTarget({required String channelKey, required String sessionId}) {
     try {
       final sessionKey = SessionKey.parse(channelKey);
-      if (sessionKey.scope != 'dm') {
+      final route = sessionKey.scope == 'dm' ? sessionKey.channelRoute : null;
+      if (route == null || route.recipientId.isEmpty) {
         return null;
       }
-      if (sessionKey.identifiers == 'shared' || sessionKey.identifiers.isEmpty) {
-        return null;
-      }
-
-      final parts = sessionKey.identifiers.split(':');
-      if (parts.length != 2) {
-        _log.fine('Skipping DM session $sessionId with unsupported identifiers "${sessionKey.identifiers}"');
+      if (route.threadId != null) {
+        _log.fine('Skipping DM thread session $sessionId: an announce goes to the conversation, not a thread');
         return null;
       }
 
-      final peerId = Uri.decodeComponent(parts[1]);
-      if (peerId.isEmpty) {
-        return null;
-      }
-
-      if (parts[0] == 'contact') {
+      final peerId = route.recipientId;
+      final channelTypeName = route.channelType;
+      if (channelTypeName == null) {
         return (channelType: null, peerId: peerId);
       }
 
-      final channelTypeName = Uri.decodeComponent(parts[0]);
       final channelType = ChannelType.values.asNameMap()[channelTypeName];
       if (channelType == null) {
         _log.warning('Skipping DM session $sessionId with unknown channel type "$channelTypeName"');

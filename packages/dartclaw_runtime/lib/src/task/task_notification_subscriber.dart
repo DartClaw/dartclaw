@@ -1,20 +1,23 @@
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-
 import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
+import 'channel_notification_delivery.dart';
 import 'task_service.dart';
 
 /// Sends channel notifications for channel-originated task status changes.
+///
+/// A channel that declares [Channel.threadedNotifications] renders the
+/// notification natively and, with thread binding on, threads a task's
+/// notifications; every other channel gets one plain send.
 class TaskNotificationSubscriber {
   static final _log = Logger('TaskNotificationSubscriber');
 
   final TaskService _tasks;
   final ChannelManager _channelManager;
-  final ChatCardBuilder _googleChatCardBuilder;
+  final ChannelNotificationDelivery _delivery = ChannelNotificationDelivery();
   final ThreadBindingStore? _threadBindings;
 
   /// Public base URL used to link a review-ready task, or `null` when the
@@ -27,14 +30,12 @@ class TaskNotificationSubscriber {
   new({
     required TaskService tasks,
     required ChannelManager channelManager,
-    ChatCardBuilder? googleChatCardBuilder,
     ThreadBindingStore? threadBindings,
     bool threadBindingEnabled = false,
     String? baseUrl,
   }) : _baseUrl = baseUrl,
        _tasks = tasks,
        _channelManager = channelManager,
-       _googleChatCardBuilder = googleChatCardBuilder ?? const ChatCardBuilder(),
        _threadBindings = threadBindings,
        _threadBindingEnabled = threadBindingEnabled;
 
@@ -53,7 +54,14 @@ class TaskNotificationSubscriber {
     if (!_isNotifiable(event)) {
       return;
     }
+    try {
+      await _notify(event);
+    } finally {
+      if (event.newStatus.terminal) _delivery.forget('task ${event.taskId}');
+    }
+  }
 
+  Future<void> _notify(TaskStatusChangedEvent event) async {
     final task = await _tasks.get(event.taskId);
     if (task == null) {
       _log.warning('Task ${event.taskId} not found while preparing channel notification');
@@ -82,94 +90,85 @@ class TaskNotificationSubscriber {
       return;
     }
 
-    final response = _buildNotificationResponse(channelType: channelType, task: task, event: event, fallbackText: text);
-
-    // For Google Chat with thread binding: send in a new or existing thread and
-    // create a thread binding on the initial notification.
-    if (_threadBindingEnabled && channelType == ChannelType.googlechat && channel is GoogleChatChannel) {
-      final threadKey = 'task-${task.id}';
-
-      if (_isInitialNotification(event)) {
-        // First notification: send in a new thread and capture the thread name.
-        final threadName = await channel.sendMessageWithThread(origin.recipientId, response, threadKey: threadKey);
-        if (threadName != null) {
-          final threadBindings = _threadBindings;
-          if (threadBindings != null) {
-            final now = DateTime.now();
-            try {
-              await threadBindings.create(
-                ThreadBinding(
-                  channelType: origin.channelType,
-                  threadId: threadName,
-                  taskId: task.id,
-                  sessionKey: origin.sessionKey,
-                  createdAt: now,
-                  lastActivity: now,
-                ),
-              );
-            } catch (error, stackTrace) {
-              _log.warning('Failed to create thread binding for task ${task.id} thread $threadName', error, stackTrace);
-            }
-          }
-        } else {
-          _log.warning('Thread send returned null thread name for task ${task.id} — binding not created');
-        }
-        return;
-      }
-
-      // Subsequent notifications: send to the existing thread if bound.
-      final existingBindings = _threadBindings?.lookupByTask(task.id) ?? const <ThreadBinding>[];
-      if (existingBindings.isNotEmpty) {
-        await channel.sendMessageWithThread(origin.recipientId, response, threadKey: threadKey);
-        return;
-      }
+    final notification = ChannelNotification(
+      kind: ChannelNotificationKind.task,
+      id: task.id,
+      text: text,
+      title: task.title,
+      status: event.newStatus.name,
+      body: task.description,
+      error: _errorSummary(task),
+      requestedBy: task.createdBy,
+      createdAt: task.createdAt,
+      updatedAt: event.timestamp,
+      reviewActions: event.newStatus == TaskStatus.review,
+    );
+    final subject = 'task ${task.id}';
+    final threads = channel.threadedNotifications;
+    if (threads == null) {
+      await _delivery.sendPlain(channel, origin.recipientId, notification, subject: subject);
+      return;
     }
 
-    // Default: send without thread.
-    try {
-      await channel.sendMessage(origin.recipientId, response);
-    } catch (error, stackTrace) {
-      _log.warning(
-        'Failed to notify ${origin.channelType} recipient ${origin.recipientId} for task ${task.id}',
-        error,
-        stackTrace,
+    final response = threads.render(notification);
+    if (!_threadBindingEnabled) {
+      await _delivery.sendRendered(channel, origin.recipientId, response, subject: subject);
+      return;
+    }
+
+    if (_isInitialNotification(event)) {
+      final post = await _delivery.sendInNewThread(
+        channel,
+        threads,
+        origin.recipientId,
+        response,
+        threadKey: 'task-${task.id}',
+        subject: subject,
       );
+      if (post != null) await _bindTaskThread(origin, task, post);
+      return;
+    }
+
+    final binding = _threadBindings
+        ?.lookupByTask(task.id)
+        .where((b) => b.channelType == origin.channelType)
+        .firstOrNull;
+    if (binding == null) {
+      await _delivery.sendRendered(channel, origin.recipientId, response, subject: subject);
+      return;
+    }
+    await _delivery.sendInThread(
+      channel,
+      threads,
+      origin.recipientId,
+      response,
+      threadId: binding.threadId,
+      subject: subject,
+    );
+  }
+
+  Future<void> _bindTaskThread(TaskOrigin origin, Task task, ThreadedPost post) async {
+    final threadBindings = _threadBindings;
+    if (threadBindings == null) return;
+    final now = DateTime.now();
+    try {
+      await threadBindings.create(
+        ThreadBinding.task(
+          channelType: origin.channelType,
+          threadId: post.threadId,
+          taskId: task.id,
+          sessionKey: origin.sessionKey,
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+    } catch (error, stackTrace) {
+      _log.warning('Failed to create thread binding for task ${task.id} thread ${post.threadId}', error, stackTrace);
     }
   }
 
   bool _isInitialNotification(TaskStatusChangedEvent event) =>
       event.oldStatus == TaskStatus.queued && event.newStatus == TaskStatus.running;
-
-  ChannelResponse _buildNotificationResponse({
-    required ChannelType channelType,
-    required Task task,
-    required TaskStatusChangedEvent event,
-    required String fallbackText,
-  }) {
-    if (channelType != ChannelType.googlechat) {
-      return ChannelResponse(text: fallbackText);
-    }
-
-    try {
-      return ChannelResponse(
-        text: fallbackText,
-        structuredPayload: _googleChatCardBuilder.taskNotification(
-          taskId: task.id,
-          title: task.title,
-          status: event.newStatus.name,
-          description: task.description,
-          errorSummary: _errorSummary(task),
-          requestedBy: task.createdBy,
-          createdAt: task.createdAt,
-          updatedAt: event.timestamp,
-          includeReviewButtons: event.newStatus == TaskStatus.review,
-        ),
-      );
-    } catch (error, stackTrace) {
-      _log.warning('Failed to build Google Chat card for task ${task.id}', error, stackTrace);
-      return ChannelResponse(text: fallbackText);
-    }
-  }
 
   bool _isNotifiable(TaskStatusChangedEvent event) => switch ((event.oldStatus, event.newStatus)) {
     (TaskStatus.queued, TaskStatus.running) => true,
@@ -188,10 +187,8 @@ class TaskNotificationSubscriber {
   /// grammar: the host parses no reply, and "tell me" reaches the agent, which
   /// decides for itself whether to call the review tool.
   String _reviewReadyMessage(Task task) {
-    final base = _baseUrl?.trim();
-    final where = base == null || base.isEmpty
-        ? 'Review it in the web UI'
-        : 'Review it at ${base.endsWith('/') ? base.substring(0, base.length - 1) : base}/tasks/${task.id}';
+    final url = publicPageUrl(_baseUrl, '/tasks/${task.id}');
+    final where = url == null ? 'Review it in the web UI' : 'Review it at $url';
     return "Task '${task.title}' needs review. $where, or tell me here to accept or reject it.";
   }
 

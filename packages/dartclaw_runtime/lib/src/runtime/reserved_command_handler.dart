@@ -167,7 +167,7 @@ class ReservedCommandHandler {
     }
     final taskId = parts[1].trim();
 
-    final threadId = extractThreadId(message);
+    final threadId = channel.threadedNotifications?.extractThread(message.metadata);
     if (threadId == null) {
       await _sendResponse(channel, message, 'Cannot bind — this message is not in a thread.');
       return 'rejected';
@@ -190,17 +190,21 @@ class ReservedCommandHandler {
     final channelType = message.channelType.name;
     final existing = threadBindingStore.lookupByThread(channelType, threadId);
     if (existing != null) {
-      if (existing.taskId == task.id) {
+      if (existing.kind == ThreadBindingKind.run) {
+        await _sendResponse(channel, message, 'This thread belongs to workflow run ${existing.targetId}.');
+        return 'rejected';
+      }
+      if (existing.targetId == task.id) {
         await _sendResponse(channel, message, 'Already bound to task ${task.id}.');
         return 'executed';
       }
-      await _sendResponse(channel, message, 'Already bound to task ${existing.taskId} — /unbind first.');
+      await _sendResponse(channel, message, 'Already bound to task ${existing.targetId} — /unbind first.');
       return 'rejected';
     }
 
     final now = DateTime.now();
     await threadBindingStore.create(
-      ThreadBinding(
+      ThreadBinding.task(
         channelType: channelType,
         threadId: threadId,
         taskId: task.id,
@@ -224,7 +228,7 @@ class ReservedCommandHandler {
       return 'rejected';
     }
 
-    final threadId = extractThreadId(message);
+    final threadId = channel.threadedNotifications?.extractThread(message.metadata);
     if (threadId == null) {
       await _sendResponse(channel, message, 'Cannot unbind — this message is not in a thread.');
       return 'rejected';
@@ -235,12 +239,20 @@ class ReservedCommandHandler {
       await _sendResponse(channel, message, 'No binding found for this thread.');
       return 'executed';
     }
+    if (existing.kind == ThreadBindingKind.run) {
+      await _sendResponse(
+        channel,
+        message,
+        'This thread belongs to workflow run ${existing.targetId} and stays until the run ends.',
+      );
+      return 'rejected';
+    }
 
     await threadBindingStore.delete(message.channelType.name, threadId);
     await _sendResponse(
       channel,
       message,
-      'Unbound from task ${existing.taskId}. Messages here return to normal routing.',
+      'Unbound from task ${existing.targetId}. Messages here return to normal routing.',
     );
     return 'executed';
   }

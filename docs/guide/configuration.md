@@ -391,7 +391,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **dev_mode** |  |  |  |
 | `dev_mode` | boolean |  | Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required) |
 | **features** |  |  |  |
-| `features.thread_binding.enabled` | boolean |  | Route messages in a bound thread straight to that task session, and post task notifications as new threads. Google Chat only — it is the one channel that carries a thread identity to bind. (restart required) |
+| `features.thread_binding.enabled` | boolean |  | Route messages in a bound thread straight to that task session, enable /bind, and post task notifications as new threads. Applies on every channel that threads (Google Chat, Slack). The one thread per workflow run in the workflow.chat_notifications channel does not depend on it. (restart required) |
 | `features.thread_binding.idle_timeout_minutes` | integer | 1–1440 | Minutes of thread inactivity before the binding is dropped. The sweep runs every five minutes, so removal can lag. (restart required) |
 | **gateway** |  |  |  |
 | `gateway.auth_mode` | string | one of "none", "token" | token demands the bearer credential on every request; none serves the instance unauthenticated. Read-only through the API — change it in YAML. (file-only, not settable via API or CLI) |
@@ -577,6 +577,9 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `usage.max_file_size_bytes` | integer | minimum 1 | Largest upload accepted through the web UI and channels, in bytes. (restart required) |
 | **workflow** |  |  |  |
 | `workflow.approvals` | string | one of "auto", "auto-on-stall", "manual" | How far a run advances unattended: manual pauses on stalls and approval steps, auto-on-stall passes stalls only, auto passes both. (restart required) |
+| `workflow.chat_notifications.channel` | null or string | one of "googlechat", "signal", "slack", "whatsapp", null | Channel that receives the lifecycle of workflow runs started without a chat origin. Read at startup. A run started from a chat thread posts into that thread instead and never also here. Needs recipient; with neither set, such runs post nothing. (restart required) |
+| `workflow.chat_notifications.events` | array or null |  | Run lifecycle events to post: started, awaiting_approval, finished, failed, step_completed. Defaults to all but step_completed. Any unknown name ignores the whole chat_notifications block. (restart required) |
+| `workflow.chat_notifications.recipient` | null or string |  | Conversation identifier on the notification channel, such as a Slack channel ID. Each run opens one thread here where the channel threads. Needs channel. (restart required) |
 | `workflow.cleanup.delete_remote_branch_on_failure` | boolean |  | Delete the pushed branch when a run fails. Off keeps it for post-mortem inspection. (restart required) |
 | `workflow.defaults.executor.effort` | null or string |  | Reasoning effort for executor-role steps. Null inherits the workflow-role setting. (restart required) |
 | `workflow.defaults.executor.model` | null or string |  | Model for executor-role steps. Accepts provider/model shorthand. (restart required) |
@@ -610,6 +613,29 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 Effort buys the turn more deliberation. It does not raise an output ceiling: the synthesis has to land in one assistant message either way, so past some source size no effort setting reaches near-complete transfer and the answer is to split the source. Read the run report's `coverage:` line – source bytes against synthesized bytes per file. See the [knowledge inbox recipe](recipes/04-knowledge-inbox.md#what-the-coverage-report-can-and-cannot-tell-you).
 
 `workflow.approvals` controls workflow approval gates, not task review. `manual` pauses on `needsInput` and explicit approval steps; `auto-on-stall` advances past `needsInput` stalls only; `auto` also auto-accepts explicit approval steps. `headless` remains separate and only changes task completion review.
+
+#### Workflow run notifications
+
+A workflow run posts its lifecycle to chat. `workflow.chat_notifications` chooses where runs that were not started from a chat conversation post:
+
+| Key | Type | Default |
+|-----|------|---------|
+| `workflow.chat_notifications.channel` | `googlechat`, `signal`, `slack` or `whatsapp` | none (required) |
+| `workflow.chat_notifications.recipient` | string, the conversation identifier on that channel (for Slack, a channel ID) | none (required) |
+| `workflow.chat_notifications.events` | list drawn from `started`, `awaiting_approval`, `finished`, `failed`, `step_completed` | `started`, `awaiting_approval`, `finished`, `failed` |
+
+`started` posts when a run goes from pending to running (not on a resume or retry), `awaiting_approval` when a step waits for an approval, `finished` when the run completes or is cancelled, `failed` when it fails, and `step_completed` adds one line per step. The approval message and a failure's error text are cut at 1,000 characters. When `server.base_url` is set, an approval post carries a link to `<server.base_url>/workflows/<runId>`.
+
+The first rule that matches decides where a run's posts go:
+
+1. A run of unknown origin posts nothing.
+2. A run started from a chat conversation on a channel that does not thread (WhatsApp, Signal) posts plain messages to that conversation.
+3. A run started from a chat thread on a channel that threads (Google Chat, Slack) posts into that thread. It never also posts to the configured channel.
+4. Any other run posts to `workflow.chat_notifications`: one new thread per run when that channel threads, plain messages when it does not. With no block configured, such a run posts nothing. A run started from a threaded channel that recorded no thread falls here too.
+
+`chat_notifications` alone gives that one thread per run. `features.thread_binding.enabled` is needed only for task threading (task notifications opening a thread, `/bind`, `task_bind`, routing replies in a bound thread to the task). A run's thread is not a task binding and routes no messages; it ends with the run's last post.
+
+An invalid block (a missing or unknown channel, a missing recipient, an empty or unknown `events` entry) is ignored whole with a warning that names the key. At startup, a channel that is not enabled, or a recipient that channel does not own, logs a warning and leaves runs started outside chat with nowhere to post. A post that cannot be delivered is logged and dropped, and never blocks or fails the run.
 
 **Note on `scheduling.jobs` prompt content:** The `prompt` field of each scheduled job is passed directly to the agent at runtime. It is not validated by ConfigMeta — invalid or empty prompts are only caught when the job runs.
 

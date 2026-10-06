@@ -50,11 +50,12 @@ class ChannelTaskBridge {
   /// while still queueing all other inbound traffic during a pause window.
   bool isReservedCommand(String text) => _isReservedCommand?.call(text) ?? false;
 
-  /// Returns the current thread binding for [message], if any.
+  /// Returns the current task binding for [message], if any.
   ///
   /// Lookup is gated by `features.thread_binding.enabled` and only applies to
-  /// channels that attach a thread identifier to [ChannelMessage.metadata].
-  ThreadBinding? lookupThreadBinding(ChannelMessage message) => _threadBindingRouter.lookupThreadBinding(message);
+  /// a [channel] that declares [Channel.threadedNotifications].
+  ThreadBinding? lookupThreadBinding(ChannelMessage message, Channel channel) =>
+      _threadBindingRouter.lookupThreadBinding(message, channel);
 
   /// Attempts to consume [message] before normal session routing.
   ///
@@ -90,7 +91,7 @@ class ChannelTaskBridge {
       }
     }
 
-    final threadBinding = boundThreadBinding ?? _threadBindingRouter.lookupThreadBinding(message);
+    final threadBinding = boundThreadBinding ?? _threadBindingRouter.lookupThreadBinding(message, channel);
     if (await _support.tryRejectRateLimited(message, channel)) {
       return true;
     }

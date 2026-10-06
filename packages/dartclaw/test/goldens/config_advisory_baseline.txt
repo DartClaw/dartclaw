@@ -959,6 +959,16 @@
   [blocking] Invalid value for workflow.approvals: "__dartclaw_not_a_member__" (allowed: manual, auto-on-stall, auto) – using default manual
 === workflow.approvals#type-nonstring ===
   [blocking] Invalid type for workflow.approvals: "int" – using default manual
+=== workflow.chat_notifications#scalar ===
+  [blocking] Invalid type for workflow.chat_notifications: "int" – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.channel#non-member ===
+  [blocking] Invalid value for workflow.chat_notifications.channel: "__dartclaw_not_a_member__" (allowed: whatsapp, signal, googlechat, slack) – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.channel#type-nonstring ===
+  [blocking] Invalid type for workflow.chat_notifications.channel: "int" – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.events#type-nonlist ===
+  [blocking] Missing value for workflow.chat_notifications.channel (allowed: whatsapp, signal, googlechat, slack) – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.recipient#type-nonstring ===
+  [blocking] Missing value for workflow.chat_notifications.channel (allowed: whatsapp, signal, googlechat, slack) – ignoring workflow.chat_notifications
 === workflow.cleanup#scalar ===
   [blocking] Invalid type for workflow.cleanup: "int" — using defaults
 === workflow.cleanup.delete_remote_branch_on_failure#type-nonbool ===

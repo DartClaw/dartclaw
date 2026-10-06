@@ -284,8 +284,9 @@ Common infrastructure:
 | `GroupEntry` | `scoping/group_entry.dart` | Structured group allowlist entry with optional `name`, `project`, `model`, `effort` overrides. Parsed by `GroupEntry.parseList()` which accepts mixed string/map YAML |
 | `GroupConfigResolver` | `scoping/group_config_resolver.dart` | Lookup service keyed by `(ChannelType, groupId)`. Constructed in `ChannelWiring` from per-channel allowlists. Used by `resolveChannelTurnOverrides()` (model/effort precedence tier) and `ChannelTaskBridge` (project binding) |
 | `TaskOrigin` | `channel/task_origin.dart` | Persisted metadata linking a task back to its originating channel contact (`channelType`, `sessionKey`, `recipientId`, `contactId`) |
-| `ThreadBinding` | `channel/thread_binding.dart` | Immutable model: `(channelType, threadId) → (taskId, sessionKey)`. Key: `"<channelType>::<threadId>"`. Fields: `createdAt`, `lastActivity` |
-| `ThreadBindingStore` | `channel/thread_binding.dart` | In-memory `Map<String, ThreadBinding>` with JSON persistence to `thread-bindings.json`. CRUD + `reconcile()` (prunes bindings for terminal tasks on startup) |
+| `ThreadedNotifications` | `channel/threaded_notifications.dart` | The one declaration that a channel threads (`Channel.threadedNotifications`, resolved by `ChannelManager.threadedNotificationsFor(channelType)`): `extractThread`, `render(ChannelNotification)`, `sendToNewThread`, `sendToThread`. Implemented by Google Chat and Slack; WhatsApp and Signal declare nothing |
+| `ThreadBinding` | `channel/thread_binding.dart` | Immutable model: `(channelType, threadId) → (kind, targetId)`, where `kind` is `task` (with a `sessionKey` inbound messages route to) or `run` (a thread a workflow run posts into; routes nothing). Key: `"<channelType>::<threadId>"`. Fields: `createdAt`, `lastActivity` |
+| `ThreadBindingStore` | `channel/thread_binding.dart` | In-memory `Map<String, ThreadBinding>` with JSON persistence to `thread-bindings.json`. CRUD + `reconcile({activeTaskIds, activeRunIds})` (prunes bindings of terminal or unknown tasks and runs on startup); the idle sweep skips run bindings |
 
 Design rationale: [ADR-005 (WhatsApp Integration)](../adrs/005-whatsapp-integration.md)
 
@@ -294,10 +295,12 @@ Design rationale: [ADR-005 (WhatsApp Integration)](../adrs/005-whatsapp-integrat
 #### Inbound Message Pipeline
 
 Channel adapters normalize platform-specific payloads into `ChannelMessage` before any session routing begins. Google
-Chat contributes thread metadata (`thread.name`), sender display name, and avatar URL; WhatsApp and Signal contribute
-equivalent sender/contact metadata through the same DTO shape. The routing stack then composes pause handling,
-governance, thread binding, and ordinary session routing. Thread binding is opt-in: the runtime creates its store and
-wires binding behavior only when `features.thread_binding.enabled` is true.
+Chat contributes thread metadata (`thread.name`), sender display name, and avatar URL; Slack contributes the conversation
+ID and `thread_ts`; WhatsApp and Signal contribute equivalent sender/contact metadata through the same DTO shape. The
+routing stack then composes pause handling, governance, thread binding, and ordinary session routing. Task binding is
+opt-in: the runtime wires `/bind`, `task_bind`, the task bindings routes and bound-thread routing only when
+`features.thread_binding.enabled` is true. The binding store itself also exists when `workflow.chat_notifications` is
+configured, so a run gets its own thread without the flag.
 
 **Stage 1 — `ChannelManager.handleInboundMessage()`**
 
@@ -321,12 +324,13 @@ wires binding behavior only when `features.thread_binding.enabled` is true.
 Design rationale:
 - Reserved commands stay ahead of pause and rate limiting so operators can always recover the runtime.
 - Thread-binding lookup happens before rate limiting so the bridge preserves the task-session context.
-- Thread binding now supports multiple bindings per task. Google Chat binds a concrete thread, while WhatsApp and Signal bind the whole group conversation via explicit `/bind`.
+- Thread binding supports multiple bindings per task. Only a channel that declares `ThreadedNotifications` (Google Chat, Slack) can hold one, keyed by the thread identity the capability reads from the message; WhatsApp and Signal cannot be bound. The lookup routes task bindings only, so a run binding never captures a message.
 
 **Outbound channel notifications**
 
-- `TaskNotificationSubscriber` posts lifecycle updates back to the originating channel for tasks carrying a `TaskOrigin`.
-- The initial Google Chat `running` notification opens or reuses a thread keyed by the task ID; the returned `thread.name` becomes the persisted `ThreadBinding`.
+- `TaskNotificationSubscriber` posts lifecycle updates back to the originating channel for tasks carrying a `TaskOrigin`, and `WorkflowRunNotificationSubscriber` posts a workflow run's started, awaiting-approval, finished and failed steps. Both deliver through `ChannelNotificationDelivery`, which renders natively through the channel's `ThreadedNotifications` and sends plain text where a channel declares none.
+- With `features.thread_binding.enabled`, the first task notification (`queued` to `running`) opens a thread keyed `task-<id>` on a channel that threads; the returned thread identity becomes the persisted task `ThreadBinding`.
+- A run posts into the thread it was started from, as plain messages to its origin recipient on a channel that does not thread, or to the `workflow.chat_notifications` channel (one thread per run, held by a run `ThreadBinding` until the terminal post).
 - Review-ready notifications are posted into the bound thread; review decisions use the task UI, API, or `task_review`.
 - Terminal task states remove the binding through lifecycle cleanup, so later replies fall back to normal session routing.
 - Governance events also surface back to channels when relevant: budget warnings post once per day after the 80% threshold, and loop-detection warnings or aborts emit notifications tied to the originating task/session context.
@@ -352,7 +356,8 @@ The task orchestrator transforms DartClaw from a single-session assistant into a
 | `ArtifactCollector` | `task/artifact_collector.dart` | Collects task outputs as typed artifacts (`diff`, `document`, `data`, `log`) |
 | `RunnerObserver` | `task/runner_observer.dart` | Current runner lifecycle and cumulative turn metrics derived from coordinator events |
 | `TaskReviewService` | `task/task_review_service.dart` | Shared task-review lifecycle for HTTP, UI, and agent-tool paths. Owns state transition, merge execution for worktree-backed tasks, conflict artifact persistence, worktree cleanup, and `TaskStatusChangedEvent` firing |
-| `TaskNotificationSubscriber` | `task/task_notification_subscriber.dart` | Subscribes to `TaskStatusChangedEvent` on the event bus. For tasks with a `TaskOrigin`, sends best-effort in-channel notifications on key transitions. For Google Chat origins, the initial `running` notification can establish the persisted thread binding used by later notifications and inbound routing |
+| `TaskNotificationSubscriber` | `task/task_notification_subscriber.dart` | Subscribes to `TaskStatusChangedEvent` on the event bus. For tasks with a `TaskOrigin`, sends best-effort in-channel notifications on key transitions. On a channel that threads, the initial `running` notification can establish the persisted task thread binding used by later notifications and inbound routing |
+| `WorkflowRunNotificationSubscriber` | `task/workflow_run_notification_subscriber.dart` | Subscribes to `WorkflowLifecycleEvent`s. Posts a run's started, awaiting-approval, finished or failed steps (and optionally each step) to the thread that started the run, or to the `workflow.chat_notifications` channel, one chain per run. Shares `ChannelNotificationDelivery` (`task/channel_notification_delivery.dart`) with the task subscriber |
 | `AdvisorSubscriber` | `advisor/advisor_subscriber.dart` | EventBus-driven crowd-coding observer. Accumulates a bounded normalized context window, evaluates triggers (`periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`), acquires a pooled runner for an advisory turn, parses structured output, then routes the result to bound channels and the event bus |
 
 Task state machine: `draft` → `queued` → `running` → `review` → `accepted`/`rejected`/`cancelled`/`failed`. See [Data Model — Task State Machine](data-model.md) for valid transitions.

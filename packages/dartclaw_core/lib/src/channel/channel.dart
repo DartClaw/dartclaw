@@ -2,6 +2,8 @@ import 'package:uuid/uuid.dart';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'threaded_notifications.dart';
+
 /// A file an inbound message carried, already downloaded by the channel adapter.
 class ChannelAttachment {
   /// File name as the sender's platform reports it. Untrusted.
@@ -165,6 +167,12 @@ abstract class Channel {
 
   /// Releases resources and stops any long-lived channel connections.
   Future<void> disconnect();
+
+  /// The declaration that this channel threads, or `null` when it does not.
+  ///
+  /// Its presence is the only answer to whether the channel can hold a thread
+  /// binding; it does not depend on the channel being connected.
+  ThreadedNotifications? get threadedNotifications => null;
 
   /// Format raw agent output for this channel's delivery requirements.
   /// Default: wrap in a single [ChannelResponse].

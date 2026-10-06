@@ -8,6 +8,7 @@
 - **Feedback**: `FeedbackObserverFactory` (runtime) asks `SlackChannel.feedbackStrategyFor(message)` for one `SlackFeedbackStrategy` per turn: `assistant.threads.setStatus` while the turn runs, and the reply streamed with `chat.startStream` / `appendStream` / `stopStream` when `channels.slack.streaming` is on and the message has a thread. Its `onTurnCompleted` returns `true` only when exactly one message holds the whole reply, which is how `MessageQueue` skips its own send; `false` leaves the one post to the queue.
 - **Inbound files**: after the inbound gate, `takeSlackFiles` downloads a message's files off the envelope path (the handler returns at once, so acknowledgement and later envelopes never wait), one thread reply names every refusal, and the message is admitted with `ChannelMessage.attachments`.
 - **Threads**: the adapter stamps `metadata['threadId']` (core's `threadIdMetadataKey`) with `thread_ts`, or the message's own `ts` for a top-level message. Core's `deriveSessionKey` turns it into one session per thread, and every reply carries it back.
+- **Threaded notifications**: `SlackChannel.threadedNotifications` (`SlackThreadedNotifications`) is the capability declaration. Its thread identity is conversation-qualified, `'<conversationId>:<thread_ts>'` (composed and split only in that file; Slack ids and timestamps hold no `:`), read from `metadata['spaceName']` + `metadata['threadId']`, so a top-level message already names the thread it opens and a slash command names none. `render` builds Block Kit `section` blocks (`text` stays the fallback), every value through `escapeSlackMarkdown`, each section clipped to Slack's 3,000-character limit; no buttons. Both sends post through `SlackWebApiClient.postMessage(blocks:)`, record participation like `sendMessage`, and return `null` on a `SlackApiException`.
 
 ## Boundaries
 - May depend on `dartclaw_core`, `dartclaw_kernel`, `http`, `logging`. Must not depend on another channel package or `dartclaw_runtime`; `dartclaw_core/lib` names no platform.
@@ -43,5 +44,6 @@
 ## Key files
 - `lib/dartclaw_slack.dart` — production barrel; `lib/testing.dart` — opt-in test doubles the barrel does not re-export.
 - `lib/src/slack_channel.dart` — normalization, gating, participation, slash commands, outbound.
+- `lib/src/slack_threaded_notifications.dart` — the `ThreadedNotifications` capability: thread identity, Block Kit rendering, threaded posts.
 - `lib/src/slack_feedback_strategy.dart` (status + streamed reply), `lib/src/slack_file_intake.dart` (bounds, refusals, downloads).
 - `lib/src/socket_mode_client.dart`, `lib/src/slack_envelope.dart`, `lib/src/slack_web_api_client.dart`, `lib/src/slack_markdown.dart`, `lib/src/slack_config.dart`.

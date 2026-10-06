@@ -163,3 +163,7 @@ Decisions the sources leave open, each also stated where it bites:
 
 - `git diff --check` and `bash dev/tools/fitness/run_all.sh` over the public diff.
 - Live proof of a link opened from Slack and a refused non-admin write runs in the owner-led qualification (story S08's ledger), not here.
+
+## Discovered Requirements
+
+- **Title**: Push-back feedback turns carry no turn provenance. **Description**: `_pushBackFeedbackDelivery` in `service_wiring.dart` starts a human-input turn (`source: 'push-back'`) on a channel-type session without a `TurnProvenance`, so a write tool called during it reaches the shared-write guard with no channel and no sender. Decide how the guard classifies this turn, never as an unaudited bypass of the channel admin gate (for example by giving the turn the session's channel provenance at that seam, or by treating a channel-session turn without provenance as refused), and prove it with a test. **Rationale**: S04 surfaced the provenance-less turn source after this FIS was written. **Interpretation**: scope-preserving; keeps S04's contract that a sender gate decides a no-sender turn by its own rule. **Traced from**: S04 completion report (open note). **Date**: 2026-10-06

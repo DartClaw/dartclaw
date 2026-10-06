@@ -330,7 +330,7 @@
       "dependsOn": [
         "S04"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "fis": "s09-openable-citation-sources-and-gated-shared-writes.md",
       "completedTaskIds": [],
       "scope": "Make cited sources openable and shared-knowledge writes from channels admin-gated, on every channel. Host-minted `url` on resolved wiki and graph citation references when `base_url` is set, signed with the session cookie's HMAC and key; one exact auth-exempt read-only route rendering the wiki page through the existing contained read or the single graph fact without its private source; one indistinguishable 404. The existing contextual write guard of `wiki_write`, `kg_add` and `kg_invalidate` reads S04's trusted turn context and refuses channel turns by non-admin senders, auditing every channel-origin call with channel and sender. Guide statements on what a channel member reads, spends, opens and writes. No DDL, no new config key, no stored link state.",

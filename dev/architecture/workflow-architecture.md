@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.27.1 workflow error policy and resume, workflow accounting availability, Claude turn accounting, standalone file storage and PostgreSQL server storage, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.28.0 run origin, 0.27.1 workflow error policy and resume, workflow accounting availability, Claude turn accounting, standalone file storage and PostgreSQL server storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -890,6 +890,17 @@ Workflows can currently be triggered from six surfaces:
 | GitHub webhook | `POST /webhook/github` | `GitHubWebhookHandler` verifies HMAC-SHA256 signatures, maps PR metadata into workflow variables, and deduplicates active runs for the same workflow + PR + repo |
 | CLI connected mode | `dartclaw workflow run <name> -v KEY=VALUE` | Default mode in 0.16.4. Calls `POST /api/workflows/run`, then streams `/api/workflows/runs/<id>/events` over SSE. Exit codes: 0=completed, 1=failed, 2=paused/awaitingApproval/cancelled |
 | CLI standalone mode | `dartclaw workflow run <name> --standalone [--force]` | Explicit local fallback on the shared composition root, staged through `DartclawRuntime.stageHeadless`. Probes `/health` first and aborts unless `--force` is set when a server is already running. Starts the run with `WorkflowService.start(..., headless: true)` so review steps auto-accept |
+
+Every start records its **run origin**: `WorkflowService.start(origin:)` takes a required `WorkflowRunOrigin`, persisted in the
+initial insert before any run event fires and immutable afterwards (`WorkflowRun.copyWith` has no way to change it, and
+both run repositories ignore the origin of a run handed to `update`). Each surface sets its own: the run form `web`, the
+JSON API `api`, the connected CLI `cli` through a `surface: cli` marker that is descriptive provenance and never an
+authentication claim (any other value, `slack` and `web` included, is `400 INVALID_INPUT` and creates no run), the
+standalone CLI `cli`, the GitHub webhook `github`. The `workflow_run` tool takes its origin from the calling turn alone:
+a chat turn records its channel type, recipient, thread, session key and sender, a web-chat turn `web` with the
+session's key, a scheduled prompt turn `cron`, and a caller running no turn `api`. Those fields come from the host's
+turn record (`McpCallerContext.turn`, system architecture) and no tool argument can set them. The run detail and list
+responses carry the stored `origin`; a run retained from before origin existed reports surface `unknown`.
 
 All server-managed trigger surfaces converge on `WorkflowService.start()`: the HTTP API, HTMX launch form, GitHub
 webhook handler, and the `workflow_run` MCP tool all resolve a `WorkflowDefinition` and hand it to the same service. The

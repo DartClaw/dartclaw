@@ -36,6 +36,9 @@ class ServerCoreDeps {
 
   /// Registered tool name to canonical tool, for scoping a caller's view.
   final Map<String, CanonicalTool> mcpToolCanonicals;
+
+  /// Bearers minted for the host harnesses, resolved by the `/mcp` route.
+  final HarnessMcpBearers? mcpHarnessBearers;
   final String? webhookSecret;
 
   final ResultTrimmer? resultTrimmer;
@@ -68,6 +71,7 @@ class ServerCoreDeps {
     this.guardChain,
     this.auditLogger,
     this.mcpToolCanonicals = const {},
+    this.mcpHarnessBearers,
     this.webhookSecret,
     this.resultTrimmer,
     this.effectiveContextCapabilities = const {},

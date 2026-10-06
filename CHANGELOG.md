@@ -16,6 +16,12 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ## [0.28.0] - 2026-10-05
 
+### Added
+
+- Every workflow run records its **run origin** once, at start: where it was started (`web`, `api`, `cli`, `github`, `cron`, or the chat channel type) plus, for a chat turn, the recipient, thread, session key and sender. The run detail and list APIs return it as `origin`. A run an agent starts with `workflow_run` takes it from the turn that called the tool, on the host and container lanes alike, never from tool arguments. `POST /api/workflows/run` accepts a `surface` marker only as `cli`; any other value is `400 INVALID_INPUT`.
+- A PostgreSQL store at the released 0.27 schema is upgraded in place on the next `dartclaw serve`: one transaction adds the nullable `workflow_runs.origin_json` column, keeps every existing run, and reads those runs as origin `unknown`. Any other incompatible store still refuses untouched, and `dartclaw workflow status`, `cleanup` and `doctor` refuse the old shape without changing it (ADR-045 amendment).
+- MCP tools that opt in can read the originating turn's channel type, recipient, thread, session key and sender (`McpCallerContext.turn`). Every host harness now presents its own host-minted MCP bearer in place of the shared gateway token.
+
 ### Fixed
 
 - A full `concurrency.max_parallel_turns` cap no longer crashes the task poll. The task stays queued and starts on a later poll. A daily-budget block or loop abort at admission now fails the task without retry instead of escaping as an unhandled error.

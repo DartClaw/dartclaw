@@ -162,6 +162,8 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
             }) async {
               if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
                 dispatchStarted!.complete();
@@ -275,6 +277,8 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
             }) async {
               activeCount++;
               if (activeCount > maxActive) maxActive = activeCount;
@@ -319,6 +323,8 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
             }) async {
               dispatchCalls++;
               throw Exception('permanent');
@@ -349,6 +355,8 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
             }) async {
               dispatchCalls++;
               return 'the answer';
@@ -418,6 +426,8 @@ void main() {
                 String? senderJid,
                 String? senderDisplayName,
                 String? groupJid,
+                String? recipientId,
+                String? threadId,
               }) async {
                 started.add(message);
                 return 'ok';
@@ -469,6 +479,8 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
             }) async {
               await dispatchGate!.future; // block processing
               dispatched.add((sessionKey, message));
@@ -855,6 +867,8 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
             }) async {
               started.add(message);
               inFlight++;

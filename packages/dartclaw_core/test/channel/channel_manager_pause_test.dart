@@ -28,6 +28,8 @@ void main() {
             String? senderJid,
             String? senderDisplayName,
             String? groupJid,
+            String? recipientId,
+            String? threadId,
           }) async {
             dispatched.add((sessionKey, message));
             return 'ok';

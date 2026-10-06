@@ -13,6 +13,7 @@ import 'package:dartclaw_runtime/src/runtime/channel_agent_binding.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/feedback_observer_factory.dart';
 import 'package:dartclaw_runtime/src/runtime/reserved_command_handler.dart';
+import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart' show StorageWiring;
 import 'package:dartclaw_runtime/src/runtime/task_wiring.dart';
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
@@ -36,6 +37,7 @@ typedef _StartedTurn = ({
   String? effort,
   PromptScope? promptScope,
   TurnOrigin? origin,
+  TurnProvenance? provenance,
 });
 
 typedef _ReservedTurn = ({
@@ -47,6 +49,7 @@ typedef _ReservedTurn = ({
   BehaviorFileService? behaviorOverride,
   PromptScope? promptScope,
   TurnOrigin? origin,
+  TurnProvenance? provenance,
   String? systemPromptOverride,
   ExecutionPolicy? workerPolicy,
 });
@@ -98,6 +101,7 @@ class _RecordingTurnManager extends TurnManager {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     if (busyOnStart.isNotEmpty) throw busyOnStart.removeAt(0);
     started.add((
@@ -108,6 +112,7 @@ class _RecordingTurnManager extends TurnManager {
       effort: effort,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     ));
     return 'turn-${_nextTurn++}';
   }
@@ -134,6 +139,7 @@ class _RecordingTurnManager extends TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     if (busyOnReserve.isNotEmpty) throw busyOnReserve.removeAt(0);
     reserved.add((
@@ -145,6 +151,7 @@ class _RecordingTurnManager extends TurnManager {
       behaviorOverride: behaviorOverride,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
       systemPromptOverride: systemPromptOverride,
       workerPolicy: workerPolicy,
     ));
@@ -206,6 +213,7 @@ void main() {
       channelType: ChannelType.signal,
       senderJid: '+46701234567',
       senderDisplayName: 'Alice',
+      provenance: _signalProvenance,
     );
 
     expect(response, 'reply');
@@ -236,6 +244,7 @@ void main() {
       channelType: ChannelType.signal,
       senderJid: '+46701234567',
       senderDisplayName: 'Alice',
+      provenance: _signalProvenance,
     );
 
     Future<List<String>> userMessages() async {
@@ -308,6 +317,7 @@ void main() {
         channelType: ChannelType.signal,
         senderJid: 'alice',
         binding: binding,
+        provenance: _signalProvenance,
       );
 
       expect(response, 'reply');
@@ -373,6 +383,7 @@ void main() {
       model: model,
       effort: effort,
       binding: binding,
+      provenance: _signalProvenance,
     );
 
     test('a reserved owner workspace binding is refused before channel dispatch', () {
@@ -510,6 +521,7 @@ void main() {
         effort: 'low',
         promptScope: PromptScope.primary,
         origin: origin,
+        provenance: _signalProvenance,
       ));
     });
 
@@ -563,6 +575,7 @@ void main() {
         channelType: ChannelType.googlechat,
         senderJid: inbound.senderJid,
         binding: binding,
+        provenance: _signalProvenance,
       );
       await observer(sessionKey, inbound, channel, 'spaces/AAA', Future.value(response));
 
@@ -592,7 +605,16 @@ void main() {
       final queue = MessageQueue(
         debounceWindow: Duration.zero,
         dispatcher:
-            (queuedSessionKey, queuedMessage, {required channelType, senderJid, senderDisplayName, groupJid}) async {
+            (
+              queuedSessionKey,
+              queuedMessage, {
+              required channelType,
+              senderJid,
+              senderDisplayName,
+              groupJid,
+              recipientId,
+              threadId,
+            }) async {
               try {
                 return await dispatchChannelTurn(
                   sessions: sessions,
@@ -607,6 +629,7 @@ void main() {
                   model: 'row-model',
                   effort: 'high',
                   binding: binding,
+                  provenance: _signalProvenance,
                 );
               } finally {
                 completed.complete();
@@ -763,6 +786,161 @@ agent:
     expect(turns.executed.single.source, 'channel');
   });
 
+  group('trusted turn context', () {
+    late ChannelWiring channels;
+    late StorageWiring storage;
+    late _RecordingTurnManager turns;
+
+    setUp(() async {
+      final config = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: (path) => path == 'dartclaw.yaml'
+            ? '''
+data_dir: ${tempDir.path}
+container:
+  enabled: true
+channels:
+  debounce_window_ms: 0
+  signal:
+    enabled: true
+    dm_allowlist:
+      - id: "+46700000001"
+        agent: ana
+agent:
+  agents:
+    ana:
+      description: Ana
+      prompt: You are Ana.
+      provider: codex
+      execution: container
+      security_profile: restricted
+'''
+            : null,
+        env: {'HOME': tempDir.path},
+      );
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+      final task = TaskWiring(
+        config: config,
+        dataDir: config.server.dataDir,
+        runtimeCwd: tempDir.path,
+        eventBus: eventBus,
+        storage: storage,
+      );
+      await task.wirePreServer();
+      final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+      for (final file in ['SOUL.md', 'USER.md', 'TOOLS.md', 'MEMORY.md']) {
+        File(p.join(ownerWorkspace.path, file)).writeAsStringSync(file);
+      }
+      final agent = config.agent.definitions.single;
+      turns = _RecordingTurnManager();
+      addTearDown(turns.executions.dispose);
+      channels = ChannelWiring(
+        config: config,
+        dataDir: config.server.dataDir,
+        port: 0,
+        eventBus: eventBus,
+        storage: storage,
+        task: task,
+        resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
+        agentBinder: ChannelAgentBinder(
+          agents: {agent.id: agent},
+          policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
+          defaultProviderId: 'claude',
+          behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
+        ),
+      );
+      await channels.wire(
+        serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
+        turnManagerGetter: () => turns,
+        sseBroadcast: SseBroadcast(),
+        messageRedactor: null,
+        healthService: HealthService(
+          worker: FakeAgentHarness(),
+          searchDbPath: config.searchDbPath,
+          sessionsDir: config.sessionsDir,
+          tasksDir: p.join(config.server.dataDir, 'tasks'),
+        ),
+        configNotifier: ConfigNotifier(config),
+      );
+      addTearDown(channels.channelManager!.queue.dispose);
+    });
+
+    Future<void> untilDispatched() async {
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (turns.started.isEmpty && turns.reserved.isEmpty) {
+        if (DateTime.now().isAfter(deadline)) fail('No turn was dispatched');
+        await pumpEventQueue();
+      }
+    }
+
+    final googleChatThread = ChannelMessage(
+      channelType: ChannelType.googlechat,
+      senderJid: 'users/42',
+      text: 'run the release check',
+      metadata: const {'spaceName': 'spaces/AAA', 'threadName': 'spaces/AAA/threads/T1'},
+    );
+
+    TurnProvenance expectedFor(String sessionKey) => TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: sessionKey,
+      senderId: 'users/42',
+    );
+
+    test('the queue route and the direct route build the same provenance for a Google Chat thread message', () async {
+      final manager = channels.channelManager!;
+      final sessionKey = manager.deriveSessionKey(googleChatThread);
+      manager.registerChannel(FakeChannel(type: ChannelType.googlechat, ownsAllJids: true));
+
+      manager.handleInboundMessage(googleChatThread);
+      await untilDispatched();
+      final viaQueue = turns.started.single.provenance;
+      turns.started.clear();
+      await ChannelWiring.dispatchInboundChannelMessage(
+        channelManager: manager,
+        sessions: storage.sessions,
+        messages: storage.messages,
+        turnManagerGetter: () => turns,
+        config: DartclawConfig.defaults(),
+        message: googleChatThread,
+      );
+      final viaDirect = turns.started.single.provenance;
+
+      expect(viaQueue, expectedFor(sessionKey));
+      expect(viaDirect, viaQueue);
+    });
+
+    test('a bound agent turn carries the same provenance and keeps its logical-agent reservation', () async {
+      final manager = channels.channelManager!;
+      final inbound = ChannelMessage(
+        channelType: ChannelType.signal,
+        senderJid: '+46700000001',
+        text: 'hello',
+        metadata: const {'threadName': 'threads/T9'},
+      );
+      final sessionKey = manager.deriveSessionKey(inbound);
+
+      manager.handleInboundMessage(inbound);
+      await untilDispatched();
+
+      expect(turns.started, isEmpty);
+      expect(turns.reserved.single.agentName, 'ana');
+      expect(
+        turns.reserved.single.provenance,
+        TurnProvenance.channel(
+          channelType: ChannelType.signal,
+          recipientId: '+46700000001',
+          threadId: 'threads/T9',
+          sessionKey: sessionKey,
+          senderId: '+46700000001',
+        ),
+      );
+    });
+  });
+
   test('a reloaded max_parallel_turns reaches the channel queue', () async {
     // The queue copies the cap at construction; without a registration with the
     // notifier the documented-reloadable key kept the boot value here.
@@ -880,3 +1058,10 @@ agent:
 }
 
 Never _neverExit(int code) => throw StateError('exit($code)');
+
+final _signalProvenance = TurnProvenance.channel(
+  channelType: ChannelType.signal,
+  recipientId: 'alice',
+  sessionKey: 'agent:main:signal:dm:alice',
+  senderId: 'alice',
+);

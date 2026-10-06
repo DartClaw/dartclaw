@@ -36,4 +36,6 @@ Future<String> _noopTestChannelDispatch(
   String? senderJid,
   String? senderDisplayName,
   String? groupJid,
+  String? recipientId,
+  String? threadId,
 }) async => '';

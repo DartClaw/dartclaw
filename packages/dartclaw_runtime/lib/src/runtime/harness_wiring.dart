@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../concurrency/session_lock_manager.dart' show SessionLockNow, SessionLockTimerFactory;
+import '../mcp/harness_mcp_bearers.dart';
 import '../mcp/mcp_server.dart' show McpCallerContext;
 import 'model_catalogue_discovery.dart';
 import 'storage_wiring.dart';
@@ -238,6 +239,35 @@ class HarnessWiring {
   final Map<TurnRunner, ContainerAuthorityLease> _workerContainers =
       Map<TurnRunner, ContainerAuthorityLease>.identity();
   ContainerAuthorityLease? _primaryContainer;
+
+  /// Bearers minted for the host harnesses; the `/mcp` route resolves them to a harness's active turn.
+  final mcpBearers = HarnessMcpBearers();
+  final Map<AgentHarness, String> _mcpBearerByHarness = Map<AgentHarness, String>.identity();
+
+  /// Mints a host harness its own MCP bearer, valid until the harness is disposed.
+  ///
+  /// The harness does not exist when its launch options are built, so the bearer
+  /// resolves the turn through [bind], called once the harness has been created.
+  ({String bearer, void Function(AgentHarness harness) bind}) _mintMcpBearer() {
+    AgentHarness? owner;
+    final bearer = mcpBearers.mint(() => _activeTurnOf(owner));
+    return (
+      bearer: bearer,
+      bind: (harness) {
+        owner = harness;
+        _mcpBearerByHarness[harness] = bearer;
+      },
+    );
+  }
+
+  static TurnProvenance? _activeTurnOf(AgentHarness? harness) =>
+      harness is HarnessTurnContextSink ? (harness as HarnessTurnContextSink).activeTurnContext?.provenance : null;
+
+  void _revokeMcpBearer(AgentHarness harness) {
+    final bearer = _mcpBearerByHarness.remove(harness);
+    if (bearer != null) mcpBearers.revoke(bearer);
+  }
+
   CredentialHealthMonitor? _credentialHealth;
 
   /// Binds the single credential-health writer, built several wiring steps
@@ -680,12 +710,16 @@ class HarnessWiring {
         // the MCP surface it will really have — a containerized primary that is
         // granted no bridged search keeps its native one instead of losing both.
         final primaryBridgedMcpTools = _primaryPolicy.isContainer ? _primaryBridgedMcpTools() : const <String>{};
+        final primaryBearer = _primaryPolicy.isContainer || _harnessConfig.mcpServerUrl == null
+            ? null
+            : _mintMcpBearer();
         final primaryHarnessConfig = _harnessConfig.copyWith(
           disallowedTools: workerDisallowedTools(
             containerProfile: _primaryPolicy.containerProfile,
             hostDisallowedTools: _harnessConfig.disallowedTools,
             userDisallowedTools: config.agent.disallowedTools,
           ),
+          mcpGatewayToken: primaryBearer?.bearer,
         );
         final primaryTarget = resolveProviderTarget(
           config,
@@ -713,6 +747,8 @@ class HarnessWiring {
           ),
         );
         _harness = primaryHarness;
+        primaryBearer?.bind(primaryHarness);
+        _primaryContainer?.bindActiveTurn(() => _activeTurnOf(primaryHarness));
         _wireCompactionCallbacks(primaryHarness);
       }
     } catch (e, st) {
@@ -1082,9 +1118,13 @@ class HarnessWiring {
           hostDisallowedTools: _harnessConfig.disallowedTools,
           userDisallowedTools: config.agent.disallowedTools,
         );
+        final workerBearer = request.policy.isContainer || _harnessConfig.mcpServerUrl == null
+            ? null
+            : _mintMcpBearer();
         final workerHarnessConfig = _harnessConfig.copyWith(
           appendSystemPrompt: workerPrompt,
           disallowedTools: disallowedTools,
+          mcpGatewayToken: workerBearer?.bearer,
         );
         try {
           final providerEnvironment = buildProviderSpawnEnvironment(
@@ -1148,8 +1188,11 @@ class HarnessWiring {
             behavior: workerBehavior,
           );
           if (lease != null) _workerContainers[runner] = lease;
+          workerBearer?.bind(workerHarness);
+          lease?.bindActiveTurn(() => _activeTurnOf(workerHarness));
           return runner;
         } catch (_) {
+          if (workerBearer != null) mcpBearers.revoke(workerBearer.bearer);
           await _releaseContainerQuietly(lease);
           rethrow;
         }
@@ -1157,6 +1200,7 @@ class HarnessWiring {
       destroyContainerAuthority: (context) async {
         await _workerContainers.remove(context.runner)?.release();
       },
+      onHarnessDisposed: _revokeMcpBearer,
     );
   }
 

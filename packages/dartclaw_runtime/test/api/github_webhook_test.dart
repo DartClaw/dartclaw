@@ -99,6 +99,21 @@ void main() {
     expect(workflows.calls, contains('start:code-review'));
   });
 
+  test('run origin: a webhook start records surface github with no channel fields', () async {
+    final handler = buildHandler();
+
+    await handler.handle(_signedRequest(_pullRequestPayload(action: 'opened'), 'secret', deliveryId: 'del-origin'));
+
+    expect(workflows.lastOrigin?.toJson(), {
+      'surface': 'github',
+      'channelType': null,
+      'recipientId': null,
+      'threadId': null,
+      'sessionKey': null,
+      'senderId': null,
+    });
+  });
+
   test('invalid signatures are rejected', () async {
     final eventBus = EventBus();
     addTearDown(eventBus.dispose);

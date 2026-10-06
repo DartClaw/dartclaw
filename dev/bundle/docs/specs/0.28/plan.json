@@ -197,9 +197,25 @@
       "id": "S04",
       "name": "Run origin",
       "dependsOn": [],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s04-run-origin.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11"
+      ],
+      "verified": {
+        "at": "2026-10-06T19:48Z",
+        "summary": "dart test --reporter=failures-only packages/dartclaw_runtime -> exit=0, +5279 ~25: All other tests passed!; bash dev/tools/postgres_contract.sh -> exit=0, PostgreSQL plain and pgvector gates passed"
+      },
       "scope": "Record an immutable run origin on every workflow run: the typed origin value, its nullable column and the one bounded PostgreSQL transition from released 0.27 (ADR-045 amendment), capture at every start surface (channel and scheduled turns calling `workflow_run`, web form, JSON API, GitHub webhook, connected and standalone CLI), and exposure in the run detail API. Includes the trusted turn context that carries the originating channel, recipient, thread, session and sender to agent tool calls. Nothing in the scheduler calls `WorkflowService.start()`, so origin `cron` comes only from a scheduled turn's tool call.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr4-run-origin-and-chat-threaded-run-lifecycle",

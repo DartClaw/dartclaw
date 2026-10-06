@@ -2,6 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 
 import '../task/workflow_start_precondition_exception.dart';
+import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
 import 'tool_schema.dart';
 
 /// MCP tool that starts a named workflow through the existing workflow service.
@@ -9,7 +10,10 @@ import 'tool_schema.dart';
 /// A thin adapter: required-variable validation, declared defaults and the
 /// `PROJECT` fallback all live in [WorkflowService.start], and duplicating any
 /// of them here would fork the rule the HTTP start route already follows.
-class WorkflowRunTool implements McpTool {
+///
+/// The run's origin comes from the host's record of the calling turn alone; a
+/// caller that is not running a turn records `api`.
+class WorkflowRunTool implements TurnAwareMcpTool {
   new({required WorkflowDefinitionSource definitions, required WorkflowService workflows})
     : _definitions = definitions,
       _workflows = workflows;
@@ -46,7 +50,12 @@ class WorkflowRunTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _start(args, null);
+
+  @override
+  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _start(args, context.turn);
+
+  Future<ToolResult> _start(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
     if (invalid != null) return invalid;
 
@@ -65,7 +74,21 @@ class WorkflowRunTool implements McpTool {
 
     final WorkflowRun run;
     try {
-      run = await _workflows.start(definition, variables, projectId: project);
+      run = await _workflows.start(
+        definition,
+        variables,
+        projectId: project,
+        origin: turn == null
+            ? const WorkflowRunOrigin(surface: 'api')
+            : WorkflowRunOrigin(
+                surface: turn.surface,
+                channelType: turn.channelType,
+                recipientId: turn.recipientId,
+                threadId: turn.threadId,
+                sessionKey: turn.sessionKey,
+                senderId: turn.senderId,
+              ),
+      );
     } on ArgumentError catch (error) {
       return toolError('invalid_variables', '${error.message}', {'definition': definitionName});
     } on WorkflowStartPreconditionException catch (error) {

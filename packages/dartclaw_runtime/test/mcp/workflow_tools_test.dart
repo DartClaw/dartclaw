@@ -10,7 +10,7 @@ import 'package:dartclaw_runtime/src/mcp/workflow_tools.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard, InMemoryTaskRepository;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowStep, WorkflowVariable;
+    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowRunOrigin, WorkflowStep, WorkflowVariable;
 import 'package:test/test.dart';
 
 import 'package:dartclaw_runtime/src/task/workflow_start_precondition_exception.dart';
@@ -136,6 +136,125 @@ void main() {
       expect(audit.entries.map((entry) => (entry.tool, entry.decision, entry.verdict)), [
         ('workflow_run', 'allow', 'pass'),
       ]);
+    });
+  });
+
+  group('run origin', () {
+    final chatTurn = TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+      senderId: 'users/42',
+    );
+    const runArguments = {
+      'definition': 'nightly-review',
+      'variables': {'SCOPE': 'inbox'},
+    };
+
+    McpProtocolHandler hostHarness(TurnProvenance? Function() activeTurn) => passingHandler().forHarness(activeTurn);
+
+    test('a host harness turn from a chat thread records that thread, sender and session', () async {
+      _result(await _call(hostHarness(() => chatTurn), 'workflow_run', arguments: runArguments));
+
+      expect(
+        workflows.lastOrigin,
+        const WorkflowRunOrigin(
+          surface: 'googlechat',
+          channelType: 'googlechat',
+          recipientId: 'spaces/AAA',
+          threadId: 'spaces/AAA/threads/T1',
+          sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+          senderId: 'users/42',
+        ),
+      );
+    });
+
+    test('a web-chat turn records web and its session key and no channel field', () async {
+      const webTurn = TurnProvenance.web(sessionKey: 'agent:main:web:abc');
+
+      _result(await _call(hostHarness(() => webTurn), 'workflow_run', arguments: runArguments));
+
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'web', sessionKey: 'agent:main:web:abc'));
+    });
+
+    test('a scheduled prompt turn records cron and nothing else', () async {
+      _result(await _call(hostHarness(() => const TurnProvenance.cron()), 'workflow_run', arguments: runArguments));
+
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'cron'));
+    });
+
+    test('a caller that is running no turn records api, whatever the lane', () async {
+      _result(await _call(passingHandler(), 'workflow_run', arguments: runArguments));
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'api'));
+
+      workflows.lastOrigin = null;
+      _result(await _call(hostHarness(() => null), 'workflow_run', arguments: runArguments));
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'api'));
+
+      workflows.lastOrigin = null;
+      await WorkflowRunTool(
+        definitions: InMemoryDefinitionSource([_nightlyReview]),
+        workflows: workflows,
+      ).call(runArguments);
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'api'));
+    });
+
+    test('origin-like arguments are refused as unknown arguments and start nothing', () async {
+      for (final field in ['surface', 'origin', 'channelType', 'recipientId', 'threadId', 'sessionKey', 'senderId']) {
+        final response = await _call(
+          hostHarness(() => chatTurn),
+          'workflow_run',
+          arguments: {...runArguments, field: 'forged'},
+        );
+
+        expect((response['error'] as Map)['message'], contains('unknown argument "$field"'), reason: field);
+      }
+      expect(workflows.startCalls, 0);
+    });
+
+    test('a scoped caller the transport gave no identity is refused rather than given the steward defaults', () async {
+      final handler = passingHandler().scopedTo(_AllowAllTools(), activeTurn: () => chatTurn);
+
+      final result = _result(await _call(handler, 'workflow_run', arguments: runArguments));
+
+      expect(result['isError'], isTrue);
+      expect(_text(result), 'Tool requires authenticated caller context');
+      expect(workflows.startCalls, 0);
+    });
+
+    test('a container authority resolves each turn at call time and carries none after the turn ends', () async {
+      TurnProvenance? active;
+      final handler = passingHandler().scopedTo(
+        _AllowAllTools(),
+        callerIdentity: const McpCallerIdentity(authorityId: 'authority-1', agentId: 'ana'),
+        activeTurn: () => active,
+      );
+      final bob = TurnProvenance.channel(
+        channelType: ChannelType.googlechat,
+        recipientId: 'spaces/AAA',
+        threadId: 'spaces/AAA/threads/T2',
+        sessionKey: 'shared-session',
+        senderId: 'users/bob',
+      );
+      final alice = TurnProvenance.channel(
+        channelType: ChannelType.googlechat,
+        recipientId: 'spaces/AAA',
+        threadId: 'spaces/AAA/threads/T1',
+        sessionKey: 'shared-session',
+        senderId: 'users/alice',
+      );
+
+      final origins = <WorkflowRunOrigin?>[];
+      for (final turn in [alice, bob, null]) {
+        active = turn;
+        _result(await _call(handler, 'workflow_run', arguments: runArguments));
+        origins.add(workflows.lastOrigin);
+      }
+
+      expect(origins.map((origin) => origin?.senderId), ['users/alice', 'users/bob', null]);
+      expect(origins.map((origin) => origin?.threadId), ['spaces/AAA/threads/T1', 'spaces/AAA/threads/T2', null]);
+      expect(origins.last?.surface, 'api');
     });
   });
 
@@ -281,4 +400,12 @@ void main() {
       });
     }
   });
+}
+
+class _AllowAllTools implements McpCallerPolicy {
+  @override
+  bool allows(String toolName) => true;
+
+  @override
+  void onDenied(String toolName) {}
 }

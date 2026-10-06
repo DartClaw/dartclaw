@@ -2,7 +2,7 @@
 
 Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
 
-**Current through**: 0.27.1 PostgreSQL server storage and standalone workflow files, conversation snapshot and attempt authority, managed workspace
+**Current through**: 0.28.0 turn provenance for MCP tools, 0.27.1 PostgreSQL server storage and standalone workflow files, conversation snapshot and attempt authority, managed workspace
 principals and caller-scoped research, temporary retention, product search, inbox and attention projections, plus the
 Trellis and HTMX upgrade.
 
@@ -674,6 +674,17 @@ At call time the tool fans out retrieval across:
 pinned `agent:<id>` principal; named MCP clients are shared-only. The knowledge inbox and every other principal's memory
 are excluded. The client profile exposes exactly `context_research`, `kg_query`, and `kg_timeline`. Wiki/KG writes are
 separate publication paths, and returned KG provenance is labelled as published rather than exposing the stored source.
+
+`McpCallerContext.turn` carries the **turn provenance** of the call: the channel type, recipient, thread, session key and
+sender of the inbound chat turn, surface `web` with the session's key for a web-chat turn, or surface `cron` for a
+scheduled prompt turn. The host builds it where the turn starts (both inbound channel dispatch routes, the two web-chat
+turn sites and scheduled prompt turns), carries it through `TurnManager` reserve/start into `HarnessTurnContext`, set
+and cleared with the turn, and each MCP authority resolves it per call from the harness it is bound to: a container
+authority is bound after its harness exists and reads that harness's active turn, and every host harness (primary and
+worker) presents its own host-minted bearer, valid until the harness is disposed, which `/mcp` resolves to that
+harness's turn. The shared gateway token and named MCP clients carry no turn. Only a tool implementing
+`TurnAwareMcpTool` receives it, so existing contextual tools see no change on any lane, and a turn with no sender is a
+non-channel turn that each reading tool gates by its own rule.
 
 Results are deduplicated while preserving source metadata. Synthesis then runs through the injected background-turn
 seam; production wiring uses the logical-agent session path, while tests can inject a deterministic synthesizer.

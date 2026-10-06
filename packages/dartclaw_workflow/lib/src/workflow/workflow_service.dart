@@ -22,6 +22,7 @@ import 'workflow_definition.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
+import 'workflow_run_origin.dart' show WorkflowRunOrigin;
 import 'workflow_run_repository.dart' show WorkflowRunRepository, WorkflowRunChangeSource, WorkflowRunOwnershipLost;
 
 import 'package:logging/logging.dart';
@@ -209,10 +210,12 @@ class WorkflowService {
   /// Starts a new workflow run from a parsed definition.
   ///
   /// Validates required variables, creates the run, and spawns the executor
-  /// in the background. Returns the created [WorkflowRun].
+  /// in the background. Returns the created [WorkflowRun]. The run records
+  /// [origin] in its initial insert, before any run event fires.
   Future<WorkflowRun> start(
     WorkflowDefinition definition,
     Map<String, String> variables, {
+    required WorkflowRunOrigin origin,
     String? projectId,
     bool allowDirtyLocalPath = false,
     bool inline = false,
@@ -285,6 +288,7 @@ class WorkflowService {
       updatedAt: now,
       definitionJson: effectiveDefinition.toJson(),
       contextJson: {workflowApprovalsContextKey: effectiveApprovals.yamlValue, ...context.toJson()},
+      origin: origin,
     );
     await _repository.insert(run);
 

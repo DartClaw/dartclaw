@@ -606,6 +606,24 @@ void main() {
       expect(turns.lastExecuteMessages!.last['content'], message);
     });
 
+    test('trusted turn context: a web-chat send carries surface web, the session key and no sender', () async {
+      final keyed = await sessions.createSession(channelKey: 'agent:main:web:keyed');
+      final unkeyed = await sessions.createSession();
+
+      for (final session in [keyed, unkeyed]) {
+        final res = await handler(
+          apiRequest('POST', '/api/sessions/${session.id}/send', jsonBody: {'message': 'run the check'}),
+        );
+        expect(res.statusCode, 200);
+        expect(
+          turns.lastProvenance,
+          TurnProvenance.web(sessionKey: session.channelKey),
+          reason: 'session ${session.id}',
+        );
+        expect(turns.lastProvenance?.senderId, isNull);
+      }
+    });
+
     test('escapes user message in HTML fragment', () async {
       final session = await sessions.createSession();
       final res = await handler(

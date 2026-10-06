@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/src/runtime/container_authority_cleanup_owner.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor;
+import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, TurnProvenance;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ContainerAuthorityLease;
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
@@ -87,6 +87,9 @@ final class _RecordingLease implements ContainerAuthorityLease {
 
   @override
   final ContainerExecutor container = _FakeContainerExecutor();
+
+  @override
+  void bindActiveTurn(TurnProvenance? Function() activeTurn) {}
 
   @override
   Future<void> release() async {

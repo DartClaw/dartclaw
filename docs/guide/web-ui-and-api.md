@@ -1032,6 +1032,21 @@ Common request shape for `POST /api/workflows/run`:
 
 The route returns the created run as JSON. Missing required variables produce a `400` error with a machine-readable payload; unknown definitions return `404`.
 
+Every run records its **run origin** once, at start, and never changes it. Run responses (`GET /api/workflows/runs` and `/api/workflows/runs/<id>`, and the start response) carry it as `origin`:
+
+```json
+"origin": {
+  "surface": "googlechat",
+  "channelType": "googlechat",
+  "recipientId": "spaces/AAA",
+  "threadId": "spaces/AAA/threads/BBB",
+  "sessionKey": "agent:main:group:googlechat:spaces%2FAAA",
+  "senderId": "users/12345"
+}
+```
+
+`surface` is `web` (the run form), `api`, `cli`, `github`, `cron`, a channel type name (`googlechat`, `whatsapp`, `signal`, `web` for a web-chat turn) for a run an agent started from that turn, or `unknown` for a run that was retained from before origin existed. The channel fields are filled only for a chat-channel turn and are `null` otherwise. The request body accepts a `surface` field with the single value `cli`, which the connected CLI sends; any other value is `400 INVALID_INPUT` and no run is created. No request field can set the recipient, thread, session key or sender.
+
 ## Orchestration and Content MCP Tools
 
 These tools let the agent start work and produce content on the owner's behalf, from a chat turn or from a scheduled job alike — they take no session, channel or caller argument.
@@ -1046,6 +1061,8 @@ These tools let the agent start work and produce content on the owner's behalf, 
 | `wiki_write` | `slug`, `title`, `body`, `sources`, optional `confidence` | Author a wiki page through the same entry point knowledge-inbox ingestion uses, so slug containment, frontmatter emission, provenance, the sources union and the shrink floor all apply. The slug must already be lowercase words joined by hyphens. Writing over a stored page replaces its body; a replacement materially shorter than what is stored is refused. |
 
 Every refusal the tool itself makes is a tool-level error (a JSON-RPC success carrying `isError: true`) naming the reason — an invalid cron expression, a path that escapes the workspace, a missing workflow variable. JSON-RPC error codes stay with the dispatch seam's authorization and schema layers: an argument the closed schema does not name is answered with `-32602` before the tool runs.
+
+The run `workflow_run` starts records where the calling turn came from: a chat turn's channel, recipient, thread, session key and sender, `web` for a web-chat turn, `cron` for a scheduled prompt, and `api` for a caller that is not running a turn (the shared gateway token, a named MCP client). The host supplies this from its own record of the turn; the tool accepts no argument for it.
 
 A containerized agent reaches these six exactly as a host one does. Your own chat turns run as the deployment and
 reach all six on either lane; a task, workflow or logical-agent turn reaches only what its own tool policy names, and

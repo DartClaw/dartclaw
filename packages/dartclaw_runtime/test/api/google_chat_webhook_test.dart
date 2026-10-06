@@ -63,15 +63,25 @@ ChannelManager _buildChannelManager({
   final queue = MessageQueue(
     debounceWindow: Duration.zero,
     maxConcurrentTurns: 1,
-    dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async {
-      final dispatched = ChannelMessage(
-        id: sessionKey,
-        channelType: ChannelType.googlechat,
-        senderJid: senderJid ?? '',
-        text: message,
-      );
-      return onDispatch(dispatched);
-    },
+    dispatcher:
+        (
+          sessionKey,
+          message, {
+          required channelType,
+          senderJid,
+          senderDisplayName,
+          groupJid,
+          recipientId,
+          threadId,
+        }) async {
+          final dispatched = ChannelMessage(
+            id: sessionKey,
+            channelType: ChannelType.googlechat,
+            senderJid: senderJid ?? '',
+            text: message,
+          );
+          return onDispatch(dispatched);
+        },
   );
   final manager = ChannelManager(queue: queue, config: const ChannelConfig.defaults());
   manager.registerChannel(channel);

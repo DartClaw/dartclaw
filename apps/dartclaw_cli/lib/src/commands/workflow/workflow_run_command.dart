@@ -14,6 +14,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         SkillIntrospector,
         WorkflowExclusion,
         WorkflowPreflightException,
+        WorkflowRunOrigin,
         WorkflowRunRepository,
         WorkflowStepExecutionRepository;
 import 'package:path/path.dart' as p;
@@ -331,6 +332,7 @@ class WorkflowRunCommand extends Command<void> {
           allowDirtyLocalPath: allowDirtyLocalPath,
           inline: inline,
           approvals: approvals,
+          origin: const WorkflowRunOrigin(surface: 'cli'),
         ),
       );
       _exitFn(standaloneWorkflowExitCode(finalRun.status));

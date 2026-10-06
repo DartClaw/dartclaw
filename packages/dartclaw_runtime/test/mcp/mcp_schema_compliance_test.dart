@@ -115,7 +115,16 @@ void main() {
           delivery: DeliveryService(
             channelManager: ChannelManager(
               queue: MessageQueue(
-                dispatcher: (key, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+                dispatcher: (
+                  key,
+                  message, {
+                  required channelType,
+                  senderJid,
+                  senderDisplayName,
+                  groupJid,
+                  recipientId,
+                  threadId,
+                }) async => '',
               ),
               config: const ChannelConfig.defaults(),
             ),

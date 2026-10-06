@@ -440,8 +440,16 @@ class SchedulingWiring {
         channelManager ??
         (_fallbackDeliveryChannelManager = ChannelManager(
           queue: MessageQueue(
-            dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async =>
-                '',
+            dispatcher: (
+              sessionKey,
+              message, {
+              required channelType,
+              senderJid,
+              senderDisplayName,
+              groupJid,
+              recipientId,
+              threadId,
+            }) async => '',
           ),
           config: const ChannelConfig.defaults(),
         ));

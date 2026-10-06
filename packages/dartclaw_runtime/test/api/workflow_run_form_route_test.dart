@@ -220,4 +220,76 @@ void main() {
     expect(body, contains('form-error-text'));
     expect(body, contains('Requested branch is unavailable'));
   });
+
+  group('run origin', () {
+    test('the run form records surface web with no channel fields', () async {
+      final response = await postForm('definition=story-and-implement&var_FEATURE=Ship+CLI');
+
+      expect(response.statusCode, 201);
+      expect(workflows.lastOrigin?.toJson(), {
+        'surface': 'web',
+        'channelType': null,
+        'recipientId': null,
+        'threadId': null,
+        'sessionKey': null,
+        'senderId': null,
+      });
+    });
+
+    test('the JSON API records api, or cli on the cli marker', () async {
+      await postJson({
+        'definition': 'story-and-implement',
+        'variables': {'FEATURE': 'x'},
+      });
+      expect(workflows.lastOrigin?.surface, 'api');
+
+      await postJson({
+        'definition': 'story-and-implement',
+        'variables': {'FEATURE': 'x'},
+        'surface': 'cli',
+      });
+      expect(workflows.lastOrigin?.surface, 'cli');
+      expect(workflows.startCalls, 2);
+    });
+
+    test('any other surface marker is refused with INVALID_INPUT and creates no run', () async {
+      for (final marker in <Object?>['slack', 'web', 'api', 'googlechat', 'CLI', '', 42, true]) {
+        final response = await postJson({
+          'definition': 'story-and-implement',
+          'variables': {'FEATURE': 'x'},
+          'surface': marker,
+        });
+
+        expect(response.statusCode, 400, reason: '$marker');
+        final error = (jsonDecode(await response.readAsString()) as Map<String, dynamic>)['error'] as Map;
+        expect(error['code'], 'INVALID_INPUT', reason: '$marker');
+        expect((error['details'] as Map)['field'], 'surface', reason: '$marker');
+      }
+      expect(workflows.startCalls, isZero);
+    });
+
+    test('no request field can set recipient, thread, session, sender or channel type', () async {
+      await postJson({
+        'definition': 'story-and-implement',
+        'variables': {'FEATURE': 'x'},
+        'surface': 'cli',
+        'channelType': 'slack',
+        'recipientId': 'C123',
+        'threadId': '1700000000.000100',
+        'sessionKey': 'agent:main:channel:slack:C123',
+        'senderId': 'U999',
+        'origin': {'surface': 'slack', 'senderId': 'U999'},
+      });
+
+      final origin = workflows.lastOrigin!;
+      expect(origin.surface, 'cli');
+      expect([
+        origin.channelType,
+        origin.recipientId,
+        origin.threadId,
+        origin.sessionKey,
+        origin.senderId,
+      ], everyElement(isNull));
+    });
+  });
 }

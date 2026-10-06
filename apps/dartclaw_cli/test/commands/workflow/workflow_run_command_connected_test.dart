@@ -219,6 +219,42 @@ void main() {
       expect(body.containsKey('allowDirtyLocalPath'), isFalse);
     });
 
+    test('run origin: the connected start body carries the cli surface marker', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running","newStatus":"completed"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final command = WorkflowRunCommand(
+        connection: ApiWorkflowConnection(
+          apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+        ),
+        stdoutLine: (_) {},
+        exitFn: fakeExit,
+      );
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'demo-workflow']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      final body = jsonDecode(transport.requests.first.body!) as Map<String, dynamic>;
+      expect(body['surface'], 'cli');
+      for (final field in ['channelType', 'recipientId', 'threadId', 'sessionKey', 'senderId']) {
+        expect(body.containsKey(field), isFalse, reason: field);
+      }
+    });
+
     test('connected text mode includes display scope from SSE events', () async {
       final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],

@@ -429,7 +429,16 @@ DeliveryService _makeService({
 }) {
   final manager = ChannelManager(
     queue: MessageQueue(
-      dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => 'ok',
+      dispatcher: (
+        sessionKey,
+        message, {
+        required channelType,
+        senderJid,
+        senderDisplayName,
+        groupJid,
+        recipientId,
+        threadId,
+      }) async => 'ok',
     ),
     config: const ChannelConfig.defaults(),
   );

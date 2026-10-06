@@ -823,6 +823,9 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
   ContainerExecutor get container => manager;
 
   @override
+  void bindActiveTurn(TurnProvenance? Function() activeTurn) => authority.activeTurn = activeTurn;
+
+  @override
   Future<void> release() async {
     _onReleased?.call();
     _monitor?.unwatch(manager.containerName);

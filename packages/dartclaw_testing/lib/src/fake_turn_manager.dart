@@ -80,6 +80,7 @@ typedef RecordedReserveTurn = ({
   bool readOnly,
   Duration? turnTimeout,
   TurnOrigin? origin,
+  TurnProvenance? provenance,
 });
 
 typedef RecordedExecuteTurn = ({
@@ -110,6 +111,7 @@ typedef RecordedStartTurn = ({
   PromptScope? promptScope,
   Duration? turnTimeout,
   TurnOrigin? origin,
+  TurnProvenance? provenance,
 });
 
 /// Flexible [TurnManager] fake for route, scheduling, and drain tests.
@@ -267,6 +269,7 @@ class FakeTurnManager implements TurnManager {
     bool readOnly = false,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     reserveTurnCallCount += 1;
     reservedTurns.add((
@@ -289,6 +292,7 @@ class FakeTurnManager implements TurnManager {
       readOnly: readOnly,
       turnTimeout: turnTimeout,
       origin: origin,
+      provenance: provenance,
     ));
     final callback = onReserveTurn;
     if (callback != null) {
@@ -381,6 +385,7 @@ class FakeTurnManager implements TurnManager {
     PromptScope? promptScope,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     startTurnCallCount += 1;
     startedTurns.add((
@@ -403,6 +408,7 @@ class FakeTurnManager implements TurnManager {
       promptScope: promptScope,
       turnTimeout: turnTimeout,
       origin: origin,
+      provenance: provenance,
     ));
     final callback = onStartTurn;
     if (callback != null) {

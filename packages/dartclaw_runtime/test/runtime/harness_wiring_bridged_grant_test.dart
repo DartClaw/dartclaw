@@ -18,7 +18,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         McpBridgeSurface,
         McpProtocolHandler,
         containerArtifactsPath;
-import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -162,11 +161,16 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
+  late List<TurnContextHarness> createdHarnesses;
+
   HarnessFactory fakeFactory() {
+    createdHarnesses = [];
     final factory = HarnessFactory();
     factory.register('claude', (factoryConfig) {
       recordedConfigs.add(factoryConfig);
-      return FakeAgentHarness(promptStrategy: PromptStrategy.append);
+      final harness = TurnContextHarness();
+      createdHarnesses.add(harness);
+      return harness;
     });
     return factory;
   }
@@ -359,6 +363,75 @@ void main() {
       contains(allOf(contains('no host MCP tools'), contains('restricted'), contains('allowed_tools'))),
       reason: 'silent capability loss is the failure mode this diagnostic exists for',
     );
+  });
+
+  test('trusted turn context: the primary container authority is bound to the harness created after it', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(provider: 'claude', execution: ExecutionMode.container),
+    );
+    await wireAll();
+    final authority = security!.leases.single;
+    final turn = TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      sessionKey: 'session-key',
+      senderId: 'users/alice',
+    );
+
+    expect(authority.activeTurn, isNotNull, reason: 'the harness only exists after its authority was acquired');
+    expect(authority.activeTurn!(), isNull);
+    createdHarnesses.single.setTurnContext(
+      HarnessTurnContext(sessionId: 's', turnId: 't', source: 'channel', agentName: 'main', provenance: turn),
+    );
+    expect(authority.activeTurn!(), turn);
+    createdHarnesses.single.setTurnContext(null);
+    expect(authority.activeTurn!(), isNull);
+    expect(
+      recordedConfigs.single.harnessConfig.mcpGatewayToken,
+      isNull,
+      reason: 'a containerized harness identifies itself by its bridge pipe, not by a bearer',
+    );
+  });
+
+  test('trusted turn context: a container worker authority resolves its own harness turn, per turn', () async {
+    await wireAll();
+    final lease = await harnessWiring!.executions.acquire(
+      ExecutionRequest(
+        surface: ExecutionSurface.logicalAgent,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.container('workspace'),
+        sessionId: 'agent-session',
+        admission: ExecutionAdmission.failFast,
+        logicalAgentId: 'search',
+      ),
+    );
+    addTearDown(() async => lease?.release());
+    final authority = security!.leases.single;
+    final worker = createdHarnesses.last;
+    TurnProvenance turnFrom(String sender) => TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      sessionKey: 'shared-session',
+      senderId: sender,
+    );
+
+    final seen = <String?>[];
+    for (final sender in ['users/alice', 'users/bob']) {
+      worker.setTurnContext(
+        HarnessTurnContext(
+          sessionId: 'agent-session',
+          turnId: sender,
+          source: 'channel',
+          agentName: 'search',
+          provenance: turnFrom(sender),
+        ),
+      );
+      seen.add(authority.activeTurn!()?.senderId);
+      worker.setTurnContext(null);
+    }
+    seen.add(authority.activeTurn!()?.senderId);
+
+    expect(seen, ['users/alice', 'users/bob', null]);
   });
 
   test('a containerized primary keeps the deployment capability tools but not session spawning', () async {

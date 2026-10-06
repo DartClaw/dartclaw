@@ -55,6 +55,7 @@ export 'src/workflow/workflow_definition.dart'
         WorkflowVariable;
 export 'src/workflow/workflow_run.dart'
     show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
+export 'src/workflow/workflow_run_origin.dart' show WorkflowRunOrigin;
 export 'src/workflow/workflow_asset_source_resolver.dart' show WorkflowAssetSourceResolver;
 export 'src/workflow/workflow_materializer.dart' show WorkflowMaterializer;
 export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository, WorkflowRunChangeSource;

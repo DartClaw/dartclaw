@@ -170,6 +170,8 @@ void main() {
         String? senderJid,
         String? senderDisplayName,
         String? groupJid,
+        String? recipientId,
+        String? threadId,
       }) async => 'ok',
     );
 

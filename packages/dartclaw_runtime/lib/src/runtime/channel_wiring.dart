@@ -13,6 +13,7 @@ import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../config/message_queue_reconfigurer.dart';
@@ -359,11 +360,11 @@ class ChannelWiring {
           slashCommandHandler: slashCommandHandler,
           deduplicator: deduplicator,
           subscriptionManager: subscriptionManager,
-          dispatchMessage: (message) => _dispatchInboundChannelMessage(
+          dispatchMessage: (message) => dispatchInboundChannelMessage(
             channelManager: activeChannelManager,
             sessions: sessions,
             messages: messages,
-            serverRef: serverRefGetter,
+            turnManagerGetter: () => serverRefGetter().turns,
             config: config,
             message: message,
             agentBinder: _agentBinder,
@@ -546,6 +547,8 @@ class ChannelWiring {
             String? senderJid,
             String? senderDisplayName,
             String? groupJid,
+            String? recipientId,
+            String? threadId,
           }) async {
             final row = rows.resolveRow(channelType, groupId: groupJid, peerId: senderJid);
             final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config, row: row);
@@ -559,6 +562,13 @@ class ChannelWiring {
               senderJid: senderJid,
               senderDisplayName: senderDisplayName,
               groupJid: groupJid,
+              provenance: TurnProvenance.channel(
+                channelType: channelType,
+                recipientId: recipientId,
+                threadId: threadId,
+                sessionKey: sessionKey,
+                senderId: senderJid,
+              ),
               model: overrides.model,
               effort: overrides.effort,
               binding: _agentBinder?.bind(row),
@@ -587,11 +597,14 @@ class ChannelWiring {
     );
   }
 
-  static Future<String> _dispatchInboundChannelMessage({
+  /// The direct inbound route, used by Google Chat's webhook; the queue route builds the same provenance from the
+  /// dispatcher arguments [MessageQueue] derives from the same message.
+  @visibleForTesting
+  static Future<String> dispatchInboundChannelMessage({
     required ChannelManager channelManager,
     required SessionService sessions,
     required MessageService messages,
-    required DartclawServer Function() serverRef,
+    required TurnManager Function() turnManagerGetter,
     required DartclawConfig config,
     required ChannelMessage message,
     ChannelAgentBinder? agentBinder,
@@ -602,13 +615,20 @@ class ChannelWiring {
     return dispatchChannelTurn(
       sessions: sessions,
       messages: messages,
-      turnManagerGetter: () => serverRef().turns,
+      turnManagerGetter: turnManagerGetter,
       sessionKey: sessionKey,
       message: message.text,
       channelType: message.channelType,
       senderJid: message.senderJid,
       senderDisplayName: message.senderDisplayName,
       groupJid: message.groupJid,
+      provenance: TurnProvenance.channel(
+        channelType: message.channelType,
+        recipientId: resolveRecipientId(message),
+        threadId: extractThreadId(message),
+        sessionKey: sessionKey,
+        senderId: message.senderJid,
+      ),
       model: overrides.model,
       effort: overrides.effort,
       binding: agentBinder?.bind(row),
@@ -635,6 +655,7 @@ Future<String> dispatchChannelTurn({
   String? senderJid,
   String? senderDisplayName,
   String? groupJid,
+  required TurnProvenance provenance,
   String? model,
   String? effort,
   ChannelAgentBinding? binding,
@@ -676,6 +697,7 @@ Future<String> dispatchChannelTurn({
         effort: effort,
         promptScope: PromptScope.primary,
         origin: origin,
+        provenance: provenance,
       ),
     );
   } else {
@@ -691,6 +713,7 @@ Future<String> dispatchChannelTurn({
         behaviorOverride: binding.behavior,
         promptScope: binding.promptScope,
         origin: origin,
+        provenance: provenance,
       ),
     );
     try {

@@ -49,13 +49,13 @@ class HarnessLaunchOptions {
   /// version-controlled directories.
   final String? mcpServerUrl;
 
-  /// Optional gateway token used for MCP bearer auth.
+  /// Optional bearer used for MCP auth: the shared gateway token, or a bearer
+  /// the host minted for this harness alone.
   ///
   /// Written into the ephemeral `--mcp-config` temp file as
   /// `Authorization: Bearer <token>`. Only used when [mcpServerUrl] is
-  /// non-null. The same token authenticates both the web UI and MCP
-  /// endpoint via the gateway middleware. Null omits the header for an
-  /// authentication-disabled loopback gateway.
+  /// non-null. Null omits the header for an authentication-disabled loopback
+  /// gateway.
   final String? mcpGatewayToken;
 
   const new({

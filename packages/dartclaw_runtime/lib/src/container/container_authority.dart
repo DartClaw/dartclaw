@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor;
+import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, TurnProvenance;
 
 import 'gateway/gateway_models.dart';
 
@@ -9,6 +9,12 @@ import 'gateway/gateway_models.dart';
 /// be reused by a later execution.
 abstract interface class ContainerAuthorityLease {
   ContainerExecutor get container;
+
+  /// Binds the harness that runs in this container, which does not exist when the authority is acquired.
+  ///
+  /// [activeTurn] is read at each MCP call, so a tool that reads the turn sees the one in flight and never a session
+  /// captured at creation.
+  void bindActiveTurn(TurnProvenance? Function() activeTurn);
 
   /// Revokes the bridges and destroys the container. Idempotent.
   ///

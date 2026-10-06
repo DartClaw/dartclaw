@@ -10,7 +10,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show HarnessFactory, PostgresBackend, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
+    show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent, WorkflowRunOrigin;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show DartclawRuntime, LogService, PrCreated, PrCreationFailed, PrCreationResult, PrCreator;
 import 'package:logging/logging.dart';
@@ -819,7 +819,7 @@ void main() {
       recorder.start();
 
       final variables = {'FEATURE': seededSpecPath, 'PROJECT': 'workflow-test-todo-app', 'BRANCH': 'main'};
-      final run = await w.workflowService.start(definition, variables);
+      final run = await w.workflowService.start(definition, variables, origin: WorkflowRunOrigin.unknown);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
       final finalStatus = await completionFuture.timeout(
@@ -1037,7 +1037,7 @@ void main() {
         'BRANCH': 'main',
         'MAX_PARALLEL': '2',
       };
-      final run = await w.workflowService.start(definition, variables);
+      final run = await w.workflowService.start(definition, variables, origin: WorkflowRunOrigin.unknown);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
       final finalStatus = await completionFuture.timeout(

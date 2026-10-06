@@ -24,6 +24,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionResolver,
         WorkflowDefinitionSource,
         WorkflowRun,
+        WorkflowRunOrigin,
         WorkflowService,
         WorkflowSummary,
         WorkflowTaskType,
@@ -253,6 +254,7 @@ typedef _ParsedWorkflowRunRequest = ({
   WorkflowApprovalPolicy? approvals,
   bool allowDirtyLocalPath,
   bool inline,
+  WorkflowRunOrigin? origin,
   Response? error,
 });
 
@@ -263,6 +265,7 @@ _ParsedWorkflowRunRequest _workflowRunRequestError(Response error) => (
   approvals: null,
   allowDirtyLocalPath: false,
   inline: false,
+  origin: null,
   error: error,
 );
 
@@ -293,6 +296,7 @@ _ParsedWorkflowRunRequest _shapeWorkflowRunRequest(
   required WorkflowApprovalPolicy? approvals,
   required bool allowDirtyLocalPath,
   required bool inline,
+  required WorkflowRunOrigin origin,
   required bool htmlResponse,
 }) {
   if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
@@ -305,6 +309,7 @@ _ParsedWorkflowRunRequest _shapeWorkflowRunRequest(
     approvals: approvals,
     allowDirtyLocalPath: allowDirtyLocalPath,
     inline: inline,
+    origin: origin,
     error: _validateWorkflowVariables(definition, variables, htmlResponse: htmlResponse),
   );
 }
@@ -340,6 +345,8 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
   final projectField = fields['project'];
   final approvalsResult = _parseApprovalPolicy(fields['approvals']);
   if (approvalsResult.error != null) return _workflowRunRequestError(approvalsResult.error!);
+  final originResult = _parseSurfaceMarker(fields['surface']);
+  if (originResult.error != null) return _workflowRunRequestError(originResult.error!);
 
   return _shapeWorkflowRunRequest(
     resolved.definition!,
@@ -348,6 +355,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
     approvals: approvalsResult.policy,
     allowDirtyLocalPath: fields['allowDirtyLocalPath'] == true,
     inline: fields['inline'] == true,
+    origin: originResult.origin!,
     htmlResponse: false,
   );
 }
@@ -382,7 +390,22 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       _ => false,
     },
     inline: false,
+    origin: const WorkflowRunOrigin(surface: 'web'),
     htmlResponse: true,
+  );
+}
+
+/// The `surface` marker is descriptive provenance for the connected CLI, never an authentication claim, so only
+/// `cli` is claimable. Recipient, thread, session and sender are not request fields at all.
+({WorkflowRunOrigin? origin, Response? error}) _parseSurfaceMarker(Object? raw) {
+  if (raw == null) return (origin: const WorkflowRunOrigin(surface: 'api'), error: null);
+  if (raw == 'cli') return (origin: const WorkflowRunOrigin(surface: 'cli'), error: null);
+  return (
+    origin: null,
+    error: errorResponse(400, 'INVALID_INPUT', 'Field "surface" must be "cli" when present', {
+      'field': 'surface',
+      'allowedValues': ['cli'],
+    }),
   );
 }
 
@@ -440,6 +463,7 @@ Future<Response> _startWorkflowResponse(
       approvals: parsed.approvals,
       allowDirtyLocalPath: parsed.allowDirtyLocalPath,
       inline: parsed.inline,
+      origin: parsed.origin!,
     );
     if (htmlResponse) {
       final location = '/workflows/${run.id}';

@@ -23,7 +23,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowVariable;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, LogService;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show EventBus, MergeResolveAttemptArtifact, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
+    show
+        EventBus,
+        MergeResolveAttemptArtifact,
+        TaskStatusChangedEvent,
+        WorkflowContext,
+        WorkflowRunStatusChangedEvent,
+        WorkflowRunOrigin;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -240,10 +246,12 @@ Future<_RunEvidence> _runAndAssertOnce({required int attempt}) async {
       }),
     );
 
-    final run = await runtime.workflowService.start(definition, const {
-      'PROJECT': _projectId,
-      'BRANCH': 'main',
-    }, projectId: _projectId);
+    final run = await runtime.workflowService.start(
+      definition,
+      const {'PROJECT': _projectId, 'BRANCH': 'main'},
+      projectId: _projectId,
+      origin: WorkflowRunOrigin.unknown,
+    );
     runId = run.id;
     final completionFuture = _awaitWorkflowCompletion(runtime.eventBus, run.id);
 

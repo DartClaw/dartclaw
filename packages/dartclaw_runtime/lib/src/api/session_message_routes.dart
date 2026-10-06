@@ -306,6 +306,7 @@ Future<Response> _sendExistingSessionTurn({
         isHumanInput: true,
         promptScope: PromptScope.primary,
         origin: (channel: ChannelType.web.name, contact: null, group: false),
+        provenance: TurnProvenance.web(sessionKey: current?.channelKey),
       );
     } on BusyTurnException {
       return (

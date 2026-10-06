@@ -101,6 +101,9 @@ class TurnContext {
   /// Channel this turn arrived on, composed into a primary-scope prompt.
   final TurnOrigin? origin;
 
+  /// Host-built record of where this turn came from, for MCP tools that opt in to it.
+  final TurnProvenance? provenance;
+
   new({
     required this.turnId,
     required this.sessionId,
@@ -122,6 +125,7 @@ class TurnContext {
     this.allowedTools,
     this.readOnly = false,
     this.origin,
+    this.provenance,
   });
 }
 
@@ -354,6 +358,7 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) => _reserveTurn(
     sessionId,
     providerOverride: _contextProviderOverrides[sessionId],
@@ -376,6 +381,7 @@ class TurnManager implements core.TurnManager {
     allowedTools: allowedTools,
     readOnly: readOnly,
     origin: origin,
+    provenance: provenance,
   );
 
   /// Reserves an ordinary conversation turn against its admitted provider snapshot.
@@ -387,6 +393,7 @@ class TurnManager implements core.TurnManager {
     String? effort,
     required PromptScope promptScope,
     required TurnOrigin origin,
+    required TurnProvenance provenance,
   }) async {
     _contextProviderOverrides[sessionId] = provider;
     try {
@@ -398,6 +405,7 @@ class TurnManager implements core.TurnManager {
         isHumanInput: true,
         promptScope: promptScope,
         origin: origin,
+        provenance: provenance,
       );
     } finally {
       _contextProviderOverrides.remove(sessionId);
@@ -426,6 +434,7 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     final reservation = await _sessionReservations.run(
       sessionId,
@@ -464,6 +473,7 @@ class TurnManager implements core.TurnManager {
         allowedTools: allowedTools,
         readOnly: readOnly,
         origin: origin,
+        provenance: provenance,
       );
       _reservedTurnRunners[turnId] = runner;
       _reservedTurnLeases[turnId] = lease;
@@ -566,6 +576,7 @@ class TurnManager implements core.TurnManager {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -585,6 +596,7 @@ class TurnManager implements core.TurnManager {
       readOnly: readOnly,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
     try {
       executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);

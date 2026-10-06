@@ -110,6 +110,18 @@ void main() {
     expect((await sessions.getSession(ownerSession.id))?.workspace, isNull);
   });
 
+  test('trusted turn context: a web conversation turn carries surface web, the session key and no sender', () async {
+    final keyed = await sessions.createSession(channelKey: 'agent:main:web:keyed');
+    final unkeyed = await sessions.createSession();
+
+    await _submit(conversation, keyed.id, 'first');
+    expect(turns.provenance, const TurnProvenance.web(sessionKey: 'agent:main:web:keyed'));
+    expect(turns.provenance?.senderId, isNull);
+
+    await _submit(conversation, unkeyed.id, 'second');
+    expect(turns.provenance, const TurnProvenance.web());
+  });
+
   test('general root rejects checkout paths and _local without changing context', () async {
     final owner = Directory('${root.path}/owner')..createSync();
     final nested = Directory('${owner.path}/nested')..createSync();
@@ -596,6 +608,7 @@ final class _ContextTurns extends FakeTurnManager {
   new(super.messages, super.worker);
 
   ({String provider, String directory, String? model, String? effort})? context;
+  TurnProvenance? provenance;
 
   @override
   Future<String> reserveContextTurn(
@@ -606,8 +619,10 @@ final class _ContextTurns extends FakeTurnManager {
     String? effort,
     required PromptScope promptScope,
     required TurnOrigin origin,
+    required TurnProvenance provenance,
   }) {
     context = (provider: provider, directory: directory, model: model, effort: effort);
+    this.provenance = provenance;
     return super.reserveContextTurn(
       sessionId,
       provider: provider,
@@ -616,6 +631,7 @@ final class _ContextTurns extends FakeTurnManager {
       effort: effort,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
   }
 }

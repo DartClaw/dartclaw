@@ -311,7 +311,13 @@ void main() {
     expect(recordedConfigs, hasLength(2));
     expect(createdHarnesses, hasLength(2));
     expect(recordedConfigs.first.harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
-    expect(recordedConfigs.first.harnessConfig.mcpGatewayToken, isNull);
+    // Each host harness presents a bearer minted for it alone, never a shared token.
+    expect(recordedConfigs.first.harnessConfig.mcpGatewayToken, isNotNull);
+    expect(recordedConfigs.last.harnessConfig.mcpGatewayToken, isNotNull);
+    expect(
+      recordedConfigs.last.harnessConfig.mcpGatewayToken,
+      isNot(recordedConfigs.first.harnessConfig.mcpGatewayToken),
+    );
 
     // Primary and task harnesses each get a layered chain: all base security
     // guards plus their own per-runner TaskToolFilterGuard.
@@ -613,7 +619,8 @@ void main() {
 
     final harnessConfig = recordedConfigs.single.harnessConfig;
     expect(harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
-    expect(harnessConfig.mcpGatewayToken, isNull);
+    expect(harnessConfig.mcpGatewayToken, isNotNull);
+    expect(harnessWiring!.resolvedGatewayToken, isNull);
   });
 
   test('unknown search providers do not suppress the native search tool', () async {

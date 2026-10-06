@@ -200,6 +200,7 @@ extension _TurnRunnerExecutionLoop on TurnRunner {
                     ? effectiveTurnTimeout + const Duration(seconds: 60)
                     : Duration.zero,
                 allowOperatorApproval: allowOperatorApproval,
+                provenance: turnCtx?.provenance,
               ),
             );
           }

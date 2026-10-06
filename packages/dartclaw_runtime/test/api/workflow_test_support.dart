@@ -17,6 +17,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         WorkflowDefinition,
         WorkflowRun,
+        WorkflowRunOrigin,
         WorkflowRunRepository,
         WorkflowService,
         missingRequiredWorkflowVariables,
@@ -93,12 +94,14 @@ class FakeWorkflowService extends WorkflowService {
   WorkflowApprovalPolicy? lastApprovals;
   bool lastAllowDirtyLocalPath = false;
   bool lastInline = false;
+  WorkflowRunOrigin? lastOrigin;
   String? lastCancelFeedback;
 
   @override
   Future<WorkflowRun> start(
     WorkflowDefinition definition,
     Map<String, String> variables, {
+    required WorkflowRunOrigin origin,
     String? projectId,
     bool allowDirtyLocalPath = false,
     bool inline = false,
@@ -116,6 +119,7 @@ class FakeWorkflowService extends WorkflowService {
     lastApprovals = approvals;
     lastAllowDirtyLocalPath = allowDirtyLocalPath;
     lastInline = inline;
+    lastOrigin = origin;
     if (startError != null) {
       throw startError!;
     }

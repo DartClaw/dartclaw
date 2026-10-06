@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 
 import 'channel.dart';
 import 'recipient_resolver.dart';
+import 'thread_binding.dart' show extractThreadId;
 
 // ---------------------------------------------------------------------------
 // BudgetExhaustedError
@@ -31,6 +32,8 @@ typedef TurnDispatcher = Future<String> Function(
   String? senderJid,
   String? senderDisplayName,
   String? groupJid,
+  String? recipientId,
+  String? threadId,
 });
 
 /// Observer for a queued turn. Can watch the running response future and
@@ -278,6 +281,8 @@ class MessageQueue {
               senderJid: entry.message.senderJid,
               senderDisplayName: entry.message.senderDisplayName,
               groupJid: entry.message.groupJid,
+              recipientId: recipientJid,
+              threadId: extractThreadId(entry.message),
             );
             final redactedResponseFuture = responseFuture.then((response) => _redactor?.redact(response) ?? response);
             final observer = _turnObserver;

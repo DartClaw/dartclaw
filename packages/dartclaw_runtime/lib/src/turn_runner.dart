@@ -316,6 +316,7 @@ class TurnRunner implements core.TurnRunner {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     await admitTurn(sessionId, isHumanInput: isHumanInput);
     try {
@@ -339,6 +340,7 @@ class TurnRunner implements core.TurnRunner {
         readOnly: readOnly,
         promptScope: promptScope,
         origin: origin,
+        provenance: provenance,
         externallyAdmitted: false,
       );
     } catch (_) {
@@ -396,6 +398,7 @@ class TurnRunner implements core.TurnRunner {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async => _reserveTurnState(
     sessionId,
     agentName: agentName,
@@ -416,6 +419,7 @@ class TurnRunner implements core.TurnRunner {
     readOnly: readOnly,
     promptScope: promptScope,
     origin: origin,
+    provenance: provenance,
     externallyAdmitted: true,
   );
 
@@ -455,6 +459,7 @@ class TurnRunner implements core.TurnRunner {
     required bool readOnly,
     required PromptScope? promptScope,
     required TurnOrigin? origin,
+    required TurnProvenance? provenance,
     required bool externallyAdmitted,
   }) {
     // One turn per worker at a time. A provider process — Claude Code's
@@ -499,6 +504,7 @@ class TurnRunner implements core.TurnRunner {
       readOnly: readOnly,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
     if (externallyAdmitted) _externallyAdmittedTurns.add(turnId);
     _outcomePending[turnId] = Completer<TurnOutcome>();
@@ -582,6 +588,7 @@ class TurnRunner implements core.TurnRunner {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -597,6 +604,7 @@ class TurnRunner implements core.TurnRunner {
       readOnly: readOnly,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;

@@ -11,7 +11,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowLoop, WorkflowRun, WorkflowStep, WorkflowVariable;
+    show WorkflowDefinition, WorkflowLoop, WorkflowRun, WorkflowRunOrigin, WorkflowStep, WorkflowVariable;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -53,6 +53,7 @@ WorkflowRun _makeRun({
   int currentStepIndex = 0,
   Map<String, dynamic>? definitionJson,
   Map<String, dynamic>? contextJson,
+  WorkflowRunOrigin origin = WorkflowRunOrigin.unknown,
 }) {
   final now = DateTime.parse('2026-03-24T10:00:00Z');
   return WorkflowRun(
@@ -65,6 +66,7 @@ WorkflowRun _makeRun({
     definitionJson: definitionJson ?? _makeDefinition().toJson(),
     currentStepIndex: currentStepIndex,
     contextJson: contextJson ?? const {},
+    origin: origin,
   );
 }
 
@@ -433,6 +435,56 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
   // GET /api/workflows/runs/<id>
   // ──────────────────────────────────────────────────────────────────────────
+
+  group('run origin', () {
+    test('run detail and the run list carry the stored origin', () async {
+      const origin = WorkflowRunOrigin(
+        surface: 'googlechat',
+        channelType: 'googlechat',
+        recipientId: 'spaces/AAA',
+        threadId: 'spaces/AAA/threads/T1',
+        sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+        senderId: 'users/42',
+      );
+      workflows.getResult = _makeRun(origin: origin);
+      workflows.listResult = [_makeRun(origin: origin)];
+
+      final detail = decodeObject(
+        await (await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')))).readAsString(),
+      );
+      final list = jsonDecode(
+        await (await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs')))).readAsString(),
+      ) as List;
+
+      const expected = {
+        'surface': 'googlechat',
+        'channelType': 'googlechat',
+        'recipientId': 'spaces/AAA',
+        'threadId': 'spaces/AAA/threads/T1',
+        'sessionKey': 'agent:main:group:googlechat:spaces%2FAAA',
+        'senderId': 'users/42',
+      };
+      expect(detail['origin'], expected);
+      expect((list.single as Map)['origin'], expected);
+    });
+
+    test('a run retained from before origin existed reads as surface unknown with every other field null', () async {
+      workflows.getResult = _makeRun();
+
+      final detail = decodeObject(
+        await (await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')))).readAsString(),
+      );
+
+      expect(detail['origin'], {
+        'surface': 'unknown',
+        'channelType': null,
+        'recipientId': null,
+        'threadId': null,
+        'sessionKey': null,
+        'senderId': null,
+      });
+    });
+  });
 
   group('GET /api/workflows/runs/<id>', () {
     test('returns enriched run detail with steps', () async {

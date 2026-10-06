@@ -147,6 +147,7 @@ DartclawServer _composeRuntimeServer(
       guardChain: security.guardChain,
       auditLogger: security.auditLogger,
       mcpToolCanonicals: harness.ownMcpToolCanonicals,
+      mcpHarnessBearers: harness.mcpBearers,
       webhookSecret: channel.webhookSecret,
       resultTrimmer: harness.resultTrimmer,
       effectiveContextCapabilities: harness.effectiveContextCapabilities,

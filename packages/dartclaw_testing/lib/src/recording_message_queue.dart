@@ -27,7 +27,16 @@ class RecordingMessageQueue extends MessageQueue {
   }) : super(
          dispatcher:
              dispatcher ??
-             ((sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => 'ok'),
+             ((
+               sessionKey,
+               message, {
+               required channelType,
+               senderJid,
+               senderDisplayName,
+               groupJid,
+               recipientId,
+               threadId,
+             }) async => 'ok'),
        );
 
   final bool forwardToSuper;

@@ -55,6 +55,7 @@ import 'generated/embedded_assets.g.dart';
 import 'memory/memory_status_service.dart';
 import 'memory/memory_prune_service.dart';
 import 'memory/memory_admin_service.dart';
+import 'mcp/harness_mcp_bearers.dart';
 import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
 import 'project/project_mutation_service.dart';
@@ -416,6 +417,7 @@ class DartclawServer {
           clients: gatewayToken == null ? const [] : (_core.config?.gateway.mcpClients ?? const []),
           auditLogger: _core.auditLogger,
           toolCanonicals: _core.mcpToolCanonicals,
+          harnessBearers: _core.mcpHarnessBearers,
           rateLimiter: _authRateLimiter,
           eventBus: _observability.eventBus,
           trustedProxies: _core.config?.auth.trustedProxies ?? const [],

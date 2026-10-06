@@ -37,6 +37,7 @@ class FakeTurnManager extends TurnManager {
   final Map<String, TurnOutcome> _outcomes = {};
   bool canCancelActiveTurn = true;
   PromptScope? lastPromptScope;
+  TurnProvenance? lastProvenance;
   List<Map<String, dynamic>>? lastExecuteMessages;
   final List<String> resetContinuitySessionIds = [];
   Object? reserveFailure;
@@ -87,6 +88,7 @@ class FakeTurnManager extends TurnManager {
     bool readOnly = false,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     reserveCount += 1;
     final failure = reserveFailure;
@@ -95,6 +97,7 @@ class FakeTurnManager extends TurnManager {
       throw BusyTurnException('global busy', isSameSession: false);
     }
     lastPromptScope = promptScope;
+    lastProvenance = provenance;
     final turnId = _turnIdFactory?.call() ?? 'fake-turn-id';
     _activeTurns[sessionId] = turnId;
     return turnId;
@@ -109,6 +112,7 @@ class FakeTurnManager extends TurnManager {
     String? effort,
     required PromptScope promptScope,
     required TurnOrigin origin,
+    required TurnProvenance provenance,
   }) => reserveTurn(
     sessionId,
     directory: directory,
@@ -117,6 +121,7 @@ class FakeTurnManager extends TurnManager {
     isHumanInput: true,
     promptScope: promptScope,
     origin: origin,
+    provenance: provenance,
   );
 
   @override

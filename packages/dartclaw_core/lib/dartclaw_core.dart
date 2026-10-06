@@ -395,6 +395,7 @@ export 'src/worker/worker_state.dart' show WorkerState;
 export 'src/turn/busy_turn_exception.dart' show BusyTurnException;
 export 'src/turn/turn_manager.dart' show TurnManager;
 export 'src/turn/turn_outcome.dart' show TurnLimitBreach, TurnOutcome;
+export 'src/turn/turn_provenance.dart' show TurnProvenance;
 export 'src/turn/turn_runner.dart' show TurnRunner;
 export 'src/turn/turn_status.dart' show TurnStatus;
 

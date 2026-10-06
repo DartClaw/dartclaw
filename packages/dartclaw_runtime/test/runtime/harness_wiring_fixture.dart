@@ -11,7 +11,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawServer;
 import 'package:path/path.dart' as p;
 
 import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend, seedCanonicalMemory;
+    show FakeAgentHarness, InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend, seedCanonicalMemory;
 
 const _workspacePromptFiles = {
   'SOUL.md': 'Soul prompt',
@@ -106,4 +106,15 @@ Future<HarnessWiring> wireTestHarness({
   await harnessWiring.wire(turnManagerGetter: () => serverRefGetter().turns);
   await harnessWiring.startPrimary();
   return harnessWiring;
+}
+
+/// A harness that keeps the turn context the runner hands it, as the real harnesses do.
+final class TurnContextHarness extends FakeAgentHarness implements HarnessTurnContextSink {
+  new() : super(promptStrategy: PromptStrategy.append);
+
+  @override
+  HarnessTurnContext? activeTurnContext;
+
+  @override
+  void setTurnContext(HarnessTurnContext? context) => activeTurnContext = context;
 }

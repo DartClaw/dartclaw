@@ -166,6 +166,8 @@ void main() {
             String? senderJid,
             String? senderDisplayName,
             String? groupJid,
+            String? recipientId,
+            String? threadId,
           }) async {
             final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
             final turnId = await turns.startTurn(session.id, [

@@ -10,7 +10,14 @@ import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/workflows_page.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowService, WorkflowStep, WorkflowVariable;
+    show
+        WorkflowDefinition,
+        WorkflowDefinitionSource,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -165,7 +172,7 @@ void main() {
 
     test('shows workflow runs when runs exist', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
 
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows'), context);
@@ -195,7 +202,7 @@ void main() {
 
     test('status filter passes to service query', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final paused = (await workflows.list()).first;
       await workflows.pause(paused.id);
 
@@ -208,7 +215,7 @@ void main() {
 
     test('definition filter passes to service query', () async {
       final def = _makeDefinition(name: 'fix-bug');
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
 
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       // Filter for a different definition — should return no runs.
@@ -314,7 +321,7 @@ void main() {
 
     test('returns 200 with workflow HTML for known run', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final runs = await workflows.list();
       expect(runs, isNotEmpty);
       final runId = runs.first.id;
@@ -329,7 +336,7 @@ void main() {
 
     test('renders step cards for all definition steps', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final runs = await workflows.list();
       final runId = runs.first.id;
 
@@ -497,7 +504,7 @@ void main() {
     });
 
     test('returns 400 for out-of-range step index', () async {
-      await workflows.start(_makeDefinition(), const {});
+      await workflows.start(_makeDefinition(), const {}, origin: WorkflowRunOrigin.unknown);
       final runId = (await workflows.list()).first.id;
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows/$runId/steps/2'), context);
@@ -519,7 +526,7 @@ void main() {
 
     test('returns step detail fragment for known run', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final runs = await workflows.list();
       final runId = runs.first.id;
 
@@ -533,7 +540,7 @@ void main() {
 
   group('WorkflowsPage step card fragment', () {
     test('matches the full page card and carries progress out of band', () async {
-      await workflows.start(_makeDefinition(), const {});
+      await workflows.start(_makeDefinition(), const {}, origin: WorkflowRunOrigin.unknown);
       final runId = (await workflows.list()).first.id;
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final full = await (await page.handler(_get('/workflows/$runId'), context)).readAsString();
@@ -555,7 +562,7 @@ void main() {
     });
 
     test('refuses an out-of-range card like the step detail route', () async {
-      await workflows.start(_makeDefinition(), const {});
+      await workflows.start(_makeDefinition(), const {}, origin: WorkflowRunOrigin.unknown);
       final runId = (await workflows.list()).first.id;
       final context = _makeContext(workflowService: workflows, taskService: tasks);
 

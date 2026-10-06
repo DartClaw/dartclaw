@@ -59,6 +59,7 @@ final class McpCallerContext {
     this.taskId,
     this.agentId,
     this.knowledgeScope = McpKnowledgeScope.privateAndShared,
+    this.turn,
   });
 
   final String authorityId;
@@ -67,11 +68,24 @@ final class McpCallerContext {
   final String? taskId;
   final String? agentId;
   final McpKnowledgeScope knowledgeScope;
+
+  /// The turn the calling harness is executing, resolved by the host at call time. Null for a caller that is not
+  /// running a turn. A turn with no sender is not a channel turn, and each reader gates it by its own rule.
+  final TurnProvenance? turn;
 }
 
 /// MCP tool that consumes transport-authenticated caller identity.
 abstract interface class ContextualMcpTool implements McpTool {
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context);
+}
+
+/// MCP tool that reads [McpCallerContext.turn].
+///
+/// Dispatch hands a turn to no other tool, so existing contextual tools behave as before on every lane. The context's
+/// identity fields are the caller's own, or the steward defaults for a host harness that has none; nothing in
+/// [McpTool.call]'s arguments can set them.
+abstract interface class TurnAwareMcpTool implements McpTool {
+  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context);
 }
 
 /// MCP protocol handler implementing JSON-RPC 2.0 over Streamable HTTP.
@@ -86,6 +100,7 @@ class McpProtocolHandler {
       _guardChain = guardChain,
       _auditLogger = auditLogger,
       _toolCanonicals = const {},
+      _activeTurn = null,
       _resultTrimmer = resultTrimmer ?? ResultTrimmer();
 
   new _scoped(
@@ -96,6 +111,7 @@ class McpProtocolHandler {
     this._guardChain,
     this._auditLogger,
     this._toolCanonicals,
+    this._activeTurn,
   ) : _started = true;
 
   static final _log = Logger('McpProtocolHandler');
@@ -111,6 +127,7 @@ class McpProtocolHandler {
   final GuardChain? _guardChain;
   final GuardAuditLogger? _auditLogger;
   final Map<String, CanonicalTool> _toolCanonicals;
+  final TurnProvenance? Function()? _activeTurn;
   final ResultTrimmer _resultTrimmer;
   bool _started = false;
 
@@ -126,10 +143,15 @@ class McpProtocolHandler {
   /// `ToolPolicyGuard` keyed on a provider-native name, so an allowlist written
   /// in canonical names (`web_search`) misses the tool serving it
   /// (`brave_search`) and refuses a call the caller policy already authorized.
+  ///
+  /// [activeTurn] resolves the turn the caller's harness is executing at each
+  /// call, so a tool that opts in sees the turn in flight rather than whichever
+  /// one was running when the authority was created.
   McpProtocolHandler scopedTo(
     McpCallerPolicy policy, {
     McpCallerIdentity? callerIdentity,
     Map<String, CanonicalTool> toolCanonicals = const {},
+    TurnProvenance? Function()? activeTurn,
   }) => McpProtocolHandler._scoped(
     _tools,
     policy,
@@ -138,6 +160,22 @@ class McpProtocolHandler {
     _guardChain,
     _auditLogger,
     toolCanonicals,
+    activeTurn,
+  );
+
+  /// A handler for one host harness presenting its own minted bearer.
+  ///
+  /// It authorizes and identifies exactly as the unscoped handler does, so only
+  /// a tool that opts in sees anything more, through [activeTurn].
+  McpProtocolHandler forHarness(TurnProvenance? Function() activeTurn) => McpProtocolHandler._scoped(
+    _tools,
+    null,
+    null,
+    _resultTrimmer,
+    _guardChain,
+    _auditLogger,
+    _toolCanonicals,
+    activeTurn,
   );
 
   /// Register a tool. Must be called before the server starts handling requests.
@@ -281,6 +319,10 @@ class McpProtocolHandler {
       try {
         final callerIdentity = _callerIdentity;
         result = await switch (tool) {
+          TurnAwareMcpTool() when _policy != null && callerIdentity == null => Future<ToolResult>.value(
+            const ToolResult.error('Tool requires authenticated caller context'),
+          ),
+          TurnAwareMcpTool() => tool.callWithTurn(args, _turnContext(callerIdentity)),
           ContextualMcpTool() when callerIdentity != null => tool.callWithContext(
             args,
             McpCallerContext(
@@ -319,6 +361,19 @@ class McpProtocolHandler {
         'isError': true,
       }),
     };
+  }
+
+  McpCallerContext _turnContext(McpCallerIdentity? identity) {
+    final authorityId = identity?.authorityId ?? mcpStewardPrincipal;
+    return McpCallerContext(
+      authorityId: authorityId,
+      sourceEvent: 'mcp-call:$authorityId:${_uuid.v4()}',
+      sessionId: identity?.sessionId,
+      taskId: identity?.taskId,
+      agentId: identity?.agentId,
+      knowledgeScope: identity?.knowledgeScope ?? McpKnowledgeScope.privateAndShared,
+      turn: _activeTurn?.call(),
+    );
   }
 
   /// Guard-evaluates and audits one dispatch; non-null refuses the call.

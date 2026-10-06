@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
 
-**Current through**: 0.27.1 PostgreSQL server storage, standalone workflow file checkpoints, managed-workspace identity and principal-scoped memory/conversation
+**Current through**: 0.28.0 workflow run origin, 0.27.1 PostgreSQL server storage, standalone workflow file checkpoints, managed-workspace identity and principal-scoped memory/conversation
 projections, embedding-fingerprint lifecycle, serving interlock, language-aware search, bounded turn-source provenance,
 and filesystem-backed instance-local state.
 
@@ -38,6 +38,15 @@ when the namespace is empty. Reopening a compatible schema reads its catalog wit
 incompatible shapes refuse. PostgreSQL memory search stores a `content_tsv tsvector NOT NULL` projection with a GIN
 index; the configured deployment language is bound at query and projection time.
 
+`workflow_runs.origin_json` (nullable `TEXT`) holds the run's immutable origin: `surface` plus nullable channel type,
+recipient, thread, session key and sender, written once by `insert` and read through one typed codec. Legacy rows hold
+SQL NULL and read as surface `unknown`; a non-null value that does not decode fails rather than inventing provenance.
+The schema epoch stays 1. `PostgresSchemaGate.prepare` admits exactly one transition (ADR-045, 0.28 amendment): an
+epoch 1 store whose only difference from the current manifest is the missing `origin_json` gets that column added in
+one transaction that re-validates the full schema before commit, so a failed statement rolls back to the exact legacy
+shape. `validateCurrent` never writes: it refuses that shape and names starting `dartclaw serve` as the way to apply
+it. This is the only owner of the DDL on an existing store, and every other old, newer or partial shape refuses.
+
 Vector embeddings are derived data with an independent compatibility boundary. PostgreSQL stores the two
 principal-scoped corpora in `memory_vectors` and `conversation_vectors` through the application pool.
 Hybrid startup first verifies an administrator-installed pgvector extension in `public`; lexical-only preparation
@@ -64,6 +73,9 @@ through `atomicWriteJson` after success. Every operation reloads inside a `RepoL
 parallel steps and separate CLI processes cannot publish stale whole-store snapshots. Failed actions leave the
 previous file unchanged. Malformed or unsupported checkpoints refuse without resetting data. This provides atomic
 replacement and process-crash recovery, not a promised power-loss durability guarantee.
+
+The file store keeps `origin` as a key of each `workflowRuns` record, so a checkpoint written before origin existed reads
+as `unknown`; `update` carries the stored origin forward and ignores the one on the run it is handed.
 
 Sessions/messages, `turn_state.json` and `kv.json` are isolated under `<data_dir>/standalone/`. Provider credentials,
 workflow definitions and run artifact/context files retain their existing locations. The full per-run context file

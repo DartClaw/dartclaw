@@ -199,3 +199,24 @@
 
 - `bash dev/tools/postgres_contract.sh` runs to completion with the new groups executed, not skipped.
 - `dart run dev/tools/arch_check.dart` and `bash dev/tools/fitness/run_all.sh` pass: the story adds code to three packages with per-package LOC targets.
+
+
+## Implementation Observations
+
+#### DRIFT
+
+- ambiguous-intent: the FIS names `McpCallerContext.turn` but not the value type or the opt-in seam, so `TurnProvenance` (core, beside `HarnessTurnContext`) and a `TurnAwareMcpTool` interface (runtime) were introduced; dispatch builds the context for such a tool with the steward defaults (`mcpStewardPrincipal`, no session, task or agent) when the caller has no identity, so a host harness gains no identity it lacked | Stale targets: – | –
+- ambiguous-intent: `TurnDispatcher` gained `recipientId` and `threadId` (computed once in `MessageQueue` from `resolveRecipientId` and `extractThreadId`) and `dispatchChannelTurn` takes the built `TurnProvenance`; the direct route is `ChannelWiring.dispatchInboundChannelMessage` (renamed from a private static, `@visibleForTesting`, taking `turnManagerGetter` instead of a server reference) so the two routes can be compared by a test | Stale targets: – | –
+- ambiguous-intent: host harness bearers are minted only for host harnesses with an MCP URL (a containerized harness identifies itself by its bridge pipe and keeps its launch options as before); `/mcp` honors a harness bearer with or without a gateway token, and revocation rides a new `ExecutionCoordinator.onHarnessDisposed` hook | Stale targets: – | –
+
+ASSUMPTION: `WorkflowRun`'s constructor defaults `origin` to `unknown` rather than requiring it – legacy hydration needs that state anyway and `WorkflowService.start(origin:)` is the required seam (SC01); making the constructor argument required would change ~100 fixtures for no behavior.
+
+ASSUMPTION: the story's chat surface for a Slack-started run is whatever `ChannelType.name` S01 adds, because the surface set is derived from the enum – a hard-coded list would fail S01's merge.
+
+Test doubles: `FakeAgentHarness` stays a non-sink (turning it into a `HarnessTurnContextSink` made `TurnRunner` read the session on every fake turn and broke 11 runtime tests); suites that need the active turn use `TurnContextHarness` (`harness_wiring_fixture.dart`) or their own sink.
+
+NOTICED BUT NOT TOUCHING: `InMemoryWorkflowRunRepository.update` replaces the stored run whole, so it does not enforce origin immutability like the two production repositories do; a test through it proves nothing about immutability. Routing: Note.
+
+NOTICED BUT NOT TOUCHING: `extractThreadId` still reads Google Chat's `threadName` only, so a Slack-started run records a null thread until the threaded-notification capability replaces that call. Routing: Note (scoped out above).
+
+NOTICED BUT NOT TOUCHING: `_pushBackFeedbackDelivery` (`service_wiring.dart`) starts a primary-scope human-input turn on a channel session with no `TurnProvenance`, so a run that turn starts with `workflow_run` records `api`. The FIS lists the provenance sites and this is not one; whether it should carry the pushed-back thread is for the stories that read provenance. Routing: Note.

@@ -1248,6 +1248,7 @@ final class ConversationService {
     await _persist(sessionId, next, dispatching, 'dispatch_marker');
     final String turnId;
     try {
+      final session = await sessions.getSession(sessionId);
       turnId = await turns.reserveContextTurn(
         sessionId,
         provider: context.provider,
@@ -1256,6 +1257,7 @@ final class ConversationService {
         effort: context.effort,
         promptScope: PromptScope.primary,
         origin: (channel: ChannelType.web.name, contact: null, group: false),
+        provenance: TurnProvenance.web(sessionKey: session?.channelKey),
       );
     } on BusyTurnException {
       final (:submission, :snapshot) = await _undispatch(

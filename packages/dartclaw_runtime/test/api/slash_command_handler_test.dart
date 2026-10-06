@@ -321,7 +321,16 @@ String _sectionText(Map<String, dynamic> response) {
 class _NoopMessageQueue extends MessageQueue {
   new()
     : super(
-        dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+        dispatcher: (
+          sessionKey,
+          message, {
+          required channelType,
+          senderJid,
+          senderDisplayName,
+          groupJid,
+          recipientId,
+          threadId,
+        }) async => '',
       );
 
   @override

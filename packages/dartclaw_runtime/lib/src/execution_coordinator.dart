@@ -29,6 +29,7 @@ final class ExecutionCoordinator {
     ExecutionNow? now,
     Iterable<ExecutionReleaseHook> releaseHooks = const [],
     DestroyContainerAuthority? destroyContainerAuthority,
+    void Function(AgentHarness harness)? onHarnessDisposed,
   }) : _createWorker = createWorker,
        _admitExecution = admitExecution,
        _releaseAdmission = releaseAdmission,
@@ -36,6 +37,7 @@ final class ExecutionCoordinator {
        _primary = primary,
        _releaseHooks = List.unmodifiable(releaseHooks),
        _destroyContainerAuthority = destroyContainerAuthority,
+       _onHarnessDisposed = onHarnessDisposed,
        allowsPrimaryBackgroundFallback = allowPrimaryBackgroundFallback && providerCapacities.isEmpty,
        _outcomes = _OutcomeRetention(outcomeTtl, now ?? DateTime.now),
        _workerGates = {for (final entry in providerCapacities.entries) entry.key: WorkerCapacityGate(entry.value)} {
@@ -56,6 +58,7 @@ final class ExecutionCoordinator {
   final TurnRunner? _primary;
   final List<ExecutionReleaseHook> _releaseHooks;
   final DestroyContainerAuthority? _destroyContainerAuthority;
+  final void Function(AgentHarness harness)? _onHarnessDisposed;
   final bool allowsPrimaryBackgroundFallback;
   final _OutcomeRetention _outcomes;
   final WorkerCapacityGate _primaryGate = WorkerCapacityGate(1);

@@ -115,7 +115,7 @@ export 'src/bridge/bridge_events.dart'
 
 // Channel interfaces
 export 'src/channel/channel.dart'
-    show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey, threadIdMetadataKey;
+    show Channel, ChannelAttachment, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey, threadIdMetadataKey;
 export 'src/channel/channel_feedback.dart'
     show ChannelFeedbackStrategy, FeedbackContext, NoFeedbackStrategy, TurnProgressSnapshot;
 export 'src/channel/channel_manager.dart' show ChannelManager;

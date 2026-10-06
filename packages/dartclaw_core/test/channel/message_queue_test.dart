@@ -115,9 +115,22 @@ class _Exhausted implements BudgetExhaustedError, Exception {
   final int budget = 100;
 }
 
-ChannelMessage _msg({String sender = 'user@test', String text = 'hello', String? groupJid}) {
-  return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: sender, text: text, groupJid: groupJid);
+ChannelMessage _msg({
+  String sender = 'user@test',
+  String text = 'hello',
+  String? groupJid,
+  List<ChannelAttachment> attachments = const [],
+}) {
+  return ChannelMessage(
+    channelType: ChannelType.whatsapp,
+    senderJid: sender,
+    text: text,
+    groupJid: groupJid,
+    attachments: attachments,
+  );
 }
+
+ChannelAttachment _file(String name) => ChannelAttachment(filename: name, mediaType: 'text/plain', bytes: [1, 2, 3]);
 
 void main() {
   group('MessageQueue', () {
@@ -125,6 +138,7 @@ void main() {
     late List<(String, String)> dispatched;
     late List<String?> dispatchedSenders;
     late List<({ChannelType channelType, String? groupJid})> dispatchedOrigins;
+    late List<List<String>> dispatchedAttachmentNames;
     late Completer<void>? dispatchGate;
     late Completer<void>? dispatchStarted;
 
@@ -133,6 +147,7 @@ void main() {
       dispatched = [];
       dispatchedSenders = [];
       dispatchedOrigins = [];
+      dispatchedAttachmentNames = [];
       dispatchGate = null;
       dispatchStarted = null;
     });
@@ -172,6 +187,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
                 dispatchStarted!.complete();
@@ -181,10 +197,36 @@ void main() {
               dispatched.add((sessionKey, message));
               dispatchedSenders.add(senderJid);
               dispatchedOrigins.add((channelType: channelType, groupJid: groupJid));
+              dispatchedAttachmentNames.add([for (final file in attachments) file.filename]);
               return response;
             },
       );
     }
+
+    test('debounce hands every coalesced message\'s attachments to the dispatcher in arrival order', () async {
+      // A file on the first of two coalesced messages must not be dropped when the buffer is rebuilt.
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(text: 'look', attachments: [_file('a.txt'), _file('b.txt')]), channel, 'session-1');
+      queue.enqueue(_msg(text: 'and this', attachments: [_file('c.txt')]), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatched, hasLength(1));
+      expect(dispatchedAttachmentNames, [
+        ['a.txt', 'b.txt', 'c.txt'],
+      ]);
+    });
+
+    test('a message without attachments is dispatched with none', () async {
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(text: 'plain'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatchedAttachmentNames, [<String>[]]);
+    });
 
     test('dispatcher receives the source channel type and group JID', () async {
       // The channel a turn arrives on is what the prompt names, so the queue
@@ -287,6 +329,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               activeCount++;
               if (activeCount > maxActive) maxActive = activeCount;
@@ -333,6 +376,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               dispatchCalls++;
               throw Exception('permanent');
@@ -365,6 +409,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               dispatchCalls++;
               return 'the answer';
@@ -436,6 +481,7 @@ void main() {
                 String? groupJid,
                 String? recipientId,
                 String? threadId,
+                List<ChannelAttachment> attachments = const [],
               }) async {
                 started.add(message);
                 return 'ok';
@@ -489,6 +535,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               await dispatchGate!.future; // block processing
               dispatched.add((sessionKey, message));
@@ -868,6 +915,7 @@ void main() {
             String? groupJid,
             String? recipientId,
             String? threadId,
+            List<ChannelAttachment> attachments = const [],
           }) => turn(),
         );
         addTearDown(queue.dispose);
@@ -961,6 +1009,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               started.add(message);
               inFlight++;

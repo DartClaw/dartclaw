@@ -44,16 +44,16 @@ class SlackThreadedNotifications implements ThreadedNotifications {
     final error = notification.error?.trim();
     final facts = [
       for (final entry in notification.facts.entries)
-        '*${escapeSlackText(entry.key)}*: ${escapeSlackText(entry.value)}',
+        '*${escapeSlackMarkdown(entry.key)}*: ${escapeSlackMarkdown(entry.value)}',
     ];
     final sections = [
-      '*${escapeSlackText(notification.title)}* – ${escapeSlackText(status)}',
-      if (body != null && body.isNotEmpty) escapeSlackText(body),
-      if (error != null && error.isNotEmpty) '*Error*: ${escapeSlackText(error)}',
+      '*${escapeSlackMarkdown(notification.title)}* – ${escapeSlackMarkdown(status)}',
+      if (body != null && body.isNotEmpty) escapeSlackMarkdown(body),
+      if (error != null && error.isNotEmpty) '*Error*: ${escapeSlackMarkdown(error)}',
       if (facts.isNotEmpty) facts.join('\n'),
     ];
     return ChannelResponse(
-      text: escapeSlackText(notification.text),
+      text: escapeSlackMarkdown(notification.text),
       structuredPayload: {
         'blocks': [
           for (final text in sections)

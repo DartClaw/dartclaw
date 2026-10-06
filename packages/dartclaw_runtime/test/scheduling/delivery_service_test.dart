@@ -465,6 +465,7 @@ DeliveryService _makeService({
         groupJid,
         recipientId,
         threadId,
+        attachments = const [],
       }) async => 'ok',
     ),
     config: const ChannelConfig.defaults(),

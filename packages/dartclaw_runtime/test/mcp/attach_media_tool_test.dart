@@ -86,6 +86,7 @@ void main() {
           groupJid,
           recipientId,
           threadId,
+          attachments = const [],
         }) async => 'ok',
       ),
       config: const ChannelConfig.defaults(),

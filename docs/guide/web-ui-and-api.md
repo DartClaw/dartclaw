@@ -95,7 +95,7 @@ brings it back.
 - **Tool calls**: A turn's tool calls collapse into one disclosure naming their count, tools and elapsed time. It stays
   open while any call is running, failed or blocked, and closes once every call in the run has succeeded. Opening it
   shows each call's retained arguments and result.
-- **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata.
+- **Attachments**: Drag, paste, or select files. Uploaded files appear as removable chips before send and are submitted as structured message metadata. Text files are inlined into the turn (up to 20,000 characters). PNG, JPEG, GIF and WebP images up to 5 MiB also reach the model as image input on the Claude Code and Codex harnesses, so it can describe them; other files, larger images, earlier messages' images, and any image on an ACP harness stay named in the turn context.
 - **Context references**: Type `@` to resolve sessions, files, tools, and memory into explicit removable chips. A project reference is suggested only when the chat is in that explicit project.
 - **Effective context**: The context chip and the model pill open one popover each, anchored under the control that
   opens them. An eligible idle owner web chat can move between General chat and a ready named project. The move retains
@@ -307,7 +307,7 @@ Content-Type: application/json
 {"filename":"notes.md","mediaType":"text/markdown","size":8,"contentBase64":"IyBOb3Rlcwo="}
 ```
 
-Stores an attachment under the session and returns structured metadata for the composer chip. Size and payload limits are enforced before storage.
+Stores an attachment under the session and returns structured metadata for the composer chip. Size and payload limits are enforced before storage. Eligible images (PNG, JPEG, GIF, WebP, at most 5 MiB) attached to a sent message reach the Claude Code and Codex harnesses as image input; the stored message and transcript never hold the image bytes.
 
 The composer reads the server limit from `GET /api/sessions/:id/attachments/limits`. An unclaimed draft attachment can be removed with `DELETE /api/sessions/:id/attachments/:attachment_id`; a handle owned by accepted work is retained.
 
@@ -991,6 +991,7 @@ is an ordinary `WARNING`, so a `logging.level` above that suppresses it along wi
 | `POST /memory/edit`, `POST /memory/remove` | Owner form actions for selected canonical entries |
 | `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
 | `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
+| `GET /knowledge/source?t=<token>` | One cited wiki page or knowledge graph fact, read-only and without navigation. Needs no session: the signed token is the credential, and every refusal is the same 404 as the wiki view's |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
 
 The inbox API uses `conversation_revision` on every mutation so two viewers cannot silently overwrite one another.
@@ -1094,3 +1095,5 @@ The temporal knowledge graph stores source-linked facts with validity windows. I
 | `kg_contradictions` | `entity`, `predicate`, `value` | Check whether an incoming fact conflicts with existing open facts. |
 
 Temporal fields must be ISO-8601 dates or timestamps. Date-only values are interpreted as UTC midnight; timestamps must include `Z` or an explicit offset.
+
+With `base_url` set, each wiki and knowledge graph source in a `context_research` packet carries a host-minted `url` that opens through `GET /knowledge/source`; memory sources carry none, and a `url` in the synthesis output is discarded. See [Context Engine Mode](context-engine.md#channel-members).

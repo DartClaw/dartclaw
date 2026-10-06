@@ -103,7 +103,7 @@ const Map<String, FieldMeta> _governanceFields = {
     jsonKey: 'governance.adminSenders',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Sender IDs exempt from rate limits and budget blocks.',
+    description: 'Sender IDs exempt from rate limits and budget blocks; may write shared knowledge from a channel.',
     nullable: true,
   ),
   'governance.turn_limits.stall_timeout': FieldMeta(

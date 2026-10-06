@@ -72,6 +72,7 @@ class SlackHarness {
         String? groupJid,
         String? recipientId,
         String? threadId,
+        List<ChannelAttachment> attachments = const [],
       }) async => answer?.call(message) ?? 'ok',
     );
     final dmAccess = DmAccessController(mode: slackConfig.dmAccess, allowlist: slackConfig.dmIds.toSet());

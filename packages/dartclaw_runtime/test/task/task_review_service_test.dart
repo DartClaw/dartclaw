@@ -118,11 +118,13 @@ void main() {
     test('push_back invokes PushBackFeedbackDelivery callback', () async {
       await putTaskInReview(tasks, 'task-1', title: 'Fix login', sessionKey: 'agent:main:task:task-1');
       final deliveries = <(String taskId, String feedback)>[];
+      final origins = <TaskOrigin>[];
       final service = TaskReviewService(
         tasks: tasks,
 
-        pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
+        pushBackFeedbackDelivery: ({required taskId, required origin, required feedback}) async {
           deliveries.add((taskId, feedback));
+          origins.add(origin);
         },
       );
 
@@ -132,6 +134,8 @@ void main() {
       expect(deliveries, hasLength(1));
       expect(deliveries.single.$1, 'task-1');
       expect(deliveries.single.$2, 'revise the auth logic');
+      expect(origins.single.sessionKey, 'agent:main:task:task-1');
+      expect(origins.single.channelType, 'whatsapp');
     });
 
     test('push_back proceeds even when PushBackFeedbackDelivery callback throws', () async {
@@ -139,7 +143,7 @@ void main() {
       final service = TaskReviewService(
         tasks: tasks,
 
-        pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
+        pushBackFeedbackDelivery: ({required taskId, required origin, required feedback}) async {
           throw StateError('delivery failed');
         },
       );
@@ -157,7 +161,7 @@ void main() {
       final service = TaskReviewService(
         tasks: tasks,
 
-        pushBackFeedbackDelivery: ({required taskId, required sessionKey, required feedback}) async {
+        pushBackFeedbackDelivery: ({required taskId, required origin, required feedback}) async {
           capturedComment = feedback;
         },
       );

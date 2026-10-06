@@ -82,6 +82,9 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   /// cold-process turns. [CodexProtocolAdapter] actively uses [history] for
   /// `previousResponseItems`; the parameter remains on the [ProtocolAdapter]
   /// interface so Codex call sites are unaffected.
+  ///
+  /// [images] extends the [ProtocolAdapter] signature: each `{mediaType, data}` entry becomes a base64 `image` content
+  /// block after the text block. Without images `content` stays the plain string.
   @override
   Map<String, dynamic> buildTurnRequest({
     required String message,
@@ -89,10 +92,23 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
     String? threadId,
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? images,
   }) {
     final payload = <String, dynamic>{
       'type': 'user',
-      'message': {'role': 'user', 'content': message},
+      'message': {
+        'role': 'user',
+        'content': images == null || images.isEmpty
+            ? message
+            : [
+                {'type': 'text', 'text': message},
+                for (final image in images)
+                  {
+                    'type': 'image',
+                    'source': {'type': 'base64', 'media_type': image['mediaType'], 'data': image['data']},
+                  },
+              ],
+      },
     };
     if (systemPrompt != null) {
       payload['system_prompt'] = systemPrompt;

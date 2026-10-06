@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.27 Codex user-input diagnostics, Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.28 image input on Claude and Codex turn requests; 0.27 Codex user-input diagnostics, Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -328,6 +328,26 @@ For harnesses using `PromptStrategy.replace`, a `system_prompt` field is include
 ```
 
 `AgentHarness.turn.systemPrompt` is a scoped per-turn contract independent of prompt strategy: a non-empty value is authoritative; an empty value selects the harness's configured default. `ClaudeCodeHarness` uses `PromptStrategy.append`, so ordinary turns omit `system_prompt`. A non-empty logical-agent persona or conversational onboarding prompt participates in the process desired-state comparison and is applied by a single restart with `--append-system-prompt` together with any model or effort change. Switching the pooled process to a different logical session also restarts it, preventing conversation leakage; persisted history is replayed after that restart. The next empty turn restores the configured append prompt.
+
+**Image input.** When the turn's last message entry carries `images` (`{mediaType, data}` with base64 `data`),
+`content` is an array – the text block, then one `image` block per image – instead of the string:
+
+```json
+{
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": [
+      { "type": "text", "text": "What is in this screenshot?" },
+      { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..." } }
+    ]
+  }
+}
+```
+
+`ClaudeProtocolAdapter.buildTurnRequest(images:)` builds it; without images the request is the string form above, byte for
+byte. The form is the Messages API content-block shape and is an assumption about the CLI's stream-json input until a
+live qualification confirms it.
 
 For resumed sessions, a `"resume": true` field is added.
 
@@ -1150,6 +1170,12 @@ logged with the provider id and retried by the first read at least 5 minutes lat
 Each turn is issued with `turn/start` on the active thread. By default DartClaw passes the current user message plus its
 own replayed history. An explicit provider-session id instead loads the rollout from a durable system or dedicated
 `CODEX_HOME`; a missing rollout fails the turn and never falls back to `thread/start`.
+
+The `turn/start` `input` is one `text` item. When the turn's last message entry carries `images`, each becomes an
+`{"type": "image", "url": "data:<media_type>;base64,<data>"}` item after the text item, so the app server needs no file
+visible on the host or container lane (`CodexProtocolAdapter.buildTurnRequest(images:)`). Earlier entries' images are never
+re-sent. Like the Claude form, this is an assumption pending live qualification; `localImage` with a staged path is the
+fallback shape. ACP prompts stay text-only: the attachment is named in the context block and nothing else.
 
 The harness correlates response notifications with the active thread and, once `turn/started` identifies it, the active
 turn. Agent messages and terminal notifications from background subagent threads or an earlier turn cannot emit

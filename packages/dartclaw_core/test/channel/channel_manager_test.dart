@@ -29,6 +29,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               dispatched.add((sessionKey, message));
               return 'ok';
@@ -136,6 +137,7 @@ void main() {
           String? groupJid,
           String? recipientId,
           String? threadId,
+          List<ChannelAttachment> attachments = const [],
         }) async => 'ok',
       );
       return ChannelManager(
@@ -396,6 +398,7 @@ void main() {
           String? groupJid,
           String? recipientId,
           String? threadId,
+          List<ChannelAttachment> attachments = const [],
         }) async => 'ok',
       ),
       config: const ChannelConfig.defaults(),
@@ -569,6 +572,7 @@ void main() {
           String? groupJid,
           String? recipientId,
           String? threadId,
+          List<ChannelAttachment> attachments = const [],
         }) async => 'ok',
       );
       return ChannelManager(

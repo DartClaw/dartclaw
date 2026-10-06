@@ -7,9 +7,14 @@ import 'auth_rate_limiter.dart';
 import 'auth_utils.dart';
 import 'request_auth_context.dart';
 import 'session_token.dart';
+import 'source_link_token.dart' show sourceLinkPath;
 import 'token_service.dart';
 
-const _publicPaths = {'/health', '/login', '/favicon.ico'};
+/// Exact paths that bypass authentication.
+///
+/// [sourceLinkPath] carries its own check: a signed link token verified before
+/// any file or database read.
+const _publicPaths = {'/health', '/login', '/favicon.ico', sourceLinkPath};
 
 /// URL prefixes that bypass authentication entirely.
 ///

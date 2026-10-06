@@ -30,6 +30,7 @@ void main() {
             String? groupJid,
             String? recipientId,
             String? threadId,
+            List<ChannelAttachment> attachments = const [],
           }) async {
             dispatched.add((sessionKey, message));
             return 'ok';

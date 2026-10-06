@@ -475,6 +475,7 @@ class CodexHarness extends BaseHarness
           writableRoots: _providerWritableRoots(),
         ),
         outputSchema: outputSchema,
+        images: turnImageInput(messages.last['images']),
       );
       payload['id'] = ++_nextRequestId;
       final params = payload['params'] as Map<String, dynamic>?;

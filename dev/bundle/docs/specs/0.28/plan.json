@@ -178,7 +178,7 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "fis": "s02-slack-events-api-setup-and-diagnostics.md",
       "completedTaskIds": [],
       "scope": "Add the Events API transport behind the S01 dispatch (signature verification, URL verification, enqueue-then-ack, event-ID dedupe, interactions and slash commands on the same signed path), built on framework-neutral webhook helpers in core that replace the duplicated bounded-read, trusted-proxy and failed-auth algorithms in runtime and Google Chat (architecture F5, closing TD-124). Ship the Slack app manifest, the `dartclaw doctor` Slack checks and the Slack setup guide page.",
@@ -199,7 +199,7 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "fis": "s03-slack-streaming-replies-and-inbound-media.md",
       "completedTaskIds": [],
       "scope": "Stream thread and DM replies through the Slack stream API with assistant status and a single-complete-reply fallback, and bring files posted to the agent into the turn within the size and count bounds. Plan reading: no channel has inbound media today, so FR8's \"matching Google Chat\" has no precedent; the existing owner is the 0.27 web-chat session attachment path, which Slack files reuse. Images reach the model through native image input in the Claude Code and Codex adapters, for Slack and web-composer attachments alike (owner D23).",
@@ -256,7 +256,7 @@
         "S01",
         "S04"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "fis": "s05-threaded-channels-and-run-lifecycle-posts.md",
       "completedTaskIds": [],
       "scope": "Replace the Google Chat instance check in the task notifier with the declared threaded-notification capability (architecture F2), implemented by Google Chat and Slack, with thread bindings keyed by task or run and preserved across channel registration order. Add the channel-agnostic run subscriber posting started, awaiting-approval and finished or failed to the origin thread or to the configured notification channel, with plain posts on WhatsApp and Signal.",

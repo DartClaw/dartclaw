@@ -236,3 +236,7 @@ Implementation choices, each also stated where it bites:
 
 - Workspace-wide, not package-scoped: `dart format --line-length=120 --output=none --set-exit-if-changed .`, `dart analyze --fatal-infos`, `bash dev/tools/test_workspace.sh`, `dart run dev/tools/arch_check.dart`, `bash dev/tools/fitness/run_all.sh`, `git diff --check`.
 - `channels` testing profile run-loop proof for Google Chat and Slack runs once in the owner-led qualification after the last story (PRD owner D22), not here.
+
+## Discovered Requirements
+
+- **Title**: Session-key readers ignore the `:thread:<id>` suffix. **Description**: `packages/dartclaw_runtime/lib/src/scheduling/delivery.dart` (`_parseDmTarget`) and `packages/dartclaw_runtime/lib/src/runtime/service_wiring_notifications.dart` (`_resolveChannelRoute`, DM arm) split session-key identifiers by position and require exactly two parts, so loop-detection notices find no route for a Slack DM thread session and post at channel top level for a Slack channel thread. Route both through one session-key decoder (the existing session-key owner, not a third positional split) and deliver a thread session's notices into its thread; scheduled-job announce may keep skipping thread sessions. Prove it with tests over a Slack DM thread key and a Slack channel thread key. **Rationale**: S01 added the thread suffix to session keys after this FIS was written. **Interpretation**: scope-preserving; this story owns threaded notification routing. **Traced from**: S01 review finding F2 and its NOTICED BUT NOT TOUCHING note. **Date**: 2026-10-06

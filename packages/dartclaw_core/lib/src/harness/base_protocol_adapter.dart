@@ -30,6 +30,16 @@ String stringifyMessageContent(Object? content) {
   return content?.toString() ?? '';
 }
 
+/// The image input a turn's last message carries under `images`: `{mediaType, data}` maps with base64 `data`.
+///
+/// Anything that is not such a map is dropped, so a malformed entry never reaches a provider request.
+List<Map<String, dynamic>> turnImageInput(Object? images) => [
+  if (images is List)
+    for (final image in images)
+      if (image is Map && image['mediaType'] is String && image['data'] is String)
+        {'mediaType': image['mediaType'], 'data': image['data']},
+];
+
 /// Extracts a [String] from a dynamic value, stringifying numbers and bools.
 String? stringValue(Object? value) {
   return switch (value) {

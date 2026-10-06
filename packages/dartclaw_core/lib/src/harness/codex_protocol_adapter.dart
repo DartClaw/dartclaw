@@ -119,7 +119,8 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
 
   /// [outputSchema] extends the [ProtocolAdapter] signature: the app server
   /// constrains the final assistant message to it, and no other provider takes
-  /// a schema on the turn request.
+  /// a schema on the turn request. [images] likewise: each `{mediaType, data}` entry is an `image` input item after the
+  /// text item, carried as a `data:` URL so the process needs no file it can see.
   @override
   Map<String, dynamic> buildTurnRequest({
     required String message,
@@ -128,10 +129,13 @@ class CodexProtocolAdapter extends BaseProtocolAdapter {
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
     Map<String, dynamic>? outputSchema,
+    List<Map<String, dynamic>>? images,
   }) {
     final params = <String, dynamic>{
       'input': [
         {'type': 'text', 'text': message},
+        for (final image in images ?? const <Map<String, dynamic>>[])
+          {'type': 'image', 'url': 'data:${image['mediaType']};base64,${image['data']}'},
       ],
     };
     final previousResponseItems = _buildPreviousResponseItems(history);

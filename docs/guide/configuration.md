@@ -350,6 +350,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `channels.slack.mention_patterns` | array |  | Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention. (restart required) |
 | `channels.slack.mode` | string | one of "socket" | How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token. (restart required) |
 | `channels.slack.require_mention` | boolean |  | Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention. (restart required) |
+| `channels.slack.streaming` | boolean |  | Stream a reply into its Slack thread or DM as the agent writes it. When false, the reply is posted in chunks once the turn ends. Streaming needs the chat:write scope. (restart required) |
 | `channels.whatsapp.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
 | `channels.whatsapp.dm_allowlist` | array |  | Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.whatsapp.enabled` | boolean |  | Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required) |

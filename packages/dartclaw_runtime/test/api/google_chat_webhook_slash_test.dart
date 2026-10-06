@@ -409,6 +409,7 @@ class _NoopMessageQueue extends MessageQueue {
           groupJid,
           recipientId,
           threadId,
+          attachments = const [],
         }) async => '',
       );
 

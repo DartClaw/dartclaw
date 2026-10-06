@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
@@ -7,8 +8,19 @@ import 'package:logging/logging.dart';
 /// Default Slack Web API base URL.
 const slackApiBase = 'https://slack.com/api';
 
+/// [SlackApiException.errorCode] of a file whose body exceeded the download bound.
+const slackFileTooLarge = 'file_too_large';
+
+/// [SlackApiException.errorCode] of a download answered with a web page, which is what
+/// Slack serves when the bot token lacks the `files:read` scope.
+const slackFileScopeMissing = 'files_read_missing';
+
+/// [SlackApiException.errorCode] of any other download that did not deliver the file.
+const slackFileUnavailable = 'file_unavailable';
+
 const _minPostInterval = Duration(seconds: 1);
 const _maxRetryAfter = Duration(seconds: 60);
+const _maxRedirects = 3;
 
 /// A Slack API call that did not succeed.
 ///
@@ -49,6 +61,10 @@ class SlackWebApiClient {
   final DateTime Function() _now;
   final Map<String, _ChannelPostQueue> _postQueues = {};
   final Map<String, String> _displayNames = {};
+  String? _teamId;
+
+  /// The workspace ID the last successful [authTest] reported, or `null` before one.
+  String? get teamId => _teamId;
 
   /// Creates a client for [botToken]; [appToken] is needed only by [openSocketUrl].
   new({
@@ -74,6 +90,10 @@ class SlackWebApiClient {
     if (userId is! String || userId.isEmpty) {
       throw const SlackApiException('Slack API auth.test returned no bot user ID');
     }
+    _teamId = switch (body['team_id']) {
+      final String id when id.isNotEmpty => id,
+      _ => null,
+    };
     return (userId: userId, botId: body['bot_id'] as String?);
   }
 
@@ -98,8 +118,7 @@ class SlackWebApiClient {
   ///
   /// Posts to one channel are queued at least one second apart.
   Future<String?> postMessage({required String channel, required String text, String? threadTs}) {
-    final queue = _postQueues.putIfAbsent(channel, () => _ChannelPostQueue(delay: _delay, now: _now));
-    return queue.enqueue(() async {
+    return _write(channel, () async {
       final body = await _call(
         'chat.postMessage',
         token: _botToken,
@@ -108,6 +127,165 @@ class SlackWebApiClient {
       return body['ts'] as String?;
     });
   }
+
+  /// Opens a streamed reply in the thread [threadTs] of [channel] and returns
+  /// the stream message's timestamp.
+  ///
+  /// [markdownText] (standard Markdown, at most 12,000 characters) is the first
+  /// text. A stream in a channel needs [recipientTeamId] and [recipientUserId].
+  /// The stream is text-only: later calls must keep to `markdown_text`.
+  Future<String> startStream({
+    required String channel,
+    required String threadTs,
+    String? recipientTeamId,
+    String? recipientUserId,
+    String? markdownText,
+  }) {
+    return _write(channel, () async {
+      final body = await _call(
+        'chat.startStream',
+        token: _botToken,
+        form: {
+          'channel': channel,
+          'thread_ts': threadTs,
+          'recipient_team_id': ?recipientTeamId,
+          'recipient_user_id': ?recipientUserId,
+          'markdown_text': ?markdownText,
+        },
+      );
+      final ts = body['ts'];
+      if (ts is! String || ts.isEmpty) {
+        throw const SlackApiException('Slack API chat.startStream returned no stream timestamp');
+      }
+      return ts;
+    });
+  }
+
+  /// Appends [markdownText] (at most 12,000 characters) to the stream message [ts].
+  Future<void> appendStream({required String channel, required String ts, required String markdownText}) {
+    return _write(channel, () async {
+      await _call(
+        'chat.appendStream',
+        token: _botToken,
+        form: {'channel': channel, 'ts': ts, 'markdown_text': markdownText},
+      );
+    });
+  }
+
+  /// Ends the stream message [ts], appending [markdownText] first when given.
+  Future<void> stopStream({required String channel, required String ts, String? markdownText}) {
+    return _write(channel, () async {
+      await _call(
+        'chat.stopStream',
+        token: _botToken,
+        form: {'channel': channel, 'ts': ts, 'markdown_text': ?markdownText},
+      );
+    });
+  }
+
+  /// Replaces the text of the message [ts] in [channel].
+  Future<void> updateMessage({required String channel, required String ts, required String text}) {
+    return _write(channel, () async {
+      await _call('chat.update', token: _botToken, form: {'channel': channel, 'ts': ts, 'text': text});
+    });
+  }
+
+  /// Shows [status] as the assistant status of the thread [threadTs]; an empty
+  /// string clears it. Slack also clears it when the app replies.
+  Future<void> setThreadStatus({required String channel, required String threadTs, required String status}) async {
+    await _call(
+      'assistant.threads.setStatus',
+      token: _botToken,
+      form: {'channel_id': channel, 'thread_ts': threadTs, 'status': status},
+    );
+  }
+
+  /// Downloads the private file at [url], reading at most [maxBytes].
+  ///
+  /// The bot token goes only to an `https` host under `slack.com`, on every
+  /// redirect hop too. Throws [SlackApiException] with [slackFileTooLarge] as
+  /// the code when the body exceeds [maxBytes] (the read is abandoned and no
+  /// part of it is returned), [slackFileScopeMissing] when Slack answers with a
+  /// web page instead of the file, and [slackFileUnavailable] for anything else.
+  /// [declaredMediaType] is the type Slack announced for the file: a web page
+  /// is only a failure for a file that is not itself one.
+  Future<List<int>> downloadFile(Uri url, {required int maxBytes, String? declaredMediaType}) async {
+    var target = url;
+    for (var hop = 0; hop <= _maxRedirects; hop++) {
+      if (!_isSlackHost(target)) {
+        throw const SlackApiException(
+          'Slack file URL is not an https URL under slack.com',
+          errorCode: slackFileUnavailable,
+        );
+      }
+      final request = http.Request('GET', target)
+        ..followRedirects = false
+        ..headers['authorization'] = 'Bearer $_botToken';
+      final http.StreamedResponse response;
+      try {
+        response = await _client.send(request);
+      } on Exception catch (error) {
+        // The type only: a transport error can quote the request, which carries the token's header.
+        throw SlackApiException('Slack file download failed (${error.runtimeType})', errorCode: slackFileUnavailable);
+      }
+      final status = response.statusCode;
+      if (status >= 300 && status < 400) {
+        final location = response.headers['location'];
+        unawaited(response.stream.listen(null).cancel());
+        final next = location == null ? null : target.resolve(location);
+        if (next == null) {
+          throw SlackApiException(
+            'Slack file download answered HTTP $status',
+            errorCode: slackFileUnavailable,
+            statusCode: status,
+          );
+        }
+        target = next;
+        continue;
+      }
+      if (status != 200) {
+        unawaited(response.stream.listen(null).cancel());
+        throw SlackApiException(
+          'Slack file download answered HTTP $status',
+          errorCode: slackFileUnavailable,
+          statusCode: status,
+        );
+      }
+      final contentType = (response.headers['content-type'] ?? '').toLowerCase();
+      if (contentType.startsWith('text/html') && !(declaredMediaType ?? '').toLowerCase().startsWith('text/html')) {
+        unawaited(response.stream.listen(null).cancel());
+        throw const SlackApiException(
+          'Slack file download returned a web page; the app likely lacks the files:read scope',
+          errorCode: slackFileScopeMissing,
+        );
+      }
+      if ((response.contentLength ?? 0) > maxBytes) {
+        unawaited(response.stream.listen(null).cancel());
+        throw const SlackApiException('Slack file is larger than the allowed size', errorCode: slackFileTooLarge);
+      }
+      final bytes = BytesBuilder(copy: false);
+      try {
+        await for (final chunk in response.stream) {
+          bytes.add(chunk);
+          if (bytes.length > maxBytes) {
+            throw const SlackApiException('Slack file is larger than the allowed size', errorCode: slackFileTooLarge);
+          }
+        }
+      } on SlackApiException {
+        rethrow;
+      } on Exception catch (error) {
+        throw SlackApiException('Slack file download failed (${error.runtimeType})', errorCode: slackFileUnavailable);
+      }
+      return bytes.takeBytes();
+    }
+    throw const SlackApiException('Slack file download redirected too often', errorCode: slackFileUnavailable);
+  }
+
+  static bool _isSlackHost(Uri url) =>
+      url.scheme == 'https' && (url.host == 'slack.com' || url.host.endsWith('.slack.com'));
+
+  Future<T> _write<T>(String channel, Future<T> Function() call) =>
+      _postQueues.putIfAbsent(channel, () => _ChannelPostQueue(delay: _delay, now: _now)).enqueue(call);
 
   /// The display name of [userId], cached for the life of the process.
   ///

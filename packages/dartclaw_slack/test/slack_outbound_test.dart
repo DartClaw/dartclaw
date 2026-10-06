@@ -23,6 +23,7 @@ SlackChannel _channel(FakeSlackWebApi api) => SlackChannel(
         String? groupJid,
         String? recipientId,
         String? threadId,
+        List<ChannelAttachment> attachments = const [],
       }) async => 'ok',
     ),
     config: const ChannelConfig.defaults(),
@@ -164,6 +165,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               delivered.add(message);
               return 'the answer';

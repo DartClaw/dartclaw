@@ -380,8 +380,10 @@ void main() {
       },
     );
 
-    test('a file_share message is processed as plain text', () async {
+    test('a file_share message takes the file in with its text', () async {
       await start();
+      const url = 'https://files.slack.com/files-pri/T1-F1/a.png';
+      harness.api.fileHost.files[url] = FakeSlackFile(bytes: [1, 2, 3], contentType: 'image/png');
 
       await harness.deliver([
         message(
@@ -391,12 +393,16 @@ void main() {
           ts: '810.1',
           subtype: 'file_share',
           files: [
-            {'id': 'F1', 'name': 'a.png'},
+            {'id': 'F1', 'name': 'a.png', 'mimetype': 'image/png', 'size': 3, 'url_private_download': url},
           ],
         ),
       ]);
+      await harness.until(() => harness.turns.isNotEmpty);
 
-      expect(harness.turns.single.message.text, 'see attached');
+      final turn = harness.turns.single.message;
+      expect(turn.text, 'see attached');
+      expect(turn.attachments.single.filename, 'a.png');
+      expect(turn.attachments.single.bytes, [1, 2, 3]);
     });
   });
 
@@ -505,6 +511,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async => 'ok',
           ),
           config: const ChannelConfig.defaults(),
@@ -542,6 +549,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async => 'ok',
           ),
           config: const ChannelConfig.defaults(),

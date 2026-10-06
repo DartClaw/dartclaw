@@ -199,9 +199,27 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s03-slack-streaming-replies-and-inbound-media.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13"
+      ],
+      "verified": {
+        "at": "2026-10-06T20:36Z",
+        "summary": "fast tier (kernel, core, search, workflow, runtime, cli -x slow; plus slack, acp, google_chat, signal, whatsapp, testing, dartclaw) -> exit=0, runtime +5335 ~25: All other tests passed!, core +1714 ~19, slack +148; dart analyze --fatal-infos -> No issues found; arch_check -> 18/18 checks passed; fitness/run_all.sh -> exit=0, +122: All tests passed!"
+      },
       "scope": "Stream thread and DM replies through the Slack stream API with assistant status and a single-complete-reply fallback, and bring files posted to the agent into the turn within the size and count bounds. Plan reading: no channel has inbound media today, so FR8's \"matching Google Chat\" has no precedent; the existing owner is the 0.27 web-chat session attachment path, which Slack files reuse. Images reach the model through native image input in the Claude Code and Codex adapters, for Slack and web-composer attachments alike (owner D23).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr3-streaming-replies-and-status",

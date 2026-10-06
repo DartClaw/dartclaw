@@ -449,6 +449,7 @@ class SchedulingWiring {
               groupJid,
               recipientId,
               threadId,
+              attachments = const [],
             }) async => '',
           ),
           config: const ChannelConfig.defaults(),

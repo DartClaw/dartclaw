@@ -498,6 +498,7 @@ class ClaudeCodeHarness extends BaseHarness
       final payload = _adapter.buildTurnRequest(
         message: effectiveMessage,
         systemPrompt: promptStrategy == PromptStrategy.replace && systemPrompt.isNotEmpty ? systemPrompt : null,
+        images: turnImageInput(messages.last['images']),
       );
       writeJsonLine(payload);
 

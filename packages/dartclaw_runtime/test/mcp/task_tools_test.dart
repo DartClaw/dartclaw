@@ -9,7 +9,8 @@ import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/task_tools.dart';
 import 'package:dartclaw_runtime/src/task/task_review_service.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard, InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeChannel, FakeGuard, FakeThreadedNotifications, InMemoryTaskRepository, RecordingMessageQueue;
 import 'package:test/test.dart';
 
 import '../guard_audit_test_support.dart';
@@ -65,6 +66,7 @@ void main() {
   late TaskService tasks;
   late ThreadBindingStore bindings;
   late RecordingGuardAuditLogger audit;
+  late ChannelManager channels;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_tools_');
@@ -73,6 +75,14 @@ void main() {
     bindings = ThreadBindingStore(File('${tempDir.path}/thread_bindings.json'));
     await bindings.load();
     audit = RecordingGuardAuditLogger();
+    channels = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults())
+      ..registerChannel(
+        FakeChannel(name: 'gchat', type: ChannelType.googlechat, threadedNotifications: FakeThreadedNotifications()),
+      )
+      ..registerChannel(
+        FakeChannel(name: 'slack', type: ChannelType.slack, threadedNotifications: FakeThreadedNotifications()),
+      )
+      ..registerChannel(FakeChannel(name: 'wa', type: ChannelType.whatsapp));
   });
 
   tearDown(() async {
@@ -97,7 +107,7 @@ void main() {
     ..registerTool(TaskReviewTool(reviews: reviewService(mergeExecutor: mergeExecutor)))
     ..registerTool(TaskListTool(tasks: tasks))
     ..registerTool(ReviewListTool(tasks: tasks))
-    ..registerTool(TaskBindTool(tasks: tasks, bindings: bindingStore))
+    ..registerTool(TaskBindTool(tasks: tasks, bindings: bindingStore, channels: channels))
     ..registerTool(TaskUnbindTool(bindings: bindingStore));
 
   McpProtocolHandler passingHandler({ThreadBindingStore? bindingStore, MergeExecutor? mergeExecutor}) => handlerWith(
@@ -429,7 +439,7 @@ void main() {
       expect(payload['created'], isTrue);
       expect(payload['session_key'], SessionKey.taskSession(taskId: 'live-1'));
       final stored = bindings.lookupByThread('googlechat', 'spaces/AAA/threads/BBB')!;
-      expect(stored.taskId, 'live-1');
+      expect(stored.targetId, 'live-1');
       expect(stored.sessionKey, SessionKey.taskSession(taskId: 'live-1'));
     });
 
@@ -460,15 +470,29 @@ void main() {
       expect(_payload(conflict)['reason'], 'thread_conflict');
       expect(_payload(conflict)['bound_task_id'], 'live-1');
       expect(bindings.lookupByThread('googlechat', 'thread-free'), isNull);
-      expect(bindings.lookupByThread('googlechat', 'thread-taken')!.taskId, 'live-1');
+      expect(bindings.lookupByThread('googlechat', 'thread-taken')!.targetId, 'live-1');
     });
 
     test('a channel with no thread identity is not offered and is refused when named', () async {
       final handler = passingHandler(bindingStore: bindings);
-      final schema = TaskBindTool(tasks: tasks, bindings: bindings).inputSchema;
-      final channels = ((schema['properties'] as Map)['channel_type'] as Map)['enum'] as List;
+      final schema = TaskBindTool(tasks: tasks, bindings: bindings, channels: channels).inputSchema;
+      final offered = ((schema['properties'] as Map)['channel_type'] as Map)['enum'] as List;
 
-      expect(channels, ['googlechat'], reason: 'only Google Chat stamps the thread id the router reads');
+      expect(
+        offered,
+        unorderedEquals(['googlechat', 'slack']),
+        reason: 'exactly the registered channels that declare the thread capability',
+      );
+
+      channels.registerChannel(
+        FakeChannel(name: 'sig', type: ChannelType.signal, threadedNotifications: FakeThreadedNotifications()),
+      );
+      final later = TaskBindTool(tasks: tasks, bindings: bindings, channels: channels).inputSchema;
+      expect(
+        (((later['properties'] as Map)['channel_type'] as Map)['enum'] as List),
+        contains('signal'),
+        reason: 'a channel registered after the tool still counts, because the choices are read at each call',
+      );
 
       final refused = _result(
         await _call(
@@ -480,6 +504,47 @@ void main() {
       expect(refused['isError'], isTrue);
       expect(_payload(refused)['reason'], 'invalid_request');
       expect(bindings.lookupByThread('whatsapp', '120363000@g.us'), isNull);
+    });
+
+    test('with no threading channel registered the schema offers no empty enum and every channel is refused', () async {
+      final unthreaded = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults())
+        ..registerChannel(FakeChannel(name: 'wa', type: ChannelType.whatsapp));
+      final tool = TaskBindTool(tasks: tasks, bindings: bindings, channels: unthreaded);
+
+      final channelProperty = ((tool.inputSchema['properties'] as Map)['channel_type'] as Map);
+      final refused = await tool.call({'task_id': 'live-1', 'channel_type': 'whatsapp', 'thread_id': 'T1'});
+
+      expect(channelProperty.containsKey('enum'), isFalse, reason: 'an empty enum is not a valid schema');
+      expect(refused, isA<ToolResultError>());
+      expect(bindings.lookupByThread('whatsapp', 'T1'), isNull);
+    });
+
+    test('a thread a workflow run holds answers a conflict naming the run and keeps its binding', () async {
+      final now = DateTime.now();
+      await bindings.create(
+        ThreadBinding.run(
+          channelType: 'slack',
+          threadId: 'C1:1700000000.000100',
+          runId: 'run-9',
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+
+      final conflict = _result(
+        await _call(
+          passingHandler(bindingStore: bindings),
+          'task_bind',
+          arguments: {'task_id': 'live-1', 'channel_type': 'slack', 'thread_id': 'C1:1700000000.000100'},
+        ),
+      );
+
+      expect(conflict['isError'], isTrue);
+      expect(_payload(conflict)['reason'], 'thread_conflict');
+      expect(_payload(conflict)['bound_run_id'], 'run-9');
+      expect(_text(conflict), contains('run-9'));
+      expect(bindings.lookupByRun('run-9'), hasLength(1));
+      expect(bindings.lookupByTask('live-1'), isEmpty);
     });
 
     test('binding the same task and thread twice reports the existing binding without duplicating it', () async {
@@ -554,7 +619,7 @@ void main() {
     test('all six are JSON-RPC successes carrying isError, with one deny entry each and no state change', () async {
       await repo.insert(_task(id: 'guarded-1', status: TaskStatus.review, createdAt: DateTime.utc(2026, 1, 1)));
       await bindings.create(
-        ThreadBinding(
+        ThreadBinding.task(
           channelType: 'googlechat',
           threadId: 'guarded-thread',
           taskId: 'guarded-1',
@@ -670,7 +735,7 @@ void main() {
         TaskReviewTool(reviews: reviewService()),
         TaskListTool(tasks: tasks),
         ReviewListTool(tasks: tasks),
-        TaskBindTool(tasks: tasks, bindings: bindings),
+        TaskBindTool(tasks: tasks, bindings: bindings, channels: channels),
         TaskUnbindTool(bindings: bindings),
       ];
       const hostOwned = {

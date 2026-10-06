@@ -75,6 +75,59 @@ class ChatCardBuilder {
     );
   }
 
+  /// Builds a workflow run lifecycle card: the workflow name as the title, the
+  /// run [status], [facts] in order, then [body] and, for a failed run,
+  /// [errorSummary]. It carries no buttons.
+  Map<String, dynamic> runNotification({
+    required String runId,
+    required String title,
+    required String status,
+    Map<String, String> facts = const {},
+    String? body,
+    String? errorSummary,
+  }) {
+    final sections = <Map<String, dynamic>>[_statusBadgeSection(status)];
+
+    if (facts.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          for (final entry in facts.entries)
+            {
+              'decoratedText': {'topLabel': entry.key, 'text': _escapeText(entry.value), 'wrapText': true},
+            },
+        ],
+      });
+    }
+
+    final trimmedBody = body?.trim();
+    if (trimmedBody != null && trimmedBody.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          {
+            'textParagraph': {'text': _escapeAndTruncateDescription(trimmedBody)},
+          },
+        ],
+      });
+    }
+
+    final trimmedErrorSummary = errorSummary?.trim();
+    if (status == 'failed' && trimmedErrorSummary != null && trimmedErrorSummary.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          {
+            'textParagraph': {'text': _escapeText(trimmedErrorSummary)},
+          },
+        ],
+      });
+    }
+
+    return _wrapCard(
+      cardId: 'run_$runId',
+      header: {'title': title, 'subtitle': _statusLabel(status)},
+      sections: sections,
+    );
+  }
+
   /// Builds an error notification card.
   Map<String, dynamic> errorNotification({
     required String title,
@@ -288,11 +341,17 @@ class ChatCardBuilder {
     'rejected' => 'Rejected',
     'failed' => 'Failed',
     'error' => 'Error',
+    'started' => 'Started',
+    'awaiting_approval' => 'Awaiting Approval',
+    'finished' => 'Finished',
+    'step_completed' => 'Step Completed',
     _ => status,
   };
 
   String? _statusColor(String status) => switch (status) {
-    'running' => '#1a73e8',
+    'running' || 'started' || 'step_completed' => '#1a73e8',
+    'awaiting_approval' => '#f9ab00',
+    'finished' => '#1e8e3e',
     'review' => '#f9ab00',
     'accepted' => '#1e8e3e',
     'rejected' => '#d93025',

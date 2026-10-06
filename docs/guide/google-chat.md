@@ -211,9 +211,21 @@ agent's own `task_bind` tool carries no channel context and has to be told which
 (`task_id`, `channel_type`, `thread_id`) — see [Tasks](tasks.md#agent-tool-surface). Use `/bind` for "this thread",
 and `task_bind` when the thread is already known by name.
 
-Binding is thread-scoped and Google Chat only. Google Chat is the one channel that stamps a per-message thread
-identity, which is what a binding is keyed by, so a message with no thread — a WhatsApp or Signal group among them —
-answers `Cannot bind — this message is not in a thread.` rather than binding the group.
+Binding is thread-scoped and opt-in through `features.thread_binding.enabled`. It works on every channel that carries a
+per-message thread identity, which is what a binding is keyed by: Google Chat (the thread resource name, such as
+`spaces/AAAA/threads/CCCC`) and Slack. A message with no thread, or on a channel with none (WhatsApp and Signal),
+answers `Cannot bind — this message is not in a thread.` rather than binding the group. A thread that a workflow run
+posts into cannot be bound to a task; the reply names the run.
+
+With the flag on, the first notification of a task started from a Google Chat space (queued to running) opens a thread
+in that space and binds it, so later status changes and review requests post into the same thread and replies there
+reach the task's agent. With it off, Google Chat still shows task notifications as cards, but each one is a separate
+message. The card layout is the same either way.
+
+Workflow runs post to Google Chat too: a run started from a Chat thread posts its started, awaiting-approval and
+finished or failed messages into that thread. A run started elsewhere can post to a Chat space through
+`workflow.chat_notifications` (one thread per run); see
+[Workflow run notifications](configuration.md#workflow-run-notifications).
 
 ## Message Formatting
 

@@ -71,6 +71,7 @@ class ChannelWiring {
   GoogleChatSpaceEventsWiring? _spaceEventsWiring;
   TaskNotificationSubscriber? _taskNotificationSubscriber;
   ThreadBindingStore? _threadBindingStore;
+  var _threadBindingEnabled = false;
   PauseController? _pauseController;
   String? _webhookSecret;
   ChannelManager? _fallbackDeliveryChannelManager;
@@ -85,6 +86,11 @@ class ChannelWiring {
   GoogleChatSpaceEventsWiring? get spaceEventsWiring => _spaceEventsWiring;
   TaskNotificationSubscriber? get taskNotificationSubscriber => _taskNotificationSubscriber;
   ThreadBindingStore? get threadBindingStore => _threadBindingStore;
+
+  /// The store task-binding writers and readers use: [threadBindingStore] only while
+  /// `features.thread_binding.enabled` gates task binding on.
+  ThreadBindingStore? get taskThreadBindingStore => _threadBindingEnabled ? _threadBindingStore : null;
+
   PauseController? get pauseController => _pauseController;
   String? get webhookSecret => _webhookSecret;
   ChannelManager? get fallbackDeliveryChannelManager => _fallbackDeliveryChannelManager;
@@ -139,14 +145,16 @@ class ChannelWiring {
       },
     );
 
-    // Initialize ThreadBindingStore if thread binding is enabled.
+    // The one live ThreadBindingStore holds task bindings (gated by the flag alone) and the
+    // thread of each run that posts to workflow.chat_notifications, so either turns it on.
     final threadBindingEnabled = config.features.threadBinding.enabled;
-    if (threadBindingEnabled) {
+    _threadBindingEnabled = threadBindingEnabled;
+    if (threadBindingEnabled || config.workflow.chatNotifications != null) {
       final bindingsFile = File(p.join(_dataDir, 'thread-bindings.json'));
       final store = ThreadBindingStore(bindingsFile);
       await store.load();
       _threadBindingStore = store;
-      _log.info('ThreadBindingStore initialized (features.thread_binding.enabled)');
+      _log.info('ThreadBindingStore initialized (task binding: $threadBindingEnabled)');
     }
 
     if (waEnabled || sigEnabled || googleChatEnabled || slackEnabled) {
@@ -188,7 +196,7 @@ class ChannelWiring {
             pauseController: pauseController,
             replayPausedTurns: (collapsed) =>
                 ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: _channelManager!.queue),
-            threadBindingStore: _threadBindingStore,
+            threadBindingStore: taskThreadBindingStore,
             auditLogger: _auditLogger,
           ),
           perSenderRateLimiter: perSenderLimiter,
@@ -662,7 +670,7 @@ class ChannelWiring {
       provenance: TurnProvenance.channel(
         channelType: message.channelType,
         recipientId: resolveRecipientId(message),
-        threadId: extractThreadId(message),
+        threadId: channelManager.threadedNotificationsFor(message.channelType.name)?.extractThread(message.metadata),
         sessionKey: sessionKey,
         senderId: message.senderJid,
       ),

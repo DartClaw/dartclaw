@@ -899,6 +899,12 @@ calls `workflow_list` and `workflow_run`; required-variable validation and the r
 workflow service used by the API and web forms. See [Web UI and API](web-ui-and-api.md#orchestration-and-content-mcp-tools)
 for the schemas.
 
+A run started from chat posts its started, awaiting-approval and finished or failed messages back to where it was
+started: into that thread on Google Chat and Slack, or as plain messages to that conversation on WhatsApp and Signal.
+A run started anywhere else (the web form, the API, the CLI, a schedule) posts to the channel named by
+`workflow.chat_notifications`, one thread per run, or nowhere when that block is not set. See
+[Workflow run notifications](configuration.md#workflow-run-notifications).
+
 ### Web launch forms
 
 The web UI's `/workflows` page renders a launch form for each loaded definition. Forms collect the workflow's declared variables (text inputs for free-form fields, project pickers for variables that resolve to a known project) and submit via HTMX.

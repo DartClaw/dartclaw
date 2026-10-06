@@ -114,7 +114,7 @@
 | Channel | Integration point for external messaging platforms. Abstract: `Channel`; concrete: `WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`. Never named a gateway – the Host Gateway owns that term | integration, connector, gateway |
 | Channel Message | Normalized inbound DTO every platform adapter produces before routing. Distinct from the persisted `Message` record | inbound message, channel event |
 | Sender Attribution | Identity tracking: `Task.createdBy`, `TaskOrigin.senderDisplayName/senderId` | creator tracking |
-| Thread Binding | Maps `(channelType, threadId)` to `(taskId, sessionKey)`. Routes thread replies to the task session. Auto-unbinds on completion | thread mapping, routing entry |
+| Thread Binding | Maps `(channelType, threadId)` to a task (with its `sessionKey`) or a workflow run. A task binding routes thread replies to the task session and auto-unbinds on completion; a run binding holds the thread the run posts into and routes nothing. Only a channel declaring `ThreadedNotifications` can hold one | thread mapping, routing entry |
 | Message Deduplicator | Prevents duplicate processing when a message arrives via multiple paths (webhook + Pub/Sub) | dedup engine, duplicate filter |
 
 ## Task & Review

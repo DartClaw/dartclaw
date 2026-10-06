@@ -1539,16 +1539,16 @@ When `tryHandle()` returns `false`, the message is enqueued with the derived ses
 
 ### Thread Binding
 
-Thread binding enables per-task conversation threads in Google Chat Spaces. It is opt-in through
-`features.thread_binding.enabled`; when disabled, the runtime does not create the binding store or wire binding behavior:
+Thread binding enables per-task conversation threads on channels that declare `Channel.threadedNotifications` (Google Chat, Slack) and holds the thread a workflow run posts into.
+Task binding is opt-in through `features.thread_binding.enabled`; the binding store is also created for `workflow.chat_notifications`, so run threads need no flag:
 
-**Outbound – binding creation**: `TaskNotificationSubscriber` posts the initial task notification (queued→running) to a new Google Chat thread using `threadKey = "task-{taskId}"`. The REST client returns the server-assigned `thread.name`. `TaskNotificationSubscriber` calls `ThreadBindingStore.create()` to map the thread to the task's session.
+**Outbound – binding creation**: with the flag on, `TaskNotificationSubscriber` posts the initial task notification (queued→running) through the channel's `sendToNewThread` using `threadKey = "task-{taskId}"`. The capability returns the platform thread identity (Google Chat: the server-assigned `thread.name`) and the subscriber calls `ThreadBindingStore.create(ThreadBinding.task(...))` to map the thread to the task's session. `WorkflowRunNotificationSubscriber` does the same with `threadKey = "run-{runId}"` for a run posting to the configured `workflow.chat_notifications` channel and writes `ThreadBinding.run(...)`, which it deletes after the run's terminal post.
 
-**Inbound – thread routing**: `CloudEventAdapter` extracts `message.thread.name` and stores it in `ChannelMessage.metadata['threadName']`. `extractThreadId()` reads this field. When a binding matches, `ChannelTaskBridge` calls the injected `enqueue` callback with the binding's session key – routing the message to the task agent rather than the shared group session.
+**Inbound – thread routing**: for Google Chat `CloudEventAdapter` extracts `message.thread.name` into `ChannelMessage.metadata['threadName']`, which the Google Chat capability's `extractThread` reads; Slack's capability builds its identity from `metadata['spaceName']` and `metadata['threadId']`. When a task binding matches, `ChannelTaskBridge` calls the injected `enqueue` callback with the binding's session key – routing the message to the task agent rather than the shared group session. A run binding never routes.
 
-**Persistence**: `ThreadBindingStore` maintains an in-memory `Map<String, ThreadBinding>` backed by `<dataDir>/thread-bindings.json`. Every mutation (create, delete, updateLastActivity, reconcile) writes atomically via `atomicWriteJson()` (temp file + rename).
+**Persistence**: `ThreadBindingStore` maintains an in-memory `Map<String, ThreadBinding>` backed by `<dataDir>/thread-bindings.json`. Every mutation (create, delete, updateLastActivity, reconcile) writes atomically via `atomicWriteJson()` (temp file + rename). `load()` keeps every well-formed row, whichever channels are registered.
 
-**Startup reconciliation**: On startup, after both the binding store and task service are loaded, `ThreadBindingStore.reconcile(activeTaskIds)` removes bindings whose task has reached a terminal state. This handles bindings that were not cleaned up during a crash or restart.
+**Startup reconciliation**: On startup, after both the binding store and task service are loaded, `ThreadBindingStore.reconcile(activeTaskIds: …, activeRunIds: …)` removes bindings whose task or run is terminal or unknown. This handles bindings that were not cleaned up during a crash or restart.
 
 **Key**: `ThreadBinding.key(channelType, threadId)` → `'$channelType::$threadId'` compound string.
 
@@ -1560,7 +1560,7 @@ CloudEventAdapter.parseMessageResource()
   ↓
 ChannelManager.handleInboundMessage()
   → tryHandle(message, channel, sessionKey: derived, enqueue: queue.enqueue)
-    → extractThreadId(message) → 'spaces/AAAA/threads/CCCC'
+    → channel.threadedNotifications.extractThread(metadata) → 'spaces/AAAA/threads/CCCC'
     → ThreadBindingStore.lookupByThread('googlechat', 'spaces/AAAA/threads/CCCC')
       → found: binding for task-xyz, sessionKey: 'agent:main:task:task-xyz'
     → enqueue(message, channel, 'agent:main:task:task-xyz')   // routed to task session
@@ -1653,8 +1653,8 @@ StreamChannel<String> ndjsonChannel(
 | `packages/dartclaw_runtime/lib/src/container/container_health_monitor.dart` | Container health polling |
 | `packages/dartclaw_core/lib/src/channel/channel_manager.dart` | `ChannelManager` – inbound routing entry point |
 | `packages/dartclaw_core/lib/src/channel/channel_task_bridge.dart` | `ChannelTaskBridge` – routing precedence logic |
-| `packages/dartclaw_core/lib/src/channel/thread_binding.dart` | `ThreadBinding`, `ThreadBindingStore`, `extractThreadId` |
-| `packages/dartclaw_runtime/lib/src/task/task_notification_subscriber.dart` | Thread binding auto-creation on task notifications |
+| `packages/dartclaw_core/lib/src/channel/thread_binding.dart`, `threaded_notifications.dart` | `ThreadBinding` (task or run), `ThreadBindingStore`; the `ThreadedNotifications` capability |
+| `packages/dartclaw_runtime/lib/src/task/task_notification_subscriber.dart`, `workflow_run_notification_subscriber.dart` | Task and run notifications with their thread bindings |
 
 ### External references
 

@@ -162,7 +162,7 @@ DartclawServer _composeRuntimeServer(
       signalChannel: channel.signalChannel,
       googleChatWebhookHandler: channel.googleChatWebhookHandler,
       spaceEventsWiring: channel.spaceEventsWiring,
-      threadBindingStore: channel.threadBindingStore,
+      threadBindingStore: channel.taskThreadBindingStore,
     ),
     tasks: ServerTaskDeps(
       projectService: project.projectService,

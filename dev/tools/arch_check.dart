@@ -126,6 +126,10 @@ import 'loc_target.dart';
 // dispatch are the whole package; later Slack stories raise it with their own
 // reviewed-necessity line. The shared thread seam added to core, kernel and
 // runtime stays inside their bands.
+// Threaded notifications, 2026-10-06: dartclaw_slack 1410 (measured). Necessity:
+// the one implementation of the thread-notification capability for Slack (the
+// conversation-qualified thread identity, Block Kit rendering with escaping, and
+// the two thread sends with participation), 153 lines over the admission size.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -138,7 +142,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
-  'dartclaw_slack': 1257,
+  'dartclaw_slack': 1410,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25631,

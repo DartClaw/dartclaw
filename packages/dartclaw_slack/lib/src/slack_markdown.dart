@@ -7,9 +7,12 @@ import 'package:dartclaw_core/dartclaw_core.dart' show convertStandardMarkdownTo
 /// the result belongs to a link the conversion built: a literal `<!channel>` or
 /// `<@U123>` in the answer cannot ping or link anyone.
 String markdownToSlackMrkdwn(String markdown) {
-  final escaped = markdown.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-  return convertStandardMarkdownToNativeChatMarkup(escaped, renderLink: _renderSlackLink);
+  return convertStandardMarkdownToNativeChatMarkup(escapeSlackText(markdown), renderLink: _renderSlackLink);
 }
+
+/// Escapes the three characters Slack treats as markup (`&`, `<`, `>`), so a
+/// value cannot become a link, a mention or a broadcast.
+String escapeSlackText(String text) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 String _renderSlackLink(String label, String url) => '<$url|$label>';
 

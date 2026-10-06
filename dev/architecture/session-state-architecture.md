@@ -710,22 +710,26 @@ Crowd coding feature. Defined in
 Related classes (`ThreadBindingRouter`, `ThreadBindingLifecycleManager`) live
 alongside it in the same directory.
 
-Thread bindings route messages from specific channel threads directly to task
-sessions, bypassing the normal scope-based routing.
+Task thread bindings route messages from specific channel threads directly to
+task sessions, bypassing the normal scope-based routing. A run thread binding
+holds the thread a workflow run posts into and routes nothing. Only a channel
+that declares `ThreadedNotifications` (Google Chat, Slack) can hold either.
 
 ### ThreadBinding Model
 
 ```
 ThreadBinding
-  +-- channelType: String      (e.g., "googlechat")
-  +-- threadId: String         (e.g., "spaces/AAAA/threads/CCCC")
-  +-- taskId: String           (bound task ID)
-  +-- sessionKey: String       (task session key)
+  +-- channelType: String      (e.g., "googlechat", "slack")
+  +-- threadId: String         (e.g., "spaces/AAAA/threads/CCCC", "C0123:1712345678.000100")
+  +-- kind: task | run
+  +-- targetId: String         (bound task ID or run ID)
+  +-- sessionKey: String?      (task session key; task bindings only)
   +-- createdAt: DateTime
   +-- lastActivity: DateTime
 ```
 
-Compound key: `<channelType>::<threadId>` (via `ThreadBinding.key()`).
+Compound key: `<channelType>::<threadId>` (via `ThreadBinding.key()`). A persisted
+row without `kind` reads as a task.
 
 ### ThreadBindingStore
 
@@ -734,26 +738,31 @@ only writes touch the filesystem with atomic persistence.
 
 | Method                | Behavior                                           |
 |-----------------------|----------------------------------------------------|
-| `load()`              | Parse JSON array from file on startup               |
+| `load()`              | Parse JSON array from file on startup; keeps every well-formed row, whichever channels are registered |
 | `create(binding)`     | Upsert + persist                                    |
 | `lookupByThread()`    | Synchronous in-memory lookup                        |
-| `lookupByTask()`      | Filter by `taskId`                                  |
+| `lookupByTask()`      | Filter task bindings by task ID                     |
+| `lookupByRun()`       | Filter run bindings by run ID                       |
 | `updateLastActivity()`| Touch `lastActivity` + persist                      |
 | `delete()`            | Remove by thread key + persist                      |
-| `deleteByTaskId()`    | Remove all bindings for a task (best-effort persist) |
-| `removeExpiredBindings()` | Prune by `lastActivity` cutoff                  |
-| `reconcile(activeIds)`| Remove bindings for tasks not in the active set     |
+| `deleteByTaskId()`    | Remove all bindings for a task                      |
+| `deleteByTarget(kind, id)` | Remove all bindings of a kind for a task or run |
+| `removeExpiredBindings()` | Prune task bindings by `lastActivity` cutoff; run bindings are skipped |
+| `reconcile({activeTaskIds, activeRunIds})` | Remove bindings whose task or run is not in the active set |
 
 File format: JSON array of serialized `ThreadBinding` objects, written atomically.
 
 ### Routing Integration
 
 Thread binding lookup occurs before scope-based routing in the message pipeline
-(see section 4). When a bound thread is found, the message bypasses `SessionKey`
-computation and routes directly to the task's session.
+(see section 4). The thread is read through the owning channel's
+`threadedNotifications.extractThread`. When a task binding is found, the message
+bypasses `SessionKey` computation and routes directly to the task's session; a run
+binding never answers the lookup.
 
 Auto-unbind: when a task reaches a terminal state, `deleteByTaskId()` removes
-all associated bindings.
+all associated bindings. A run binding is deleted by the run notification
+subscriber after the run's terminal post.
 
 
 ## 11. Governance & Emergency Controls

@@ -23,6 +23,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - MCP tools that opt in can read the originating turn's channel type, recipient, thread, session key and sender (`McpCallerContext.turn`). Every host harness now presents its own host-minted MCP bearer in place of the shared gateway token.
 - Slack channel over Socket Mode, in the new `dartclaw_slack` package. Allowlisted DMs and channels talk to a bound agent in threads: a mention opens a thread, each thread is one session, and replies are posted into it as Slack mrkdwn, chunked at 4,000 characters. `/stop`, `/pause`, `/resume`, `/bind` and `/unbind` work as Slack slash commands, answered ephemerally. Configure `channels.slack` with `bot_token_credential` and `app_token_credential`, which name `credentials` entries; a literal token is refused at load, and Slack tokens are masked in logs and audit text. The connection reconnects by itself with backoff up to 60 s.
 - Every refusal of a reserved command to a non-admin sender, on any channel, is now written to the audit log.
+- A workflow run's started, awaiting-approval and finished or failed posts reach the thread that started it on Google Chat and Slack, or one thread per run in the channel set by `workflow.chat_notifications`, and go out as plain messages on WhatsApp and Signal. Task notifications and `/bind` thread on every channel that declares the threaded-notification capability, so Slack threads tasks as Google Chat does.
 
 ### Fixed
 

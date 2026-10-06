@@ -29,6 +29,34 @@ class SessionKey {
     return SessionKey(agentId: parts[1], scope: parts[2], identifiers: parts.sublist(3).join(':'));
   }
 
+  /// The conversation a `dm` or `group` key names, decoded, or `null` for any other scope and for a DM key
+  /// that names no peer (the shared DM key).
+  ///
+  /// `channelType` is `null` for a per-contact DM key, which spans channels. `recipientId` is the peer of a DM
+  /// key and the group of a group key. `threadId` is the key's `:thread:` suffix, when it has one.
+  ({String? channelType, String recipientId, String? threadId})? get channelRoute {
+    final parts = identifiers.split(':');
+    final threaded = parts.length >= 4 && parts[parts.length - 2] == 'thread';
+    final base = threaded ? parts.sublist(0, parts.length - 2) : parts;
+    final threadId = threaded ? Uri.decodeComponent(parts.last) : null;
+    switch (scope) {
+      case 'dm' when base.length == 2:
+        return (
+          channelType: base[0] == 'contact' ? null : Uri.decodeComponent(base[0]),
+          recipientId: Uri.decodeComponent(base[1]),
+          threadId: threadId,
+        );
+      case 'group' when base.length == 2 || base.length == 3:
+        return (
+          channelType: Uri.decodeComponent(base[0]),
+          recipientId: Uri.decodeComponent(base[1]),
+          threadId: threadId,
+        );
+      default:
+        return null;
+    }
+  }
+
   /// Builds the shared primary web session key for [agentId].
   static String webSession({String agentId = 'main'}) => SessionKey(agentId: agentId, scope: 'web').toString();
 

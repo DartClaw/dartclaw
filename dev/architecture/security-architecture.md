@@ -1208,12 +1208,13 @@ All pause state is in-memory — resets automatically on server restart (no pers
 
 ### Thread Binding Security
 
-Thread binding introduces a routing path that bypasses normal session-keying logic for Google Chat task threads. Security considerations:
+Thread binding introduces a routing path that bypasses normal session-keying logic for task threads on channels that declare `ThreadedNotifications` (Google Chat, Slack). Security considerations:
 
 - **Rate limit bypass**: Messages routed via thread binding bypass per-sender rate limiting. This is intentional for shared task threads that can receive input from many participants; global turn rate limiting still applies.
-- **Admin-only binding creation**: Thread bindings are created automatically by `TaskNotificationSubscriber` when a task starts, not by arbitrary senders. Only tasks with a valid `TaskOrigin` (created via an admin-initiated trigger) produce bindings.
-- **Binding lifecycle**: Bindings are reconciled on startup (`ThreadBindingStore.reconcile()`) to prune entries for terminal tasks. Expired bindings (by `lastActivity`) can be removed via `removeExpiredBindings()`.
-- **Persistence**: `ThreadBindingStore` persists to `<dataDir>/thread-bindings.json` using atomic writes (temp file + rename). Loaded on startup; missing or corrupt file starts empty without error.
+- **Admin-only binding creation**: Task bindings are created automatically by `TaskNotificationSubscriber` when a task starts, not by arbitrary senders. Only tasks with a valid `TaskOrigin` (created via an admin-initiated trigger) produce bindings. Run bindings are created only by `WorkflowRunNotificationSubscriber`, for a run posting to the operator-configured `workflow.chat_notifications` channel. The explicit writers (`/bind`, `task_bind`, `POST /api/tasks/<id>/bindings`) refuse a channel without the capability and a thread already held by a run binding.
+- **Run bindings never route**: `ThreadBindingRouter` answers task bindings only, so a run's thread captures no inbound message and its participants reach the normal session routing, gating and rate limits.
+- **Binding lifecycle**: Bindings are reconciled on startup (`ThreadBindingStore.reconcile(activeTaskIds:, activeRunIds:)`) to prune entries for terminal or unknown tasks and runs. Expired task bindings (by `lastActivity`) are removed by the idle sweep; run bindings are exempt from it, because a run waiting at an approval can outlast the idle timeout, and are deleted after the run's terminal post.
+- **Persistence**: `ThreadBindingStore` persists to `<dataDir>/thread-bindings.json` using atomic writes (temp file + rename). Loaded on startup; missing or corrupt file starts empty without error. Loading keeps every well-formed row whichever channels are registered.
 
 ### Sender Attribution
 
@@ -1384,7 +1385,7 @@ gateway:
 | `sliding_window_rate_limiter.dart` | `dartclaw_kernel` | In-memory sliding window rate limiter |
 | `loop_detector.dart` | `dartclaw_kernel` | 3-mechanism loop detection (turn chain, velocity, fingerprint) |
 | `loop_detection.dart` | `dartclaw_kernel` | LoopDetection result, LoopMechanism enum, LoopDetectedException |
-| `channel/thread_binding.dart` | `dartclaw_core` | ThreadBinding model, ThreadBindingStore persistence |
+| `channel/thread_binding.dart` | `dartclaw_core` | ThreadBinding model (task or run), ThreadBindingStore persistence |
 | `governance/budget_enforcer.dart` | `dartclaw_runtime` | Daily token budget enforcement, timezone-aware |
 | `governance/pause_controller.dart` | `dartclaw_runtime` | In-memory pause/resume with per-sender message collapsing |
 | `emergency/emergency_stop_handler.dart` | `dartclaw_runtime` | Emergency stop orchestration (cancel turns + tasks) |

@@ -240,3 +240,23 @@ Implementation choices, each also stated where it bites:
 ## Discovered Requirements
 
 - **Title**: Session-key readers ignore the `:thread:<id>` suffix. **Description**: `packages/dartclaw_runtime/lib/src/scheduling/delivery.dart` (`_parseDmTarget`) and `packages/dartclaw_runtime/lib/src/runtime/service_wiring_notifications.dart` (`_resolveChannelRoute`, DM arm) split session-key identifiers by position and require exactly two parts, so loop-detection notices find no route for a Slack DM thread session and post at channel top level for a Slack channel thread. Route both through one session-key decoder (the existing session-key owner, not a third positional split) and deliver a thread session's notices into its thread; scheduled-job announce may keep skipping thread sessions. Prove it with tests over a Slack DM thread key and a Slack channel thread key. **Rationale**: S01 added the thread suffix to session keys after this FIS was written. **Interpretation**: scope-preserving; this story owns threaded notification routing. **Traced from**: S01 review finding F2 and its NOTICED BUT NOT TOUCHING note. **Date**: 2026-10-06
+
+## Implementation Observations
+
+#### DRIFT
+
+- spec-stale: TI12's `cmd: ! git grep -n -E "supportsThreadBinding|extractThreadId|answers Google Chat alone|drops and rewrites away" -- dev docs 'packages/*/CLAUDE.md'` also matches this FIS, the PRD and the research files under `dev/bundle`, so it can never pass; it was run with `':!dev/bundle'` added | Stale targets: this FIS, TI12 Verify | –
+
+#### Assumptions
+
+- ASSUMPTION: `ChannelNotification` carries `requestedBy`, `createdAt`, `updatedAt` and `reviewActions` as named fields beside the `facts` map – a facts-only shape would make the subscriber pre-format timestamps, a channel concern, and could not keep the Google Chat task card identical | A reviewer who wants a leaner type can fold them into `facts` once the card builder takes strings.
+- ASSUMPTION: a new-thread send with no thread identity falls back to one plain send per failing post and warns once per run (the FIS says "one plain send and one warning per run") | Reading it as one plain send for the whole run would need per-run state beyond the warning set.
+- ASSUMPTION: a run's thread binding is deleted at every terminal run event, also when `finished` or `failed` is not in `events`, so an events list of `[started]` cannot leak a binding | Deleting only after a posted terminal event would leave it for startup reconciliation.
+- ASSUMPTION: a configured channel that threads but has no binding store (the store exists whenever `chat_notifications` is configured) posts plain, since there is nowhere to remember the run's thread | Passing a store always would remove the branch.
+- ASSUMPTION: the plain fallback after a refused new-thread send re-sends `response.text` (the channel's own rendering), never the raw notification text, so Slack's `&`, `<`, `>` escaping holds on that path (independent review F1, fixed).
+
+#### Noted, not touching
+
+- NOTICED BUT NOT TOUCHING: `dev/architecture/security-architecture.md` § Thread Binding Security says thread-routed messages bypass per-sender rate limiting, while `ChannelTaskBridge` rate-limits before bound routing (`channel-messaging-architecture.md`). Routing: Note.
+- NOTICED BUT NOT TOUCHING: `dev/state/UBIQUITOUS_LANGUAGE.md` is at its 300-line ceiling, so the capability has no glossary row of its own (folded into the Thread Binding row); its Channel row and the overloaded-term row 266 still omit Slack, which S08 owns. Routing: Note.
+- NOTICED BUT NOT TOUCHING: `dev/architecture/control-protocol.md` was 64 lines over its 1,600-line ceiling at base and is held at that size by this change. Routing: Note.

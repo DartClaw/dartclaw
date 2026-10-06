@@ -10,6 +10,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ChannelResponse,
         DmAccessController,
         MentionGating,
+        ThreadedNotifications,
         chunkNativeChatMarkup,
         sourceMessageIdMetadataKey,
         threadIdMetadataKey;
@@ -19,6 +20,7 @@ import 'package:logging/logging.dart';
 import 'slack_config.dart';
 import 'slack_envelope.dart';
 import 'slack_markdown.dart';
+import 'slack_threaded_notifications.dart';
 import 'slack_web_api_client.dart';
 import 'socket_mode_client.dart';
 
@@ -74,6 +76,11 @@ class SlackChannel extends Channel {
   /// `response_url` per slash-command message id, so the handler's reply can
   /// answer the command. Insertion-ordered, bounded.
   final Map<String, Uri> _slashResponseUrls = {};
+
+  late final _threadedNotifications = SlackThreadedNotifications(api: api, noteParticipation: _noteParticipation);
+
+  @override
+  ThreadedNotifications? get threadedNotifications => _threadedNotifications;
 
   /// Creates a Slack channel adapter.
   ///

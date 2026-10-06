@@ -38,8 +38,8 @@ class FakeSlackWebApi extends SlackWebApiClient {
   /// Throws from [postEphemeral] when set.
   SlackApiException? ephemeralError;
 
-  /// Every post, in call order.
-  final List<({String channel, String text, String? threadTs})> posts = [];
+  /// Every post, in call order; the `ts` it returned is `1700000000.00000N` for the Nth.
+  final List<({String channel, String text, String? threadTs, List<Map<String, dynamic>>? blocks})> posts = [];
 
   /// Every ephemeral slash-command answer, in call order.
   final List<({Uri url, String text})> ephemerals = [];
@@ -74,10 +74,15 @@ class FakeSlackWebApi extends SlackWebApiClient {
   }
 
   @override
-  Future<String?> postMessage({required String channel, required String text, String? threadTs}) async {
+  Future<String?> postMessage({
+    required String channel,
+    required String text,
+    String? threadTs,
+    List<Map<String, dynamic>>? blocks,
+  }) async {
     final error = onPost?.call(channel, threadTs);
     if (error != null) throw error;
-    posts.add((channel: channel, text: text, threadTs: threadTs));
+    posts.add((channel: channel, text: text, threadTs: threadTs, blocks: blocks));
     return '1700000000.${(_nextTs++).toString().padLeft(6, '0')}';
   }
 

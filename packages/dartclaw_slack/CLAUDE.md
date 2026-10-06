@@ -6,6 +6,7 @@
 - **Inbound**: Slack → Socket Mode WebSocket → `SocketModeClient` (acknowledges the envelope ID, then queues it) → `SlackEnvelopeDispatch` by kind → `SlackChannel._handleEvent` / `_handleSlashCommand` → `ChannelInboundGate` → `ChannelManager.handleInboundMessage` (in core) → `ChannelTaskBridge` → `MessageQueue`.
 - **Outbound**: queued turn → `SlackChannel.formatResponse` (Markdown → mrkdwn, chunks of 4,000) → `SlackChannel.sendMessage` → `SlackWebApiClient.postMessage` with `thread_ts`, or `postEphemeral` to a slash command's `response_url`.
 - **Threads**: the adapter stamps `metadata['threadId']` (core's `threadIdMetadataKey`) with `thread_ts`, or the message's own `ts` for a top-level message. Core's `deriveSessionKey` turns it into one session per thread, and every reply carries it back.
+- **Threaded notifications**: `SlackChannel.threadedNotifications` (`SlackThreadedNotifications`) is the capability declaration. Its thread identity is conversation-qualified, `'<conversationId>:<thread_ts>'` (composed and split only in that file; Slack ids and timestamps hold no `:`), read from `metadata['spaceName']` + `metadata['threadId']`, so a top-level message already names the thread it opens and a slash command names none. `render` builds Block Kit `section` blocks (`text` stays the fallback), every value through `escapeSlackText`, each section clipped to Slack's 3,000-character limit; no buttons. Both sends post through `SlackWebApiClient.postMessage(blocks:)`, record participation like `sendMessage`, and return `null` on a `SlackApiException`.
 
 ## Boundaries
 - May depend on `dartclaw_core`, `dartclaw_kernel`, `http`, `logging`. Must not depend on another channel package or `dartclaw_runtime`; `dartclaw_core/lib` names no platform.
@@ -37,4 +38,5 @@
 ## Key files
 - `lib/dartclaw_slack.dart` — production barrel; `lib/testing.dart` — opt-in test doubles the barrel does not re-export.
 - `lib/src/slack_channel.dart` — normalization, gating, participation, slash commands, outbound.
-- `lib/src/socket_mode_client.dart`, `lib/src/slack_envelope.dart`, `lib/src/slack_web_api_client.dart`, `lib/src/slack_markdown.dart`, `lib/src/slack_config.dart`.
+- `lib/src/slack_threaded_notifications.dart` — the `ThreadedNotifications` capability: thread identity, Block Kit rendering, threaded posts.
+- `lib/src/socket_mode_client.dart`, `lib/src/slack_envelope.dart`, `lib/src/slack_web_api_client.dart`, `lib/src/slack_markdown.dart` (Markdown to mrkdwn, and `escapeSlackText`, the one escaper), `lib/src/slack_config.dart`.

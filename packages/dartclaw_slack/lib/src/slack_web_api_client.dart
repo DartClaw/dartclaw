@@ -96,14 +96,27 @@ class SlackWebApiClient {
   /// Posts [text] to [channel], into the thread [threadTs] when given, and
   /// returns the posted message's timestamp.
   ///
+  /// [blocks] (Block Kit) are sent JSON-encoded beside [text], which Slack then
+  /// uses as the notification fallback.
+  ///
   /// Posts to one channel are queued at least one second apart.
-  Future<String?> postMessage({required String channel, required String text, String? threadTs}) {
+  Future<String?> postMessage({
+    required String channel,
+    required String text,
+    String? threadTs,
+    List<Map<String, dynamic>>? blocks,
+  }) {
     final queue = _postQueues.putIfAbsent(channel, () => _ChannelPostQueue(delay: _delay, now: _now));
     return queue.enqueue(() async {
       final body = await _call(
         'chat.postMessage',
         token: _botToken,
-        form: {'channel': channel, 'text': text, 'thread_ts': ?threadTs},
+        form: {
+          'channel': channel,
+          'text': text,
+          'thread_ts': ?threadTs,
+          if (blocks != null) 'blocks': jsonEncode(blocks),
+        },
       );
       return body['ts'] as String?;
     });

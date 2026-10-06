@@ -183,7 +183,7 @@ void main() {
       for (var i = 0; i < 5; i++) {
         limiter.check('sender@s.whatsapp.net');
       }
-      final binding = ThreadBinding(
+      final binding = ThreadBinding.task(
         channelType: ChannelType.googlechat.name,
         threadId: 'spaces/AAAA/threads/THREAD-1',
         taskId: 'task-123',

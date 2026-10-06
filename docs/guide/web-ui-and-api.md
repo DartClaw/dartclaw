@@ -991,6 +991,7 @@ is an ordinary `WARNING`, so a `logging.level` above that suppresses it along wi
 | `POST /memory/edit`, `POST /memory/remove` | Owner form actions for selected canonical entries |
 | `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
 | `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
+| `GET /knowledge/source?t=<token>` | One cited wiki page or knowledge graph fact, read-only and without navigation. Needs no session: the signed token is the credential, and every refusal is the same 404 as the wiki view's |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
 
 The inbox API uses `conversation_revision` on every mutation so two viewers cannot silently overwrite one another.
@@ -1094,3 +1095,5 @@ The temporal knowledge graph stores source-linked facts with validity windows. I
 | `kg_contradictions` | `entity`, `predicate`, `value` | Check whether an incoming fact conflicts with existing open facts. |
 
 Temporal fields must be ISO-8601 dates or timestamps. Date-only values are interpreted as UTC midnight; timestamps must include `Z` or an explicit offset.
+
+With `base_url` set, each wiki and knowledge graph source in a `context_research` packet carries a host-minted `url` that opens through `GET /knowledge/source`; memory sources carry none, and a `url` in the synthesis output is discarded. See [Context Engine Mode](context-engine.md#channel-members).

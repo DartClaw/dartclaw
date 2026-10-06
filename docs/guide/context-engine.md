@@ -87,6 +87,27 @@ There are no per-client rate limits or token budgets. The deployment-wide
 with your own turns. The per-sender governance limits gate inbound channel messages by channel peer, not MCP calls, so
 they do not apply here.
 
+## Channel members
+
+A channel agent that holds `context_research` makes the shared surface readable by everyone who can message it. Every
+member of an allowlisted channel whose agent holds the tool reads the whole shared wiki and knowledge graph through it,
+and each call runs a model turn on the owner's budget (see [Cost](#cost)). Grant the tool to a channel's agent only when
+that holds for the whole channel.
+
+**Source links.** With `base_url` set, every wiki page and knowledge graph fact in a research packet carries a `url`,
+and the tool tells the agent to link the source by it. A link opens that one source read-only in a browser, with no
+DartClaw login, so `base_url` must be an address the channel's members can reach. It opens until the gateway token
+rotates or the link is 30 days old, the age limit of a session cookie. Anyone holding the link can open it, so a link is
+as private as the channel it was posted in. Memory sources never carry a link, a fact's private `source` field is never
+shown, and every failure (a wrong signature, an expired link, a removed page or fact) answers the same 404. Under
+`auth_mode: none` links carry no signature.
+
+**Writes.** A turn that arrived on a chat channel changes the shared wiki or knowledge graph (`wiki_write`, `kg_add`,
+`kg_invalidate`) only for a sender listed in [`governance.admin_senders`](governance.md#admin-senders), or for any
+sender while that list is empty. A refused call answers the agent with a refusal naming admin senders, and every
+channel-origin attempt, allowed or refused, is audited with its channel and sender. Web chat, scheduled turns and the
+gateway token write as before, and the memory tools are not gated.
+
 ## Audit
 
 Every `tools/call` from a client is written to the guard audit trail with `principal: mcp-client:<name>`: permitted

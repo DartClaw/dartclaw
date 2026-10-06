@@ -1,8 +1,6 @@
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
-
-import 'auth_utils.dart';
+import 'hmac_signature.dart';
 
 /// Default session TTL (30 days).
 const sessionTtl = Duration(days: 30);
@@ -23,7 +21,7 @@ String get sessionCookieName => _cookieName;
 String createSessionToken(String gatewayToken) {
   final payload = jsonEncode({'iat': DateTime.now().millisecondsSinceEpoch});
   final payloadB64 = base64Url.encode(utf8.encode(payload));
-  final sig = _sign(payloadB64, gatewayToken);
+  final sig = hmacSign(payloadB64, gatewayToken);
   return '$payloadB64.$sig';
 }
 
@@ -38,9 +36,7 @@ bool validateSessionToken(String token, String gatewayToken, {Duration ttl = ses
   final payloadB64 = token.substring(0, dot);
   final sig = token.substring(dot + 1);
 
-  // Verify HMAC
-  final expected = _sign(payloadB64, gatewayToken);
-  if (!constantTimeEquals(sig, expected)) return false;
+  if (!hmacVerify(payloadB64, sig, gatewayToken)) return false;
 
   // Decode payload and check TTL
   try {
@@ -58,10 +54,4 @@ bool validateSessionToken(String token, String gatewayToken, {Duration ttl = ses
 String sessionCookieHeader(String token, {bool secure = false}) {
   final secureAttr = secure ? '; Secure' : '';
   return '$_cookieName=$token; HttpOnly; SameSite=Strict; Path=/; Max-Age=$_cookieMaxAge$secureAttr';
-}
-
-String _sign(String data, String key) {
-  final hmac = Hmac(sha256, utf8.encode(key));
-  final digest = hmac.convert(utf8.encode(data));
-  return base64Url.encode(digest.bytes).replaceAll('=', '');
 }

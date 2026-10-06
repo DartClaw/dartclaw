@@ -1352,7 +1352,7 @@
       "additionalProperties": false,
       "properties": {
         "admin_senders": {
-          "description": "Sender IDs exempt from rate limits and budget blocks. (restart required)",
+          "description": "Sender IDs exempt from rate limits and budget blocks; may write shared knowledge from a channel. (restart required)",
           "items": {
             "type": "string"
           },

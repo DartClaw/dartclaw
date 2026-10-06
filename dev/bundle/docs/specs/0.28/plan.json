@@ -1,0 +1,331 @@
+{
+  "schemaVersion": "2",
+  "prd": "dev/bundle/docs/specs/0.28/prd.md",
+  "overview": {
+    "summary": "Slack channel adapter plus channel-agnostic run origin, threaded run lifecycle posts, chat approvals and request-changes gates, cut into two parallel lanes (Slack adapter; run substrate) that join at approvals, plus openable citation sources and admin-gated shared-knowledge writes on the run lane."
+  },
+  "sharedDecisions": [
+    {
+      "title": "Slack envelope dispatch",
+      "description": "The Slack adapter hands every envelope kind (event, slash command, block action, view submission) from either transport to one dispatch. S01 builds it with Socket Mode, S02 feeds the Events API into it, and later stories register their handlers there, so each feature works on both transports with no transport-specific code. When one Slack message arrives as both `app_mention` and `message`, the `message` event is the one processed, because only it carries `files`.",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S05",
+        "S06",
+        "S07"
+      ]
+    },
+    {
+      "title": "Fake Slack test double",
+      "description": "S01 ships a fake Slack Web API client and a fake Socket Mode server in the package's testing library, as the Google Chat package does with its fake REST client; S02, S03 and S05-S07 extend it. Story proofs never need live Slack credentials; live Slack proof runs once in the owner-led qualification after the last story (PRD Decisions Log, owner D22).",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S05",
+        "S06",
+        "S07",
+        "S08"
+      ]
+    },
+    {
+      "title": "Trusted turn context for agent tools",
+      "description": "S04 makes the host deliver the originating turn's channel type, recipient, thread identity, session key and sender to MCP tools on both execution lanes, bound-agent turns included; today no sender or channel identity reaches a tool handler. S04 carries it as `McpCallerContext.turn`, resolved per call from the harness's per-turn context, and a tool receives it only by opting in, so existing contextual tools are unchanged. Web-chat turns carry it too, with surface `web` and no channel fields or sender (owner D25), so every sender gate treats them as non-channel turns. Origin capture (S04), the admin gate on mutating workflow tools (S06, S07) and the admin gate on shared wiki and graph writes (S09) read only this context, never model-supplied arguments or the stored run origin.",
+      "stories": [
+        "S04",
+        "S06",
+        "S07",
+        "S09"
+      ]
+    },
+    {
+      "title": "Run origin value",
+      "description": "`WorkflowRunOrigin` is owned by the workflow package: `surface` plus nullable channel type, recipient, thread, session key and sender, immutable after start; legacy rows read as `unknown` and never notify. S05 selects post destinations from it and records delivery threads in the thread-binding store, never in the origin.",
+      "stories": [
+        "S04",
+        "S05"
+      ]
+    },
+    {
+      "title": "Threaded-notification capability",
+      "description": "Core `Channel` exposes one nullable capability (provisional name `threadedNotifications`) whose presence is the sole threading declaration. Its operations extract a thread identity from the adapter's normalised inbound metadata, render a semantic notification (text, title or status, facts, fixed action data) into `ChannelResponse`, and send it to a recipient in a new or existing thread, returning thread and message identity. S06 adds editing a posted notification by that message identity. Native cards and blocks stay in channel packages; subscribers never import a channel package, test a platform type or branch on `ChannelType`. Slack's inbound thread identity travels in one core metadata key, `threadIdMetadataKey`, added by S01 and read by session-key derivation and S03; each capability's extraction reads its own adapter's metadata (Google Chat keeps `threadName`).",
+      "stories": [
+        "S01",
+        "S03",
+        "S05",
+        "S06",
+        "S07"
+      ]
+    },
+    {
+      "title": "Run-control authority",
+      "description": "S06 adds one runtime run-control entry (admin check through `GovernanceConfig.isAdmin`, one audit entry per resolution or refusal) used by chat buttons and mutating tools, over a workflow-owned resolution in which checking the pending run and step, verifying the post-bound nonce, resolving and consuming the nonce share one serialized critical section; HTTP resume and cancel converge on the same workflow owner and write their audit entry with source `web`, without an admin check. The run subscriber edits approval posts on the resolved event for every resolution source; adapters only parse clicks and answer the clicker (owner D24). S07 adds request changes as a third action through both, never a second path.",
+      "stories": [
+        "S06",
+        "S07"
+      ]
+    },
+    {
+      "title": "Audit owner",
+      "description": "The existing guard audit log (`GuardAuditLogger.writeEntry(AuditEntry)`) is the one audit owner for this milestone's entries: reserved-command refusals from the shared handler on every channel (S01), failed Slack signature checks (S02), approval resolutions and refusals from buttons, tools and HTTP (S06, S07; S06 adds nullable run and step fields), and shared-knowledge write attempts from channel turns (S09). No story adds a second audit sink.",
+      "stories": [
+        "S01",
+        "S02",
+        "S06",
+        "S07",
+        "S09"
+      ]
+    },
+    {
+      "title": "Documentation ownership",
+      "description": "Each story updates the architecture deep-dive sections, guide config-key entries and CHANGELOG lines its own change touches. S08 owns the cross-cutting records: parity matrix, glossary, feature comparison, guide-wide single-owner statements, PRODUCT.md and OUT-OF-SCOPE consistency, and the channels testing profile.",
+      "stories": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "S09"
+      ]
+    }
+  ],
+  "bindingConstraints": [
+    {
+      "featureId": "ADR-054",
+      "anchor": "dev/bundle/docs/specs/0.28/prd.md#constraints"
+    },
+    {
+      "featureId": "F1",
+      "anchor": "dev/bundle/docs/research/slack-threaded-runs-0.28/adr.md"
+    },
+    {
+      "featureId": "NFR-bound-agent-execution",
+      "anchor": "dev/bundle/docs/specs/0.28/prd.md#non-functional-requirements"
+    },
+    {
+      "featureId": "F2",
+      "anchor": "dev/bundle/docs/research/slack-threaded-runs-0.28/recommendation.md#f2-declared-thread-and-notification-operations"
+    },
+    {
+      "featureId": "F3",
+      "anchor": "dev/bundle/docs/research/slack-threaded-runs-0.28/recommendation.md#f3-distinct-port-shared-run-authority"
+    },
+    {
+      "featureId": "F4",
+      "anchor": "dev/bundle/docs/research/slack-threaded-runs-0.28/adr-045-amendment.md"
+    },
+    {
+      "featureId": "FR6",
+      "anchor": "dev/bundle/docs/specs/0.28/prd.md#fr6-threaded-channel-seam"
+    },
+    {
+      "featureId": "FR11",
+      "anchor": "dev/bundle/docs/specs/0.28/prd.md#fr11-request-changes-at-approval-gates"
+    }
+  ],
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Slack adapter over Socket Mode",
+      "dependsOn": [],
+      "status": "pending",
+      "fis": "s01-slack-adapter-over-socket-mode.md",
+      "completedTaskIds": [],
+      "scope": "Admit the `dartclaw_slack` package (ADR-056 amendment, package ceiling 14, tier and workspace inventory) and deliver Slack chat over Socket Mode: DMs and allowlisted channels with mention-to-start and thread-as-session, bound-agent routing through the existing allowlist rows, Markdown-to-mrkdwn formatting with shared chunking, sender display names, the five reserved commands as Slack slash commands, and `channels.slack` config with credential references and secret redaction. Slack config follows the existing channel config path (a `ChannelType` value plus the channel config resolver); the PRD names the extension parser, but no channel uses it.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr1-slack-channel-adapter",
+        "dev/bundle/docs/specs/0.28/prd.md#fr2-slack-transports",
+        "dev/bundle/docs/specs/0.28/prd.md#fr9-setup-credentials-and-diagnostics",
+        "dev/bundle/docs/specs/0.28/prd.md#user-stories",
+        "dev/bundle/docs/specs/0.28/prd.md#non-functional-requirements",
+        "dev/bundle/docs/specs/0.28/prd.md#edge-cases",
+        "dev/bundle/docs/research/slack-threaded-runs-0.28/recommendation.md#f1-package-admission"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "dev/bundle/docs/research/slack-threaded-runs-0.28/adr.md"
+      ],
+      "sequencing": "First story by PRD constraint: the package cannot exist before the ADR-056 amendment raises the ceiling."
+    },
+    {
+      "id": "S02",
+      "name": "Slack Events API, setup and diagnostics",
+      "dependsOn": [
+        "S01"
+      ],
+      "status": "pending",
+      "fis": "s02-slack-events-api-setup-and-diagnostics.md",
+      "completedTaskIds": [],
+      "scope": "Add the Events API transport behind the S01 dispatch (signature verification, URL verification, enqueue-then-ack, event-ID dedupe, interactions and slash commands on the same signed path), built on framework-neutral webhook helpers in core that replace the duplicated bounded-read, trusted-proxy and failed-auth algorithms in runtime and Google Chat (architecture F5, closing TD-124). Ship the Slack app manifest, the `dartclaw doctor` Slack checks and the Slack setup guide page.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr2-slack-transports",
+        "dev/bundle/docs/specs/0.28/prd.md#fr9-setup-credentials-and-diagnostics",
+        "dev/bundle/docs/specs/0.28/prd.md#fr10-documentation-and-parity-record",
+        "dev/bundle/docs/specs/0.28/prd.md#constraints",
+        "dev/bundle/docs/research/slack-threaded-runs-0.28/recommendation.md#f5-framework-neutral-helpers-in-existing-core"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S03",
+      "name": "Slack streaming replies and inbound media",
+      "dependsOn": [
+        "S01"
+      ],
+      "status": "pending",
+      "fis": "s03-slack-streaming-replies-and-inbound-media.md",
+      "completedTaskIds": [],
+      "scope": "Stream thread and DM replies through the Slack stream API with assistant status and a single-complete-reply fallback, and bring files posted to the agent into the turn within the size and count bounds. Plan reading: no channel has inbound media today, so FR8's \"matching Google Chat\" has no precedent; the existing owner is the 0.27 web-chat session attachment path, which Slack files reuse. Images reach the model through native image input in the Claude Code and Codex adapters, for Slack and web-composer attachments alike (owner D23).",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr3-streaming-replies-and-status",
+        "dev/bundle/docs/specs/0.28/prd.md#fr8-inbound-media",
+        "dev/bundle/docs/specs/0.28/prd.md#user-stories",
+        "dev/bundle/docs/specs/0.28/prd.md#edge-cases"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": "Touches the Slack outbound path beside S02 and S05; independent of both, so it runs in parallel."
+    },
+    {
+      "id": "S04",
+      "name": "Run origin",
+      "dependsOn": [],
+      "status": "pending",
+      "fis": "s04-run-origin.md",
+      "completedTaskIds": [],
+      "scope": "Record an immutable run origin on every workflow run: the typed origin value, its nullable column and the one bounded PostgreSQL transition from released 0.27 (ADR-045 amendment), capture at every start surface (channel and scheduled turns calling `workflow_run`, web form, JSON API, GitHub webhook, connected and standalone CLI), and exposure in the run detail API. Includes the trusted turn context that carries the originating channel, recipient, thread, session and sender to agent tool calls. Nothing in the scheduler calls `WorkflowService.start()`, so origin `cron` comes only from a scheduled turn's tool call.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr4-run-origin-and-chat-threaded-run-lifecycle",
+        "dev/bundle/docs/specs/0.28/prd.md#data-requirements",
+        "dev/bundle/docs/specs/0.28/prd.md#decisions-log",
+        "dev/bundle/docs/research/slack-threaded-runs-0.28/recommendation.md#f4-immutable-origin-json-value"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "dev/bundle/docs/research/slack-threaded-runs-0.28/adr-045-amendment.md"
+      ],
+      "sequencing": "Starts the run lane in parallel with S01; no Slack dependency."
+    },
+    {
+      "id": "S05",
+      "name": "Threaded channels and run lifecycle posts",
+      "dependsOn": [
+        "S01",
+        "S04"
+      ],
+      "status": "pending",
+      "fis": "s05-threaded-channels-and-run-lifecycle-posts.md",
+      "completedTaskIds": [],
+      "scope": "Replace the Google Chat instance check in the task notifier with the declared threaded-notification capability (architecture F2), implemented by Google Chat and Slack, with thread bindings keyed by task or run and preserved across channel registration order. Add the channel-agnostic run subscriber posting started, awaiting-approval and finished or failed to the origin thread or to the configured notification channel, with plain posts on WhatsApp and Signal.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr6-threaded-channel-seam",
+        "dev/bundle/docs/specs/0.28/prd.md#fr4-run-origin-and-chat-threaded-run-lifecycle",
+        "dev/bundle/docs/specs/0.28/prd.md#fr7-existing-channel-parity",
+        "dev/bundle/docs/specs/0.28/prd.md#user-stories",
+        "dev/bundle/docs/specs/0.28/prd.md#edge-cases",
+        "dev/bundle/docs/research/slack-threaded-runs-0.28/recommendation.md#f2-declared-thread-and-notification-operations"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S06",
+      "name": "Run approvals from chat",
+      "dependsOn": [
+        "S02",
+        "S04",
+        "S05"
+      ],
+      "status": "pending",
+      "fis": "s06-run-approvals-from-chat.md",
+      "completedTaskIds": [],
+      "scope": "Resolve paused runs from chat under one run-control authority (architecture F3): admin-gated, audited Approve and Reject on Slack buttons and Google Chat cards with post-bound single-use nonces, plus the `workflow_resume`, `workflow_cancel` and `workflow_status` agent tools gated on the originating turn's sender and reaching bound agents only through `allowedTools` (owner D21). WhatsApp and Signal approve through the tools.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr5-run-approvals-from-chat",
+        "dev/bundle/docs/specs/0.28/prd.md#fr7-existing-channel-parity",
+        "dev/bundle/docs/specs/0.28/prd.md#user-stories",
+        "dev/bundle/docs/specs/0.28/prd.md#user-flows",
+        "dev/bundle/docs/specs/0.28/prd.md#edge-cases",
+        "dev/bundle/docs/specs/0.28/prd.md#decisions-log",
+        "dev/bundle/docs/research/slack-threaded-runs-0.28/recommendation.md#f3-distinct-port-shared-run-authority"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S07",
+      "name": "Request changes at approval gates",
+      "dependsOn": [
+        "S06"
+      ],
+      "status": "pending",
+      "fis": "s07-request-changes-at-approval-gates.md",
+      "completedTaskIds": [],
+      "scope": "Add request changes as the third approval outcome on gates that name a revise step: validator rules, re-entry with the reviewer's feedback, the revision bound, resolution through the run-control authority, and every surface (run page approval panel, HTTP, `workflow_request_changes` tool, Slack modal, Google Chat dialog), plus the opt-in plan-approval gate in the built-in `plan-and-implement` workflow.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr11-request-changes-at-approval-gates",
+        "dev/bundle/docs/specs/0.28/prd.md#user-stories",
+        "dev/bundle/docs/specs/0.28/prd.md#user-flows",
+        "dev/bundle/docs/specs/0.28/prd.md#edge-cases",
+        "dev/bundle/docs/research/humanlayer-2026-10/research.md"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": "Edits the same approval-resolution code as S06, so it follows S06 rather than running beside it."
+    },
+    {
+      "id": "S08",
+      "name": "Documentation, parity record and qualification",
+      "dependsOn": [
+        "S02",
+        "S03",
+        "S07",
+        "S09"
+      ],
+      "status": "pending",
+      "fis": "s08-documentation-parity-record-and-qualification.md",
+      "completedTaskIds": [],
+      "scope": "Land the cross-cutting records: the channel parity matrix's Slack column and run rows, glossary rows for the four new terms, the feature comparison, the single-owner statements in the context-engine and tasks guides, PRODUCT.md and OUT-OF-SCOPE consistency, the channels testing profile README and Slack setup, a completeness pass over the Slack guide page (streaming, inbound files, run notifications, approvals, request changes, every new config key), and per-channel run-loop scenarios for the owner-led live qualification after this story (owner D22). The qualification scenarios cover importing both shipped manifests and every Slack API fact the earlier FIS record as an unverified `ASSUMPTION:`.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr10-documentation-and-parity-record",
+        "dev/bundle/docs/specs/0.28/prd.md#fr7-existing-channel-parity",
+        "dev/bundle/docs/specs/0.28/prd.md#success-metrics",
+        "dev/bundle/docs/specs/0.28/prd.md#decisions-log"
+      ],
+      "provenance": null,
+      "assetRefs": [
+        "dev/bundle/docs/specs/channel-parity-matrix.md",
+        "dev/bundle/docs/specs/feature-comparison.md"
+      ],
+      "sequencing": null
+    },
+    {
+      "id": "S09",
+      "name": "Openable citation sources and gated shared writes",
+      "dependsOn": [
+        "S04"
+      ],
+      "status": "pending",
+      "fis": "s09-openable-citation-sources-and-gated-shared-writes.md",
+      "completedTaskIds": [],
+      "scope": "Make cited sources openable and shared-knowledge writes from channels admin-gated, on every channel. Host-minted `url` on resolved wiki and graph citation references when `base_url` is set, signed with the session cookie's HMAC and key; one exact auth-exempt read-only route rendering the wiki page through the existing contained read or the single graph fact without its private source; one indistinguishable 404. The existing contextual write guard of `wiki_write`, `kg_add` and `kg_invalidate` reads S04's trusted turn context and refuses channel turns by non-admin senders, auditing every channel-origin call with channel and sender. Guide statements on what a channel member reads, spends, opens and writes. No DDL, no new config key, no stored link state.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28/prd.md#fr12-openable-citation-sources",
+        "dev/bundle/docs/specs/0.28/prd.md#fr13-shared-knowledge-writes-from-channels",
+        "dev/bundle/docs/specs/0.28/prd.md#decisions-log"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": "Run lane, after S04 and parallel with S05 to S07; no Slack dependency. S08 waits for it so the guides and qualification cover it."
+    }
+  ]
+}

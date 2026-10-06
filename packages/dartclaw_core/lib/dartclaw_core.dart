@@ -402,3 +402,5 @@ export 'src/turn/turn_status.dart' show TurnStatus;
 
 // Auth abstractions
 export 'src/auth/google_jwt_verifier.dart' show GoogleJwtVerifier;
+export 'src/auth/webhook_http.dart'
+    show maxWebhookPayloadBytes, publishFailedAuthEvent, readBoundedBytes, resolveRemoteKey;

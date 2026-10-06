@@ -147,6 +147,7 @@
 ### Slack
 - **One mention arrives twice, as `app_mention` and `message`.** Only `message` carries `files`, so process it and ack-drop `app_mention`; the app must subscribe `message.*` (`SlackChannel._handleEvent`).
 - **A slash command's reply must carry its message id.** The adapter matches `sourceMessageId` to the stored `response_url`; a reply path that drops the id posts the answer publicly (`ReservedCommandHandler`).
+- **A signing secret has no token shape, so a regex redactor keeps part of it.** Register it as a literal (`MessageRedactor.registerLiterals`), fully masked; `readBounded` decodes to a String, so Events API verification reads raw bytes (`readBoundedRequestBytes`).
 
 ### Session routing
 - **A `:thread:<id>` key suffix breaks positional key readers.** `delivery.dart#_parseDmTarget` and `service_wiring_notifications.dart` split identifiers by position, so Slack thread sessions get no announce or loop-detection route.

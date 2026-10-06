@@ -270,22 +270,6 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-124 – Webhook HTTP helpers have two package owners
-
-**Severity**: Low (the copies are behaviorally identical, but changes can drift)
-**Found**: 2026-08-21, during Google Chat ingress package absorption
-**Affects**: `packages/dartclaw_runtime/lib/src/auth/auth_utils.dart`, `packages/dartclaw_google_chat/lib/src/webhook_http_support.dart`
-
-**Context**: Google Chat's package-owned webhook consumes the bounded request read and failed-auth event helper, while
-other server webhooks still consume the existing server copies. Moving them below both packages would give a lower tier
-a `shelf` dependency; adding a dedicated HTTP-support package would add a new package and dependency edge for four small
-symbols.
-
-**Needs decision**: decide whether a lower tier may depend on `shelf`, or whether a dedicated HTTP-support seam is
-justified. Until then, keep both implementations behaviorally identical.
-
-Last reviewed: 2026-08-21
-
 ## TD-134 – Two write-path halves remain: the load sweep is blind below an entry key, and a section PATCH still replaces wholesale
 
 **Severity**: Medium (a typo inside an operator-named entry is accepted silently at load; a partial section write deletes the entries it omits)

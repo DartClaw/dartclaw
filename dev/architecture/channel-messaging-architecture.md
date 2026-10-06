@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, Slack, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.28 Slack adapter over Socket Mode (thread-in-session-key, ephemeral reserved-command replies, reserved-command refusal audit), turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
+**Current through**: 0.28 Slack Events API transport (signed route, `slack` health object, doctor rows) and Slack adapter over Socket Mode (thread-in-session-key, ephemeral reserved-command replies, reserved-command refusal audit), turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
 
 ---
 
@@ -15,7 +15,7 @@ DartClaw supports five messaging channels as entry points for human-to-agent int
 | **WhatsApp** | GOWA webhook | Go binary (`gowa`) | `dartclaw_whatsapp` |
 | **Signal** | signal-cli SSE | External binary (`signal-cli`) | `dartclaw_signal` |
 | **Google Chat** | REST API + Pub/Sub | Direct HTTP (no sidecar) | `dartclaw_google_chat` |
-| **Slack** | Socket Mode WebSocket + Web API | Direct HTTP/WebSocket (no sidecar) | `dartclaw_slack` |
+| **Slack** | Socket Mode WebSocket or signed Events API webhook + Web API | Direct HTTP/WebSocket (no sidecar) | `dartclaw_slack` |
 | **Web UI** | Direct HTTP / SSE | Built into `dartclaw_runtime` | `dartclaw_runtime` |
 
 Three principles govern channel design:
@@ -224,7 +224,7 @@ The full inbound flow from raw platform event to agent turn. Access control runs
 
 ### 3.1 Step-by-Step
 
-1. **Raw event arrives** -- Platform-specific: webhook POST (WhatsApp, Google Chat), Pub/Sub pull (Google Chat Space Events), SSE stream event (Signal), Socket Mode envelope (Slack).
+1. **Raw event arrives** -- Platform-specific: webhook POST (WhatsApp, Google Chat), Pub/Sub pull (Google Chat Space Events), SSE stream event (Signal), Socket Mode envelope or signed Events API POST (Slack).
 
 2. **Channel adapter normalizes** -- Each channel implementation parses the raw payload and produces a `ChannelMessage`. Bot-originated messages are filtered at this stage.
 
@@ -670,6 +670,8 @@ Sealed-sender complication: Signal's own call site reacts to the gate's DM-denie
 
 Every envelope, whatever transport delivered it, becomes a `SlackEnvelope` (kind: event, slash command, block action, view submission, unknown; plus the decoded payload) and enters one `SlackEnvelopeDispatch`. The dispatch knows no socket: features register a handler per kind, an unhandled kind is logged at debug and dropped, and a failing handler is logged and swallowed. `SlackChannel` registers the event and slash-command handlers; interactions are acknowledged and dropped until a feature registers for them.
 
+The Events API transport is the other source of the same envelopes. `SlackEventsHandler` (`slack_events_handler.dart`) takes raw bytes and a header map and answers with a status and body, so it knows no HTTP framework. It verifies the `v0=` HMAC-SHA256 signature over `v0:<timestamp>:<body>` within a 300 s window (see the security architecture), answers `url_verification` with the challenge as `text/plain`, and turns the rest into `SlackEnvelope`s: an `event_callback` is deduplicated by `event_id` in a 1,000-entry `MessageDeduplicator` ledger (reserved before dispatch and never released on a processing failure, so Slack's retry is acknowledged and not reprocessed), a form body becomes a slash-command envelope or, for `payload=`, an interactive one. The envelope is handed to the dispatch unawaited and every accepted request is answered with an empty `200`, so Slack's 3 s acknowledgement never waits on a turn. A body that is not JSON is `400`, an unknown top-level `type` and an `app_rate_limited` notice are `200` (logged at debug and warning) and reach no handler.
+
 ### 9A.2 Inbound events
 
 `SlackChannel` normalizes `message` events into `ChannelMessage`s: sender is the user ID, group is the channel ID (null for a DM, `channel_type: im`), `metadata['spaceName']` is the conversation ID (so `resolveRecipientId` yields the `D…` or `C…` ID), `metadata['threadId']` is `thread_ts` or, for a top-level message, the message's own `ts`. Mentions come from the `user` elements of the event's blocks, or from `<@U…>` text tokens when there are no blocks; the bot's own token is removed from the turn text and `&amp;`, `&lt;`, `&gt;` are decoded. The sender name comes from `users.info`, cached for the process lifetime, falling back to the user ID.
@@ -688,7 +690,11 @@ The five reserved commands are Slack slash commands. The envelope is acknowledge
 
 ### 9A.5 Wiring and configuration
 
-`channels.slack` is parsed by `SlackConfig.fromYaml` through the shared channel config path. Tokens are never configured inline: `bot_token_credential` and `app_token_credential` name `credentials` entries, and `loadDartclawConfig` refuses an enabled section with a literal or unresolvable reference, a missing reference, both access modes disabled or a malformed channel or user ID (`refuseUnusableSlackConfig`). `ChannelWiring` builds the channel from the resolved tokens and includes its allowlist rows in the one `GroupConfigResolver`, so a row's `agent` binds the thread's session to that agent and its turns run through the bound-agent dispatch. `connect()` verifies the bot token with `auth.test` and throws on refusal, then starts Socket Mode in the background, so a transient outage never blocks the other channels. Slack sessions are per thread, so `GroupSessionInitializer` pre-creates none. `dm_access` defaults to `allowlist`: `pairing` creates a code, but the settings page and the allowlist API do not know Slack yet, so nothing confirms it.
+**Transport choice.** `channels.slack.mode` is `socket` (default) or `events`. Socket mode needs `app_token_credential`; events mode needs `signing_secret_credential` and serves `webhook_path` (default `/integrations/slack`), and opens no socket. `connect()` verifies the bot token in both. Setting the references of both transports loads with one warning naming the unused one; an unknown mode, a missing reference for the chosen mode, a `webhook_path` without a leading `/` or equal to the Google Chat or GitHub path, and a literal signing secret are refused at load, naming the key and never echoing a value. The existence and emptiness of a referenced credential are judged only on the resolved stored view, since `dartclaw doctor`, `secrets audit` and setup load with it off and a credential set with `dartclaw secrets set` lives only in the store. `ChannelWiring` builds the `SlackEventsHandler` only in events mode and exposes it as it does Google Chat's webhook handler; the runtime mounts one Shelf route at `webhook_path` that reads bounded bytes (`413` on overflow), calls the handler and, on a rejection, fires the failed-auth event and writes the audit entry. The path joins the gateway-auth public paths only in events mode.
+
+**Health.** `SlackHealthReporter` feeds `HealthService`, which carries its map under `slack` in `/health` the way it carries Pub/Sub's: `mode`, and in socket mode `connection`, `last_connected_at` and `consecutive_failures`, in events mode `last_verified_at` and the latest failure's reason code and time. It holds no secret, ID or message content, because `/health` is unauthenticated; `dartclaw doctor` reads it for the `slack.transport` row and skips that row with the `dartclaw serve` fix when no server answers. The other three Slack rows (`slack.credentials`, `slack.auth`, `slack.scopes`) need no server: the auth row calls `auth.test` and compares the granted scopes (`X-OAuth-Scopes`) with `slackExpectedBotScopes`, the one list the shipped manifests also declare.
+
+`channels.slack` is parsed by `SlackConfig.fromYaml` through the shared channel config path. Tokens are never configured inline: `bot_token_credential` and `app_token_credential` name `credentials` entries, and `loadDartclawConfig` refuses an enabled section with a literal or unresolvable reference, a missing reference, both access modes disabled or a malformed channel or user ID (`refuseUnusableSlackConfig`). `ChannelWiring` builds the channel from the resolved tokens and includes its allowlist rows in the one `GroupConfigResolver`, so a row's `agent` binds the thread's session to that agent and its turns run through the bound-agent dispatch. `connect()` verifies the bot token with `auth.test` and throws on refusal, then starts Socket Mode in the background, so a transient outage never blocks the other channels. Slack sessions are per thread, so `GroupSessionInitializer` pre-creates none. `dm_access` defaults to `allowlist`: `pairing` posts a code that `ChannelAccessService` confirms through the `dm-pairing` routes, appending the sender to `dm_allowlist`; the settings page has no Slack surface yet, so confirmation is API-only.
 
 
 ---
@@ -852,8 +858,9 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
        |
        +---> dartclaw_slack
        |     (SlackChannel, SlackConfig, SlackWebApiClient,
-       |      SocketModeClient, SlackEnvelopeDispatch)
-       |     deps: dartclaw_core, dartclaw_kernel
+       |      SocketModeClient, SlackEventsHandler, SlackHealthReporter,
+       |      SlackEnvelopeDispatch)
+       |     deps: dartclaw_core, dartclaw_kernel, crypto
        |
        v
   dartclaw_runtime
@@ -890,6 +897,7 @@ Router webhookRoutes({
 
 - `POST /webhook/whatsapp` -- GOWA webhook (optional `secret` query parameter)
 - `POST {config.webhookPath}` -- Google Chat webhook (JWT-verified)
+- `POST {channels.slack.webhook_path}` -- Slack Events API, slash commands and interactions (signature-verified; mounted only in `mode: events`)
 
 Webhook routes are excluded from gateway auth -- external services call them directly.
 

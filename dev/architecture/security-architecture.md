@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
+**Current through**: 0.28 Slack Events API signature verification and core-owned webhook helpers; 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
 temporary conversation sink exclusion and confirmed cleanup, exact-request approval actions, principal-scoped search,
 the restricted-role connection posture, and owner Memory administration.
 
@@ -876,14 +876,18 @@ X-Frame-Options: DENY
 Cache-Control: no-store            # Auth-gated pages not cached
 ```
 
-**Webhook auth**: Excluded from gateway auth middleware. Each webhook integration (WhatsApp GOWA, Signal, Google Chat) implements its own verification (HMAC signatures, JWT, shared secrets) scoped to its routes.
+**Webhook auth**: Excluded from gateway auth middleware. Each webhook integration (WhatsApp GOWA, Signal, Google Chat, GitHub, Slack) implements its own verification (HMAC signatures, JWT, shared secrets) scoped to its routes. The Slack path joins the public paths only in `channels.slack.mode: events`, and the exact path, never a prefix.
+
+**Slack Events API signature**: Slack signs every delivery (events, slash commands, interactions) with `X-Slack-Signature: v0=<hex>`, an HMAC-SHA256 under the app signing secret over `v0:<X-Slack-Request-Timestamp>:<raw body>`. `SlackEventsHandler` (framework-neutral, in `dartclaw_slack`) checks the headers, refuses a timestamp more than 300 s from now in either direction, and compares the HMAC with `crypto`'s `Digest` equality over the exact received bytes: nothing decodes or parses the body first, and an empty signing secret verifies nothing. A refusal is `401` with a reason (`missing_slack_signature`, `stale_slack_timestamp`, `invalid_slack_signature`); the runtime route fires the failed-auth event (`source: webhook`, the resolved remote key) and writes one audit entry through the guard audit logger (guard `slack_signature`, hook `webhook`, verdict `block`, channel `slack`, the reason code, the remote key as peer). No other webhook writes an audit entry for a failed verification, and no throttle applies. The signing secret, bot token and app token are registered with `MessageRedactor` as literals that are masked fully, so none reaches a log line or audit text.
+
+**Webhook helpers** (`dartclaw_core`, `lib/src/auth/webhook_http.dart`): the one owner of bounded raw-byte reading (`readBoundedBytes`: checks the declared length and every chunk against the limit and stops at the first chunk that crosses it), trusted-proxy remote-key selection (`resolveRemoteKey`: the first `X-Forwarded-For` entry only when the peer is a trusted proxy), failed-auth event construction (`publishFailedAuthEvent`) and the payload-size constant (`maxWebhookPayloadBytes`). The runtime and Google Chat Shelf adapters keep only field extraction from the `Request` and call these.
 
 **Additional defenses**:
-- `maxWebhookPayloadBytes = 1 MiB` — rejects oversized POST bodies on unauthenticated webhook endpoints to prevent OOM attacks
-- `readBounded()` caps stream reads for chunked/missing-header cases
+- `maxWebhookPayloadBytes = 1 MiB` (core) — rejects oversized POST bodies on unauthenticated webhook endpoints to prevent OOM attacks
+- `readBoundedBytes()` (core) caps stream reads for chunked/missing-header cases
 - `AuthRateLimiter` throttles failed auth attempts per source to blunt token-guessing brute force
 
-**Source**: `packages/dartclaw_runtime/lib/src/auth/auth_middleware.dart`, `packages/dartclaw_runtime/lib/src/auth/session_token.dart`, `packages/dartclaw_runtime/lib/src/auth/token_service.dart`, `packages/dartclaw_runtime/lib/src/auth/auth_utils.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/auth/auth_middleware.dart`, `packages/dartclaw_runtime/lib/src/auth/session_token.dart`, `packages/dartclaw_runtime/lib/src/auth/token_service.dart`, `packages/dartclaw_runtime/lib/src/auth/auth_utils.dart`, `packages/dartclaw_core/lib/src/auth/webhook_http.dart`, `packages/dartclaw_slack/lib/src/slack_events_handler.dart`
 
 ### Channel Access Control
 
@@ -1370,7 +1374,9 @@ gateway:
 | `auth/auth_middleware.dart` | `dartclaw_runtime` | shelf auth pipeline |
 | `auth/session_token.dart` | `dartclaw_runtime` | HMAC-signed stateless session tokens |
 | `auth/token_service.dart` | `dartclaw_runtime` | Gateway token generation, rotation, persistence |
-| `auth/auth_utils.dart` | `dartclaw_runtime` | Constant-time comparison, bounded body reads |
+| `auth/auth_utils.dart` | `dartclaw_runtime` | Constant-time comparison; Shelf `Request` field extraction for the webhook helpers |
+| `auth/webhook_http.dart` | `dartclaw_core` | Bounded raw-byte reads, trusted-proxy remote key, failed-auth event, payload-size constant |
+| `slack_events_handler.dart` | `dartclaw_slack` | Slack `v0=` HMAC signature, 300 s window, framework-neutral |
 | `auth/auth_rate_limiter.dart` | `dartclaw_runtime` | Throttles failed auth attempts to blunt brute force |
 | `auth/security_headers.dart` | `dartclaw_runtime` | Security response headers middleware |
 | `audit/guard_audit_subscriber.dart` | `dartclaw_runtime` | EventBus -> GuardAuditLogger bridge |

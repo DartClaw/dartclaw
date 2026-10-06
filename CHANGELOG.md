@@ -23,6 +23,15 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - MCP tools that opt in can read the originating turn's channel type, recipient, thread, session key and sender (`McpCallerContext.turn`). Every host harness now presents its own host-minted MCP bearer in place of the shared gateway token.
 - Slack channel over Socket Mode, in the new `dartclaw_slack` package. Allowlisted DMs and channels talk to a bound agent in threads: a mention opens a thread, each thread is one session, and replies are posted into it as Slack mrkdwn, chunked at 4,000 characters. `/stop`, `/pause`, `/resume`, `/bind` and `/unbind` work as Slack slash commands, answered ephemerally. Configure `channels.slack` with `bot_token_credential` and `app_token_credential`, which name `credentials` entries; a literal token is refused at load, and Slack tokens are masked in logs and audit text. The connection reconnects by itself with backoff up to 60 s.
 - Every refusal of a reserved command to a non-admin sender, on any channel, is now written to the audit log.
+- Slack over the Events API: set `channels.slack.mode: events` with `signing_secret_credential` (a `credentials` entry name) and DartClaw serves signed requests at `channels.slack.webhook_path` (default `/integrations/slack`), exempt from gateway auth only there. Events, slash commands and interactions reach the same dispatch as over Socket Mode. A request without a valid `v0=` signature, or timestamped more than 300 s off, gets `401`, never starts a turn and is written to the audit log (guard `slack_signature`); a body over 1 MiB gets `413`; Slack's retry of an event it already delivered is acknowledged and not processed again.
+- Slack app manifests for both transports (`examples/slack/manifest-socket.yaml`, `examples/slack/manifest-events.yaml`) and a setup guide, `docs/guide/slack.md`, from manifest import to a first DM.
+- `dartclaw doctor` adds `slack.credentials`, `slack.auth`, `slack.scopes` and `slack.transport` rows while Slack is enabled: they name a missing or revoked credential, missing or extra scopes, a dead socket, and a likely wrong signing secret. `/health` carries a `slack` object with the transport's state and no secret.
+
+### Changed
+
+- Slack DM pairing (`dm_access: pairing`) can now be confirmed through the `dm-pairing` routes and the allowlist API, which accept `slack`; before, the code Slack sent could never be approved.
+- Bounded request-body reading, trusted-proxy remote-key selection, failed-auth events and the 1 MiB payload limit for webhooks now have one owner in `dartclaw_core`; the GitHub, Google Chat, MCP and gateway-auth routes keep their behavior and status codes.
+- `dartclaw doctor` and setup accept a Slack credential reference whose entry exists only in the credential store (`dartclaw secrets set`); presence is judged by the `slack.credentials` row.
 
 ### Fixed
 

@@ -126,6 +126,9 @@ import 'loc_target.dart';
 // dispatch are the whole package; later Slack stories raise it with their own
 // reviewed-necessity line. The shared thread seam added to core, kernel and
 // runtime stays inside their bands.
+// Reviewed necessity, 2026-10-06 (0.28): dartclaw_slack 1257 -> 1625 (measured). The signed Events API
+// handler, the health reporter and the events-mode channel are the second transport behind the one
+// envelope dispatch; the shared webhook helpers moved into core and shrank runtime and Google Chat.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -138,7 +141,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
-  'dartclaw_slack': 1257,
+  'dartclaw_slack': 1625,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25631,

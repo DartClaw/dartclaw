@@ -51,6 +51,7 @@ class SocketModeClient {
 
   SocketModeState _state = SocketModeState.disconnected;
   DateTime? _lastConnectedAt;
+  int _consecutiveFailures = 0;
   bool _running = false;
   WebSocket? _socket;
   Future<void>? _loop;
@@ -78,6 +79,9 @@ class SocketModeClient {
   /// When the connection last reached Slack's `hello`, or `null` if it never has.
   DateTime? get lastConnectedAt => _lastConnectedAt;
 
+  /// Connection attempts in a row that failed before reaching Slack's `hello`.
+  int get consecutiveFailures => _consecutiveFailures;
+
   /// Starts connecting in the background and returns at once.
   void start() {
     if (_running) return;
@@ -98,7 +102,6 @@ class SocketModeClient {
   }
 
   Future<void> _run() async {
-    var failures = 0;
     var backoff = _initialBackoff;
     while (_running) {
       _state = SocketModeState.connecting;
@@ -115,7 +118,7 @@ class SocketModeClient {
           final outcome = _handleFrame(socket, frame);
           if (outcome == _FrameOutcome.hello) {
             reachedHello = true;
-            failures = 0;
+            _consecutiveFailures = 0;
             backoff = _initialBackoff;
           } else if (outcome == _FrameOutcome.refreshRequested) {
             refreshRequested = true;
@@ -137,9 +140,11 @@ class SocketModeClient {
       if (reachedHello) {
         _log.info('Socket Mode connection dropped; reconnecting in ${backoff.inSeconds}s');
       } else {
-        failures++;
-        if (failures >= _warnAfterFailures) {
-          _log.warning('Socket Mode connection failed $failures times in a row; retrying in ${backoff.inSeconds}s');
+        _consecutiveFailures++;
+        if (_consecutiveFailures >= _warnAfterFailures) {
+          _log.warning(
+            'Socket Mode connection failed $_consecutiveFailures times in a row; retrying in ${backoff.inSeconds}s',
+          );
         }
       }
       await _wait(backoff);
@@ -189,11 +194,7 @@ class SocketModeClient {
   static SlackEnvelopeKind _kindOf(Object? socketType, Object? payload) => switch (socketType) {
     'events_api' => SlackEnvelopeKind.event,
     'slash_commands' => SlackEnvelopeKind.slashCommand,
-    'interactive' => switch (payload is Map ? payload['type'] : null) {
-      'block_actions' => SlackEnvelopeKind.blockAction,
-      'view_submission' => SlackEnvelopeKind.viewSubmission,
-      _ => SlackEnvelopeKind.unknown,
-    },
+    'interactive' => slackInteractionKind(payload is Map ? payload['type'] : null),
     _ => SlackEnvelopeKind.unknown,
   };
 

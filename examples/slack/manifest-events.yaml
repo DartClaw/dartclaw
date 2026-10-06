@@ -1,0 +1,67 @@
+# Slack app manifest for DartClaw over the Events API (channels.slack.mode: events).
+# Replace dartclaw.example.com with the public HTTPS host of your DartClaw server; every
+# request URL ends in channels.slack.webhook_path (default /integrations/slack).
+# Import: api.slack.com/apps > Create New App > From a manifest > paste this file.
+# Setup guide: docs/guide/slack.md
+display_information:
+  name: DartClaw
+  description: Your DartClaw agent in Slack
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: dartclaw
+    always_online: true
+  assistant_view:
+    assistant_description: Ask DartClaw to work on tasks, answer questions and report progress.
+  slash_commands:
+    - command: /stop
+      description: Stop all running agent work
+      url: https://dartclaw.example.com/integrations/slack
+      should_escape: false
+    - command: /pause
+      description: Pause message processing
+      url: https://dartclaw.example.com/integrations/slack
+      should_escape: false
+    - command: /resume
+      description: Resume message processing
+      url: https://dartclaw.example.com/integrations/slack
+      should_escape: false
+    - command: /bind
+      description: Bind this thread to a task
+      usage_hint: "<taskId>"
+      url: https://dartclaw.example.com/integrations/slack
+      should_escape: false
+    - command: /unbind
+      description: Remove this thread's task binding
+      url: https://dartclaw.example.com/integrations/slack
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - groups:history
+      - im:history
+      - im:write
+      - chat:write
+      - assistant:write
+      - files:read
+      - users:read
+      - commands
+settings:
+  event_subscriptions:
+    request_url: https://dartclaw.example.com/integrations/slack
+    bot_events:
+      - app_mention
+      - message.im
+      - message.channels
+      - message.groups
+  interactivity:
+    is_enabled: true
+    request_url: https://dartclaw.example.com/integrations/slack
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

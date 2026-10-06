@@ -538,8 +538,10 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.slack.mode',
     type: ConfigFieldType.enum_,
     mutability: ConfigMutability.restart,
-    description: 'How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token.',
-    allowedValues: ['socket'],
+    description:
+        'How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token, '
+        'events accepts signed Events API requests at webhook_path. Default socket.',
+    allowedValues: ['socket', 'events'],
   ),
   'channels.slack.bot_token_credential': FieldMeta(
     yamlPath: 'channels.slack.bot_token_credential',
@@ -554,8 +556,23 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.slack.appTokenCredential',
     type: ConfigFieldType.string,
     mutability: ConfigMutability.restart,
-    description: 'Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. The token itself is never written here.',
+    description: 'Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. Required in socket mode. The token itself is never written here.',
     nullable: true,
+  ),
+  'channels.slack.signing_secret_credential': FieldMeta(
+    yamlPath: 'channels.slack.signing_secret_credential',
+    jsonKey: 'channels.slack.signingSecretCredential',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'Name of the credentials entry holding the app signing secret that Events API requests are verified with. Required in events mode. The secret itself is never written here.',
+    nullable: true,
+  ),
+  'channels.slack.webhook_path': FieldMeta(
+    yamlPath: 'channels.slack.webhook_path',
+    jsonKey: 'channels.slack.webhookPath',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'HTTP path Slack posts Events API requests to in events mode. Default /integrations/slack.',
   ),
   'channels.slack.dm_access': FieldMeta(
     yamlPath: 'channels.slack.dm_access',

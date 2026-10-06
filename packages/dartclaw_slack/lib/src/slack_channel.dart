@@ -18,6 +18,8 @@ import 'package:logging/logging.dart';
 
 import 'slack_config.dart';
 import 'slack_envelope.dart';
+import 'slack_events_handler.dart';
+import 'slack_health_reporter.dart';
 import 'slack_markdown.dart';
 import 'slack_web_api_client.dart';
 import 'socket_mode_client.dart';
@@ -33,7 +35,7 @@ final _mentionTokenPattern = RegExp(r'<@([UW][A-Z0-9]+)(?:\|[^>]*)?>');
 /// and the rest are not conversation.
 const _conversationalSubtypes = {null, 'file_share', 'thread_broadcast'};
 
-/// Channel adapter for Slack: DMs and channels over Socket Mode, one session per thread.
+/// Channel adapter for Slack: DMs and channels over Socket Mode or the Events API, one session per thread.
 class SlackChannel extends Channel {
   static final _log = Logger('SlackChannel');
 
@@ -61,7 +63,13 @@ class SlackChannel extends Channel {
   /// The one entry point for every inbound envelope, whichever transport delivered it.
   final SlackEnvelopeDispatch dispatch = SlackEnvelopeDispatch();
 
-  late final SocketModeClient _socket;
+  /// Verifies and decodes Slack's HTTP deliveries; non-null only in events mode.
+  late final SlackEventsHandler? eventsHandler;
+
+  /// Transport state for `/health`.
+  late final SlackHealthReporter healthReporter;
+
+  SocketModeClient? _socket;
 
   String? _botUserId;
   String? _botId;
@@ -77,33 +85,51 @@ class SlackChannel extends Channel {
 
   /// Creates a Slack channel adapter.
   ///
-  /// [socketConnector] and [reconnectDelay] replace the real WebSocket and
-  /// backoff sleep, for tests.
+  /// [mode] is `socket` or `events`; events mode needs a non-empty
+  /// [signingSecret] and opens no socket. [socketConnector] and
+  /// [reconnectDelay] replace the real WebSocket and backoff sleep, for tests.
+  ///
+  /// Throws [ArgumentError] for an unknown [mode] or events mode without a signing secret.
   new({
     required this.config,
     required this.api,
     required this.dmAccess,
     required this.mentionGating,
     required this.channelManager,
+    String mode = 'socket',
+    String? signingSecret,
     SocketModeConnector? socketConnector,
     Future<void> Function(Duration)? reconnectDelay,
   }) {
-    _socket = SocketModeClient(
-      openUrl: api.openSocketUrl,
-      dispatch: dispatch,
-      connector: socketConnector,
-      delay: reconnectDelay,
-    );
+    switch (mode) {
+      case 'socket':
+        final socket = _socket = SocketModeClient(
+          openUrl: api.openSocketUrl,
+          dispatch: dispatch,
+          connector: socketConnector,
+          delay: reconnectDelay,
+        );
+        eventsHandler = null;
+        healthReporter = SlackHealthReporter(socket: socket);
+      case 'events':
+        if (signingSecret == null || signingSecret.isEmpty) {
+          throw ArgumentError.value(signingSecret, 'signingSecret', 'events mode needs a signing secret');
+        }
+        final handler = eventsHandler = SlackEventsHandler(signingSecret: signingSecret, dispatch: dispatch);
+        healthReporter = SlackHealthReporter(events: handler);
+      default:
+        throw ArgumentError.value(mode, 'mode', 'must be socket or events');
+    }
     dispatch
       ..register(SlackEnvelopeKind.event, _handleEvent)
       ..register(SlackEnvelopeKind.slashCommand, _handleSlashCommand);
   }
 
-  /// Whether the Socket Mode connection is up.
-  SocketModeState get connectionState => _socket.state;
+  /// Whether the Socket Mode connection is up; always disconnected in events mode.
+  SocketModeState get connectionState => _socket?.state ?? SocketModeState.disconnected;
 
   /// When Socket Mode last connected, or `null` if it never has.
-  DateTime? get lastConnectedAt => _socket.lastConnectedAt;
+  DateTime? get lastConnectedAt => _socket?.lastConnectedAt;
 
   @override
   Future<void> connect() async {
@@ -111,13 +137,13 @@ class SlackChannel extends Channel {
     _botUserId = identity.userId;
     _botId = identity.botId;
     mentionGating.ownJid = identity.userId;
-    _socket.start();
+    _socket?.start();
     _log.info('Slack channel connected');
   }
 
   @override
   Future<void> disconnect() async {
-    await _socket.stop();
+    await _socket?.stop();
     api.close();
     _log.info('Slack channel disconnected');
   }

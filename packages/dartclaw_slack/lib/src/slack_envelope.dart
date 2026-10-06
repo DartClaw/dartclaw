@@ -33,6 +33,13 @@ class SlackEnvelope {
   const new({required this.kind, required this.payload});
 }
 
+/// The kind of an interaction payload with the given `type`.
+SlackEnvelopeKind slackInteractionKind(Object? type) => switch (type) {
+  'block_actions' => SlackEnvelopeKind.blockAction,
+  'view_submission' => SlackEnvelopeKind.viewSubmission,
+  _ => SlackEnvelopeKind.unknown,
+};
+
 /// Handler for one [SlackEnvelopeKind].
 typedef SlackEnvelopeHandler = FutureOr<void> Function(SlackEnvelope envelope);
 

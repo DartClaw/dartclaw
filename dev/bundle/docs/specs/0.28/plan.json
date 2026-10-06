@@ -180,7 +180,22 @@
       ],
       "status": "in-progress",
       "fis": "s02-slack-events-api-setup-and-diagnostics.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13",
+        "TI14",
+        "TI15"
+      ],
       "scope": "Add the Events API transport behind the S01 dispatch (signature verification, URL verification, enqueue-then-ack, event-ID dedupe, interactions and slash commands on the same signed path), built on framework-neutral webhook helpers in core that replace the duplicated bounded-read, trusted-proxy and failed-auth algorithms in runtime and Google Chat (architecture F5, closing TD-124). Ship the Slack app manifest, the `dartclaw doctor` Slack checks and the Slack setup guide page.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr2-slack-transports",

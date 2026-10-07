@@ -36,20 +36,38 @@ Future<Response> _post(GoogleChatWebhookHandler handler, Object payload) {
 void main() {
   late GoogleChatWebhookHandler handler;
   late List<(String, String)> reviewCalls;
+  late List<(String?, String?)> reviewActors;
   late ChannelReviewResult reviewResult;
 
   setUp(() {
     reviewCalls = [];
+    reviewActors = [];
     reviewResult = const ChannelReviewSuccess(taskTitle: 'Fix login', action: 'accept');
     handler = GoogleChatWebhookHandler(
       channel: GoogleChatChannel(config: const GoogleChatConfig(), restClient: FakeGoogleChatRestClient()),
       jwtVerifier: FakeGoogleJwtVerifier(),
       config: const GoogleChatConfig(),
-      reviewHandler: (taskId, action, {String? comment}) async {
+      reviewHandler: (taskId, action, {String? comment, String? channelType, String? senderId}) async {
         reviewCalls.add((taskId, action));
+        reviewActors.add((channelType, senderId));
         return reviewResult;
       },
     );
+  });
+
+  test('hands the clicking user and the channel to the review handler, for it to gate', () async {
+    await _post(handler, _payload());
+    await _post(handler, _payload(invokedFunction: 'task_reject'));
+
+    expect(reviewActors, [('googlechat', 'users/123'), ('googlechat', 'users/123')]);
+  });
+
+  test('a click carrying no user reaches the review handler with no sender', () async {
+    final payload = _payload()..remove('user');
+
+    await _post(handler, payload);
+
+    expect(reviewActors, [('googlechat', null)]);
   });
 
   test('routes accept button clicks through the review handler', () async {

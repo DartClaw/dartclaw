@@ -361,7 +361,12 @@ class GoogleChatWebhookHandler {
       return _jsonResponse({'text': 'Invalid button action: missing task ID.'});
     }
 
-    final result = await reviewHandler(taskId, action);
+    final result = await reviewHandler(
+      taskId,
+      action,
+      channelType: ChannelType.googlechat.name,
+      senderId: asMap(payload['user'])?['name'] as String?,
+    );
     return switch (result) {
       ChannelReviewSuccess(:final taskTitle, :final action) => () {
         final completedAction = action == 'accept' ? 'accepted' : 'rejected';

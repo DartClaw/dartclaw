@@ -119,7 +119,7 @@ void main() {
       channel: GoogleChatChannel(config: const GoogleChatConfig(), restClient: restClient),
       jwtVerifier: FakeGoogleJwtVerifier(),
       config: const GoogleChatConfig(),
-      reviewHandler: (taskId, action, {String? comment}) async {
+      reviewHandler: (taskId, action, {String? comment, String? channelType, String? senderId}) async {
         reviewCalls.add((taskId, action));
         throw StateError('the task review path must not see run clicks');
       },

@@ -71,9 +71,10 @@ final class RunControlFailed extends RunControlResult {
 /// from a chat button, an agent tool or the web.
 ///
 /// Chat and tool callers must be admin senders under `governance.admin_senders`; the web
-/// caller is already authenticated, so it is audited but never gated. Every call writes
-/// exactly one entry, and none ever carries a nonce. The sender comes only from the host's
-/// record of the turn or the click, never from a model argument.
+/// caller is already authenticated, so it is audited but never gated. A tool call needs a live
+/// chat turn: a task or workflow-step turn ([TurnProvenance.delegated]) is refused whoever
+/// requested it. Every call writes exactly one entry, and none ever carries a nonce. The sender
+/// comes only from the host's record of the turn or the click, never from a model argument.
 final class WorkflowRunControl {
   static final _log = Logger('WorkflowRunControl');
   static const _guardName = 'RunApprovalGate';
@@ -141,15 +142,15 @@ final class WorkflowRunControl {
     };
   }
 
-  /// Resumes [runId] for the chat turn [turn], which must carry an admin sender.
+  /// Resumes [runId] for the live chat turn [turn], which must carry an admin sender.
   Future<RunControlResult> resumeFromTool(String runId, TurnProvenance? turn) =>
       _fromTool(_RunAction.resume, runId, turn);
 
-  /// Cancels [runId] for the chat turn [turn], which must carry an admin sender.
+  /// Cancels [runId] for the live chat turn [turn], which must carry an admin sender.
   Future<RunControlResult> cancelFromTool(String runId, TurnProvenance? turn, {String? feedback}) =>
       _fromTool(_RunAction.cancel, runId, turn, feedback: feedback);
 
-  /// Sends [runId] back to its gate's revise step with [feedback] for the chat turn [turn], which must
+  /// Sends [runId] back to its gate's revise step with [feedback] for the live chat turn [turn], which must
   /// carry an admin sender.
   Future<RunControlResult> requestChangesFromTool(String runId, TurnProvenance? turn, {required String feedback}) =>
       _fromTool(_RunAction.requestChanges, runId, turn, feedback: feedback);
@@ -190,7 +191,8 @@ final class WorkflowRunControl {
 
   Future<RunControlResult> _fromTool(_RunAction action, String runId, TurnProvenance? turn, {String? feedback}) async {
     final channel = turn?.channelType;
-    if (turn == null || channel == null) {
+    // An approval gate needs a human: delegated work may write as its requester but never resolve a gate.
+    if (turn == null || channel == null || turn.delegated) {
       const message = 'Run control needs a chat turn';
       await _audit(
         hook: 'tool',

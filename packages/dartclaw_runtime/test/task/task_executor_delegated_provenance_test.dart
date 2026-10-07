@@ -8,7 +8,9 @@ import 'package:dartclaw_runtime/src/mcp/knowledge_write_gate.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/task_tools.dart';
 import 'package:dartclaw_runtime/src/mcp/wiki_write_tool.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunOrigin;
+import 'package:dartclaw_runtime/src/mcp/workflow_run_control_tools.dart';
+import 'package:dartclaw_runtime/src/task/workflow_run_control.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunOrigin, WorkflowService;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -33,11 +35,12 @@ final class _ContextRecordingWorker extends FakeTaskWorker implements HarnessTur
   }
 }
 
-TurnProvenance _slackTurn(String sender) => TurnProvenance.channel(
+TurnProvenance _slackTurn(String sender, {bool delegated = false}) => TurnProvenance.channel(
   channelType: ChannelType.slack,
   sessionKey: 'agent:main:group:slack:C1',
   recipientId: 'C1',
   senderId: sender,
+  delegated: delegated,
 );
 
 void main() {
@@ -56,6 +59,23 @@ void main() {
     await ctx.executor.pollOnce();
     await ctx.executor.drain();
     await pumpEventQueue();
+  }
+
+  /// The provenance of the turn a task runs after [requester]'s live chat turn asked [tools] to create it.
+  Future<TurnProvenance?> delegatedTaskTurn(McpProtocolHandler tools, String requester) async {
+    worker.contexts.clear();
+    final created = resultPayload(
+      toolResult(
+        await callTool(
+          tools.forHarness(() => _slackTurn(requester)),
+          'task_create',
+          arguments: {'title': 'Delegated work', 'description': 'Record this.', 'auto_start': true},
+        ),
+      ),
+    );
+    expect(created['status'], 'queued');
+    await runQueued();
+    return worker.contexts.single.provenance;
   }
 
   Future<void> startRun(String runId, WorkflowRunOrigin origin) async {
@@ -107,7 +127,7 @@ void main() {
 
       await runQueued();
 
-      expect(worker.contexts.map((context) => context.provenance), [_slackTurn(_member)]);
+      expect(worker.contexts.map((context) => context.provenance), [_slackTurn(_member, delegated: true)]);
     });
 
     test('a task with no origin keeps a turn with no provenance', () async {
@@ -137,8 +157,14 @@ void main() {
       expect(worker.contexts.single.provenance, isNotNull);
       final provenance = worker.contexts.single.provenance!;
       expect(
-        (provenance.channelType, provenance.senderId, provenance.recipientId, provenance.threadId),
-        ('slack', _member, 'C1', '1700000000.000100'),
+        (
+          provenance.channelType,
+          provenance.senderId,
+          provenance.recipientId,
+          provenance.threadId,
+          provenance.delegated,
+        ),
+        ('slack', _member, 'C1', '1700000000.000100', true),
       );
     });
 
@@ -193,21 +219,7 @@ void main() {
       ),
     );
 
-    Future<TurnProvenance?> delegatedTurnOf(String requester) async {
-      worker.contexts.clear();
-      final created = resultPayload(
-        toolResult(
-          await callTool(
-            base.forHarness(() => _slackTurn(requester)),
-            'task_create',
-            arguments: {'title': 'Write wiki', 'description': 'Record this.', 'auto_start': true},
-          ),
-        ),
-      );
-      expect(created['status'], 'queued');
-      await runQueued();
-      return worker.contexts.single.provenance;
-    }
+    Future<TurnProvenance?> delegatedTurnOf(String requester) => delegatedTaskTurn(base, requester);
 
     File page(String slug) => File(p.join(workspace.path, 'wiki', '$slug.md'));
 
@@ -286,6 +298,100 @@ void main() {
 
       expect(TaskOrigin.fromConfigJson(task.configJson), isNull);
       expect(jsonEncode(task.configJson), isNot(contains('origin')));
+    });
+  });
+
+  group('run control over a delegated turn', () {
+    late RecordingGuardAuditLogger audit;
+    late EventBus eventBus;
+    late WorkflowService workflows;
+    late McpProtocolHandler tools;
+
+    setUp(() async {
+      audit = RecordingGuardAuditLogger();
+      eventBus = EventBus();
+      workflows = WorkflowService.lifecycleOnly(
+        repository: ctx.workflowRuns,
+        taskService: ctx.tasks,
+        messageService: ctx.messages,
+        eventBus: eventBus,
+        kvService: ctx.kvService,
+        dataDir: ctx.tempDir.path,
+      );
+      final control = WorkflowRunControl(
+        workflows: workflows,
+        isAdmin: const GovernanceConfig(adminSenders: [_admin]).isAdmin,
+        auditLogger: audit,
+      );
+      tools = McpProtocolHandler()
+        ..registerTool(TaskCreateTool(tasks: ctx.tasks))
+        ..registerTool(WorkflowResumeTool(control: control))
+        ..registerTool(WorkflowCancelTool(control: control))
+        ..registerTool(WorkflowRequestChangesTool(control: control));
+      await startRun('wf-held', const WorkflowRunOrigin(surface: 'web'));
+    });
+
+    tearDown(() async {
+      await workflows.dispose();
+      await eventBus.dispose();
+    });
+
+    Future<Map<String, dynamic>> callRunControl(TurnProvenance? turn, String tool) async => toolResult(
+      await callTool(
+        tools.forHarness(() => turn),
+        tool,
+        arguments: {'run_id': 'wf-held', if (tool == 'workflow_request_changes') 'feedback': 'redo it'},
+      ),
+    );
+
+    const controlTools = ['workflow_resume', 'workflow_cancel', 'workflow_request_changes'];
+
+    test('a task an admin asked for cannot resume, cancel or request changes, and each refusal is audited', () async {
+      final turn = await delegatedTaskTurn(tools, _admin);
+
+      for (final tool in controlTools) {
+        final refusal = await callRunControl(turn, tool);
+        expect(refusal['isError'], isTrue, reason: tool);
+        expect(resultText(refusal), contains('chat turn'), reason: tool);
+      }
+
+      expect(audit.entries.map((entry) => (entry.guard, entry.hook, entry.tool, entry.decision)), [
+        ('RunApprovalGate', 'tool', 'resume', 'deny'),
+        ('RunApprovalGate', 'tool', 'cancel', 'deny'),
+        ('RunApprovalGate', 'tool', 'requestChanges', 'deny'),
+      ]);
+      expect((await ctx.workflowRuns.getById('wf-held'))!.status, WorkflowRunStatus.running);
+    });
+
+    test('a workflow step of an admin chat run cannot resume, cancel or request changes either', () async {
+      await startRun(
+        'wf-admin-run',
+        const WorkflowRunOrigin(
+          surface: 'slack',
+          channelType: 'slack',
+          recipientId: 'C1',
+          sessionKey: 'agent:main:group:slack:C1',
+          senderId: _admin,
+        ),
+      );
+      await queueStep('admin-run-step', 'wf-admin-run');
+      await runQueued();
+      final turn = worker.contexts.single.provenance;
+
+      for (final tool in controlTools) {
+        expect((await callRunControl(turn, tool))['isError'], isTrue, reason: tool);
+      }
+
+      expect(audit.entries.map((entry) => entry.decision), everyElement('deny'));
+      expect(audit.entries, hasLength(3));
+    });
+
+    test('a live admin chat turn is not refused for being delegated', () async {
+      final live = await callRunControl(_slackTurn(_admin), 'workflow_resume');
+
+      expect(resultText(live), isNot(contains('needs a chat turn')));
+      expect(audit.entries.single.peerId, _admin);
+      expect(audit.entries.single.reason, isNot('Run control needs a chat turn'));
     });
   });
 }

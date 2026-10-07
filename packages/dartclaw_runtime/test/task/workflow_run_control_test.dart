@@ -141,12 +141,14 @@ void main() {
   Future<WorkflowApprovalInteraction?> stored(String runId) async =>
       WorkflowApprovalInteraction.of((await repository.getById(runId))!);
 
-  TurnProvenance chatTurn({String? sender = 'U-A', ChannelType channel = ChannelType.slack}) => TurnProvenance.channel(
-    channelType: channel,
-    sessionKey: 'agent:main:group:${channel.name}:C1',
-    recipientId: 'C1',
-    senderId: sender,
-  );
+  TurnProvenance chatTurn({String? sender = 'U-A', ChannelType channel = ChannelType.slack, bool delegated = false}) =>
+      TurnProvenance.channel(
+        channelType: channel,
+        sessionKey: 'agent:main:group:${channel.name}:C1',
+        recipientId: 'C1',
+        senderId: sender,
+        delegated: delegated,
+      );
 
   group('buttons', () {
     test('an admin approves once and a second click is refused as already resolved', () async {
@@ -414,22 +416,41 @@ void main() {
       expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
     });
 
-    test('a channel turn with no sender is gated by the same rule as shared knowledge writes', () async {
-      await holdRun('run-1');
-      await holdRun('run-2');
-      final pushBack = TurnProvenance.channel(channelType: ChannelType.slack, sessionKey: 'agent:main:group:slack:C1');
-
+    test('a delegated turn needs a chat turn even for an admin requester, and the refusal is audited', () async {
       adminSenders = ['U-A'];
-      final refused = await newControl().resumeFromTool('run-1', pushBack);
-      adminSenders = [];
-      final allowed = await newControl().resumeFromTool('run-2', pushBack);
+      await holdRun('run-1');
+      final control = newControl();
 
-      expect(refused, isA<RunControlRefused>());
-      expect(allowed, isA<RunControlResolved>());
-      expect(audit.entries.map((e) => (e.decision, e.reason)), [
-        ('deny', 'channel turn carries no sender'),
-        ('allow', null),
+      final results = [
+        await control.resumeFromTool('run-1', chatTurn(delegated: true)),
+        await control.cancelFromTool('run-1', chatTurn(delegated: true)),
+      ];
+      final live = await control.resumeFromTool('run-1', chatTurn());
+
+      expect(
+        results,
+        everyElement(isA<RunControlRefused>().having((r) => r.reason, 'reason', RunControlRefusal.needsChatTurn)),
+      );
+      expect(live, isA<RunControlResolved>());
+      expect(audit.entries.map((e) => (e.hook, e.decision, e.tool, e.peerId, e.reason)), [
+        ('tool', 'deny', 'resume', null, 'Run control needs a chat turn'),
+        ('tool', 'deny', 'cancel', null, 'Run control needs a chat turn'),
+        ('tool', 'allow', 'resume', 'U-A', null),
       ]);
+    });
+
+    test('a delegated push-back turn with no sender is refused even where every sender is an admin', () async {
+      await holdRun('run-1');
+      final pushBack = TurnProvenance.channel(
+        channelType: ChannelType.slack,
+        sessionKey: 'agent:main:group:slack:C1',
+        delegated: true,
+      );
+
+      final refused = await newControl().resumeFromTool('run-1', pushBack);
+
+      expect((refused as RunControlRefused).reason, RunControlRefusal.needsChatTurn);
+      expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
     });
   });
 

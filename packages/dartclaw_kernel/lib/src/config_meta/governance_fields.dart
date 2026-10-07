@@ -104,8 +104,9 @@ const Map<String, FieldMeta> _governanceFields = {
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
     description:
-        'Sender IDs exempt from rate limits and budget blocks; may write shared knowledge and resolve workflow run '
-        'approvals from a channel. An empty list makes every sender an admin, so in a group channel every member.',
+        'Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run '
+        'approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an '
+        'admin, so in a group channel every member.',
     nullable: true,
   ),
   'governance.turn_limits.stall_timeout': FieldMeta(

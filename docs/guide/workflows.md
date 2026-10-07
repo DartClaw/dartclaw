@@ -917,8 +917,9 @@ edited to say who resolved it and when ("Approved by Ana at 14:05 UTC"), and a r
 unresolved (an approval timeout) edits it to "No longer pending". WhatsApp and Signal posts have no buttons.
 
 The agent can do the same from a chat turn with `workflow_resume`, `workflow_cancel` and `workflow_request_changes` (all take `run_id`; cancel also
-takes an optional `feedback`, request changes a required one) and read a run's state with `workflow_status`. The write tools need a chat turn from an
-admin sender, so they are refused in web chat, scheduled turns and any call with the shared gateway token, and a bound
+takes an optional `feedback`, request changes a required one) and read a run's state with `workflow_status`. The write tools need a live chat turn from an
+admin sender, so they are refused in web chat, scheduled turns, any call with the shared gateway token and the turns of a task or
+workflow step (even one an admin started: an approval gate is for a human, never the agent resolving its own work), and a bound
 agent has them only if its `tools` list names them. Resolving from the run page or the HTTP API needs no admin sender.
 Every resolution from a button, a tool or the web is written to the audit log (guard `RunApprovalGate`).
 

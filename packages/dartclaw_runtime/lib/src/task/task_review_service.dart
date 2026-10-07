@@ -133,7 +133,8 @@ class TaskReviewService {
 
   /// Builds a channel-facing review handler backed by this service.
   ChannelReviewHandler channelReviewHandler({String trigger = 'channel'}) {
-    return (taskId, action, {String? comment}) => reviewForChannel(taskId, action, comment: comment, trigger: trigger);
+    return (taskId, action, {String? comment, String? channelType, String? senderId}) =>
+        reviewForChannel(taskId, action, comment: comment, trigger: trigger);
   }
 
   /// Executes a review action for [taskId].

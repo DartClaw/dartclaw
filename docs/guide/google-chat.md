@@ -227,6 +227,13 @@ finished or failed messages into that thread. A run started elsewhere can post t
 `workflow.chat_notifications` (one thread per run); see
 [Workflow run notifications](configuration.md#workflow-run-notifications).
 
+A task's review card has **Accept** and **Reject** buttons, and a click is accepted only from a sender in
+`governance.admin_senders` (the `users/<id>` form). Anyone else is answered in the click response and the task stays in
+review. Every click, allowed or refused, is written to the audit log (guard `TaskReviewGate`, with the sender and task).
+An empty list makes every member of the space an admin, as for run approvals. A task started from a Chat message by
+the agent's `task_create` tool posts its review card back into that space, so list your reviewers before relying on
+the card in a shared space.
+
 The awaiting-approval card has **Approve** and **Reject** buttons. A click is accepted only from a sender listed in
 `governance.admin_senders` (the sender ID is the `users/<id>` form), and an empty list makes every member of the space an
 admin, so list your approvers before using buttons in a shared space. A refused click is answered in the click response;

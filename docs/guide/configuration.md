@@ -408,7 +408,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `github.webhook_path` | string |  | HTTP path the webhook endpoint is mounted at. (restart required) |
 | `github.webhook_secret` | null or string |  | HMAC-SHA256 key deliveries are signed with. Required once the handler is on; an unsigned delivery is refused. (restart required) |
 | **governance** |  |  |  |
-| `governance.admin_senders` | array or null |  | Sender IDs exempt from rate limits and budget blocks; may write shared knowledge and resolve workflow run approvals from a channel. An empty list makes every sender an admin, so in a group channel every member. (restart required) |
+| `governance.admin_senders` | array or null |  | Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required) |
 | `governance.budget.action` | string | one of "block", "warn" | What happens once the allowance is spent: refuse new turns, or only warn. (restart required) |
 | `governance.budget.daily_tokens` | integer | minimum 0 | Token allowance per day across the instance. 0 means unlimited. (restart required) |
 | `governance.budget.timezone` | string |  | Zone whose midnight resets the allowance. Accepts UTC, UTC±N, and DST-aware IANA names. (restart required) |

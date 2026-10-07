@@ -121,10 +121,16 @@ void main() {
     expect(harness.turnCallCount, 1);
     expect(harness.lastMessages!.map((message) => message['content']), contains(contains('tighten the assertions')));
     // The turn names its channel but no sender, so a shared-knowledge write called during it reaches the
-    // write gate as a channel turn and is refused, never as an unattributed bypass.
+    // write gate as a channel turn and is refused, never as an unattributed bypass. It is delegated work, so run
+    // control refuses it too.
     expect(
       harness.activeTurnContext?.provenance,
-      TurnProvenance.channel(channelType: ChannelType.whatsapp, recipientId: 'recipient-1', sessionKey: sessionKey),
+      TurnProvenance.channel(
+        channelType: ChannelType.whatsapp,
+        recipientId: 'recipient-1',
+        sessionKey: sessionKey,
+        delegated: true,
+      ),
     );
     final inTurn = runtime.server!.mcpHandler.forHarness(() => harness.activeTurnContext?.provenance);
     final refused = jsonDecode(

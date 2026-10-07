@@ -268,6 +268,7 @@ Decisions, each also stated where it bites:
 - Slack's `postEphemeral` now also sends `replace_original: false`, which applies to slash-command answers too; and `updateMessage` accepts blocks (an empty list clears them), as the FIS requires for the resolved edit.
 - Arch targets re-measured for core, runtime, slack and workflow with one reviewed-necessity line (TI13); core, runtime and workflow were already past their recorded targets before this story.
 - `constantTimeEquals` moved from `dartclaw_runtime`'s auth utilities to `dartclaw_kernel` (its test moved with it) so the workflow package's nonce check and runtime's secret comparisons use the one implementation; the runtime callers import it from the kernel.
+- Review applied (round 3): `WorkflowRunControl._fromTool` refuses a delegated task or workflow-step turn (`TurnProvenance.delegated`) with its existing `needsChatTurn` refusal and audit entry, whoever requested the work, so only a live admin chat turn resolves a gate from a tool. Google Chat's Accept and Reject task-review clicks now pass through `adminGatedReviewHandler` (`task/channel_review_gate.dart`): the same `governance.admin_senders` rule, one `TaskReviewGate` audit entry per click, no nonce. Slack posts no review buttons.
 
 #### DRIFT
 

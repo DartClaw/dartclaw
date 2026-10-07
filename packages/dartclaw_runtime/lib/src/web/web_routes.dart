@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -641,18 +639,15 @@ Router webRoutes(
     final token = request.url.queryParameters['t'];
     final target = token == null ? null : validateSourceLinkToken(token, key: unsigned ? null : gatewayToken);
     if (target == null) {
-      final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';
-      final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
-      if (!limited) rateLimiter?.recordFailure(remoteKey);
-      fireFailedAuthEvent(
-        eventBus,
-        request,
-        source: 'source_link',
-        reason: token == null ? 'missing_source_token' : 'invalid_source_token',
-        limited: limited,
-        trustedProxies: trustedProxies,
-      );
-      return limited ? _tooManyFailedAttempts() : _wikiNotFound();
+      return recordFailedAuth(
+            request,
+            source: 'source_link',
+            reason: token == null ? 'missing_source_token' : 'invalid_source_token',
+            rateLimiter: rateLimiter,
+            eventBus: eventBus,
+            trustedProxies: trustedProxies,
+          ) ??
+          _wikiNotFound();
     }
 
     switch (target.layer) {
@@ -734,12 +729,6 @@ Response _htmlNotFound(String message) =>
 /// across missing workspace, bad locator, traversal, symlink escape and I/O
 /// failure — no branch is distinguishable from the response.
 Response _wikiNotFound() => _htmlNotFound('Wiki source not found');
-
-Response _tooManyFailedAttempts() => Response(
-  429,
-  body: jsonEncode({'error': 'Too Many Requests', 'message': 'Too many failed authentication attempts'}),
-  headers: {'content-type': 'application/json'},
-);
 
 Response _htmlError(String message) =>
     Response.internalServerError(body: errorPageTemplate(500, 'Internal Server Error', message), headers: htmlHeaders);

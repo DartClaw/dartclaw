@@ -18,6 +18,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../config/message_queue_reconfigurer.dart';
+import '../task/channel_review_gate.dart';
 import 'channel_agent_binding.dart';
 import 'channel_session_title.dart';
 import 'channel_turn_attachments.dart';
@@ -92,6 +93,13 @@ class ChannelWiring {
   /// `features.thread_binding.enabled` gates task binding on.
   ThreadBindingStore? get taskThreadBindingStore => _threadBindingEnabled ? _threadBindingStore : null;
 
+  ChannelReviewHandler? _reviewHandler;
+
+  /// The task review handler Google Chat cards reach: the task service's, behind the `governance.admin_senders` gate.
+  /// Null until [wire] runs.
+  @visibleForTesting
+  ChannelReviewHandler? get reviewHandler => _reviewHandler;
+
   ChannelRunApprovalHandler? _runApprovalHandler;
 
   /// Binds the run-approval handler both adapters forward to. They capture [_forwardRunApproval] at
@@ -131,7 +139,11 @@ class ChannelWiring {
     final messages = _storage.messages;
     final taskService = _storage.taskService;
 
-    final reviewHandler = _task.reviewHandler;
+    final reviewHandler = _reviewHandler = adminGatedReviewHandler(
+      _task.reviewHandler,
+      isAdmin: config.governance.isAdmin,
+      auditLogger: _auditLogger,
+    );
 
     final googleChatConfig = resolveChannelConfig<GoogleChatConfig>(config, ChannelType.googlechat);
     final whatsAppConfig = resolveChannelConfig<WhatsAppConfig>(config, ChannelType.whatsapp);

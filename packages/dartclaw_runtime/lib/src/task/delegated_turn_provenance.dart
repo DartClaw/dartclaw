@@ -5,9 +5,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRunOrigin
 /// The provenance a task or workflow-step turn carries: the identity of the chat requester it was delegated by.
 ///
 /// Both origins are host-captured from the requester's own turn, so the turn context can name the requester
-/// without a model supplying it. A run or task that did not start in a chat channel yields null, a non-channel turn.
-/// Throws [ArgumentError] when a stored channel type names no [ChannelType], so a delegated turn fails rather than
-/// running unattributed.
+/// without a model supplying it. The turn is marked [TurnProvenance.delegated]: a gate may let it write as its
+/// requester, but one that needs a human present (run approvals) refuses it. A run or task that did not start in a
+/// chat channel yields null, a non-channel turn. Throws [ArgumentError] when a stored channel type names no
+/// [ChannelType], so a delegated turn fails rather than running unattributed.
 Future<TurnProvenance?> delegatedTurnProvenance(Task task, WorkflowRunRepository? runs) async {
   final runId = task.workflowRunId;
   if (runId != null) {
@@ -27,6 +28,7 @@ TurnProvenance taskOriginProvenance(TaskOrigin origin, {bool includeSender = tru
   recipientId: origin.recipientId,
   sessionKey: origin.sessionKey,
   senderId: includeSender ? origin.senderId : null,
+  delegated: true,
 );
 
 /// Provenance for a turn a run started from a chat channel drives, or null for any other origin.
@@ -39,5 +41,6 @@ TurnProvenance? runOriginProvenance(WorkflowRunOrigin origin) {
     threadId: origin.threadId,
     sessionKey: origin.sessionKey,
     senderId: origin.senderId,
+    delegated: true,
   );
 }

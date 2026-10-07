@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, Slack, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.28 Slack Events API transport (signed route, `slack` health object, doctor rows) and Slack adapter over Socket Mode (thread-in-session-key, ephemeral reserved-command replies, reserved-command refusal audit), turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
+**Current through**: 0.28 Slack Events API transport (signed route, `slack` health object, doctor rows), threaded-notification capability and workflow run posts (Google Chat and Slack thread; run and task thread bindings), and Slack adapter over Socket Mode (thread-in-session-key, ephemeral reserved-command replies, reserved-command refusal audit), turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
 
 ---
 
@@ -55,8 +55,11 @@ class ChannelMessage {
   final DateTime timestamp;
   final List<String> mentionedJids;
   final Map<String, dynamic> metadata;  // Channel-specific extras
+  final List<ChannelAttachment> attachments;  // Downloaded files, in the sender's order
 }
 ```
+
+`ChannelAttachment` (filename, media type, bytes) is the platform-neutral file an adapter hands over once it has downloaded it; only Slack fills it today. The bytes ride in memory through the queue (`MessageQueue`'s debounce flush and `PauseController`'s resume rebuild merge every coalesced message's attachments in arrival order, and `TurnDispatcher` takes them as an optional `attachments` argument). A new copy of a `ChannelMessage` that omits them drops the files silently.
 
 Key metadata keys by channel:
 - **Google Chat**: `spaceName`, `spaceType`, `senderDisplayName`, `senderAvatarUrl`, `messageName`, `messageCreateTime`, `threadName`
@@ -66,7 +69,7 @@ Key metadata keys by channel:
 
 The `senderDisplayName` getter checks metadata keys in priority order: `senderDisplayName` (Google Chat, Slack), `pushname` (WhatsApp), `sourceName` (Signal).
 
-`threadId` (`threadIdMetadataKey` in core) is the one platform-neutral thread key. An adapter that has threads stamps it on the inbound message; `ChannelManager.deriveSessionKey` adds it to the DM and group session key under every scope, so each thread is its own session; and `MessageQueue`, the reserved-command handler and the bridge's rate-limit and pause replies copy it onto every reply to that message, so the adapter posts the reply into the same thread. A message without it derives the key it always did and its replies carry no new metadata. It is distinct from `threadName`, the Google Chat key thread bindings are built on.
+`threadId` (`threadIdMetadataKey` in core) is the one platform-neutral thread key. An adapter that has threads stamps it on the inbound message; `ChannelManager.deriveSessionKey` adds it to the DM and group session key under every scope, so each thread is its own session; and `MessageQueue`, the reserved-command handler and the bridge's rate-limit and pause replies copy it onto every reply to that message, so the adapter posts the reply into the same thread. A message without it derives the key it always did and its replies carry no new metadata. It is distinct from `threadName`, the Google Chat key that channel's `ThreadedNotifications.extractThread` reads (§4).
 
 ### 2.3 ChannelResponse (Outbound)
 
@@ -249,61 +252,88 @@ scheduled work, workflows, and logical-agent turns use non-conversational scopes
 
 ## 4. Thread Binding
 
-Introduced in 0.12 (Crowd Coding), thread binding enables channel threads (e.g., Google Chat threaded conversations) to
-be routed to a specific task session. It is opt-in through `features.thread_binding.enabled`; the runtime creates the
-binding store and enables binding commands, tools, notifications, and routing only when that key is true.
+Introduced in 0.12 (Crowd Coding), thread binding lets a channel thread route to a specific task session; since 0.28 a
+binding can also hold the thread a workflow run posts into. Task binding is opt-in through
+`features.thread_binding.enabled`: the binding commands, tools, task notification threading and inbound routing exist only
+when that key is true. The live `ThreadBindingStore` itself is created when that key is true or
+`workflow.chat_notifications` is configured, so `chat_notifications` alone gives one thread per run and no task binding
+(`ChannelWiring.taskThreadBindingStore` is the store only while the flag is on, and every task-binding reader and
+writer takes that getter).
 
-`supportsThreadBinding(channelType)` in `thread_binding.dart` is the single authority for which channels can hold a
-binding, and it answers Google Chat alone — the one channel that stamps `metadata['threadName']`, the sole input to
-`extractThreadId`. Every writer honours it: `/bind` keys off `extractThreadId` directly, `task_bind` narrows its
-`channel_type` enum through it, `POST /api/tasks/<id>/bindings` rejects on it, and `ThreadBindingStore.load()` drops
-(and rewrites away) persisted rows that fail it. A binding the router cannot resolve is never written.
+`Channel.threadedNotifications` (`ThreadedNotifications`, `threaded_notifications.dart`) is the single declaration that a
+channel threads; a channel without it cannot hold a binding. `ChannelManager.threadedNotificationsFor(channelType)`
+resolves it by registered channel type name (null when unregistered or without the capability), and nothing in core names
+a platform's thread key. Its operations:
+
+| Operation | Role |
+|-----------|------|
+| `extractThread(metadata)` | Thread identity of an inbound message, or null. Google Chat reads `metadata['threadName']`; Slack builds `<conversationId>:<thread_ts>` from `metadata['spaceName']` and `metadata['threadId']`, so the identity is unique across conversations |
+| `render(ChannelNotification)` | Turns a semantic notification (kind `task` or `run`, id, text, title, status, body, error, requestedBy, facts, timestamps, `reviewActions`) into the channel's native card or blocks beside its plain text. Google Chat: `ChatCardBuilder.taskNotification` and `runNotification`; Slack: Block Kit sections |
+| `sendToNewThread(recipient, response, threadKey:)` | First message of a new thread; returns `ThreadedPost(threadId, messageId)` or null |
+| `sendToThread(recipient, response, threadId:)` | Message into an existing thread; same return |
+
+Slack's two sends also record the adapter's thread participation, so a mention-free reply in a thread the bot opened is
+admitted. WhatsApp and Signal declare nothing and receive plain `sendMessage` calls. Every writer reads the
+capability: `/bind` and `/unbind` (reserved command handler), `task_bind` (its `channel_type` enum is the registered
+channels that declare it, read at each call), and `POST /api/tasks/<id>/bindings` (400 for a channel type without it).
+A thread held by a run binding answers a conflict naming the run in all four writers, and `DELETE` on the bindings route
+refuses it. A binding the router cannot resolve is never written.
 
 ### 4.1 Data Model
 
 ```
 // packages/dartclaw_core/lib/src/channel/thread_binding.dart
+enum ThreadBindingKind { task, run }
+
 class ThreadBinding {
-  final String channelType;    // e.g., 'googlechat'
-  final String threadId;       // e.g., 'spaces/AAAA/threads/CCCC'
-  final String taskId;
-  final String sessionKey;
+  final String channelType;    // e.g., 'googlechat', 'slack'
+  final String threadId;       // the capability's identity: 'spaces/AAAA/threads/CCCC', 'C0123:1712345678.000100'
+  final ThreadBindingKind kind;
+  final String targetId;       // task ID or run ID
+  final String? sessionKey;    // task bindings only
   final DateTime createdAt;
   final DateTime lastActivity;
 }
 ```
 
+Constructors are `ThreadBinding.task(taskId:, sessionKey:, ...)` and `ThreadBinding.run(runId:, ...)`. JSON keeps
+`taskId` for a task, uses `runId` for a run, and adds `kind`; a persisted row without `kind` reads as a task.
+
 Compound key: `$channelType::$threadId`
 
 ### 4.2 ThreadBindingStore
 
-In-memory `Map<String, ThreadBinding>` backed by `thread-bindings.json` with atomic writes (temp file + rename). All lookups are synchronous; only writes touch the filesystem. Key operations: `create`, `lookupByThread`, `lookupByTask`, `updateLastActivity`, `delete`, `deleteByTaskId`, `removeExpiredBindings`, `reconcile(activeTaskIds)`.
+In-memory `Map<String, ThreadBinding>` backed by `thread-bindings.json` with atomic writes (temp file + rename). All lookups are synchronous; only writes touch the filesystem. Key operations: `create`, `lookupByThread`, `lookupByTask`, `lookupByRun`, `updateLastActivity`, `delete`, `deleteByTaskId`, `deleteByTarget(kind, id)`, `removeExpiredBindings`, `reconcile({activeTaskIds, activeRunIds})`.
+
+`load()` keeps every well-formed row: the store loads before any channel registers, so it cannot tell a row nothing will resolve from one whose channel is still starting. Rows nothing can resolve are retired by the idle sweep (task bindings) or `reconcile`. `removeExpiredBindings` skips run bindings, because a run's thread lives as long as the run and a run can sit at an approval longer than the idle timeout.
 
 ### 4.3 ThreadBindingRouter
 
-Stateless routing helper used by `ChannelTaskBridge`. Extracts `threadId` from `message.metadata['threadName']` via `extractThreadId`, looks up the binding in the store, and routes the message to the bound session key if found. `extractThreadId` is also what `/bind` and `/unbind` key on, so the read and write sides cannot disagree about what a binding is keyed by.
+Stateless routing helper used by `ChannelTaskBridge.lookupThreadBinding(message, channel)`. Extracts the thread through the owning channel's `threadedNotifications.extractThread`, looks up the binding in the store, and routes the message to the bound session key if found. It routes task bindings only: a run binding holds a thread for the run's posts and never answers. `/bind` and `/unbind` extract through the same capability, so the read and write sides cannot disagree about what a binding is keyed by.
 
 Bound-message routing awaits the activity-timestamp write before enqueuing the message.
 
 ### 4.4 ThreadBindingLifecycleManager
 
-Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes to `TaskStatusChangedEvent` on EventBus, removes binding when task reaches a terminal state (accepted, rejected, cancelled, failed). (2) **Idle timeout** -- periodic timer (default 5min interval) removes bindings with `lastActivity` older than `idleTimeout` (default 1hr).
+Manages automatic cleanup via two mechanisms: (1) **Auto-unbind** -- subscribes to `TaskStatusChangedEvent` on EventBus, removes the task binding when the task reaches a terminal state (accepted, rejected, cancelled, failed). It unbinds tasks only; a run's binding is deleted by `WorkflowRunNotificationSubscriber` after the run's terminal post. (2) **Idle timeout** -- periodic timer (default 5min interval) removes task bindings with `lastActivity` older than `idleTimeout` (default 1hr); run bindings are exempt.
 
 The manager serializes its cleanup operations. Runtime shutdown awaits `dispose()`, which cancels new event/timer work and drains pending persistence. Persistence exceptions are logged without blocking later cleanup.
+
+At startup `reconcileThreadBindings` (`service_wiring_notifications.dart`) passes the non-terminal task IDs (`TaskService.list`) and non-terminal run IDs (`WorkflowService.list`) to `ThreadBindingStore.reconcile`, so bindings of terminal or unknown tasks and runs are dropped and those of active ones are kept.
 
 ### 4.5 Thread Binding Flow
 
 ```
-  Inbound message with threadName metadata
+  Inbound message in a thread
                  |
                  v
-  ThreadBindingRouter.lookupThreadBinding()
-  - Extracts threadId from metadata['threadName']
-  - Looks up in ThreadBindingStore
+  ThreadBindingRouter.lookupThreadBinding(message, channel)
+  - Extracts the thread through channel.threadedNotifications
+  - Looks up in ThreadBindingStore; a run binding does not answer
                  |
          +-------+-------+
          |               |
-    (binding found)  (no binding)
+    (task binding)   (none)
          |               |
          v               v
   Route to bound     Fall through to
@@ -312,6 +342,35 @@ The manager serializes its cleanup operations. Runtime shutdown awaits `dispose(
          v
   Update lastActivity
 ```
+
+### 4.6 Notification Delivery
+
+`TaskNotificationSubscriber` and `WorkflowRunNotificationSubscriber` (both in `dartclaw_runtime/lib/src/task/`) build a `ChannelNotification` and deliver it through the shared `ChannelNotificationDelivery`. The helper offers a plain send, a new-thread send and an existing-thread send; it imports no channel package and branches on no `ChannelType`. A new-thread send that returns no thread identity falls back to one plain send and one warning per subject (task or run). A failed send into an existing thread is dropped with one warning per subject and never repeated as plain text. A delivery never throws into its caller.
+
+**Task notifications.** A task with a `TaskOrigin` posts on key status changes. A channel that declares the capability renders natively even with `features.thread_binding.enabled` off (Google Chat keeps its cards). With the flag on, the first (queued to running) notification opens a thread keyed `task-<id>` and writes `ThreadBinding.task`; later notifications post into the bound thread. A channel without the capability gets plain `sendMessage`.
+
+**Run notifications.** `WorkflowRunNotificationSubscriber` listens to `WorkflowLifecycleEvent`s and posts:
+
+| Post | Trigger |
+|------|---------|
+| started | `pending` to `running` only, never a resume or retry |
+| awaiting approval | `WorkflowApprovalRequestedEvent`; the approval message is cut at 1,000 characters, plus a link `<server.base_url>/workflows/<runId>` when `base_url` is set |
+| finished | completed or cancelled |
+| failed | failed; the error is cut at 1,000 characters |
+| step completed | optional, one line per step |
+
+Which of these post follows `workflow.chat_notifications.events` (default: the first four). Destination, first match wins:
+
+1. Origin surface `unknown`, or the run is missing: nothing.
+2. Chat origin (channel type and recipient recorded) on a channel without the capability: plain posts to the origin recipient.
+3. Chat origin on a threaded channel with a recorded thread: posts into that thread. No new thread, no binding, nothing to the configured channel.
+4. Otherwise `workflow.chat_notifications`: one new thread per run (keyed `run-<id>`) when that channel threads, tracked by a `ThreadBinding.run` that is deleted after the terminal post; plain posts when it does not. Nothing when unconfigured.
+
+A chat-origin run on a threaded channel that recorded no thread falls to the configured channel. Handling is chained per run ID, so one run's posts keep event order and the first opens the thread before a later one looks for it; other runs never wait. A failed post never blocks the run.
+
+`wireRunNotifications` (`service_wiring_notifications.dart`) builds the subscriber after the channels register and validates `workflow.chat_notifications` against them: a channel that is not registered, or a recipient it does not own, warns and leaves runs started outside chat with nowhere to post.
+
+The inbound thread recorded for a turn (`TurnProvenance.channel(threadId:)`, hence a run's origin) is read through the originating channel's capability, so a Slack-started `workflow_run` records the Slack identity; a channel without the capability records none.
 
 
 ---
@@ -344,7 +403,7 @@ The manager serializes its cleanup operations. Runtime shutdown awaits `dispose(
     - WhatsApp: GOWA REST API (sendText, sendMedia, chat presence)
     - Signal: signal-cli JSON-RPC (send, sendTyping)
     - Google Chat: REST API (one queued send for text/card/threaded messages, editMessage)
-    - Slack: Web API `chat.postMessage` into the reply's thread, or the ephemeral `response_url` answer to a slash command
+    - Slack: Web API `chat.postMessage` into the reply's thread, or the ephemeral `response_url` answer to a slash command; a streamed reply (section 9A.4a) is delivered by the feedback strategy and the queue's send is skipped
     - Web: SSE event stream
 ```
 
@@ -402,7 +461,7 @@ The `ChannelTaskBridge` is the integration point between the channel messaging p
 class ChannelTaskBridge {
   Future<bool> tryHandle(ChannelMessage, Channel, {sessionKey, enqueue, ...});
   bool isReservedCommand(String text);
-  ThreadBinding? lookupThreadBinding(ChannelMessage message);
+  ThreadBinding? lookupThreadBinding(ChannelMessage message, Channel channel);
 }
 ```
 
@@ -522,7 +581,7 @@ class PubSubClient {
 
 ### 7.6 Outbound: Cards v2
 
-`ChatCardBuilder` produces Cards v2 structured payloads: `taskNotification()` (status + optional review buttons), `errorNotification()`, `alertNotification()` (severity-colored), and `confirmationCard()`.
+`ChatCardBuilder` produces Cards v2 structured payloads: `taskNotification()` (status + optional review buttons), `runNotification()` (workflow run lifecycle post), `errorNotification()`, `alertNotification()` (severity-colored), and `confirmationCard()`.
 
 ### 7.7 Slash Commands
 
@@ -686,7 +745,21 @@ The five reserved commands are Slack slash commands. The envelope is acknowledge
 
 ### 9A.4 Outbound
 
-`formatResponse` converts Markdown to mrkdwn through the shared converter after escaping `&`, `<` and `>`, so only the links the converter builds contain `<`; text over 4,000 characters is chunked with `chunkNativeChatMarkup`. `SlackWebApiClient` posts with `thread_ts`, keeps posts to one channel at least one second apart, retries an HTTP 429 once after `Retry-After` (bounded at 60 s), and puts only the method and Slack's error code into an error: never a token, a header, a response URL or the Socket Mode ticket URL. The channel logs and drops a chunk Slack refuses.
+`formatResponse` converts Markdown to mrkdwn through the shared converter after escaping `&`, `<` and `>`, so only the links the converter builds contain `<`; text over 4,000 characters is chunked with `chunkNativeChatMarkup`. `SlackWebApiClient` posts with `thread_ts`, keeps posts to one channel at least one second apart, retries an HTTP 429 once after `Retry-After` (bounded at 60 s), and puts only the method and Slack's error code into an error: never a token, a header, a response URL or the Socket Mode ticket URL. The channel logs and drops a chunk Slack refuses. `SlackChannel.threadedNotifications` (`slack_threaded_notifications.dart`) is the §4 capability: it posts Block Kit sections, identifies a thread as `<conversationId>:<thread_ts>`, and records each thread it opens or posts into as bot participation.
+
+### 9A.4a Streaming replies and assistant status
+
+Streaming and status ride the turn-feedback seam. `FeedbackObserverFactory` builds the one `TurnObserver` in the queue's single observer slot for every channel: Google Chat through `GoogleChatFeedbackStrategy` as before, Slack through a `SlackFeedbackStrategy` that `SlackChannel.feedbackStrategyFor` builds per turn from the inbound message. The observer starts right after the queue invokes the dispatcher, before the turn's session or runner exist, so it never creates the session (creation pins a bound agent's provider, profile and workspace, and belongs to the dispatch). It resolves the session with `sessions.getByKey` when the first progress event needs it, attaches to the runner the coordinator reports as `acquired`, and keeps an event only while `runner.isActive(sessionId)`: runner events carry no session identity, so concurrent threads never cross.
+
+The strategy sets the assistant status with `assistant.threads.setStatus` at the start and clears it on completion and failure; the status is not refreshed (Slack expires it after two minutes) and a failing call is logged and never delays or fails the turn. With `channels.slack.streaming` on and a thread, text deltas open one stream (`chat.startStream`, carrying `recipient_team_id` and `recipient_user_id` in a channel), are appended through `chat.appendStream` in calls of at most 12,000 characters and at least a second apart, and end with `chat.stopStream`; the stream message is identified by its `ts`, in `markdown_text` mode throughout. Text is released only through the last whitespace of the *redacted* accumulation, so a secret split across two deltas never leaves in part. The stream carries every delta, including text written before a tool call, whereas the turn's reply is the final assistant message only, so completion edits the stream message with `chat.update` into the redacted, mrkdwn-formatted reply unless it already equals it. `onTurnCompleted` returns `true` only when exactly one message holds the whole reply, which makes the queue skip its own send.
+
+Failure always ends in one complete reply. A stream that cannot start (`missing_scope`, `invalid_thread_ts`), a turn with no text deltas, or `streaming: false` (or a message with no thread) returns `false`, and the queue posts through the normal path. A stream that fails midway stops, edits the partial message into the whole reply, and only when that edit fails too does the queue post it. A reply over 40,000 characters writes its first 4,000-character chunk over the stream message and posts the rest with `(n/total)` indicators. Each turn tries to stream once; there is no circuit breaker, and `dartclaw doctor` is where a missing scope is named. A failed turn stops the stream, clears the status and leaves the partial message in place.
+
+### 9A.4b Inbound files and image input
+
+After the inbound gate (a refused message fetches nothing), `takeSlackFiles` downloads the message's files off the envelope path: the handler returns at once, so the acknowledgement and later envelopes never wait on a download, and the message is admitted with `ChannelMessage.attachments` when the downloads finish. Bounds are 20 MB per file and 5 per message (constants, not config). `SlackWebApiClient.downloadFile` sends the bot token only to `https` hosts under `slack.com` (on every redirect hop), stops reading past the bound, and treats a web page answered with status 200, which is what Slack serves when the token lacks `files:read`, as a failure naming the scope. A Slack Connect stub and a file with no private URL are refused by name, and `files.info` is never called. One thread reply names every refusal and failure of a message; the remaining files and the text are still processed.
+
+`dispatchChannelTurn` stages each attachment into the session's `attachments/` directory in the web composer's on-disk form, through the same writer and the same context builder the web upload route and `ConversationService` use (`conversation/turn_attachments.dart`): one writer, one reader, one `rich_input_context` renderer. The stored user message lists the attachments without content, and the turn's entry for that message carries the context block, with text types inlined up to 20,000 characters. Image input uses the same entry: the shared builder returns the active message's eligible images (PNG, JPEG, GIF, WebP, state ready, at most 5 MiB) as an `images` key of `{mediaType, data}` with base64 data, for Slack and web-composer attachments alike. Only `ClaudeProtocolAdapter` and `CodexProtocolAdapter` know a provider's image form (`control-protocol.md`); a harness without image input (ACP) and every image outside the eligible set or bound keep the named attachment. Earlier turns' images are never re-sent, and the stored message, history entries and logs hold no image bytes.
 
 ### 9A.5 Wiring and configuration
 
@@ -777,7 +850,7 @@ The key's `agentId` component comes from the message's structured allowlist row:
 
 ### 11.3 Session Key Generation
 
-`SessionKey` static factories in `dartclaw_kernel`: `dmShared()`, `dmPerContact(peerId)`, `dmPerChannelContact(channelType, peerId)`, `groupShared(channelType, groupId)`, `groupPerMember(channelType, groupId, peerId)`. Each takes an optional `threadId`, appended to the identifiers as `:thread:<encoded id>`; `ChannelManager.deriveSessionKey` passes the message's `threadId`, so a threaded conversation is one session per thread (per member and thread under `per_member`) and an unthreaded message keeps its key.
+`SessionKey` static factories in `dartclaw_kernel`: `dmShared()`, `dmPerContact(peerId)`, `dmPerChannelContact(channelType, peerId)`, `groupShared(channelType, groupId)`, `groupPerMember(channelType, groupId, peerId)`. Each takes an optional `threadId`, appended to the identifiers as `:thread:<encoded id>`; `ChannelManager.deriveSessionKey` passes the message's `threadId`, so a threaded conversation is one session per thread (per member and thread under `per_member`) and an unthreaded message keeps its key. `SessionKey.channelRoute` is the reader of those keys: it decodes a `dm` or `group` key into channel type, recipient and the `:thread:` suffix. Scheduled-job announce delivery and the loop-detection and budget notices read through it; a notice for a thread session is posted into that thread, while an announce still skips thread sessions.
 
 
 ---
@@ -817,7 +890,7 @@ The `MessageQueue` is the final stage before agent turn dispatch. Key parameters
 
 **Retry and dead-letter** -- The queue dispatches each message once. A failed turn is never re-run, because a re-dispatch persists the inbound message again and starts a second agent turn: the sender gets one error notification and the failure is logged severe. Only reply delivery retries: each chunk's `sendMessage` is retried with jittered backoff (`baseDelay * attempt * (1 + random * jitterFactor)`) up to `maxAttempts` (default 3) while the session keeps its slot; an exhausted chunk dead-letters the reply with a severe log and its remaining chunks are not sent. The queue is the only delivery retrier, and it sees only failures a channel throws: WhatsApp and Signal throw on a failed text send (WhatsApp swallows media errors, so a retried chunk can resend its media), while Google Chat and Slack log a failed send and return, so their replies are never retried by the queue (Slack retries a rate-limited post once itself). A full global turn cap never reaches this path: `dispatchChannelTurn` persists the inbound message once, and when the turn start is refused with a non-same-session `BusyTurnException` it waits on `TurnManager.whenAdmissionCapacityAvailable()` and retries the start only.
 
-**Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping` by delegating to core's `TypingLeaseTracker` (`src/channel/typing_lease_tracker.dart`), which owns per-recipient lease counting, update serialization, the single START retry and the shutdown latch for every adopter; WhatsApp and Signal differ only in the three constructor arguments -- sendability predicate, transport call and refresh interval. The queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` remains the richer progress-feedback interface used by Google Chat. `NoFeedbackStrategy` is its default no-op.
+**Channel feedback** -- Native typing-capable channels override `Channel.startTyping` / `stopTyping` by delegating to core's `TypingLeaseTracker` (`src/channel/typing_lease_tracker.dart`), which owns per-recipient lease counting, update serialization, the single START retry and the shutdown latch for every adopter; WhatsApp and Signal differ only in the three constructor arguments -- sendability predicate, transport call and refresh interval. The queue brackets every dispatched turn with these best-effort calls. `ChannelFeedbackStrategy` is the richer progress-feedback interface used by Google Chat (placeholder edits) and Slack (assistant status and streamed replies, section 9A.4a); `FeedbackObserverFactory` bridges `TurnRunner.progressEvents` to the strategy of the channel a turn arrived on. `NoFeedbackStrategy` is its default no-op.
 
 
 ---

@@ -142,6 +142,7 @@ String _defaultFor(String key, SlackConfig config) => switch (key) {
   'group_allowlist' => config.groupAllowlist.isEmpty ? 'empty' : throw StateError('non-empty default'),
   'require_mention' => '${config.requireMention}',
   'mention_patterns' => config.mentionPatterns.isEmpty ? 'empty' : throw StateError('non-empty default'),
+  'streaming' => '${config.streaming}',
   _ => throw StateError('No default declared for channels.slack.$key; add it here and to the guide'),
 };
 

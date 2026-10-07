@@ -10,6 +10,7 @@ import 'channel.dart';
 import 'channel_task_bridge.dart';
 import 'message_queue.dart';
 import 'recipient_resolver.dart';
+import 'threaded_notifications.dart';
 
 /// Manages channel registration, lifecycle, and inbound message routing.
 ///
@@ -64,6 +65,15 @@ class ChannelManager {
     _log.info('Registered channel: ${channel.name} (${channel.type})');
   }
 
+  /// The threading declaration of the registered channel of [channelType], or
+  /// `null` when none is registered or it declares none.
+  ThreadedNotifications? threadedNotificationsFor(String channelType) {
+    for (final channel in _channels) {
+      if (channel.type.name == channelType) return channel.threadedNotifications;
+    }
+    return null;
+  }
+
   /// Route an inbound message to the appropriate session via the queue.
   ///
   /// If a [ChannelTaskBridge] is wired, it is consulted first. When the bridge
@@ -81,7 +91,7 @@ class ChannelManager {
     final taskBridge = _taskBridge;
     if (taskBridge != null) {
       final sessionKey = deriveSessionKey(message);
-      final boundThreadBinding = taskBridge.lookupThreadBinding(message);
+      final boundThreadBinding = taskBridge.lookupThreadBinding(message, channel);
       final routedSessionKey = boundThreadBinding?.sessionKey ?? sessionKey;
 
       // Reserved commands must still run while paused; all other inbound

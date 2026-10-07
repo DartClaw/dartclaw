@@ -2,7 +2,7 @@
 
 Canonical reference for DartClaw's provider control protocols and the Dart-side harness infrastructure that drives them. DartClaw supports three subprocess protocol families today: Claude Code's ad-hoc JSONL control protocol, Codex's JSON-RPC 2.0-like JSONL app-server protocol, and ACP stdio JSON-RPC for verified ACP agents.
 
-**Current through**: 0.27 Codex user-input diagnostics, Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
+**Current through**: 0.28 image input on Claude and Codex turn requests; 0.27 Codex user-input diagnostics, Claude turn accounting and host no-prompt permission fidelity; 0.26.1 Codex output-schema constraint on `turn/start`; 0.26 pre-gate orphan scanning and post-gate acknowledgement; filesystem-backed instance-local state; Claude setting inheritance and workflow tool-policy corrections; 0.25.1 Bash-env credential strip covering `CLAUDE_CODE_OAUTH_TOKEN`; 0.25 security posture corrections; guarded MCP dispatch seam; typed turn contract; structured-output,
 provider-session threading, and capacity-only lane retirement
 
 ---
@@ -328,6 +328,26 @@ For harnesses using `PromptStrategy.replace`, a `system_prompt` field is include
 ```
 
 `AgentHarness.turn.systemPrompt` is a scoped per-turn contract independent of prompt strategy: a non-empty value is authoritative; an empty value selects the harness's configured default. `ClaudeCodeHarness` uses `PromptStrategy.append`, so ordinary turns omit `system_prompt`. A non-empty logical-agent persona or conversational onboarding prompt participates in the process desired-state comparison and is applied by a single restart with `--append-system-prompt` together with any model or effort change. Switching the pooled process to a different logical session also restarts it, preventing conversation leakage; persisted history is replayed after that restart. The next empty turn restores the configured append prompt.
+
+**Image input.** When the turn's last message entry carries `images` (`{mediaType, data}` with base64 `data`),
+`content` is an array – the text block, then one `image` block per image – instead of the string:
+
+```json
+{
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": [
+      { "type": "text", "text": "What is in this screenshot?" },
+      { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo..." } }
+    ]
+  }
+}
+```
+
+`ClaudeProtocolAdapter.buildTurnRequest(images:)` builds it; without images the request is the string form above, byte for
+byte. The form is the Messages API content-block shape and is an assumption about the CLI's stream-json input until a
+live qualification confirms it.
 
 For resumed sessions, a `"resume": true` field is added.
 
@@ -1151,6 +1171,12 @@ Each turn is issued with `turn/start` on the active thread. By default DartClaw 
 own replayed history. An explicit provider-session id instead loads the rollout from a durable system or dedicated
 `CODEX_HOME`; a missing rollout fails the turn and never falls back to `thread/start`.
 
+The `turn/start` `input` is one `text` item. When the turn's last message entry carries `images`, each becomes an
+`{"type": "image", "url": "data:<media_type>;base64,<data>"}` item after the text item, so the app server needs no file
+visible on the host or container lane (`CodexProtocolAdapter.buildTurnRequest(images:)`). Earlier entries' images are never
+re-sent. Like the Claude form, this is an assumption pending live qualification; `localImage` with a staged path is the
+fallback shape. ACP prompts stay text-only: the attachment is named in the context block and nothing else.
+
 The harness correlates response notifications with the active thread and, once `turn/started` identifies it, the active
 turn. Agent messages and terminal notifications from background subagent threads or an earlier turn cannot emit
 parent-response text, contribute usage, or settle the pending parent turn. Child tool lifecycle notifications continue
@@ -1539,16 +1565,16 @@ When `tryHandle()` returns `false`, the message is enqueued with the derived ses
 
 ### Thread Binding
 
-Thread binding enables per-task conversation threads in Google Chat Spaces. It is opt-in through
-`features.thread_binding.enabled`; when disabled, the runtime does not create the binding store or wire binding behavior:
+Thread binding enables per-task conversation threads on channels that declare `Channel.threadedNotifications` (Google Chat, Slack) and holds the thread a workflow run posts into.
+Task binding is opt-in through `features.thread_binding.enabled`; the binding store is also created for `workflow.chat_notifications`, so run threads need no flag:
 
-**Outbound – binding creation**: `TaskNotificationSubscriber` posts the initial task notification (queued→running) to a new Google Chat thread using `threadKey = "task-{taskId}"`. The REST client returns the server-assigned `thread.name`. `TaskNotificationSubscriber` calls `ThreadBindingStore.create()` to map the thread to the task's session.
+**Outbound – binding creation**: with the flag on, `TaskNotificationSubscriber` posts the initial task notification (queued→running) through the channel's `sendToNewThread` using `threadKey = "task-{taskId}"`. The capability returns the platform thread identity (Google Chat: the server-assigned `thread.name`) and the subscriber calls `ThreadBindingStore.create(ThreadBinding.task(...))` to map the thread to the task's session. `WorkflowRunNotificationSubscriber` does the same with `threadKey = "run-{runId}"` for a run posting to the configured `workflow.chat_notifications` channel and writes `ThreadBinding.run(...)`, which it deletes after the run's terminal post.
 
-**Inbound – thread routing**: `CloudEventAdapter` extracts `message.thread.name` and stores it in `ChannelMessage.metadata['threadName']`. `extractThreadId()` reads this field. When a binding matches, `ChannelTaskBridge` calls the injected `enqueue` callback with the binding's session key – routing the message to the task agent rather than the shared group session.
+**Inbound – thread routing**: for Google Chat `CloudEventAdapter` extracts `message.thread.name` into `ChannelMessage.metadata['threadName']`, which the Google Chat capability's `extractThread` reads; Slack's capability builds its identity from `metadata['spaceName']` and `metadata['threadId']`. When a task binding matches, `ChannelTaskBridge` calls the injected `enqueue` callback with the binding's session key – routing the message to the task agent rather than the shared group session. A run binding never routes.
 
-**Persistence**: `ThreadBindingStore` maintains an in-memory `Map<String, ThreadBinding>` backed by `<dataDir>/thread-bindings.json`. Every mutation (create, delete, updateLastActivity, reconcile) writes atomically via `atomicWriteJson()` (temp file + rename).
+**Persistence**: `ThreadBindingStore` maintains an in-memory `Map<String, ThreadBinding>` backed by `<dataDir>/thread-bindings.json`. Every mutation (create, delete, updateLastActivity, reconcile) writes atomically via `atomicWriteJson()` (temp file + rename). `load()` keeps every well-formed row, whichever channels are registered.
 
-**Startup reconciliation**: On startup, after both the binding store and task service are loaded, `ThreadBindingStore.reconcile(activeTaskIds)` removes bindings whose task has reached a terminal state. This handles bindings that were not cleaned up during a crash or restart.
+**Startup reconciliation**: On startup, after both the binding store and task service are loaded, `ThreadBindingStore.reconcile(activeTaskIds: …, activeRunIds: …)` removes bindings whose task or run is terminal or unknown. This handles bindings that were not cleaned up during a crash or restart.
 
 **Key**: `ThreadBinding.key(channelType, threadId)` → `'$channelType::$threadId'` compound string.
 
@@ -1560,7 +1586,7 @@ CloudEventAdapter.parseMessageResource()
   ↓
 ChannelManager.handleInboundMessage()
   → tryHandle(message, channel, sessionKey: derived, enqueue: queue.enqueue)
-    → extractThreadId(message) → 'spaces/AAAA/threads/CCCC'
+    → channel.threadedNotifications.extractThread(metadata) → 'spaces/AAAA/threads/CCCC'
     → ThreadBindingStore.lookupByThread('googlechat', 'spaces/AAAA/threads/CCCC')
       → found: binding for task-xyz, sessionKey: 'agent:main:task:task-xyz'
     → enqueue(message, channel, 'agent:main:task:task-xyz')   // routed to task session
@@ -1653,8 +1679,8 @@ StreamChannel<String> ndjsonChannel(
 | `packages/dartclaw_runtime/lib/src/container/container_health_monitor.dart` | Container health polling |
 | `packages/dartclaw_core/lib/src/channel/channel_manager.dart` | `ChannelManager` – inbound routing entry point |
 | `packages/dartclaw_core/lib/src/channel/channel_task_bridge.dart` | `ChannelTaskBridge` – routing precedence logic |
-| `packages/dartclaw_core/lib/src/channel/thread_binding.dart` | `ThreadBinding`, `ThreadBindingStore`, `extractThreadId` |
-| `packages/dartclaw_runtime/lib/src/task/task_notification_subscriber.dart` | Thread binding auto-creation on task notifications |
+| `packages/dartclaw_core/lib/src/channel/thread_binding.dart`, `threaded_notifications.dart` | `ThreadBinding` (task or run), `ThreadBindingStore`; the `ThreadedNotifications` capability |
+| `packages/dartclaw_runtime/lib/src/task/task_notification_subscriber.dart`, `workflow_run_notification_subscriber.dart` | Task and run notifications with their thread bindings |
 
 ### External references
 

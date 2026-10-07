@@ -518,30 +518,32 @@ language only after rebuild.
 
 ### Thread Binding
 
-Thread bindings map channel conversations to DartClaw task sessions so replies continue in the task session instead of the default shared or scoped session. Routing precedence lives in [System Architecture](system-architecture.md); security implications live in [Security Architecture](security-architecture.md).
+Thread bindings map channel threads to DartClaw task sessions so replies continue in the task session instead of the default shared or scoped session, or hold the thread a workflow run posts into. Only a channel that declares `ThreadedNotifications` (Google Chat, Slack) can hold one. Routing precedence lives in [System Architecture](system-architecture.md); security implications live in [Security Architecture](security-architecture.md).
 
 ```
 ThreadBinding
-├── channelType: String       (e.g. "googlechat", "whatsapp", "signal")
-├── threadId: String          (Google Chat thread resource name or group identifier)
-├── taskId: String             → Task.id
-├── sessionKey: String         (encoded session key for message routing)
+├── channelType: String       (e.g. "googlechat", "slack")
+├── threadId: String          (identity the channel's capability reads: Google Chat thread resource name, Slack "<conversationId>:<thread_ts>")
+├── kind: task | run
+├── targetId: String           → Task.id or WorkflowRun.id
+├── sessionKey: String?        (encoded session key for message routing; task bindings only)
 ├── createdAt: DateTime
 └── lastActivity: DateTime     (updated on each routed message)
 ```
 
-**Storage**: `thread-bindings.json` — JSON array of binding objects, atomic writes (temp file + rename)
+**Storage**: `thread-bindings.json` — JSON array of binding objects, atomic writes (temp file + rename). A task row stores `taskId`, a run row stores `runId`, and each carries `kind`; a row without `kind` reads as a task.
 **Lookup key**: `"<channelType>::<threadId>"` — compound in-memory key
 **Package**: `dartclaw_core` (model + store)
 
 **Lifecycle**:
-- Created automatically when a task with a Google Chat `TaskOrigin` transitions to `running` and `TaskNotificationSubscriber` receives the server-assigned `thread.name` from the initial threaded notification
-- Additional bindings can be created explicitly through `/bind <taskId>` or the task binding API, so multiple channels can point at the same task session simultaneously
+- A task binding is created automatically, with `features.thread_binding.enabled` on, when a task with a `TaskOrigin` on a channel that threads transitions to `running` and `TaskNotificationSubscriber` receives the thread identity from the initial threaded notification
+- A run binding is created by `WorkflowRunNotificationSubscriber` for a run posting to the `workflow.chat_notifications` channel (one thread per run) and deleted after the run's terminal post
+- Additional task bindings can be created explicitly through `/bind <taskId>`, `task_bind` or the task binding API, so multiple threads can point at the same task session simultaneously. A thread held by a run binding is refused with a conflict naming the run
 - `lastActivity` is updated with a fire-and-forget persist on each routed message so the binding reflects recent use without blocking inbound routing
-- `ThreadBindingLifecycleManager` auto-unbinds terminal tasks (`accepted`, `rejected`, `cancelled`, `failed`) from the event bus and also runs idle-timeout cleanup (default: 1 hour idle, swept every 5 minutes)
-- Startup reconciliation via `ThreadBindingStore.reconcile(activeTaskIds)` prunes stale entries left behind by restarts or write failures before new traffic is accepted
+- `ThreadBindingLifecycleManager` auto-unbinds terminal tasks (`accepted`, `rejected`, `cancelled`, `failed`) from the event bus and also runs idle-timeout cleanup of task bindings (default: 1 hour idle, swept every 5 minutes); run bindings are exempt from the sweep
+- Startup reconciliation via `ThreadBindingStore.reconcile(activeTaskIds:, activeRunIds:)` prunes bindings whose task or run is terminal or unknown, left behind by restarts or write failures, before new traffic is accepted
 
-`ThreadBindingStore` maintains an in-memory `Map` backed by the JSON file. All lookups are synchronous (in-memory); only writes touch the filesystem. If the file is missing or contains invalid JSON on load, the store starts empty without error.
+`ThreadBindingStore` maintains an in-memory `Map` backed by the JSON file. All lookups are synchronous (in-memory); only writes touch the filesystem. `load()` keeps every well-formed row regardless of which channels are registered yet; a malformed row is skipped with a warning. If the file is missing or contains invalid JSON on load, the store starts empty without error.
 
 ### Channel Runtime DTOs (Ephemeral)
 
@@ -560,7 +562,7 @@ ChannelMessage
 Important Google Chat metadata keys:
 - `messageName` — canonical Chat message resource name (`spaces/.../messages/...`)
 - `messageCreateTime` — RFC 3339 timestamp copied from the inbound Chat message resource
-- `threadName` — Chat thread resource name for thread binding and routing
+- `threadName` — Chat thread resource name, read by Google Chat's `ThreadedNotifications.extractThread` for thread binding and routing
 - `spaceType` — inbound Chat space type (`DM`, `GROUP_CHAT`, `SPACE`); used to gate quoting before `quotedMessageMetadata` is built
 - `senderDisplayName` — human-readable sender name used for text-level attribution and sender attribution decisions when quoting is unavailable
 
@@ -890,7 +892,7 @@ durable seam that connects workflow execution to task/worktree persistence.
 | `TurnTrace.task_id` | `Task.id` | String ID reference | **No** — traces survive task deletion |
 | `TaskEvent.task_id` | `Task.id` | String ID reference | **No** — events survive task deletion |
 | `SearchDocument` | Canonical topic, archive, observation, and learning entries | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
-| `ThreadBinding.taskId` | `Task.id` | String ID reference | **No** — reconciled on startup (stale bindings pruned) |
+| `ThreadBinding.targetId` | `Task.id` (kind `task`) or `WorkflowRun.id` (kind `run`) | String ID reference | **No** — reconciled on startup (bindings of terminal or unknown tasks and runs pruned) |
 
 ### Lifecycle Dependencies
 
@@ -902,10 +904,11 @@ durable seam that connects workflow execution to task/worktree persistence.
 | **Goal deleted** | Tasks referencing the goal retain `goalId` but goal lookup returns null. |
 | **Session archived** | Type changes to read-only `archive`; NDJSON and conversation rows are preserved for owner-authorized archived-lifecycle search. Task sessions are protected from automated archival. |
 | **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
+| **Workflow run reaches a terminal state** | Its run thread binding (if any) is deleted after the terminal post. |
 | **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in the configured derived index. |
 | **Memory or chat-facing message changes** | The workspace principal's lexical projection updates first. Hybrid mode then reuses exact content-hash/provider-fingerprint vectors, embeds missing chunks, retires stale identities and refuses late results if the source changed. Embedding failure leaves lexical search current and increments that corpus's unembedded count. |
 | **Embedding provider or model changes** | The new provider fingerprint makes prior vectors ineligible. Startup and `rebuild-index` reconcile owner and admitted managed-workspace memory and conversations independently without changing canonical sources. |
-| **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks. |
+| **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks and runs. |
 
 ---
 

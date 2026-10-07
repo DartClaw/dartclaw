@@ -167,3 +167,33 @@ Decisions the sources leave open, each also stated where it bites:
 ## Discovered Requirements
 
 - **Title**: Push-back feedback turns carry no turn provenance. **Description**: `_pushBackFeedbackDelivery` in `service_wiring.dart` starts a human-input turn (`source: 'push-back'`) on a channel-type session without a `TurnProvenance`, so a write tool called during it reaches the shared-write guard with no channel and no sender. Decide how the guard classifies this turn, never as an unaudited bypass of the channel admin gate (for example by giving the turn the session's channel provenance at that seam, or by treating a channel-session turn without provenance as refused), and prove it with a test. **Rationale**: S04 surfaced the provenance-less turn source after this FIS was written. **Interpretation**: scope-preserving; keeps S04's contract that a sender gate decides a no-sender turn by its own rule. **Traced from**: S04 completion report (open note). **Date**: 2026-10-06
+
+
+## Implementation Observations
+
+#### DRIFT
+
+- ambiguous-intent: the write gate is a small class, `KnowledgeWriteGate` (`mcp/knowledge_write_gate.dart`), built once in `service_wiring_mcp_tools.dart` and handed to the three tools as their `contextualWriteGuard`, not an inline closure in the wiring file. The runtime fixture's prepared database stores no KG rows, so a granted `kg_add` can only be proved against the tools with an in-memory graph; the class makes that possible without a second implementation of the rule | Stale targets: – | –
+- ambiguous-intent: TI03's Verify names `web_routes_test.dart`, but the source-route scenarios (S03 to S06) live in `test/web/knowledge_source_route_test.dart`: adding them to `web_routes_test.dart` took it past the 1430-line test-file fitness cap. S07 stays proved by the unchanged wiki-view tests in `web_routes_test.dart` | Stale targets: – | –
+- ambiguous-intent: TI04's four Verify files do not hold the gate's S08 to S10 semantics against real stores, so `test/mcp/knowledge_write_gate_test.dart` is added; `service_wiring_mcp_scope_test.dart` proves the wiring end to end through `wiki_write` (allow) and `kg_add` / `kg_invalidate` (refusal) | Stale targets: – | –
+- ambiguous-intent: S11 names `docs/guide/slack.md` and a run-approvals section on the governance page, and neither exists in this base (S01 and S06 have not landed). The governance page names the gate under Admin Senders, and the context-engine page carries the four statements. The Slack page's closed-`tools`-list example is left to the story that creates the page | Stale targets: docs/guide/slack.md, docs/guide/governance.md | –
+
+ASSUMPTION: the push-back feedback turn (Discovered Requirements) gets its origin channel as provenance with no sender, built in `_pushBackFeedbackDelivery` from the task's `TaskOrigin` (`PushBackFeedbackDelivery` now carries the origin instead of the session key) – the review seam does not carry who pushed back, so naming the task creator would lend a sender's rank to someone else. The gate decides a channel turn with no sender by the same rule: refused wherever `admin_senders` is set, allowed (and audited) where the list is empty, because an unidentified sender is an admin only where every sender is. A review path that carries the pusher's identity would let the turn name them.
+
+ASSUMPTION: a channel turn is any turn whose provenance has a `channelType`, with or without a sender – S04's own contract keeps a no-sender turn to each reader's own rule, and the push-back finding needs a channel turn without a sender gated rather than passed.
+
+ASSUMPTION: links ride inside the packet's token budget (a `url` is part of the packet JSON the budget estimates), so a very small `token_budget` with `base_url` set truncates earlier than without it – setting the link after truncation would make the budget look kept while the tool result is larger.
+
+Side effect noted: with provenance on the push-back turn, a `workflow_run` that turn starts now records the task's channel type as its run origin (no sender) where S04's note expected `api`.
+
+NOTICED BUT NOT TOUCHING: the standalone source page uses the shared document layout, so it still ships the command-palette dialog and shell scripts, which answer 401 if a reader without a session opens the palette; its 404 page's "Back to Home" link goes to the login-gated `/` exactly as the wiki view's does. Routing: Note.
+
+NOTICED BUT NOT TOUCHING: the source route fires no `FailedAuthEvent` and is not behind `AuthRateLimiter`; a forged token costs one HMAC compare and answers the same 404 as everything else. Routing: Note.
+
+NOTICED BUT NOT TOUCHING: `sourceLinkerFor` repeats the `base_url` trailing-slash strip that `task_notification_subscriber.dart` already carries; normalising once in the config parser would drop both. Routing: Note (kernel parser change).
+
+NOTICED BUT NOT TOUCHING: the source route switches on the layer names `'wiki'` and `'kg'` as strings while links are minted from `CitationLayer.wireName`; a wire-name rename would turn every link into a 404, which the route tests would catch. Routing: Note.
+
+NOTICED BUT NOT TOUCHING: `ChannelType.values.byName(origin.channelType)` in `_pushBackFeedbackDelivery` throws on an unknown name, and the review service logs and skips delivery, so a task origin with an unknown channel loses its push-back feedback. That fails closed, and the only origin writer uses `ChannelType.googlechat.name`. Routing: Note.
+
+Review applied: the `governance.admin_senders` field description (kernel `governance_fields.dart`, regenerated `schemas/dartclaw.schema.json` and `docs/guide/configuration.md`) now says the key also grants shared writes from a channel.

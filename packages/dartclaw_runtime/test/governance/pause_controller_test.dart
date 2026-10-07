@@ -142,6 +142,37 @@ void main() {
       expect(text, contains('- bob@wa: msg1, msg2'));
     });
 
+    test('drain() carries every paused message\'s attachments onto the resumed turn in arrival order', () {
+      controller.pause('alice');
+      final channel = _FakeChannel();
+      ChannelAttachment file(String name) => ChannelAttachment(filename: name, mediaType: 'text/plain', bytes: [1]);
+      controller.enqueue(
+        ChannelMessage(
+          channelType: ChannelType.whatsapp,
+          senderJid: 'bob@wa',
+          text: 'first',
+          attachments: [file('a.txt')],
+        ),
+        channel,
+        'sess:1',
+      );
+      controller.enqueue(_msg(sender: 'bob@wa', text: 'second'), channel, 'sess:1');
+      controller.enqueue(
+        ChannelMessage(
+          channelType: ChannelType.whatsapp,
+          senderJid: 'bob@wa',
+          text: 'third',
+          attachments: [file('b.txt'), file('c.txt')],
+        ),
+        channel,
+        'sess:1',
+      );
+
+      final resumed = controller.drain()!.single.message;
+
+      expect([for (final attachment in resumed.attachments) attachment.filename], ['a.txt', 'b.txt', 'c.txt']);
+    });
+
     test('drain() collapses multiple senders — multi-line', () {
       controller.pause('alice');
       final channel = _FakeChannel();

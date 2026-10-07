@@ -21,6 +21,7 @@ Future<String> _noopChannelDispatch(
   String? groupJid,
   String? recipientId,
   String? threadId,
+  List<ChannelAttachment> attachments = const [],
 }) async => '';
 
 DeliveryService _defaultDeliveryService(SessionService sessions) {

@@ -281,10 +281,13 @@ All channels flow through the same `ChannelManager`, which handles session key r
 
 Each channel normalizes inbound messages, formats outbound responses, and may provide best-effort typing feedback; unsupported channels use no-op hooks.
 
-For Google Chat thread binding, task notifications can create a dedicated Chat thread and DartClaw persists a
-`ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route
-context, keeping task discussion scoped to the task instead of falling back to the shared room session. Review decisions
-are made through the task UI, API, or the agent's `task_review` tool.
+A channel that threads (Google Chat and Slack) declares one capability for it, and that declaration is the only thing
+DartClaw consults: WhatsApp and Signal declare none and receive plain messages. With thread binding on, task
+notifications on such a channel create a dedicated thread and DartClaw persists a `ThreadBinding` that maps that thread
+back to the correct task session. Replies in that thread reuse the bound route context, keeping task discussion scoped
+to the task instead of falling back to the shared room session. Review decisions are made through the task UI, API, or
+the agent's `task_review` tool. Workflow runs post their started, awaiting-approval and finished or failed messages the
+same way, into the thread that started the run or into one thread per run in the `workflow.chat_notifications` channel.
 
 Google Chat also carries reply metadata through the shared queue. Inbound `messageName` and `messageCreateTime` survive queued delivery, so enabling `channels.google_chat.quote_reply: true` lets outbound replies render as native quoted replies for both webhook-originated messages and Space Events messages. Optional `channels.google_chat.feedback.*` settings let long-running turns update a placeholder message or emoji reaction while work is in progress; defaults remain off, so existing deployments keep the old behavior until the feature is enabled.
 

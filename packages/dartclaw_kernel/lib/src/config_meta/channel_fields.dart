@@ -622,6 +622,13 @@ const Map<String, FieldMeta> _channelFields = {
     mutability: ConfigMutability.restart,
     description: 'Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention.',
   ),
+  'channels.slack.streaming': FieldMeta(
+    yamlPath: 'channels.slack.streaming',
+    jsonKey: 'channels.slack.streaming',
+    type: ConfigFieldType.bool_,
+    mutability: ConfigMutability.restart,
+    description: 'Stream a reply into its Slack thread or DM as the agent writes it. When false, the reply is posted in chunks once the turn ends. Streaming needs the chat:write scope.',
+  ),
 
   // --- Google Chat: the shared channel keys it parses and discards ---
   // The one reader in `CommonChannelFields` runs for every channel, so these

@@ -36,6 +36,7 @@ class RecordingMessageQueue extends MessageQueue {
                groupJid,
                recipientId,
                threadId,
+               attachments = const [],
              }) async => 'ok'),
        );
 

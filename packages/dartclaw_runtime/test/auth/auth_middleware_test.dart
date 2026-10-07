@@ -82,6 +82,18 @@ void main() {
         expect(response.statusCode, 200);
       });
 
+      test('/knowledge/source passes through as an exact path only', () async {
+        final handler = authMiddleware(tokenService: tokenService, gatewayToken: gatewayToken)(makeOk());
+
+        final exact = await handler(Request('GET', Uri.parse('http://localhost/knowledge/source?t=abc')));
+        final nested = await handler(Request('GET', Uri.parse('http://localhost/knowledge/source/extra')));
+        final sibling = await handler(Request('GET', Uri.parse('http://localhost/knowledge/sources')));
+        final wikiView = await handler(Request('GET', Uri.parse('http://localhost/knowledge/wiki/wiki/a.md')));
+
+        expect(exact.statusCode, 200);
+        expect([nested.statusCode, sibling.statusCode, wikiView.statusCode], everyElement(401));
+      });
+
       test('custom public path passes through', () async {
         final mw = authMiddleware(
           tokenService: tokenService,

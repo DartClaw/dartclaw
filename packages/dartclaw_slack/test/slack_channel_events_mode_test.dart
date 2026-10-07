@@ -30,6 +30,7 @@ Future<String> _noDispatch(
   String? groupJid,
   String? recipientId,
   String? threadId,
+  List<ChannelAttachment> attachments = const [],
 }) async => 'ok';
 
 void main() {

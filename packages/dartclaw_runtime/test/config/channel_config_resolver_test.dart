@@ -42,6 +42,23 @@ channels:
       expect(anyChannelEnabled(config), isTrue);
     });
 
+    test('reads channels.slack.streaming from YAML and warns on a non-bool', () {
+      final off = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: _yaml('channels:\n  slack:\n    streaming: false\n'),
+        env: const {'HOME': '/home/user'},
+      );
+      final invalid = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: _yaml('channels:\n  slack:\n    streaming: nope\n'),
+        env: const {'HOME': '/home/user'},
+      );
+
+      expect(resolveChannelConfig<SlackConfig>(off, ChannelType.slack).streaming, isFalse);
+      expect(resolveChannelConfig<SlackConfig>(invalid, ChannelType.slack).streaming, isTrue);
+      expect(invalid.warnings.where((warning) => warning.contains('slack.streaming')), hasLength(1));
+    });
+
     test('rejects ChannelType.web, which has no config section', () {
       const config = DartclawConfig.defaults();
 

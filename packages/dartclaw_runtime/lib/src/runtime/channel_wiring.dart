@@ -20,6 +20,7 @@ import 'package:path/path.dart' as p;
 import '../config/message_queue_reconfigurer.dart';
 import 'channel_agent_binding.dart';
 import 'channel_session_title.dart';
+import 'channel_turn_attachments.dart';
 import 'feedback_observer_factory.dart';
 import 'model_resolver.dart';
 import 'reserved_command_handler.dart';
@@ -71,6 +72,7 @@ class ChannelWiring {
   GoogleChatSpaceEventsWiring? _spaceEventsWiring;
   TaskNotificationSubscriber? _taskNotificationSubscriber;
   ThreadBindingStore? _threadBindingStore;
+  var _threadBindingEnabled = false;
   PauseController? _pauseController;
   String? _webhookSecret;
   ChannelManager? _fallbackDeliveryChannelManager;
@@ -85,6 +87,11 @@ class ChannelWiring {
   GoogleChatSpaceEventsWiring? get spaceEventsWiring => _spaceEventsWiring;
   TaskNotificationSubscriber? get taskNotificationSubscriber => _taskNotificationSubscriber;
   ThreadBindingStore? get threadBindingStore => _threadBindingStore;
+
+  /// The store task-binding writers and readers use: [threadBindingStore] only while
+  /// `features.thread_binding.enabled` gates task binding on.
+  ThreadBindingStore? get taskThreadBindingStore => _threadBindingEnabled ? _threadBindingStore : null;
+
   PauseController? get pauseController => _pauseController;
   String? get webhookSecret => _webhookSecret;
   ChannelManager? get fallbackDeliveryChannelManager => _fallbackDeliveryChannelManager;
@@ -139,14 +146,16 @@ class ChannelWiring {
       },
     );
 
-    // Initialize ThreadBindingStore if thread binding is enabled.
+    // The one live ThreadBindingStore holds task bindings (gated by the flag alone) and the
+    // thread of each run that posts to workflow.chat_notifications, so either turns it on.
     final threadBindingEnabled = config.features.threadBinding.enabled;
-    if (threadBindingEnabled) {
+    _threadBindingEnabled = threadBindingEnabled;
+    if (threadBindingEnabled || config.workflow.chatNotifications != null) {
       final bindingsFile = File(p.join(_dataDir, 'thread-bindings.json'));
       final store = ThreadBindingStore(bindingsFile);
       await store.load();
       _threadBindingStore = store;
-      _log.info('ThreadBindingStore initialized (features.thread_binding.enabled)');
+      _log.info('ThreadBindingStore initialized (task binding: $threadBindingEnabled)');
     }
 
     if (waEnabled || sigEnabled || googleChatEnabled || slackEnabled) {
@@ -166,6 +175,7 @@ class ChannelWiring {
       _channelManager = _buildChannelManager(
         config: config,
         googleChatConfig: googleChatConfig,
+        slackConfig: slackConfig,
         liveScopeConfig: liveScopeConfig,
         rows: rows,
         sessions: sessions,
@@ -188,7 +198,7 @@ class ChannelWiring {
             pauseController: pauseController,
             replayPausedTurns: (collapsed) =>
                 ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: _channelManager!.queue),
-            threadBindingStore: _threadBindingStore,
+            threadBindingStore: taskThreadBindingStore,
             auditLogger: _auditLogger,
           ),
           perSenderRateLimiter: perSenderLimiter,
@@ -564,6 +574,7 @@ class ChannelWiring {
   ChannelManager _buildChannelManager({
     required DartclawConfig config,
     required GoogleChatConfig googleChatConfig,
+    required SlackConfig slackConfig,
     required LiveScopeConfig liveScopeConfig,
     required GroupConfigResolver rows,
     required SessionService sessions,
@@ -584,6 +595,8 @@ class ChannelWiring {
       isAdmin: config.governance.isAdmin,
       turnObserver: FeedbackObserverFactory.build(
         googleChatConfig: googleChatConfig,
+        slackConfig: slackConfig,
+        redactor: redactor,
         sessions: sessions,
         turnManagerGetter: turnManagerGetter,
       ),
@@ -597,6 +610,7 @@ class ChannelWiring {
             String? groupJid,
             String? recipientId,
             String? threadId,
+            List<ChannelAttachment> attachments = const [],
           }) async {
             final row = rows.resolveRow(channelType, groupId: groupJid, peerId: senderJid);
             final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config, row: row);
@@ -620,6 +634,7 @@ class ChannelWiring {
               model: overrides.model,
               effort: overrides.effort,
               binding: _agentBinder?.bind(row),
+              attachments: attachments,
             );
           },
     );
@@ -673,7 +688,7 @@ class ChannelWiring {
       provenance: TurnProvenance.channel(
         channelType: message.channelType,
         recipientId: resolveRecipientId(message),
-        threadId: extractThreadId(message),
+        threadId: channelManager.threadedNotificationsFor(message.channelType.name)?.extractThread(message.metadata),
         sessionKey: sessionKey,
         senderId: message.senderJid,
       ),
@@ -707,6 +722,7 @@ Future<String> dispatchChannelTurn({
   String? model,
   String? effort,
   ChannelAgentBinding? binding,
+  List<ChannelAttachment> attachments = const [],
 }) async {
   final session = binding == null
       ? await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel)
@@ -718,8 +734,13 @@ Future<String> dispatchChannelTurn({
           executionMode: binding.policy.mode,
           workspace: binding.definition.workspace,
         );
-  final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
-  await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
+  final staged = await stageChannelAttachments(messages, session.id, attachments);
+  final persisted = await messages.insertMessage(
+    sessionId: session.id,
+    role: 'user',
+    content: message,
+    metadata: channelMessageMetadata(senderDisplayName, staged),
+  );
 
   if (session.title == null && senderJid != null) {
     await sessions.updateTitle(session.id, channelSessionTitle(channelType, senderJid));
@@ -728,7 +749,7 @@ Future<String> dispatchChannelTurn({
   // The current message is already persisted; pass full history so channel
   // continuity matches the web route.
   final history = await messages.getMessages(session.id);
-  final messagesList = history.map((m) => <String, dynamic>{'role': m.role, 'content': m.content}).toList();
+  final messagesList = await channelTurnEntries(messages, session.id, history, activeId: persisted.id, staged: staged);
 
   final turns = turnManagerGetter();
   final origin = (channel: channelType.name, contact: senderDisplayName ?? senderJid, group: groupJid != null);

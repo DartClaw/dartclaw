@@ -111,7 +111,7 @@ Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
 | `scheduling` | `SchedulingConfig` | Scheduled jobs | `heartbeatEnabled`, `heartbeatIntervalMinutes`, `jobs` list |
 | `workspace` | `WorkspaceConfig` | Workspace git sync | `gitSyncEnabled`, `gitSyncPushEnabled`, `gitSyncIntervalMinutes` |
 | `onboarding` | `OnboardingConfig` | Conversational onboarding | `expiryDays` |
-| `workflow` | `WorkflowConfig` | Workflow engine | `workspaceDir` (override) |
+| `workflow` | `WorkflowConfig` | Workflow engine | `workspaceDir` (override), `chatNotifications` (channel, recipient, events; null when unset or invalid) |
 | `logging` | `LoggingConfig` | Log configuration | `level`, `format`, `file`, `redactPatterns` |
 | `usage` | `UsageConfig` | Usage tracking | `budgetWarningTokens`, `maxFileSizeBytes` |
 | `container` | `ContainerConfig` | Container isolation | Docker settings (from `dartclaw_kernel`) |

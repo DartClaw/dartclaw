@@ -61,6 +61,33 @@ void main() {
       );
     });
 
+    test('appends one data-URL image item per image after the text item', () {
+      final adapter = CodexProtocolAdapter();
+      final payload = adapter.buildTurnRequest(
+        message: 'What is this?',
+        images: [
+          {'mediaType': 'image/png', 'data': 'UE5H'},
+          {'mediaType': 'image/webp', 'data': 'V0VCUA=='},
+        ],
+      );
+
+      expect((payload['params'] as Map<String, dynamic>)['input'], [
+        {'type': 'text', 'text': 'What is this?'},
+        {'type': 'image', 'url': 'data:image/png;base64,UE5H'},
+        {'type': 'image', 'url': 'data:image/webp;base64,V0VCUA=='},
+      ]);
+    });
+
+    test('keeps the single text item when images is null or empty', () {
+      final adapter = CodexProtocolAdapter();
+      final plain = adapter.buildTurnRequest(message: 'Hello');
+
+      expect(adapter.buildTurnRequest(message: 'Hello', images: const []), plain);
+      expect((plain['params'] as Map<String, dynamic>)['input'], [
+        {'type': 'text', 'text': 'Hello'},
+      ]);
+    });
+
     test('includes threadId while ignoring systemPrompt', () {
       final adapter = CodexProtocolAdapter();
       final payload = adapter.buildTurnRequest(message: 'Hello', systemPrompt: 'Be concise', threadId: 'thread-123');

@@ -32,7 +32,7 @@
 
 ## Key files
 - `lib/dartclaw_testing.dart` — curated barrel; the public API of the package.
-- `lib/src/fake_agent_harness.dart`, `fake_codex_process.dart`, `fake_process.dart` (also holds `RecordingGitRunner`/`GitInvocation`, the single test seam for `dartclaw_kernel`'s canonical `runGit`), `fake_channel.dart`, `fake_channel_manager.dart`, `fake_guard.dart`, `fake_google_jwt_verifier.dart`, `fake_content_classifier.dart`, `fake_turn_manager.dart`, `fake_project_service.dart` — boundary doubles.
+- `lib/src/fake_agent_harness.dart`, `fake_codex_process.dart`, `fake_process.dart` (also holds `RecordingGitRunner`/`GitInvocation`, the single test seam for `dartclaw_kernel`'s canonical `runGit`), `fake_channel.dart` (`FakeChannel(threadedNotifications:)` plus `FakeThreadedNotifications`, a scripted `ThreadedNotifications` recording `rendered` notifications and `sends` as `RecordedThreadedSend`), `fake_channel_manager.dart`, `fake_guard.dart`, `fake_google_jwt_verifier.dart`, `fake_content_classifier.dart`, `fake_turn_manager.dart`, `fake_project_service.dart` — boundary doubles.
 - `lib/src/in_memory_*.dart` — repository ports (task, session, workflow step); `InMemorySessionService` mirrors the
   filesystem service's conversation state contract for runtime consumers.
 - `lib/src/test_event_bus.dart`, `lib/src/recording_message_queue.dart` — recording collaborators.

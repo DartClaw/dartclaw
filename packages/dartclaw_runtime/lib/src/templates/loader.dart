@@ -28,6 +28,7 @@ const expectedTemplates = [
   'source_attribution',
   'kg_timeline',
   'wiki_document',
+  'source_view',
   'restart_banner',
   'channel_detail',
   'tasks',

@@ -222,13 +222,14 @@ WhatsApp and Signal use the bridge-reserved text-command path documented in thei
 
 ### Thread binding
 
-Thread binding is opt-in and requires `features.thread_binding.enabled: true`, as set in Scenario A. It is Google Chat
-only: a binding is keyed by the per-message thread identity that inbound routing reads, and no other channel sends one,
-so `/bind` in a WhatsApp or Signal group answers `Cannot bind — this message is not in a thread.` `/bind` and
-`/unbind` remain deterministic commands. `/bind` requires the complete task ID; retrieve it through
+Thread binding is opt-in and requires `features.thread_binding.enabled: true`, as set in Scenario A. It works on a
+channel that sends a per-message thread identity, which is what a binding is keyed by: Google Chat and Slack. WhatsApp
+and Signal send none, so `/bind` in a WhatsApp or Signal group answers `Cannot bind — this message is not in a thread.`
+`/bind` and `/unbind` remain deterministic commands. `/bind` requires the complete task ID; retrieve it through
 `task_list`, `review_list`, the task page, or the API. The agent-facing `task_bind` and `task_unbind` tools are separate:
-`task_bind` requires the full task ID plus an explicit `googlechat` channel and thread identifier; `task_unbind`
-requires only the full task ID and removes all bindings for that task.
+`task_bind` requires the full task ID plus an explicit channel (`googlechat` or `slack`) and thread identifier;
+`task_unbind` requires only the full task ID and removes all bindings for that task. A thread that a workflow run posts
+into is refused with a message naming the run.
 
 Thread replies route to a bound task session before ordinary session routing. See [Tasks](../tasks.md#agent-tool-surface)
 for the command, tool, and API forms.

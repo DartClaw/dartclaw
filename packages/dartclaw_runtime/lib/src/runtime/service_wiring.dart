@@ -51,8 +51,11 @@ import '../server_composition.dart';
 import '../conversation/human_command_catalog.dart';
 import '../conversation/product_conversation_search.dart';
 import '../memory/memory_admin_service.dart';
+import '../mcp/context_research_tool.dart' show sourceLinkerFor;
+import '../mcp/knowledge_write_gate.dart';
 import '../mcp/mcp_server.dart' show McpCallerContext, McpKnowledgeScope;
 import '../restart_service.dart' show consumeRestartPending;
+import '../task/workflow_run_notification_subscriber.dart';
 import 'channel_agent_binding.dart';
 import 'channel_wiring.dart';
 import 'harness_wiring.dart';
@@ -740,7 +743,16 @@ class _RuntimeAssembly {
     );
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
-    final lifecycleManager = channel == null ? null : await _wireThreadBinding(ctx, storage, channel);
+    final lifecycleManager = channel == null ? null : await _wireThreadBinding(ctx, storage, workflowService, channel);
+    final runNotifications = channel == null
+        ? null
+        : wireRunNotifications(
+            config: config,
+            eventBus: ctx.eventBus,
+            lookupRun: workflowService.get,
+            channelManager: channel.channelManager,
+            threadBindings: channel.threadBindingStore,
+          );
     final credentialHealth = _wireCredentialHealth(ctx, harness, providerStatus);
     // Bound here rather than constructed with the security and harness layers:
     // the monitor needs the ProviderStatusService the API reads, which exists
@@ -796,7 +808,8 @@ class _RuntimeAssembly {
         storage,
         security,
         task,
-        channel.threadBindingStore,
+        channel.taskThreadBindingStore,
+        channel.channelManager,
         scheduling,
         workflowRegistry,
         workflowService,
@@ -819,6 +832,7 @@ class _RuntimeAssembly {
       workflowService,
       alertRouter,
       lifecycleManager,
+      runNotifications,
       scopeReconciler,
       groupSessionInit,
       outboundMcpPool,
@@ -1280,14 +1294,17 @@ class _RuntimeAssembly {
   Future<ThreadBindingLifecycleManager?> _wireThreadBinding(
     _WiringContext ctx,
     StorageWiring storage,
+    WorkflowService workflowService,
     ChannelWiring channel,
   ) async {
     final threadBindingStore = channel.threadBindingStore;
     if (threadBindingStore == null) return null;
 
-    final allTasks = await storage.taskService.list();
-    final activeIds = allTasks.where((t) => !t.status.terminal).map((t) => t.id).toSet();
-    final pruned = await threadBindingStore.reconcile(activeIds);
+    final pruned = await reconcileThreadBindings(
+      threadBindingStore,
+      tasks: storage.taskService,
+      workflows: workflowService,
+    );
     if (pruned > 0) {
       _log.info('Pruned $pruned stale thread binding(s) during startup reconciliation');
     }
@@ -1306,10 +1323,14 @@ class _RuntimeAssembly {
 
   /// Delivers push-back feedback as a new turn on the task's own session.
   ///
+  /// The turn carries the origin channel as its provenance but no sender, because the review seam does not carry
+  /// who pushed back: the shared-knowledge write gate then refuses it wherever admin senders are configured,
+  /// rather than treating a channel session's turn as unattributed.
+  ///
   /// The turn manager is bound after this closure is installed.
   PushBackFeedbackDelivery _pushBackFeedbackDelivery(_WiringContext ctx, StorageWiring storage) {
-    return ({required String taskId, required String sessionKey, required String feedback}) async {
-      final session = await storage.sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+    return ({required String taskId, required TaskOrigin origin, required String feedback}) async {
+      final session = await storage.sessions.getOrCreateByKey(origin.sessionKey, type: SessionType.channel);
       final messages = [
         {'role': 'user', 'content': feedback},
       ];
@@ -1319,6 +1340,11 @@ class _RuntimeAssembly {
         source: 'push-back',
         isHumanInput: true,
         promptScope: PromptScope.primary,
+        provenance: TurnProvenance.channel(
+          channelType: ChannelType.values.byName(origin.channelType),
+          recipientId: origin.recipientId,
+          sessionKey: origin.sessionKey,
+        ),
       );
     };
   }
@@ -1421,6 +1447,7 @@ class _RuntimeAssembly {
       _project,
       _workflowRegistry,
       workflowService,
+      null,
       null,
       null,
       _wireScopeReconciler(ctx),

@@ -69,6 +69,17 @@ void main() {
     expect(warnings, isEmpty);
   });
 
+  test('streaming defaults to on, turns off with false, and a non-bool warns naming the key', () {
+    final warnings = <String>[];
+
+    expect(SlackConfig.fromYaml(const {}, warnings).streaming, isTrue);
+    expect(SlackConfig.fromYaml(const {'streaming': false}, warnings).streaming, isFalse);
+    expect(warnings, isEmpty);
+
+    expect(SlackConfig.fromYaml(const {'streaming': 'off'}, warnings).streaming, isTrue);
+    expect(warnings.single, contains('slack.streaming'));
+  });
+
   test('a value of the wrong type warns and keeps the default', () {
     final warnings = <String>[];
 

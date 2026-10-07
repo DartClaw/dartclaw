@@ -122,6 +122,7 @@ Setting the references of both transports loads with one warning naming the one 
 | `channels.slack.group_allowlist` | `list` | `empty` | Channel IDs (`C…` or `G…`); same entry shapes as `dm_allowlist` |
 | `channels.slack.require_mention` | `boolean` | `true` | Only a message naming the bot opens a thread in a channel |
 | `channels.slack.mention_patterns` | `list` | `empty` | Extra regexes counted as naming the bot, on top of the bot user mention |
+| `channels.slack.streaming` | `boolean` | `true` | Stream a reply into its thread or DM as the agent writes it; `false` posts it in chunks once the turn ends. Needs the `chat:write` scope |
 
 The generated reference in [Configuration](configuration.md) carries the same keys with their descriptions. All of them need a restart.
 

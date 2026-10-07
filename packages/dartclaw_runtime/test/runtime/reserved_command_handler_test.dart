@@ -17,7 +17,10 @@ void main() {
   late PauseController pauseController;
 
   setUp(() {
-    channel = FakeChannel(ownedJids: {'admin@s.whatsapp.net', 'user@s.whatsapp.net'});
+    channel = FakeChannel(
+      ownedJids: {'admin@s.whatsapp.net', 'user@s.whatsapp.net'},
+      threadedNotifications: FakeThreadedNotifications(threadMetadataKey: 'threadName'),
+    );
     eventBus = TestEventBus();
     taskRepo = InMemoryTaskRepository();
     taskService = TaskService(taskRepo, eventBus: eventBus);
@@ -164,7 +167,7 @@ void main() {
       );
 
       expect(fullResult, 'executed');
-      expect(store.lookupByThread('googlechat', 'thread-full')?.taskId, fullId);
+      expect(store.lookupByThread('googlechat', 'thread-full')?.targetId, fullId);
       expect(channel.sentMessages.single.$2.text, contains('Bound to task $fullId.'));
 
       channel.sentMessages.clear();
@@ -228,7 +231,7 @@ void main() {
 
       final now = DateTime.now();
       await store.create(
-        ThreadBinding(
+        ThreadBinding.task(
           channelType: 'googlechat',
           threadId: 'thread-bound',
           taskId: boundId,
@@ -249,7 +252,7 @@ void main() {
       );
 
       expect(differentTaskResult, 'rejected');
-      expect(store.lookupByThread('googlechat', 'thread-bound')?.taskId, boundId);
+      expect(store.lookupByThread('googlechat', 'thread-bound')?.targetId, boundId);
       expect(channel.sentMessages.single.$2.text, 'Already bound to task $boundId — /unbind first.');
 
       channel.sentMessages.clear();
@@ -264,7 +267,7 @@ void main() {
       );
 
       expect(sameTaskResult, 'executed');
-      expect(store.lookupByThread('googlechat', 'thread-bound')?.taskId, boundId);
+      expect(store.lookupByThread('googlechat', 'thread-bound')?.targetId, boundId);
       expect(channel.sentMessages.single.$2.text, 'Already bound to task $boundId.');
 
       channel.sentMessages.clear();
@@ -331,7 +334,7 @@ void main() {
 
       // A thread carries the identity the router reads, so the binding round-trips.
       expect(await handle(threadMessage('/bind $threadTaskId'), threadBindingStore: store), 'executed');
-      expect(router.lookupThreadBinding(threadMessage('follow-up'))?.taskId, threadTaskId);
+      expect(router.lookupThreadBinding(threadMessage('follow-up'), channel)?.targetId, threadTaskId);
 
       // A WhatsApp group carries none, so /bind must refuse rather than report a
       // success the router can never honour.
@@ -339,7 +342,77 @@ void main() {
       expect(await handle(groupMessage('/bind $groupTaskId'), threadBindingStore: store), 'rejected');
       expect(channel.sentMessages.single.$2.text, 'Cannot bind — this message is not in a thread.');
       expect(store.lookupByTask(groupTaskId), isEmpty);
-      expect(router.lookupThreadBinding(groupMessage('follow-up')), isNull);
+      expect(router.lookupThreadBinding(groupMessage('follow-up'), channel), isNull);
+    });
+
+    test('/bind and /unbind refuse a thread a workflow run holds, naming the run, and leave its binding', () async {
+      await taskService.create(
+        id: 'task-live',
+        title: 'Live',
+        description: 'Live',
+        configJson: const {'needsWorktree': false},
+        autoStart: true,
+      );
+      final store = await createBindingStore();
+      final now = DateTime.now();
+      await store.create(
+        ThreadBinding.run(
+          channelType: 'googlechat',
+          threadId: 'thread-run',
+          runId: 'run-7',
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+      ChannelMessage inRunThread(String text) => ChannelMessage(
+        channelType: ChannelType.googlechat,
+        senderJid: 'admin@s.whatsapp.net',
+        text: text,
+        metadata: const {'threadName': 'thread-run'},
+      );
+
+      expect(await handle(inRunThread('/bind task-live'), threadBindingStore: store), 'rejected');
+      expect(channel.sentMessages.single.$2.text, 'This thread belongs to workflow run run-7.');
+
+      channel.sentMessages.clear();
+      expect(await handle(inRunThread('/unbind'), threadBindingStore: store), 'rejected');
+      expect(channel.sentMessages.single.$2.text, contains('run-7'));
+      expect(store.lookupByRun('run-7'), hasLength(1), reason: 'only the run ending releases its thread');
+      expect(store.lookupByTask('task-live'), isEmpty);
+    });
+
+    test('/bind on a channel that declares no thread capability refuses, whatever its metadata holds', () async {
+      await taskService.create(
+        id: 'task-live',
+        title: 'Live',
+        description: 'Live',
+        configJson: const {'needsWorktree': false},
+        autoStart: true,
+      );
+      final store = await createBindingStore();
+      final undeclared = FakeChannel(ownedJids: {'admin@s.whatsapp.net'});
+
+      final result = await ReservedCommandHandler.handle(
+        ChannelMessage(
+          channelType: ChannelType.whatsapp,
+          senderJid: 'admin@s.whatsapp.net',
+          text: '/bind task-live',
+          metadata: const {'threadName': 'thread-1', 'threadId': 'thread-1'},
+        ),
+        undeclared,
+        governance: allAdminsGovernance,
+        turnManagerGetter: () => FakeTurnManager(),
+        taskService: taskService,
+        eventBus: eventBus,
+        sseBroadcast: SseBroadcast(),
+        pauseController: pauseController,
+        replayPausedTurns: (_) async {},
+        threadBindingStore: store,
+      );
+
+      expect(result, 'rejected');
+      expect(undeclared.sentMessages.single.$2.text, 'Cannot bind — this message is not in a thread.');
+      expect(store.lookupByTask('task-live'), isEmpty);
     });
 
     test('/unbind without thread binding store returns rejected', () async {

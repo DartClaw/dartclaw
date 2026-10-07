@@ -21,6 +21,7 @@ import 'package:dartclaw_runtime/src/runtime/task_wiring.dart';
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_google_chat/testing.dart';
 import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_slack/testing.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
@@ -594,6 +595,76 @@ void main() {
       expect(turns.reserved.single.promptScope, PromptScope.restricted);
     });
 
+    test('Slack feedback started before the dispatch leaves the bound session to the dispatch', () async {
+      const agent = AgentDefinition(
+        id: 'ana',
+        description: 'Ana',
+        prompt: 'You are Ana.',
+        provider: 'codex',
+        securityProfile: 'restricted',
+        profileIsOperatorConfigured: true,
+        execution: ExecutionMode.container,
+      );
+      final binding = binderFor(agent).bind(const GroupEntry(id: 'C1', agent: 'ana'));
+      final slackApi = FakeSlackWebApi();
+      final channel = SlackChannel(
+        config: const SlackConfig(enabled: true),
+        api: slackApi,
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: MentionGating(requireMention: false, mentionPatterns: const [], ownJid: ''),
+        channelManager: ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults()),
+      );
+      final observer = FeedbackObserverFactory.build(
+        googleChatConfig: const GoogleChatConfig(),
+        slackConfig: const SlackConfig(enabled: true),
+        sessions: sessions,
+        turnManagerGetter: () => turns,
+      )!;
+      const sessionKey = 'agent:ana:slack:group:C1:thread:1.1';
+      final inbound = ChannelMessage(
+        id: 'C1:1.1',
+        channelType: ChannelType.slack,
+        senderJid: 'U1',
+        groupJid: 'C1',
+        text: 'hello',
+        metadata: const {'spaceName': 'C1', threadIdMetadataKey: '1.1'},
+      );
+      final response = Completer<String>();
+
+      // The queue starts the observer right after invoking the dispatcher, before the session exists.
+      final observed = observer(sessionKey, inbound, channel, 'C1', response.future);
+      await pumpEventQueue();
+      expect(await sessions.getByKey(sessionKey), isNull, reason: 'feedback must not create the session');
+      response.complete(
+        await dispatchChannelTurn(
+          sessions: sessions,
+          messages: messages,
+          turnManagerGetter: () => turns,
+          sessionKey: sessionKey,
+          message: inbound.text,
+          channelType: ChannelType.slack,
+          senderJid: inbound.senderJid,
+          groupJid: 'C1',
+          binding: binding,
+          provenance: _signalProvenance,
+        ),
+      );
+      await observed;
+
+      final session = await sessions.getByKey(sessionKey);
+      expect(session?.provider, 'codex');
+      expect(session?.securityProfile, 'restricted');
+      expect(session?.executionMode, ExecutionMode.container);
+      expect(
+        await sessions.listSessions(type: SessionType.channel),
+        hasLength(1),
+        reason: 'created once, by the dispatch',
+      );
+      expect(turns.started, isEmpty);
+      expect(turns.reserved.single.agentName, 'ana', reason: 'the turn runs on the logical-agent surface');
+      expect(slackApi.statuses.map((status) => status.status), ['is working...', '']);
+    });
+
     test('pause replay does not reconstruct a bound session as a primary turn', () async {
       final sessionKey = SessionKey.dmPerChannelContact(agentId: 'ana', channelType: 'signal', peerId: '+1');
       const agent = AgentDefinition(
@@ -620,6 +691,7 @@ void main() {
               groupJid,
               recipientId,
               threadId,
+              attachments = const [],
             }) async {
               try {
                 return await dispatchChannelTurn(
@@ -896,10 +968,12 @@ agent:
       senderId: 'users/42',
     );
 
-    test('the queue route and the direct route build the same provenance for a Google Chat thread message', () async {
+    test('run origin thread: the queue route and the direct route build the same provenance for a Google Chat thread message', () async {
       final manager = channels.channelManager!;
       final sessionKey = manager.deriveSessionKey(googleChatThread);
-      manager.registerChannel(FakeChannel(type: ChannelType.googlechat, ownsAllJids: true));
+      manager.registerChannel(
+        GoogleChatChannel(config: const GoogleChatConfig(enabled: true), restClient: FakeGoogleChatRestClient()),
+      );
 
       manager.handleInboundMessage(googleChatThread);
       await untilDispatched();
@@ -919,7 +993,7 @@ agent:
       expect(viaDirect, viaQueue);
     });
 
-    test('a bound agent turn carries the same provenance and keeps its logical-agent reservation', () async {
+    test('run origin thread: a channel declaring no capability yields none, and a bound agent turn keeps its logical-agent reservation', () async {
       final manager = channels.channelManager!;
       final inbound = ChannelMessage(
         channelType: ChannelType.signal,
@@ -939,7 +1013,7 @@ agent:
         TurnProvenance.channel(
           channelType: ChannelType.signal,
           recipientId: '+46700000001',
-          threadId: 'threads/T9',
+          threadId: null,
           sessionKey: sessionKey,
           senderId: '+46700000001',
         ),
@@ -1176,6 +1250,62 @@ agent:
       expect(wired.channels.channelManager!.channels, contains(slack));
       expect(slack.type, ChannelType.slack);
       expect(wired.channels.channelGroupConfigs.map((c) => c.channelType), isNot(contains('slack')));
+    });
+
+    test('run origin thread: a Slack thread message records the thread its capability extracts', () async {
+      final wired = await wireChannels(
+        '$slackCredentials${'channels:\n  debounce_window_ms: 0\n$slackSection'}$agents',
+      );
+      final manager = wired.channels.channelManager!;
+      final inbound = ChannelMessage(
+        channelType: ChannelType.slack,
+        senderJid: 'U1',
+        groupJid: 'C0456DEF',
+        text: 'run the release check',
+        metadata: {'spaceName': 'C0456DEF', threadIdMetadataKey: '1700000000.000100'},
+      );
+      final sessionKey = manager.deriveSessionKey(inbound);
+
+      manager.handleInboundMessage(inbound);
+      while (wired.turns.started.isEmpty) {
+        await pumpEventQueue();
+      }
+
+      expect(
+        wired.turns.started.single.provenance,
+        TurnProvenance.channel(
+          channelType: ChannelType.slack,
+          recipientId: 'C0456DEF',
+          threadId: 'C0456DEF:1700000000.000100',
+          sessionKey: sessionKey,
+          senderId: 'U1',
+        ),
+      );
+    });
+
+    const bindingChannelsYaml = 'channels:\n  debounce_window_ms: 0\n$slackSection';
+    const chatNotificationsYaml = 'workflow:\n  chat_notifications:\n    channel: slack\n    recipient: C0456DEF\n';
+    const threadBindingFlagYaml = 'features:\n  thread_binding:\n    enabled: true\n';
+
+    test('no binding store is built when neither the flag nor chat_notifications asks for one', () async {
+      final wired = await wireChannels('$slackCredentials$bindingChannelsYaml$agents');
+
+      expect(wired.channels.threadBindingStore, isNull);
+      expect(wired.channels.taskThreadBindingStore, isNull);
+    });
+
+    test('chat_notifications alone builds the live binding store, but task binding stays off', () async {
+      final wired = await wireChannels('$slackCredentials$bindingChannelsYaml$agents$chatNotificationsYaml');
+
+      expect(wired.channels.threadBindingStore, isNotNull);
+      expect(wired.channels.taskThreadBindingStore, isNull, reason: 'the flag alone gates task binding');
+    });
+
+    test('the thread_binding flag builds one store that both run and task binding share', () async {
+      final wired = await wireChannels('$slackCredentials$bindingChannelsYaml$agents$threadBindingFlagYaml');
+
+      expect(wired.channels.threadBindingStore, isNotNull);
+      expect(wired.channels.taskThreadBindingStore, same(wired.channels.threadBindingStore));
     });
 
     test('a disabled section registers nothing, and no channel manager is built for it alone', () async {

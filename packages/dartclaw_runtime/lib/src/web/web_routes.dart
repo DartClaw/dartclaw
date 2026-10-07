@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -15,8 +13,10 @@ import '../api/session_routes_support.dart'
     show ModelCatalogueLookup, contextModelLabel, effectiveContextView, noModelCatalogues;
 import '../auth/auth_utils.dart';
 import '../auth/session_token.dart';
+import '../auth/source_link_token.dart';
 import '../auth/token_service.dart';
 import '../health/health_service.dart';
+import '../knowledge/wiki_source_read.dart';
 import '../project/project_mutation_service.dart';
 import '../templates/chat.dart';
 import '../templates/components.dart';
@@ -32,6 +32,7 @@ import '../memory/memory_prune_service.dart';
 import '../session/session_display_title.dart';
 import '../templates/session_info.dart';
 import '../templates/sidebar.dart';
+import '../templates/source_view.dart';
 import '../templates/topbar.dart';
 import '../templates/wiki_document.dart';
 import '../runtime_config.dart';
@@ -610,29 +611,11 @@ Router webRoutes(
     final workspaceDir = config?.workspaceDir;
     if (workspaceDir == null) return _wikiNotFound();
     final decoded = sourcePath.split('/').map(Uri.decodeComponent).join('/');
-    if (!decoded.startsWith('wiki/') || !decoded.endsWith('.md')) return _wikiNotFound();
-    final wikiRoot = p.normalize(p.absolute(p.join(workspaceDir, 'wiki')));
-    final relativePath = decoded.substring('wiki/'.length);
-    final filePath = p.normalize(p.absolute(p.join(wikiRoot, relativePath)));
-    if (!p.isWithin(wikiRoot, filePath)) return _wikiNotFound();
-    final file = File(filePath);
-    if (!file.existsSync()) return _wikiNotFound();
-
-    final String markdown;
-    try {
-      final canonicalWikiRoot = p.normalize(Directory(wikiRoot).resolveSymbolicLinksSync());
-      final canonicalFilePath = p.normalize(file.resolveSymbolicLinksSync());
-      if (!p.isWithin(canonicalWikiRoot, canonicalFilePath)) return _wikiNotFound();
-      // Read the path that was verified, not the one that was requested: the
-      // workspace is agent-writable, so re-resolving through `file` would let a
-      // symlink swapped in after the check serve content from outside the root.
-      markdown = File(canonicalFilePath).readAsStringSync();
-    } on FileSystemException {
-      return _wikiNotFound();
-    }
+    final markdown = readContainedWikiPage(workspaceDir, decoded);
+    if (markdown == null) return _wikiNotFound();
 
     final page = wikiDocumentTemplate(
-      title: p.basename(relativePath),
+      title: p.basename(decoded),
       markdown: markdown,
       sidebarData: await pageContext.sidebar.build(),
       navItems: registry.navItems(activePage: 'Knowledge'),
@@ -640,6 +623,46 @@ Router webRoutes(
       appName: appName,
     );
     return Response.ok(page, headers: htmlHeaders);
+  });
+
+  // GET [sourceLinkPath]?t=<token> — one cited wiki page or graph fact, read-only.
+  // Auth-exempt: the signed token is the credential and is verified before any
+  // file or database read. Every refusal is the wiki view's one 404.
+  router.get(sourceLinkPath, (Request request) async {
+    final workspaceDir = config?.workspaceDir;
+    final token = request.url.queryParameters['t'];
+    final unsigned = config?.gateway.authMode == 'none';
+    if (workspaceDir == null || token == null || (!unsigned && gatewayToken == null)) return _wikiNotFound();
+    final target = validateSourceLinkToken(token, key: unsigned ? null : gatewayToken);
+    if (target == null) return _wikiNotFound();
+
+    switch (target.layer) {
+      case 'wiki':
+        final markdown = readContainedWikiPage(workspaceDir, target.locator);
+        if (markdown == null) return _wikiNotFound();
+        return Response.ok(
+          wikiSourceViewTemplate(title: p.basename(target.locator), markdown: markdown, appName: appName),
+          headers: htmlHeaders,
+        );
+      case 'kg':
+        final id = int.tryParse(target.locator);
+        final fact = id == null ? null : await kgService?.factById(id);
+        if (fact == null) return _wikiNotFound();
+        return Response.ok(
+          factSourceViewTemplate(
+            entity: fact.entity,
+            predicate: fact.predicate,
+            value: fact.value,
+            validFrom: fact.validFrom,
+            validTo: fact.validTo,
+            invalidatedAt: fact.invalidatedAt,
+            appName: appName,
+          ),
+          headers: htmlHeaders,
+        );
+      default:
+        return _wikiNotFound();
+    }
   });
 
   for (final page in registry.pages) {

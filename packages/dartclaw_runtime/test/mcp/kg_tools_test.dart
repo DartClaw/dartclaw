@@ -93,7 +93,7 @@ void main() {
       agentId: 'main',
     );
     final add = KgAddTool(kg: kg, contextualWriteGuard: denyTemporary);
-    final addResult = await add.callWithContext({
+    final addResult = await add.callWithTurn({
       'entity': 'Temporary marker',
       'predicate': 'status',
       'value': 'must not persist',
@@ -113,7 +113,7 @@ void main() {
       owner: systemKgPrincipal,
     );
     final invalidate = KgInvalidateTool(kg: kg, contextualWriteGuard: denyTemporary);
-    final invalidateResult = await invalidate.callWithContext({
+    final invalidateResult = await invalidate.callWithTurn({
       'id': id,
       'invalidated_at': '2026-09-22T01:00:00Z',
       'reason': 'temporary attempt',

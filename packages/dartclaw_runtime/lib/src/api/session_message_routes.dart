@@ -12,6 +12,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../conversation/conversation_service.dart';
+import '../conversation/turn_attachments.dart' show metadataWithoutAttachmentContent;
 import '../concurrency/session_mutation_coordinator.dart';
 import '../auth/request_auth_context.dart';
 import '../execution_coordinator.dart';

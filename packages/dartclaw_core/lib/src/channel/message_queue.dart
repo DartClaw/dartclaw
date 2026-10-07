@@ -7,7 +7,6 @@ import 'package:logging/logging.dart';
 
 import 'channel.dart';
 import 'recipient_resolver.dart';
-import 'thread_binding.dart' show extractThreadId;
 
 // ---------------------------------------------------------------------------
 // BudgetExhaustedError
@@ -34,6 +33,7 @@ typedef TurnDispatcher = Future<String> Function(
   String? groupJid,
   String? recipientId,
   String? threadId,
+  List<ChannelAttachment> attachments,
 });
 
 /// Observer for a queued turn. Can watch the running response future and
@@ -153,12 +153,14 @@ class MessageQueue {
     final buf = _debounce[debounceKey];
     if (buf != null) {
       buf.texts.add(message.text);
+      buf.attachments.addAll(message.attachments);
       buf.lastMessage = message;
       buf.timer.cancel();
       buf.timer = _startDebounceTimer(debounceKey);
     } else {
       _debounce[debounceKey] = _DebounceBuffer(
         texts: [message.text],
+        attachments: [...message.attachments],
         lastMessage: message,
         sourceChannel: sourceChannel,
         timer: _startDebounceTimer(debounceKey),
@@ -208,6 +210,7 @@ class MessageQueue {
         timestamp: buf.lastMessage.timestamp,
         mentionedJids: buf.lastMessage.mentionedJids,
         metadata: buf.lastMessage.metadata,
+        attachments: buf.attachments,
       ),
       sourceChannel: buf.sourceChannel,
       sessionKey: debounceKey.sessionKey,
@@ -282,7 +285,8 @@ class MessageQueue {
               senderDisplayName: entry.message.senderDisplayName,
               groupJid: entry.message.groupJid,
               recipientId: recipientJid,
-              threadId: extractThreadId(entry.message),
+              threadId: entry.sourceChannel.threadedNotifications?.extractThread(entry.message.metadata),
+              attachments: entry.message.attachments,
             );
             final redactedResponseFuture = responseFuture.then((response) => _redactor?.redact(response) ?? response);
             final observer = _turnObserver;
@@ -554,9 +558,16 @@ class MessageQueue {
 
 class _DebounceBuffer {
   final List<String> texts;
+  final List<ChannelAttachment> attachments;
   ChannelMessage lastMessage;
   final Channel sourceChannel;
   Timer timer;
 
-  new({required this.texts, required this.lastMessage, required this.sourceChannel, required this.timer});
+  new({
+    required this.texts,
+    required this.attachments,
+    required this.lastMessage,
+    required this.sourceChannel,
+    required this.timer,
+  });
 }

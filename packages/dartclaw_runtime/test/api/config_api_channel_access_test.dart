@@ -195,6 +195,7 @@ channels:
           'channels.slack.group_allowlist',
           'channels.slack.require_mention',
           'channels.slack.mention_patterns',
+          'channels.slack.streaming',
           'channels.google_chat.enabled',
           'channels.google_chat.service_account',
           'channels.google_chat.oauth_credentials',

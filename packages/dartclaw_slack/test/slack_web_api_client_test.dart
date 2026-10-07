@@ -51,6 +51,23 @@ void main() {
       expect(request.bodyFields, {'channel': 'C1', 'text': 'hello', 'thread_ts': '1700000000.000100'});
     });
 
+    test('blocks are sent JSON-encoded beside the text, and omitted when null', () async {
+      final harness = _Harness((_) async => _json({'ok': true, 'ts': '1.1'}));
+      const blocks = [
+        {
+          'type': 'section',
+          'text': {'type': 'mrkdwn', 'text': '*hi* & <bye>'},
+        },
+      ];
+
+      await harness.client.postMessage(channel: 'C1', text: 'fallback', blocks: blocks);
+      await harness.client.postMessage(channel: 'C2', text: 'plain');
+
+      expect(harness.requests.first.bodyFields['text'], 'fallback');
+      expect(jsonDecode(harness.requests.first.bodyFields['blocks']!), blocks);
+      expect(harness.requests.last.bodyFields.containsKey('blocks'), isFalse);
+    });
+
     test('a rate-limited post is retried once, after the Retry-After delay', () async {
       var calls = 0;
       final harness = _Harness((_) async {

@@ -119,6 +119,33 @@ void main() {
       expect(whatsapp.sentMessages, isEmpty);
     });
 
+    test(
+      'announce reads a thread session through the session-key decoder and skips it, whatever the channel',
+      () async {
+        await _createChannelSession(
+          sessions,
+          SessionKey.dmPerChannelContact(
+            channelType: ChannelType.slack.name,
+            peerId: 'U1',
+            threadId: '1700000000.000100',
+          ),
+        );
+        await _createChannelSession(
+          sessions,
+          SessionKey.dmPerChannelContact(channelType: ChannelType.slack.name, peerId: 'U2'),
+        );
+        await _createChannelSession(sessions, SessionKey.dmPerContact(peerId: 'U3', threadId: '1.5'));
+        final slack = FakeChannel(type: ChannelType.slack, ownsAllJids: true);
+        final service = _makeService(sessions: sessions, sseBroadcast: sseBroadcast, channels: [slack]);
+
+        await service.deliver(mode: DeliveryMode.announce, jobId: 'job-threads', result: 'hello');
+
+        expect(slack.sentMessages.map((entry) => entry.$1), [
+          'U2',
+        ], reason: 'a thread session is no conversation of its own to announce into');
+      },
+    );
+
     test('announce handles channel sendMessage failure gracefully', () async {
       const failingPeer = 'dm/contact/fail@s.whatsapp.net';
       const deliveredPeer = 'signal/+46700000001';
@@ -438,6 +465,7 @@ DeliveryService _makeService({
         groupJid,
         recipientId,
         threadId,
+        attachments = const [],
       }) async => 'ok',
     ),
     config: const ChannelConfig.defaults(),

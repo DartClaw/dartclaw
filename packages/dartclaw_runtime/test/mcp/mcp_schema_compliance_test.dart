@@ -124,6 +124,7 @@ void main() {
                   groupJid,
                   recipientId,
                   threadId,
+                  attachments = const [],
                 }) async => '',
               ),
               config: const ChannelConfig.defaults(),
@@ -144,7 +145,7 @@ void main() {
         TaskReviewTool(reviews: TaskReviewService(tasks: tasks)),
         TaskListTool(tasks: tasks),
         ReviewListTool(tasks: tasks),
-        TaskBindTool(tasks: tasks, bindings: null),
+        TaskBindTool(tasks: tasks, bindings: null, channels: null),
         TaskUnbindTool(bindings: null),
       ];
     }

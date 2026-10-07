@@ -13,6 +13,7 @@ import '../conversation/conversation_service.dart';
 import '../conversation/human_command_catalog.dart';
 import '../conversation/inbox_service.dart';
 import '../conversation/product_conversation_search.dart';
+import '../conversation/turn_attachments.dart' show AttachmentWriteFailpoint;
 import '../session/session_reset_service.dart';
 import '../templates/sidebar.dart' show NavItem, SidebarData;
 import '../turn_manager.dart' show TurnManager;

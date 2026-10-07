@@ -163,7 +163,7 @@ DartclawServer _composeRuntimeServer(
       slackChannel: channel.slackChannel,
       googleChatWebhookHandler: channel.googleChatWebhookHandler,
       spaceEventsWiring: channel.spaceEventsWiring,
-      threadBindingStore: channel.threadBindingStore,
+      threadBindingStore: channel.taskThreadBindingStore,
     ),
     tasks: ServerTaskDeps(
       projectService: project.projectService,

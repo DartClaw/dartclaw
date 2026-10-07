@@ -193,7 +193,7 @@ argument the schema does not name is rejected before the tool runs.
 | `task_list` | optional `status`, `limit` (max 200, default 50) | matching tasks with full IDs, plus whether the listing was truncated |
 | `review_list` | no arguments | the tasks awaiting review, oldest first, with full IDs |
 | `task_review` | `task_id`, `action` (`accept`, `reject`, `push_back`), `feedback` (required for `push_back` only) | the task's full ID, title and new status |
-| `task_bind` | `task_id`, `channel_type` (`googlechat`), `thread_id` | the binding's session key |
+| `task_bind` | `task_id`, `channel_type` (a registered channel that threads: `googlechat`, `slack`), `thread_id` | the binding's session key |
 | `task_unbind` | `task_id` | how many bindings were removed |
 
 Both listings emit full task IDs, so an ordinal reference in the conversation ("accept the second one") resolves
@@ -209,12 +209,15 @@ What these tools cannot do:
 - **`task_bind` cannot bind "the current thread".** A tool call carries no channel context, so the thread must be
   named explicitly. Binding the thread a message arrived in is what the `/bind` reserved command is for.
 
-- **`task_bind` binds a thread, not a group, and `channel_type` accepts only `googlechat`.** A binding is keyed by the
-  per-message thread identity that inbound routing reads, and Google Chat is the only channel that sends one. Naming
-  any other channel fails the tool's schema, because a binding stored against a group would never route a message.
+- **`task_bind` binds a thread, not a group, and `channel_type` accepts only a registered channel that threads
+  (Google Chat and Slack).** A binding is keyed by the per-message thread identity that inbound routing reads from the
+  channel, and only those channels send one: a Slack thread is named `<conversation ID>:<thread timestamp>`, a Google
+  Chat thread by its resource name. Naming any other channel (WhatsApp, Signal) fails the tool's schema, because a
+  binding stored against a group would never route a message. The choices are read at each call, so they follow the
+  channels that are enabled.
 
   Naming the thread explicitly is also the reach worth knowing about: an agent may bind **any** thread it can name,
-  as long as that thread is not already bound and the task is not terminal. It does not have to be a thread the agent
+  as long as that thread is not already bound (to a task or to a workflow run) and the task is not terminal. It does not have to be a thread the agent
   is talking in. Messages in a bound thread then route to the task's session, so a wrongly chosen thread quietly
   changes where a conversation goes. DartClaw is single-owner, so this reaches only your own threads, but if you want
   it constrained, `task_bind` is a write-classified tool like any other - deny it in a guard rule, or leave it out of

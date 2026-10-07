@@ -42,6 +42,9 @@ class SlackConfig {
   /// Additional regex patterns treated as bot mentions in channels.
   final List<String> mentionPatterns;
 
+  /// Whether a reply streams into its thread as the agent writes it.
+  final bool streaming;
+
   /// Creates immutable Slack channel configuration.
   const new({
     this.enabled = false,
@@ -56,6 +59,7 @@ class SlackConfig {
     this.groupAllowlist = const <GroupEntry>[],
     this.requireMention = true,
     this.mentionPatterns = const [],
+    this.streaming = true,
   });
 
   /// Creates a disabled Slack configuration.
@@ -102,6 +106,7 @@ class SlackConfig {
       groupAllowlist: common.groupAllowlist,
       requireMention: common.requireMention,
       mentionPatterns: common.mentionPatterns,
+      streaming: readBool('streaming', yaml, warns, defaultValue: true, warnKey: 'slack.streaming')!,
     );
   }
 }

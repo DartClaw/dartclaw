@@ -103,7 +103,7 @@ const Map<String, FieldMeta> _governanceFields = {
     jsonKey: 'governance.adminSenders',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Sender IDs exempt from rate limits and budget blocks.',
+    description: 'Sender IDs exempt from rate limits and budget blocks; may write shared knowledge from a channel.',
     nullable: true,
   ),
   'governance.turn_limits.stall_timeout': FieldMeta(
@@ -284,8 +284,9 @@ const Map<String, FieldMeta> _governanceFields = {
     type: ConfigFieldType.bool_,
     mutability: ConfigMutability.restart,
     description:
-        'Route messages in a bound thread straight to that task session, and post task notifications as new threads. '
-        'Google Chat only — it is the one channel that carries a thread identity to bind.',
+        'Route messages in a bound thread straight to that task session, enable /bind, and post task notifications as new threads. '
+        'Applies on every channel that threads (Google Chat, Slack). '
+        'The one thread per workflow run in the workflow.chat_notifications channel does not depend on it.',
   ),
   'features.thread_binding.idle_timeout_minutes': FieldMeta(
     yamlPath: 'features.thread_binding.idle_timeout_minutes',

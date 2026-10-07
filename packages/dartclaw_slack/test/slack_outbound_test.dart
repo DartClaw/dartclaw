@@ -23,6 +23,7 @@ SlackChannel _channel(FakeSlackWebApi api) => SlackChannel(
         String? groupJid,
         String? recipientId,
         String? threadId,
+        List<ChannelAttachment> attachments = const [],
       }) async => 'ok',
     ),
     config: const ChannelConfig.defaults(),
@@ -99,7 +100,7 @@ void main() {
     test('a reply is posted into the thread its metadata names', () async {
       await channel.sendMessage('C1', const ChannelResponse(text: 'hi', metadata: {threadIdMetadataKey: '1.5'}));
 
-      expect(api.posts.single, (channel: 'C1', text: 'hi', threadTs: '1.5'));
+      expect(api.posts.single, (channel: 'C1', text: 'hi', threadTs: '1.5', blocks: null));
     });
 
     test('a reply without a thread is posted to the conversation', () async {
@@ -164,6 +165,7 @@ void main() {
               String? groupJid,
               String? recipientId,
               String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               delivered.add(message);
               return 'the answer';

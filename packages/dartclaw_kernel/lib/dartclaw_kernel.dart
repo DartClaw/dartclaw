@@ -189,6 +189,8 @@ export 'src/usage_config.dart' show UsageConfig;
 export 'src/workflow_config.dart'
     show
         WorkflowApprovalPolicy,
+        WorkflowChatNotificationEvent,
+        WorkflowChatNotificationsConfig,
         WorkflowCleanupConfig,
         WorkflowConfig,
         WorkflowRoleDefaultsConfig,

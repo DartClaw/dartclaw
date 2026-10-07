@@ -115,7 +115,7 @@ export 'src/bridge/bridge_events.dart'
 
 // Channel interfaces
 export 'src/channel/channel.dart'
-    show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey, threadIdMetadataKey;
+    show Channel, ChannelAttachment, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey, threadIdMetadataKey;
 export 'src/channel/channel_feedback.dart'
     show ChannelFeedbackStrategy, FeedbackContext, NoFeedbackStrategy, TurnProgressSnapshot;
 export 'src/channel/channel_manager.dart' show ChannelManager;
@@ -144,7 +144,9 @@ export 'src/channel/turn_progress_event.dart'
         StatusTickProgressEvent,
         TurnStallProgressEvent;
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
-export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingStore, extractThreadId, supportsThreadBinding;
+export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingKind, ThreadBindingStore;
+export 'src/channel/threaded_notifications.dart'
+    show ChannelNotification, ChannelNotificationKind, ThreadedNotifications, ThreadedPost;
 export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;
 export 'src/channel/sidecar_process_manager.dart' show SidecarProcessManager;
 

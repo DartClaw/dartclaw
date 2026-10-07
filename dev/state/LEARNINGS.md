@@ -150,7 +150,7 @@
 - **A signing secret has no token shape, so a regex redactor keeps part of it.** Register it as a literal (`MessageRedactor.registerLiterals`), fully masked; `readBounded` decodes to a String, so Events API verification reads raw bytes (`readBoundedRequestBytes`).
 
 ### Session routing
-- **A `:thread:<id>` key suffix breaks positional key readers.** `delivery.dart#_parseDmTarget` and `service_wiring_notifications.dart` split identifiers by position, so Slack thread sessions get no announce or loop-detection route.
+- **A `:thread:<id>` key suffix breaks positional key readers.** Decode channel keys through `SessionKey.channelRoute`; a positional split of `identifiers` gives Slack thread sessions no announce or loop-detection route.
 - **A `channel`-surface execution request is re-routed onto the primary's provider and policy.** `ExecutionCoordinator._laneFor` sends `ExecutionSurface.channel` to the primary lane, so a channel session pinned to another provider would silently run as the primary. A pinned channel turn must present the logical-agent surface (`TurnManager._reserveExecutionForSession`), keeping `wait` admission.
 
 ## Workflow Engine

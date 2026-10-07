@@ -684,6 +684,7 @@ class DartclawServer {
         projectService: _tasks.projectService,
         dataDir: _core.dataDir,
         threadBindingStore: _channels.threadBindingStore,
+        channelManager: _channels.channelManager,
         mergeStrategy: _tasks.mergeStrategy ?? 'squash',
         baseRef: _tasks.baseRef ?? 'main',
         creationService: _taskCreationService,

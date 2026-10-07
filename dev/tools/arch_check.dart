@@ -126,9 +126,16 @@ import 'loc_target.dart';
 // dispatch are the whole package; later Slack stories raise it with their own
 // reviewed-necessity line. The shared thread seam added to core, kernel and
 // runtime stays inside their bands.
-// Reviewed necessity, 2026-10-06 (0.28): dartclaw_slack 1257 -> 1625 (measured). The signed Events API
-// handler, the health reporter and the events-mode channel are the second transport behind the one
-// envelope dispatch; the shared webhook helpers moved into core and shrank runtime and Google Chat.
+// Reviewed necessity, 2026-10-06 (0.28 streaming and inbound files): dartclaw_slack 1257 -> 2073 (measured 2073).
+// The per-turn feedback strategy (status and streamed reply with its failure fallbacks), the bounded file
+// download in the Web API client and the file intake each own behaviour the adapter did not have.
+// Threaded notifications, 2026-10-06: dartclaw_slack 2073 -> 2223 (measured 2223). Necessity: the one
+// implementation of the thread-notification capability for Slack (the conversation-qualified thread identity,
+// Block Kit rendering with escaping, and the two thread sends with participation).
+// Reviewed necessity, 2026-10-07 (0.28 Events API): dartclaw_slack 2223 -> 2591 (measured 2591 on the merged
+// tree). The signed Events API handler, the health reporter and the events-mode channel are the second
+// transport behind the one envelope dispatch; the shared webhook helpers moved into core and shrank runtime
+// and Google Chat.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
@@ -141,7 +148,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
-  'dartclaw_slack': 1625,
+  'dartclaw_slack': 2591,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25631,

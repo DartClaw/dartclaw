@@ -11,6 +11,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
   SecurityWiring security,
   TaskWiring task,
   ThreadBindingStore? threadBindingStore,
+  ChannelManager? channelManager,
   SchedulingWiring scheduling,
   WorkflowDefinitionSource workflowDefinitions,
   WorkflowService workflowService,
@@ -25,7 +26,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
   server.registerTool(ReviewListTool(tasks: storage.taskService));
   // The binding tools register unconditionally: an absent store is reported at
   // call time, so their availability does not change with an operator toggle.
-  server.registerTool(TaskBindTool(tasks: storage.taskService, bindings: threadBindingStore));
+  server.registerTool(TaskBindTool(tasks: storage.taskService, bindings: threadBindingStore, channels: channelManager));
   server.registerTool(TaskUnbindTool(bindings: threadBindingStore));
   // Orchestration and content tools. They take no session, channel or caller
   // argument, which is what makes them answer the same way to a chat turn and a
@@ -47,6 +48,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
   server.registerTool(
     AttachMediaTool(workspace: WorkspacePathGuard(config.workspaceDir), delivery: scheduling.deliveryService),
   );
+  final auditLogger = security.auditLogger;
   Future<ToolResult?> refuseTemporaryDurableWrite(McpCallerContext caller) async {
     final sessionId = caller.sessionId;
     if (sessionId == null) return null;
@@ -57,16 +59,21 @@ Future<OutboundMcpPool?> _registerMcpTools(
     return null;
   }
 
+  final knowledgeWriteGate = KnowledgeWriteGate(
+    isAdmin: config.governance.isAdmin,
+    auditLogger: auditLogger,
+    refuseFirst: refuseTemporaryDurableWrite,
+  );
+
   server.registerTool(
     WikiWriteTool(
       wiki: WikiPageStore(workspaceDir: config.workspaceDir),
-      contextualWriteGuard: refuseTemporaryDurableWrite,
+      contextualWriteGuard: knowledgeWriteGate.guardFor('wiki_write'),
     ),
   );
   for (final tool in harness.semanticMcpTools) {
     server.registerTool(tool);
   }
-  final auditLogger = security.auditLogger;
   // Register onboarding_complete only when onboarding is active at startup.
   // The single global MCP surface is shared with task/cron/channel agents;
   // the tool's onboardingActive flag refuses calls from non-onboarding contexts
@@ -82,12 +89,16 @@ Future<OutboundMcpPool?> _registerMcpTools(
   // to carry. A named MCP client does carry one, but no write tool is in its
   // profile, so it can never reach these.
   server.registerTool(
-    KgAddTool(kg: storage.kg, auditLogger: auditLogger, contextualWriteGuard: refuseTemporaryDurableWrite),
+    KgAddTool(kg: storage.kg, auditLogger: auditLogger, contextualWriteGuard: knowledgeWriteGate.guardFor('kg_add')),
   );
   server.registerTool(KgQueryTool(kg: storage.kg));
   server.registerTool(KgTimelineTool(kg: storage.kg));
   server.registerTool(
-    KgInvalidateTool(kg: storage.kg, auditLogger: auditLogger, contextualWriteGuard: refuseTemporaryDurableWrite),
+    KgInvalidateTool(
+      kg: storage.kg,
+      auditLogger: auditLogger,
+      contextualWriteGuard: knowledgeWriteGate.guardFor('kg_invalidate'),
+    ),
   );
   server.registerTool(KgContradictionsTool(kg: storage.kg));
   final sharedWiki = WikiSearchSource(workspaceDir: config.workspaceDir);
@@ -113,6 +124,11 @@ Future<OutboundMcpPool?> _registerMcpTools(
       kg: storage.kg,
       sourceResolverFactory: (scope) =>
           LiveCitationSourceResolver(corpus: scope.memoryCorpus, wiki: sharedWiki, kg: storage.kg),
+      sourceLinker: sourceLinkerFor(
+        baseUrl: config.server.baseUrl,
+        signed: config.gateway.authMode != 'none',
+        key: harness.resolvedGatewayToken,
+      ),
       synthesizer: ContextResearchTool.logicalAgentSynthesizer(harness.logicalAgentSessions),
       metricsSink: (metrics) async {
         ctx.eventBus.fire(

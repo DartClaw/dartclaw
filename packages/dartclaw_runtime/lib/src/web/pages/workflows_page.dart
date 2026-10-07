@@ -9,7 +9,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         buildLoopInfo,
         formatContextForDisplay,
         stepStatusFromTask,
-        workflowContextValue;
+        workflowContextValue,
+        workflowRevisionState;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -215,6 +216,7 @@ class WorkflowsPage extends DashboardPage {
         'errorMessage': run.errorMessage,
         'contextJson': run.contextJson,
         'pendingApprovalStepId': pendingApprovalStepId,
+        'revision': workflowRevisionState(run),
       },
       steps: runView.steps,
       contextEntries: contextEntries,

@@ -19,6 +19,27 @@ enum RunControlRefusal {
 
   /// The run is not waiting at that approval.
   notPending,
+
+  /// The gate names no revise step.
+  changesNotOffered,
+
+  /// The gate already went through its bound of request-changes rounds.
+  limitReached,
+
+  /// A request to change carried no feedback.
+  feedbackRequired,
+}
+
+enum _RunAction {
+  resume('resume'),
+  cancel('cancel'),
+  requestChanges('requestChanges'),
+  checkRequestChanges('checkRequestChanges');
+
+  /// The name an audit entry records as the tool.
+  final String auditName;
+
+  new(this.auditName);
 }
 
 /// What a run-control call came to.
@@ -26,7 +47,7 @@ sealed class RunControlResult {
   const new();
 }
 
-/// The run was resumed or cancelled. [run] is the resumed run, `null` for a cancel.
+/// The run was resumed, sent back for changes or cancelled. [run] is the run that continues, `null` for a cancel.
 final class RunControlResolved extends RunControlResult {
   final WorkflowRun? run;
 
@@ -55,8 +76,8 @@ final class RunControlFailed extends RunControlResult {
   const new(this.message);
 }
 
-/// The one admin gate, resolver and audit writer for resuming or cancelling a run from a
-/// chat button, an agent tool or the web.
+/// The one admin gate, resolver and audit writer for resuming, cancelling or requesting changes at a run
+/// from a chat button, an agent tool or the web.
 ///
 /// Chat and tool callers must be admin senders under `governance.admin_senders`; the web
 /// caller is already authenticated, so it is audited but never gated. Every call writes
@@ -81,18 +102,26 @@ final class WorkflowRunControl {
        _isAdmin = isAdmin,
        _auditLogger = auditLogger;
 
-  /// Handles a click on an approval post: Approve resumes the run, Reject cancels it.
+  /// Handles a click on an approval post or a request-changes form's submission: Approve resumes the run,
+  /// Reject cancels it, a submission sends it back to the gate's revise step, and a click on Request changes
+  /// only checks that the sender may and the gate is live.
   Future<ChannelRunApprovalResult> handleApproval(ChannelRunApprovalRequest request) async {
-    final approve = request.action == ChannelRunApprovalAction.approve;
+    final action = switch (request.action) {
+      ChannelRunApprovalAction.approve => _RunAction.resume,
+      ChannelRunApprovalAction.reject => _RunAction.cancel,
+      ChannelRunApprovalAction.requestChanges => _RunAction.requestChanges,
+      ChannelRunApprovalAction.checkRequestChanges => _RunAction.checkRequestChanges,
+    };
     final result = await _resolve(
       hook: 'button',
       source: WorkflowApprovalSource.button,
-      resume: approve,
+      action: action,
       runId: request.runId,
       stepId: request.stepId,
       channel: request.channelType,
       senderId: request.senderId,
       displayName: request.senderDisplayName,
+      feedback: request.feedback,
       expect: WorkflowApprovalExpectation(
         stepId: request.stepId,
         nonce: request.nonce,
@@ -101,12 +130,16 @@ final class WorkflowRunControl {
       ),
     );
     return switch (result) {
+      RunControlResolved() when action == _RunAction.checkRequestChanges => const ChannelRunApprovalPermitted(),
       RunControlResolved() => const ChannelRunApprovalResolved(),
       RunControlRefused(:final reason, :final message) => ChannelRunApprovalRefused(switch (reason) {
         RunControlRefusal.notAdmin || RunControlRefusal.needsChatTurn => ChannelRunApprovalRefusal.notAdmin,
         RunControlRefusal.invalid => ChannelRunApprovalRefusal.invalid,
         RunControlRefusal.alreadyResolved => ChannelRunApprovalRefusal.alreadyResolved,
         RunControlRefusal.notPending => ChannelRunApprovalRefusal.notPending,
+        RunControlRefusal.changesNotOffered => ChannelRunApprovalRefusal.changesNotOffered,
+        RunControlRefusal.limitReached => ChannelRunApprovalRefusal.limitReached,
+        RunControlRefusal.feedbackRequired => ChannelRunApprovalRefusal.feedbackRequired,
       }, message),
       // A click names its run, so an unknown one is a stale or forged button.
       RunControlNotFound() => const ChannelRunApprovalRefused(
@@ -118,17 +151,23 @@ final class WorkflowRunControl {
   }
 
   /// Resumes [runId] for the chat turn [turn], which must carry an admin sender.
-  Future<RunControlResult> resumeFromTool(String runId, TurnProvenance? turn) => _fromTool(true, runId, turn);
+  Future<RunControlResult> resumeFromTool(String runId, TurnProvenance? turn) =>
+      _fromTool(_RunAction.resume, runId, turn);
 
   /// Cancels [runId] for the chat turn [turn], which must carry an admin sender.
   Future<RunControlResult> cancelFromTool(String runId, TurnProvenance? turn, {String? feedback}) =>
-      _fromTool(false, runId, turn, feedback: feedback);
+      _fromTool(_RunAction.cancel, runId, turn, feedback: feedback);
+
+  /// Sends [runId] back to its gate's revise step with [feedback] for the chat turn [turn], which must
+  /// carry an admin sender.
+  Future<RunControlResult> requestChangesFromTool(String runId, TurnProvenance? turn, {required String feedback}) =>
+      _fromTool(_RunAction.requestChanges, runId, turn, feedback: feedback);
 
   /// Resumes [runId] for the authenticated web caller. Never admin-gated.
   Future<RunControlResult> resumeFromWeb(String runId) => _resolve(
     hook: 'web',
     source: WorkflowApprovalSource.web,
-    resume: true,
+    action: _RunAction.resume,
     runId: runId,
     adminGated: false,
     principal: _webPrincipal,
@@ -139,20 +178,32 @@ final class WorkflowRunControl {
   Future<RunControlResult> cancelFromWeb(String runId, {String? feedback}) => _resolve(
     hook: 'web',
     source: WorkflowApprovalSource.web,
-    resume: false,
+    action: _RunAction.cancel,
     runId: runId,
     feedback: feedback,
     adminGated: false,
     principal: _webPrincipal,
   );
 
-  Future<RunControlResult> _fromTool(bool resume, String runId, TurnProvenance? turn, {String? feedback}) async {
+  /// Sends [runId] back to its gate's revise step with [feedback] for the authenticated web caller.
+  /// Never admin-gated.
+  Future<RunControlResult> requestChangesFromWeb(String runId, {required String feedback}) => _resolve(
+    hook: 'web',
+    source: WorkflowApprovalSource.web,
+    action: _RunAction.requestChanges,
+    runId: runId,
+    feedback: feedback,
+    adminGated: false,
+    principal: _webPrincipal,
+  );
+
+  Future<RunControlResult> _fromTool(_RunAction action, String runId, TurnProvenance? turn, {String? feedback}) async {
     final channel = turn?.channelType;
     if (turn == null || channel == null) {
       const message = 'Run control needs a chat turn';
       await _audit(
         hook: 'tool',
-        resume: resume,
+        action: action,
         runId: runId,
         stepId: await _pendingStep(runId),
         allowed: false,
@@ -163,7 +214,7 @@ final class WorkflowRunControl {
     return _resolve(
       hook: 'tool',
       source: WorkflowApprovalSource.tool,
-      resume: resume,
+      action: action,
       runId: runId,
       channel: channel,
       senderId: turn.senderId,
@@ -174,7 +225,7 @@ final class WorkflowRunControl {
   Future<RunControlResult> _resolve({
     required String hook,
     required WorkflowApprovalSource source,
-    required bool resume,
+    required _RunAction action,
     required String runId,
     String? stepId,
     String? channel,
@@ -195,7 +246,7 @@ final class WorkflowRunControl {
     final step = stepId ?? existing?.contextJson['_approval.pending.stepId'] as String?;
     Future<void> audit({required bool allowed, String? reason, bool failed = false}) => _audit(
       hook: hook,
-      resume: resume,
+      action: action,
       runId: runId,
       stepId: step,
       channel: channel,
@@ -226,14 +277,29 @@ final class WorkflowRunControl {
 
     final resolver = WorkflowApprovalResolver(source: source, senderId: senderId, displayName: displayName);
     try {
-      WorkflowRun? resumed;
-      if (resume) {
-        resumed = await _workflows.resume(runId, expect: expect, resolver: resolver);
-      } else {
-        await _workflows.cancel(runId, feedback: feedback, expect: expect, resolver: resolver);
+      WorkflowRun? continued;
+      switch (action) {
+        case _RunAction.resume:
+          continued = await _workflows.resume(runId, expect: expect, resolver: resolver);
+        case _RunAction.cancel:
+          await _workflows.cancel(runId, feedback: feedback, expect: expect, resolver: resolver);
+        case _RunAction.requestChanges:
+          continued = await _workflows.requestChanges(
+            runId,
+            feedback: feedback ?? '',
+            expect: expect,
+            resolver: resolver,
+          );
+        case _RunAction.checkRequestChanges:
+          await _workflows.checkRequestChanges(runId, expect: expect);
+          // A check that passes resolved nothing, so it leaves no entry.
+          return const RunControlResolved();
       }
-      await audit(allowed: true);
-      return RunControlResolved(resumed);
+      await audit(
+        allowed: true,
+        reason: action == _RunAction.requestChanges ? _revisionReason(existing, step, continued) : null,
+      );
+      return RunControlResolved(continued);
     } on WorkflowApprovalRefused catch (refusal) {
       await audit(allowed: false, reason: refusal.reason.name);
       final web = source == WorkflowApprovalSource.web;
@@ -250,13 +316,25 @@ final class WorkflowRunControl {
           RunControlRefusal.notPending,
           web ? refusal.message : 'The run is not waiting at this approval',
         ),
+        WorkflowApprovalRefusal.changesNotOffered => RunControlRefused(
+          RunControlRefusal.changesNotOffered,
+          web ? refusal.message : 'This approval does not offer request changes',
+        ),
+        WorkflowApprovalRefusal.limitReached => RunControlRefused(
+          RunControlRefusal.limitReached,
+          web ? refusal.message : 'This approval reached its revision limit',
+        ),
+        WorkflowApprovalRefusal.feedbackRequired => RunControlRefused(
+          RunControlRefusal.feedbackRequired,
+          'Feedback is required to request changes',
+        ),
       };
     } on ArgumentError {
       await audit(allowed: false, reason: 'run not found');
       return const RunControlNotFound();
     } on StateError catch (error) {
       // The resume route has always answered a refused transition with its own text; cancel answered 500.
-      if (source == WorkflowApprovalSource.web && resume) {
+      if (source == WorkflowApprovalSource.web && action == _RunAction.resume) {
         await audit(allowed: false, reason: error.message);
         return RunControlRefused(RunControlRefusal.notPending, error.message);
       }
@@ -278,9 +356,19 @@ final class WorkflowRunControl {
     }
   }
 
+  /// `revision n/max` for the round the owner recorded on [continued]; [before] (read outside the run's
+  /// lock) supplies only the gate's bound, which a run's definition snapshot never changes.
+  String? _revisionReason(WorkflowRun? before, String? stepId, WorkflowRun? continued) {
+    final max = before == null ? null : workflowRevisionState(before)?.max;
+    final round = continued == null || stepId == null
+        ? null
+        : workflowContextValue(continued, '$stepId.approval.revision');
+    return max == null || round is! num ? null : 'revision ${round.toInt()}/$max';
+  }
+
   Future<void> _audit({
     required String hook,
-    required bool resume,
+    required _RunAction action,
     required String runId,
     String? stepId,
     String? channel,
@@ -300,7 +388,7 @@ final class WorkflowRunControl {
           reason: reason,
           channel: channel,
           peerId: senderId,
-          tool: resume ? 'resume' : 'cancel',
+          tool: action.auditName,
           decision: allowed
               ? 'allow'
               : failed

@@ -908,7 +908,7 @@ A run started anywhere else (the web form, the API, the CLI, a schedule) posts t
 ### Approving from chat
 
 The awaiting-approval post of a run on Google Chat or Slack carries **Approve** and **Reject** buttons. Approve resumes
-the run; Reject cancels it, with no feedback (use the run page or API to cancel with feedback). Only a sender listed
+the run; Reject cancels it, with no feedback (use the run page or API to cancel with feedback). A gate that names a `revise` step (see [Request changes](#request-changes)) adds a third button, **Request changes**: on Slack it opens a modal and on Google Chat a dialog with a feedback field, and only an admin sender gets the form. Only a sender listed
 under `governance.admin_senders` can resolve an approval; anyone else is told so (as an ephemeral reply on Slack, in the click response on Google Chat) and the buttons stay. An
 empty `admin_senders` list makes every sender an admin, which in a group channel means every member can approve or
 reject runs, so list the approvers before you rely on buttons in a shared space. See
@@ -916,11 +916,15 @@ reject runs, so list the approvers before you rely on buttons in a shared space.
 edited to say who resolved it and when ("Approved by Ana at 14:05 UTC"), and a run that ends with the approval
 unresolved (an approval timeout) edits it to "No longer pending". WhatsApp and Signal posts have no buttons.
 
-The agent can do the same from a chat turn with `workflow_resume` and `workflow_cancel` (both take `run_id`; cancel also
-takes an optional `feedback`) and read a run's state with `workflow_status`. The two write tools need a chat turn from an
+The agent can do the same from a chat turn with `workflow_resume`, `workflow_cancel` and `workflow_request_changes` (all take `run_id`; cancel also
+takes an optional `feedback`, request changes a required one) and read a run's state with `workflow_status`. The write tools need a chat turn from an
 admin sender, so they are refused in web chat, scheduled turns and any call with the shared gateway token, and a bound
 agent has them only if its `allowedTools` names them. Resolving from the run page or the HTTP API needs no admin sender.
 Every resolution from a button, a tool or the web is written to the audit log (guard `RunApprovalGate`).
+
+### Request changes
+
+Where a gate names a `revise` step, a reviewer who finds the plan weak can ask for changes instead of rejecting the run: the run goes back to that step with the feedback, runs the steps after it, and pauses at the same gate again, up to the gate's `maxRevisions` (default 3). Every step completed before the `revise` step is kept. The run page shows a feedback field beside Approve and Reject; Slack opens a modal and Google Chat a dialog from the post's **Request changes** button; WhatsApp and Signal use the `workflow_request_changes` tool; `POST /api/workflows/runs/<id>/request-changes` takes `{"feedback": "..."}`. At the limit the post and the page say so and offer only Approve and Reject. To review the built-in plan before any story starts, run `plan-and-implement` with `PLAN_REVIEW=true` (see [`approval` Steps](workflows-reference.md#approval-steps) for the YAML).
 
 ### Web launch forms
 

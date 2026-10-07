@@ -75,6 +75,9 @@ enum CanonicalTool {
   /// Cancel a workflow run.
   workflowCancel('workflow_cancel'),
 
+  /// Send a workflow run waiting at an approval gate back to its revise step.
+  workflowRequestChanges('workflow_request_changes'),
+
   /// Read a workflow run's state.
   workflowStatus('workflow_status'),
 

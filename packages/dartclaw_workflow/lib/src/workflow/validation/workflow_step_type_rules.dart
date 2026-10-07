@@ -216,6 +216,46 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
     }
   }
 
+  /// A gate's `revise` target must be re-enterable: an earlier, top-level,
+  /// non-approval step, with the gate itself top-level too.
+  void _validateReviseRules(
+    WorkflowDefinition definition,
+    WorkflowStep gate,
+    Map<String, int> topLevelOrder,
+    List<WorkflowValidationError> errors,
+  ) {
+    final revise = gate.revise;
+    void fail(String message) => errors.add(
+      _err(WorkflowValidationErrorType.hybridStepConstraint, 'Approval step "${gate.id}" $message', stepId: gate.id),
+    );
+
+    if (revise == null) {
+      if (gate.maxRevisions != null) {
+        fail(
+          'sets "maxRevisions" without "revise". Name the earlier step to re-run in "revise" or drop "maxRevisions".',
+        );
+      }
+      return;
+    }
+    final target = definition.steps.where((candidate) => candidate.id == revise).firstOrNull;
+    if (target == null) {
+      fail('names revise step "$revise", which does not exist. Name an earlier top-level step.');
+    } else if (revise == gate.id) {
+      fail('names itself as its revise step. Name an earlier top-level step.');
+    } else if (target.taskType == WorkflowTaskType.approval) {
+      fail('names approval step "$revise" as its revise step. Name an agent or bash step.');
+    } else if (!topLevelOrder.containsKey(revise)) {
+      fail(
+        'names revise step "$revise", which sits inside a foreach, loop or parallel group. '
+        'Name a step in the top-level sequence.',
+      );
+    } else if (!topLevelOrder.containsKey(gate.id)) {
+      fail('sits inside a foreach, loop or parallel group, where request changes is not supported. Move it top-level.');
+    } else if (topLevelOrder[revise]! > topLevelOrder[gate.id]!) {
+      fail('names revise step "$revise", which comes after the gate. Name an earlier step.');
+    }
+  }
+
   void _validateHybridStepRules(
     WorkflowDefinition definition,
     List<WorkflowValidationError> errors,
@@ -229,6 +269,11 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
         stepToLoop[stepId] = loop.id;
       }
     }
+
+    final topLevelOrder = <String, int>{
+      for (final (index, node) in definition.nodes.indexed)
+        if (node is ActionNode) node.stepId: index,
+    };
 
     for (final step in definition.steps) {
       // Approval step in a loop — warning (runs fine today, requires loop exit gate to avoid infinite wait).
@@ -246,6 +291,8 @@ extension _WorkflowStepTypeRules on WorkflowDefinitionValidator {
           ),
         );
       }
+
+      _validateReviseRules(definition, step, topLevelOrder, errors);
 
       // Approval step as parallel — hard error (approval requires sequential gate behavior).
       if (!parallelRule.appliesTo(step.taskType) && step.parallel) {

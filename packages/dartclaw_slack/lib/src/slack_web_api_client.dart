@@ -233,6 +233,13 @@ class SlackWebApiClient {
     );
   }
 
+  /// Opens the modal [view] for the interaction that carried [triggerId], which Slack honours
+  /// for three seconds and once. Needs no scope. Throws [SlackApiException] with Slack's code
+  /// (`expired_trigger_id`, `exchanged_trigger_id`, `invalid_trigger_id`, ...) when it does not open.
+  Future<void> openView(String triggerId, Map<String, dynamic> view) async {
+    await _call('views.open', token: _botToken, form: {'trigger_id': triggerId, 'view': jsonEncode(view)});
+  }
+
   /// Downloads the private file at [url], reading at most [maxBytes].
   ///
   /// The bot token goes only to an `https` host under `slack.com`, on every

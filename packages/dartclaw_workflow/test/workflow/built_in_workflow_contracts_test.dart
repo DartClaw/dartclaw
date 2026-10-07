@@ -226,6 +226,21 @@ void main() {
       expect(producers.map((producer) => producer.id), ['detect-spec-input', 'spec']);
     });
 
+    test('plan-and-implement review of the plan is opt-in: a gate after plan that revises plan, off by default', () {
+      final def = _load('plan-and-implement.yaml');
+      final ids = def.steps.map((step) => step.id).toList();
+      final gate = def.steps.singleWhere((step) => step.id == 'plan-approval');
+
+      expect(ids.indexOf('plan-approval'), ids.indexOf('plan') + 1, reason: 'the gate sits right after the plan step');
+      expect(ids.indexOf('story-pipeline'), ids.indexOf('plan-approval') + 1, reason: 'no story runs before it');
+      expect(gate.taskType, WorkflowTaskType.approval);
+      expect(gate.revise, 'plan');
+      expect(gate.entryGate, 'PLAN_REVIEW == true');
+      expect(gate.prompt, contains('{{context.plan}}'));
+      expect(def.variables['PLAN_REVIEW']?.defaultValue, 'false');
+      expect(def.variables['PLAN_REVIEW']?.required, isFalse);
+    });
+
     test('plan-and-implement runs implement → review → nested loop per story', () {
       final def = _load('plan-and-implement.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);

@@ -171,6 +171,27 @@ class FakeWorkflowService extends WorkflowService {
     return resumeResult!;
   }
 
+  /// What [requestChanges] answers with, or the refusal reason it throws instead when set.
+  WorkflowRun? requestChangesResult;
+  WorkflowApprovalRefusal? requestChangesRefusal;
+  String? lastFeedback;
+
+  @override
+  Future<WorkflowRun> requestChanges(
+    String runId, {
+    required String feedback,
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) async {
+    calls.add('requestChanges:$runId');
+    lastFeedback = feedback;
+    lastResolver = resolver;
+    if (getResult == null) throw ArgumentError('Workflow run not found: $runId');
+    final refusal = requestChangesRefusal;
+    if (refusal != null) throw WorkflowApprovalRefused(refusal, 'refused: ${refusal.name}');
+    return requestChangesResult!;
+  }
+
   @override
   Future<void> cancel(
     String runId, {

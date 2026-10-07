@@ -196,7 +196,8 @@ export 'src/workflow/workflow_approval_interaction.dart'
         WorkflowApprovalResolution,
         WorkflowApprovalResolver,
         WorkflowApprovalSource,
-        workflowApprovalInteractionContextKey;
+        workflowApprovalInteractionContextKey,
+        workflowRevisionContextKey;
 export 'src/workflow/workflow_service.dart'
     show WorkflowService, missingRequiredWorkflowVariables, missingRequiredWorkflowVariablesMessage;
 export 'src/workflow/workflow_service_deps.dart'
@@ -226,6 +227,8 @@ export 'src/workflow/workflow_view_helpers.dart'
         workflowCanResume,
         workflowCanRetry,
         workflowContextValue,
+        WorkflowRevisionState,
+        workflowRevisionState,
         workflowStatusBadgeClass,
         workflowStatusLabel;
 

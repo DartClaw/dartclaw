@@ -386,6 +386,55 @@ void main() {
       expect(body, contains('timeout'));
     });
 
+    test('offers Request changes only while the pending gate names a revise step with revisions left', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      Future<String> render(String id, {String? revise, int revision = 0, int? maxRevisions}) async {
+        final def = WorkflowDefinition(
+          name: 'revise-wf',
+          description: 'A gate that revises its draft.',
+          steps: [
+            const WorkflowStep(id: 'draft', name: 'Draft', prompts: ['Draft']),
+            WorkflowStep(
+              id: 'gate',
+              name: 'Gate',
+              taskType: WorkflowTaskType.approval,
+              prompts: const ['Review'],
+              revise: revise,
+              maxRevisions: maxRevisions,
+            ),
+          ],
+        );
+        await workflowRepo.insert(
+          WorkflowRun(
+            id: id,
+            definitionName: def.name,
+            status: WorkflowRunStatus.awaitingApproval,
+            startedAt: now,
+            updatedAt: now,
+            currentStepIndex: 2,
+            definitionJson: def.toJson(),
+            contextJson: {
+              '_approval.pending.stepId': 'gate',
+              'data': <String, dynamic>{'gate.approval.status': 'pending', 'gate.approval.revision': revision},
+            },
+          ),
+        );
+        final context = _makeContext(workflowService: workflows, taskService: tasks);
+        return (await page.handler(_get('/workflows/$id'), context)).readAsString();
+      }
+
+      final open = await render('run-open', revise: 'draft');
+      final atBound = await render('run-bound', revise: 'draft', revision: 2, maxRevisions: 2);
+      final none = await render('run-none');
+
+      expect(open, contains('workflow-request-changes"'));
+      expect(open, contains('Revision 0 of 3'));
+      expect(atBound, isNot(contains('workflow-request-changes"')));
+      expect(atBound, contains('Revision limit reached (2 of 2)'));
+      expect(none, isNot(contains('workflow-request-changes"')));
+      expect(none, isNot(contains('Revision ')));
+    });
+
     test('renders completed taskless steps from persisted context data', () async {
       final now = DateTime.parse('2026-03-24T10:00:00Z');
       final definition = WorkflowDefinition(

@@ -173,6 +173,22 @@ Router workflowRoutes(
     };
   });
 
+  // POST /api/workflows/runs/<id>/request-changes
+  router.post('/api/workflows/runs/<id>/request-changes', (Request request, String id) async {
+    final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
+    if (body.error != null) return body.error;
+    final feedback = body.value?['feedback'];
+    return switch (await runControl.requestChangesFromWeb(id, feedback: feedback is String ? feedback : '')) {
+      RunControlResolved(:final run) => jsonResponse(200, run!.toJson()),
+      RunControlNotFound() => errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id'),
+      RunControlRefused(:final reason, :final message) =>
+        reason == RunControlRefusal.feedbackRequired
+            ? errorResponse(400, 'INVALID_INPUT', message)
+            : errorResponse(409, 'INVALID_TRANSITION', message),
+      RunControlFailed() => errorResponse(500, 'INTERNAL_ERROR', 'Failed to request changes at workflow run'),
+    };
+  });
+
   // GET /api/workflows/definitions
   router.get('/api/workflows/definitions', (Request request) async {
     try {

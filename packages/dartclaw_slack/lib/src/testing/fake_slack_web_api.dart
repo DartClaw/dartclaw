@@ -135,6 +135,12 @@ class FakeSlackWebApi extends SlackWebApiClient {
   /// Throws from [postEphemeral] when set.
   SlackApiException? ephemeralError;
 
+  /// Throws from [openView] when set, e.g. `SlackApiException('views.open', errorCode: 'expired_trigger_id')`.
+  SlackApiException? viewError;
+
+  /// Every modal [openView] opened, in call order; a failed open is not recorded.
+  final List<({String triggerId, Map<String, dynamic> view})> openedViews = [];
+
   /// Every post, in call order; the `ts` it returned is `1700000000.00000N` for the Nth.
   final List<({String channel, String text, String? threadTs, List<Map<String, dynamic>>? blocks})> posts = [];
 
@@ -262,6 +268,14 @@ class FakeSlackWebApi extends SlackWebApiClient {
   Future<void> setThreadStatus({required String channel, required String threadTs, required String status}) async {
     _enter('assistant.threads.setStatus');
     statuses.add((channel: channel, threadTs: threadTs, status: status));
+  }
+
+  @override
+  Future<void> openView(String triggerId, Map<String, dynamic> view) async {
+    _enter('views.open');
+    final error = viewError;
+    if (error != null) throw error;
+    openedViews.add((triggerId: triggerId, view: view));
   }
 
   @override

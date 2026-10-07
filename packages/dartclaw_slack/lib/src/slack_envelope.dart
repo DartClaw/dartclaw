@@ -43,18 +43,57 @@ SlackEnvelopeKind slackInteractionKind(Object? type) => switch (type) {
 /// Handler for one [SlackEnvelopeKind].
 typedef SlackEnvelopeHandler = FutureOr<void> Function(SlackEnvelope envelope);
 
+/// Handler for a kind whose acknowledgement carries a body: the JSON object
+/// Slack acts on, or `null` for an empty acknowledgement.
+typedef SlackAnsweringHandler = FutureOr<Map<String, Object?>?> Function(SlackEnvelope envelope);
+
+/// How long an answering handler may take before the acknowledgement goes out empty (Slack's deadline is 3 s).
+const slackAnswerDeadline = Duration(milliseconds: 2500);
+
 /// The one entry point every Slack envelope passes through.
 ///
 /// Knows no transport: Socket Mode and the Events API both build a
 /// [SlackEnvelope] and call [dispatch]. Features register a handler per kind;
 /// an envelope with no handler is logged at debug and dropped.
+///
+/// A kind registered with [registerAnswering] is the exception to
+/// acknowledge-first: its transport calls [dispatchAnswering] and sends the
+/// body it returns as the acknowledgement.
 class SlackEnvelopeDispatch {
   static final _log = Logger('SlackEnvelopeDispatch');
 
   final Map<SlackEnvelopeKind, SlackEnvelopeHandler> _handlers = {};
+  final Map<SlackEnvelopeKind, SlackAnsweringHandler> _answering = {};
+  final Future<void> Function(Duration) _delay;
+
+  /// Creates a dispatch. [delay] replaces the wait for [slackAnswerDeadline], for tests.
+  new({Future<void> Function(Duration)? delay}) : _delay = delay ?? Future<void>.delayed;
 
   /// Registers the handler for [kind], replacing any earlier one.
   void register(SlackEnvelopeKind kind, SlackEnvelopeHandler handler) => _handlers[kind] = handler;
+
+  /// Registers the handler whose result is the acknowledgement body for [kind].
+  void registerAnswering(SlackEnvelopeKind kind, SlackAnsweringHandler handler) => _answering[kind] = handler;
+
+  /// Whether [kind] is acknowledged with the result of its handler rather than first.
+  bool answers(SlackEnvelopeKind kind) => _answering.containsKey(kind);
+
+  /// Runs the answering handler for [envelope]'s kind and returns its body, or `null`
+  /// (an empty acknowledgement) when it fails or has not finished within [slackAnswerDeadline].
+  /// A handler still running at the deadline carries on. Never throws.
+  Future<Map<String, Object?>?> dispatchAnswering(SlackEnvelope envelope) {
+    final handler = _answering[envelope.kind];
+    if (handler == null) return Future.value();
+    final handled = Future<Map<String, Object?>?>(() async {
+      try {
+        return await handler(envelope);
+      } catch (error, stackTrace) {
+        _log.warning('Slack ${envelope.kind.name} handler failed', error, stackTrace);
+        return null;
+      }
+    });
+    return Future.any([handled, _delay(slackAnswerDeadline).then((_) => null)]);
+  }
 
   /// Runs the handler registered for [envelope]'s kind. Never throws: a handler
   /// failure is logged and the envelope is dropped.

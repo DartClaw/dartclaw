@@ -182,7 +182,7 @@ choice. Keep the room informed about what you are changing and what needs human 
 
 - Tasks: `task_create`, `task_list`, `review_list`, `task_review`, `task_bind`, `task_unbind`
 - Workflows: `workflow_list`, `workflow_run`
-- Run approvals: Approve and Reject buttons on the run's post; `workflow_status`, `workflow_resume` and `workflow_cancel` are granted only through an agent's `allowedTools`
+- Run approvals: Approve and Reject buttons on the run's post (plus Request changes on a gate that names a `revise` step); `workflow_status`, `workflow_resume`, `workflow_cancel` and `workflow_request_changes` are granted only through an agent's `allowedTools`
 - Media delivery: `attach_media`
 ```
 

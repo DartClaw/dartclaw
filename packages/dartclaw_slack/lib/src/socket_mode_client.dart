@@ -39,7 +39,8 @@ Future<WebSocket> _connectWebSocket(Uri url) async {
 /// Slack does not replay an envelope after a disconnect, so each envelope is
 /// acknowledged before anything is done with it; processing then runs one
 /// envelope at a time in arrival order, so a slow handler delays no
-/// acknowledgement.
+/// acknowledgement. A kind the dispatch answers (a modal submission) is the
+/// exception: its acknowledgement frame carries the handler's body in `payload`.
 class SocketModeClient {
   static final _log = Logger('SocketModeClient');
 
@@ -181,14 +182,28 @@ class SocketModeClient {
       _log.fine('Ignoring a Socket Mode frame of type "$type"');
       return _FrameOutcome.none;
     }
-    socket.add(jsonEncode({'envelope_id': envelopeId}));
     final payload = decoded['payload'];
     final envelope = SlackEnvelope(
       kind: _kindOf(type, payload),
       payload: payload is Map ? Map<String, dynamic>.from(payload) : const {},
     );
+    if (_dispatch.answers(envelope.kind)) {
+      // Not queued: the acknowledgement is due within Slack's deadline, whatever is ahead.
+      unawaited(_answer(socket, envelopeId, envelope));
+      return _FrameOutcome.none;
+    }
+    socket.add(jsonEncode({'envelope_id': envelopeId}));
     _processing = _processing.then((_) => _dispatch.dispatch(envelope));
     return _FrameOutcome.none;
+  }
+
+  Future<void> _answer(WebSocket socket, String envelopeId, SlackEnvelope envelope) async {
+    final body = await _dispatch.dispatchAnswering(envelope);
+    try {
+      socket.add(jsonEncode({'envelope_id': envelopeId, 'payload': ?body}));
+    } on StateError {
+      _log.fine('Socket Mode closed before the ${envelope.kind.name} acknowledgement could be sent');
+    }
   }
 
   static SlackEnvelopeKind _kindOf(Object? socketType, Object? payload) => switch (socketType) {

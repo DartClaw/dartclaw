@@ -183,6 +183,32 @@ class SkillPromptBuilder {
     return buf.toString();
   }
 
+  /// Appends a fixed lead-in naming request-changes round [revision] of
+  /// [maxRevisions] and the reviewer's [feedback] as one framed block, unless
+  /// [templatePrompt] already references [feedbackKey] inline.
+  ///
+  /// The block is [appendAutoFramedContext]'s, so inline-reference detection and
+  /// closing-tag escaping are shared with every other framed input.
+  static String appendRevisionFeedback(
+    String prompt, {
+    required int revision,
+    required int maxRevisions,
+    required String feedbackKey,
+    required String feedback,
+    String? templatePrompt,
+  }) {
+    final withLeadIn =
+        '$prompt\n\nA reviewer requested changes to your previous result (round $revision of $maxRevisions). '
+        'Revise your work to address their feedback:';
+    final framed = appendAutoFramedContext(
+      withLeadIn,
+      inputs: [feedbackKey],
+      resolvedValues: {feedbackKey: feedback},
+      templatePrompt: templatePrompt,
+    );
+    return framed == withLeadIn ? prompt : framed;
+  }
+
   /// Regex matching `<tag>`, `<tag ...>`, or `<tag/>` with a proper tag
   /// boundary so prefix collisions (`<specfoo>` when looking for `<spec>`)
   /// don't accidentally suppress auto-injection. Case-sensitive – matches

@@ -218,6 +218,35 @@ void main() {
         ]);
       }
       expect(buttons.first['color'], isNot(buttons.last['color']));
+      expect(jsonEncode(card), isNot(contains('OPEN_DIALOG')));
+    });
+
+    test('opens a dialog from Request changes only, and only when the notification carries it', () {
+      final card = builder.runNotification(
+        runId: 'run-9',
+        title: 'Release',
+        status: 'awaiting_approval',
+        actions: const [
+          ChannelNotificationAction(id: 'run_approve', label: 'Approve'),
+          ChannelNotificationAction(id: 'run_reject', label: 'Reject'),
+          ChannelNotificationAction(id: 'run_request_changes', label: 'Request changes'),
+        ],
+        actionData: const {'runId': 'run-9', 'stepId': 'gate', 'nonce': 'abc123'},
+      );
+
+      final sections = innerCard(card)['sections'] as List;
+      final buttons = ((widgetsOf(sections.last).single['buttonList'] as Map<String, dynamic>)['buttons'] as List)
+          .cast<Map<String, dynamic>>();
+      final actions = [
+        for (final b in buttons) (b['onClick'] as Map<String, dynamic>)['action'] as Map<String, dynamic>,
+      ];
+      expect([for (final a in actions) a['function']], ['run_approve', 'run_reject', 'run_request_changes']);
+      expect([for (final a in actions) a['interaction']], [null, null, 'OPEN_DIALOG']);
+      expect(actions.last['parameters'], [
+        {'key': 'runId', 'value': 'run-9'},
+        {'key': 'stepId', 'value': 'gate'},
+        {'key': 'nonce', 'value': 'abc123'},
+      ]);
     });
 
     test('shows the error only for a failed run', () {
@@ -244,6 +273,41 @@ void main() {
         ],
         ['Started', 'Awaiting Approval', 'Finished', 'Failed', 'Step Completed'],
       );
+    });
+  });
+
+  group('ChatCardBuilder dialogs', () {
+    test('the request-changes dialog is one multiline input and a submit button carrying run, step and nonce', () {
+      final body = builder.requestChangesDialog(
+        runId: 'run-9',
+        stepId: 'gate',
+        nonce: 'abc123',
+        postMessageId: 'spaces/AAA/messages/M1',
+      );
+
+      final widgets = (((body['sections'] as List).single as Map<String, dynamic>)['widgets'] as List)
+          .cast<Map<String, dynamic>>();
+      expect(widgets, hasLength(2));
+      final input = widgets.first['textInput'] as Map<String, dynamic>;
+      expect(input['name'], 'feedback');
+      expect(input['type'], 'MULTIPLE_LINE');
+      final button = ((widgets.last['buttonList'] as Map<String, dynamic>)['buttons'] as List).single as Map;
+      final action = (button['onClick'] as Map<String, dynamic>)['action'] as Map<String, dynamic>;
+      expect(action['function'], 'run_request_changes_submit');
+      expect(action['parameters'], [
+        {'key': 'runId', 'value': 'run-9'},
+        {'key': 'stepId', 'value': 'gate'},
+        {'key': 'nonce', 'value': 'abc123'},
+        {'key': 'postMessageId', 'value': 'spaces/AAA/messages/M1'},
+      ]);
+    });
+
+    test('a message dialog holds only the escaped text and no input or button', () {
+      final body = builder.messageDialog('Only <admins> may do this.');
+
+      final encoded = jsonEncode(body);
+      expect(encoded, contains('Only &lt;admins&gt; may do this.'));
+      expect(encoded, allOf(isNot(contains('textInput')), isNot(contains('buttonList'))));
     });
   });
 

@@ -117,6 +117,8 @@ Workflow start refuses to mutate a dirty local-path checkout by default. Add `--
 
 `plan-and-implement` runs the per-story pipeline as a `foreach` with `MAX_PARALLEL` (default `2`), `gitStrategy.integrationBranch: true`, and `gitStrategy.worktree: auto`. With `MAX_PARALLEL > 1`, story iterations resolve to **per-map-item worktrees**. Workflow-level branch edits resolve to a **shared workflow worktree** because `integrationBranch: true` is set. The integration branch is attached under `.dartclaw/worktrees/`, and the live `dartclaw-public` checkout stays on the branch you launched from. The `artifacts.commit: true` setting in the YAML auto-commits PRD / plan / per-story FIS so spawned worktrees inherit them.
 
+Set `-v PLAN_REVIEW=true` to pause for approval of the plan before any story is implemented (the `plan-approval` gate; Request changes re-runs `plan` with the feedback); unset, the gate is skipped.
+
 Set `-v MAX_PARALLEL=1` to make story execution inline and sequential when you want determinism over throughput. Workflow-level branch edits still use the shared workflow worktree; this setting does not make the workflow operate in the project checkout.
 
 ## Host Selection and Isolation

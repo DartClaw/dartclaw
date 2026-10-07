@@ -88,7 +88,8 @@ class SlackEventsHandler {
   ///
   /// A refused request answers 401 with its [SlackEventsResponse.rejection];
   /// the caller reports it. A verified one answers within the acknowledgement
-  /// window whatever its processing does.
+  /// window whatever its processing does; a kind the dispatch answers (a modal
+  /// submission) is answered with the handler's body, as JSON, once it is done.
   Future<SlackEventsResponse> handle(Uint8List body, Map<String, String> headers) async {
     final lowered = {for (final MapEntry(:key, :value) in headers.entries) key.toLowerCase(): value};
     final rejection = _verify(body, lowered);
@@ -106,7 +107,7 @@ class SlackEventsHandler {
       return _badRequest('body is not UTF-8');
     }
     final isForm = (lowered['content-type'] ?? '').toLowerCase().startsWith('application/x-www-form-urlencoded');
-    return isForm ? _handleForm(text) : _handleJson(text);
+    return isForm ? await _handleForm(text) : _handleJson(text);
   }
 
   SlackRequestRejection? _verify(Uint8List body, Map<String, String> headers) {
@@ -159,7 +160,7 @@ class SlackEventsHandler {
     }
   }
 
-  SlackEventsResponse _handleForm(String text) {
+  Future<SlackEventsResponse> _handleForm(String text) async {
     final Map<String, String> fields;
     try {
       fields = Uri.splitQueryString(text);
@@ -178,7 +179,14 @@ class SlackEventsHandler {
         return _badRequest('interaction payload is not JSON');
       }
       if (decoded is! Map<String, dynamic>) return _badRequest('interaction payload is not a JSON object');
-      _hand(SlackEnvelope(kind: slackInteractionKind(decoded['type']), payload: decoded));
+      final envelope = SlackEnvelope(kind: slackInteractionKind(decoded['type']), payload: decoded);
+      if (_dispatch.answers(envelope.kind)) {
+        final body = await _dispatch.dispatchAnswering(envelope);
+        return body == null
+            ? _acknowledged
+            : SlackEventsResponse(statusCode: 200, body: jsonEncode(body), contentType: 'application/json');
+      }
+      _hand(envelope);
       return _acknowledged;
     }
     if (fields['command'] != null) {

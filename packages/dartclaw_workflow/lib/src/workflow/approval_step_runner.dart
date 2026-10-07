@@ -9,6 +9,7 @@ import 'workflow_definition.dart' show ActionNode, WorkflowStep, WorkflowTaskTyp
 import 'workflow_run.dart' show WorkflowRun;
 import 'workflow_run_repository.dart';
 
+import 'workflow_approval_interaction.dart' show workflowRevisionContextKey;
 import 'workflow_approval_policy.dart';
 import 'workflow_context.dart';
 import 'workflow_runner_types.dart';
@@ -168,7 +169,12 @@ Future<bool> executeApprovalStep({
     currentStepIndex: stepIndex + 1,
     status: WorkflowRunStatus.awaitingApproval,
     errorMessage: 'approval required: ${step.id}',
-    contextJson: {...privateContextEntries(run.contextJson), ...context.toJson(), ...approvalMeta},
+    // Pausing again at the gate ends a request-changes round, so its marker goes.
+    contextJson: {
+      ...privateContextEntries(run.contextJson, exclude: workflowRevisionContextKey),
+      ...context.toJson(),
+      ...approvalMeta,
+    },
     updatedAt: DateTime.now(),
   );
   await dependencies.persistContext(run.id, context);

@@ -1,12 +1,27 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ChannelNotificationAction, runApproveActionId;
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        ChannelNotificationAction,
+        runActionNonceKey,
+        runActionRunIdKey,
+        runActionStepIdKey,
+        runApproveActionId,
+        runRequestChangesActionId,
+        runRequestChangesSubmitActionId;
 
 /// Maximum task description length before a card body is truncated.
 const cardDescriptionMaxLength = 2000;
 
+/// Name of the request-changes dialog's feedback input; the submission carries the text under this key.
+const requestChangesFeedbackInputName = 'feedback';
+
+/// Parameter key under which the dialog's submit button echoes the post the dialog was opened from.
+const requestChangesPostParameter = 'postMessageId';
+
 const _approveColor = {'red': 0.13, 'green': 0.59, 'blue': 0.33, 'alpha': 1.0};
 const _rejectColor = {'red': 0.84, 'green': 0.18, 'blue': 0.18, 'alpha': 1.0};
+const _changesColor = {'red': 0.98, 'green': 0.66, 'blue': 0.0, 'alpha': 1.0};
 
 /// Purpose-built Google Chat Cards v2 builder for DartClaw notifications.
 class ChatCardBuilder {
@@ -141,7 +156,12 @@ class ChatCardBuilder {
                     text: action.label,
                     function: action.id,
                     parameters: actionData,
-                    color: action.id == runApproveActionId ? _approveColor : _rejectColor,
+                    color: switch (action.id) {
+                      runApproveActionId => _approveColor,
+                      runRequestChangesActionId => _changesColor,
+                      _ => _rejectColor,
+                    },
+                    opensDialog: action.id == runRequestChangesActionId,
                   ),
               ],
             },
@@ -267,6 +287,67 @@ class ChatCardBuilder {
     );
   }
 
+  /// Builds the body of the request-changes dialog: a multiline feedback input and a submit button that
+  /// carries [runId], [stepId], [nonce] and the [postMessageId] it was opened from back under the submit action ID.
+  ///
+  /// A dialog submission is not documented to carry the message, so the post identity travels in the button.
+  Map<String, dynamic> requestChangesDialog({
+    required String runId,
+    required String stepId,
+    required String nonce,
+    required String postMessageId,
+  }) {
+    return {
+      'header': {'title': 'Request changes'},
+      'sections': [
+        {
+          'widgets': [
+            {
+              'textInput': {
+                'name': requestChangesFeedbackInputName,
+                'label': 'What should change?',
+                'type': 'MULTIPLE_LINE',
+              },
+            },
+            {
+              'buttonList': {
+                'buttons': [
+                  _actionButton(
+                    text: 'Request changes',
+                    function: runRequestChangesSubmitActionId,
+                    parameters: {
+                      runActionRunIdKey: runId,
+                      runActionStepIdKey: stepId,
+                      runActionNonceKey: nonce,
+                      requestChangesPostParameter: postMessageId,
+                    },
+                    color: _changesColor,
+                  ),
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  /// Builds the body of a dialog that shows only [message].
+  Map<String, dynamic> messageDialog(String message) {
+    return {
+      'header': {'title': 'Request changes'},
+      'sections': [
+        {
+          'widgets': [
+            {
+              'textParagraph': {'text': _escapeText(message.trim())},
+            },
+          ],
+        },
+      ],
+    };
+  }
+
   Map<String, dynamic> _wrapCard({
     required String cardId,
     required Map<String, dynamic> header,
@@ -328,6 +409,7 @@ class ChatCardBuilder {
     required String function,
     required Map<String, String> parameters,
     required Map<String, double> color,
+    bool opensDialog = false,
   }) {
     return {
       'text': text,
@@ -337,6 +419,7 @@ class ChatCardBuilder {
           'parameters': [
             for (final entry in parameters.entries) {'key': entry.key, 'value': entry.value},
           ],
+          if (opensDialog) 'interaction': 'OPEN_DIALOG',
         },
       },
       'color': color,

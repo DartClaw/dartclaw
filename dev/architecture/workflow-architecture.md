@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.28.0 run origin and approval interactions, 0.27.1 workflow error policy and resume, workflow accounting availability, Claude turn accounting, standalone file storage and PostgreSQL server storage, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.28.0 run origin, approval interactions and request changes at approval gates, 0.27.1 workflow error policy and resume, workflow accounting availability, Claude turn accounting, standalone file storage and PostgreSQL server storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -283,9 +283,10 @@ When the executor reaches an approval step:
 
 1. The approval prompt is template-resolved and persisted as metadata.
 2. Approval state keys are written to both `WorkflowContext` and flat `contextJson`:
-   - `<stepId>.approval.status` — `pending`, `approved`, `rejected`, `timed_out`
+   - `<stepId>.approval.status` — `pending`, `approved`, `rejected`, `changes_requested`, `timed_out`
    - `<stepId>.approval.message` — resolved prompt text
    - `<stepId>.approval.requested_at` — ISO 8601 timestamp
+   - `<stepId>.approval.feedback` and `<stepId>.approval.revision` — the latest rejection or request-changes feedback and the number of request-changes rounds so far; both live in the context data and survive the gate pausing again
    - `_approval.pending.stepId` — for API/UI to identify the active gate
 3. `currentStepIndex` is advanced past the approval step before the hold is persisted (so resume starts at the next step).
 4. The run transitions to `awaitingApproval` and the hold is persisted.
@@ -299,9 +300,12 @@ Resolution paths:
 |---|---|---|
 | Resume | `POST /api/workflows/runs/<id>/resume`, the Approve button, `workflow_resume` | Marks approval as `approved`, fires `WorkflowApprovalResolvedEvent`, resumes from next step |
 | Cancel | `POST /api/workflows/runs/<id>/cancel`, the Reject button, `workflow_cancel` | Marks approval as `rejected` with optional `feedback`, fires `WorkflowApprovalResolvedEvent`, cancels run and child tasks |
+| Request changes | `POST /api/workflows/runs/<id>/request-changes`, the run page's feedback field, the Request changes button's form, `workflow_request_changes` | Only at a gate that names a `revise` step with rounds left. Marks approval as `changes_requested` with the trimmed feedback and the incremented revision, fires `WorkflowApprovalResolvedEvent` with `changesRequested`, `revision` and `maxRevisions`, then re-runs from the revise step and returns to the same gate |
 | Timeout | Timer expiry | Marks approval as `timed_out`, cancels run |
 
-All three reach `WorkflowService.resume` and `cancel`; the chat, tool and HTTP callers go through `WorkflowRunControl` in `dartclaw_runtime`, which owns the admin gate and the audit entry (security-architecture § Run approval gate).
+The first three reach `WorkflowService.resume`, `cancel` and `requestChanges`; the chat, tool and HTTP callers go through `WorkflowRunControl` in `dartclaw_runtime`, which owns the admin gate and the audit entry (security-architecture § Run approval gate).
+
+**Request changes.** An approval step may declare `revise: <stepId>` (an earlier top-level non-approval step; the validator refuses anything that cannot be re-entered) and `maxRevisions` (1 to 10, default 3 with `revise`). `WorkflowService.requestChanges` runs inside the same per-run section as `resume` and `cancel`, with the same `expect` and `resolver`. One derivation, `workflowRevisionState` (`workflow_view_helpers.dart`), answers whether it is open (gate names `revise`, count below bound); the owner, the post, `workflow_status`, the run page and the HTTP route all read it. The owner refuses with typed `WorkflowApprovalRefusal` reasons (`changesNotOffered`, `limitReached`, `feedbackRequired`, beside the existing three) before it writes anything, so no refusal consumes the nonce. On success one persisted update records `changes_requested`, the feedback, the count and the consumed interaction, sets the run `running` with `currentStepIndex` at the revise step and the private marker `_revision.gateId`, and spawns the executor the way `resume` does. The marker makes the executor run the revise step despite its `entryGate` and end that step's prompt with a fixed round lead-in and the feedback in one framed block (`SkillPromptBuilder.appendRevisionFeedback`, which skips both when the prompt already references `{{context.<gateId>.approval.feedback}}`); `executeApprovalStep` drops the marker when the gate pauses again, so the round ends exactly there. A restart recovers a marked run at its persisted step index rather than from its tasks, since the round re-runs steps the tasks already completed once. Outputs of steps between the revise step and the gate are overwritten by the re-run, never cleared. Request changes on a `needsInput` hold, a gate inside a loop, `foreach` or parallel group, or a gate with no `revise` is refused; under `--approvals auto` the gate approves itself and no round starts.
 
 **Approval interaction.** A chat post can resolve a pending approval once, through a record that `WorkflowService` keeps in the run's context under the private key `_approval.interaction` (`workflow_approval_interaction.dart`). Being underscore-prefixed, it survives every context rebuild (stall hold, approval runner) and is not in the key set an approval resolution clears. The run holds one record, overwritten by each issue:
 
@@ -314,7 +318,7 @@ All three reach `WorkflowService.resume` and `cancel`; the chat, tool and HTTP c
 
 The nonce sits in the run's context JSON, so an authenticated run-detail API caller can read it; that caller can already resume through HTTP. No tool result, audit entry or log line carries it.
 
-No current built-in workflow requires an `approval` step. `story-and-implement` now follows a single-step spec flow: `spec` writes the FIS to disk, `implement` reads it via `file_read`, then validation, integrated review, and the bounded remediation loop operate against that on-disk baseline. Approval steps remain available for custom workflows that truly need a human checkpoint.
+One built-in workflow uses an approval step, and only when asked: `plan-and-implement` declares the variable `PLAN_REVIEW` (default `false`) and a `plan-approval` gate after `plan` with `revise: plan` and `entryGate: "PLAN_REVIEW == true"`. Unset, the gate is one skipped step; set to `true`, the run pauses with the plan path before any story is implemented. Gate keys that name no context value read the workflow variable of that name, which is how the `entryGate` sees `PLAN_REVIEW`. `story-and-implement` has no approval step: `spec` writes the FIS to disk, `implement` reads it via `file_read`, then validation, integrated review, and the bounded remediation loop operate against that on-disk baseline. Approval steps remain available for custom workflows that need a human checkpoint.
 
 ### 4.2.1 Workflow Run Status Model
 
@@ -1136,6 +1140,7 @@ continuity targets, provider compatibility, loop boundaries and cycles depend on
 | Rule | Severity |
 |---|---|
 | approval step inside a loop | warning |
+| approval revise step cannot be re-entered | error |
 | step type forbids parallel execution | error |
 | step type forbids a prompt list | error |
 | parallel combined with continueSession | error |

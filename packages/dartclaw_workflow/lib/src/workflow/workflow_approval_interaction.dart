@@ -8,6 +8,12 @@ import 'workflow_run.dart' show WorkflowRun;
 /// the key set an approval resolution clears.
 const workflowApprovalInteractionContextKey = '_approval.interaction';
 
+/// Run-context key holding the ID of the gate whose request-changes round is in flight.
+///
+/// Private (underscore) so every context rebuild carries it, and dropped when
+/// the gate pauses again.
+const workflowRevisionContextKey = '_revision.gateId';
+
 /// Where an approval resolution came from.
 enum WorkflowApprovalSource {
   /// A button on a chat post.
@@ -38,7 +44,11 @@ class WorkflowApprovalResolver {
 /// How a pending approval was settled, kept on its interaction once consumed.
 class WorkflowApprovalResolution {
   /// Whether the approval was approved (resume) rather than rejected (cancel).
+  /// Always false when [changesRequested].
   final bool approved;
+
+  /// Whether the gate was sent back to its revise step.
+  final bool changesRequested;
 
   /// The surface the resolution came through, or `null` when none was recorded.
   final WorkflowApprovalSource? source;
@@ -53,11 +63,19 @@ class WorkflowApprovalResolution {
   final DateTime at;
 
   /// Creates a resolution.
-  const new({required this.approved, this.source, this.senderId, this.displayName, required this.at});
+  const new({
+    required this.approved,
+    this.changesRequested = false,
+    this.source,
+    this.senderId,
+    this.displayName,
+    required this.at,
+  });
 
   /// Reads a resolution from its persisted form.
   factory fromJson(Map<String, dynamic> json) => WorkflowApprovalResolution(
     approved: json['approved'] as bool,
+    changesRequested: json['changesRequested'] == true,
     source: WorkflowApprovalSource.values.asNameMap()[json['source']],
     senderId: json['senderId'] as String?,
     displayName: json['displayName'] as String?,
@@ -67,6 +85,7 @@ class WorkflowApprovalResolution {
   /// The persisted form.
   Map<String, dynamic> toJson() => {
     'approved': approved,
+    if (changesRequested) 'changesRequested': true,
     'source': ?source?.name,
     'senderId': ?senderId,
     'displayName': ?displayName,
@@ -202,6 +221,15 @@ enum WorkflowApprovalRefusal {
 
   /// The nonce, step or post does not match the live interaction.
   invalidNonce,
+
+  /// The gate names no revise step.
+  changesNotOffered,
+
+  /// The gate already went through its bound of request-changes rounds.
+  limitReached,
+
+  /// A request to change carried no feedback.
+  feedbackRequired,
 }
 
 /// A refused resolution. Thrown instead of a [StateError] whenever the caller

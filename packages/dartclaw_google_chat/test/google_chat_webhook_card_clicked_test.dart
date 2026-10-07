@@ -90,6 +90,21 @@ void main() {
     expect(body['cardsV2'], isA<List<dynamic>>());
   });
 
+  test('task buttons never open or answer a dialog', () async {
+    final response = await _post(handler, _payload());
+    final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+    expect(body, isNot(contains('actionResponse')));
+    expect(jsonEncode(body), isNot(contains('OPEN_DIALOG')));
+  });
+
+  test('a dialog event for an unknown function is ignored', () async {
+    final response = await _post(handler, {..._payload(invokedFunction: 'unknown'), 'isDialogEvent': true});
+
+    expect(reviewCalls, isEmpty);
+    expect(await response.readAsString(), '{}');
+  });
+
   test('ignores unknown card actions', () async {
     final response = await _post(handler, _payload(invokedFunction: 'unknown'));
 

@@ -148,6 +148,12 @@ Invite the bot to a channel first (`/invite @dartclaw`); a public channel needs 
 
 Each Slack thread is one session. In a channel, a message that names the bot (`@dartclaw …`) opens a thread and the reply is posted into it. Replies inside a thread the bot already took part in need no further mention; the bot checks Slack once per thread after a restart. With `require_mention: false` every message in an admitted channel opens a thread. In a DM no mention is needed, and a top-level message starts its own thread, so reply inside the thread to continue a conversation. Replies are Slack mrkdwn, chunked at 4,000 characters, and a failed chunk is logged and dropped.
 
+## Run Approvals
+
+A workflow run's awaiting-approval post carries **Approve** and **Reject** buttons, and when the gate names a revise step a third, **Request changes**; see [Approving from chat](workflows.md#approving-from-chat). Only senders listed under `governance.admin_senders` (Slack user IDs) may use them. A refused click is answered privately to the person who clicked.
+
+**Request changes** opens a modal with a feedback field (up to 3,000 characters, the most a Slack modal can send). Submitting it sends the run back to the revise step with the text and the post is updated. Someone who may not request changes gets the refusal as a private message and no modal opens, so nobody loses text they typed. A submission that is refused (blank text, a gate that was resolved or replaced in the meantime, no revisions left) keeps the modal open with the reason under the field. Slack honours the click for three seconds: when the modal cannot be opened in time you get a private message to use the run page or the `workflow_request_changes` tool instead. Over the Events API a submission is answered once it is handled, within 2.5 seconds; a slower one closes the modal at that point, whatever it comes to, and the post shows the outcome. Over Socket Mode the same answer travels in the acknowledgement frame, which a live workspace has yet to confirm.
+
 ## Slash Commands
 
 The manifests register five slash commands, all admin-only (`governance.admins`, listing the sender's Slack user ID):

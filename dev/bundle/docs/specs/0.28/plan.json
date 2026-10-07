@@ -377,9 +377,30 @@
       "dependsOn": [
         "S06"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s07-request-changes-at-approval-gates.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13",
+        "TI14",
+        "TI15",
+        "TI16"
+      ],
+      "verified": {
+        "at": "2026-10-07T06:30Z",
+        "summary": "fast tier (core, google_chat, slack, workflow, runtime, dev/fitness, cli -x slow; kernel and testing untouched) -> exit=0, workflow +2096 ~11, core +1749 ~19, runtime +5563 ~25, slack +307, google_chat +561: All other tests passed!; dart analyze --fatal-infos -> No issues found!; dart run dev/tools/arch_check.dart -> 18/18 checks passed; bash dev/tools/fitness/run_all.sh -> exit=0; bash dev/tools/postgres_contract.sh -> exit=0."
+      },
       "scope": "Add request changes as the third approval outcome on gates that name a revise step: validator rules, re-entry with the reviewer's feedback, the revision bound, resolution through the run-control authority, and every surface (run page approval panel, HTTP, `workflow_request_changes` tool, Slack modal, Google Chat dialog), plus the opt-in plan-approval gate in the built-in `plan-and-implement` workflow.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr11-request-changes-at-approval-gates",

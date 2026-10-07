@@ -9,10 +9,23 @@ void main() {
       }
     });
 
-    test('the two actions carry the fixed IDs the adapters register', () {
+    test('every action carries a distinct fixed ID the adapters register', () {
       expect(ChannelRunApprovalAction.approve.actionId, runApproveActionId);
       expect(ChannelRunApprovalAction.reject.actionId, runRejectActionId);
-      expect({runApproveActionId, runRejectActionId}, hasLength(2));
+      expect(ChannelRunApprovalAction.checkRequestChanges.actionId, runRequestChangesActionId);
+      expect(ChannelRunApprovalAction.requestChanges.actionId, runRequestChangesSubmitActionId);
+      expect(ChannelRunApprovalAction.values.map((action) => action.actionId).toSet(), hasLength(4));
+    });
+
+    test('a click on the Request changes button is the check, and the form submission is the request', () {
+      expect(
+        ChannelRunApprovalAction.fromActionId(runRequestChangesActionId),
+        ChannelRunApprovalAction.checkRequestChanges,
+      );
+      expect(
+        ChannelRunApprovalAction.fromActionId(runRequestChangesSubmitActionId),
+        ChannelRunApprovalAction.requestChanges,
+      );
     });
 
     test('an unknown or absent action ID is not a run action', () {
@@ -22,13 +35,15 @@ void main() {
   });
 
   group('ChannelRunApprovalResult', () {
-    test('an adapter must handle resolved, refused and failed, and nothing else', () {
+    test('an adapter must handle permitted, resolved, refused and failed, and nothing else', () {
       String answer(ChannelRunApprovalResult result) => switch (result) {
+        ChannelRunApprovalPermitted() => 'permitted',
         ChannelRunApprovalResolved() => 'resolved',
         ChannelRunApprovalRefused(:final message) => 'refused: $message',
         ChannelRunApprovalFailed(:final message) => 'failed: $message',
       };
 
+      expect(answer(const ChannelRunApprovalPermitted()), 'permitted');
       expect(answer(const ChannelRunApprovalResolved()), 'resolved');
       expect(
         answer(const ChannelRunApprovalRefused(ChannelRunApprovalRefusal.notAdmin, 'admins only')),

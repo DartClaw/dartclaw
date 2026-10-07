@@ -422,7 +422,7 @@
         "S07",
         "S09"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "fis": "s08-documentation-parity-record-and-qualification.md",
       "completedTaskIds": [],
       "scope": "Land the cross-cutting records: the channel parity matrix's Slack column and run rows, glossary rows for the four new terms, the feature comparison, the single-owner statements in the context-engine and tasks guides, PRODUCT.md and OUT-OF-SCOPE consistency, the channels testing profile README and Slack setup, a completeness pass over the Slack guide page (streaming, inbound files, run notifications, approvals, request changes, every new config key), and per-channel run-loop scenarios for the owner-led live qualification after this story (owner D22). The qualification scenarios cover importing both shipped manifests and every Slack API fact the earlier FIS record as an unverified `ASSUMPTION:`.",

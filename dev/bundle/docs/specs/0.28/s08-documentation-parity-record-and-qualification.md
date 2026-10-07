@@ -201,3 +201,7 @@ Decisions, each also stated where it bites:
 
 - `git diff --check` and `bash dev/tools/fitness/run_all.sh` over the public diff, and `git -C ../dartclaw-private diff --check` over the four private files, which stay uncommitted.
 - The live qualification this story prepares runs after it, owner-led (PRD owner D22); the executor records no result.
+
+## Discovered Requirements
+
+- **Title**: Qualification covers unverified Google Chat facts too. **Description**: Beside every unverified Slack API `ASSUMPTION:` in the earlier FIS, the per-channel run-loop scenarios also cover the Google Chat facts stories S06 and S07 could not confirm without a live workspace: whether a refused card click is shown only to the clicker, the `cards_v2,text` behaviour S06 relies on, and the `postMessageId` echo S07 reads from a dialog submission that carries no `message`. Collect them from the `ASSUMPTION:` lines and Implementation Observations of the S06 and S07 FIS files. **Rationale**: the FIS names Slack facts only; S06 and S07 recorded Google Chat facts as unverified after this FIS was written. **Interpretation**: scope-preserving; same qualification ledger, one more channel's rows. **Traced from**: S06 and S07 completion reports. **Date**: 2026-10-07

@@ -33,41 +33,15 @@ Workflow-owned agent steps lease a coordinator worker and run their complete bou
 
 Global turn governance runs before execution allocation, except that a fail-fast task or workflow request first takes its lane permit without waiting and skips governance when none is free, so a request the lane cannot run records no loop or rate-limit state. After governance admits a request, `ExecutionCoordinator` is the sole authority for lane selection, queue/fail-fast admission, per-provider capacity permits, reusable worker lookup, worker creation, replacement, quarantine, and release. Callers never inspect provider identity to choose an execution mechanism; provider-specific behavior is confined to adapters and composition/wiring.
 
-```
-┌─────────────────────────────────────┐
-│         Dart Host (AOT binary)      │
-│  ───────────────────────────────    │
-│  ClaudeCodeHarness                  │
-│    ↕ stdin (JSONL)                  │
-│    ↕ stdout (JSONL)                 │
-│  claude CLI binary (Bun standalone) │
-└─────────────────────────────────────┘
-```
-
 ### Why stdio subprocess protocols?
 
-| Alternative | Why rejected |
-|---|---|
-| HTTP/WebSocket | Requires a listening port; complicates Docker `network:none` isolation |
-| gRPC | Heavy dependency; schema versioning overhead for a single-consumer protocol |
-| Shared memory | Breaks process isolation – DartClaw's core security property |
-| Named pipes/Unix sockets | No advantage over stdin/stdout for a parent-child relationship; adds platform-specific wiring |
-
-stdin/stdout is the natural IPC channel for a parent-child process pair. Dart's `dart:io` `Process` API provides direct access to both streams, while each provider keeps its own framing: JSONL for Claude and Codex, JSON-RPC for ACP. The transport works identically whether the binary runs directly on the host or inside a Docker container (via `docker exec -i`).
+Rejected alternatives: HTTP/WebSocket (needs a listening port, which complicates Docker `network:none` isolation), gRPC (heavy dependency and schema-versioning overhead for a single-consumer protocol), shared memory (breaks process isolation, DartClaw's core security property), and named pipes or Unix sockets (no advantage over stdin/stdout for a parent-child pair, plus platform-specific wiring). stdin/stdout is the natural IPC channel for a parent-child process pair. Dart's `dart:io` `Process` API provides direct access to both streams, while each provider keeps its own framing: JSONL for Claude and Codex, JSON-RPC for ACP. The transport works identically whether the binary runs directly on the host or inside a Docker container (via `docker exec -i`).
 
 ACP also uses subprocess stdio, but with JSON-RPC 2.0 framing rather than JSONL event names. DartClaw implements the ACP client surface directly on `json_rpc_2`; `acp_dart` and `dart_acp` remain reference material only. HTTP+SSE and WebSocket ACP daemon modes are not 0.18 targets.
 
 ### Design lineage
 
-The JSONL control protocol is not DartClaw-specific. It is the published interface of the `claude` binary, documented in the [Claude Code headless docs](https://code.claude.com/docs/en/headless) and independently implemented in official and community SDKs:
-
-| Runtime | Implementation |
-|---|---|
-| TypeScript | `@anthropic-ai/claude-agent-sdk` (official) |
-| Python | `claude-agent-sdk-python` (official) |
-| Go | `claude-agent-sdk-go` (community) |
-| Elixir | `claude_agent_sdk` on hex.pm (community) |
-| **Dart** | `ClaudeCodeHarness` in `dartclaw_core` (DartClaw) |
+The JSONL control protocol is not DartClaw-specific. It is the published interface of the `claude` binary, documented in the [Claude Code headless docs](https://code.claude.com/docs/en/headless) and independently implemented in the official TypeScript and Python SDKs and in community Go and Elixir ones. `ClaudeCodeHarness` in `dartclaw_core` is the Dart implementation.
 
 DartClaw eliminated the TypeScript SDK layer entirely (see [ADR-001 Addendum](../adrs/001-sdk-integration-and-security-architecture.md)). The SDK is a convenience wrapper, not a capability gate – all features are accessible over the raw protocol.
 
@@ -604,37 +578,11 @@ beside per-task `task_started` / `task_progress` / `task_updated` / `task_notifi
 
 ### ClaudeMessage (sealed class)
 
-All JSONL messages from the binary are parsed into a sealed `ClaudeMessage` hierarchy in `claude_protocol.dart`:
-
-```
-ClaudeMessage (sealed)
-├── SystemInit          – session_id, toolCount, contextWindow
-├── StreamTextDelta     – text
-├── ToolUseBlock        – name, id, input
-├── ToolResultBlock     – toolId, output, isError
-├── ControlRequest      – requestId, subtype, data
-├── CompactBoundary     – trigger, preTokens
-├── BackgroundTasksChanged – tasks (id, type)
-└── TerminalResult      – stopReason, subtype, structuredOutput, costUsd, durationMs,
-                          inputTokens, outputTokens, cacheReadInputTokens,
-                          cacheCreationInputTokens
-```
-
-Parsing is done by `parseJsonlLine(String line)` which returns `ClaudeMessage?` – `null` for malformed JSON, unknown types, or irrelevant lifecycle events.
+All JSONL messages from the binary are parsed into the sealed `ClaudeMessage` hierarchy in `claude_protocol.dart` (system init, text delta, tool use and result blocks, control request, compact boundary, background-tasks change, terminal result). `parseJsonlLine(String line)` returns `ClaudeMessage?` – `null` for malformed JSON, unknown types, or irrelevant lifecycle events.
 
 ### BridgeEvent (sealed class)
 
-The harness transforms `ClaudeMessage` instances into higher-level `BridgeEvent`s for consumer code:
-
-```
-BridgeEvent (sealed)
-├── DeltaEvent          – text
-├── ToolUseEvent        – toolName, toolId, input
-├── ToolResultEvent     – toolId, output, isError
-├── SystemInitEvent     – contextWindow
-├── CompactionStartingBridgeEvent   – Codex `contextCompaction` started
-└── CompactionCompletedBridgeEvent  – Codex `contextCompaction` completed
-```
+The harness transforms `ClaudeMessage` instances into the higher-level sealed `BridgeEvent`s in `bridge_events.dart` for consumer code (delta, tool use, tool result, system init, and the Codex `contextCompaction` start and completion events).
 
 `ControlRequest` and `TerminalResult` are handled internally by the harness and never forwarded to consumers. `ToolUseEvent` and `ToolResultEvent` are also used internally for `ToolCallRecord` correlation (see [Enriched Turn Data Extraction](#7-enriched-turn-data-extraction)).
 
@@ -772,14 +720,7 @@ stopped ──start()──► idle ──turn()──► busy ──result─�
 2. **On `ToolResultEvent`**: look up by `toolId`, compute `durationMs = now - startTimestamp`, create `ToolCallRecord(name, success, durationMs, errorType?)`
 3. **At turn end**: any incomplete tool call (no matching result) gets `success: false`, `errorType: 'incomplete'`
 
-`ToolCallRecord` fields:
-```
-ToolCallRecord
-├── name: String          (tool name, e.g. "bash", "read_file")
-├── success: bool
-├── durationMs: int
-└── errorType: String?    (null on success; 'incomplete' for unmatched events)
-```
+`ToolCallRecord` carries `name`, `success`, `durationMs` and `errorType` (null on success, `'incomplete'` for an unmatched event).
 
 ### Cache Token Normalization
 
@@ -795,19 +736,7 @@ For Claude, `TurnRunner` subsequently derives an additive delta from the native-
 
 ### Enriched TurnOutcome
 
-`TurnOutcome` includes:
-
-```
-TurnOutcome
-├── ... (core fields)
-├── turnDuration: Duration        – wall-clock elapsed via Stopwatch
-├── cacheReadTokens: int          – normalized by ProtocolAdapter
-├── cacheWriteTokens: int         – normalized by ProtocolAdapter
-├── tokenUsageComplete: bool      – true only for a fully measured turn
-├── toolCalls: List<ToolCallRecord> – correlated from stream events
-├── structuredOutput: Map<String, dynamic>? – completed provider payload after output guards pass
-└── providerSessionId: String?    – provider-reported identity; absent when unreported or guard-blocked
-```
+Beyond its core fields, `TurnOutcome` carries `turnDuration` (wall-clock via `Stopwatch`), the `ProtocolAdapter`-normalized `cacheReadTokens` and `cacheWriteTokens`, `tokenUsageComplete` (true only for a fully measured turn), the correlated `toolCalls`, `structuredOutput` (the completed provider payload after output guards pass) and `providerSessionId` (provider-reported; absent when unreported or guard-blocked).
 
 At runner settlement, `ExecutionCoordinator` forwards the enriched outcome to `RunnerObserver`; `TurnTraceService` and
 `TaskEventRecorder` consume the same normalized fields for task-specific persistence. Cache token normalization at the
@@ -1640,47 +1569,6 @@ StreamChannel<String> ndjsonChannel(
 | [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md) | Original architecture decision + Addendum validating the direct JSONL approach |
 | [ADR-003](../adrs/003-coding-task-support-and-agent-extensibility.md) | Extensibility via JSONL; layered SDK options; `.claude/` ecosystem |
 | [ADR-009](../adrs/009-internal-mcp-server.md) | Internal MCP server as tool extension point; `sdkMcpServers` → HTTP migration |
-
-### Diagrams
-
-| Diagram | Contents |
-|---|---|
-| `docs/diagrams/harness-architecture.excalidraw` | Worker capacity, runner, container dispatch |
-| `docs/diagrams/turn-lifecycle.excalidraw` | Full turn flow from user message to stored response |
-| `docs/diagrams/dartclaw-architecture.excalidraw` | High-level 2-layer architecture |
-| `docs/diagrams/security-architecture.excalidraw` | Defense-in-depth layers, credential isolation |
-
-### Source files (public repo)
-
-| File | Contents |
-|---|---|
-| `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart` | `ClaudeCodeHarness` – all JSONL handling, spawn, lifecycle |
-| `packages/dartclaw_core/lib/src/harness/claude_protocol.dart` | `ClaudeMessage` sealed hierarchy + `parseJsonlLine()` |
-| `packages/dartclaw_core/lib/src/harness/agent_harness.dart` | `AgentHarness` abstract interface |
-| `packages/dartclaw_core/lib/src/harness/harness_launch_options.dart` | `HarnessLaunchOptions` – spawn-time options |
-| `packages/dartclaw_core/lib/src/harness/tool_policy.dart` | `ToolApprovalPolicy`, response builders |
-| `packages/dartclaw_core/lib/src/harness/mcp_tool.dart` | `McpTool` interface |
-| `packages/dartclaw_core/lib/src/harness/tool_result.dart` | `ToolResult` sealed class |
-| `packages/dartclaw_core/lib/src/bridge/bridge_events.dart` | `BridgeEvent` sealed hierarchy |
-| `packages/dartclaw_acp/lib/src/ndjson_channel.dart` | ACP NDJSON transport utility |
-| `packages/dartclaw_acp/lib/src/acp_harness.dart` | `AcpHarness` – ACP lifecycle and turns |
-| `packages/dartclaw_acp/lib/src/acp_protocol_adapter.dart` | ACP session updates to core bridge events |
-| `packages/dartclaw_acp/lib/src/acp_harness_registrar.dart` | ACP config composition and generic runtime registration |
-| `packages/dartclaw_core/lib/src/security/guard.dart` | `Guard`, `GuardChain` |
-| `packages/dartclaw_core/lib/src/security/guard_audit.dart` | `GuardAuditLogger`, `GuardAuditSubscriber` |
-| `packages/dartclaw_runtime/lib/src/container/container_manager.dart` | `ContainerManager` – Docker lifecycle |
-| `packages/dartclaw_runtime/lib/src/turn_manager.dart` | `TurnManager` – orchestration wrapper |
-| `packages/dartclaw_runtime/lib/src/turn_runner.dart` | `TurnRunner` – per-harness turn execution |
-| `packages/dartclaw_runtime/lib/src/execution_coordinator.dart` | `ExecutionCoordinator`, execution requests/leases, provider/profile reuse, quarantine, lease snapshots |
-| `packages/dartclaw_runtime/lib/src/worker_capacity_gate.dart` | Hard per-provider execution-capacity permits |
-| `packages/dartclaw_runtime/lib/src/mcp/mcp_server.dart` | `McpProtocolHandler` – JSON-RPC 2.0 handler |
-| `packages/dartclaw_runtime/lib/src/mcp/mcp_router.dart` | `/mcp` shelf route with auth/validation |
-| `packages/dartclaw_runtime/lib/src/task/task_executor.dart` | `TaskExecutor` – coordinator-aware task dispatch |
-| `packages/dartclaw_runtime/lib/src/container/container_health_monitor.dart` | Container health polling |
-| `packages/dartclaw_core/lib/src/channel/channel_manager.dart` | `ChannelManager` – inbound routing entry point |
-| `packages/dartclaw_core/lib/src/channel/channel_task_bridge.dart` | `ChannelTaskBridge` – routing precedence logic |
-| `packages/dartclaw_core/lib/src/channel/thread_binding.dart`, `threaded_notifications.dart` | `ThreadBinding` (task or run), `ThreadBindingStore`; the `ThreadedNotifications` capability |
-| `packages/dartclaw_runtime/lib/src/task/task_notification_subscriber.dart`, `workflow_run_notification_subscriber.dart` | Task and run notifications with their thread bindings |
 
 ### External references
 

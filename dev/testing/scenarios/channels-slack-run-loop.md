@@ -248,8 +248,8 @@ Start a second gated run as in S12 steps 1 and 2.
 ### Steps
 
 1. Runner: start one run through `POST /api/workflows/run-form` with the Bearer token, and one through the `/workflows` page in the browser; use a workflow that finishes fast
-2. Runner: record each run's bus-event times and the times of its started and finished posts in the configured channel (Q28-M03)
-3. Runner: start five runs within ten seconds and record every post's time against its event time, and the order of the posts (Q28-M03)
+2. Runner: read the server log for each run's `Posted run <run ID> started ...` and `Posted run <run ID> finished ...` (or `failed`) lines; each carries the event time and the milliseconds from that event to the post (Q28-M03)
+3. Runner: start five runs within ten seconds and record every `Posted run ...` line's delay, and the order of the posts (Q28-M03)
 
 ### Expected
 

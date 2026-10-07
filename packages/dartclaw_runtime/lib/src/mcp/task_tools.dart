@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../task/task_review_service.dart';
 import '../task/task_service.dart';
+import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
 import 'tool_schema.dart';
 
 /// Principal recorded as the creator of a task a model asked for.
@@ -20,7 +21,10 @@ const _taskListDefaultLimit = 50;
 const _taskListingMaxLimit = 200;
 
 /// MCP tool that creates a task through the existing task service.
-class TaskCreateTool implements McpTool {
+///
+/// A task created during a chat-channel turn records that turn's origin, so the work it later runs carries the
+/// requester's identity (`delegatedTurnProvenance`) rather than none.
+class TaskCreateTool implements TurnAwareMcpTool {
   new({required TaskService tasks}) : _tasks = tasks;
 
   final TaskService _tasks;
@@ -49,9 +53,21 @@ class TaskCreateTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _create(args, null);
+
+  @override
+  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _create(args, context.turn);
+
+  Future<ToolResult> _create(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
     if (invalid != null) return invalid;
+
+    final channelType = turn?.channelType;
+    final recipientId = turn?.recipientId;
+    final sessionKey = turn?.sessionKey;
+    if (channelType != null && (recipientId == null || sessionKey == null)) {
+      return toolError('invalid_request', 'The calling $channelType turn carries no recipient or session to record');
+    }
 
     final task = await _tasks.create(
       id: const Uuid().v4(),
@@ -62,6 +78,16 @@ class TaskCreateTool implements McpTool {
       projectId: args['project_id'] as String?,
       createdBy: taskToolPrincipal,
       trigger: _taskToolTrigger,
+      configJson: channelType == null
+          ? const {}
+          : {
+              'origin': TaskOrigin(
+                channelType: channelType,
+                sessionKey: sessionKey!,
+                recipientId: recipientId!,
+                senderId: turn!.senderId,
+              ).toJson(),
+            },
     );
     return toolJson({'task_id': task.id, 'title': task.title, 'status': task.status.name});
   }

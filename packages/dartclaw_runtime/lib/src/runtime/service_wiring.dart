@@ -55,6 +55,7 @@ import '../mcp/context_research_tool.dart' show sourceLinkerFor;
 import '../mcp/knowledge_write_gate.dart';
 import '../mcp/mcp_server.dart' show McpCallerContext, McpKnowledgeScope;
 import '../restart_service.dart' show consumeRestartPending;
+import '../task/delegated_turn_provenance.dart' show taskOriginProvenance;
 import '../task/workflow_run_control.dart';
 import '../task/workflow_run_notification_subscriber.dart';
 import 'channel_agent_binding.dart';
@@ -1354,11 +1355,7 @@ class _RuntimeAssembly {
         source: 'push-back',
         isHumanInput: true,
         promptScope: PromptScope.primary,
-        provenance: TurnProvenance.channel(
-          channelType: ChannelType.values.byName(origin.channelType),
-          recipientId: origin.recipientId,
-          sessionKey: origin.sessionKey,
-        ),
+        provenance: taskOriginProvenance(origin, includeSender: false),
       );
     };
   }

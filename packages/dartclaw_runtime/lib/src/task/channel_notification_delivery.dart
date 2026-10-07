@@ -14,7 +14,9 @@ String? publicPageUrl(String? baseUrl, String path) {
 ///
 /// A delivery never throws and never blocks its caller on a refusal. Warnings
 /// that would repeat for every post of one subject (a run, a task) are logged
-/// once until [forget] is called for it.
+/// once until [forget] is called for it. Every post that lands is logged at
+/// INFO with its subject ID, event kind, event time and the time since the
+/// event, which is how the five-second posting bound is measured.
 class ChannelNotificationDelivery {
   static final _log = Logger('ChannelNotificationDelivery');
 
@@ -27,18 +29,26 @@ class ChannelNotificationDelivery {
     ChannelNotification notification, {
     required String subject,
   }) {
-    return sendRendered(channel, recipientId, ChannelResponse(text: notification.text), subject: subject);
+    return sendRendered(
+      channel,
+      recipientId,
+      ChannelResponse(text: notification.text),
+      notification: notification,
+      subject: subject,
+    );
   }
 
-  /// Sends an already rendered [response] to [recipientId] outside any thread.
+  /// Sends an already rendered [response] of [notification] to [recipientId] outside any thread.
   Future<void> sendRendered(
     Channel channel,
     String recipientId,
     ChannelResponse response, {
+    required ChannelNotification notification,
     required String subject,
   }) async {
     try {
       await channel.sendMessage(recipientId, response);
+      _logPosted(channel, recipientId, notification);
     } catch (error, stackTrace) {
       _log.warning('Failed to notify ${channel.type.name} recipient $recipientId for $subject', error, stackTrace);
     }
@@ -55,18 +65,28 @@ class ChannelNotificationDelivery {
     ThreadedNotifications threads,
     String recipientId,
     ChannelResponse response, {
+    required ChannelNotification notification,
     required String threadKey,
     required String subject,
   }) async {
     Object? failure;
     try {
       final post = await threads.sendToNewThread(recipientId, response, threadKey: threadKey);
-      if (post != null) return post;
+      if (post != null) {
+        _logPosted(channel, recipientId, notification);
+        return post;
+      }
     } catch (error) {
       failure = error;
     }
     _warnOnce(subject, 'new thread', channel, recipientId, failure);
-    await sendRendered(channel, recipientId, ChannelResponse(text: response.text), subject: subject);
+    await sendRendered(
+      channel,
+      recipientId,
+      ChannelResponse(text: response.text),
+      notification: notification,
+      subject: subject,
+    );
     return null;
   }
 
@@ -80,18 +100,33 @@ class ChannelNotificationDelivery {
     ThreadedNotifications threads,
     String recipientId,
     ChannelResponse response, {
+    required ChannelNotification notification,
     required String threadId,
     required String subject,
   }) async {
     Object? failure;
     try {
       final post = await threads.sendToThread(recipientId, response, threadId: threadId);
-      if (post != null) return post;
+      if (post != null) {
+        _logPosted(channel, recipientId, notification);
+        return post;
+      }
     } catch (error) {
       failure = error;
     }
     _warnOnce(subject, 'thread', channel, recipientId, failure);
     return null;
+  }
+
+  void _logPosted(Channel channel, String recipientId, ChannelNotification notification) {
+    final eventAt = notification.updatedAt;
+    final timing = eventAt == null
+        ? ''
+        : ' (event at ${eventAt.toUtc().toIso8601String()}, ${DateTime.now().difference(eventAt).inMilliseconds} ms after)';
+    _log.info(
+      'Posted ${notification.kind.name} ${notification.id} ${notification.status} to '
+      '${channel.type.name} $recipientId$timing',
+    );
   }
 
   /// Lets the next miss for [subject] log again.

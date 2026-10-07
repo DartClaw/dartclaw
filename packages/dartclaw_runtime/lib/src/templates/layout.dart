@@ -38,12 +38,16 @@ String documentTitleFragment({required String title, String appName = 'DartClaw'
 /// true because every standard shell body supplies `#main-content`; a caller
 /// whose body does not (login, the bare error fallback) must pass false, or the
 /// link becomes a focusable control that jumps nowhere.
+///
+/// [standalone] renders the page for a reader with no session: no Stimulus controllers, command-palette dialog,
+/// HTMX or SSE scripts, which all call authenticated endpoints. Only the markdown renderer runs.
 String layoutTemplate({
   required String title,
   required String body,
   String appName = 'DartClaw',
   List<String> scripts = _defaultLayoutScripts,
   bool showSkipLink = true,
+  bool standalone = false,
 }) {
   final scriptsHtml = _renderScriptTags(scripts);
   return templateLoader.trellis.render(templateLoader.source('layout'), {
@@ -53,6 +57,7 @@ String layoutTemplate({
     'assetPrefix': '/static/v$dartclawVersion',
     'scriptsHtml': scriptsHtml,
     'showSkipLink': showSkipLink,
+    'standalone': standalone,
   });
 }
 

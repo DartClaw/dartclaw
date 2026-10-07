@@ -147,6 +147,67 @@ void main() {
     });
   });
 
+  group('task_create records the chat origin of the turn that asked for the task', () {
+    Future<Task> createDuring(TurnProvenance? turn) async {
+      await callTool(
+        passingHandler().forHarness(() => turn),
+        'task_create',
+        arguments: {'title': 'Origin task', 'description': 'Carry the requester.'},
+      );
+      return (await tasks.list()).single;
+    }
+
+    test('the origin names channel, recipient, session and the host-recorded sender', () async {
+      final task = await createDuring(
+        TurnProvenance.channel(
+          channelType: ChannelType.slack,
+          sessionKey: 'agent:main:group:slack:C1',
+          recipientId: 'C1',
+          senderId: 'U-member',
+        ),
+      );
+
+      final origin = TaskOrigin.fromConfigJson(task.configJson)!;
+      expect(
+        (origin.channelType, origin.recipientId, origin.sessionKey, origin.senderId),
+        ('slack', 'C1', 'agent:main:group:slack:C1', 'U-member'),
+      );
+    });
+
+    test('a turn with no sender records an origin with no sender rather than inventing one', () async {
+      final task = await createDuring(
+        TurnProvenance.channel(channelType: ChannelType.googlechat, sessionKey: 'k', recipientId: 'spaces/A'),
+      );
+
+      expect(TaskOrigin.fromConfigJson(task.configJson)!.senderId, isNull);
+    });
+
+    test('a web turn and a caller with no turn record no origin', () async {
+      expect(
+        TaskOrigin.fromConfigJson((await createDuring(const TurnProvenance.web(sessionKey: 'k'))).configJson),
+        isNull,
+      );
+      await tasks.dispose();
+      repo = InMemoryTaskRepository();
+      tasks = TaskService(repo);
+
+      expect(TaskOrigin.fromConfigJson((await createDuring(null)).configJson), isNull);
+    });
+
+    test('a channel turn that cannot name its recipient is refused and creates nothing', () async {
+      final response = await callTool(
+        passingHandler().forHarness(
+          () => TurnProvenance.channel(channelType: ChannelType.slack, sessionKey: 'agent:main:group:slack:C1'),
+        ),
+        'task_create',
+        arguments: {'title': 'Orphan', 'description': 'No recipient.'},
+      );
+
+      expect(toolResult(response)['isError'], isTrue);
+      expect(await tasks.list(), isEmpty);
+    });
+  });
+
   group('S02 task_create cannot spell a security profile, a placement, a budget or a principal', () {
     test('the schema is closed and none of those names is a property', () {
       final schema = TaskCreateTool(tasks: tasks).inputSchema;

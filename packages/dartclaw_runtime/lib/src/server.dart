@@ -806,6 +806,7 @@ class DartclawServer {
       kgService: _web.kgService,
       cookieSecure: _core.config?.auth.cookieSecure ?? false,
       trustedProxies: _core.config?.auth.trustedProxies ?? const [],
+      rateLimiter: _authRateLimiter,
       dataDir: _core.dataDir,
       contentGuardApiKeyConfigured: _web.contentGuardApiKeyConfigured,
       contentGuardFailOpen: _web.contentGuardFailOpen,

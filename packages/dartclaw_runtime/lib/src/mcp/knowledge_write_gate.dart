@@ -8,7 +8,8 @@ import 'mcp_server.dart';
 /// A turn that arrived on a chat channel changes shared knowledge only for an admin sender, and each such
 /// call is audited with its channel and sender. A turn on a non-channel surface (web, scheduled) and a call
 /// with no turn at all are not gated here: the sender comes only from [McpCallerContext.turn], never from
-/// tool arguments.
+/// tool arguments. A task or workflow-step turn delegated by a chat requester carries that requester's channel
+/// and sender in its turn, so it is gated as the requester would be.
 final class KnowledgeWriteGate {
   /// [isAdmin] is the governance admin rule, [refuseFirst] a refusal checked before the channel gate.
   new({

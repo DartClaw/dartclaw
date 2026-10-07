@@ -41,5 +41,5 @@ String _render({required String title, String? markdown, Map<String, String?>? f
     'markdown': markdown,
     'fact': fact,
   });
-  return layoutTemplate(title: title, body: body, appName: appName);
+  return layoutTemplate(title: title, body: body, appName: appName, standalone: true);
 }

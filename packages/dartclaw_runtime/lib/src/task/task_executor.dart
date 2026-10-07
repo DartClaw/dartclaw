@@ -16,6 +16,7 @@ import '../governance/budget_engine.dart';
 import '../governance/budget_exhausted_exception.dart';
 import '../turn_runner.dart' show TurnRunner;
 import 'artifact_collector.dart';
+import 'delegated_turn_provenance.dart';
 import 'goal_service.dart';
 import 'task_budget_policy.dart';
 import 'task_config_view.dart';
@@ -421,6 +422,7 @@ class TaskExecutor {
       required List<String>? allowedTools,
       required bool readOnly,
       PromptScope? promptScope,
+      TurnProvenance? provenance,
     })
     reserveTurn,
     required void Function(
@@ -625,6 +627,8 @@ class TaskExecutor {
         await _messages.insertMessage(sessionId: session.id, role: 'system', content: budgetWarningMessage);
       }
 
+      final provenance = await delegatedTurnProvenance(task, _workflowRunRepository);
+
       if (_isWorkflowOrchestrated(task)) {
         final workflowProvider = task.provider ?? _defaultProviderId;
         if (workflowProvider == null || workflowProvider.trim().isEmpty) {
@@ -643,6 +647,7 @@ class TaskExecutor {
             effortOverride: effortOverride,
             allowedTools: _allowedTools(task),
             readOnly: _isReadOnlyTask(task),
+            provenance: provenance,
           );
         } on StateError catch (error, stackTrace) {
           // A workflow turn failure must win even when dispose
@@ -786,6 +791,7 @@ class TaskExecutor {
         allowedTools: _allowedTools(task),
         readOnly: _isReadOnlyTask(task),
         promptScope: promptScope,
+        provenance: provenance,
       );
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);

@@ -69,6 +69,60 @@ void main() {
     signedSlackHeaders(secret, body, timestamp: timestamp ?? _nowSeconds, contentType: contentType),
   );
 
+  group('readiness', () {
+    var ready = false;
+
+    setUp(() {
+      ready = false;
+      handler = SlackEventsHandler(
+        signingSecret: _secret,
+        dispatch: recorder.dispatch,
+        now: () => _now,
+        isReady: () => ready,
+      );
+    });
+
+    test('a verified event, slash command and interaction are answered 503 and dispatched nowhere', () async {
+      final event = await post(_json(_eventCallback('Ev1')));
+      final command = await post(
+        _form({'command': '/dartclaw', 'text': 'status'}),
+        contentType: 'application/x-www-form-urlencoded',
+      );
+      final interaction = await post(
+        _form({
+          'payload': jsonEncode({'type': 'block_actions'}),
+        }),
+        contentType: 'application/x-www-form-urlencoded',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect([event.statusCode, command.statusCode, interaction.statusCode], [503, 503, 503]);
+      expect(recorder.received, isEmpty);
+    });
+
+    test('url_verification is still answered, so the request URL can be saved before the token is verified', () async {
+      final response = await post(_json({'type': 'url_verification', 'challenge': 'abc123'}));
+
+      expect([response.statusCode, response.body], [200, 'abc123']);
+    });
+
+    test('a refused event does not reserve its id, so Slack\'s redelivery is processed once ready', () async {
+      expect((await post(_json(_eventCallback('Ev1')))).statusCode, 503);
+
+      ready = true;
+      expect((await post(_json(_eventCallback('Ev1')))).statusCode, 200);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(recorder.received, hasLength(1));
+    });
+
+    test('an unsigned request is still a 401 before readiness is consulted', () async {
+      final response = await post(_json(_eventCallback('Ev1')), secret: 'wrong-secret');
+
+      expect([response.statusCode, response.rejection], [401, SlackRequestRejection.invalidSignature]);
+    });
+  });
+
   group('request verification', () {
     test('a signed url_verification is answered with the challenge as plain text and reaches no handler', () async {
       final response = await post(_json({'type': 'url_verification', 'challenge': 'abc123'}));

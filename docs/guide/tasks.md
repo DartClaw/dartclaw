@@ -206,6 +206,10 @@ What these tools cannot do:
   `POST /api/tasks` request. The scalar `tasks.execution` YAML key selects host or container mode for the lane; it
   does not declare a profile. No model-facing tool argument spells either setting.
 - **`task_create` cannot choose a creator.** The task's `createdBy` is host-assigned.
+- **`task_create` called during a channel message records that message as the task's origin.** The origin holds the
+  channel, conversation and sender, so the task posts its status and review requests back to that conversation and the
+  task's own turns act as that sender (a non-admin's task cannot change shared knowledge; see
+  [Governance](governance.md#admin-senders)). A task created from web chat or without a turn records no origin.
 - **`task_bind` cannot bind "the current thread".** A tool call carries no channel context, so the thread must be
   named explicitly. Binding the thread a message arrived in is what the `/bind` reserved command is for.
 

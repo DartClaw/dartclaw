@@ -60,6 +60,7 @@ class SlackEventsHandler {
   final List<int> _signingKey;
   final SlackEnvelopeDispatch _dispatch;
   final DateTime Function() _now;
+  final bool Function() _isReady;
   final MessageDeduplicator _ledger = MessageDeduplicator();
 
   DateTime? _lastVerifiedAt;
@@ -69,11 +70,19 @@ class SlackEventsHandler {
   /// Creates a handler. An empty [signingSecret] verifies nothing.
   ///
   /// Accepted envelopes go to [dispatch], which is never awaited. [now]
-  /// replaces the clock for the replay window.
-  new({required String signingSecret, required SlackEnvelopeDispatch dispatch, DateTime Function()? now})
-    : _signingKey = utf8.encode(signingSecret),
-      _dispatch = dispatch,
-      _now = now ?? DateTime.now;
+  /// replaces the clock for the replay window. [isReady] answers whether the
+  /// app can act on a delivery yet; until it does, a verified event, slash
+  /// command or interaction is answered 503 so Slack retries it, never
+  /// acknowledged and lost.
+  new({
+    required String signingSecret,
+    required SlackEnvelopeDispatch dispatch,
+    DateTime Function()? now,
+    bool Function()? isReady,
+  }) : _signingKey = utf8.encode(signingSecret),
+       _dispatch = dispatch,
+       _now = now ?? DateTime.now,
+       _isReady = isReady ?? (() => true);
 
   /// When a request last passed verification, or `null` if none has.
   DateTime? get lastVerifiedAt => _lastVerifiedAt;
@@ -143,6 +152,7 @@ class SlackEventsHandler {
             ? SlackEventsResponse(statusCode: 200, body: challenge)
             : _badRequest('url_verification carries no challenge');
       case 'event_callback':
+        if (!_isReady()) return _unavailable();
         final eventId = decoded['event_id'];
         if (eventId is! String || eventId.isEmpty || decoded['event'] is! Map) {
           return _badRequest('event_callback lacks an event_id or an event');
@@ -161,6 +171,7 @@ class SlackEventsHandler {
   }
 
   Future<SlackEventsResponse> _handleForm(String text) async {
+    if (!_isReady()) return _unavailable();
     final Map<String, String> fields;
     try {
       fields = Uri.splitQueryString(text);
@@ -207,6 +218,11 @@ class SlackEventsHandler {
   }
 
   static const _acknowledged = SlackEventsResponse(statusCode: 200);
+
+  static SlackEventsResponse _unavailable() {
+    _log.warning('Refusing a verified Slack request with 503: the bot token has not been verified');
+    return const SlackEventsResponse(statusCode: 503, body: 'Service Unavailable');
+  }
 
   static SlackEventsResponse _badRequest(String why) {
     _log.fine('Refusing a verified Slack request: $why');

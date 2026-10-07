@@ -271,3 +271,7 @@
 - Routing: Note. The events route is mounted before `connect()` finishes, so a signed event arriving during startup is acknowledged and dropped (Slack does not retry a 200); closing that window would mean mounting the route only after the bot token verifies.
 - Routing: Note. In events mode `/health` keeps a fresh `last_verified_at` while the fail-closed gate drops envelopes for a rejected bot token; `doctor`'s `slack.auth` row is what names the bad token. An optional `/health` field for token verification is not required by TI07.
 - Merge with S03, S05 and S09: `channel_wiring_test.dart` outgrew the 1430-line fitness gate, so the Slack wiring group moved to `channel_wiring_slack_test.dart` and the shared `RecordingChannelTurnManager` to `channel_wiring_test_support.dart`; `dartclaw_slack`'s LOC ceiling is re-measured at 2602 on the merged package.
+
+#### DRIFT
+
+- design-changed: events mode answers a signature-verified event, slash command or interaction `503` until `connect()` has verified the bot token (so Slack redelivers it), instead of acknowledging and dropping it; the dispatch-side guard is gone and `SlackEventsHandler` takes the readiness check (`isReady`), with `url_verification` still answered (owner decision, review round 2). Supersedes the "fails closed" Discovered Requirement above | Stale targets: – | –

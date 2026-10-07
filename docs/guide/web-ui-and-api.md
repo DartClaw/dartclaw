@@ -1002,7 +1002,7 @@ is an ordinary `WARNING`, so a `logging.level` above that suppresses it along wi
 | `POST /memory/edit`, `POST /memory/remove` | Owner form actions for selected canonical entries |
 | `GET /knowledge` | Read-only knowledge hub across wiki, temporal KG, memory, and inbox/search-derived sources |
 | `GET /knowledge/timeline` | Read-only category-first temporal-KG timeline; accepts `category` and `as_of` query parameters |
-| `GET /knowledge/source?t=<token>` | One cited wiki page or knowledge graph fact, read-only and without navigation. Needs no session: the signed token is the credential, and every refusal is the same 404 as the wiki view's |
+| `GET /knowledge/source?t=<token>` | One cited wiki page or knowledge graph fact, read-only and without navigation. Needs no session: the signed token is the credential, and every refusal is the same 404 as the wiki view's. A missing or invalid token counts as a failed authentication from that address (the same limit as the API's), and past it the route answers `429` |
 | `GET /static/*` | Static assets (CSS, JS, vendored libraries) |
 
 The inbox API uses `conversation_revision` on every mutation so two viewers cannot silently overwrite one another.

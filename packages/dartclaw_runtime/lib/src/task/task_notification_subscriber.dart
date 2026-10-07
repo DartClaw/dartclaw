@@ -111,7 +111,7 @@ class TaskNotificationSubscriber {
     final response = threads.render(notification);
     final threadBindings = _threadBindings;
     if (threadBindings == null) {
-      await _delivery.sendRendered(channel, origin.recipientId, response, subject: subject);
+      await _delivery.sendRendered(channel, origin.recipientId, response, notification: notification, subject: subject);
       return;
     }
 
@@ -121,6 +121,7 @@ class TaskNotificationSubscriber {
         threads,
         origin.recipientId,
         response,
+        notification: notification,
         threadKey: 'task-${task.id}',
         subject: subject,
       );
@@ -130,7 +131,7 @@ class TaskNotificationSubscriber {
 
     final binding = threadBindings.lookupByTask(task.id).where((b) => b.channelType == origin.channelType).firstOrNull;
     if (binding == null) {
-      await _delivery.sendRendered(channel, origin.recipientId, response, subject: subject);
+      await _delivery.sendRendered(channel, origin.recipientId, response, notification: notification, subject: subject);
       return;
     }
     await _delivery.sendInThread(
@@ -138,6 +139,7 @@ class TaskNotificationSubscriber {
       threads,
       origin.recipientId,
       response,
+      notification: notification,
       threadId: binding.threadId,
       subject: subject,
     );

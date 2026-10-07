@@ -106,8 +106,9 @@ shown, and every failure (a wrong signature, an expired link, a removed page or 
 **Writes.** A turn that arrived on a chat channel changes the shared wiki or knowledge graph (`wiki_write`, `kg_add`,
 `kg_invalidate`) only for a sender listed in [`governance.admin_senders`](governance.md#admin-senders), or for any
 sender while that list is empty. A refused call answers the agent with a refusal naming admin senders, and every
-channel-origin attempt, allowed or refused, is audited with its channel and sender. Web chat, scheduled turns and the
-gateway token write as before, and the memory tools are not gated.
+channel-origin attempt, allowed or refused, is audited with its channel and sender. A task or workflow step the agent
+starts from a channel message acts as that message's sender, so delegating the write does not skip the check. Web chat,
+scheduled turns and the gateway token write as before, and the memory tools are not gated.
 
 ## Audit
 

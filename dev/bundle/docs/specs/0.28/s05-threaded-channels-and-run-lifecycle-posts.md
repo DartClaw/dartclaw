@@ -259,4 +259,4 @@ Implementation choices, each also stated where it bites:
 
 - NOTICED BUT NOT TOUCHING: `dev/architecture/security-architecture.md` § Thread Binding Security says thread-routed messages bypass per-sender rate limiting, while `ChannelTaskBridge` rate-limits before bound routing (`channel-messaging-architecture.md`). Routing: Note.
 - NOTICED BUT NOT TOUCHING: `dev/state/UBIQUITOUS_LANGUAGE.md` is at its 300-line ceiling, so the capability has no glossary row of its own (folded into the Thread Binding row); its Channel row and the overloaded-term row 266 still omit Slack, which S08 owns. Routing: Note.
-- NOTICED BUT NOT TOUCHING: `dev/architecture/control-protocol.md` was 64 lines over its 1,600-line ceiling at base and is held at that size by this change. Routing: Note.
+- NOTICED BUT NOT TOUCHING: `dev/architecture/control-protocol.md` was 64 lines over its 1,600-line ceiling at base and is held at that size by this change. Routing: Note. Resolved in review round 2: pruned to 1,578 lines.

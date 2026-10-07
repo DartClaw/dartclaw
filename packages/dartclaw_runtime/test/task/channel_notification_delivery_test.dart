@@ -12,6 +12,7 @@ void main() {
   late FakeThreadedNotifications threads;
   late FakeChannel channel;
   late List<LogRecord> warnings;
+  late List<LogRecord> posts;
   late StreamSubscription<LogRecord> logSubscription;
 
   setUp(() {
@@ -19,13 +20,27 @@ void main() {
     threads = FakeThreadedNotifications();
     channel = FakeChannel(type: ChannelType.slack, ownsAllJids: true, threadedNotifications: threads);
     warnings = [];
+    posts = [];
     Logger.root.level = Level.ALL;
-    logSubscription = Logger.root.onRecord.where((r) => r.level == Level.WARNING).listen(warnings.add);
+    logSubscription = Logger.root.onRecord.listen((record) {
+      if (record.level == Level.WARNING) warnings.add(record);
+      if (record.level == Level.INFO && record.loggerName == 'ChannelNotificationDelivery') posts.add(record);
+    });
   });
 
   tearDown(() => logSubscription.cancel());
 
   const response = ChannelResponse(text: 'rendered &lt;!channel&gt;');
+
+  final eventAt = DateTime.now().subtract(const Duration(seconds: 2));
+  final notification = ChannelNotification(
+    kind: ChannelNotificationKind.run,
+    id: 'r1',
+    text: 'Run started',
+    title: 'Workflow',
+    status: 'started',
+    updatedAt: eventAt,
+  );
 
   group('publicPageUrl', () {
     test('joins a path onto the base URL whatever its trailing slash, and answers null without one', () {
@@ -43,6 +58,7 @@ void main() {
         threads,
         'C1',
         response,
+        notification: notification,
         threadKey: 'run-1',
         subject: 'workflow run 1',
       );
@@ -60,6 +76,7 @@ void main() {
         threads,
         'C1',
         response,
+        notification: notification,
         threadKey: 'run-1',
         subject: 'workflow run 1',
       );
@@ -71,8 +88,15 @@ void main() {
 
     test('warns once per subject, and again for the same subject once it is forgotten', () async {
       threads.newThreadReturnsNull = true;
-      Future<void> miss(String subject) =>
-          delivery.sendInNewThread(channel, threads, 'C1', response, threadKey: 'k', subject: subject);
+      Future<void> miss(String subject) => delivery.sendInNewThread(
+        channel,
+        threads,
+        'C1',
+        response,
+        notification: notification,
+        threadKey: 'k',
+        subject: subject,
+      );
 
       await miss('workflow run 1');
       await miss('workflow run 1');
@@ -93,6 +117,7 @@ void main() {
         threads,
         'C1',
         response,
+        notification: notification,
         threadKey: 'run-1',
         subject: 'workflow run 1',
       );
@@ -109,7 +134,15 @@ void main() {
 
       for (var i = 0; i < 3; i++) {
         expect(
-          await delivery.sendInThread(channel, threads, 'C1', response, threadId: 'T1', subject: 'task t1'),
+          await delivery.sendInThread(
+            channel,
+            threads,
+            'C1',
+            response,
+            notification: notification,
+            threadId: 'T1',
+            subject: 'task t1',
+          ),
           isNull,
         );
       }
@@ -124,7 +157,7 @@ void main() {
     test('a throwing channel is logged naming the subject and never rethrown', () async {
       channel.throwOnSend = true;
 
-      await delivery.sendRendered(channel, 'C1', response, subject: 'task t1');
+      await delivery.sendRendered(channel, 'C1', response, notification: notification, subject: 'task t1');
       await delivery.sendPlain(
         channel,
         'C1',
@@ -159,6 +192,74 @@ void main() {
       final (recipient, sent) = channel.sentMessages.single;
       expect((recipient, sent.text), ('C1', 'Task is running'));
       expect(sent.structuredPayload, isNull);
+    });
+  });
+
+  group('post log', () {
+    test('every post that lands is logged at INFO with its ID, event kind, event time and delay', () async {
+      await delivery.sendInNewThread(
+        channel,
+        threads,
+        'C1',
+        response,
+        notification: notification,
+        threadKey: 'run-r1',
+        subject: 'workflow run r1',
+      );
+      await delivery.sendInThread(
+        channel,
+        threads,
+        'C1',
+        response,
+        notification: notification,
+        threadId: 'T1',
+        subject: 'workflow run r1',
+      );
+      await delivery.sendRendered(channel, 'C1', response, notification: notification, subject: 'workflow run r1');
+      await delivery.sendPlain(channel, 'C1', notification, subject: 'workflow run r1');
+
+      expect(posts, hasLength(4), reason: 'one line per landed post, whichever send path carried it');
+      for (final line in posts.map((record) => record.message)) {
+        expect(line, startsWith('Posted run r1 started to slack C1 (event at ${eventAt.toUtc().toIso8601String()}, '));
+        final delay = int.parse(RegExp(r', (\d+) ms after\)$').firstMatch(line)!.group(1)!);
+        expect(delay, greaterThanOrEqualTo(2000), reason: 'the delay is measured from the event time');
+      }
+    });
+
+    test('a post that does not land is logged as a warning only, never as a post', () async {
+      threads.existingThreadReturnsNull = true;
+      channel.throwOnSend = true;
+
+      await delivery.sendInThread(
+        channel,
+        threads,
+        'C1',
+        response,
+        notification: notification,
+        threadId: 'T1',
+        subject: 'workflow run r1',
+      );
+      await delivery.sendRendered(channel, 'C1', response, notification: notification, subject: 'workflow run r1');
+
+      expect(posts, isEmpty);
+      expect(warnings, hasLength(2));
+    });
+
+    test('a notification with no event time still logs the post, without a delay', () async {
+      await delivery.sendPlain(
+        channel,
+        'C1',
+        const ChannelNotification(
+          kind: ChannelNotificationKind.task,
+          id: 't1',
+          text: 'plain',
+          title: 'T',
+          status: 'running',
+        ),
+        subject: 'task t1',
+      );
+
+      expect(posts.single.message, 'Posted task t1 running to slack C1');
     });
   });
 }

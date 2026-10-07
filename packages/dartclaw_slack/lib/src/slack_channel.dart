@@ -128,17 +128,21 @@ class SlackChannel extends Channel {
         if (signingSecret == null || signingSecret.isEmpty) {
           throw ArgumentError.value(signingSecret, 'signingSecret', 'events mode needs a signing secret');
         }
-        final handler = eventsHandler = SlackEventsHandler(signingSecret: signingSecret, dispatch: dispatch);
+        final handler = eventsHandler = SlackEventsHandler(
+          signingSecret: signingSecret,
+          dispatch: dispatch,
+          isReady: () => _botUserId != null,
+        );
         healthReporter = SlackHealthReporter(events: handler);
       default:
         throw ArgumentError.value(mode, 'mode', 'must be socket or events');
     }
     final runApprovals = SlackRunApprovals(api: api, handler: runApprovalHandler);
     dispatch
-      ..register(SlackEnvelopeKind.event, _whenIdentified(_handleEvent))
-      ..register(SlackEnvelopeKind.slashCommand, _whenIdentified(_handleSlashCommand))
-      ..register(SlackEnvelopeKind.blockAction, _whenIdentified(runApprovals.handle))
-      ..registerAnswering(SlackEnvelopeKind.viewSubmission, _whenIdentifiedAnswering(runApprovals.handleSubmission));
+      ..register(SlackEnvelopeKind.event, _handleEvent)
+      ..register(SlackEnvelopeKind.slashCommand, _handleSlashCommand)
+      ..register(SlackEnvelopeKind.blockAction, runApprovals.handle)
+      ..registerAnswering(SlackEnvelopeKind.viewSubmission, runApprovals.handleSubmission);
   }
 
   /// Whether the Socket Mode connection is up; always disconnected in events mode.
@@ -146,22 +150,6 @@ class SlackChannel extends Channel {
 
   /// When Socket Mode last connected, or `null` if it never has.
   DateTime? get lastConnectedAt => _socket?.lastConnectedAt;
-
-  /// The events route accepts signed requests as soon as it is mounted, so a bot token Slack
-  /// rejected (or `connect` has not yet verified) must stop them here: a turn that cannot post
-  /// its reply is worse than none, and Socket Mode receives nothing in the same state.
-  SlackEnvelopeHandler _whenIdentified(SlackEnvelopeHandler handler) => (envelope) async {
-    if (!_isUnverified(envelope)) await handler(envelope);
-  };
-
-  SlackAnsweringHandler _whenIdentifiedAnswering(SlackAnsweringHandler handler) =>
-      (envelope) async => _isUnverified(envelope) ? null : handler(envelope);
-
-  bool _isUnverified(SlackEnvelope envelope) {
-    if (eventsHandler == null || _botUserId != null) return false;
-    _log.warning('Dropping a Slack ${envelope.kind.name} envelope: the bot token has not been verified');
-    return true;
-  }
 
   @override
   Future<void> connect() async {

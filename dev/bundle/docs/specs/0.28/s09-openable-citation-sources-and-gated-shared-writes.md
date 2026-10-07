@@ -178,6 +178,8 @@ Decisions the sources leave open, each also stated where it bites:
 - ambiguous-intent: TI04's four Verify files do not hold the gate's S08 to S10 semantics against real stores, so `test/mcp/knowledge_write_gate_test.dart` is added; `service_wiring_mcp_scope_test.dart` proves the wiring end to end through `wiki_write` (allow) and `kg_add` / `kg_invalidate` (refusal) | Stale targets: – | –
 - ambiguous-intent: S11 names `docs/guide/slack.md` and a run-approvals section on the governance page, and neither exists in this base (S01 and S06 have not landed). The governance page names the gate under Admin Senders, and the context-engine page carries the four statements. The Slack page's closed-`tools`-list example is left to the story that creates the page | Stale targets: docs/guide/slack.md, docs/guide/governance.md | –
 
+- design-changed: the gate still reads only `McpCallerContext.turn`, but a task or workflow-step turn now carries its requester's channel and sender in that context (owner decision, review round 2): `task/delegated_turn_provenance.dart` builds it from the stored `TaskOrigin` (now written by `task_create` from the calling turn) or the run's `WorkflowRunOrigin`, so delegating a write no longer skips the gate. Refines TI04 and S08 to S10 | Stale targets: – | –
+
 ASSUMPTION: the push-back feedback turn (Discovered Requirements) gets its origin channel as provenance with no sender, built in `_pushBackFeedbackDelivery` from the task's `TaskOrigin` (`PushBackFeedbackDelivery` now carries the origin instead of the session key) – the review seam does not carry who pushed back, so naming the task creator would lend a sender's rank to someone else. The gate decides a channel turn with no sender by the same rule: refused wherever `admin_senders` is set, allowed (and audited) where the list is empty, because an unidentified sender is an admin only where every sender is. A review path that carries the pusher's identity would let the turn name them.
 
 ASSUMPTION: a channel turn is any turn whose provenance has a `channelType`, with or without a sender – S04's own contract keeps a no-sender turn to each reader's own rule, and the push-back finding needs a channel turn without a sender gated rather than passed.
@@ -186,9 +188,7 @@ ASSUMPTION: links ride inside the packet's token budget (a `url` is part of the 
 
 Side effect noted: with provenance on the push-back turn, a `workflow_run` that turn starts now records the task's channel type as its run origin (no sender) where S04's note expected `api`.
 
-NOTICED BUT NOT TOUCHING: the standalone source page uses the shared document layout, so it still ships the command-palette dialog and shell scripts, which answer 401 if a reader without a session opens the palette; its 404 page's "Back to Home" link goes to the login-gated `/` exactly as the wiki view's does. Routing: Note.
-
-NOTICED BUT NOT TOUCHING: the source route fires no `FailedAuthEvent` and is not behind `AuthRateLimiter`; a forged token costs one HMAC compare and answers the same 404 as everything else. Routing: Note.
+NOTICED BUT NOT TOUCHING: the source route's 404 page's "Back to Home" link goes to the login-gated `/` exactly as the wiki view's does. Routing: Note.
 
 NOTICED BUT NOT TOUCHING: `sourceLinkerFor` repeats the `base_url` trailing-slash strip that `task_notification_subscriber.dart` already carries; normalising once in the config parser would drop both. Routing: Note (kernel parser change).
 
@@ -197,3 +197,5 @@ NOTICED BUT NOT TOUCHING: the source route switches on the layer names `'wiki'` 
 NOTICED BUT NOT TOUCHING: `ChannelType.values.byName(origin.channelType)` in `_pushBackFeedbackDelivery` throws on an unknown name, and the review service logs and skips delivery, so a task origin with an unknown channel loses its push-back feedback. That fails closed, and the only origin writer uses `ChannelType.googlechat.name`. Routing: Note.
 
 Review applied: the `governance.admin_senders` field description (kernel `governance_fields.dart`, regenerated `schemas/dartclaw.schema.json` and `docs/guide/configuration.md`) now says the key also grants shared writes from a channel.
+
+Review applied (round 2): the source route's missing or invalid token fires the failed-auth event and counts on the shared `AuthRateLimiter` (429 past its budget), and the page renders standalone (no command palette, Stimulus, HTMX or SSE; `static/source_view.js` runs the markdown renderer). Delegated task and workflow-step turns carry their requester's identity (see the design-changed drift line above).

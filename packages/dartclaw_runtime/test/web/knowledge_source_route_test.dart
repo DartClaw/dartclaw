@@ -44,12 +44,19 @@ void main() {
         ..writeAsStringSync('# Onboarding\n\nShared `team` knowledge.');
     });
 
-    Router sourceRouter({String? gatewayToken, String authMode = 'token'}) => webRoutes(
+    Router sourceRouter({
+      String? gatewayToken,
+      String authMode = 'token',
+      EventBus? eventBus,
+      AuthRateLimiter? rateLimiter,
+    }) => webRoutes(
       sessions,
       messages,
       kvService: kvService,
       kgService: kg,
       gatewayToken: gatewayToken,
+      eventBus: eventBus,
+      rateLimiter: rateLimiter,
       config: DartclawConfig(
         server: ServerConfig(dataDir: tempDir.path),
         gateway: GatewayConfig(authMode: authMode),
@@ -58,8 +65,18 @@ void main() {
     );
 
     /// The route behind the real auth middleware, so a request with no credential proves the exemption.
-    Handler sourceHandler({String? gatewayToken, String authMode = 'token'}) {
-      final router = sourceRouter(gatewayToken: gatewayToken, authMode: authMode);
+    Handler sourceHandler({
+      String? gatewayToken,
+      String authMode = 'token',
+      EventBus? eventBus,
+      AuthRateLimiter? rateLimiter,
+    }) {
+      final router = sourceRouter(
+        gatewayToken: gatewayToken,
+        authMode: authMode,
+        eventBus: eventBus,
+        rateLimiter: rateLimiter,
+      );
       if (authMode == 'none') return router.call;
       return const Pipeline()
           .addMiddleware(
@@ -205,6 +222,97 @@ void main() {
         expect(await res.readAsString(), referenceBody, reason: entry.key);
         expect(res.headers.keys.map((name) => name.toLowerCase()), isNot(contains('set-cookie')), reason: entry.key);
       }
+    });
+
+    group('failed authentication', () {
+      late EventBus eventBus;
+      late List<FailedAuthEvent> failures;
+
+      setUp(() {
+        eventBus = EventBus();
+        failures = [];
+        final subscription = eventBus.on<FailedAuthEvent>().listen(failures.add);
+        addTearDown(() async {
+          await subscription.cancel();
+          await eventBus.dispose();
+        });
+      });
+
+      test('a forged token fires one failed-auth event and still answers the one 404', () async {
+        final res = await sourceHandler(gatewayToken: key, eventBus: eventBus)(
+          get(wikiToken('wiki/onboarding.md', signedWith: 'b')),
+        );
+        await pumpEventQueue();
+
+        expect(res.statusCode, 404);
+        expect(failures, hasLength(1));
+        expect(
+          (failures.single.source, failures.single.path, failures.single.reason, failures.single.limited),
+          ('source_link', '/knowledge/source', 'invalid_source_token', false),
+        );
+      });
+
+      test('a request with no token is a failed authentication too', () async {
+        await sourceHandler(gatewayToken: key, eventBus: eventBus)(get(null));
+        await pumpEventQueue();
+
+        expect(failures.single.reason, 'missing_source_token');
+      });
+
+      test('a valid link, and a valid link whose page is gone, fire nothing', () async {
+        final goneToken = wikiToken('wiki/gone.md');
+        final handler = sourceHandler(gatewayToken: key, eventBus: eventBus);
+
+        final open = await handler(get(wikiToken('wiki/onboarding.md')));
+        final gone = await handler(get(goneToken));
+        await pumpEventQueue();
+
+        expect((open.statusCode, gone.statusCode), (200, 404));
+        expect(failures, isEmpty, reason: 'a signed link is not a failed credential, whatever it points at');
+      });
+
+      test(
+        'failures share the limiter: past its budget a forged token answers 429, a valid link still opens',
+        () async {
+          final limiter = AuthRateLimiter(maxAttempts: 2);
+          final handler = sourceHandler(gatewayToken: key, eventBus: eventBus, rateLimiter: limiter);
+          final forged = get(wikiToken('wiki/onboarding.md', signedWith: 'b'));
+
+          final statuses = [for (var i = 0; i < 4; i++) (await handler(forged)).statusCode];
+          final open = await handler(get(wikiToken('wiki/onboarding.md')));
+          await pumpEventQueue();
+
+          expect(statuses, [404, 404, 429, 429]);
+          expect(open.statusCode, 200);
+          expect(failures.map((event) => event.limited), [false, false, true, true]);
+          expect(limiter.shouldLimit('unknown'), isTrue, reason: 'a valid link does not reset the shared window');
+        },
+      );
+    });
+
+    test('the standalone page carries no command palette and no shell or HTMX scripts', () async {
+      final handler = sourceHandler(gatewayToken: key);
+      final wiki = await (await handler(get(wikiToken('wiki/onboarding.md')))).readAsString();
+      final id = await kg.addFact(
+        entity: 'e',
+        predicate: 'p',
+        value: 'v',
+        validFrom: '2026-01-01T00:00:00Z',
+        source: 's',
+      );
+      final fact = await (await handler(get(createSourceLinkToken(layer: 'kg', locator: '$id', key: key))))
+          .readAsString();
+
+      for (final page in [wiki, fact]) {
+        expect(page, isNot(contains('global-command-dialog')));
+        expect(page, isNot(contains('data-controller')));
+        expect(page, isNot(contains('/controllers/index.js')));
+        expect(page, isNot(contains('stimulus.min.js')));
+        expect(page, isNot(contains('htmx.min.js')));
+        expect(page, isNot(contains('sse.js')));
+        expect(page, contains('/source_view.js'));
+      }
+      expect(wiki, allOf(contains('marked.min.js'), contains('purify.min.js')));
     });
 
     test('only the exact path is auth-exempt, so a sibling path still needs a session', () async {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -11,6 +13,7 @@ import 'package:shelf_router/shelf_router.dart';
 import '../api/api_helpers.dart';
 import '../api/session_routes_support.dart'
     show ModelCatalogueLookup, contextModelLabel, effectiveContextView, noModelCatalogues;
+import '../auth/auth_rate_limiter.dart';
 import '../auth/auth_utils.dart';
 import '../auth/session_token.dart';
 import '../auth/source_link_token.dart';
@@ -74,6 +77,7 @@ Router webRoutes(
   String? gatewayToken,
   bool cookieSecure = false,
   List<String> trustedProxies = const [],
+  AuthRateLimiter? rateLimiter,
   HealthService? healthService,
   WhatsAppChannel? whatsAppChannel,
   SignalChannel? signalChannel,
@@ -627,14 +631,29 @@ Router webRoutes(
 
   // GET [sourceLinkPath]?t=<token> — one cited wiki page or graph fact, read-only.
   // Auth-exempt: the signed token is the credential and is verified before any
-  // file or database read. Every refusal is the wiki view's one 404.
+  // file or database read. Every refusal is the wiki view's one 404, except that
+  // a missing or invalid token is a failed authentication: it fires the failed-auth
+  // event and counts against the shared limiter, which answers 429 once exceeded.
   router.get(sourceLinkPath, (Request request) async {
     final workspaceDir = config?.workspaceDir;
-    final token = request.url.queryParameters['t'];
     final unsigned = config?.gateway.authMode == 'none';
-    if (workspaceDir == null || token == null || (!unsigned && gatewayToken == null)) return _wikiNotFound();
-    final target = validateSourceLinkToken(token, key: unsigned ? null : gatewayToken);
-    if (target == null) return _wikiNotFound();
+    if (workspaceDir == null || (!unsigned && gatewayToken == null)) return _wikiNotFound();
+    final token = request.url.queryParameters['t'];
+    final target = token == null ? null : validateSourceLinkToken(token, key: unsigned ? null : gatewayToken);
+    if (target == null) {
+      final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';
+      final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
+      if (!limited) rateLimiter?.recordFailure(remoteKey);
+      fireFailedAuthEvent(
+        eventBus,
+        request,
+        source: 'source_link',
+        reason: token == null ? 'missing_source_token' : 'invalid_source_token',
+        limited: limited,
+        trustedProxies: trustedProxies,
+      );
+      return limited ? _tooManyFailedAttempts() : _wikiNotFound();
+    }
 
     switch (target.layer) {
       case 'wiki':
@@ -715,6 +734,12 @@ Response _htmlNotFound(String message) =>
 /// across missing workspace, bad locator, traversal, symlink escape and I/O
 /// failure — no branch is distinguishable from the response.
 Response _wikiNotFound() => _htmlNotFound('Wiki source not found');
+
+Response _tooManyFailedAttempts() => Response(
+  429,
+  body: jsonEncode({'error': 'Too Many Requests', 'message': 'Too many failed authentication attempts'}),
+  headers: {'content-type': 'application/json'},
+);
 
 Response _htmlError(String message) =>
     Response.internalServerError(body: errorPageTemplate(500, 'Internal Server Error', message), headers: htmlHeaders);

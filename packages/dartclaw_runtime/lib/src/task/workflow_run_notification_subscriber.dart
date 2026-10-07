@@ -169,6 +169,7 @@ class WorkflowRunNotificationSubscriber {
           threads,
           originRecipient,
           threads.render(_withActions(notification, interaction, run)),
+          notification: notification,
           threadId: threadId,
           subject: subject,
         );
@@ -197,6 +198,7 @@ class WorkflowRunNotificationSubscriber {
         threads,
         configured.recipient,
         response,
+        notification: notification,
         threadId: binding.threadId,
         subject: subject,
       );
@@ -208,6 +210,7 @@ class WorkflowRunNotificationSubscriber {
       threads,
       configured.recipient,
       response,
+      notification: notification,
       threadKey: 'run-${run.id}',
       subject: subject,
     );

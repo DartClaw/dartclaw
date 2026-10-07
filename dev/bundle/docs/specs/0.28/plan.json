@@ -336,7 +336,7 @@
         "S04",
         "S05"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "fis": "s06-run-approvals-from-chat.md",
       "completedTaskIds": [],
       "scope": "Resolve paused runs from chat under one run-control authority (architecture F3): admin-gated, audited Approve and Reject on Slack buttons and Google Chat cards with post-bound single-use nonces, plus the `workflow_resume`, `workflow_cancel` and `workflow_status` agent tools gated on the originating turn's sender and reaching bound agents only through `allowedTools` (owner D21). WhatsApp and Signal approve through the tools.",

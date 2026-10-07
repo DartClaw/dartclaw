@@ -77,6 +77,15 @@ Optional setup steps may use local shell commands when deterministic profile pre
 
 Use `@ref` notation (e.g., `@e1`, `@e5`) when a prior snapshot has identified interactive elements by reference. This makes steps more robust — the runner can use the ref directly without re-discovering the element.
 
+### Owner and Runner steps
+
+Channel scenarios (`channels-*.md`) need a person with a phone, a Slack workspace or a Google Chat space, so each step opens with a mark:
+
+- **Owner**: a person acts (sends a message, clicks a button, installs an app) and reports what they saw.
+- **Runner**: an agent acts through HTTP, the CLI, the audit log or the server log, and evaluates the result.
+
+An unmarked step is a Runner step. A step that relies on a model choosing a tool (approve, cancel, resume by conversation) states the outcome, allows one retry, and records the retry, because tool choice is the model's. Steps cite ledger rows by ID (`Q28-F04`) and never restate a row's assumed fact or consequence; app-creation steps are cited from the guide, never copied.
+
 ### Expected section
 
 Expected outcomes are bullet points. Each must be **observable and element-specific**:

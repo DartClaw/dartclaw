@@ -146,17 +146,77 @@ An empty `dm_allowlist` with the default mode admits nobody: add your own member
 
 Invite the bot to a channel first (`/invite @dartclaw`); a public channel needs `channels:history` and a private one `groups:history`, both in the manifest.
 
-Each Slack thread is one session. In a channel, a message that names the bot (`@dartclaw …`) opens a thread and the reply is posted into it. Replies inside a thread the bot already took part in need no further mention; the bot checks Slack once per thread after a restart. With `require_mention: false` every message in an admitted channel opens a thread. In a DM no mention is needed, and a top-level message starts its own thread, so reply inside the thread to continue a conversation. Replies are Slack mrkdwn, chunked at 4,000 characters, and a failed chunk is logged and dropped.
+Each Slack thread is one session. In a channel, a message that names the bot (`@dartclaw …`) opens a thread and the reply is posted into it. Replies inside a thread the bot already took part in need no further mention; the bot checks Slack once per thread after a restart. With `require_mention: false` every message in an admitted channel opens a thread. In a DM no mention is needed, and a top-level message starts its own thread, so reply inside the thread to continue a conversation. Replies are Slack mrkdwn, chunked at 4,000 characters, and a failed chunk is logged and dropped. Because every DM message is its own thread, a scheduled job's `delivery: announce`, which goes to a conversation and skips thread sessions, does not reach Slack DMs.
+
+## Streaming and Status
+
+With `channels.slack.streaming` on (the default), a reply in a thread or DM is written into Slack as the agent produces it and ends as one message holding exactly the turn's reply. Text written before a tool call streams too. Text goes out only through the last complete word and after secrets are masked, in appends of at most 12,000 characters, a second apart. A reply over 40,000 characters, Slack's message limit, writes its first chunk over the stream message and posts the rest as further messages. When the stream cannot start or fails midway, DartClaw edits the message into the complete reply or posts it, so the reply arrives once and whole. With `streaming: false` the reply is posted in chunks when the turn ends. A slash command carries no thread, so nothing streams there.
+
+While a turn runs, the thread shows the assistant status "is working..." and clears it when the turn ends. A failed status call is logged and never delays or fails the turn. Streaming needs the `chat:write` scope and the status needs `assistant:write`; `dartclaw doctor` names a missing scope in `slack.scopes`.
+
+## Inbound Files
+
+Files posted with a message reach the agent's turn, stored in the session like a web attachment, with text files inlined in the turn context. Images (PNG, JPEG, GIF and WebP up to 5 MiB) reach the model as image input on the Claude Code and Codex harnesses, so the reply can describe them; a harness without image input receives the image by name only.
+
+Each file may be up to 20 MB and a message may carry 5. A file over either bound, a file shared from another Slack workspace (Slack Connect), a file hosted outside Slack and an empty file are refused, and one reply in the thread names each refusal and its reason; the message text is still processed. Downloading needs the `files:read` scope. Without it Slack answers the download with a sign-in page, and the reply names the missing scope. A message with files is processed once its downloads finish, so a later text message from the same sender can be processed first.
+
+## Run Notifications
+
+A workflow run posts its started, awaiting-approval and finished or failed messages to chat. A run started from a Slack thread posts into that thread. A run started anywhere else (the web form, the API, the CLI, a schedule) posts to the channel named by `workflow.chat_notifications`, one new thread per run when that channel threads (Slack, Google Chat) and plain messages when it cannot (WhatsApp, Signal). For Slack, set the block to a channel the bot has been invited to:
+
+```yaml
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: C0123ABCDEF       # Slack channel ID
+```
+
+Run threads need only this block. `features.thread_binding.enabled` gates task threading alone: task notifications opening a thread, `/bind`, `task_bind` and routing replies in a bound thread to its task. An approval post links the run page, `<base_url>/workflows/<runId>`, when the top-level `base_url` is set. Posts to one channel go out at least a second apart.
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `workflow.chat_notifications.channel` | `enum` | `none` | `googlechat`, `signal`, `slack` or `whatsapp`; required with `recipient`, or runs started outside chat post nothing |
+| `workflow.chat_notifications.recipient` | `string` | `none` | The conversation identifier on that channel; for Slack, a channel ID |
+| `workflow.chat_notifications.events` | `list` | `started`, `awaiting_approval`, `finished`, `failed` | Add `step_completed` for one line per step |
+| `features.thread_binding.enabled` | `boolean` | `false` | Task threading only; see above |
+
+The generated entries are [`workflow.chat_notifications.*`](configuration.md#workflow-run-notifications) and [`features.thread_binding.enabled`](configuration.md#full-config-reference); the rule that decides where a run's posts go is in [Workflow run notifications](configuration.md#workflow-run-notifications).
 
 ## Run Approvals
 
-A workflow run's awaiting-approval post carries **Approve** and **Reject** buttons, and when the gate names a revise step a third, **Request changes**; see [Approving from chat](workflows.md#approving-from-chat). Only senders listed under `governance.admin_senders` (Slack user IDs) may use them. A refused click is answered privately to the person who clicked.
+A workflow run's awaiting-approval post carries **Approve** and **Reject** buttons, and when the gate names a revise step a third, **Request changes**; see [Approving from chat](workflows.md#approving-from-chat). Only senders listed under `governance.admin_senders` (Slack user IDs) may use them. A refused click is answered privately to the person who clicked and the post keeps its buttons. Each button works once: the post is then edited to name who resolved the run and when.
 
-**Request changes** opens a modal with a feedback field (up to 3,000 characters, the most a Slack modal can send). Submitting it sends the run back to the revise step with the text and the post is updated. Someone who may not request changes gets the refusal as a private message and no modal opens, so nobody loses text they typed. A submission that is refused (blank text, a gate that was resolved or replaced in the meantime, no revisions left) keeps the modal open with the reason under the field. Slack honours the click for three seconds: when the modal cannot be opened in time you get a private message to use the run page or the `workflow_request_changes` tool instead. Over the Events API a submission is answered once it is handled, within 2.5 seconds; a slower one closes the modal at that point, whatever it comes to, and the post shows the outcome. Over Socket Mode the same answer travels in the acknowledgement frame, which a live workspace has yet to confirm.
+**Group channels.** An empty `admin_senders` makes every sender an admin, so in a channel every member can approve, reject and record to the shared wiki and graph. List your admins before you invite the bot to a shared channel ([Admin senders](governance.md#admin-senders)).
+
+The agent resolves a run in conversation with `workflow_resume`, `workflow_cancel`, `workflow_request_changes` and `workflow_status`; WhatsApp and Signal posts carry no buttons, so those channels use the tools only. The write tools need a chat turn from an admin sender. A bound agent with a closed `tools` list must name each tool it should use, because anything omitted is refused:
+
+```yaml
+agent:
+  agents:
+    eng-bot:
+      prompt: You answer questions about our engineering knowledge and run workflows when asked.
+      tools: [context_research, workflow_run, workflow_status, workflow_resume, workflow_cancel, workflow_request_changes]
+channels:
+  slack:
+    group_access: allowlist
+    group_allowlist:
+      - id: C0123ABCDEF
+        agent: eng-bot
+```
+
+Every resolution, from a button, a tool or the run page, is written to the audit log (guard `RunApprovalGate`) with the channel, sender, run and step, and never the nonce or the feedback text.
+
+### Request changes
+
+A gate that names a `revise` step allows up to `maxRevisions` rounds (default 3); at the limit the post says so and offers only Approve and Reject. **Request changes** opens a modal with a feedback field (up to 3,000 characters, the most a Slack modal can send). Submitting it sends the run back to the revise step with the text and the post is updated. Someone who may not request changes gets the refusal as a private message and no modal opens, so nobody loses text they typed. A submission that is refused (blank text, a gate that was resolved or replaced in the meantime, no revisions left) keeps the modal open with the reason under the field. Slack honours the click for three seconds: when the modal cannot be opened in time you get a private message to use the run page or the `workflow_request_changes` tool instead. Over the Events API a submission is answered once it is handled, within 2.5 seconds; a slower one closes the modal at that point, whatever it comes to, and the post shows the outcome. Over Socket Mode the same answer travels in the acknowledgement frame, which a live workspace has yet to confirm.
+
+## Knowledge Answers
+
+A channel bound to an agent that holds `context_research` (the `eng-bot` entry above) answers from the shared wiki and knowledge graph with citations, and every member of that channel reads the shared surface through it. With the top-level `base_url` set to an address the members can reach from where they read Slack, each cited source carries a link that opens it read-only. A Slack turn writes the shared wiki or graph only for a sender in `governance.admin_senders`, so an empty list lets every channel member write. [Channel members](context-engine.md#channel-members) owns the rest: who should get the tool, link lifetime and privacy, refusals and audit.
 
 ## Slash Commands
 
-The manifests register five slash commands, all admin-only (`governance.admins`, listing the sender's Slack user ID):
+The manifests register five slash commands, all admin-only (`governance.admin_senders`, listing the sender's Slack user ID; see [Admin senders](governance.md#admin-senders)):
 
 | Command | Effect |
 |---|---|
@@ -224,3 +284,6 @@ Each request is checked against the signing secret over the exact received bytes
 | Slack shows the request URL as failed | DartClaw is not running in `mode: events`, the path differs from `webhook_path`, or a proxy blocks it |
 | Socket Mode never connects | The app-level token is missing the `connections:write` scope, or Socket Mode is off in the app |
 | Replies never appear | The bot token lacks `chat:write`, or Slack refused the post; `slack.scopes` names the gap |
+| No "is working..." status in a thread | The bot token lacks `assistant:write`; the reply itself is unaffected |
+| A reply names the `files:read` scope | The app was installed without it; add the scope, reinstall and update the credential |
+| A run's posts never reach the channel | `workflow.chat_notifications` is missing, invalid or names another channel; an invalid block or a recipient Slack does not own logs a warning naming the key. The bot must also have been invited to the channel |

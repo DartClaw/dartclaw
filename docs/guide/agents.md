@@ -161,7 +161,7 @@ The active turn's agent identity is threaded through each provider interception 
 ### Binding a Channel Conversation to an Agent
 
 A `dm_allowlist` or `group_allowlist` entry may carry `agent: <name>`, naming an `agent.agents.<name>` definition (see
-the [WhatsApp](whatsapp.md), [Signal](signal.md) and [Google Chat](google-chat.md) guides for the row form). That peer's
+the [WhatsApp](whatsapp.md), [Signal](signal.md), [Google Chat](google-chat.md) and [Slack](slack.md) guides for the row form). That peer's
 or group's messages then open and continue a session keyed by the agent instead of `main`, under the same `dm_scope` /
 `group_scope` rule as every other channel conversation, and a row without `agent` keeps the primary agent. Precedence
 is row → primary: there is no channel-level default agent.

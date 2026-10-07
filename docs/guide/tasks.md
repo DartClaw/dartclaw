@@ -219,9 +219,9 @@ What these tools cannot do:
   Naming the thread explicitly is also the reach worth knowing about: an agent may bind **any** thread it can name,
   as long as that thread is not already bound (to a task or to a workflow run) and the task is not terminal. It does not have to be a thread the agent
   is talking in. Messages in a bound thread then route to the task's session, so a wrongly chosen thread quietly
-  changes where a conversation goes. DartClaw is single-owner, so this reaches only your own threads, but if you want
-  it constrained, `task_bind` is a write-classified tool like any other - deny it in a guard rule, or leave it out of
-  the agent's allowlist. Every call is audited either way.
+  changes where a conversation goes. A shared team channel holds other members' threads, and `task_bind` reaches them
+  too, so if you want it constrained, `task_bind` is a write-classified tool like any other - deny it in a guard rule,
+  or leave it out of the agent's allowlist. Every call is audited either way.
 - **`task_review` with `push_back` reports the transition, not delivery.** Feedback delivery to the running agent is
   best-effort and unreported.
 

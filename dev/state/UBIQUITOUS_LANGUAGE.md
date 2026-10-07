@@ -111,10 +111,12 @@
 
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
-| Channel | Integration point for external messaging platforms. Abstract: `Channel`; concrete: `WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`. Never named a gateway – the Host Gateway owns that term | integration, connector, gateway |
+| Channel | Integration point for external messaging platforms. Abstract: `Channel`; concrete: `WhatsAppChannel`, `SignalChannel`, `GoogleChatChannel`, `SlackChannel`. Never named a gateway – the Host Gateway owns that term | integration, connector, gateway |
 | Channel Message | Normalized inbound DTO every platform adapter produces before routing. Distinct from the persisted `Message` record | inbound message, channel event |
 | Sender Attribution | Identity tracking: `Task.createdBy`, `TaskOrigin.senderDisplayName/senderId` | creator tracking |
 | Thread Binding | Maps `(channelType, threadId)` to a task (with its `sessionKey`) or a workflow run. A task binding routes thread replies to the task session and auto-unbinds on completion; a run binding holds the thread the run posts into and routes nothing. Only a channel declaring `ThreadedNotifications` can hold one | thread mapping, routing entry |
+| Threaded Channel | A channel whose `threadedNotifications` getter returns a `ThreadedNotifications` (Google Chat, Slack): the one declaration that it can read a message's thread, post into a new or existing thread, edit a post and render native cards or blocks. Only a Threaded Channel holds a thread binding or carries a Run Thread; WhatsApp and Signal get plain posts | threading flag, thread support |
+| Run Thread | The chat thread carrying one run's lifecycle posts (started, awaiting approval, finished or failed): the thread the run started in, or one opened per run in the `workflow.chat_notifications` channel. Held as a `ThreadBinding` of kind `run` | run channel, run conversation |
 | Message Deduplicator | Prevents duplicate processing when a message arrives via multiple paths (webhook + Pub/Sub) | dedup engine, duplicate filter |
 
 ## Task & Review
@@ -166,6 +168,8 @@
 | Loop Escalation | `onMaxIterations: escalate` policy on a foreach/map-nested remediation loop: exhausting the iteration cap with residual gating findings settles the story needs-review/blocked; the run pauses for human approval when a still-open dependent needs the item, otherwise it advances and reports the item blocked. Distinct from Serialize-remaining | escalate policy, needs-review exhaustion |
 | Teardown Interruption | A workflow task ending `TaskStatus.cancelled` while the run is still `running` – run teardown (shutdown SIGTERM) is the designed producer; operator task-cancel and emergency stop reach the same path. Resolves to the engine-side step outcome `cancelled` (unclaimable by agents) and is interrupted/resumable at every scope – the run pauses at its checkpoint and `workflow resume` re-runs the interrupted step; it does not mark the run failed or trigger git cleanup (one exception: a cancelled loop `finally` finalizer keeps failing the loop) | cancelled-as-interrupted, teardown cancellation |
 | Workflow Run Artifact | Persistent record of a workflow run event – outcome, inputs/outputs, metadata. Stored alongside other workflow run state and queryable post-hoc. Examples: per-step output records, Resolution Attempt artifact | run artifact, structured artifact |
+| Run Origin | Where a Workflow Run was started (`WorkflowRunOrigin`): a `surface` (a channel type name, or `web`, `cron`, `github`, `cli`, `api`, `unknown`) plus, for a chat start, channel type, recipient, thread, session key and sender. Recorded once at start and never changed | run source, trigger, creator |
+| Approval Interaction | The durable, single-use record (`WorkflowApprovalInteraction`) that lets one chat post resolve one pending approval: the step, a 128-bit nonce and the bound post. A chat resolution through it is admin-sender gated and audited, and one successful resolution consumes it | approval button, approval token, approval callback |
 
 ## Knowledge & Memory
 | Term | Definition | Avoid (synonyms) |
@@ -263,7 +267,7 @@
 | Session | Conversation & Session | Durable conversation container with persisted messages | Channel Integration | The messaging platform's own chat-thread concept |
 | Session | Operator Interface | The HMAC-signed browser Session Cookie | Turn Orchestration | Logical-Agent Session – a hidden durable session pinned to one Logical Agent |
 | Message | Channel Integration | `ChannelMessage` – normalized inbound DTO from any platform | Conversation & Session | Persisted message record inside a Session |
-| Thread | Channel Integration | Google Chat thread within a Space | Turn Orchestration | Not used – DartClaw is single-threaded (one Dart isolate) |
+| Thread | Channel Integration | A platform thread DartClaw posts into or binds: a Google Chat thread within a Space, a Slack thread under a message | Turn Orchestration | Not used – DartClaw is single-threaded (one Dart isolate) |
 | Provider | Provider Mediation | LLM provider (claude, codex) | Channel Integration | Google Cloud service account (Google Chat) |
 | Bridge | Execution Isolation | Container Bridge / `dartclaw_bridge` – the read-only in-container executable forwarding framed provider/MCP traffic to the Host Gateway | Provider Mediation | `BridgeEvent` – harness-to-host event translation |
 | Bridge | Channel Integration | `ChannelTaskBridge` – the seam that applies reserved-command, thread-binding, and rate-limit routing before normal channel dispatch | Task & Review | Task creation is model-initiated through `task_create`, not inferred from channel text |
@@ -282,6 +286,7 @@
 | Drain | Workflow Orchestration | Cancelling and re-queueing in-flight foreach iterations on Serialize-remaining | Runtime Governance | `/resume (drain queue)` – replaying the paused message queue |
 
 ## Changelog
+- 2026-10-07: Added Run Origin, Run Thread, Threaded Channel and Approval Interaction; Channel and Thread name Slack.
 - 2026-09-26: Clarified that Effective Context permits a null project association for general chats.
 - 2026-09-25: Added General Chat and Project Chat and nullable Effective Context from ADR-017 §9.
 - 2026-09-22: Replaced configurable Workspace Binding with Managed Workspace Binding and added Personal Memory and Shared Knowledge Surface.
@@ -292,9 +297,4 @@
 - 2026-09-08: Added Authoritative Store and its `dartclaw.db` SQLite filename; `tasks.db` is the retired name.
 - 2026-08-25: Added Named Credential Store under `provider-mediation` for the 0.24.3 credential and secrets CLI contract.
 - 2026-08-20: Split the overloaded "health" term: Health Status is now stated as the single projection of the host Worker's lifecycle, and Provider Availability is registered beside it as the separately derived provider-mediation term, with an Overloaded Terms row demarcating the two.
-- 2026-08-17: Added the 0.24.1 knowledge-inbox wiki vocabulary under `knowledge-memory`: wiki provenance, `hybrid`, supplement section, wiki collision, consolidation debt, declared drop.
 - 2026-08-20: Recut the wiki-collision vocabulary for the merge contract: *wiki collision* now names the settled merge, *merge declaration* and *shrink floor* added, *consolidation debt* and *declared drop* removed with the surfaces that reported them.
-- 2026-08-15: Added the 0.24.2 subscription-credential vocabulary under `provider-mediation` (ADR-053): Subscription Credential, Dedicated Credential Store, Operator Login Store, Credential Mode, Credential Resolution, Credential Health State, Renewal Deadline, Codex Refresh Authority.
-- 2026-08-14: Regrouped the whole glossary onto the 15 bounded contexts registered in `dev/architecture/context-map.md` (closes D-4): the `##` section *is* the context, so the ~50 ad-hoc "Bounded Context" labels and their column are gone. Added the missing Scheduling vocabulary under `task-review` (closes D-5) and first-time coverage for `project-registry`, `tool-surface`, `operator-interface`, and `observability-alerting`. New terms elsewhere: Security Profile, Worker Capacity Gate, Session Lock, Context Monitor, Prompt Scope, Memory Role/Provenance/Observation, Temporal Knowledge Graph, Knowledge Inbox, Knowledge Hub, QMD, Platform Capabilities. Added overloads for Message, Event, Audit, Runner, Context, Budget, Merge, Project, Tool, and the channel-task Bridge. Dropped "Dependency Reversal" and "Outpost Pattern" (generic jargon; "outpost" is already an Avoid synonym for the outbound MCP client) and the degenerate Worker/Guard/Verification overload rows.
-- 2026-08-12: Retired the pre-0.24 Credential Proxy entry (redirect to Host Gateway / Container Bridge) and updated Container Isolation to the shipped 0.24 model (per-authority single-use container, `no-new-privileges`, framed bridge as the only egress path).
-- 2026-08-12: Added 0.24 execution-isolation terms – Execution Policy, Principal, Container Authority, Host Gateway, Container Bridge (`dartclaw_bridge`); extended the Bridge overloaded-term row with the container-bridge sense.

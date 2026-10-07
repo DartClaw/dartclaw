@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 
 const _botToken = 'xoxb-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
 const _appToken = 'xapp-1-A0123456789-5555555555-a1b2c3d4e5f6a1b2c3d4e5f6';
+const _signingSecret = '8f742231b10e8888abcd99ca2f3f9a1c';
 
 const _credentials = '''
 credentials:
@@ -12,13 +13,22 @@ credentials:
     api_key: \${SLACK_BOT_TOKEN}
   slack_app:
     api_key: \${SLACK_APP_TOKEN}
+  slack_signing:
+    api_key: \${SLACK_SIGNING_SECRET}
 ''';
 
-const _env = {'HOME': '/h', 'SLACK_BOT_TOKEN': _botToken, 'SLACK_APP_TOKEN': _appToken};
+const _env = {
+  'HOME': '/h',
+  'SLACK_BOT_TOKEN': _botToken,
+  'SLACK_APP_TOKEN': _appToken,
+  'SLACK_SIGNING_SECRET': _signingSecret,
+};
 
 String _slack(String body) => '$_credentials\nchannels:\n  slack:\n    enabled: true\n$body';
 
 const _validBody = '    bot_token_credential: slack_bot\n    app_token_credential: slack_app\n';
+const _eventsBody =
+    '    mode: events\n    bot_token_credential: slack_bot\n    signing_secret_credential: slack_signing\n';
 
 DartclawConfig _load(String yaml, {Map<String, String> env = _env, bool resolveStoredCredentials = true}) =>
     loadDartclawConfig(
@@ -33,7 +43,7 @@ String _refusal(String yaml, {Map<String, String> env = _env, bool resolveStored
   try {
     _load(yaml, env: env, resolveStoredCredentials: resolveStoredCredentials);
   } on FormatException catch (error) {
-    for (final secret in [_botToken, _appToken, 'plain-secret-value', 'alice']) {
+    for (final secret in [_botToken, _appToken, _signingSecret, 'plain-secret-value', 'alice']) {
       expect(error.message, isNot(contains(secret)), reason: 'a refusal must never repeat a value from the file');
     }
     return error.message;
@@ -42,6 +52,8 @@ String _refusal(String yaml, {Map<String, String> env = _env, bool resolveStored
 }
 
 void main() {
+  setUpAll(ensureGitHubWebhookConfigRegistered);
+
   test('a valid reference pair loads and resolves both tokens', () {
     final config = _load(_slack(_validBody));
 
@@ -207,23 +219,156 @@ $_validBody    dm_access: allowlist
     });
   });
 
+  group('transport', () {
+    test('events mode loads with bot and signing references and no app token, path defaulting', () {
+      final config = _load(_slack(_eventsBody));
+
+      final slack = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
+      expect(slack.mode, 'events');
+      expect(slack.webhookPath, '/integrations/slack');
+      expect(config.credentials[slack.signingSecretCredential!]!.secret, _signingSecret);
+      expect(config.warnings, isEmpty);
+    });
+
+    test('an owner-set webhook_path is kept', () {
+      final config = _load(_slack('$_eventsBody    webhook_path: /hooks/slack\n'));
+
+      expect(resolveChannelConfig<SlackConfig>(config, ChannelType.slack).webhookPath, '/hooks/slack');
+    });
+
+    test('events mode without a signing-secret reference is refused by key, and asks nothing of the app token', () {
+      final message = _refusal(_slack('    mode: events\n    bot_token_credential: slack_bot\n'));
+
+      expect(message, contains('channels.slack.signing_secret_credential: required'));
+      expect(message, isNot(contains('app_token_credential')));
+    });
+
+    test('socket mode asks nothing of the signing secret', () {
+      final config = _load(_slack('    mode: socket\n$_validBody'));
+
+      expect(resolveChannelConfig<SlackConfig>(config, ChannelType.slack).signingSecretCredential, isNull);
+    });
+
+    test('an unknown mode is refused naming the key and the accepted values', () {
+      final message = _refusal(_slack('$_validBody    mode: webhook\n'));
+
+      expect(message, contains('channels.slack.mode'));
+      expect(message, contains('socket'));
+      expect(message, contains('events'));
+      expect(message, isNot(contains('webhook')));
+    });
+
+    test('references of both transports load with one warning naming the unused one', () {
+      final socket = _load(_slack('$_validBody    signing_secret_credential: slack_signing\n'));
+      final events = _load(_slack('$_eventsBody    app_token_credential: slack_app\n'));
+
+      expect(socket.warnings, hasLength(1));
+      expect(socket.warnings.single, contains('channels.slack.signing_secret_credential'));
+      expect(events.warnings, hasLength(1));
+      expect(events.warnings.single, contains('channels.slack.app_token_credential'));
+    });
+
+    test('a literal signing secret is refused with the credentials.<name> form, without repeating it', () {
+      for (final resolveStored in [true, false]) {
+        final message = _refusal(
+          _slack(
+            '    mode: events\n    bot_token_credential: slack_bot\n    signing_secret_credential: $_signingSecret\n',
+          ),
+          resolveStoredCredentials: resolveStored,
+        );
+
+        expect(message, contains('channels.slack.signing_secret_credential'));
+        expect(message, contains('credentials.<name>'));
+      }
+    });
+
+    test('a literal token in the unused transport key is still refused', () {
+      final message = _refusal(_slack('$_eventsBody    app_token_credential: $_appToken\n'));
+
+      expect(message, contains('channels.slack.app_token_credential'));
+      expect(message, contains('credentials.<name>'));
+    });
+
+    test('a signing-secret reference naming no credentials entry is refused', () {
+      final message = _refusal(
+        _slack('    mode: events\n    bot_token_credential: slack_bot\n    signing_secret_credential: nope\n'),
+      );
+
+      expect(message, contains('channels.slack.signing_secret_credential: names no credentials entry'));
+    });
+  });
+
+  group('stored credentials', () {
+    const storeOnly =
+        'channels:\n  slack:\n    enabled: true\n    mode: events\n'
+        '    bot_token_credential: stored_bot\n    signing_secret_credential: stored_signing\n';
+
+    test('references naming only store-held credentials load while the stored view is off', () {
+      final config = _load(storeOnly, resolveStoredCredentials: false);
+
+      expect(resolveChannelConfig<SlackConfig>(config, ChannelType.slack).signingSecretCredential, 'stored_signing');
+    });
+
+    test('the same references are refused once the stored view is on and the store lacks them', () {
+      final message = _refusal(storeOnly);
+
+      expect(message, contains('channels.slack.bot_token_credential: names no credentials entry'));
+      expect(message, contains('channels.slack.signing_secret_credential: names no credentials entry'));
+    });
+
+    test('a declared entry resolving empty is not judged while the stored view is off', () {
+      final config = _load(
+        _slack(_eventsBody),
+        env: const {'HOME': '/h', 'SLACK_BOT_TOKEN': _botToken},
+        resolveStoredCredentials: false,
+      );
+
+      expect(resolveChannelConfig<SlackConfig>(config, ChannelType.slack).enabled, isTrue);
+    });
+
+    test('a declared entry resolving empty is refused once the stored view is on', () {
+      final message = _refusal(_slack(_eventsBody), env: const {'HOME': '/h', 'SLACK_BOT_TOKEN': _botToken});
+
+      expect(message, contains('channels.slack.signing_secret_credential'));
+    });
+  });
+
+  group('webhook_path', () {
+    test('a path without a leading slash is refused by key', () {
+      final message = _refusal(_slack('$_eventsBody    webhook_path: hooks/slack\n'));
+
+      expect(message, contains('channels.slack.webhook_path'));
+      expect(message, contains('start with /'));
+    });
+
+    test('the Google Chat default path is refused as a collision', () {
+      final message = _refusal(_slack('$_eventsBody    webhook_path: /integrations/googlechat\n'));
+
+      expect(message, contains('channels.slack.webhook_path'));
+      expect(message, contains('Google Chat'));
+    });
+
+    test('a customised Google Chat path is refused as a collision', () {
+      final yaml =
+          '${_slack('$_eventsBody    webhook_path: /chat-hook\n')}  google_chat:\n    webhook_path: /chat-hook\n';
+
+      expect(_refusal(yaml), contains('Google Chat'));
+    });
+
+    test('the GitHub path, default and customised, is refused as a collision', () {
+      expect(_refusal(_slack('$_eventsBody    webhook_path: /webhook/github\n')), contains('GitHub'));
+
+      final yaml = 'github:\n  webhook_path: /gh-hook\n${_slack('$_eventsBody    webhook_path: /gh-hook\n')}';
+      expect(_refusal(yaml), contains('GitHub'));
+    });
+  });
+
   group('keys', () {
     test('a key channels.slack does not register is refused at load', () {
       expect(
-        () => _load(_slack('$_validBody    signing_secret_credential: slack_app\n')),
-        throwsA(
-          isA<FormatException>().having(
-            (e) => e.message,
-            'message',
-            contains('channels.slack.signing_secret_credential'),
-          ),
-        ),
+        () => _load(_slack('$_validBody    signing_secret: abc\n')),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('channels.slack.signing_secret'))),
       );
-    });
-
-    test('mode accepts only socket', () {
-      expect(_refusal(_slack('$_validBody    mode: events\n')), contains('channels.slack.mode'));
-      expect(_load(_slack('$_validBody    mode: socket\n')).warnings, isEmpty);
     });
   });
 }

@@ -486,14 +486,24 @@ class ChannelWiring {
 
     if (slackEnabled && _channelManager != null) {
       try {
-        final botToken = config.credentials[slackConfig.botTokenCredential ?? '']?.secret;
-        final appToken = config.credentials[slackConfig.appTokenCredential ?? '']?.secret;
-        if (botToken == null || botToken.isEmpty || appToken == null || appToken.isEmpty) {
-          throw StateError('channels.slack token credentials do not resolve to a value');
+        final events = slackConfig.mode == 'events';
+        String? secretOf(String? name) {
+          final secret = config.credentials[name ?? '']?.secret;
+          return secret == null || secret.isEmpty ? null : secret;
         }
+
+        final botToken = secretOf(slackConfig.botTokenCredential);
+        final appToken = events ? null : secretOf(slackConfig.appTokenCredential);
+        final signingSecret = events ? secretOf(slackConfig.signingSecretCredential) : null;
+        if (botToken == null || (events ? signingSecret == null : appToken == null)) {
+          throw StateError('channels.slack credentials do not resolve to a value');
+        }
+        messageRedactor?.registerLiterals([botToken, ?appToken, ?signingSecret]);
         final slackChannel = SlackChannel(
           config: slackConfig,
           api: SlackWebApiClient(botToken: botToken, appToken: appToken),
+          mode: slackConfig.mode,
+          signingSecret: signingSecret,
           dmAccess: DmAccessController(mode: slackConfig.dmAccess, allowlist: slackConfig.dmIds.toSet()),
           mentionGating: MentionGating(
             requireMention: slackConfig.requireMention,
@@ -504,6 +514,7 @@ class ChannelWiring {
         );
         _channelManager!.registerChannel(slackChannel);
         _slackChannel = slackChannel;
+        healthService.slackReporter = slackChannel.healthReporter;
         _log.info('Slack channel registered');
       } catch (e) {
         _log.warning('Failed to initialize Slack channel: $e');

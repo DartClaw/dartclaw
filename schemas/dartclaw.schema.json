@@ -841,7 +841,7 @@
           "additionalProperties": false,
           "properties": {
             "app_token_credential": {
-              "description": "Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. The token itself is never written here. (restart required)",
+              "description": "Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. Required in socket mode. The token itself is never written here. (restart required)",
               "type": [
                 "null",
                 "string"
@@ -1011,8 +1011,9 @@
               "type": "array"
             },
             "mode": {
-              "description": "How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token. (restart required)",
+              "description": "How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token, events accepts signed Events API requests at webhook_path. Default socket. (restart required)",
               "enum": [
+                "events",
                 "socket"
               ],
               "type": "string"
@@ -1021,9 +1022,20 @@
               "description": "Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention. (restart required)",
               "type": "boolean"
             },
+            "signing_secret_credential": {
+              "description": "Name of the credentials entry holding the app signing secret that Events API requests are verified with. Required in events mode. The secret itself is never written here. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
             "streaming": {
               "description": "Stream a reply into its Slack thread or DM as the agent writes it. When false, the reply is posted in chunks once the turn ends. Streaming needs the chat:write scope. (restart required)",
               "type": "boolean"
+            },
+            "webhook_path": {
+              "description": "HTTP path Slack posts Events API requests to in events mode. Default /integrations/slack. (restart required)",
+              "type": "string"
             }
           },
           "type": [

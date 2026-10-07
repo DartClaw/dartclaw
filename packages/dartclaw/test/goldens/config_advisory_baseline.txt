@@ -267,8 +267,12 @@
   [blocking] Invalid type for slack.mode: "int" — using default
 === channels.slack.require_mention#type-nonbool ===
   [blocking] Invalid type for slack.require_mention: "String" — using default
+=== channels.slack.signing_secret_credential#type-nonstring ===
+  [blocking] Invalid type for slack.signing_secret_credential: "int" — using defaults
 === channels.slack.streaming#type-nonbool ===
   [blocking] Invalid type for slack.streaming: "String" — using default
+=== channels.slack.webhook_path#type-nonstring ===
+  [blocking] Invalid type for slack.webhook_path: "int" — using default
 === channels.whatsapp#scalar ===
   [blocking] Invalid channel config for "whatsapp": "int" — skipping
 === channels.whatsapp.dm_access#non-member ===

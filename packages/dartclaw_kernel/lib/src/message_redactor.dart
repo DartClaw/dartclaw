@@ -74,6 +74,7 @@ class MessageRedactor {
   };
 
   List<({RegExp pattern, bool isDsnUserinfo, bool isPem})> _compiled;
+  final _literals = <String>{};
 
   /// Creates a redactor with built-in patterns plus optional [extraPatterns].
   ///
@@ -106,6 +107,15 @@ class MessageRedactor {
             words.contains('secret') ||
             words[words.length - 2] == 'encryption' ||
             words[words.length - 2] == 'signing');
+  }
+
+  /// Registers exact secrets that [redact] masks fully from now on, like call-time `sensitiveValues`.
+  ///
+  /// Registrations accumulate for the life of the redactor and are separate from
+  /// the compiled patterns, so [recompilePatterns] never drops them. Empty values
+  /// are ignored.
+  void registerLiterals(Iterable<String> values) {
+    _literals.addAll(values.where((value) => value.isNotEmpty));
   }
 
   /// Recompiles redaction patterns with [extraPatterns] replacing any prior extras.
@@ -174,16 +184,17 @@ class MessageRedactor {
 
   /// Redacts sensitive content from [input].
   ///
-  /// Non-empty [sensitiveValues] are literal credentials, fully masked before
-  /// pattern redaction so neither proportional reveal nor overlapping patterns
-  /// can expose part of them. Longer values are masked first.
-  /// Never throws. On internal error, returns `[REDACTED]` when values were
-  /// supplied, otherwise [input] unchanged.
+  /// Non-empty [sensitiveValues] and values from [registerLiterals] are literal
+  /// credentials, fully masked before pattern redaction so neither proportional
+  /// reveal nor overlapping patterns can expose part of them. Longer values are
+  /// masked first.
+  /// Never throws. On internal error, returns `[REDACTED]` when literals were
+  /// supplied or registered, otherwise [input] unchanged.
   String redact(String input, {List<String> sensitiveValues = const []}) {
     if (input.isEmpty) return input;
     try {
       var result = input;
-      final literals = sensitiveValues.where((value) => value.isNotEmpty).toSet().toList()
+      final literals = {..._literals, ...sensitiveValues.where((value) => value.isNotEmpty)}.toList()
         ..sort((a, b) => b.length.compareTo(a.length));
       for (final value in literals) {
         result = result.replaceAll(value, '[REDACTED]');
@@ -222,7 +233,7 @@ class MessageRedactor {
       return result;
     } catch (e) {
       _log.warning('Redaction failed', e);
-      return sensitiveValues.isEmpty ? input : '[REDACTED]';
+      return sensitiveValues.isEmpty && _literals.isEmpty ? input : '[REDACTED]';
     }
   }
 

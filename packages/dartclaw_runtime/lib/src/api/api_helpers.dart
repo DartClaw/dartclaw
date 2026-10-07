@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show readBoundedBytes;
 import 'package:shelf/shelf.dart';
 
 const defaultMaxJsonBodyBytes = 256 * 1024;
@@ -75,19 +75,12 @@ Future<({Map<String, dynamic>? value, Response? error})> readJsonObject(
 /// unbounded read. Decodes UTF-8 unconditionally, ignoring any `charset`
 /// parameter, and answers `400 INVALID_INPUT` when the bytes are not UTF-8.
 Future<({String? body, Response? error})> readRequestBody(Request request, {required int maxBytes}) async {
-  final contentLength = request.contentLength;
-  if (contentLength != null && contentLength > maxBytes) {
+  final bytes = await readBoundedBytes(request.read(), contentLength: request.contentLength, limit: maxBytes);
+  if (bytes == null) {
     return (body: null, error: errorResponse(413, 'REQUEST_TOO_LARGE', 'request body is too large'));
   }
-  final bytes = BytesBuilder(copy: false);
-  await for (final chunk in request.read()) {
-    if (bytes.length + chunk.length > maxBytes) {
-      return (body: null, error: errorResponse(413, 'REQUEST_TOO_LARGE', 'request body is too large'));
-    }
-    bytes.add(chunk);
-  }
   try {
-    return (body: utf8.decode(bytes.takeBytes()), error: null);
+    return (body: utf8.decode(bytes), error: null);
   } on FormatException {
     return (body: null, error: errorResponse(400, 'INVALID_INPUT', 'request body must be valid UTF-8'));
   }

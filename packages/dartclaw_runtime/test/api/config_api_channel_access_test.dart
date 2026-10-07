@@ -187,6 +187,8 @@ channels:
           'channels.slack.mode',
           'channels.slack.bot_token_credential',
           'channels.slack.app_token_credential',
+          'channels.slack.signing_secret_credential',
+          'channels.slack.webhook_path',
           'channels.slack.dm_access',
           'channels.slack.dm_allowlist',
           'channels.slack.group_access',

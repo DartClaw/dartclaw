@@ -8,3 +8,4 @@ library;
 export 'src/testing/fake_slack_web_api.dart'
     show FakeSlackFile, FakeSlackFileHost, FakeSlackFileRequest, FakeSlackWebApi;
 export 'src/testing/fake_socket_mode_server.dart' show FakeSocketModeServer;
+export 'src/testing/slack_request_signing.dart' show signedSlackHeaders, slackSignature;

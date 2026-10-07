@@ -18,14 +18,17 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         dartclawVersion,
         defaultProviderExecutable,
         formatUptime,
+        resolveChannelConfig,
         resolveDatabaseDsn,
         resolveProviderTarget;
+import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackConfig, SlackWebApiClient;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show selectBashShell;
 
 import '../connected_command_support.dart';
 import '../secrets/credential_inventory.dart';
 
 import '../config_loader.dart';
+import 'slack_checks.dart';
 
 typedef _ProviderTarget = ({String providerId, String providerBinary});
 typedef _LocalVerificationCheck = ({List<DiagnosticRow> rows, List<_ProviderTarget> providerTargets});
@@ -166,6 +169,7 @@ class SetupChecks {
   final RunCommand _runCommand;
   final Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? _serverHealth;
   final DatabaseReadinessCheck _databaseReadiness;
+  final SlackClientFactory _slackClientFactory;
 
   new({
     Future<BinaryProbe> Function(String executable)? probeBinary,
@@ -177,6 +181,7 @@ class SetupChecks {
     RunCommand? runCommand,
     Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? serverHealth,
     DatabaseReadinessCheck? databaseReadiness,
+    SlackClientFactory? slackClientFactory,
   }) : _probeBinary = probeBinary ?? _defaultProbeBinary,
        _portFree = portFree ?? _defaultPortFree,
        _writeProbeFile = writeProbeFile ?? _defaultWriteProbeFile,
@@ -185,7 +190,8 @@ class SetupChecks {
        _providerVerified = providerVerified,
        _runCommand = runCommand ?? Process.run,
        _serverHealth = serverHealth,
-       _databaseReadiness = databaseReadiness ?? _defaultDatabaseReadiness;
+       _databaseReadiness = databaseReadiness ?? _defaultDatabaseReadiness,
+       _slackClientFactory = slackClientFactory ?? ((botToken) => SlackWebApiClient(botToken: botToken));
 
   /// Whether [port] can be bound, using the same probe [preflight] and
   /// [diagnose] run.
@@ -489,6 +495,16 @@ class SetupChecks {
       );
     }
     rows.addAll(await _containerRows(config, capabilities, serverRunning: server != null));
+    final slack = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
+    if (slack.enabled) {
+      var credentials = config.credentials;
+      try {
+        credentials = _declaredAndStoredCredentials(config, env);
+      } on Object {
+        /* An unusable store degrades to the declared view; `secrets.*` rows report the store. */
+      }
+      rows.addAll(await slackRows(slack, credentials: credentials, server: server, clientFactory: _slackClientFactory));
+    }
     if (!capabilities.posixSignalsAvailable) rows.addAll(await _windowsRows(config, capabilities));
     return DiagnosticReport(rows, server: server, missingDirectories: missingDirectories);
   }
@@ -678,6 +694,15 @@ class SetupChecks {
     }
   }
 
+  /// The config's declared credentials overlaid with the named store's, which wins a shadowed name.
+  static CredentialsConfig _declaredAndStoredCredentials(DartclawConfig config, Map<String, String> environment) {
+    final stored = NamedCredentialStore.readOnly(
+      credentialsDir: config.credentialsDir,
+      environment: environment,
+    ).readAll();
+    return CredentialsConfig(entries: {...config.credentials.entries, ...stored});
+  }
+
   static Future<List<DiagnosticRow>> _defaultDatabaseReadiness(
     DartclawConfig config, {
     required bool bootstrap,
@@ -707,11 +732,7 @@ class SetupChecks {
 
     DatabaseBackend? backend;
     try {
-      final stored = NamedCredentialStore.readOnly(
-        credentialsDir: config.credentialsDir,
-        environment: environment,
-      ).readAll();
-      final credentials = CredentialsConfig(entries: {...config.credentials.entries, ...stored});
+      final credentials = _declaredAndStoredCredentials(config, environment);
       final factory = postgresBackendFactory(
         database,
         resolveDsn: (value) => resolveDatabaseDsn(value, credentials: CredentialRegistry(credentials: credentials)),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import '../slack_bot_scopes.dart';
 import '../slack_web_api_client.dart';
 
 /// One download the fake file host received, kept so tests can assert where the
@@ -102,10 +103,13 @@ class FakeSlackWebApi extends SlackWebApiClient {
   /// The URL `apps.connections.open` returns.
   Uri socketUrl;
 
+  /// The scopes `auth.test` reports as granted; the manifest's ten by default.
+  List<String> scopes = List.of(slackExpectedBotScopes);
+
   /// Serves the files [downloadFile] fetches.
   final FakeSlackFileHost fileHost;
 
-  /// Throws from `auth.test` when set, as a revoked token would.
+  /// Throws from `auth.test` when set, as a revoked token would, or as an unreachable Slack when it has no error code.
   SlackApiException? authError;
 
   /// Throws from `apps.connections.open` when set.
@@ -188,7 +192,7 @@ class FakeSlackWebApi extends SlackWebApiClient {
     authTestCalls++;
     final error = authError;
     if (error != null) throw error;
-    return (userId: botUserId, botId: botId);
+    return (userId: botUserId, botId: botId, scopes: List.of(scopes));
   }
 
   @override

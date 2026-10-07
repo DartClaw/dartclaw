@@ -1,12 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
-
-/// Maximum webhook payload size (1 MiB). Rejects oversized POST bodies
-/// on unauthenticated webhook endpoints to prevent OOM attacks.
-const maxWebhookPayloadBytes = 1024 * 1024;
 
 /// Constant-time string comparison to prevent timing attacks on secrets.
 ///
@@ -33,38 +30,24 @@ bool constantTimeEquals(String a, String b) {
   return result == 0;
 }
 
-/// Reads a request body up to [limit] bytes, returning `null` if exceeded.
-///
-/// Checks `Content-Length` header first for a fast 413 rejection path,
-/// then caps the stream read for chunked/missing-header cases.
-Future<String?> readBounded(Request request, int limit) async {
-  final contentLength = request.contentLength;
-  if (contentLength != null && contentLength > limit) return null;
+/// Reads a request body up to [limit] bytes exactly as received, returning `null` if exceeded.
+Future<Uint8List?> readBoundedRequestBytes(Request request, int limit) =>
+    readBoundedBytes(request.read(), contentLength: request.contentLength, limit: limit);
 
-  final bytes = <int>[];
-  await for (final chunk in request.read()) {
-    bytes.addAll(chunk);
-    if (bytes.length > limit) return null;
-  }
-  return utf8.decode(bytes);
+/// Reads a request body up to [limit] bytes as UTF-8, returning `null` if exceeded.
+Future<String?> readBounded(Request request, int limit) async {
+  final bytes = await readBoundedRequestBytes(request, limit);
+  return bytes == null ? null : utf8.decode(bytes);
 }
 
 /// Resolves the remote IP key for [request], honoring trusted-proxy `X-Forwarded-For` chains.
 String? requestRemoteKey(Request request, {List<String> trustedProxies = const []}) {
   final connectionInfo = request.context['shelf.io.connection_info'];
-  if (connectionInfo is HttpConnectionInfo) {
-    final socketAddress = connectionInfo.remoteAddress.address;
-    if (trustedProxies.isNotEmpty && trustedProxies.contains(socketAddress)) {
-      final forwardedFor = request.headers['x-forwarded-for'];
-      final forwardedClient = forwardedFor?.split(',').first.trim();
-      if (forwardedClient != null && forwardedClient.isNotEmpty) {
-        return forwardedClient;
-      }
-    }
-    return socketAddress;
-  }
-
-  return null;
+  return resolveRemoteKey(
+    peerAddress: connectionInfo is HttpConnectionInfo ? connectionInfo.remoteAddress.address : null,
+    forwardedFor: request.headers['x-forwarded-for'],
+    trustedProxies: trustedProxies,
+  );
 }
 
 /// Publishes a `FailedAuthEvent` to [eventBus] describing [reason] and the originating request.
@@ -76,14 +59,12 @@ void fireFailedAuthEvent(
   bool limited = false,
   List<String> trustedProxies = const [],
 }) {
-  eventBus?.fire(
-    FailedAuthEvent(
-      source: source,
-      path: '/${request.url.path}',
-      reason: reason,
-      remoteKey: requestRemoteKey(request, trustedProxies: trustedProxies),
-      limited: limited,
-      timestamp: DateTime.now(),
-    ),
+  publishFailedAuthEvent(
+    eventBus,
+    source: source,
+    path: '/${request.url.path}',
+    reason: reason,
+    remoteKey: requestRemoteKey(request, trustedProxies: trustedProxies),
+    limited: limited,
   );
 }

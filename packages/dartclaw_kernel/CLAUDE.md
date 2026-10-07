@@ -87,6 +87,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   policy compatibility.
 - Shell vocabulary lives once in `command_vocabulary.dart`. Read-only admission is allowlist-based.
 - `MessageRedactor` decides from secret-shaped keys only; do not add prose/value heuristics.
+- `MessageRedactor.registerLiterals` holds exact secrets with no recognisable shape (a signing secret): masked fully like call-time `sensitiveValues`, kept apart from the compiled patterns so `recompilePatterns` cannot drop them. Never register one as an extra pattern, which keeps up to 8 leading characters.
 - `ContentScan` (`content_scan.dart`) is the single truncate → classify → fail-policy authority for every scanning
   site: `ContentGuard` here, `web_fetch` and outbound `public` MCP results in `dartclaw_runtime`. Built once in
   `SecurityWiring` and injected; `ContentGuard` holds only the injected instance, the hook-point gate and `enabled`.

@@ -778,7 +778,7 @@ Client-supplied `configJson` keys starting with `_` are rejected with `400 INVAL
 GET /api/config/channels/:type/dm-allowlist
 ```
 
-Returns the current DM allowlist for a channel (`whatsapp` or `signal`).
+Returns the current DM allowlist for a channel (`whatsapp`, `signal`, `google_chat` or `slack`).
 
 #### Add to DM allowlist
 
@@ -862,7 +862,7 @@ Content-Type: application/json
 GET /api/channels/pairing-counts
 ```
 
-Returns `{"whatsapp": 0, "signal": 1}`.
+Returns `{"whatsapp": 0, "signal": 1, "google_chat": 0, "slack": 0}`.
 
 ### System
 

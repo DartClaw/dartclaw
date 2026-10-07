@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -23,6 +24,7 @@ class SlackHarness {
     required this.manager,
     required this.channel,
     required this.dmAccess,
+    required this.signingSecret,
   });
 
   final FakeSocketModeServer server;
@@ -31,6 +33,7 @@ class SlackHarness {
   final ChannelManager manager;
   final SlackChannel channel;
   final DmAccessController dmAccess;
+  final String signingSecret;
   final List<LogRecord> logs = [];
 
   static Future<SlackHarness> start({
@@ -40,6 +43,8 @@ class SlackHarness {
     List<GroupEntry> dmRows = const [],
     String Function(String text)? answer,
     ReservedCommandDispatch? reservedCommands,
+    String mode = 'socket',
+    String signingSecret = 'harness-signing-secret',
   }) async {
     final slackConfig =
         config ??
@@ -101,6 +106,8 @@ class SlackHarness {
         ownJid: '',
       ),
       channelManager: manager,
+      mode: mode,
+      signingSecret: signingSecret,
       reconnectDelay: (_) => Future<void>.delayed(const Duration(milliseconds: 5)),
     );
     manager.registerChannel(channel);
@@ -111,13 +118,14 @@ class SlackHarness {
       manager: manager,
       channel: channel,
       dmAccess: dmAccess,
+      signingSecret: signingSecret,
     );
     Logger.root.level = Level.ALL;
     final subscription = Logger.root.onRecord.listen(harness.logs.add);
     harness._unsubscribe = subscription.cancel;
     channel.dispatch.register(SlackEnvelopeKind.unknown, (envelope) => harness._sentinelsSeen++);
     await channel.connect();
-    await harness.until(() => channel.connectionState == SocketModeState.connected);
+    if (mode == 'socket') await harness.until(() => channel.connectionState == SocketModeState.connected);
     return harness;
   }
 
@@ -144,6 +152,10 @@ class SlackHarness {
     server.sendInteractive({'type': 'sentinel'});
     await until(() => _sentinelsSeen == _sentinelsSent);
   }
+
+  /// Posts [body] to the channel's Events API handler, signed as Slack signs it.
+  Future<SlackEventsResponse> post(List<int> body, {String contentType = 'application/json'}) => channel.eventsHandler!
+      .handle(Uint8List.fromList(body), signedSlackHeaders(signingSecret, body, contentType: contentType));
 
   /// Waits for [condition], failing after five seconds.
   Future<void> until(bool Function() condition) async {

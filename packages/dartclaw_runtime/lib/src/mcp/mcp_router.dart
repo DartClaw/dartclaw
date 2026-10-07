@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, EventBus;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, EventBus, maxWebhookPayloadBytes;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:shelf/shelf.dart';
 

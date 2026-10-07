@@ -16,6 +16,8 @@ void main() {
     expect(config.requireMention, isTrue);
     expect(config.botTokenCredential, isNull);
     expect(config.appTokenCredential, isNull);
+    expect(config.signingSecretCredential, isNull);
+    expect(config.webhookPath, '/integrations/slack');
     expect(warnings, isEmpty);
   });
 
@@ -27,6 +29,8 @@ void main() {
       'mode': 'socket',
       'bot_token_credential': 'slack_bot',
       'app_token_credential': 'slack_app',
+      'signing_secret_credential': 'slack_signing',
+      'webhook_path': '/hooks/slack',
       'dm_access': 'open',
       'dm_allowlist': [
         'U1',
@@ -44,12 +48,24 @@ void main() {
     expect(config.enabled, isTrue);
     expect(config.botTokenCredential, 'slack_bot');
     expect(config.appTokenCredential, 'slack_app');
+    expect(config.signingSecretCredential, 'slack_signing');
+    expect(config.webhookPath, '/hooks/slack');
     expect(config.dmAccess, DmAccessMode.open);
     expect(config.dmIds, ['U1', 'U2']);
     expect(config.groupIds, ['C1', 'C2']);
     expect(config.groupAllowlist.last.agent, 'eng-bot');
     expect(config.requireMention, isFalse);
     expect(config.mentionPatterns, [r'\bbot\b']);
+    expect(warnings, isEmpty);
+  });
+
+  test('events mode is read as written, without touching the path default', () {
+    final warnings = <String>[];
+
+    final config = SlackConfig.fromYaml({'mode': 'events', 'signing_secret_credential': 'slack_signing'}, warnings);
+
+    expect(config.mode, 'events');
+    expect(config.webhookPath, '/integrations/slack');
     expect(warnings, isEmpty);
   });
 
@@ -70,12 +86,16 @@ void main() {
     final config = SlackConfig.fromYaml({
       'enabled': 'yes',
       'bot_token_credential': 12,
+      'signing_secret_credential': true,
+      'webhook_path': 5,
       'dm_access': 'sometimes',
     }, warnings);
 
     expect(config.enabled, isFalse);
     expect(config.botTokenCredential, isNull);
+    expect(config.signingSecretCredential, isNull);
+    expect(config.webhookPath, '/integrations/slack');
     expect(config.dmAccess, DmAccessMode.allowlist);
-    expect(warnings, hasLength(3));
+    expect(warnings, hasLength(5));
   });
 }

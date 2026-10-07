@@ -418,6 +418,54 @@ void main() {
     });
   });
 
+  group('MessageRedactor.registerLiterals()', () {
+    const signingSecret = '8f742231b10e8888abcd99ca2f3f9a1c';
+
+    test('a registered value is masked fully inside prose and inside an assignment-shaped line', () {
+      redactor.registerLiterals([signingSecret]);
+
+      expect(redactor.redact('verify failed with $signingSecret, retrying'), 'verify failed with [REDACTED], retrying');
+      expect(redactor.redact('signing_secret=$signingSecret'), isNot(contains('8f74')));
+      expect(redactor.redact('handler error: key $signingSecret rejected'), isNot(contains('8f7422')));
+    });
+
+    test('a value with a secret-shaped prefix keeps none of it', () {
+      const token = 'xoxb-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
+      redactor.registerLiterals([token]);
+
+      expect(redactor.redact('auth $token failed'), 'auth [REDACTED] failed');
+    });
+
+    test('empty values are ignored, so ordinary text is untouched', () {
+      redactor.registerLiterals(['', signingSecret]);
+
+      expect(redactor.redact('plain text'), 'plain text');
+    });
+
+    test('registrations accumulate and combine with call-time values, longest first', () {
+      redactor.registerLiterals(['alpha-secret']);
+      redactor.registerLiterals(['alpha-secret-long']);
+
+      expect(
+        redactor.redact('a alpha-secret-long b alpha-secret c beta-secret', sensitiveValues: ['beta-secret']),
+        'a [REDACTED] b [REDACTED] c [REDACTED]',
+      );
+    });
+
+    test('a registered value is still masked after the patterns are recompiled', () {
+      redactor.registerLiterals([signingSecret]);
+
+      redactor.recompilePatterns([r'XYZWIDGET-\S+']);
+      redactor.recompilePatterns([]);
+
+      expect(redactor.redact('error: $signingSecret'), 'error: [REDACTED]');
+    });
+
+    test('a redactor with no registrations leaves unrelated text exactly as before', () {
+      expect(redactor.redact('error: $signingSecret'), 'error: $signingSecret');
+    });
+  });
+
   group('MessageRedactor.recompilePatterns()', () {
     test('replaces extra patterns while preserving built-ins and ignoring invalid regexes', () {
       final widget = MessageRedactor();

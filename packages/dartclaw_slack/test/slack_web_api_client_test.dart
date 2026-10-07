@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_slack/dartclaw_slack.dart';
+import 'package:dartclaw_slack/testing.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
@@ -204,8 +205,49 @@ void main() {
         (_) async => _json({'ok': true, 'user_id': 'UBOT', 'bot_id': 'BBOT', 'url': 'https://x'}),
       );
 
-      expect(await harness.client.authTest(), (userId: 'UBOT', botId: 'BBOT'));
+      final info = await harness.client.authTest();
+      expect([info.userId, info.botId], ['UBOT', 'BBOT']);
     });
+
+    test('auth.test reports the granted scopes from the X-OAuth-Scopes comma list, spaces and all', () async {
+      final harness = _Harness(
+        (_) async =>
+            _json({'ok': true, 'user_id': 'UBOT'}, headers: {'x-oauth-scopes': 'chat:write, commands,im:history ,'}),
+      );
+
+      final info = await harness.client.authTest();
+
+      expect(info.scopes, ['chat:write', 'commands', 'im:history']);
+      expect(info.botId, isNull);
+    });
+
+    test('auth.test without the scopes header reports no scopes rather than failing', () async {
+      final harness = _Harness((_) async => _json({'ok': true, 'user_id': 'UBOT'}));
+
+      expect((await harness.client.authTest()).scopes, isEmpty);
+    });
+
+    test(
+      'a rejected token surfaces Slack\'s error code, and the error text names neither token, header nor URL',
+      () async {
+        final harness = _Harness(
+          (_) async => _json({'ok': false, 'error': 'token_revoked'}, headers: {'x-oauth-scopes': 'chat:write'}),
+        );
+
+        final error = await harness.client.authTest().then<SlackApiException?>(
+          (_) => null,
+          onError: (Object e) => e as SlackApiException,
+        );
+
+        expect(error!.errorCode, 'token_revoked');
+        for (final text in ['$error', error.message]) {
+          expect(text, isNot(contains('xoxb-')));
+          expect(text, isNot(contains('Bearer')));
+          expect(text, isNot(contains('slack.com')));
+          expect(text, isNot(contains('x-oauth-scopes')));
+        }
+      },
+    );
 
     test('apps.connections.open authenticates with the app-level token', () async {
       final harness = _Harness((_) async => _json({'ok': true, 'url': _ticketUrl}));
@@ -295,6 +337,31 @@ void main() {
     test('an HTTP error and an unreadable body carry no request detail', () async {
       expectClean(await failures((_) async => http.Response('<html>$_botToken</html>', 502)));
       expectClean(await failures((_) async => http.Response('not json $_ticketUrl', 200)));
+    });
+  });
+
+  group('FakeSlackWebApi.authTest', () {
+    test('reports the manifest scopes by default, and whatever a test scripts', () async {
+      final api = FakeSlackWebApi();
+
+      expect((await api.authTest()).scopes, slackExpectedBotScopes);
+      api.scopes = ['chat:write'];
+      expect((await api.authTest()).scopes, ['chat:write']);
+    });
+
+    test('throws the scripted Slack error, with a code or as an unreachable Slack without one', () async {
+      final api = FakeSlackWebApi()
+        ..authError = const SlackApiException('failed: invalid_auth', errorCode: 'invalid_auth');
+      await expectLater(
+        api.authTest,
+        throwsA(isA<SlackApiException>().having((e) => e.errorCode, 'errorCode', 'invalid_auth')),
+      );
+
+      api.authError = const SlackApiException('Slack API auth.test request failed (SocketException)');
+      await expectLater(
+        api.authTest,
+        throwsA(isA<SlackApiException>().having((e) => e.errorCode, 'errorCode', isNull)),
+      );
     });
   });
 }

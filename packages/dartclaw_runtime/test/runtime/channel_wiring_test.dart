@@ -1,7 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast;
@@ -28,170 +27,9 @@ import 'package:http/testing.dart';
 import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
 
-import '../execution_coordinator_test_support.dart';
 import '../turn_manager_test_support.dart';
-import '../turn_runner_test_support.dart';
+import 'channel_wiring_test_support.dart';
 import 'harness_wiring_fixture.dart';
-
-typedef _StartedTurn = ({
-  String sessionId,
-  String? source,
-  bool isHumanInput,
-  String? model,
-  String? effort,
-  PromptScope? promptScope,
-  TurnOrigin? origin,
-  TurnProvenance? provenance,
-});
-
-typedef _ReservedTurn = ({
-  String sessionId,
-  String agentName,
-  String? model,
-  String? effort,
-  bool isHumanInput,
-  BehaviorFileService? behaviorOverride,
-  PromptScope? promptScope,
-  TurnOrigin? origin,
-  TurnProvenance? provenance,
-  String? systemPromptOverride,
-  ExecutionPolicy? workerPolicy,
-});
-
-typedef _ExecutedTurn = ({String sessionId, String turnId, String? source, String agentName, int messageCount});
-
-/// Records what the channel dispatch asks of the runtime [TurnManager]: the
-/// unbound branch reaches [startTurn], the bound branch [reserveTurn] and
-/// [executeTurn]. Neither runs a harness.
-class _RecordingTurnManager extends TurnManager {
-  new()
-    : super.fromCoordinator(
-        coordinator: coordinatorForRunners([FakeTurnRunner()]),
-        turnLimits: const TurnLimitsConfig.defaults(),
-      );
-
-  final started = <_StartedTurn>[];
-  final reserved = <_ReservedTurn>[];
-  final executed = <_ExecutedTurn>[];
-  Completer<void>? reservation;
-  var _nextTurn = 0;
-
-  /// Busy rejections thrown, one per call, before [startTurn] / [reserveTurn] succeed.
-  final busyOnStart = <BusyTurnException>[];
-  final busyOnReserve = <BusyTurnException>[];
-  var capacityWaits = 0;
-
-  @override
-  Future<void> whenAdmissionCapacityAvailable() async => capacityWaits++;
-
-  @override
-  Future<String> startTurn(
-    String sessionId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    Duration? turnTimeout,
-    bool isHumanInput = false,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    PromptScope? promptScope,
-    TurnOrigin? origin,
-    TurnProvenance? provenance,
-  }) async {
-    if (busyOnStart.isNotEmpty) throw busyOnStart.removeAt(0);
-    started.add((
-      sessionId: sessionId,
-      source: source,
-      isHumanInput: isHumanInput,
-      model: model,
-      effort: effort,
-      promptScope: promptScope,
-      origin: origin,
-      provenance: provenance,
-    ));
-    return 'turn-${_nextTurn++}';
-  }
-
-  @override
-  Future<String> reserveTurn(
-    String sessionId, {
-    String agentName = 'main',
-    String? directory,
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    ExecutionPolicy? workerPolicy,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    Duration? turnTimeout,
-    bool isHumanInput = false,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    TurnOrigin? origin,
-    TurnProvenance? provenance,
-  }) async {
-    if (busyOnReserve.isNotEmpty) throw busyOnReserve.removeAt(0);
-    reserved.add((
-      sessionId: sessionId,
-      agentName: agentName,
-      model: model,
-      effort: effort,
-      isHumanInput: isHumanInput,
-      behaviorOverride: behaviorOverride,
-      promptScope: promptScope,
-      origin: origin,
-      provenance: provenance,
-      systemPromptOverride: systemPromptOverride,
-      workerPolicy: workerPolicy,
-    ));
-    reservation?.complete();
-    return 'turn-${_nextTurn++}';
-  }
-
-  @override
-  void executeTurn(
-    String sessionId,
-    String turnId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-  }) {
-    executed.add((
-      sessionId: sessionId,
-      turnId: turnId,
-      source: source,
-      agentName: agentName,
-      messageCount: messages.length,
-    ));
-  }
-
-  @override
-  void releaseTurn(String sessionId, String turnId) {}
-
-  @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async => TurnOutcome(
-    turnId: turnId,
-    sessionId: sessionId,
-    status: TurnStatus.completed,
-    responseText: 'reply',
-    completedAt: DateTime.now(),
-  );
-}
 
 void main() {
   late Directory tempDir;
@@ -205,7 +43,7 @@ void main() {
   });
 
   test('channel dispatch selects the conversational prompt scope', () async {
-    final turns = _RecordingTurnManager();
+    final turns = RecordingChannelTurnManager();
     addTearDown(turns.executions.dispose);
 
     final response = await dispatchChannelTurn(
@@ -294,7 +132,7 @@ void main() {
     });
 
     test('a bound turn deferred on the cap re-reserves once capacity frees', () async {
-      final turns = _RecordingTurnManager();
+      final turns = RecordingChannelTurnManager();
       addTearDown(turns.executions.dispose);
       final binding = ChannelAgentBinder(
         agents: const {
@@ -331,7 +169,7 @@ void main() {
     });
 
     test('a same-session busy is not a capacity wait and still propagates', () async {
-      final turns = _RecordingTurnManager();
+      final turns = RecordingChannelTurnManager();
       addTearDown(turns.executions.dispose);
       turns.busyOnStart.add(BusyTurnException('Session is busy', isSameSession: true));
 
@@ -346,7 +184,7 @@ void main() {
     late SessionService sessions;
     late MessageService messages;
     late BehaviorFileService behavior;
-    late _RecordingTurnManager turns;
+    late RecordingChannelTurnManager turns;
 
     setUp(() {
       sessions = SessionService(baseDir: tempDir.path);
@@ -357,7 +195,7 @@ void main() {
       File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('OWNER TOOLS MARKER');
       File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('OWNER MEMORY MARKER');
       behavior = BehaviorFileService(workspaceDir: ownerWorkspace.path);
-      turns = _RecordingTurnManager();
+      turns = RecordingChannelTurnManager();
       addTearDown(turns.executions.dispose);
     });
 
@@ -773,7 +611,7 @@ agent:
     );
     final eventBus = EventBus();
     addTearDown(eventBus.dispose);
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
     final task = TaskWiring(
       config: config,
       dataDir: config.server.dataDir,
@@ -795,7 +633,7 @@ agent:
       defaultProviderId: 'claude',
       behavior: behavior,
     );
-    final turns = _RecordingTurnManager()..reservation = Completer<void>();
+    final turns = RecordingChannelTurnManager()..reservation = Completer<void>();
     addTearDown(turns.executions.dispose);
     final channels = ChannelWiring(
       config: config,
@@ -864,7 +702,7 @@ agent:
   group('trusted turn context', () {
     late ChannelWiring channels;
     late StorageWiring storage;
-    late _RecordingTurnManager turns;
+    late RecordingChannelTurnManager turns;
 
     setUp(() async {
       final config = loadDartclawConfig(
@@ -895,7 +733,7 @@ agent:
       );
       final eventBus = EventBus();
       addTearDown(eventBus.dispose);
-      storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+      storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
       final task = TaskWiring(
         config: config,
         dataDir: config.server.dataDir,
@@ -909,7 +747,7 @@ agent:
         File(p.join(ownerWorkspace.path, file)).writeAsStringSync(file);
       }
       final agent = config.agent.definitions.single;
-      turns = _RecordingTurnManager();
+      turns = RecordingChannelTurnManager();
       addTearDown(turns.executions.dispose);
       channels = ChannelWiring(
         config: config,
@@ -1037,7 +875,7 @@ agent:
     final notifier = ConfigNotifier(config);
     final eventBus = EventBus();
     addTearDown(eventBus.dispose);
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
     final task = TaskWiring(
       config: config,
       dataDir: config.server.dataDir,
@@ -1096,7 +934,7 @@ agent:
     expect(config.warnings, isEmpty);
 
     final eventBus = EventBus();
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
+    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
     final task = TaskWiring(
       config: config,
       dataDir: config.server.dataDir,
@@ -1132,226 +970,7 @@ agent:
     expect(config.warnings.where((w) => w.contains('Invalid type for signal.port')), hasLength(1));
     expect(config.warnings.where((w) => w.contains('Invalid type for whatsapp.gowa_port')), hasLength(1));
   });
-
-  group('Slack and the reserved-command audit', () {
-    const slackCredentials = '''
-credentials:
-  slack_bot:
-    api_key: \${SLACK_BOT_TOKEN}
-  slack_app:
-    api_key: \${SLACK_APP_TOKEN}
-''';
-    const slackSection = '''
-  slack:
-    enabled: true
-    bot_token_credential: slack_bot
-    app_token_credential: slack_app
-    dm_access: allowlist
-    group_access: allowlist
-    group_allowlist:
-      - id: C0123ABC
-        agent: ana
-      - C0456DEF
-''';
-    const agents = '''
-agent:
-  agents:
-    ana:
-      description: Ana
-      prompt: You are Ana.
-      provider: claude
-      execution: host
-''';
-
-    Future<({ChannelWiring channels, _RecordingTurnManager turns})> wireChannels(
-      String yaml, {
-      GuardAuditLogger? auditLogger,
-    }) async {
-      final config = loadDartclawConfig(
-        configPath: 'dartclaw.yaml',
-        fileReader: (path) => path == 'dartclaw.yaml' ? 'data_dir: ${tempDir.path}\n$yaml' : null,
-        env: {'HOME': tempDir.path, 'SLACK_BOT_TOKEN': 'xoxb-1-2-bot', 'SLACK_APP_TOKEN': 'xapp-1-2-app'},
-      );
-      final eventBus = EventBus();
-      addTearDown(eventBus.dispose);
-      final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
-      final task = TaskWiring(
-        config: config,
-        dataDir: config.server.dataDir,
-        runtimeCwd: tempDir.path,
-        eventBus: eventBus,
-        storage: storage,
-      );
-      await task.wirePreServer();
-      final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-      final turns = _RecordingTurnManager();
-      addTearDown(turns.executions.dispose);
-      final channels = ChannelWiring(
-        config: config,
-        dataDir: config.server.dataDir,
-        port: 0,
-        eventBus: eventBus,
-        storage: storage,
-        task: task,
-        resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-        agentBinder: config.agent.definitions.isEmpty
-            ? null
-            : ChannelAgentBinder(
-                agents: {for (final agent in config.agent.definitions) agent.id: agent},
-                policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {}),
-                defaultProviderId: 'claude',
-                behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
-              ),
-        auditLogger: auditLogger,
-      );
-      await channels.wire(
-        serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
-        turnManagerGetter: () => turns,
-        sseBroadcast: SseBroadcast(),
-        messageRedactor: null,
-        healthService: HealthService(
-          worker: FakeAgentHarness(),
-          searchDbPath: config.searchDbPath,
-          sessionsDir: config.sessionsDir,
-          tasksDir: p.join(config.server.dataDir, 'tasks'),
-        ),
-        configNotifier: ConfigNotifier(config),
-      );
-      addTearDown(() => channels.channelManager?.queue.dispose());
-      return (channels: channels, turns: turns);
-    }
-
-    test('an enabled Slack section registers the channel with the manager', () async {
-      final wired = await wireChannels(
-        '$slackCredentials${'channels:\n  debounce_window_ms: 0\n$slackSection'}$agents',
-      );
-
-      final slack = wired.channels.slackChannel!;
-      expect(wired.channels.channelManager!.channels, contains(slack));
-      expect(slack.type, ChannelType.slack);
-      expect(wired.channels.channelGroupConfigs.map((c) => c.channelType), isNot(contains('slack')));
-    });
-
-    test('run origin thread: a Slack thread message records the thread its capability extracts', () async {
-      final wired = await wireChannels(
-        '$slackCredentials${'channels:\n  debounce_window_ms: 0\n$slackSection'}$agents',
-      );
-      final manager = wired.channels.channelManager!;
-      final inbound = ChannelMessage(
-        channelType: ChannelType.slack,
-        senderJid: 'U1',
-        groupJid: 'C0456DEF',
-        text: 'run the release check',
-        metadata: {'spaceName': 'C0456DEF', threadIdMetadataKey: '1700000000.000100'},
-      );
-      final sessionKey = manager.deriveSessionKey(inbound);
-
-      manager.handleInboundMessage(inbound);
-      while (wired.turns.started.isEmpty) {
-        await pumpEventQueue();
-      }
-
-      expect(
-        wired.turns.started.single.provenance,
-        TurnProvenance.channel(
-          channelType: ChannelType.slack,
-          recipientId: 'C0456DEF',
-          threadId: 'C0456DEF:1700000000.000100',
-          sessionKey: sessionKey,
-          senderId: 'U1',
-        ),
-      );
-    });
-
-    const bindingChannelsYaml = 'channels:\n  debounce_window_ms: 0\n$slackSection';
-    const chatNotificationsYaml = 'workflow:\n  chat_notifications:\n    channel: slack\n    recipient: C0456DEF\n';
-    const threadBindingFlagYaml = 'features:\n  thread_binding:\n    enabled: true\n';
-
-    test('no binding store is built when neither the flag nor chat_notifications asks for one', () async {
-      final wired = await wireChannels('$slackCredentials$bindingChannelsYaml$agents');
-
-      expect(wired.channels.threadBindingStore, isNull);
-      expect(wired.channels.taskThreadBindingStore, isNull);
-    });
-
-    test('chat_notifications alone builds the live binding store, but task binding stays off', () async {
-      final wired = await wireChannels('$slackCredentials$bindingChannelsYaml$agents$chatNotificationsYaml');
-
-      expect(wired.channels.threadBindingStore, isNotNull);
-      expect(wired.channels.taskThreadBindingStore, isNull, reason: 'the flag alone gates task binding');
-    });
-
-    test('the thread_binding flag builds one store that both run and task binding share', () async {
-      final wired = await wireChannels('$slackCredentials$bindingChannelsYaml$agents$threadBindingFlagYaml');
-
-      expect(wired.channels.threadBindingStore, isNotNull);
-      expect(wired.channels.taskThreadBindingStore, same(wired.channels.threadBindingStore));
-    });
-
-    test('a disabled section registers nothing, and no channel manager is built for it alone', () async {
-      final wired = await wireChannels('channels:\n  slack:\n    enabled: false\n');
-
-      expect(wired.channels.slackChannel, isNull);
-      expect(wired.channels.channelManager, isNull);
-    });
-
-    test('a bound allowlist row runs on the bound dispatch and an unbound row on the primary', () async {
-      final wired = await wireChannels(
-        '$slackCredentials${'channels:\n  debounce_window_ms: 0\n$slackSection'}$agents',
-      );
-      final manager = wired.channels.channelManager!;
-      final replies = FakeChannel(type: ChannelType.slack, ownsAllJids: true);
-
-      ChannelMessage inChannel(String channel) => ChannelMessage(
-        channelType: ChannelType.slack,
-        senderJid: 'U1',
-        groupJid: channel,
-        text: 'hello',
-        metadata: {'spaceName': channel, threadIdMetadataKey: '1.5'},
-      );
-      final bound = inChannel('C0123ABC');
-      final unbound = inChannel('C0456DEF');
-
-      expect(manager.deriveSessionKey(bound), startsWith('agent:ana:group:slack:C0123ABC'));
-      expect(manager.deriveSessionKey(unbound), startsWith('agent:main:group:slack:C0456DEF'));
-      manager.queue.enqueue(bound, replies, manager.deriveSessionKey(bound));
-      manager.queue.enqueue(unbound, replies, manager.deriveSessionKey(unbound));
-      while (wired.turns.executed.isEmpty || wired.turns.started.isEmpty) {
-        await pumpEventQueue();
-      }
-
-      expect(wired.turns.reserved.single.agentName, 'ana', reason: 'the logical-agent surface, never the primary lane');
-      expect(wired.turns.started.single.promptScope, PromptScope.primary);
-    });
-
-    test('a refused reserved command reaches the audit entry through the wired channel manager', () async {
-      final auditDir = Directory(p.join(tempDir.path, 'audit'))..createSync();
-      final auditLogger = GuardAuditLogger(dataDir: auditDir.path);
-      final wired = await wireChannels('''
-governance:
-  admin_senders: ["+46700000001"]
-channels:
-  signal:
-    enabled: true
-''', auditLogger: auditLogger);
-
-      wired.channels.channelManager!.handleInboundMessage(
-        ChannelMessage(channelType: ChannelType.signal, senderJid: '+46700000999', text: '/stop now'),
-      );
-      await pumpEventQueue(times: 200);
-      await auditLogger.flush();
-
-      final entries = File(auditLogger.auditFilePath).readAsLinesSync().map(jsonDecode).cast<Map<String, dynamic>>();
-      expect(entries, hasLength(1));
-      expect(entries.single, containsPair('guard', 'ReservedCommand'));
-      expect(entries.single, containsPair('tool', '/stop'));
-      expect(entries.single, containsPair('channel', 'signal'));
-      expect(entries.single, containsPair('peerId', '+46700000999'));
-    });
-  });
 }
-
-Never _neverExit(int code) => throw StateError('exit($code)');
 
 final _signalProvenance = TurnProvenance.channel(
   channelType: ChannelType.signal,

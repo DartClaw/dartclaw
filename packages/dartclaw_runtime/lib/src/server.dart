@@ -7,6 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
     show GoogleChatSpaceEventsWiring, GoogleChatWebhookHandler, googleChatSubscriptionRoutes;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 import 'package:logging/logging.dart';
@@ -149,6 +150,7 @@ class DartclawServer {
           whatsAppChannel: _channels.whatsAppChannel,
           signalChannel: _channels.signalChannel,
           googleChatChannel: _channels.googleChatWebhookHandler?.channel,
+          slackChannel: _channels.slackChannel,
           eventBus: _observability.eventBus,
         );
   late final GuardEditorService? _guardEditorService = _core.configWriter == null || _core.dataDir == null
@@ -455,6 +457,8 @@ class DartclawServer {
       webhookSecret: _core.webhookSecret,
       googleChat: _channels.googleChatWebhookHandler,
       github: githubWebhookHandler,
+      slack: _channels.slackChannel,
+      auditLogger: _core.auditLogger,
       eventBus: _observability.eventBus,
       trustedProxies: _core.config?.auth.trustedProxies ?? const [],
     );
@@ -552,6 +556,7 @@ class DartclawServer {
         whatsAppChannel: _channels.whatsAppChannel,
         signalChannel: _channels.signalChannel,
         googleChatChannel: _channels.googleChatWebhookHandler?.channel,
+        slackChannel: _channels.slackChannel,
         eventBus: _observability.eventBus,
         configNotifier: _core.configNotifier,
         guardChain: _core.guardChain,
@@ -835,6 +840,8 @@ class DartclawServer {
     final tokenService = _core.tokenService;
     final gatewayToken = _core.gatewayToken;
     if (tokenService != null && gatewayToken != null) {
+      final slack = _channels.slackChannel;
+      final slackPublicPath = slack?.eventsHandler == null ? null : slack!.config.webhookPath;
       String? githubPublicPath;
       try {
         final githubConfig = _core.config?.extension<GitHubWebhookConfig>('github');
@@ -863,6 +870,7 @@ class DartclawServer {
                 ? null
                 : [_channels.googleChatWebhookHandler!.config.webhookPath]),
             ...?(githubPublicPath == null ? null : [githubPublicPath]),
+            ...?(slackPublicPath == null ? null : [slackPublicPath]),
           ],
           publicPrefixes: const [],
         ),

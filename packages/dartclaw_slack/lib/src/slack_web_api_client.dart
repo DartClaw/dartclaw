@@ -43,8 +43,9 @@ class SlackApiException implements Exception {
   String toString() => 'SlackApiException($message)';
 }
 
-/// The identity `auth.test` reports for the bot token.
-typedef SlackAuthInfo = ({String userId, String? botId});
+/// What `auth.test` reports for the bot token: its identity and the scopes
+/// Slack granted it (empty when Slack sent none).
+typedef SlackAuthInfo = ({String userId, String? botId, List<String> scopes});
 
 /// Thin client for the Slack Web API methods the channel uses.
 ///
@@ -81,20 +82,27 @@ class SlackWebApiClient {
        _delay = delay ?? Future.delayed,
        _now = now ?? DateTime.now;
 
-  /// Verifies the bot token and returns the bot's identity.
+  /// Verifies the bot token and returns the bot's identity and granted scopes.
   ///
-  /// Throws [SlackApiException] when Slack refuses the token.
+  /// The scopes come from the `X-OAuth-Scopes` response header.
+  ///
+  /// Throws [SlackApiException] when Slack refuses the token; its
+  /// [SlackApiException.errorCode] is Slack's error code.
   Future<SlackAuthInfo> authTest() async {
-    final body = await _call('auth.test', token: _botToken);
+    final (:body, :headers) = await _exchange('auth.test', token: _botToken);
     final userId = body['user_id'];
     if (userId is! String || userId.isEmpty) {
       throw const SlackApiException('Slack API auth.test returned no bot user ID');
     }
+    final scopes = [
+      for (final scope in (headers['x-oauth-scopes'] ?? '').split(','))
+        if (scope.trim().isNotEmpty) scope.trim(),
+    ];
     _teamId = switch (body['team_id']) {
       final String id when id.isNotEmpty => id,
       _ => null,
     };
-    return (userId: userId, botId: body['bot_id'] as String?);
+    return (userId: userId, botId: body['bot_id'] as String?, scopes: scopes);
   }
 
   /// Opens a Socket Mode connection and returns its `wss://` URL.
@@ -374,6 +382,12 @@ class SlackWebApiClient {
     String method, {
     required String token,
     Map<String, String> form = const {},
+  }) async => (await _exchange(method, token: token, form: form)).body;
+
+  Future<({Map<String, dynamic> body, Map<String, String> headers})> _exchange(
+    String method, {
+    required String token,
+    Map<String, String> form = const {},
   }) async {
     for (var attempt = 1; ; attempt++) {
       final http.Response response;
@@ -417,7 +431,7 @@ class SlackWebApiClient {
         final code = decoded['error'] is String ? decoded['error'] as String : 'unknown_error';
         throw SlackApiException('Slack API $method failed: $code', errorCode: code, statusCode: response.statusCode);
       }
-      return decoded;
+      return (body: decoded, headers: response.headers);
     }
   }
 

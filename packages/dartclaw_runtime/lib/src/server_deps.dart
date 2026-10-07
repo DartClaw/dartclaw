@@ -92,6 +92,7 @@ class ServerChannelDeps {
   final ChannelManager? channelManager;
   final WhatsAppChannel? whatsAppChannel;
   final SignalChannel? signalChannel;
+  final SlackChannel? slackChannel;
   final GoogleChatWebhookHandler? googleChatWebhookHandler;
   final GoogleChatSpaceEventsWiring? spaceEventsWiring;
   final ThreadBindingStore? threadBindingStore;
@@ -100,6 +101,7 @@ class ServerChannelDeps {
     this.channelManager,
     this.whatsAppChannel,
     this.signalChannel,
+    this.slackChannel,
     this.googleChatWebhookHandler,
     this.spaceEventsWiring,
     this.threadBindingStore,

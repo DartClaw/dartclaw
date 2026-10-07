@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_slack/testing.dart';
+import 'package:dartclaw_testing/dartclaw_testing.dart' show RecordingMessageQueue;
 import 'package:test/test.dart';
 
 import 'support/slack_harness.dart';
@@ -64,6 +66,46 @@ void main() {
 
     await expectLater(channel.connect, throwsA(isA<SlackApiException>()));
     expect(server.attemptCount, 0);
+  });
+
+  test('a signed DM after a rejected connect is acknowledged but starts no turn, until connect succeeds', () async {
+    api.authError = const SlackApiException('Slack API auth.test failed: token_revoked', errorCode: 'token_revoked');
+    final queue = RecordingMessageQueue(debounceWindow: Duration.zero);
+    addTearDown(queue.dispose);
+    final manager = ChannelManager(queue: queue, config: const ChannelConfig.defaults());
+    final channel = SlackChannel(
+      config: const SlackConfig(enabled: true),
+      api: api,
+      dmAccess: DmAccessController(mode: DmAccessMode.open),
+      mentionGating: MentionGating(requireMention: true, mentionPatterns: const [], ownJid: ''),
+      channelManager: manager,
+      mode: 'events',
+      signingSecret: 'secret',
+    );
+    addTearDown(channel.disconnect);
+    manager.registerChannel(channel);
+    final handler = channel.eventsHandler!;
+
+    Future<SlackEventsResponse> post(String text, String ts) {
+      final body = utf8.encode(jsonEncode(eventCallback(message(channel: 'D1', user: 'U1', text: text, ts: ts))));
+      return handler.handle(Uint8List.fromList(body), signedSlackHeaders('secret', body));
+    }
+
+    await expectLater(channel.connect, throwsA(isA<SlackApiException>()));
+    final refused = await post('before auth', '1700000000.000100');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    expect(refused.statusCode, 200, reason: 'the signed request is still acknowledged within Slack\'s window');
+    expect(queue.enqueued, isEmpty, reason: 'a turn whose reply cannot post must not run');
+
+    api.authError = null;
+    await channel.connect();
+    await post('after auth', '1700000001.000100');
+    for (var i = 0; i < 100 && queue.enqueued.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    expect([for (final turn in queue.enqueued) turn.message.text], ['after auth']);
   });
 
   test('socket mode exposes no events handler, so the runtime mounts no route', () {

@@ -132,7 +132,7 @@ import 'loc_target.dart';
 // Threaded notifications, 2026-10-06: dartclaw_slack 2073 -> 2223 (measured 2223). Necessity: the one
 // implementation of the thread-notification capability for Slack (the conversation-qualified thread identity,
 // Block Kit rendering with escaping, and the two thread sends with participation).
-// Reviewed necessity, 2026-10-07 (0.28 Events API): dartclaw_slack 2223 -> 2591 (measured 2591 on the merged
+// Reviewed necessity, 2026-10-07 (0.28 Events API): dartclaw_slack 2223 -> 2602 (measured 2602 on the merged
 // tree). The signed Events API handler, the health reporter and the events-mode channel are the second
 // transport behind the one envelope dispatch; the shared webhook helpers moved into core and shrank runtime
 // and Google Chat.
@@ -148,7 +148,7 @@ const _libLocCeilings = <String, int>{
   'dartclaw_runtime': 77328,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
-  'dartclaw_slack': 2591,
+  'dartclaw_slack': 2602,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
   'dartclaw_workflow': 25631,

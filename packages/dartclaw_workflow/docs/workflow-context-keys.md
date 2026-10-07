@@ -111,7 +111,15 @@ Written by `WorkflowService.issueApprovalInteraction` (the record is `WorkflowAp
 
 | Key | Type | Semantics |
 |-----|------|-----------|
-| `_approval.interaction` | `Map` | `stepId` (approval step it was issued for), `nonce` (128-bit `Random.secure()`, 32 hex characters), `issuedAt` (ISO 8601), optional `post` (`channelType`, `recipientId`, `messageId`; absent until a sent post is bound), optional `resolution` (`approved`, `source` of `button`, `tool` or `web` when recorded, `senderId`, `displayName`, `at`; absent while pending) |
+| `_approval.interaction` | `Map` | `stepId` (approval step it was issued for), `nonce` (128-bit `Random.secure()`, 32 hex characters), `issuedAt` (ISO 8601), optional `post` (`channelType`, `recipientId`, `messageId`; absent until a sent post is bound), optional `resolution` (`approved`, `changesRequested` when the gate was sent back to its revise step, `source` of `button`, `tool` or `web` when recorded, `senderId`, `displayName`, `at`; absent while pending) |
+
+### `_revision.gateId`
+
+Written by `WorkflowService.requestChanges` in the update that records a request-changes round, and dropped by `executeApprovalStep` when the gate pauses again. While present, the run is in a revision round at that gate: the executor runs the gate's `revise` step despite its `entryGate` and ends that step's prompt with the gate's feedback (`<gateId>.approval.feedback`, a public key, as is `<gateId>.approval.revision`, the rounds so far). Restart recovery restarts a marked run at its persisted step index instead of deriving it from completed tasks.
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `_revision.gateId` | `String` | ID of the approval gate whose request-changes round is in flight |
 
 ### `_approval.auto_resolved.<stepId>`
 

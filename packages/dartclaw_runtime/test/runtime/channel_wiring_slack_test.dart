@@ -379,6 +379,37 @@ channels:
           ('button', 'slack', 'U-ADMIN', 'allow'),
         ]);
       });
+
+      test('rides the same forwarding handler: unavailable until bound, then refused and audited for a gate without revise', () async {
+        const socketSection =
+            '  slack:\n    enabled: true\n    bot_token_credential: slack_bot\n    app_token_credential: slack_app\n    dm_access: open\n';
+        final wired = await wireChannels('$slackCredentials${'channels:\n  debounce_window_ms: 0\n$socketSection'}');
+        final eventBus = EventBus();
+        addTearDown(eventBus.dispose);
+        final (workflows, repository, interaction) = await holdRun(eventBus);
+        final audit = RecordingGuardAuditLogger();
+        final request = ChannelRunApprovalRequest(
+          action: ChannelRunApprovalAction.requestChanges,
+          runId: 'run-1',
+          stepId: 'gate',
+          nonce: interaction.nonce,
+          senderId: 'U-ADMIN',
+          channelType: 'slack',
+          postMessageId: '1700.01',
+          feedback: 'split story 3',
+        );
+
+        expect(await wired.channels.runApprovalHandler(request), isA<ChannelRunApprovalFailed>());
+        wired.channels.bindRunApprovals(
+          WorkflowRunControl(workflows: workflows, isAdmin: (_) => true, auditLogger: audit).handleApproval,
+        );
+        final result = await wired.channels.runApprovalHandler(request);
+
+        expect((result as ChannelRunApprovalRefused).reason, ChannelRunApprovalRefusal.changesNotOffered);
+        expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
+        expect(audit.entries.map((e) => (e.hook, e.tool, e.decision)), [('button', 'requestChanges', 'deny')]);
+        expect(audit.entries.single.toJson().toString(), isNot(contains('split story 3')));
+      });
     });
 
     group('secrets and transport', () {

@@ -6,7 +6,12 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_runtime/src/task/workflow_run_control.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show
+        InMemoryAgentExecutionRepository,
+        InMemoryExecutionRepositoryTransactor,
+        InMemoryTaskRepository,
+        InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         WorkflowApprovalInteraction,
@@ -14,6 +19,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalResolver,
         WorkflowApprovalSource,
         WorkflowDefinition,
+        WorkflowPersistencePorts,
         WorkflowRun,
         WorkflowService,
         WorkflowStep,
@@ -424,6 +430,294 @@ void main() {
         ('deny', 'channel turn carries no sender'),
         ('allow', null),
       ]);
+    });
+  });
+
+  group('request changes', () {
+    late WorkflowService full;
+    late TaskService fullTasks;
+    var runs = 0;
+
+    setUp(() {
+      final taskRepository = InMemoryTaskRepository();
+      final agentExecutions = InMemoryAgentExecutionRepository();
+      final stepExecutions = InMemoryWorkflowStepExecutionRepository();
+      const transactor = InMemoryExecutionRepositoryTransactor();
+      fullTasks = TaskService(
+        taskRepository,
+        agentExecutionRepository: agentExecutions,
+        executionTransactor: transactor,
+        eventBus: eventBus,
+      );
+      full = WorkflowService(
+        repository: repository,
+        taskService: fullTasks,
+        messageService: MessageService(baseDir: p.join(tempDir.path, 'sessions')),
+        persistencePorts: WorkflowPersistencePorts(
+          taskRepository: taskRepository,
+          agentExecutionRepository: agentExecutions,
+          workflowStepExecutionRepository: stepExecutions,
+          executionRepositoryTransactor: transactor,
+        ),
+        eventBus: eventBus,
+        kvService: KvService(filePath: p.join(tempDir.path, 'kv-full.json')),
+        dataDir: tempDir.path,
+      );
+      runs = 0;
+    });
+
+    tearDown(() async {
+      await full.dispose();
+      await fullTasks.dispose();
+    });
+
+    WorkflowRunControl fullControl() => WorkflowRunControl(
+      workflows: full,
+      isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+      auditLogger: audit,
+    );
+
+    /// A run waiting at a gate that revises `draft` after [revision] rounds, with its post bound.
+    Future<WorkflowApprovalInteraction> holdAtGate({
+      String id = 'run-1',
+      int revision = 0,
+      int? maxRevisions,
+      String? revise = 'draft',
+    }) async {
+      runs++;
+      final definition = WorkflowDefinition(
+        name: 'revisable',
+        description: 'A gate that revises its draft',
+        steps: [
+          const WorkflowStep(id: 'draft', name: 'Draft', prompts: ['Draft']),
+          WorkflowStep(
+            id: 'gate',
+            name: 'Gate',
+            taskType: WorkflowTaskType.approval,
+            prompts: const ['Review'],
+            revise: revise,
+            maxRevisions: maxRevisions,
+          ),
+        ],
+      );
+      final now = DateTime.now();
+      await repository.insert(
+        WorkflowRun(
+          id: id,
+          definitionName: definition.name,
+          status: WorkflowRunStatus.awaitingApproval,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 2,
+          definitionJson: definition.toJson(),
+          contextJson: {
+            '_approval.pending.stepId': 'gate',
+            '_approval.pending.stepIndex': 1,
+            'gate.approval.status': 'pending',
+            'data': <String, dynamic>{'gate.approval.revision': revision},
+            'variables': <String, dynamic>{},
+          },
+        ),
+      );
+      final interaction = (await full.issueApprovalInteraction(id, 'gate'))!;
+      await full.bindApprovalPost(
+        id,
+        nonce: interaction.nonce,
+        post: const WorkflowApprovalPost(channelType: 'slack', recipientId: 'C1', messageId: _slackMessage),
+      );
+      return interaction;
+    }
+
+    ChannelRunApprovalRequest submit(WorkflowApprovalInteraction interaction, {String? feedback = 'split story 3'}) =>
+        ChannelRunApprovalRequest(
+          action: ChannelRunApprovalAction.requestChanges,
+          runId: 'run-1',
+          stepId: interaction.stepId,
+          nonce: interaction.nonce,
+          senderId: 'U-A',
+          senderDisplayName: 'Ada',
+          channelType: 'slack',
+          postMessageId: _slackMessage,
+          feedback: feedback,
+        );
+
+    ChannelRunApprovalRequest check(WorkflowApprovalInteraction interaction, {String sender = 'U-A'}) =>
+        ChannelRunApprovalRequest(
+          action: ChannelRunApprovalAction.checkRequestChanges,
+          runId: 'run-1',
+          stepId: interaction.stepId,
+          nonce: interaction.nonce,
+          senderId: sender,
+          channelType: 'slack',
+          postMessageId: _slackMessage,
+        );
+
+    test('a check by an admin passes silently; a non-admin, a gate without revise and the bound are refused', () async {
+      adminSenders = ['U-A'];
+      final open = await holdAtGate();
+
+      expect(await fullControl().handleApproval(check(open)), isA<ChannelRunApprovalPermitted>());
+      expect(audit.entries, isEmpty, reason: 'a check that passes resolved nothing, so it writes no entry');
+
+      final nonAdmin = await fullControl().handleApproval(check(open, sender: 'U-B'));
+      expect((nonAdmin as ChannelRunApprovalRefused).reason, ChannelRunApprovalRefusal.notAdmin);
+
+      await repository.delete('run-1');
+      final none = await holdAtGate(id: 'run-1', revise: null);
+      final noRevise = await fullControl().handleApproval(check(none));
+      expect((noRevise as ChannelRunApprovalRefused).reason, ChannelRunApprovalRefusal.changesNotOffered);
+
+      await repository.delete('run-1');
+      final atBound = await holdAtGate(revision: 2, maxRevisions: 2);
+      final limit = await fullControl().handleApproval(check(atBound));
+      expect((limit as ChannelRunApprovalRefused).reason, ChannelRunApprovalRefusal.limitReached);
+
+      expect(audit.entries.map((e) => (e.decision, e.tool)), [
+        ('deny', 'checkRequestChanges'),
+        ('deny', 'checkRequestChanges'),
+        ('deny', 'checkRequestChanges'),
+      ]);
+      expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
+    });
+
+    test('a submission resolves once, audited with the round and never the feedback or the nonce', () async {
+      adminSenders = ['U-A'];
+      final interaction = await holdAtGate(revision: 1);
+
+      final result = await fullControl().handleApproval(submit(interaction, feedback: 'split story 3, then ship'));
+
+      expect(result, isA<ChannelRunApprovalResolved>());
+      final entry = audit.entries.single;
+      expect(
+        (entry.hook, entry.decision, entry.tool, entry.reason, entry.channel, entry.peerId, entry.runId, entry.stepId),
+        ('button', 'allow', 'requestChanges', 'revision 2/3', 'slack', 'U-A', 'run-1', 'gate'),
+      );
+      final serialized = entry.toJson().toString();
+      expect(serialized, isNot(contains('split story 3')));
+      expect(serialized, isNot(contains(interaction.nonce)));
+      expect(logs.map((r) => '${r.message} ${r.error}').join('\n'), isNot(contains('split story 3')));
+      expect(logs.map((r) => '${r.message} ${r.error}').join('\n'), isNot(contains(interaction.nonce)));
+      expect(resolved.single.changesRequested, isTrue);
+      expect((resolved.single.revision, resolved.single.maxRevisions), (2, 3));
+    });
+
+    test('blank feedback is refused with one deny entry and leaves the same nonce able to approve', () async {
+      adminSenders = ['U-A'];
+      final interaction = await holdAtGate();
+
+      final blank = await fullControl().handleApproval(submit(interaction, feedback: '  \n '));
+      final missing = await fullControl().handleApproval(submit(interaction, feedback: null));
+
+      for (final refused in [blank, missing]) {
+        expect((refused as ChannelRunApprovalRefused).reason, ChannelRunApprovalRefusal.feedbackRequired);
+      }
+      expect(audit.entries.map((e) => (e.decision, e.reason)), [
+        ('deny', 'feedbackRequired'),
+        ('deny', 'feedbackRequired'),
+      ]);
+      expect(resolved, isEmpty);
+
+      final approve = await fullControl().handleApproval(click(interaction));
+      expect(approve, isA<ChannelRunApprovalResolved>(), reason: 'no refusal consumed the nonce');
+    });
+
+    test('a submission from the post of an earlier round is invalid and the new post still resolves', () async {
+      adminSenders = ['U-A'];
+      final first = await holdAtGate();
+      final second = (await full.issueApprovalInteraction('run-1', 'gate'))!;
+      await full.bindApprovalPost(
+        'run-1',
+        nonce: second.nonce,
+        post: const WorkflowApprovalPost(channelType: 'slack', recipientId: 'C1', messageId: '1700.02'),
+      );
+
+      final stale = await fullControl().handleApproval(submit(first));
+      final live = await fullControl().handleApproval(
+        ChannelRunApprovalRequest(
+          action: ChannelRunApprovalAction.requestChanges,
+          runId: 'run-1',
+          stepId: 'gate',
+          nonce: second.nonce,
+          senderId: 'U-A',
+          channelType: 'slack',
+          postMessageId: '1700.02',
+          feedback: 'again',
+        ),
+      );
+
+      expect((stale as ChannelRunApprovalRefused).reason, ChannelRunApprovalRefusal.invalid);
+      expect(live, isA<ChannelRunApprovalResolved>());
+    });
+
+    test('two submissions, an approve and an HTTP resume in one turn resolve exactly once', () async {
+      adminSenders = ['U-A'];
+      final interaction = await holdAtGate();
+      final control = fullControl();
+
+      final results = await Future.wait<Object>([
+        control.handleApproval(submit(interaction)),
+        control.handleApproval(submit(interaction, feedback: 'other')),
+        control.handleApproval(click(interaction)),
+        control.resumeFromWeb('run-1'),
+      ]);
+
+      expect(resolved, hasLength(1));
+      expect(audit.entries.where((e) => e.decision == 'allow'), hasLength(1));
+      expect(
+        results.whereType<ChannelRunApprovalRefused>().map((r) => r.reason),
+        everyElement(ChannelRunApprovalRefusal.alreadyResolved),
+      );
+      expect(
+        results.whereType<RunControlRefused>().map((r) => r.reason),
+        everyElement(RunControlRefusal.alreadyResolved),
+      );
+    });
+
+    test('the tool follows the admin and chat-turn rules and is audited like the buttons', () async {
+      adminSenders = ['U-A'];
+      await holdAtGate();
+      final control = fullControl();
+
+      final nonAdmin = await control.requestChangesFromTool('run-1', chatTurn(sender: 'U-B'), feedback: 'x');
+      final webChat = await control.requestChangesFromTool(
+        'run-1',
+        const TurnProvenance.web(sessionKey: 'agent:main:web:abc'),
+        feedback: 'x',
+      );
+      final admin = await control.requestChangesFromTool('run-1', chatTurn(), feedback: 'split story 3');
+
+      expect((nonAdmin as RunControlRefused).reason, RunControlRefusal.notAdmin);
+      expect((webChat as RunControlRefused).reason, RunControlRefusal.needsChatTurn);
+      expect(admin, isA<RunControlResolved>());
+      expect(audit.entries.map((e) => (e.hook, e.decision, e.tool, e.reason)), [
+        ('tool', 'deny', 'requestChanges', 'sender is not in governance.admin_senders'),
+        ('tool', 'deny', 'requestChanges', 'Run control needs a chat turn'),
+        ('tool', 'allow', 'requestChanges', 'revision 1/3'),
+      ]);
+    });
+
+    test('the web entry is audited with source web and no admin check, refusals included', () async {
+      adminSenders = ['U-A'];
+      await holdAtGate(revision: 3);
+
+      final atBound = await fullControl().requestChangesFromWeb('run-1', feedback: 'again');
+      final unknown = await fullControl().requestChangesFromWeb('nope', feedback: 'again');
+      await repository.delete('run-1');
+      await holdAtGate();
+      final blank = await fullControl().requestChangesFromWeb('run-1', feedback: ' ');
+      final ok = await fullControl().requestChangesFromWeb('run-1', feedback: 'split story 3');
+
+      expect((atBound as RunControlRefused).reason, RunControlRefusal.limitReached);
+      expect(unknown, isA<RunControlNotFound>());
+      expect((blank as RunControlRefused).reason, RunControlRefusal.feedbackRequired);
+      expect(ok, isA<RunControlResolved>());
+      expect(audit.entries.map((e) => (e.hook, e.decision, e.principal)), [
+        ('web', 'deny', 'owner'),
+        ('web', 'deny', 'owner'),
+        ('web', 'deny', 'owner'),
+        ('web', 'allow', 'owner'),
+      ]);
+      expect(runs, 2);
     });
   });
 }

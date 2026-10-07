@@ -150,6 +150,7 @@ export 'src/channel/channel_run_approval.dart'
         ChannelRunApprovalAction,
         ChannelRunApprovalFailed,
         ChannelRunApprovalHandler,
+        ChannelRunApprovalPermitted,
         ChannelRunApprovalRefusal,
         ChannelRunApprovalRefused,
         ChannelRunApprovalRequest,
@@ -159,7 +160,9 @@ export 'src/channel/channel_run_approval.dart'
         runActionRunIdKey,
         runActionStepIdKey,
         runApproveActionId,
-        runRejectActionId;
+        runRejectActionId,
+        runRequestChangesActionId,
+        runRequestChangesSubmitActionId;
 export 'src/channel/threaded_notifications.dart'
     show ChannelNotification, ChannelNotificationAction, ChannelNotificationKind, ThreadedNotifications, ThreadedPost;
 export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;

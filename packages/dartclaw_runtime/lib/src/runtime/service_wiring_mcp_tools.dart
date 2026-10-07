@@ -46,6 +46,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
   server.registerTool(WorkflowListTool(definitions: workflowDefinitions));
   server.registerTool(WorkflowResumeTool(control: workflowRunControl));
   server.registerTool(WorkflowCancelTool(control: workflowRunControl));
+  server.registerTool(WorkflowRequestChangesTool(control: workflowRunControl));
   server.registerTool(WorkflowStatusTool(workflows: workflowService));
   server.registerTool(ScheduleUpsertTool(mutations: scheduleMutations, schedules: scheduling.scheduleService));
   server.registerTool(ScheduleListTool(mutations: scheduleMutations, schedules: scheduling.scheduleService));

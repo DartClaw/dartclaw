@@ -388,32 +388,23 @@ final class BuiltInWorkflowDriver {
     git(['-c', 'user.name=DartClaw Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial']);
   }
 
-  Future<ExecutionTrace> executeBuiltInWorkflow({
-    required String workflowFileName,
+  /// Creates the git project [projectId] a run binds its steps to.
+  void ensureProject(String projectId) => _ensureProjectRepo(projectId);
+
+  /// The default stubbed turn adapter, for a [WorkflowService] that must run the same stubbed turn loop.
+  WorkflowTurnAdapter defaultTurnAdapter() => _defaultTurnAdapter();
+
+  /// Answers every queued step task of [definition] with [responseForStep] until cancelled.
+  ///
+  /// [executeBuiltInWorkflow] runs on this; a test driving a `WorkflowService` instead of the executor
+  /// attaches it directly.
+  BuiltInStubSession attachStubs({
+    required WorkflowDefinition definition,
     required Map<String, String> variables,
     required Future<StubResponse> Function(QueuedStep queued) responseForStep,
     StubResponse Function(String feature)? detectResponseForFeature,
-    WorkflowTurnAdapter? turnAdapter,
-  }) async {
-    final projectId = variables['PROJECT']?.trim();
-    if (projectId != null && projectId.isNotEmpty) {
-      _ensureProjectRepo(projectId);
-    }
-    final definition = await WorkflowDefinitionParser().parseFile(p.join(_definitionsDir!, workflowFileName));
-    final run = WorkflowRun(
-      id: '${definition.name}-run',
-      definitionName: definition.name,
-      status: WorkflowRunStatus.running,
-      startedAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-      currentStepIndex: 0,
-      variablesJson: variables,
-      definitionJson: definition.toJson(),
-    );
-    await harness.repository.insert(run);
-
+  }) {
     final context = WorkflowContext(variables: variables);
-    final executor = _makeExecutor(turnAdapter: turnAdapter);
     final descriptionsByStep = <String, List<String>>{};
     final queuedStepOrder = <String>[];
     final queuedTasks = <QueuedTaskRecord>[];
@@ -439,6 +430,7 @@ final class BuiltInWorkflowDriver {
       return StubResponse(outputs: decoded, worktreeJson: response.worktreeJson);
     }
 
+    // ignore: cancel_subscriptions – owned and cancelled by the returned session
     final sub = harness.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
       e,
     ) async {
@@ -486,16 +478,84 @@ final class BuiltInWorkflowDriver {
       await _completeTask(task.id);
     });
 
-    await executor.execute(run, definition, context);
-    await sub.cancel();
-
-    final finalRun = await harness.repository.getById(run.id);
-    return ExecutionTrace(
-      context: context,
-      finalRun: finalRun,
+    return BuiltInStubSession._(
+      subscription: sub,
       descriptionsByStep: descriptionsByStep,
       queuedStepOrder: queuedStepOrder,
       queuedTasks: queuedTasks,
     );
   }
+
+  Future<ExecutionTrace> executeBuiltInWorkflow({
+    required String workflowFileName,
+    required Map<String, String> variables,
+    required Future<StubResponse> Function(QueuedStep queued) responseForStep,
+    StubResponse Function(String feature)? detectResponseForFeature,
+    WorkflowTurnAdapter? turnAdapter,
+  }) async {
+    final projectId = variables['PROJECT']?.trim();
+    if (projectId != null && projectId.isNotEmpty) {
+      _ensureProjectRepo(projectId);
+    }
+    final definition = await WorkflowDefinitionParser().parseFile(p.join(_definitionsDir!, workflowFileName));
+    final run = WorkflowRun(
+      id: '${definition.name}-run',
+      definitionName: definition.name,
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      currentStepIndex: 0,
+      variablesJson: variables,
+      definitionJson: definition.toJson(),
+    );
+    await harness.repository.insert(run);
+
+    final context = WorkflowContext(variables: variables);
+    final executor = _makeExecutor(turnAdapter: turnAdapter);
+    final stubs = attachStubs(
+      definition: definition,
+      variables: variables,
+      responseForStep: responseForStep,
+      detectResponseForFeature: detectResponseForFeature,
+    );
+
+    await executor.execute(run, definition, context);
+    await stubs.cancel();
+
+    final finalRun = await harness.repository.getById(run.id);
+    return stubs.toTrace(context: context, finalRun: finalRun);
+  }
+
+  /// Loads the shipped definition [workflowFileName].
+  Future<WorkflowDefinition> loadBuiltIn(String workflowFileName) =>
+      WorkflowDefinitionParser().parseFile(p.join(_definitionsDir!, workflowFileName));
+}
+
+/// A running stub responder attached by [BuiltInWorkflowDriver.attachStubs].
+final class BuiltInStubSession {
+  final StreamSubscription<TaskStatusChangedEvent> _subscription;
+  final Map<String, List<String>> descriptionsByStep;
+  final List<String> queuedStepOrder;
+  final List<QueuedTaskRecord> queuedTasks;
+
+  const new _({
+    required StreamSubscription<TaskStatusChangedEvent> subscription,
+    required this.descriptionsByStep,
+    required this.queuedStepOrder,
+    required this.queuedTasks,
+  }) : _subscription = subscription;
+
+  int count(String stepKey) => queuedStepOrder.where((step) => step == stepKey).length;
+
+  List<QueuedTaskRecord> tasksForStep(String stepKey) => queuedTasks.where((task) => task.stepKey == stepKey).toList();
+
+  Future<void> cancel() => _subscription.cancel();
+
+  ExecutionTrace toTrace({required WorkflowContext context, required WorkflowRun? finalRun}) => ExecutionTrace(
+    context: context,
+    finalRun: finalRun,
+    descriptionsByStep: descriptionsByStep,
+    queuedStepOrder: queuedStepOrder,
+    queuedTasks: queuedTasks,
+  );
 }

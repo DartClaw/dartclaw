@@ -43,6 +43,7 @@ const _orchestrationMcpTools = {
   'workflow_list',
   'workflow_resume',
   'workflow_cancel',
+  'workflow_request_changes',
   'workflow_status',
   'schedule_upsert',
   'schedule_list',
@@ -840,7 +841,7 @@ void main() {
     });
 
     test('a bound agent reaches the run-control tools only through its own allowed tools', () async {
-      const controlTools = {'workflow_resume', 'workflow_cancel', 'workflow_status'};
+      const controlTools = {'workflow_resume', 'workflow_cancel', 'workflow_request_changes', 'workflow_status'};
       config = config.copyWith(
         agent: const AgentConfig(
           provider: 'claude',

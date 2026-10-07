@@ -4,6 +4,12 @@ const runApproveActionId = 'run_approve';
 /// Action ID of the Reject button on an approval post.
 const runRejectActionId = 'run_reject';
 
+/// Action ID of the Request changes button on an approval post.
+const runRequestChangesActionId = 'run_request_changes';
+
+/// Action ID of the request-changes form's submission.
+const runRequestChangesSubmitActionId = 'run_request_changes_submit';
+
 /// Data key carrying the run ID on every run action.
 const runActionRunIdKey = 'runId';
 
@@ -19,7 +25,15 @@ enum ChannelRunApprovalAction {
   approve(runApproveActionId, 'Approve'),
 
   /// Cancel the run at the approval.
-  reject(runRejectActionId, 'Reject');
+  reject(runRejectActionId, 'Reject'),
+
+  /// The click on Request changes. Resolves nothing: it asks whether the
+  /// clicker may request changes at a live gate before a form opens.
+  checkRequestChanges(runRequestChangesActionId, 'Request changes'),
+
+  /// The form's submission: send the run back to the gate's revise step with
+  /// the request's feedback.
+  requestChanges(runRequestChangesSubmitActionId, 'Request changes');
 
   /// The action ID a channel renders for this action and reads back from a click.
   final String actionId;
@@ -60,6 +74,9 @@ class ChannelRunApprovalRequest {
   /// Identity of the message the click landed on.
   final String postMessageId;
 
+  /// What the sender typed, for [ChannelRunApprovalAction.requestChanges].
+  final String? feedback;
+
   /// Creates a click request.
   const new({
     required this.action,
@@ -70,6 +87,7 @@ class ChannelRunApprovalRequest {
     this.senderDisplayName,
     required this.channelType,
     required this.postMessageId,
+    this.feedback,
   });
 }
 
@@ -86,6 +104,15 @@ enum ChannelRunApprovalRefusal {
 
   /// The run is not waiting at that approval.
   notPending,
+
+  /// The gate names no revise step, so it offers no request changes.
+  changesNotOffered,
+
+  /// The gate already went through its bound of request-changes rounds.
+  limitReached,
+
+  /// A request to change needs feedback and carried none.
+  feedbackRequired,
 }
 
 /// What a click on an approval post came to.
@@ -95,6 +122,11 @@ sealed class ChannelRunApprovalResult {
 
 /// The approval was resolved by the click.
 final class ChannelRunApprovalResolved extends ChannelRunApprovalResult {
+  const new();
+}
+
+/// The clicker may request changes at a live gate; nothing changed.
+final class ChannelRunApprovalPermitted extends ChannelRunApprovalResult {
   const new();
 }
 

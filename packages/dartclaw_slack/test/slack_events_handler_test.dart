@@ -431,6 +431,55 @@ void main() {
       },
     );
 
+    group('a view_submission whose kind answers with a body', () {
+      final submission = _form({
+        'payload': jsonEncode({
+          'type': 'view_submission',
+          'view': {'id': 'V1'},
+        }),
+      });
+
+      test('is answered with the handler body as JSON, after the handler, and reaches no other path', () async {
+        recorder.dispatch.registerAnswering(
+          SlackEnvelopeKind.viewSubmission,
+          (envelope) async => {
+            'response_action': 'errors',
+            'errors': {'feedback_block': 'Say what should change.'},
+          },
+        );
+
+        final response = await post(submission, contentType: formType);
+
+        expect(response.statusCode, 200);
+        expect(response.contentType, 'application/json');
+        expect(jsonDecode(response.body), {
+          'response_action': 'errors',
+          'errors': {'feedback_block': 'Say what should change.'},
+        });
+        expect(recorder.received, isEmpty, reason: 'the answering handler is the only one that ran');
+      });
+
+      test('is answered with an empty 200 when the handler has no body, so the modal closes', () async {
+        recorder.dispatch.registerAnswering(SlackEnvelopeKind.viewSubmission, (_) async => null);
+
+        final response = await post(submission, contentType: formType);
+
+        expect((response.statusCode, response.body, response.contentType), (200, '', 'text/plain'));
+      });
+
+      test('does not change the other interaction kinds, which are still acknowledged first and empty', () async {
+        recorder.dispatch.registerAnswering(SlackEnvelopeKind.viewSubmission, (_) => Completer<Null>().future);
+        recorder.dispatch.register(SlackEnvelopeKind.blockAction, (_) => Completer<void>().future);
+        final click = _form({
+          'payload': jsonEncode({'type': 'block_actions', 'actions': <Object>[]}),
+        });
+
+        final response = await post(click, contentType: formType).timeout(const Duration(seconds: 2));
+
+        expect((response.statusCode, response.body), (200, ''));
+      });
+    });
+
     test('an interaction of another type is delivered as unknown, as Socket Mode does', () async {
       await post(
         _form({

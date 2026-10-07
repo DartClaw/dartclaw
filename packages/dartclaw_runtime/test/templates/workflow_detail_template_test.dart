@@ -2,6 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/templates/workflow_detail.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRevisionState;
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -317,6 +318,93 @@ void main() {
       expect(html, contains('<strong>Approval request</strong>:'));
       expect(html, contains('Plan Approval'));
       expect(html, contains('Review the plan before build.'));
+    });
+
+    group('request changes controls', () {
+      Map<String, dynamic> gateRun({required WorkflowRevisionState? revision, String status = 'awaitingApproval'}) {
+        final run = makeRun(status: status);
+        if (status == 'awaitingApproval') {
+          run['pendingApprovalStepId'] = 'plan-approval';
+          run['contextJson'] = {
+            '_approval.pending.stepId': 'plan-approval',
+            'plan-approval.approval.message': 'Review the plan before build.',
+          };
+        }
+        run['revision'] = revision;
+        return run;
+      }
+
+      String render(Map<String, dynamic> run, {String approvalStatus = 'awaiting_approval'}) =>
+          workflowDetailPageTemplate(
+            sidebarData: emptySidebar,
+            navItems: const [],
+            run: run,
+            steps: [
+              {
+                'index': 0,
+                'id': 'plan-approval',
+                'name': 'Plan Approval',
+                'status': approvalStatus,
+                'type': 'approval',
+                'parallel': false,
+                'taskId': null,
+                'approval': {
+                  'status': approvalStatus == 'awaiting_approval' ? 'pending' : approvalStatus,
+                  'message': 'Review the plan before build.',
+                  'feedback': 'split story 3',
+                },
+              },
+            ],
+            contextEntries: const [],
+            loopInfo: const [],
+          );
+
+      test('a gate with revisions left shows a feedback field and Request changes beside Approve and Reject', () {
+        final html = render(gateRun(revision: const WorkflowRevisionState(count: 1, max: 3)));
+
+        expect(html, contains('class="workflow-request-changes"'));
+        expect(html, contains('name="feedback"'));
+        expect(html, contains('data-action="submit->dc-workflows#requestChanges"'));
+        expect(html, contains('data-run-id="run-001"'));
+        expect(html, contains('>Request changes</button>'));
+        expect(html, contains('Approve'));
+        expect(html, contains('Reject'));
+        expect(html, contains('Revision 1 of 3'));
+      });
+
+      test('a gate at its bound shows the limit note and no control', () {
+        final html = render(gateRun(revision: const WorkflowRevisionState(count: 2, max: 2)));
+
+        expect(html, isNot(contains('workflow-request-changes"')));
+        expect(html, isNot(contains('name="feedback"')));
+        expect(html, contains('Revision limit reached (2 of 2)'));
+        expect(html, contains('Approve'));
+        expect(html, contains('Reject'));
+      });
+
+      test('a gate that names no revise step shows neither the control nor a note', () {
+        final html = render(gateRun(revision: null));
+
+        expect(html, isNot(contains('workflow-request-changes"')));
+        expect(html, isNot(contains('Revision ')));
+        expect(html, contains('Approve'));
+      });
+
+      test('a run in a revision round offers none and its gate card reads Changes requested, never unknown', () {
+        final html = render(gateRun(revision: null, status: 'running'), approvalStatus: 'changes_requested');
+
+        expect(html, isNot(contains('workflow-request-changes"')));
+        expect(html, contains('Changes requested'));
+        expect(html, isNot(contains('Unknown status')));
+        expect(html, isNot(contains('Unknown approval status')));
+        expect(html, contains('split story 3'), reason: 'the feedback text is on the run page');
+      });
+
+      test('the decoders know the changes_requested state', () {
+        expect(workflowStepPresentation('changes_requested').label, 'Changes requested');
+        expect(workflowApprovalPresentation('changes_requested').label, 'Changes requested');
+        expect(workflowApprovalPresentation('changes_requested').resolved, isTrue);
+      });
     });
 
     test('why-paused banner: needsInput hold on a non-approval step surfaces its reason', () {

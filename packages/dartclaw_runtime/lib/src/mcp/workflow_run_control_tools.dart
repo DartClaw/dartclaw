@@ -1,6 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show WorkflowRunStatus;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun, WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinition, WorkflowRun, WorkflowService, workflowRevisionState;
 
 import '../task/workflow_run_control.dart';
 import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
@@ -86,6 +87,49 @@ class WorkflowCancelTool implements TurnAwareMcpTool {
   }
 }
 
+/// MCP tool that sends a run waiting at an approval gate back to the gate's revise step.
+class WorkflowRequestChangesTool implements TurnAwareMcpTool {
+  new({required WorkflowRunControl control}) : _control = control;
+
+  final WorkflowRunControl _control;
+
+  @override
+  String get name => 'workflow_request_changes';
+
+  @override
+  String get description =>
+      'Send a workflow run waiting at an approval gate back to the gate\'s revise step with feedback. The step '
+      're-runs with the feedback and the run returns to the gate. Only gates that name a revise step offer this, '
+      'up to their limit; workflow_status shows revision and limit. Only an admin sender in a chat turn may use it.';
+
+  @override
+  Map<String, dynamic> get inputSchema => toolSchema(
+    {
+      ..._runIdProperty,
+      'feedback': {'type': 'string', 'description': 'What to change; the revise step receives it verbatim.'},
+    },
+    const ['run_id', 'feedback'],
+  );
+
+  @override
+  McpToolAccess get access => McpToolAccess.write;
+
+  @override
+  Future<ToolResult> call(Map<String, dynamic> args) => _requestChanges(args, null);
+
+  @override
+  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) =>
+      _requestChanges(args, context.turn);
+
+  Future<ToolResult> _requestChanges(Map<String, dynamic> args, TurnProvenance? turn) async {
+    final invalid = validateToolArguments(inputSchema, args);
+    if (invalid != null) return invalid;
+    final runId = args['run_id'] as String;
+    final feedback = args['feedback'] as String;
+    return _answer(runId, 'changes_requested', await _control.requestChangesFromTool(runId, turn, feedback: feedback));
+  }
+}
+
 /// MCP tool that reports a workflow run's state.
 ///
 /// Read-only and ungated. It never returns the approval interaction, so a nonce cannot reach a model.
@@ -117,6 +161,7 @@ class WorkflowStatusTool implements McpTool {
     if (run == null) return toolError('unknown_run', 'No workflow run $runId', {'run_id': runId});
 
     final pendingStep = _pendingStep(run);
+    final revision = pendingStep == null ? null : workflowRevisionState(run);
     return toolJson({
       'run_id': run.id,
       'definition': run.definitionName,
@@ -128,6 +173,7 @@ class WorkflowStatusTool implements McpTool {
               'step': pendingStep,
               'message': _truncate(run.contextJson['$pendingStep.approval.message']),
               'requested_at': run.contextJson['$pendingStep.approval.requested_at'],
+              if (revision != null) ...{'revision': revision.count, 'max_revisions': revision.max},
             },
       // A held run's message only names the approval, which `pending_approval` already carries.
       'last_error': pendingStep == null ? run.errorMessage : null,
@@ -175,6 +221,9 @@ ToolResult _answer(String runId, String outcome, RunControlResult result) => swi
       RunControlRefusal.invalid => 'invalid',
       RunControlRefusal.alreadyResolved => 'already_resolved',
       RunControlRefusal.notPending => 'not_pending',
+      RunControlRefusal.changesNotOffered => 'changes_not_offered',
+      RunControlRefusal.limitReached => 'limit_reached',
+      RunControlRefusal.feedbackRequired => 'feedback_required',
     },
     message,
     {'run_id': runId},

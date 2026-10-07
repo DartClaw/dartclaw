@@ -11,8 +11,11 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalPost,
         WorkflowApprovalResolution,
         WorkflowApprovalSource,
+        WorkflowDefinition,
         WorkflowRun,
         WorkflowRunOrigin,
+        WorkflowStep,
+        WorkflowTaskType,
         workflowApprovalInteractionContextKey;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
@@ -915,6 +918,176 @@ void main() {
       await postApproval();
 
       expect(slackThreads.rendered.single.actions, isEmpty);
+    });
+
+    group('request changes', () {
+      WorkflowRun gateRun(String id, {required int revision, String? revise = 'draft', int? maxRevisions}) {
+        final now = DateTime.utc(2026, 10, 6);
+        final definition = WorkflowDefinition(
+          name: 'revisable',
+          description: 'A gate that revises its draft',
+          steps: [
+            const WorkflowStep(id: 'draft', name: 'Draft', prompts: ['Draft']),
+            WorkflowStep(
+              id: 'gate',
+              name: 'Gate',
+              taskType: WorkflowTaskType.approval,
+              prompts: const ['Review'],
+              revise: revise,
+              maxRevisions: maxRevisions,
+            ),
+          ],
+        );
+        return runs[id] = WorkflowRun(
+          id: id,
+          definitionName: 'revisable',
+          startedAt: now,
+          updatedAt: now,
+          origin: slackOrigin,
+          definitionJson: definition.toJson(),
+          contextJson: {
+            '_approval.pending.stepId': 'gate',
+            'data': <String, dynamic>{'gate.approval.revision': revision},
+          },
+        );
+      }
+
+      void resolveChanges(String runId, WorkflowApprovalResolution resolution, {int revision = 1, int max = 3}) {
+        final run = runs[runId]!;
+        runs[runId] = run.copyWith(
+          contextJson: {
+            ...run.contextJson,
+            workflowApprovalInteractionContextKey: WorkflowApprovalInteraction.of(run)!.consumed(resolution).toJson(),
+          },
+        );
+        eventBus.fire(
+          WorkflowApprovalResolvedEvent(
+            runId: runId,
+            stepId: 'gate',
+            approved: false,
+            changesRequested: true,
+            revision: revision,
+            maxRevisions: max,
+            timestamp: resolvedAt,
+          ),
+        );
+      }
+
+      test('request changes is the third labelled action while the gate has revisions left, with its round', () async {
+        subscribeWithInteractions([slack]);
+        gateRun('run-1', revision: 1);
+
+        approval('run-1');
+        await settle();
+
+        final notification = slackThreads.rendered.single;
+        expect(notification.actions.map((a) => (a.id, a.label)), [
+          ('run_approve', 'Approve'),
+          ('run_reject', 'Reject'),
+          ('run_request_changes', 'Request changes'),
+        ]);
+        expect(notification.facts['Revision'], '1 of 3');
+        expect(notification.actionData['nonce'], 'a' * 32);
+      });
+
+      test('at the bound only Approve and Reject remain and the post says why', () async {
+        subscribeWithInteractions([slack]);
+        gateRun('run-1', revision: 2, maxRevisions: 2);
+
+        approval('run-1');
+        await settle();
+
+        final notification = slackThreads.rendered.single;
+        expect(notification.actions.map((a) => a.label), ['Approve', 'Reject']);
+        expect(notification.facts['Revision'], '2 of 2');
+        expect(notification.body, contains('limit of 2 revisions is reached'));
+        expect(notification.text, contains('limit of 2 revisions is reached'));
+      });
+
+      test('a gate that names no revise step posts exactly as before: two actions, no revision line', () async {
+        subscribeWithInteractions([slack]);
+        gateRun('run-1', revision: 0, revise: null);
+
+        approval('run-1');
+        await settle();
+
+        final notification = slackThreads.rendered.single;
+        expect(notification.actions.map((a) => a.label), ['Approve', 'Reject']);
+        expect(notification.facts.keys, isNot(contains('Revision')));
+        expect(notification.body, 'Review the plan');
+      });
+
+      test('a changes-requested resolution edits the round post once and the next gate is a new message', () async {
+        subscribeWithInteractions([slack]);
+        gateRun('run-1', revision: 0);
+        approval('run-1');
+        await settle();
+        slackThreads.rendered.clear();
+
+        resolveChanges(
+          'run-1',
+          WorkflowApprovalResolution(
+            approved: false,
+            changesRequested: true,
+            source: WorkflowApprovalSource.button,
+            senderId: 'U1',
+            displayName: 'Ada',
+            at: resolvedAt,
+          ),
+        );
+        await settle();
+
+        expect(slackThreads.edits.map((e) => e.$3.text), ['Changes requested by Ada (1/3) at 14:05 UTC']);
+        expect(slackThreads.rendered.single.actions, isEmpty);
+        expect(slackThreads.rendered.single.status, 'changes_requested');
+        expect(slackThreads.sends, hasLength(1), reason: 'an edit is never a second post');
+
+        gateRun('run-1', revision: 1);
+        approval('run-1');
+        await settle();
+
+        expect(slackThreads.sends, hasLength(2), reason: 'the returned gate posts a new message');
+        expect(slackThreads.edits, hasLength(1));
+      });
+
+      test('the resolver is worded as for approve and reject, whichever surface made the request', () async {
+        subscribeWithInteractions([slack]);
+        final cases = <(String, WorkflowApprovalResolution, String)>[
+          (
+            'run-tool',
+            WorkflowApprovalResolution(
+              approved: false,
+              changesRequested: true,
+              source: WorkflowApprovalSource.tool,
+              senderId: 'U2',
+              at: resolvedAt,
+            ),
+            'Changes requested by U2 in chat (2/3) at 14:05 UTC',
+          ),
+          (
+            'run-web',
+            WorkflowApprovalResolution(
+              approved: false,
+              changesRequested: true,
+              source: WorkflowApprovalSource.web,
+              at: resolvedAt,
+            ),
+            'Changes requested from the web UI or API (2/3) at 14:05 UTC',
+          ),
+        ];
+        for (final (runId, _, _) in cases) {
+          gateRun(runId, revision: 1);
+          approval(runId);
+        }
+        await settle();
+
+        for (final (runId, resolution, _) in cases) {
+          resolveChanges(runId, resolution, revision: 2);
+        }
+        await settle();
+
+        expect(slackThreads.edits.map((e) => e.$3.text), cases.map((c) => c.$3));
+      });
     });
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show ChannelRunApprovalResolved, runApproveActionId;
@@ -65,6 +66,59 @@ void main() {
 
     expect(calls, 2);
     expect(records.where((r) => r.level == Level.WARNING), hasLength(1));
+  });
+
+  group('a kind that answers with a body', () {
+    const submission = SlackEnvelope(kind: SlackEnvelopeKind.viewSubmission, payload: {});
+
+    test('is answered only for the kinds registered as answering, so every other kind is acknowledged first', () {
+      final dispatch = SlackEnvelopeDispatch()
+        ..register(SlackEnvelopeKind.viewSubmission, (_) {})
+        ..registerAnswering(SlackEnvelopeKind.blockAction, (_) => null);
+
+      expect(dispatch.answers(SlackEnvelopeKind.blockAction), isTrue);
+      expect(SlackEnvelopeKind.values.where(dispatch.answers), [
+        SlackEnvelopeKind.blockAction,
+      ], reason: 'a plain handler for the same kind does not change when its acknowledgement goes out');
+    });
+
+    test('returns the body its handler produced', () async {
+      final dispatch = SlackEnvelopeDispatch()
+        ..registerAnswering(SlackEnvelopeKind.viewSubmission, (_) async => {'response_action': 'clear'});
+
+      expect(await dispatch.dispatchAnswering(submission), {'response_action': 'clear'});
+    });
+
+    test('returns an empty acknowledgement when the handler fails, and logs the failure', () async {
+      final records = <LogRecord>[];
+      final subscription = Logger.root.onRecord.listen(records.add);
+      addTearDown(subscription.cancel);
+      Logger.root.level = Level.ALL;
+      final dispatch = SlackEnvelopeDispatch()
+        ..registerAnswering(SlackEnvelopeKind.viewSubmission, (_) => throw StateError('boom'));
+
+      expect(await dispatch.dispatchAnswering(submission), isNull);
+      expect(records.where((r) => r.level == Level.WARNING), hasLength(1));
+    });
+
+    test('returns an empty acknowledgement at the deadline and lets the handler finish', () async {
+      final deadline = Completer<void>();
+      final release = Completer<Map<String, Object?>?>();
+      Duration? waited;
+      final dispatch = SlackEnvelopeDispatch(
+        delay: (duration) {
+          waited = duration;
+          return deadline.future;
+        },
+      )..registerAnswering(SlackEnvelopeKind.viewSubmission, (_) => release.future);
+
+      final answer = dispatch.dispatchAnswering(submission);
+      deadline.complete();
+
+      expect(await answer, isNull);
+      expect(waited, slackAnswerDeadline, reason: 'Slack gives a view submission three seconds');
+      expect(release.isCompleted, isFalse);
+    });
   });
 
   group('on a Slack channel', () {

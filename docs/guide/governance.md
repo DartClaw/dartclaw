@@ -21,7 +21,7 @@ governance:
 - Exemption from `governance.rate_limits.per_sender.*` checks.
 - Permission to invoke reserved commands without rate-limit blocking.
 - Permission to change the shared wiki and knowledge graph from a channel turn (`wiki_write`, `kg_add`, `kg_invalidate`). A turn by any other sender is refused, and every channel-origin attempt is audited with its channel and sender (guard `KnowledgeWriteGate`). Web chat, scheduled turns and the gateway token are not gated, and neither are the memory tools. See [Context Engine Mode](context-engine.md#channel-members).
-- Permission to resolve a workflow run's approval from chat: the Approve and Reject buttons on a run's approval post, and the `workflow_resume` and `workflow_cancel` agent tools. A click or tool call from any other sender is refused, the post keeps its buttons, and every attempt is audited with its channel, sender, run and step (guard `RunApprovalGate`). The run page and the HTTP API are not admin-gated, because the caller is already signed in; they are audited too. See [Workflows](workflows.md#approving-from-chat).
+- Permission to resolve a workflow run's approval from chat: the Approve and Reject buttons on a run's approval post, the Request changes form a gate that names a `revise` step adds, and the `workflow_resume`, `workflow_cancel` and `workflow_request_changes` agent tools. A click or tool call from any other sender is refused, the post keeps its buttons, and every attempt is audited with its channel, sender, run and step (guard `RunApprovalGate`). The run page and the HTTP API are not admin-gated, because the caller is already signed in; they are audited too. See [Workflows](workflows.md#approving-from-chat).
 
 **What it does *not* grant**:
 

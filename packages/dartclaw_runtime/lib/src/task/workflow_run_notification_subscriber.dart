@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowApprovalInteraction, WorkflowApprovalPost, WorkflowApprovalSource, WorkflowRun;
+    show WorkflowApprovalInteraction, WorkflowApprovalPost, WorkflowApprovalSource, WorkflowRun, workflowRevisionState;
 import 'package:logging/logging.dart';
 
 import 'channel_notification_delivery.dart';
@@ -166,7 +166,7 @@ class WorkflowRunNotificationSubscriber {
           channel,
           threads,
           originRecipient,
-          threads.render(_withActions(notification, interaction)),
+          threads.render(_withActions(notification, interaction, run)),
           threadId: threadId,
           subject: subject,
         );
@@ -186,7 +186,7 @@ class WorkflowRunNotificationSubscriber {
     }
 
     final interaction = await _issue(run, event);
-    final response = threads.render(_withActions(notification, interaction));
+    final response = threads.render(_withActions(notification, interaction, run));
     final channelType = channel.type.name;
     final binding = store.lookupByRun(run.id).where((b) => b.channelType == channelType).firstOrNull;
     if (binding != null) {
@@ -240,8 +240,13 @@ class WorkflowRunNotificationSubscriber {
     }
   }
 
-  ChannelNotification _withActions(ChannelNotification notification, WorkflowApprovalInteraction? interaction) {
+  ChannelNotification _withActions(
+    ChannelNotification notification,
+    WorkflowApprovalInteraction? interaction,
+    WorkflowRun run,
+  ) {
     if (interaction == null) return notification;
+    final changesOpen = workflowRevisionState(run)?.isOpen ?? false;
     return ChannelNotification(
       kind: notification.kind,
       id: notification.id,
@@ -255,7 +260,11 @@ class WorkflowRunNotificationSubscriber {
       createdAt: notification.createdAt,
       updatedAt: notification.updatedAt,
       actions: [
-        for (final action in ChannelRunApprovalAction.values)
+        for (final action in [
+          ChannelRunApprovalAction.approve,
+          ChannelRunApprovalAction.reject,
+          if (changesOpen) ChannelRunApprovalAction.checkRequestChanges,
+        ])
           ChannelNotificationAction(id: action.actionId, label: action.label),
       ],
       actionData: {
@@ -295,7 +304,12 @@ class WorkflowRunNotificationSubscriber {
     final resolution = interaction?.resolution;
     if (run == null || interaction == null || resolution == null || interaction.stepId != event.stepId) return;
 
-    final verb = resolution.approved ? 'Approved' : 'Rejected';
+    final verb = event.changesRequested
+        ? 'Changes requested'
+        : resolution.approved
+        ? 'Approved'
+        : 'Rejected';
+    final round = event.changesRequested ? ' (${event.revision}/${event.maxRevisions})' : '';
     final name = switch (resolution.source) {
       WorkflowApprovalSource.button => resolution.displayName ?? resolution.senderId,
       _ => resolution.senderId,
@@ -308,8 +322,12 @@ class WorkflowRunNotificationSubscriber {
     await _edit(
       run,
       interaction,
-      '$verb$by at ${_clock(resolution.at)}',
-      resolution.approved ? 'approved' : 'rejected',
+      '$verb$by$round at ${_clock(resolution.at)}',
+      event.changesRequested
+          ? 'changes_requested'
+          : resolution.approved
+          ? 'approved'
+          : 'rejected',
     );
   }
 
@@ -393,6 +411,14 @@ class WorkflowRunNotificationSubscriber {
         body = _truncate(message);
         final link = publicPageUrl(_baseUrl, '/workflows/${run.id}');
         if (link != null) facts['Run page'] = link;
+        final revision = workflowRevisionState(run);
+        if (revision != null) {
+          facts['Revision'] = '${revision.count} of ${revision.max}';
+          if (!revision.isOpen) {
+            final limitNote = 'Request changes is not offered: the limit of ${revision.max} revisions is reached.';
+            body = body.isEmpty ? limitNote : '$body\n$limitNote';
+          }
+        }
         text = ['$label is awaiting approval at step $stepId.', if (body.isNotEmpty) body, ?link].join('\n');
       case WorkflowStepCompletedEvent(
         :final stepName,

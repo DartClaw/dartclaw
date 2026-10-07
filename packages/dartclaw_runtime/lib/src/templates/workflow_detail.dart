@@ -1,7 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show humanizeSpan;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowRun, workflowCanApprove, workflowCanReject, workflowCanResume, workflowCanRetry;
+    show WorkflowRevisionState, WorkflowRun, workflowCanApprove, workflowCanReject, workflowCanResume, workflowCanRetry;
 
 import 'components.dart';
 import 'helpers.dart';
@@ -96,6 +96,7 @@ String normalizeWorkflowState(String? value) => (value ?? '')
     'interrupted' ||
     'cancelled' ||
     'timed_out' => (className: 'pipeline-step--failed', label: 'Failed', icon: '✗'),
+    'changes_requested' => (className: 'pipeline-step--running', label: 'Changes requested', icon: '•'),
     'awaiting_approval' || 'review' => (className: 'pipeline-step--blocked', label: 'Blocked', icon: '!'),
     'queued' || 'pending' => (className: 'pipeline-step--pending', label: 'Pending', icon: '○'),
     _ => (className: 'pipeline-step--failed', label: 'Unknown status', icon: '!'),
@@ -109,6 +110,7 @@ String normalizeWorkflowState(String? value) => (value ?? '')
     'awaiting_approval' => (className: 'approval-card--waiting', label: 'Waiting for approval', resolved: false),
     'approved' || 'completed' => (className: 'approval-card--approved', label: 'Approved', resolved: true),
     'rejected' => (className: 'approval-card--rejected', label: 'Rejected', resolved: true),
+    'changes_requested' => (className: 'approval-card--waiting', label: 'Changes requested', resolved: true),
     'expired' || 'timed_out' => (className: 'approval-card--expired', label: 'Expired', resolved: true),
     _ => (className: 'approval-card--rejected', label: 'Unknown approval status', resolved: true),
   };
@@ -157,6 +159,8 @@ String workflowDetailPageTemplate({
   final canCancel = statusName == 'running' || statusName == 'paused' || statusName == 'awaitingApproval';
   final canApprove = workflowCanApprove(workflowRun);
   final canReject = workflowCanReject(workflowRun);
+  final revision = run['revision'] as WorkflowRevisionState?;
+  final canRequestChanges = canApprove && (revision?.isOpen ?? false);
   final hasActions = canPause || canResume || canRetry || (canCancel && !canApprove) || canApprove || canReject;
 
   // Annotate steps with loop/parallel info and display labels.
@@ -219,6 +223,12 @@ String workflowDetailPageTemplate({
     'canCancel': canCancel && !canApprove,
     'canApprove': canApprove,
     'canReject': canReject,
+    'canRequestChanges': canRequestChanges,
+    'revisionNote': canApprove && revision != null
+        ? revision.isOpen
+              ? 'Revision ${revision.count} of ${revision.max}'
+              : 'Revision limit reached (${revision.count} of ${revision.max}): approve or reject.'
+        : null,
     'hasActions': hasActions,
     'emptyStepsHtml': emptyStateTemplate(
       title: 'No steps defined',

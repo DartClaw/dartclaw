@@ -525,6 +525,7 @@ class HarnessWiring {
       'workflow_list': CanonicalTool.workflowList,
       'workflow_resume': CanonicalTool.workflowResume,
       'workflow_cancel': CanonicalTool.workflowCancel,
+      'workflow_request_changes': CanonicalTool.workflowRequestChanges,
       'workflow_status': CanonicalTool.workflowStatus,
       'schedule_upsert': CanonicalTool.scheduleUpsert,
       'schedule_list': CanonicalTool.scheduleList,

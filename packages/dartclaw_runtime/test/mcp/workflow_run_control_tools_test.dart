@@ -8,9 +8,14 @@ import 'package:dartclaw_runtime/src/mcp/context_engine_profile.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/workflow_run_control_tools.dart';
 import 'package:dartclaw_runtime/src/task/workflow_run_control.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show
+        InMemoryAgentExecutionRepository,
+        InMemoryExecutionRepositoryTransactor,
+        InMemoryTaskRepository,
+        InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowService, WorkflowStep, WorkflowTaskType;
+    show WorkflowDefinition, WorkflowPersistencePorts, WorkflowRun, WorkflowService, WorkflowStep, WorkflowTaskType;
 import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -40,7 +45,7 @@ Future<Set<String>> _toolNames(McpProtocolHandler handler) async {
   return {for (final tool in (result['tools'] as List).cast<Map<String, dynamic>>()) tool['name'] as String};
 }
 
-const _controlTools = {'workflow_resume', 'workflow_cancel', 'workflow_status'};
+const _controlTools = {'workflow_resume', 'workflow_cancel', 'workflow_request_changes', 'workflow_status'};
 
 void main() {
   late Directory tempDir;
@@ -84,6 +89,7 @@ void main() {
     return McpProtocolHandler()
       ..registerTool(WorkflowResumeTool(control: control))
       ..registerTool(WorkflowCancelTool(control: control))
+      ..registerTool(WorkflowRequestChangesTool(control: control))
       ..registerTool(WorkflowStatusTool(workflows: workflows));
   }
 
@@ -289,7 +295,7 @@ void main() {
       expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
     });
 
-    test('a named MCP client discovers none of the three', () async {
+    test('a named MCP client discovers none of the control tools', () async {
       final client = newHandler().scopedTo(
         ContextEngineCallerPolicy(principal: mcpClientPrincipal('crm')),
         callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:crm'),
@@ -366,6 +372,224 @@ void main() {
       expect(WorkflowStatusTool(workflows: workflows).access, McpToolAccess.read);
       expect(WorkflowResumeTool(control: control).access, McpToolAccess.write);
       expect(WorkflowCancelTool(control: control).access, McpToolAccess.write);
+    });
+  });
+
+  group('workflow_request_changes', () {
+    late WorkflowService full;
+    late TaskService fullTasks;
+
+    setUp(() {
+      final taskRepository = InMemoryTaskRepository();
+      final agentExecutions = InMemoryAgentExecutionRepository();
+      const transactor = InMemoryExecutionRepositoryTransactor();
+      fullTasks = TaskService(
+        taskRepository,
+        agentExecutionRepository: agentExecutions,
+        executionTransactor: transactor,
+        eventBus: eventBus,
+      );
+      full = WorkflowService(
+        repository: repository,
+        taskService: fullTasks,
+        messageService: MessageService(baseDir: p.join(tempDir.path, 'sessions')),
+        persistencePorts: WorkflowPersistencePorts(
+          taskRepository: taskRepository,
+          agentExecutionRepository: agentExecutions,
+          workflowStepExecutionRepository: InMemoryWorkflowStepExecutionRepository(),
+          executionRepositoryTransactor: transactor,
+        ),
+        eventBus: eventBus,
+        kvService: KvService(filePath: p.join(tempDir.path, 'kv-full.json')),
+        dataDir: tempDir.path,
+      );
+    });
+
+    tearDown(() async {
+      await full.dispose();
+      await fullTasks.dispose();
+    });
+
+    McpProtocolHandler fullHandler() {
+      final control = WorkflowRunControl(
+        workflows: full,
+        isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+        auditLogger: audit,
+      );
+      return McpProtocolHandler()
+        ..registerTool(WorkflowRequestChangesTool(control: control))
+        ..registerTool(WorkflowStatusTool(workflows: full));
+    }
+
+    Future<void> insertGate(String id, {String? revise = 'draft', int revision = 0, int? maxRevisions}) async {
+      final definition = WorkflowDefinition(
+        name: 'revisable',
+        description: 'A gate that revises its draft',
+        steps: [
+          const WorkflowStep(id: 'draft', name: 'Draft', prompts: ['Draft']),
+          WorkflowStep(
+            id: 'gate',
+            name: 'Gate',
+            taskType: WorkflowTaskType.approval,
+            prompts: const ['Review'],
+            revise: revise,
+            maxRevisions: maxRevisions,
+          ),
+        ],
+      );
+      final now = DateTime.utc(2026, 10, 6, 12);
+      await repository.insert(
+        WorkflowRun(
+          id: id,
+          definitionName: definition.name,
+          status: WorkflowRunStatus.awaitingApproval,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 2,
+          definitionJson: definition.toJson(),
+          contextJson: {
+            '_approval.pending.stepId': 'gate',
+            '_approval.pending.stepIndex': 1,
+            'gate.approval.message': 'Review the draft',
+            'gate.approval.requested_at': '2026-10-06T12:00:00.000Z',
+            'data': <String, dynamic>{'gate.approval.revision': revision},
+            'variables': <String, dynamic>{},
+          },
+        ),
+      );
+    }
+
+    test('an admin on Slack, WhatsApp and Signal resolves; a non-admin is refused naming admin senders', () async {
+      adminSenders = ['U-A', '+4670000001', '+4670000002'];
+      for (final id in ['run-slack', 'run-wa', 'run-sig', 'run-other']) {
+        await insertGate(id);
+      }
+      final calls = <(String, TurnProvenance)>[
+        ('run-slack', turn(ChannelType.slack, sender: 'U-A', thread: 'C1:1700.1')),
+        ('run-wa', turn(ChannelType.whatsapp, sender: '+4670000001', recipient: '+4670000001')),
+        ('run-sig', turn(ChannelType.signal, sender: '+4670000002', recipient: 'group-1')),
+        ('run-other', turn(ChannelType.slack, sender: 'U-B')),
+      ];
+
+      final results = [
+        for (final (runId, provenance) in calls)
+          _result(
+            await _call(fullHandler().forHarness(() => provenance), 'workflow_request_changes', {
+              'run_id': runId,
+              'feedback': 'split story 3',
+            }),
+          ),
+      ];
+
+      expect(results.take(3).map((r) => r['isError']), everyElement(isNot(true)));
+      expect(_payload(results.first), {'run_id': 'run-slack', 'outcome': 'changes_requested', 'status': 'running'});
+      expect(results.last['isError'], isTrue);
+      expect(_payload(results.last)['message'], contains('admin senders'));
+      expect((await repository.getById('run-other'))!.status, WorkflowRunStatus.awaitingApproval);
+      expect(audit.entries.map((e) => (e.hook, e.channel, e.peerId, e.tool, e.decision, e.reason)), [
+        ('tool', 'slack', 'U-A', 'requestChanges', 'allow', 'revision 1/3'),
+        ('tool', 'whatsapp', '+4670000001', 'requestChanges', 'allow', 'revision 1/3'),
+        ('tool', 'signal', '+4670000002', 'requestChanges', 'allow', 'revision 1/3'),
+        ('tool', 'slack', 'U-B', 'requestChanges', 'deny', 'sender is not in governance.admin_senders'),
+      ]);
+      expect(audit.entries.map((e) => e.toJson().toString()).join(), isNot(contains('split story 3')));
+    });
+
+    test('a gateway-token call, a scheduled turn and a web-chat turn need a chat turn and are each denied', () async {
+      await insertGate('run-1');
+      final gateway = fullHandler();
+      final scheduled = fullHandler().forHarness(() => const TurnProvenance.cron());
+      final webChat = fullHandler().forHarness(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc'));
+
+      for (final handler in [gateway, scheduled, webChat]) {
+        final result = _result(
+          await _call(handler, 'workflow_request_changes', {'run_id': 'run-1', 'feedback': 'again'}),
+        );
+        expect(result['isError'], isTrue);
+        expect(_payload(result)['message'], contains('chat turn'));
+      }
+      expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
+      expect(audit.entries.map((e) => e.decision), ['deny', 'deny', 'deny']);
+    });
+
+    test(
+      'a forged sender or channel argument is an unknown argument; missing or blank feedback is a schema refusal',
+      () async {
+        await insertGate('run-1');
+        final handler = fullHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A'));
+
+        for (final field in ['sender', 'channel']) {
+          final response = await _call(handler, 'workflow_request_changes', {
+            'run_id': 'run-1',
+            'feedback': 'x',
+            field: 'forged',
+          });
+          expect((response['error'] as Map)['message'], contains('unknown argument "$field"'), reason: field);
+        }
+        for (final arguments in [
+          {'run_id': 'run-1'},
+          {'run_id': 'run-1', 'feedback': '   '},
+        ]) {
+          final result = _result(await _call(handler, 'workflow_request_changes', arguments));
+          expect(result['isError'], isTrue, reason: '$arguments');
+          expect(
+            _payload(result)['reason'],
+            'invalid_request',
+            reason: 'the shared closed-schema pass refuses it first',
+          );
+        }
+        expect(audit.entries, isEmpty);
+      },
+    );
+
+    test('a gate without revise and a gate at its bound are refused with their own reason, audited', () async {
+      await insertGate('run-none', revise: null);
+      await insertGate('run-bound', revision: 2, maxRevisions: 2);
+      final handler = fullHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A'));
+
+      final reasons = <String?>[];
+      for (final (runId, feedback) in [('run-none', 'x'), ('run-bound', 'x')]) {
+        final result = _result(
+          await _call(handler, 'workflow_request_changes', {'run_id': runId, 'feedback': feedback}),
+        );
+        expect(result['isError'], isTrue, reason: runId);
+        reasons.add(_payload(result)['reason'] as String?);
+      }
+
+      expect(reasons, ['changes_not_offered', 'limit_reached']);
+      expect(audit.entries.map((e) => e.decision), ['deny', 'deny']);
+    });
+
+    test(
+      'workflow_status adds revision and the bound for a gate that names a revise step, and never a nonce',
+      () async {
+        await insertGate('run-1', revision: 1);
+        await insertGate('run-2', revise: null);
+        final interaction = (await full.issueApprovalInteraction('run-1', 'gate'))!;
+
+        final withRevise = _payload(_result(await _call(fullHandler(), 'workflow_status', {'run_id': 'run-1'})));
+        final without = _payload(_result(await _call(fullHandler(), 'workflow_status', {'run_id': 'run-2'})));
+
+        final pending = withRevise['pending_approval'] as Map<String, dynamic>;
+        expect([pending['revision'], pending['max_revisions']], [1, 3]);
+        expect(jsonEncode(withRevise), isNot(contains(interaction.nonce)));
+        final bare = without['pending_approval'] as Map<String, dynamic>;
+        expect(bare.keys, isNot(contains('revision')));
+        expect(bare.keys, isNot(contains('max_revisions')));
+      },
+    );
+
+    test('is a write tool, and a named MCP client discovers none of the control tools', () async {
+      final control = WorkflowRunControl(workflows: workflows, isAdmin: (_) => true, auditLogger: audit);
+      expect(WorkflowRequestChangesTool(control: control).access, McpToolAccess.write);
+
+      final client = newHandler().scopedTo(
+        ContextEngineCallerPolicy(principal: mcpClientPrincipal('crm')),
+        callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:crm'),
+      );
+
+      expect((await _toolNames(client)).intersection(_controlTools), isEmpty);
+      expect(await _toolNames(newHandler()), contains('workflow_request_changes'));
     });
   });
 }

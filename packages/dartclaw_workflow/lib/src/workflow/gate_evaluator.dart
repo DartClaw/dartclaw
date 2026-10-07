@@ -97,7 +97,7 @@ class GateEvaluator {
     if (unaryMatch != null) {
       final key = _normalizeKey(unaryMatch.group(1)!.trim());
       final op = unaryMatch.group(2)!.trim();
-      final isEmpty = _isEmptyValue(resolveContextKey(context, key));
+      final isEmpty = _isEmptyValue(_resolveGateKey(context, key));
       if (isEmpty) _refuseUnproduced(context, key, condition);
       final result = op == 'isEmpty' ? isEmpty : !isEmpty;
       _log.fine('Gate condition: $key $op → result=$result');
@@ -113,7 +113,7 @@ class GateEvaluator {
     final key = _normalizeKey(match.group(1)!.trim());
     final op = match.group(2)!.trim();
     final expected = match.group(3)!.trim();
-    final rawActual = resolveContextKey(context, key)?.toString() ?? '';
+    final rawActual = _resolveGateKey(context, key)?.toString() ?? '';
 
     // Every branch below decides on the absence of a value, so the refusal has
     // to precede all of them — the null-literal branch returned `x == null` as
@@ -157,6 +157,10 @@ class GateEvaluator {
     _log.fine('Gate condition: $key $op $expected → actual="$actual", result=$result');
     return result;
   }
+
+  /// A context value, else the workflow variable of that name.
+  Object? _resolveGateKey(WorkflowContext context, String key) =>
+      resolveContextKey(context, key) ?? context.variable(key);
 
   String _normalizeKey(String key) {
     if (!key.startsWith('context.')) return key;

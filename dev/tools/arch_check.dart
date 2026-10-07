@@ -142,22 +142,29 @@ import 'loc_target.dart';
 // unguarded resume and cancel paths; runtime the single admin gate and audit writer (WorkflowRunControl), three
 // tools and the subscriber's post edit; slack the block-action handler and the block-bearing edit. Each has one
 // owner, and the adapters and tools hold no admin check or resume call of their own.
+// Reviewed necessity, 2026-10-07 (0.28 request changes), targets re-measured on the finished tree: core 32588 -> 32652,
+// runtime 78856 -> 79050, slack 2832 -> 3077, workflow 26416 -> 26799. Core carries the two new port actions, their
+// refusals and the event's round fields; workflow the typed `revise`/`maxRevisions` step keys, the owner's third
+// resolution (one derivation of whether it is open, one persisted update), the executor re-entry and the validator
+// rules; runtime the control's third action and check, one route, one tool and the subscriber's third action and
+// edit; slack the modal and the acknowledgement body both transports send. Each has one owner: adapters and tools
+// hold no admin check or owner call of their own.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 14480,
   'dartclaw_client': 625,
-  'dartclaw_core': 32588,
+  'dartclaw_core': 32652,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 78856,
+  'dartclaw_runtime': 79050,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
-  'dartclaw_slack': 2832,
+  'dartclaw_slack': 3077,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
-  'dartclaw_workflow': 26416,
+  'dartclaw_workflow': 26799,
 };
 // Tracks the approved package inventory (ADR-056), including Slack and bridge.
 // Update with approved additions; this guards unrecorded packages, not growth.

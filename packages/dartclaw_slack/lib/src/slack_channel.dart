@@ -137,7 +137,8 @@ class SlackChannel extends Channel {
     dispatch
       ..register(SlackEnvelopeKind.event, _whenIdentified(_handleEvent))
       ..register(SlackEnvelopeKind.slashCommand, _whenIdentified(_handleSlashCommand))
-      ..register(SlackEnvelopeKind.blockAction, _whenIdentified(runApprovals.handle));
+      ..register(SlackEnvelopeKind.blockAction, _whenIdentified(runApprovals.handle))
+      ..registerAnswering(SlackEnvelopeKind.viewSubmission, _whenIdentifiedAnswering(runApprovals.handleSubmission));
   }
 
   /// Whether the Socket Mode connection is up; always disconnected in events mode.
@@ -155,6 +156,14 @@ class SlackChannel extends Channel {
       return;
     }
     await handler(envelope);
+  };
+
+  SlackAnsweringHandler _whenIdentifiedAnswering(SlackAnsweringHandler handler) => (envelope) async {
+    if (eventsHandler != null && _botUserId == null) {
+      _log.warning('Dropping a Slack ${envelope.kind.name} envelope: the bot token has not been verified');
+      return null;
+    }
+    return handler(envelope);
   };
 
   @override

@@ -11,10 +11,18 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowLoop, WorkflowRun, WorkflowRunOrigin, WorkflowStep, WorkflowVariable;
+    show
+        WorkflowApprovalRefusal,
+        WorkflowDefinition,
+        WorkflowLoop,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowStep,
+        WorkflowVariable;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import '../guard_audit_test_support.dart';
 import 'api_test_helpers.dart';
 import 'workflow_test_support.dart';
 
@@ -1139,6 +1147,110 @@ void main() {
 
       expect(response.statusCode, 204);
       expect(workflows.lastCancelFeedback, isNull);
+    });
+  });
+
+  group('POST /api/workflows/runs/<id>/request-changes', () {
+    late RecordingGuardAuditLogger audit;
+
+    Handler routesWithAudit() {
+      audit = RecordingGuardAuditLogger();
+      return workflowRoutes(
+        workflows,
+        tasks,
+        definitions,
+        runControl: testRunControl(workflows, isAdmin: (_) => false, auditLogger: audit),
+      ).call;
+    }
+
+    FutureOr<Response> post(Handler routes, String id, Object? body) => routes(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/runs/$id/request-changes'),
+        headers: {'content-type': 'application/json'},
+        body: body is String ? body : jsonEncode(body),
+      ),
+    );
+
+    setUp(() {
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.awaitingApproval);
+      workflows.requestChangesResult = _makeRun(status: WorkflowRunStatus.running);
+    });
+
+    test('answers 200 with the run, passes the feedback to the owner and audits one web allow', () async {
+      final routes = routesWithAudit();
+
+      final response = await post(routes, 'run-001', {'feedback': 'split story 3'});
+
+      expect(response.statusCode, 200);
+      expect(decodeObject(await response.readAsString())['status'], 'running');
+      expect(workflows.lastFeedback, 'split story 3');
+      expect(workflows.lastResolver?.source.name, 'web');
+      final entry = audit.entries.single;
+      expect((entry.hook, entry.decision, entry.tool, entry.runId), ('web', 'allow', 'requestChanges', 'run-001'));
+      expect(entry.toJson().toString(), isNot(contains('split story 3')), reason: 'the audit never holds the text');
+    });
+
+    test('is not admin-gated: an authenticated web caller needs no admin sender', () async {
+      final routes = routesWithAudit();
+
+      final response = await post(routes, 'run-001', {'feedback': 'x'});
+
+      expect(response.statusCode, 200, reason: 'isAdmin is false for every sender in this fixture');
+    });
+
+    test('blank or missing feedback is 400 INVALID_INPUT and one deny entry each', () async {
+      final routes = routesWithAudit();
+      workflows.requestChangesRefusal = WorkflowApprovalRefusal.feedbackRequired;
+
+      for (final body in [
+        {'feedback': '   '},
+        <String, Object?>{},
+        {'feedback': 3},
+      ]) {
+        final response = await post(routes, 'run-001', body);
+        expect(response.statusCode, 400, reason: '$body');
+        expect(await errorCode(response), 'INVALID_INPUT');
+      }
+      expect(audit.entries.map((e) => (e.hook, e.decision)), everyElement(('web', 'deny')));
+      expect(audit.entries, hasLength(3));
+    });
+
+    test('an unknown run is 404 and audited', () async {
+      final routes = routesWithAudit();
+      workflows.getResult = null;
+
+      final response = await post(routes, 'no-such', {'feedback': 'x'});
+
+      expect(response.statusCode, 404);
+      expect(await errorCode(response), 'WORKFLOW_RUN_NOT_FOUND');
+      expect(audit.entries.single.decision, 'deny');
+    });
+
+    test('a run not pending, a gate without revise and the bound are each 409 INVALID_TRANSITION', () async {
+      final routes = routesWithAudit();
+
+      for (final reason in [
+        WorkflowApprovalRefusal.notPending,
+        WorkflowApprovalRefusal.changesNotOffered,
+        WorkflowApprovalRefusal.limitReached,
+      ]) {
+        workflows.requestChangesRefusal = reason;
+        final response = await post(routes, 'run-001', {'feedback': 'x'});
+        expect(response.statusCode, 409, reason: reason.name);
+        expect(await errorCode(response), 'INVALID_TRANSITION');
+      }
+      expect(audit.entries.map((e) => e.decision), everyElement('deny'));
+      expect(audit.entries, hasLength(3));
+    });
+
+    test('resume and cancel still answer as before beside it', () async {
+      final routes = routesWithAudit();
+
+      final resume = await routes(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/resume')));
+      final cancel = await routes(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/cancel')));
+
+      expect([resume.statusCode, cancel.statusCode], [200, 204]);
     });
   });
 }

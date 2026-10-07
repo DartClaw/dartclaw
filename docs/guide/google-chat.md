@@ -234,6 +234,12 @@ whether Google Chat shows that text only to the person who clicked is not yet co
 space. After a resolution the card is edited to say who resolved it and loses its buttons. See
 [Approving from chat](workflows.md#approving-from-chat).
 
+When the gate names a revise step, the card also has a **Request changes** button. It opens a dialog with a feedback
+field, and submitting it sends the run back to that step with the text. The same senders as Approve and Reject may use
+it. Anyone else who clicks gets a dialog holding only the refusal, with no form, and only they see it. A refused
+submission (blank feedback, a gate already resolved, no revisions left) keeps the dialog open with the reason shown
+under it; whether Google Chat keeps the dialog open on that error has not yet been confirmed in a live space.
+
 ## Message Formatting
 
 Agent responses use Google Chat's native text markup. DartClaw converts standard Markdown headings, emphasis, strikethrough, code, links, lists, quotes, and tables before delivery; Markdown table separator rows are omitted.

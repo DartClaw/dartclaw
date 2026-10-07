@@ -35,6 +35,7 @@ import 'step_outcome_normalizer.dart' as step_outcome_normalizer;
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
 import 'workflow_context_persistence.dart';
+import 'workflow_approval_interaction.dart' show workflowRevisionContextKey;
 import 'workflow_approval_policy.dart';
 import 'workflow_failure.dart';
 import 'workflow_artifact_committer.dart' as workflow_artifact_committer;
@@ -728,7 +729,9 @@ class WorkflowExecutor {
               await _failRun(run, 'Normalized action node references missing step "$stepId".');
               return;
             }
-            final skippedRun = await _skipDueToEntryGate(run, step, stepIndex, context);
+            final skippedRun = _revisionGateFor(run, definition, step) != null
+                ? null
+                : await _skipDueToEntryGate(run, step, stepIndex, context);
             if (skippedRun != null) {
               run = skippedRun;
               nodeIndex++;

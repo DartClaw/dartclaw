@@ -270,3 +270,29 @@ Decisions the sources leave open, each also stated where it bites:
 - `bash dev/tools/postgres_contract.sh` runs without skips: the revision marker, count and feedback ride the run's context JSON.
 - Visual validation of the run page (`/workflows/<runId>`) with the `workflows` testing profile: a run awaiting a revise gate with revisions left, at the bound, and a gate without `revise`, against `docs/wireframes/workflow-detail.html` and the design system; deviations go to the owner's `docs/wireframes/deviations.md`.
 - Live proof runs once in the owner-led qualification after the last story (PRD owner D22), not here: the Slack modal over both transports including the Socket Mode acknowledgement body, the Google Chat dialog including whether it stays open on an error status, and a real `andthen:plan` revision from `plan-and-implement` with `PLAN_REVIEW=true`.
+
+## Implementation Observations
+
+- The three owner surfaces share one derivation, `workflowRevisionState` (`workflow_view_helpers.dart`): the owner's checks, `workflow_status`, the run subscriber's third action, the run page and the HTTP route read it, and `checkRequestChanges` runs the owner's own checks so the check and the request cannot disagree. `issueApprovalInteraction` is unchanged: the subscriber calls the derivation on the run it already loaded instead of the interaction carrying an "open" flag.
+- ASSUMPTION: `ChannelNotification` gains no field; the third action rides the existing `actions` list and the revision line rides `facts['Revision']` plus, at the bound, a sentence in the body – a core type that holds nothing platform-specific stays unchanged | a renderer that needs the revision as data, not text, would add a field.
+- ASSUMPTION: the lead-in and feedback block are part of the revise step's resolved prompt, so they sit before the auto-framed inputs and the output-contract sections rather than after them – the literal "ends with" would put feedback after the step-outcome protocol | an author who wants it last can reference `{{context.<gate>.approval.feedback}}` where they want it.
+- ASSUMPTION: a skill-only revise step (no `prompt`) receives the feedback block as its prompt, which replaces its markdown context summary with the XML-framed inputs | a step that sets `autoFrameContext: false` and has no prompt would need the summary kept.
+- ASSUMPTION: blank tool feedback is refused by the shared closed-schema pass (`invalid_request`) before `WorkflowRunControl`, so it writes no audit entry; every other tool refusal is audited | a requirement that blank feedback is audited moves the non-empty check into the tool call path.
+- ASSUMPTION: an HTTP cancel that arrives after a request-changes won the same turn cancels the now-running run, as cancel of a running run always did; the scenario's "HTTP cancel refused 409" holds for a cancel serialized ahead of the executor's move only when the gate is still pending | a product rule that a revision round cannot be cancelled would add a state check to `_cancel`.
+- ASSUMPTION: Slack acknowledges a resolved submission with `{"response_action":"clear"}` (S11's wording); an empty body would close the same single modal.
+- The Google Chat dialog's submit button also echoes `postMessageId`, read only when the submit event carries no `message`, because Google documents `message` for `CARD_CLICKED` events without saying a dialog submission has it.
+- `requestChanges` records the feedback on the context data and flat run context under `<gate>.approval.feedback`; the resolved event never carries it, so SSE and logs do not hold the text. The run page shows it in the gate's resolution line while the round runs.
+- Test support gained `WorkflowServiceTestHarness.newService()` and `BuiltInWorkflowDriver.attachStubs`/`loadBuiltIn`/`ensureProject`/`defaultTurnAdapter` (extracted from `executeBuiltInWorkflow`, which now runs on `attachStubs`) so service-level and built-in round trips share the stub responder.
+- Arch targets re-measured for core, runtime, google_chat, slack and workflow with one reviewed-necessity line (TI16).
+
+#### DRIFT
+
+- spec-stale: the TI07, TI16 and TI15 greps are not clean on the merged tree: `isAdmin` also matches S09's `knowledge_write_gate.dart` under `packages/dartclaw_runtime/lib/src/mcp`, and `"No current built-in workflow requires"` matches this FIS itself under `dev/` | Stale targets: this FIS's `Verify` lines | –
+- ambiguous-intent: TI06 names a "revision line" on `ChannelNotification`; it is carried as a fact and body text (see the first ASSUMPTION) | Stale targets: none | –
+- ambiguous-intent: S06 expects an HTTP cancel in the race to be refused as already resolved; see the cancel ASSUMPTION | Stale targets: none | –
+
+#### NOTICED BUT NOT TOUCHING
+
+- The marker `_revision.gateId` is dropped only when the gate pauses again. If a gate's own `entryGate` turned false on the return pass, the gate would be skipped and the marker would stay for the rest of the run, so a later recovery would restart from the saved step index instead of the task-derived one. The built-in gate's `entryGate` reads a fixed variable, so it cannot happen there; a custom workflow with a context-dependent gate `entryGate` could reach it.
+- Live qualification (owner D22) still has to confirm: the Socket Mode `payload` acknowledgement for `view_submission`, Google Chat keeping the dialog open on `INVALID_ARGUMENT`, a Google Chat submit event with or without `message`, and a real `andthen:plan` revision under `PLAN_REVIEW=true`.
+- The visual validation of the run page (`/workflows/<runId>`, `workflows` testing profile) is not in this run's evidence; see the report.

@@ -17,6 +17,10 @@ variables:
     required: false
     description: Max parallel story executions
     default: "2"
+  PLAN_REVIEW:
+    required: false
+    description: "Set to true to pause for approval of the plan before any story is implemented"
+    default: "false"
 
 project: "{{PROJECT}}"
 
@@ -116,6 +120,15 @@ steps:
         format: path
         pathPattern: '**/.technical?research.md'
         description: Workspace-relative path to the plan bundle technical research sidecar, when present.
+
+  # Opt-in plan review. Skipped unless PLAN_REVIEW is true; request changes
+  # re-runs `plan` with the reviewer's feedback and returns here.
+  - id: plan-approval
+    name: Approve Plan
+    type: approval
+    entryGate: "PLAN_REVIEW == true"
+    revise: plan
+    prompt: "Review the plan before any story is implemented: {{context.plan}}"
 
   - id: story-pipeline
     name: Per-Story Pipeline

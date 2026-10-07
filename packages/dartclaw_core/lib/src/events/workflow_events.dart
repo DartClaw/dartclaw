@@ -570,22 +570,44 @@ final class WorkflowApprovalResolvedEvent extends WorkflowLifecycleEvent {
   /// Identifier of the approval step that was resolved.
   final String stepId;
 
-  /// Whether the approval was accepted (true) or rejected (false).
+  /// Whether the approval was accepted (true) or rejected (false). Always
+  /// false when [changesRequested].
   final bool approved;
 
   /// Optional rejection feedback from the operator.
   final String? feedback;
 
+  /// Whether the gate was sent back to its revise step rather than approved or rejected.
+  final bool changesRequested;
+
+  /// The request-changes round this resolution started, when [changesRequested].
+  final int? revision;
+
+  /// The gate's bound on request-changes rounds, when [changesRequested].
+  final int? maxRevisions;
+
   @override
   final DateTime timestamp;
 
-  new({required this.runId, required this.stepId, required this.approved, this.feedback, required this.timestamp});
+  new({
+    required this.runId,
+    required this.stepId,
+    required this.approved,
+    this.feedback,
+    this.changesRequested = false,
+    this.revision,
+    this.maxRevisions,
+    required this.timestamp,
+  });
 
   factory fromJson(Map<String, dynamic> json) => WorkflowApprovalResolvedEvent(
     runId: _requiredString(json, 'runId'),
     stepId: _requiredString(json, 'stepId'),
     approved: _requiredBool(json, 'approved'),
     feedback: _optionalString(json, 'feedback'),
+    changesRequested: json['changesRequested'] == true,
+    revision: _optionalInt(json, 'revision'),
+    maxRevisions: _optionalInt(json, 'maxRevisions'),
     timestamp: _timestampFromJson(json),
   );
 
@@ -596,13 +618,17 @@ final class WorkflowApprovalResolvedEvent extends WorkflowLifecycleEvent {
     'stepId': stepId,
     'approved': approved,
     'feedback': feedback,
+    'changesRequested': changesRequested ? true : null,
+    'revision': revision,
+    'maxRevisions': maxRevisions,
     'timestamp': timestamp.toIso8601String(),
   });
 
   @override
   String toString() =>
       'WorkflowApprovalResolvedEvent(run: $runId, step: $stepId, '
-      'approved: $approved${feedback != null ? ', feedback: $feedback' : ''})';
+      '${changesRequested ? 'changesRequested: $revision/$maxRevisions' : 'approved: $approved'}'
+      '${feedback != null ? ', feedback: $feedback' : ''})';
 }
 
 /// Fired when all iterations of a map/fan-out step have settled.

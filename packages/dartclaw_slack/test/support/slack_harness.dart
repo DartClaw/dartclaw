@@ -231,6 +231,7 @@ Map<String, dynamic> blockAction({
   String? name,
   String? messageTs,
   String? responseUrl,
+  String? triggerId,
 }) => {
   'type': 'block_actions',
   'user': {'id': user, 'username': ?name, 'name': ?name, 'team_id': 'T1'},
@@ -239,6 +240,7 @@ Map<String, dynamic> blockAction({
   'channel': {'id': 'C1', 'name': 'general'},
   'message': {'type': 'message', 'ts': ?messageTs},
   'response_url': ?responseUrl,
+  'trigger_id': ?triggerId,
   'actions': [
     {
       'type': 'button',

@@ -55,6 +55,7 @@ import '../mcp/context_research_tool.dart' show sourceLinkerFor;
 import '../mcp/knowledge_write_gate.dart';
 import '../mcp/mcp_server.dart' show McpCallerContext, McpKnowledgeScope;
 import '../restart_service.dart' show consumeRestartPending;
+import '../task/workflow_run_control.dart';
 import '../task/workflow_run_notification_subscriber.dart';
 import 'channel_agent_binding.dart';
 import 'channel_wiring.dart';
@@ -743,6 +744,15 @@ class _RuntimeAssembly {
     );
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
+    // Chat, tools and HTTP resolve runs through this one gate and audit writer. A server-less build has none.
+    final runControl = channel == null
+        ? null
+        : WorkflowRunControl(
+            workflows: workflowService,
+            isAdmin: config.governance.isAdmin,
+            auditLogger: security.auditLogger,
+          );
+    if (runControl != null) channel!.bindRunApprovals(runControl.handleApproval);
     final lifecycleManager = channel == null ? null : await _wireThreadBinding(ctx, storage, workflowService, channel);
     final runNotifications = channel == null
         ? null
@@ -752,6 +762,8 @@ class _RuntimeAssembly {
             lookupRun: workflowService.get,
             channelManager: channel.channelManager,
             threadBindings: channel.threadBindingStore,
+            issueInteraction: workflowService.issueApprovalInteraction,
+            bindPost: workflowService.bindApprovalPost,
           );
     final credentialHealth = _wireCredentialHealth(ctx, harness, providerStatus);
     // Bound here rather than constructed with the security and harness layers:
@@ -777,7 +789,7 @@ class _RuntimeAssembly {
 
     DartclawServer? server;
     OutboundMcpPool? outboundMcpPool;
-    if (channel != null && scheduling != null && configWriter != null) {
+    if (channel != null && scheduling != null && configWriter != null && runControl != null) {
       server = (serverFactory ?? _identityServerFactory)(
         _composeRuntimeServer(
           config,
@@ -790,6 +802,7 @@ class _RuntimeAssembly {
           project,
           providerStatus,
           workflowService,
+          runControl,
           workflowRegistry,
           _buildRestartService(ctx, harness),
           channel,
@@ -813,6 +826,7 @@ class _RuntimeAssembly {
         scheduling,
         workflowRegistry,
         workflowService,
+        runControl,
         configWriter,
         outboundMcpTransportFactory: outboundMcpTransportFactory,
       );

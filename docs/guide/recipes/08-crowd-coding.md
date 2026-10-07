@@ -15,7 +15,7 @@ when the model is unavailable.
 - [Google Chat Spaces](../google-chat.md) for a shared room and threaded replies
 - Shared group sessions so every participant contributes to the same conversation
 - [Task tools](../tasks.md#agent-tool-surface) for creating, listing, reviewing, binding, and unbinding background work
-- `workflow_list` and `workflow_run` for listing and starting workflows
+- `workflow_list` and `workflow_run` for listing and starting workflows, and the Approve and Reject buttons on a run's approval post
 - Multi-sender governance: fair queuing, rate limits, budgets, loop detection, and administrator controls
 - Optional project bindings for work in an external repository
 
@@ -182,6 +182,7 @@ choice. Keep the room informed about what you are changing and what needs human 
 
 - Tasks: `task_create`, `task_list`, `review_list`, `task_review`, `task_bind`, `task_unbind`
 - Workflows: `workflow_list`, `workflow_run`
+- Run approvals: Approve and Reject buttons on the run's post; `workflow_status`, `workflow_resume` and `workflow_cancel` are granted only through an agent's `allowedTools`
 - Media delivery: `attach_media`
 ```
 
@@ -204,6 +205,11 @@ the task cause it to call `review_list`, `task_list`, or `task_review`.
 To start a workflow, ask the agent what workflows are available, select one, and provide its required inputs. The agent
 calls `workflow_list` and `workflow_run`. The web launch forms at `/workflows` and the standalone CLI remain available
 for operators who want deterministic workflow initiation.
+
+When a run reaches an approval step, its post in the thread carries Approve and Reject buttons. Only a sender in
+`governance.admin_senders` can use them, so participants cannot approve their own requests; an empty list would let
+every member of the room approve or reject runs. A click from anyone else is refused and the buttons stay. See
+[Approving from chat](../workflows.md#approving-from-chat).
 
 ### Deterministic controls (all scenarios)
 
@@ -285,7 +291,8 @@ matters, and `warn` only when a facilitator is actively monitoring the session.
 ### Admin Senders
 
 List facilitator identities under `governance.admin_senders`. An empty list grants administrator command access to all
-participants, which is suitable only for a small trusted room. Google Chat identities use the `users/<numeric-id>` form.
+participants, including the emergency commands and approving or rejecting workflow runs, which is suitable only for a
+small trusted room. Google Chat identities use the `users/<numeric-id>` form.
 
 ## Customization Tips
 

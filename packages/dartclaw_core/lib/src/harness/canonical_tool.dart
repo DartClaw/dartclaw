@@ -69,6 +69,15 @@ enum CanonicalTool {
   /// Listing of the available workflow definitions.
   workflowList('workflow_list'),
 
+  /// Resume a paused or approval-held workflow run.
+  workflowResume('workflow_resume'),
+
+  /// Cancel a workflow run.
+  workflowCancel('workflow_cancel'),
+
+  /// Read a workflow run's state.
+  workflowStatus('workflow_status'),
+
   /// Create or update a scheduled job.
   scheduleUpsert('schedule_upsert'),
 

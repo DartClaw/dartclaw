@@ -2,7 +2,7 @@
 
 How inbound messages from WhatsApp, Signal, Google Chat, Slack, and the Web UI are normalized, routed, and delivered back through channel-specific adapters.
 
-**Current through**: 0.28 Slack Events API transport (signed route, `slack` health object, doctor rows), threaded-notification capability and workflow run posts (Google Chat and Slack thread; run and task thread bindings), and Slack adapter over Socket Mode (thread-in-session-key, ephemeral reserved-command replies, reserved-command refusal audit), turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
+**Current through**: 0.28 run approvals from chat (Approve and Reject buttons on run approval posts, the `ChannelRunApprovalHandler` port, post editing through `ThreadedNotifications.edit`), 0.28 Slack Events API transport (signed route, `slack` health object, doctor rows), threaded-notification capability and workflow run posts (Google Chat and Slack thread; run and task thread bindings), and Slack adapter over Socket Mode (thread-in-session-key, ephemeral reserved-command replies, reserved-command refusal audit), turn-cap waits and reloadable queue cap; 0.25.2 channel agent binding.
 
 ---
 
@@ -268,9 +268,10 @@ a platform's thread key. Its operations:
 | Operation | Role |
 |-----------|------|
 | `extractThread(metadata)` | Thread identity of an inbound message, or null. Google Chat reads `metadata['threadName']`; Slack builds `<conversationId>:<thread_ts>` from `metadata['spaceName']` and `metadata['threadId']`, so the identity is unique across conversations |
-| `render(ChannelNotification)` | Turns a semantic notification (kind `task` or `run`, id, text, title, status, body, error, requestedBy, facts, timestamps, `reviewActions`) into the channel's native card or blocks beside its plain text. Google Chat: `ChatCardBuilder.taskNotification` and `runNotification`; Slack: Block Kit sections |
+| `render(ChannelNotification)` | Turns a semantic notification (kind `task` or `run`, id, text, title, status, body, error, requestedBy, facts, timestamps, `reviewActions`, and `actions` with their `actionData`) into the channel's native card or blocks beside its plain text. Google Chat: `ChatCardBuilder.taskNotification` and `runNotification`; Slack: Block Kit sections, with each action as a button |
 | `sendToNewThread(recipient, response, threadKey:)` | First message of a new thread; returns `ThreadedPost(threadId, messageId)` or null |
 | `sendToThread(recipient, response, threadId:)` | Message into an existing thread; same return |
+| `edit(recipient, messageId, response)` | Replaces a posted message's content, buttons included, and returns whether the channel accepted it. Google Chat patches `cards_v2` and `text` (`editCardMessage`); Slack calls `chat.update` with replacement blocks |
 
 Slack's two sends also record the adapter's thread participation, so a mention-free reply in a thread the bot opened is
 admitted. WhatsApp and Signal declare nothing and receive plain `sendMessage` calls. Every writer reads the
@@ -354,7 +355,7 @@ At startup `reconcileThreadBindings` (`service_wiring_notifications.dart`) passe
 | Post | Trigger |
 |------|---------|
 | started | `pending` to `running` only, never a resume or retry |
-| awaiting approval | `WorkflowApprovalRequestedEvent`; the approval message is cut at 1,000 characters, plus a link `<server.base_url>/workflows/<runId>` when `base_url` is set |
+| awaiting approval | `WorkflowApprovalRequestedEvent`; the approval message is cut at 1,000 characters, plus a link `<server.base_url>/workflows/<runId>` when `base_url` is set; on a channel that threads, Approve and Reject buttons (§4.7) |
 | finished | completed or cancelled |
 | failed | failed; the error is cut at 1,000 characters |
 | step completed | optional, one line per step |
@@ -371,6 +372,20 @@ A chat-origin run on a threaded channel that recorded no thread falls to the con
 `wireRunNotifications` (`service_wiring_notifications.dart`) builds the subscriber after the channels register and validates `workflow.chat_notifications` against them: a channel that is not registered, or a recipient it does not own, warns and leaves runs started outside chat with nowhere to post.
 
 The inbound thread recorded for a turn (`TurnProvenance.channel(threadId:)`, hence a run's origin) is read through the originating channel's capability, so a Slack-started `workflow_run` records the Slack identity; a channel without the capability records none.
+
+### 4.7 Run Approvals
+
+A run's approval post on a channel that threads carries two buttons, Approve (`run_approve`) and Reject (`run_reject`). A click is a resolution of the run by a chat sender, so it carries a single-use nonce and passes the admin gate; the state lives in `dartclaw_workflow` (workflow-architecture § 4.2) and the policy in `dartclaw_runtime`, while core holds only the port.
+
+**Port** (`dartclaw_core`, `channel_run_approval.dart`, a sibling of `ChannelReviewHandler` that names no workflow type). `ChannelRunApprovalHandler` is `Future<ChannelRunApprovalResult> Function(ChannelRunApprovalRequest)`. The request carries the action (approve or reject), `runId`, `stepId`, `nonce`, the clicker's `senderId` (the exact form the inbound path uses: Slack user ID, Google Chat `users/<id>`) and `senderDisplayName`, the `channelType` and the `postMessageId` of the message the click landed on. The result is sealed: `Resolved`, `Refused(reason, message)` (reasons `notAdmin`, `invalid`, `alreadyResolved`, `notPending`) or `Failed(message)`. The action IDs and the data keys `runId`, `stepId` and `nonce` are core constants, and `ChannelNotification.actions` plus `actionData` carry the labelled actions and their payload to a channel's `render`. An adapter parses a click, calls the handler and answers only the clicker with the result text. It never edits the post and never checks admin status.
+
+**Interaction.** `WorkflowRunNotificationSubscriber` asks the workflow service to issue an interaction for the run's pending approval step, renders the post with the two actions and the nonce in their data, sends it, and binds the returned message identity to the interaction. A plain channel (WhatsApp, Signal), an approval the policy auto-resolved, and a failed issue send the post without buttons. A click that lands between the send and the bind carries no matching post and is refused as invalid; the next click works.
+
+**One handler, late bound.** `ChannelWiring` hands both adapters a forwarding handler at construction, because the channels are built before the workflow service exists. `bindRunApprovals` points it at `WorkflowRunControl.handleApproval` once `service_wiring.dart` has built the control; until then, and in a headless build, a click is answered "Run approvals are unavailable".
+
+**Answers to the clicker.** A refusal or failure leaves the post and its buttons unchanged and the nonce live. Slack answers it as an ephemeral reply through the interaction's `response_url`; Google Chat answers it in the click response text, and whether Google shows that text only to the clicker is confirmed in live qualification only. A resolved click answers nothing itself: the post is edited by the subscriber.
+
+**Post editing.** The subscriber edits the bound post once on `WorkflowApprovalResolvedEvent`, for every resolution source (button, `workflow_resume` / `workflow_cancel`, the run page or API), through the channel's `ThreadedNotifications.edit` with a notification that has no actions, so the buttons go away. The text is "Approved by <name> at HH:MM UTC" (a button; display name, else sender ID), "Approved by <sender> in chat at HH:MM UTC" (a tool), "Approved from the web UI or API at HH:MM UTC" (web, or no recorded resolver), and the same with "Rejected". A run that ends with the approval unresolved (an approval timeout cancels the run without resolving it) edits it to "No longer pending: run <status> at HH:MM UTC". A failed edit logs one warning per run and never undoes the resolution. Task review cards and `ChannelReviewHandler` are unchanged: no admin check, nonce or audit.
 
 
 ---
@@ -581,7 +596,7 @@ class PubSubClient {
 
 ### 7.6 Outbound: Cards v2
 
-`ChatCardBuilder` produces Cards v2 structured payloads: `taskNotification()` (status + optional review buttons), `runNotification()` (workflow run lifecycle post), `errorNotification()`, `alertNotification()` (severity-colored), and `confirmationCard()`.
+`ChatCardBuilder` produces Cards v2 structured payloads: `taskNotification()` (status + optional review buttons), `runNotification()` (workflow run lifecycle post), `errorNotification()`, `alertNotification()` (severity-colored), and `confirmationCard()`. A run notification with `actions` renders them as buttons carrying `runId`, `stepId` and `nonce`. `_handleCardClicked` routes `run_approve` and `run_reject` clicks to the run-approval handler (§4.7) with the clicker's `users/<id>`, display name and the clicked message name, and answers a resolved click with an empty response and a refusal or failure as response text. `GoogleChatRestClient.editCardMessage` patches `cards_v2,text`, because a text-only `editMessage` leaves a card's buttons in place.
 
 ### 7.7 Slash Commands
 
@@ -727,7 +742,7 @@ Sealed-sender complication: Signal's own call site reacts to the gate's DM-denie
 
 `SocketModeClient` (`packages/dartclaw_slack/lib/src/socket_mode_client.dart`) opens `apps.connections.open` with the app-level token, connects a WebSocket to the returned single-use URL at once (never logged), acknowledges every envelope by its ID before doing anything with it, and reconnects with backoff (1 s doubling to 60 s, a warning from the third consecutive failure, immediately on `disconnect` with `refresh_requested`). It exposes its state and last connect time for diagnostics. Slack does not replay an envelope after a disconnect, so the acknowledgement comes first and processing runs afterwards, one envelope at a time in arrival order.
 
-Every envelope, whatever transport delivered it, becomes a `SlackEnvelope` (kind: event, slash command, block action, view submission, unknown; plus the decoded payload) and enters one `SlackEnvelopeDispatch`. The dispatch knows no socket: features register a handler per kind, an unhandled kind is logged at debug and dropped, and a failing handler is logged and swallowed. `SlackChannel` registers the event and slash-command handlers; interactions are acknowledged and dropped until a feature registers for them.
+Every envelope, whatever transport delivered it, becomes a `SlackEnvelope` (kind: event, slash command, block action, view submission, unknown; plus the decoded payload) and enters one `SlackEnvelopeDispatch`. The dispatch knows no socket: features register a handler per kind, an unhandled kind is logged at debug and dropped, and a failing handler is logged and swallowed. `SlackChannel` registers the event, slash-command and block-action handlers. The block-action handler (`SlackRunApprovals`, `slack_run_approval.dart`) reads the actor, action ID, button `value`, container message and `response_url`, calls the run-approval handler (§4.7) and answers a refusal or failure as an ephemeral reply; an unknown action ID and a view submission are acknowledged, change nothing and log at debug, and a run action whose value lacks the run, step or nonce is answered "This approval button is not valid."
 
 The Events API transport is the other source of the same envelopes. `SlackEventsHandler` (`slack_events_handler.dart`) takes raw bytes and a header map and answers with a status and body, so it knows no HTTP framework. It verifies the `v0=` HMAC-SHA256 signature over `v0:<timestamp>:<body>` within a 300 s window (see the security architecture), answers `url_verification` with the challenge as `text/plain`, and turns the rest into `SlackEnvelope`s: an `event_callback` is deduplicated by `event_id` in a 1,000-entry `MessageDeduplicator` ledger (reserved before dispatch and never released on a processing failure, so Slack's retry is acknowledged and not reprocessed), a form body becomes a slash-command envelope or, for `payload=`, an interactive one. The envelope is handed to the dispatch unawaited and every accepted request is answered with an empty `200`, so Slack's 3 s acknowledgement never waits on a turn. A body that is not JSON is `400`, an unknown top-level `type` and an `app_rate_limited` notice are `200` (logged at debug and warning) and reach no handler.
 
@@ -745,7 +760,7 @@ The five reserved commands are Slack slash commands. The envelope is acknowledge
 
 ### 9A.4 Outbound
 
-`formatResponse` converts Markdown to mrkdwn through the shared converter after escaping `&`, `<` and `>`, so only the links the converter builds contain `<`; text over 4,000 characters is chunked with `chunkNativeChatMarkup`. `SlackWebApiClient` posts with `thread_ts`, keeps posts to one channel at least one second apart, retries an HTTP 429 once after `Retry-After` (bounded at 60 s), and puts only the method and Slack's error code into an error: never a token, a header, a response URL or the Socket Mode ticket URL. The channel logs and drops a chunk Slack refuses. `SlackChannel.threadedNotifications` (`slack_threaded_notifications.dart`) is the §4 capability: it posts Block Kit sections, identifies a thread as `<conversationId>:<thread_ts>`, and records each thread it opens or posts into as bot participation.
+`formatResponse` converts Markdown to mrkdwn through the shared converter after escaping `&`, `<` and `>`, so only the links the converter builds contain `<`; text over 4,000 characters is chunked with `chunkNativeChatMarkup`. `SlackWebApiClient` posts with `thread_ts`, keeps posts to one channel at least one second apart, retries an HTTP 429 once after `Retry-After` (bounded at 60 s), and puts only the method and Slack's error code into an error: never a token, a header, a response URL or the Socket Mode ticket URL. The channel logs and drops a chunk Slack refuses. `SlackChannel.threadedNotifications` (`slack_threaded_notifications.dart`) is the §4 capability: it posts Block Kit sections (an `actions` block of buttons when the notification has actions, each carrying the compact-JSON action data as its `value`), identifies a thread as `<conversationId>:<thread_ts>`, and records each thread it opens or posts into as bot participation. Its `edit` calls `chat.update` with replacement blocks; an edit that names none clears the old ones.
 
 ### 9A.4a Streaming replies and assistant status
 
@@ -873,7 +888,8 @@ Per-channel `dm_access` mode (`pairing` | `allowlist` | `open` | `disabled`) wit
 
 `governance.rate_limits.per_sender` (`messages`, `window`, and queue bounds) and
 `governance.budget` (`daily_tokens`, `action`, and `timezone`). Zero message, turn, or token limits disable the
-corresponding bound.
+corresponding bound. `governance.admin_senders` also decides who may resolve a run's approval from chat (§4.7): an empty
+list makes every sender an admin, which in a group channel lets every member approve or reject runs.
 
 
 ---

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelNotificationAction;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:test/test.dart';
 
@@ -187,6 +188,36 @@ void main() {
         'Gates the &lt;deploy&gt;.',
       );
       expect(jsonEncode(card), isNot(contains('buttonList')));
+    });
+
+    test('renders a button per action, invoking the action ID with the action data as parameters', () {
+      final card = builder.runNotification(
+        runId: 'run-9',
+        title: 'Release',
+        status: 'awaiting_approval',
+        actions: const [
+          ChannelNotificationAction(id: 'run_approve', label: 'Approve'),
+          ChannelNotificationAction(id: 'run_reject', label: 'Reject'),
+        ],
+        actionData: const {'runId': 'run-9', 'stepId': 'gate', 'nonce': 'abc123'},
+      );
+
+      final sections = innerCard(card)['sections'] as List;
+      final buttons = ((widgetsOf(sections.last).single['buttonList'] as Map<String, dynamic>)['buttons'] as List)
+          .cast<Map<String, dynamic>>();
+      expect([for (final b in buttons) b['text']], ['Approve', 'Reject']);
+      final actions = [
+        for (final b in buttons) (b['onClick'] as Map<String, dynamic>)['action'] as Map<String, dynamic>,
+      ];
+      expect([for (final a in actions) a['function']], ['run_approve', 'run_reject']);
+      for (final action in actions) {
+        expect(action['parameters'], [
+          {'key': 'runId', 'value': 'run-9'},
+          {'key': 'stepId', 'value': 'gate'},
+          {'key': 'nonce', 'value': 'abc123'},
+        ]);
+      }
+      expect(buttons.first['color'], isNot(buttons.last['color']));
     });
 
     test('shows the error only for a failed run', () {

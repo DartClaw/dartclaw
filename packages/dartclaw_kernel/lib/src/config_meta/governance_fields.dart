@@ -103,7 +103,9 @@ const Map<String, FieldMeta> _governanceFields = {
     jsonKey: 'governance.adminSenders',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Sender IDs exempt from rate limits and budget blocks; may write shared knowledge from a channel.',
+    description:
+        'Sender IDs exempt from rate limits and budget blocks; may write shared knowledge and resolve workflow run '
+        'approvals from a channel. An empty list makes every sender an admin, so in a group channel every member.',
     nullable: true,
   ),
   'governance.turn_limits.stall_timeout': FieldMeta(

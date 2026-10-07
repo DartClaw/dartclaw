@@ -49,9 +49,9 @@
 ## Key files
 - `lib/dartclaw_google_chat.dart` — barrel + config parser registration.
 - `lib/src/google_chat_channel.dart` — `Channel` impl, placeholder/reaction tracking, quote-reply logic.
-- `lib/src/google_chat_threaded_notifications.dart` — the `ThreadedNotifications` capability (`GoogleChatChannel.threadedNotifications`): reads `metadata['threadName']`, renders task and run cards through `ChatCardBuilder`, and owns the one card-then-plain-text threaded send (`threadKey` for a new thread, server `threadName` for an existing one). A send returns a `ThreadedPost` only when the API names both message and thread.
-- `lib/src/chat_card_builder.dart` — Cards v2 builders; `taskNotification` and `runNotification` are siblings (the run card has no buttons).
-- `lib/src/google_chat_webhook.dart` / `google_chat_jwt_verifier.dart` — synchronous ingress and Google JWT verification.
+- `lib/src/google_chat_threaded_notifications.dart` — the `ThreadedNotifications` capability (`GoogleChatChannel.threadedNotifications`): reads `metadata['threadName']`, renders task and run cards through `ChatCardBuilder`, owns the one card-then-plain-text threaded send (`threadKey` for a new thread, server `threadName` for an existing one), and `edit` (patches the card via `editCardMessage`, so a resolved post loses its buttons; a text-only response is refused). A send returns a `ThreadedPost` only when the API names both message and thread, and its `messageId` is the message `name` a click on that card reports.
+- `lib/src/chat_card_builder.dart` — Cards v2 builders; `taskNotification` and `runNotification` are siblings (the run card carries buttons only when given `actions`; both share `_actionButton`).
+- `lib/src/google_chat_webhook.dart` / `google_chat_jwt_verifier.dart` — synchronous ingress and Google JWT verification. `_handleCardClicked` routes `task_accept`/`task_reject` to `ChannelReviewHandler` (no admin gate or nonce) and `run_approve`/`run_reject` to the injected `ChannelRunApprovalHandler`; the adapter only parses the click and answers the clicker, the runtime owns the gate, nonce and audit.
 - `lib/src/google_chat_rest_client.dart` — REST endpoints, resource-name regexes, per-space write queues, reaction latch.
 - `lib/src/pubsub_client.dart` — pull loop, backoff, health status.
 - `lib/src/cloud_event_adapter.dart` — sealed `AdapterResult` types, CloudEvent → `ChannelMessage`.

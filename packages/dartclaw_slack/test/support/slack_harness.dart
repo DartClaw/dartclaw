@@ -45,6 +45,7 @@ class SlackHarness {
     ReservedCommandDispatch? reservedCommands,
     String mode = 'socket',
     String signingSecret = 'harness-signing-secret',
+    ChannelRunApprovalHandler? runApprovalHandler,
   }) async {
     final slackConfig =
         config ??
@@ -109,6 +110,7 @@ class SlackHarness {
       mode: mode,
       signingSecret: signingSecret,
       reconnectDelay: (_) => Future<void>.delayed(const Duration(milliseconds: 5)),
+      runApprovalHandler: runApprovalHandler,
     );
     manager.registerChannel(channel);
     final harness = SlackHarness._(
@@ -217,6 +219,34 @@ Map<String, dynamic> message({
           ],
         },
       ],
+    },
+  ],
+};
+
+/// The `block_actions` payload Slack delivers for a click on a button.
+Map<String, dynamic> blockAction({
+  required String actionId,
+  Object? value,
+  required String user,
+  String? name,
+  String? messageTs,
+  String? responseUrl,
+}) => {
+  'type': 'block_actions',
+  'user': {'id': user, 'username': ?name, 'name': ?name, 'team_id': 'T1'},
+  'api_app_id': 'A1',
+  'container': {'type': 'message', 'message_ts': ?messageTs, 'channel_id': 'C1', 'thread_ts': '1700000000.000000'},
+  'channel': {'id': 'C1', 'name': 'general'},
+  'message': {'type': 'message', 'ts': ?messageTs},
+  'response_url': ?responseUrl,
+  'actions': [
+    {
+      'type': 'button',
+      'action_id': actionId,
+      'block_id': 'b1',
+      'text': {'type': 'plain_text', 'text': actionId},
+      'value': ?value,
+      'action_ts': '1700000001.000000',
     },
   ],
 };

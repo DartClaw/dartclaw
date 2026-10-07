@@ -1,5 +1,17 @@
+import 'dart:convert';
+
 import 'package:dartclaw_core/dartclaw_core.dart'
-    show ChannelNotification, ChannelNotificationKind, ChannelResponse, ThreadedNotifications;
+    show
+        ChannelNotification,
+        ChannelNotificationAction,
+        ChannelNotificationKind,
+        ChannelResponse,
+        ThreadedNotifications,
+        runActionNonceKey,
+        runActionRunIdKey,
+        runActionStepIdKey,
+        runApproveActionId,
+        runRejectActionId;
 import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:test/test.dart';
 
@@ -110,6 +122,94 @@ void main() {
       expect(body.length, lessThanOrEqualTo(3000));
       expect(body, endsWith('...'));
       expect(body, isNot(contains(RegExp(r'&[a-z]{0,3}\.\.\.$'))));
+    });
+  });
+
+  group('render with actions', () {
+    const approval = ChannelNotification(
+      kind: ChannelNotificationKind.run,
+      id: 'run-1',
+      text: 'Run run-1 awaits approval.',
+      title: 'release',
+      status: 'awaiting_approval',
+      actions: [
+        ChannelNotificationAction(id: runApproveActionId, label: 'Approve'),
+        ChannelNotificationAction(id: runRejectActionId, label: 'Reject'),
+      ],
+      actionData: {runActionRunIdKey: 'run-1', runActionStepIdKey: 'gate', runActionNonceKey: 'n0nce'},
+    );
+
+    test('adds one button per action after the sections, each carrying the data as one compact string', () {
+      final blocks = blocksOf(threaded.render(approval));
+
+      expect(blocks.map((block) => block['type']), ['section', 'actions']);
+      final buttons = (blocks.last['elements'] as List).cast<Map<String, dynamic>>();
+      expect(buttons.map((button) => button['type']), everyElement('button'));
+      expect(buttons.map((button) => (button['text'] as Map)['text']), ['Approve', 'Reject']);
+      expect(buttons.map((button) => button['action_id']), [runApproveActionId, runRejectActionId]);
+      for (final button in buttons) {
+        final value = button['value'] as String;
+        expect(jsonDecode(value), {runActionRunIdKey: 'run-1', runActionStepIdKey: 'gate', runActionNonceKey: 'n0nce'});
+        expect(value, isNot(contains(' ')), reason: 'compact, to stay within Slack\'s 2,000 character value limit');
+      }
+    });
+
+    test('a notification with no actions has no actions block, which is how a retired post loses its buttons', () {
+      final blocks = blocksOf(
+        threaded.render(
+          const ChannelNotification(
+            kind: ChannelNotificationKind.run,
+            id: 'run-1',
+            text: 'Approved.',
+            title: 'release',
+            status: 'approved',
+            actionData: {runActionNonceKey: 'n0nce'},
+          ),
+        ),
+      );
+
+      expect(blocks.map((block) => block['type']), everyElement('section'));
+      expect(jsonEncode(blocks), isNot(contains('n0nce')));
+    });
+  });
+
+  group('edit', () {
+    test('replaces the text and the blocks of the posted message in its channel', () async {
+      final response = threaded.render(
+        const ChannelNotification(
+          kind: ChannelNotificationKind.run,
+          id: 'run-1',
+          text: 'Approved by Ada at 10:00 UTC',
+          title: 'release',
+          status: 'approved',
+        ),
+      );
+
+      final edited = await threaded.edit('C1', '100.1', response);
+
+      expect(edited, isTrue);
+      final update = harness.api.updates.single;
+      expect((update.channel, update.ts, update.text), ('C1', '100.1', 'Approved by Ada at 10:00 UTC'));
+      expect(update.blocks, blocksOf(response));
+    });
+
+    test('a response without blocks sends none, so Slack drops the old buttons', () async {
+      await threaded.edit('C1', '100.1', const ChannelResponse(text: 'No longer pending'));
+
+      expect(harness.api.updates.single.blocks, isEmpty);
+      expect(
+        harness.api.updates.single.blocks,
+        isNotNull,
+        reason: 'Slack keeps the old blocks when the field is absent',
+      );
+    });
+
+    test('an edit Slack refuses returns false without throwing', () async {
+      harness.api.onCall = (method) =>
+          method == 'chat.update' ? const SlackApiException('chat.update failed: message_not_found') : null;
+
+      expect(await threaded.edit('C1', '100.1', const ChannelResponse(text: 'x')), isFalse);
+      expect(harness.api.updates, isEmpty);
     });
   });
 

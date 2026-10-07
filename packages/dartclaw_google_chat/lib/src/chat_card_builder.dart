@@ -1,7 +1,12 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelNotificationAction, runApproveActionId;
+
 /// Maximum task description length before a card body is truncated.
 const cardDescriptionMaxLength = 2000;
+
+const _approveColor = {'red': 0.13, 'green': 0.59, 'blue': 0.33, 'alpha': 1.0};
+const _rejectColor = {'red': 0.84, 'green': 0.18, 'blue': 0.18, 'alpha': 1.0};
 
 /// Purpose-built Google Chat Cards v2 builder for DartClaw notifications.
 class ChatCardBuilder {
@@ -77,7 +82,9 @@ class ChatCardBuilder {
 
   /// Builds a workflow run lifecycle card: the workflow name as the title, the
   /// run [status], [facts] in order, then [body] and, for a failed run,
-  /// [errorSummary]. It carries no buttons.
+  /// [errorSummary]. It carries a button per entry of [actions], each reporting
+  /// its action ID as the invoked function and [actionData] as its parameters;
+  /// with no [actions] it carries none.
   Map<String, dynamic> runNotification({
     required String runId,
     required String title,
@@ -85,6 +92,8 @@ class ChatCardBuilder {
     Map<String, String> facts = const {},
     String? body,
     String? errorSummary,
+    List<ChannelNotificationAction> actions = const [],
+    Map<String, String> actionData = const {},
   }) {
     final sections = <Map<String, dynamic>>[_statusBadgeSection(status)];
 
@@ -116,6 +125,26 @@ class ChatCardBuilder {
         'widgets': [
           {
             'textParagraph': {'text': _escapeText(trimmedErrorSummary)},
+          },
+        ],
+      });
+    }
+
+    if (actions.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          {
+            'buttonList': {
+              'buttons': [
+                for (final action in actions)
+                  _actionButton(
+                    text: action.label,
+                    function: action.id,
+                    parameters: actionData,
+                    color: action.id == runApproveActionId ? _approveColor : _rejectColor,
+                  ),
+              ],
+            },
           },
         ],
       });
@@ -262,14 +291,14 @@ class ChatCardBuilder {
               _actionButton(
                 text: 'Accept',
                 function: 'task_accept',
-                taskId: taskId,
-                color: const {'red': 0.13, 'green': 0.59, 'blue': 0.33, 'alpha': 1.0},
+                parameters: {'taskId': taskId},
+                color: _approveColor,
               ),
               _actionButton(
                 text: 'Reject',
                 function: 'task_reject',
-                taskId: taskId,
-                color: const {'red': 0.84, 'green': 0.18, 'blue': 0.18, 'alpha': 1.0},
+                parameters: {'taskId': taskId},
+                color: _rejectColor,
               ),
             ],
           },
@@ -297,7 +326,7 @@ class ChatCardBuilder {
   Map<String, dynamic> _actionButton({
     required String text,
     required String function,
-    required String taskId,
+    required Map<String, String> parameters,
     required Map<String, double> color,
   }) {
     return {
@@ -306,7 +335,7 @@ class ChatCardBuilder {
         'action': {
           'function': function,
           'parameters': [
-            {'key': 'taskId', 'value': taskId},
+            for (final entry in parameters.entries) {'key': entry.key, 'value': entry.value},
           ],
         },
       },

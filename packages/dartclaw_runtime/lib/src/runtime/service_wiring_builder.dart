@@ -112,6 +112,7 @@ DartclawServer _composeRuntimeServer(
   ProjectWiring project,
   ProviderStatusService providerStatus,
   WorkflowService workflowService,
+  WorkflowRunControl workflowRunControl,
   WorkflowRegistry workflowRegistry,
   RestartService restartService,
   ChannelWiring channel,
@@ -208,6 +209,7 @@ DartclawServer _composeRuntimeServer(
       ),
       commandCatalog: commandCatalog,
       workflowService: workflowService,
+      workflowRunControl: workflowRunControl,
       workflowDefinitionSource: workflowRegistry,
       kgService: storage.kg,
       contentGuardApiKeyConfigured:

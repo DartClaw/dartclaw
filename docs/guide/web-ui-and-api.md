@@ -55,7 +55,7 @@ brings it back.
   embeds attachment bytes. The downloaded file is a deliberate durable copy.
 - **Archived sessions**: Sessions archived by maintenance appear in a collapsible "Archived (N)" subsection at the bottom of the sidebar. Expand/collapse state persists in localStorage. Most of them come from the daily reset, which archives every workspace, channel and scheduled conversation at `sessions.reset_hour` and starts a fresh one under the same key — set it to `-1` to keep those conversations running instead.
 - **System pages**: Use the bottom-left **System** disclosure to open administration and runtime pages, including **Add project**. When one is active, its name remains visible in the collapsed trigger.
-- **Workflow tools**: Ask the agent to list or start a workflow; it calls `workflow_list` or `workflow_run`
+- **Workflow tools**: Ask the agent to list or start a workflow, or to check, approve or cancel one; it calls `workflow_list`, `workflow_run`, `workflow_status`, `workflow_resume` or `workflow_cancel`
 - **Session cost**: Available only when every recorded turn has provider-reported cost. Missing, partial, and older records without this evidence show cost as unavailable; an explicitly reported zero remains zero. Token counts remain available independently.
 
 **Chat**
@@ -737,7 +737,7 @@ Pauses a running workflow and returns the updated run as JSON.
 POST /api/workflows/runs/:id/resume
 ```
 
-Resumes a paused workflow, including approval-paused runs, and returns the updated run as JSON.
+Resumes a paused workflow, including approval-paused runs, and returns the updated run as JSON. The call is not limited to `governance.admin_senders` (the caller is signed in) and is written to the audit log as a `web` resolution (guard `RunApprovalGate`).
 
 #### Cancel workflow run
 
@@ -748,7 +748,7 @@ Content-Type: application/json
 {"feedback": "Not ready yet"}
 ```
 
-Cancels a running or paused workflow. Approval rejections can include optional feedback. Successful cancellation returns `204 No Content`.
+Cancels a running or paused workflow. Approval rejections can include optional feedback. Successful cancellation returns `204 No Content`. Like resume, it is audited as a `web` resolution and not limited to `governance.admin_senders`.
 
 #### GitHub workflow webhook
 
@@ -1056,6 +1056,9 @@ These tools let the agent start work and produce content on the owner's behalf, 
 |------|-----------|-------------|
 | `workflow_run` | `definition`, optional `variables` object, optional `project` | Start a registered workflow. Returns the run's ID and its `/workflows/<id>` location. Required-variable validation, declared defaults and the `PROJECT` fallback are the workflow service's, exactly as for the HTTP start route. |
 | `workflow_list` | no arguments | List the workflow catalog with each definition's description, step count and declared variables (required flag and default), so `workflow_run` can be called without a second lookup. An empty catalog is an empty list, not an error. |
+| `workflow_status` | `run_id` | Report a run's `status`, `current_step` (the pending approval step, else the step at the current index), `pending_approval` (`step`, `message` cut at 1,000 characters, `requested_at`, or `null`) and `last_error`. Read-only and not admin-gated; it never returns the approval's single-use nonce. |
+| `workflow_resume` | `run_id` | Resume a paused or approval-held run, approving a pending approval. Needs a chat turn from a sender in `governance.admin_senders`; a call from web chat, a scheduled turn or the shared gateway token is refused, and every call is audited (guard `RunApprovalGate`). The sender is the host's record of the turn, never an argument. |
+| `workflow_cancel` | `run_id`, optional `feedback` | Cancel a run; at a pending approval this rejects it and records `feedback` as the reason. Same sender rule and audit as `workflow_resume`. |
 | `schedule_upsert` | `id`, `type` (`prompt` or `task`), exactly one of `schedule` (cron) or `at` (ISO-8601 instant), `prompt` or `task`, optional `delivery`, `model`, `effort` | Create or replace a `scheduling.jobs` entry. Schedule validation and the config write go through the same seam the scheduling API uses, and that seam loads the job into the running scheduler before the tool answers — the result reports `loaded`, not a pending restart. Under `scheduling.mutation.approval: operator` the validated write is parked instead and the result is `{"id", "pending": true, "changeId"}` with no `loaded` key; an operator settles it on the Scheduling page. An `at` job runs once and then removes its own entry. A built-in job id is refused. A `type: shell` entry is file-only: `type` accepts only `prompt` and `task`, and an upsert naming an id a shell entry already holds is refused `invalid_request`. |
 | `schedule_list` | no arguments | List configured jobs with their cron expressions, whether the running server loaded them, and whether they are paused. Jobs the runtime registers itself are listed as built-in and cannot be edited through `schedule_upsert`; a configured entry the scheduler does not hold is one it could not compose, and the log says why. A `type: shell` row reports `editable: false` — the kind is file-only. |
 | `attach_media` | `path`, optional `caption` | Send a workspace file to the owner as a media attachment. The path must resolve — after symlink resolution — inside the workspace; anything that escapes it is refused and nothing is delivered. The recipient is the owner's active direct-message sessions and cannot be chosen in the call. |
@@ -1065,9 +1068,10 @@ Every refusal the tool itself makes is a tool-level error (a JSON-RPC success ca
 
 The run `workflow_run` starts records where the calling turn came from: a chat turn's channel, recipient, thread, session key and sender, `web` for a web-chat turn, `cron` for a scheduled prompt, and `api` for a caller that is not running a turn (the shared gateway token, a named MCP client). The host supplies this from its own record of the turn; the tool accepts no argument for it.
 
-A containerized agent reaches these six exactly as a host one does. Your own chat turns run as the deployment and
-reach all six on either lane; a task, workflow or logical-agent turn reaches only what its own tool policy names, and
-one with no policy reaches none of them. Container isolation changes where the turn runs, not what it may call.
+A containerized agent reaches these nine exactly as a host one does. Your own chat turns run as the deployment and
+reach all nine on either lane; a task, workflow or logical-agent turn reaches only what its own tool policy names, and
+one with no policy reaches none of them. This holds for `workflow_resume` and `workflow_cancel` too: no bound agent has
+them by default, and a named MCP client has none. Container isolation changes where the turn runs, not what it may call.
 
 ## Memory MCP Tools
 

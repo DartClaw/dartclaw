@@ -2,7 +2,7 @@
 
 Comprehensive reference for DartClaw's observability stack: alert routing, health monitoring, audit logging, usage tracking, structured logging, real-time streaming, context intelligence, and governance visibility.
 
-**Current through**: 0.28 governance admission order; 0.27 PostgreSQL-only storage, conversation invalidation, attempt records, effective-context
+**Current through**: 0.28 run-resolution audit entries (`runId`, `stepId`, the `web` source), governance admission order; 0.27 PostgreSQL-only storage, conversation invalidation, attempt records, effective-context
 telemetry, inbox attention, Codex question diagnostics and action availability; plus retrieval, capacity and alerting.
 
 ---
@@ -219,7 +219,9 @@ Structured audit logger in `dartclaw_kernel`. Dual output:
 
 File operations are fire-and-forget via `unawaited` to avoid affecting guard verdict latency. Write serialization is enforced via a `_pendingWrite` future chain.
 
-**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`. Guard verdicts preserve the logical agent, canonical tool, and provider-native tool identity end to end.
+**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`, `runId`, `stepId`. `runId` and `stepId` name the workflow run and approval step an entry concerns; they are omitted from the JSON when null, and an older line without them still parses. Guard verdicts preserve the logical agent, canonical tool, and provider-native tool identity end to end.
+
+**Run-resolution entries**: `WorkflowRunControl` writes one entry per attempt to resolve a run's approval, never carrying a nonce: guard `RunApprovalGate`, hook `button` (a chat click), `tool` (`workflow_resume`, `workflow_cancel`) or `web` (the HTTP resume and cancel routes), verdict `pass` or `block`, decision `allow`, `deny` (a refusal, with the reason in `reason`) or `error` (the resolution failed and the approval stayed pending), `tool` `resume` or `cancel`, `channel` and the sender in `peerId` and `principal` for a chat caller, and for a web caller principal `owner` and no channel. Filter the audit table by guard `RunApprovalGate` to list them; the rule and the admin gate are in the security architecture (§ Run approval gate).
 
 **Date partitioning**: New entries use `audit-YYYY-MM-DD.ndjson`. A legacy `audit.ndjson` remains readable alongside dated partitions and ages out by file modification date under `cleanOldFiles(maxRetentionDays)`, avoiding non-idempotent copy migration. Dated partitions age out by the date in their filename.
 

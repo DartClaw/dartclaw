@@ -227,6 +227,13 @@ finished or failed messages into that thread. A run started elsewhere can post t
 `workflow.chat_notifications` (one thread per run); see
 [Workflow run notifications](configuration.md#workflow-run-notifications).
 
+The awaiting-approval card has **Approve** and **Reject** buttons. A click is accepted only from a sender listed in
+`governance.admin_senders` (the sender ID is the `users/<id>` form), and an empty list makes every member of the space an
+admin, so list your approvers before using buttons in a shared space. A refused click is answered in the click response;
+whether Google Chat shows that text only to the person who clicked is not yet confirmed, so treat it as visible to the
+space. After a resolution the card is edited to say who resolved it and loses its buttons. See
+[Approving from chat](workflows.md#approving-from-chat).
+
 ## Message Formatting
 
 Agent responses use Google Chat's native text markup. DartClaw converts standard Markdown headings, emphasis, strikethrough, code, links, lists, quotes, and tables before delivery; Markdown table separator rows are omitted.

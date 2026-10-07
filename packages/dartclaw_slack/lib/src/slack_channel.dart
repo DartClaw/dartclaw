@@ -9,6 +9,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ChannelManager,
         ChannelMessage,
         ChannelResponse,
+        ChannelRunApprovalHandler,
         DmAccessController,
         MentionGating,
         ThreadedNotifications,
@@ -25,6 +26,7 @@ import 'slack_feedback_strategy.dart';
 import 'slack_file_intake.dart';
 import 'slack_health_reporter.dart';
 import 'slack_markdown.dart';
+import 'slack_run_approval.dart';
 import 'slack_threaded_notifications.dart';
 import 'slack_web_api_client.dart';
 import 'socket_mode_client.dart';
@@ -97,6 +99,7 @@ class SlackChannel extends Channel {
   /// [mode] is `socket` or `events`; events mode needs a non-empty
   /// [signingSecret] and opens no socket. [socketConnector] and
   /// [reconnectDelay] replace the real WebSocket and backoff sleep, for tests.
+  /// [runApprovalHandler] receives a click on a run approval button; without one the click is answered as unavailable.
   ///
   /// Throws [ArgumentError] for an unknown [mode] or events mode without a signing secret.
   new({
@@ -109,6 +112,7 @@ class SlackChannel extends Channel {
     String? signingSecret,
     SocketModeConnector? socketConnector,
     Future<void> Function(Duration)? reconnectDelay,
+    ChannelRunApprovalHandler? runApprovalHandler,
   }) {
     switch (mode) {
       case 'socket':
@@ -129,9 +133,11 @@ class SlackChannel extends Channel {
       default:
         throw ArgumentError.value(mode, 'mode', 'must be socket or events');
     }
+    final runApprovals = SlackRunApprovals(api: api, handler: runApprovalHandler);
     dispatch
       ..register(SlackEnvelopeKind.event, _whenIdentified(_handleEvent))
-      ..register(SlackEnvelopeKind.slashCommand, _whenIdentified(_handleSlashCommand));
+      ..register(SlackEnvelopeKind.slashCommand, _whenIdentified(_handleSlashCommand))
+      ..register(SlackEnvelopeKind.blockAction, _whenIdentified(runApprovals.handle));
   }
 
   /// Whether the Socket Mode connection is up; always disconnected in events mode.

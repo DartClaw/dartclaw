@@ -41,6 +41,9 @@ const _taskMcpTools = {'task_create', 'task_review', 'task_list', 'review_list',
 const _orchestrationMcpTools = {
   'workflow_run',
   'workflow_list',
+  'workflow_resume',
+  'workflow_cancel',
+  'workflow_status',
   'schedule_upsert',
   'schedule_list',
   'attach_media',
@@ -834,6 +837,54 @@ void main() {
         ..._orchestrationMcpTools,
         ..._knowledgeMcpTools,
       }, reason: 'the servable map holds exactly the mapped tools, and nothing else becomes bridgeable');
+    });
+
+    test('a bound agent reaches the run-control tools only through its own allowed tools', () async {
+      const controlTools = {'workflow_resume', 'workflow_cancel', 'workflow_status'};
+      config = config.copyWith(
+        agent: const AgentConfig(
+          provider: 'claude',
+          definitions: [
+            AgentDefinition(
+              id: 'operator',
+              description: 'Operator',
+              prompt: 'Operate',
+              allowedTools: {'workflow_resume', 'workflow_status'},
+            ),
+            AgentDefinition(
+              id: 'starter',
+              description: 'Starter',
+              prompt: 'Start runs',
+              allowedTools: {'workflow_run'},
+            ),
+          ],
+        ),
+      );
+
+      await wireAll();
+
+      for (final id in ['operator', 'starter']) {
+        final lease = await harnessWiring!.executions.acquire(
+          ExecutionRequest(
+            surface: ExecutionSurface.logicalAgent,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.container('workspace'),
+            sessionId: '$id-session',
+            admission: ExecutionAdmission.failFast,
+            logicalAgentId: id,
+          ),
+        );
+        addTearDown(() async => lease?.release());
+      }
+
+      Future<Set<String>> reachable(String id) async {
+        final grant = security!.grants.singleWhere((entry) => entry.sessionId == '$id-session').allowedMcpTools;
+        final served = await servedOverBridge(grant, canonicals: harnessWiring!.ownMcpToolCanonicals);
+        return served.intersection(controlTools);
+      }
+
+      expect(await reachable('operator'), {'workflow_resume', 'workflow_status'});
+      expect(await reachable('starter'), isEmpty);
     });
 
     test('an agent granted context_research reaches it over the bridge', () async {

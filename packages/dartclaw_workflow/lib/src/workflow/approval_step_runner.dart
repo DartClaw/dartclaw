@@ -105,18 +105,17 @@ Future<bool> executeApprovalStep({
     '_approval.pending.stepIndex': stepIndex,
   };
 
-  dependencies.eventBus.fire(
-    WorkflowApprovalRequestedEvent(
-      runId: run.id,
-      stepId: step.id,
-      message: message,
-      timeoutSeconds: timeoutSeconds,
-      timestamp: DateTime.now(),
-    ),
+  final requested = WorkflowApprovalRequestedEvent(
+    runId: run.id,
+    stepId: step.id,
+    message: message,
+    timeoutSeconds: timeoutSeconds,
+    timestamp: DateTime.now(),
   );
 
   final policy = workflowApprovalPolicyFromRun(run);
   if (policy == WorkflowApprovalPolicy.auto) {
+    dependencies.eventBus.fire(requested);
     final resolvedAt = DateTime.now().toIso8601String();
     final reason = 'approval step auto-accepted by workflow.approvals=${policy.yamlValue}';
     final autoResolvedKey = '$approvalAutoResolvedPrefix${step.id}';
@@ -175,6 +174,8 @@ Future<bool> executeApprovalStep({
   await dependencies.persistContext(run.id, context);
   await dependencies.repository.updateOwned(awaitingApprovalRun);
 
+  // A subscriber reading the run on this event must find the pending approval.
+  dependencies.eventBus.fire(requested);
   dependencies.eventBus.fire(
     WorkflowRunStatusChangedEvent(
       runId: run.id,

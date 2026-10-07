@@ -151,7 +151,7 @@ class FakeSlackWebApi extends SlackWebApiClient {
   final List<({String channel, String ts, String? markdownText})> stops = [];
 
   /// Every `chat.update`, in call order.
-  final List<({String channel, String ts, String text})> updates = [];
+  final List<({String channel, String ts, String text, List<Map<String, dynamic>>? blocks})> updates = [];
 
   /// Every `assistant.threads.setStatus`, in call order; an empty status is a clear.
   final List<({String channel, String threadTs, String status})> statuses = [];
@@ -248,9 +248,14 @@ class FakeSlackWebApi extends SlackWebApiClient {
   }
 
   @override
-  Future<void> updateMessage({required String channel, required String ts, required String text}) async {
+  Future<void> updateMessage({
+    required String channel,
+    required String ts,
+    required String text,
+    List<Map<String, dynamic>>? blocks,
+  }) async {
     _enter('chat.update');
-    updates.add((channel: channel, ts: ts, text: text));
+    updates.add((channel: channel, ts: ts, text: text, blocks: blocks));
   }
 
   @override

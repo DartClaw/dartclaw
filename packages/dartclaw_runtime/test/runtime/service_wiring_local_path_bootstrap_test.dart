@@ -103,6 +103,9 @@ DartclawConfig _schedulingConfig(
 const _orchestrationAndContentTools = {
   'workflow_run',
   'workflow_list',
+  'workflow_resume',
+  'workflow_cancel',
+  'workflow_status',
   'schedule_upsert',
   'schedule_list',
   'attach_media',
@@ -618,6 +621,7 @@ steps:
           'kg_contradictions',
           'context_research',
           'workflow_list',
+          'workflow_status',
           'schedule_list',
           if (searchEnabled) 'brave_search',
         },
@@ -642,13 +646,15 @@ steps:
           'kg_add',
           'kg_invalidate',
           'workflow_run',
+          'workflow_resume',
+          'workflow_cancel',
           'schedule_upsert',
           'attach_media',
           'wiki_write',
         },
       );
 
-      // All six carry a CanonicalTool mapping, so the container lane can reach
+      // Every one carries a CanonicalTool mapping, so the container lane can reach
       // whichever of them its own tool policy names — the host lane's rule,
       // not a second one. Deny-by-default still holds per authority.
       expect(

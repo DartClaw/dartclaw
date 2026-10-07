@@ -254,3 +254,29 @@ Decisions, each also stated where it bites:
 ## Discovered Requirements
 
 - **Title**: Push-back feedback turns carry no turn provenance. **Description**: `_pushBackFeedbackDelivery` in `service_wiring.dart` starts a human-input turn (`source: 'push-back'`) on a channel-type session without a `TurnProvenance`, so `workflow_resume`/`workflow_cancel` called during it reach the sender gate with no channel and no sender, and a run started from it records origin `api`. Decide how the run-control gate classifies this turn, never as an unaudited bypass of the admin gate, align with the classification S09 chose for the same seam if S09 has landed, and prove it with a test. **Rationale**: S04 surfaced the provenance-less turn source after this FIS was written. **Interpretation**: scope-preserving; keeps S04's contract that a sender gate decides a no-sender turn by its own rule. **Traced from**: S04 completion report (open note). **Date**: 2026-10-06
+
+## Implementation Observations
+
+- Push-back feedback turns (Discovered Requirements): `_pushBackFeedbackDelivery` already hands the turn its task channel, recipient and session key with no sender, so the gate sees a channel turn with no sender and decides it by `isAdmin(sender ?? '')`, the rule `KnowledgeWriteGate` applies: refused and audited wherever `governance.admin_senders` is set, allowed and audited where it is empty. Proved in `workflow_run_control_tools_test.dart` ("a task push-back turn").
+- ASSUMPTION: the web resolver's audit principal is the constant `owner` (the page's own precedent for human commands) – the HTTP auth carries no per-request identity; a per-user web identity would replace the constant.
+- ASSUMPTION: an attributed call (resolver or expectation given) throws `WorkflowApprovalRefused` for every refusal, including a run that is not resumable, with the message the unattributed call would have raised as a `StateError`; this keeps the HTTP 409 bodies identical while letting the adapters and tools render reasons. Calls naming neither keep the `StateError` contract.
+- ASSUMPTION: the interaction's post records the recipient beside channel type and message identity, because a Slack `chat.update` needs the channel and the message `ts` is only unique within it; a click is verified on channel type and message identity alone.
+- ASSUMPTION: the audit entry is written after the resolution attempt, so a call writes one entry carrying its outcome (allow, deny or error); a failed audit write is logged at severe and does not undo a resolution.
+- ASSUMPTION: the buttons' wording for display names is `displayName ?? senderId` on a button resolution and the sender ID on a tool resolution; Google Chat's refusal text visibility and the `cards_v2,text` patch mask are confirmed only in the live qualification.
+- A resolution through the approval timeout is not a `WorkflowApprovalResolvedEvent`; the subscriber retires the buttons on the run's terminal status event ("No longer pending: run cancelled").
+- The workflow routes keep their paths but now take a required `WorkflowRunControl`; `ServerWebDeps.workflowRunControl` is the matching dependency and the routes are not mounted without it. The `governance.admin_senders` config description now names run approvals and the empty-list rule, so the schema and the generated reference were regenerated.
+- Slack's `postEphemeral` now also sends `replace_original: false`, which applies to slash-command answers too; and `updateMessage` accepts blocks (an empty list clears them), as the FIS requires for the resolved edit.
+- Arch targets re-measured for core, runtime, slack and workflow with one reviewed-necessity line (TI13); core, runtime and workflow were already past their recorded targets before this story.
+- `constantTimeEquals` moved from `dartclaw_runtime`'s auth utilities to `dartclaw_kernel` (its test moved with it) so the workflow package's nonce check and runtime's secret comparisons use the one implementation; the runtime callers import it from the kernel.
+
+#### DRIFT
+
+- ambiguous-intent: FIS S09 and TI02 say the interaction records the post's "channel type and message identity"; the record also holds the recipient | Stale targets: none | –
+- ambiguous-intent: FIS S16 groups "unknown action ID" and "a message that is not an approval post"; a run action ID with an undecodable or incomplete value is answered with an ephemeral refusal, while an unknown action ID and a `view_submission` are acknowledged and ignored at debug | Stale targets: none | –
+- spec-stale: the TI06 and TI13 greps for `isAdmin` over `packages/dartclaw_runtime/lib/src/mcp` also match `knowledge_write_gate.dart` (shared-knowledge writes, which another story landed and which applies the same `GovernanceConfig.isAdmin` rule to a different decision, not run resolution); the proof was run with that one file excluded and is clean for every other path | Stale targets: dev/bundle/docs/specs/0.28/s06-run-approvals-from-chat.md TI06, TI13 | –
+
+#### NOTICED BUT NOT TOUCHING
+
+- The cancel route now reads its optional JSON body before the run is looked up, so a missing or already-settled run sent with a malformed or oversize body answers 400 or 413 instead of 404 or 409. Restoring the order needs a second run read in the route.
+- A run-action click whose payload lacks a run, step, nonce, sender or message, and a click that arrives before run control is bound (a startup window), are answered by the adapter and written to no audit entry, because they never reach `WorkflowRunControl`, the one audit writer.
+- A failed Slack edit logs one warning in the adapter (with the API error) and one from the subscriber (naming run and destination); the second is the once-per-run one.

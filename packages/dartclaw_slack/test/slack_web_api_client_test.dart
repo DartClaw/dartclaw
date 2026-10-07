@@ -282,7 +282,7 @@ void main() {
 
       final request = harness.requests.single;
       expect(request.headers.containsKey('authorization'), isFalse);
-      expect(jsonDecode(request.body), {'response_type': 'ephemeral', 'text': 'done'});
+      expect(jsonDecode(request.body), {'response_type': 'ephemeral', 'replace_original': false, 'text': 'done'});
     });
 
     test('a non-https response URL is refused before any request is made', () async {

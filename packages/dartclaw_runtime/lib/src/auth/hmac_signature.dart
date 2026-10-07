@@ -1,8 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-
-import 'auth_utils.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show constantTimeEquals;
 
 /// Signs [data] with HMAC-SHA256 under [key], as unpadded base64url.
 ///

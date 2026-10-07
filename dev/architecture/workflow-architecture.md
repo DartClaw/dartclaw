@@ -2,7 +2,7 @@
 
 Canonical deep-dive for DartClaw's workflow engine: definition model and parser contract, step outcome protocol, execution lifecycle, crash recovery, validation semantics, loop state machine, design lineage, and how the engine relates to task execution.
 
-**Current through**: 0.28.0 run origin, 0.27.1 workflow error policy and resume, workflow accounting availability, Claude turn accounting, standalone file storage and PostgreSQL server storage, declarative DSL rules and published workflow JSON Schema
+**Current through**: 0.28.0 run origin and approval interactions, 0.27.1 workflow error policy and resume, workflow accounting availability, Claude turn accounting, standalone file storage and PostgreSQL server storage, declarative DSL rules and published workflow JSON Schema
 
 ---
 
@@ -288,8 +288,8 @@ When the executor reaches an approval step:
    - `<stepId>.approval.requested_at` — ISO 8601 timestamp
    - `_approval.pending.stepId` — for API/UI to identify the active gate
 3. `currentStepIndex` is advanced past the approval step before the hold is persisted (so resume starts at the next step).
-4. `WorkflowApprovalRequestedEvent` is fired for SSE subscribers.
-5. The run transitions to `awaitingApproval`.
+4. The run transitions to `awaitingApproval` and the hold is persisted.
+5. `WorkflowApprovalRequestedEvent` is fired for SSE and run-notification subscribers, after the hold is persisted and before the status-changed event, so a subscriber reading the run finds the pending approval. An approval the policy auto-resolves fires it first and carries no pending state.
 
 If `timeoutSeconds` is set, a timer is started. On expiry, the approval is marked `timed_out` and the run is cancelled. Timeout timers are rehydrated on server restart for `awaitingApproval` runs with unexpired deadlines.
 
@@ -297,9 +297,22 @@ Resolution paths:
 
 | Action | Source | Effect |
 |---|---|---|
-| Resume | `POST /api/workflows/runs/<id>/resume` | Marks approval as `approved`, fires `WorkflowApprovalResolvedEvent`, resumes from next step |
-| Cancel | `POST /api/workflows/runs/<id>/cancel` | Marks approval as `rejected` with optional `feedback`, fires `WorkflowApprovalResolvedEvent`, cancels run and child tasks |
+| Resume | `POST /api/workflows/runs/<id>/resume`, the Approve button, `workflow_resume` | Marks approval as `approved`, fires `WorkflowApprovalResolvedEvent`, resumes from next step |
+| Cancel | `POST /api/workflows/runs/<id>/cancel`, the Reject button, `workflow_cancel` | Marks approval as `rejected` with optional `feedback`, fires `WorkflowApprovalResolvedEvent`, cancels run and child tasks |
 | Timeout | Timer expiry | Marks approval as `timed_out`, cancels run |
+
+All three reach `WorkflowService.resume` and `cancel`; the chat, tool and HTTP callers go through `WorkflowRunControl` in `dartclaw_runtime`, which owns the admin gate and the audit entry (security-architecture § Run approval gate).
+
+**Approval interaction.** A chat post can resolve a pending approval once, through a record that `WorkflowService` keeps in the run's context under the private key `_approval.interaction` (`workflow_approval_interaction.dart`). Being underscore-prefixed, it survives every context rebuild (stall hold, approval runner) and is not in the key set an approval resolution clears. The run holds one record, overwritten by each issue:
+
+- `issueApprovalInteraction(runId, stepId)` stores `{stepId, nonce, issuedAt}` only when the run is `awaitingApproval` or `paused` with `_approval.pending.stepId == stepId`; an auto-resolved approval, a run not pending at that step and a missing run get none. The nonce is 128 bits from `Random.secure()`, 32 hex characters.
+- `bindApprovalPost(runId, nonce:, post:)` records the sent post (`channelType`, `recipientId`, `messageId`) and returns `false` when the record was replaced or already consumed.
+- `resume` and `cancel` take an optional `expect` (`WorkflowApprovalExpectation`: step, nonce, channel type, message ID) and `resolver` (`WorkflowApprovalResolver`: source `button`, `tool` or `web`, sender ID, display name). With `expect`, the run must still be pending at that step, the record must be unresolved, and nonce (constant-time compare), step, channel type and message ID must all equal the record's; otherwise nothing changes.
+- The resolution is written in the same persisted update as the approval's status keys: the record gains `resolution {approved, source, senderId, displayName, at}`. It is kept after resolution so the subscriber can find its post, and ends with the run.
+- Every resolution of one run (`resume`, `cancel`, issue, bind and the timeout expiry) runs in one per-run in-process section, so two resolvers that pass the same check cannot both resolve; the second sees the consumed record. The repository's expected-status update guard remains the persisted check. A failing update leaves the record unconsumed and the nonce live.
+- Refusals: with `expect` or `resolver` given, a refusal throws `WorkflowApprovalRefused` with a reason `notPending`, `alreadyResolved` or `invalidNonce` instead of a `StateError`, and a missing run throws `ArgumentError` on cancel. With neither, nonce and post are not checked and behaviour is as before (a `StateError` for a refused transition, a silent no-op for a cancel of a terminal run), except that a pending approval's record is still consumed.
+
+The nonce sits in the run's context JSON, so an authenticated run-detail API caller can read it; that caller can already resume through HTTP. No tool result, audit entry or log line carries it.
 
 No current built-in workflow requires an `approval` step. `story-and-implement` now follows a single-step spec flow: `spec` writes the FIS to disk, `implement` reads it via `file_read`, then validation, integrated review, and the bounded remediation loop operate against that on-disk baseline. Approval steps remain available for custom workflows that truly need a human checkpoint.
 
@@ -871,7 +884,7 @@ The workflow server exposes definition listing, run lifecycle, form-launch, and 
 - `GET /api/workflows/runs` — list runs (filterable by `?status=` and `?definition=`)
 - `GET /api/workflows/runs/<id>` — enriched run detail with per-step status and child task IDs
 - `POST /api/workflows/runs/<id>/pause` — pause a running workflow
-- `POST /api/workflows/runs/<id>/resume` — resume a paused workflow or approve an `awaitingApproval` hold
+- `POST /api/workflows/runs/<id>/resume` — resume a paused workflow or approve an `awaitingApproval` hold (resume and cancel are audited as `web` resolutions and never admin-gated)
 - `POST /api/workflows/runs/<id>/retry` — retry a failed workflow from its stored resume cursor
 - `POST /api/workflows/runs/<id>/cancel` — cancel a workflow (also rejects pending approval gates with optional `feedback`)
 - `GET /api/workflows/runs/<id>/events` — SSE event stream (Section 15.3)

@@ -107,6 +107,12 @@ class FakeThreadedNotifications implements ThreadedNotifications {
   /// Every send, in call order.
   final List<RecordedThreadedSend> sends = [];
 
+  /// Every edit as `(recipientId, messageId, response)`, in call order.
+  final List<(String, String, ChannelResponse)> edits = [];
+
+  /// Whether edits fail by returning `false`.
+  bool editReturnsFalse = false;
+
   int _nextThread = 0;
 
   @override
@@ -145,5 +151,13 @@ class FakeThreadedNotifications implements ThreadedNotifications {
     sends.add((recipientId: recipientId, response: response, threadKey: null, threadId: threadId, post: post));
     if (error != null) throw error;
     return post;
+  }
+
+  @override
+  Future<bool> edit(String recipientId, String messageId, ChannelResponse response) async {
+    final error = sendError;
+    edits.add((recipientId, messageId, response));
+    if (error != null) throw error;
+    return !editReturnsFalse;
   }
 }

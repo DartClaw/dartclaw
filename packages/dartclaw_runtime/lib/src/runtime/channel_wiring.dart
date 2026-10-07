@@ -92,6 +92,22 @@ class ChannelWiring {
   /// `features.thread_binding.enabled` gates task binding on.
   ThreadBindingStore? get taskThreadBindingStore => _threadBindingEnabled ? _threadBindingStore : null;
 
+  ChannelRunApprovalHandler? _runApprovalHandler;
+
+  /// Binds the run-approval handler both adapters forward to. They capture [_forwardRunApproval] at
+  /// construction, before the workflow service exists; until this runs, a click is answered as unavailable.
+  void bindRunApprovals(ChannelRunApprovalHandler handler) => _runApprovalHandler = handler;
+
+  /// The handler both adapters hold: [bindRunApprovals] decides what a click reaches.
+  @visibleForTesting
+  ChannelRunApprovalHandler get runApprovalHandler => _forwardRunApproval;
+
+  Future<ChannelRunApprovalResult> _forwardRunApproval(ChannelRunApprovalRequest request) async {
+    final handler = _runApprovalHandler;
+    if (handler == null) return const ChannelRunApprovalFailed('Run approvals are unavailable');
+    return handler(request);
+  }
+
   PauseController? get pauseController => _pauseController;
   String? get webhookSecret => _webhookSecret;
   ChannelManager? get fallbackDeliveryChannelManager => _fallbackDeliveryChannelManager;
@@ -373,6 +389,7 @@ class ChannelWiring {
           config: googleChatConfig,
           channelManager: activeChannelManager,
           reviewHandler: reviewHandler,
+          runApprovalHandler: _forwardRunApproval,
           dmAccess: googleChatDmAccess,
           mentionGating: googleChatMentionGating,
           eventBus: _eventBus,
@@ -504,6 +521,7 @@ class ChannelWiring {
           api: SlackWebApiClient(botToken: botToken, appToken: appToken),
           mode: slackConfig.mode,
           signingSecret: signingSecret,
+          runApprovalHandler: _forwardRunApproval,
           dmAccess: DmAccessController(mode: slackConfig.dmAccess, allowlist: slackConfig.dmIds.toSet()),
           mentionGating: MentionGating(
             requireMention: slackConfig.requireMention,

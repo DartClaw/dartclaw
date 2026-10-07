@@ -42,7 +42,7 @@ void main() {
         ],
       ),
     ]);
-    handler = workflowRoutes(workflows, tasks, definitions).call;
+    handler = workflowRoutes(workflows, tasks, definitions, runControl: testRunControl(workflows)).call;
   });
 
   tearDown(() async {

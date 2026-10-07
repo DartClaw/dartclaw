@@ -145,8 +145,23 @@ export 'src/channel/turn_progress_event.dart'
         TurnStallProgressEvent;
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
 export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingKind, ThreadBindingStore;
+export 'src/channel/channel_run_approval.dart'
+    show
+        ChannelRunApprovalAction,
+        ChannelRunApprovalFailed,
+        ChannelRunApprovalHandler,
+        ChannelRunApprovalRefusal,
+        ChannelRunApprovalRefused,
+        ChannelRunApprovalRequest,
+        ChannelRunApprovalResolved,
+        ChannelRunApprovalResult,
+        runActionNonceKey,
+        runActionRunIdKey,
+        runActionStepIdKey,
+        runApproveActionId,
+        runRejectActionId;
 export 'src/channel/threaded_notifications.dart'
-    show ChannelNotification, ChannelNotificationKind, ThreadedNotifications, ThreadedPost;
+    show ChannelNotification, ChannelNotificationAction, ChannelNotificationKind, ThreadedNotifications, ThreadedPost;
 export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;
 export 'src/channel/sidecar_process_manager.dart' show SidecarProcessManager;
 

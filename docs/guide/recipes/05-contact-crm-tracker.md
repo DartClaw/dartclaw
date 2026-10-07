@@ -151,6 +151,6 @@ scheduling:
 
 - **Not a real CRM**: Data is stored as canonical topic entries, not a relational database. Complex queries (e.g., "all contacts in London with overdue tasks") may produce approximate results
 - **Channel must be connected**: Messages are only received when the channel sidecar (GOWA for WhatsApp, signal-cli for Signal) is running and paired. Google Chat uses webhooks and Slack uses Socket Mode or webhooks (no sidecar). Check connection status at `/settings` in the web UI; for Slack, `dartclaw doctor` reports it in the `slack.transport` row
-- **No media extraction**: The agent processes text messages only. Images, voice notes, and documents are not parsed
+- **No media extraction on WhatsApp and Signal**: The agent processes text messages only there. Images, voice notes, and documents are not parsed. Slack files do reach the turn (see [Slack](../slack.md#inbound-files)); Google Chat attachments do not
 - **Session maintenance recommended**: Active contact tracking accumulates many sessions. Configure `sessions.maintenance` to auto-prune old sessions -- see [Common Patterns](_common-patterns.md#session-maintenance)
 - **Outbound redaction**: If contacts share sensitive data (API keys, passwords), the redactor strips it from stored responses but the raw inbound message is processed by the agent

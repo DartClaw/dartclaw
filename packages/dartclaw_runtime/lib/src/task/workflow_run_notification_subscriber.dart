@@ -27,10 +27,12 @@ typedef BindApprovalPost = Future<bool> Function(
 /// finished or failed, plus a line per step when `step_completed` is selected.
 ///
 /// A run started from a chat turn posts to where it was started: into its
-/// origin thread when the channel threads and one was recorded, else as plain
-/// messages to the origin recipient. Any other run posts to the configured
-/// notification channel, one thread per run when that channel threads. A run of
-/// unknown origin posts nowhere, and a run never posts to both places.
+/// origin thread when the channel threads and one was recorded, else, on a
+/// channel that does not thread, as plain messages to the origin recipient. A
+/// threaded channel with no recorded thread falls to the configured
+/// notification channel, as does any run started outside chat, with one thread
+/// per run when that channel threads. A run of unknown origin posts nowhere,
+/// and a run never posts to both places.
 ///
 /// On a channel that threads, an approval post carries Approve and Reject for the interaction issued
 /// with [IssueApprovalInteraction], bound to the post once sent. Every resolution of that approval,

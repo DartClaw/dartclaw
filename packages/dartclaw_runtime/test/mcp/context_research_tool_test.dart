@@ -316,6 +316,16 @@ void main() {
       expect(url, startsWith('https://dartclaw.example/knowledge/source?t='));
     });
 
+    test('reads base_url as notification links do: padding trimmed, blank meaning unset', () {
+      final padded = sourceLinkerFor(baseUrl: ' https://dartclaw.example/ ', signed: true, key: key)!(
+        CitationLayer.kg,
+        '7',
+      );
+
+      expect(padded, startsWith('https://dartclaw.example/knowledge/source?t='));
+      expect(sourceLinkerFor(baseUrl: '  ', signed: true, key: key)!(CitationLayer.kg, '7'), isNull);
+    });
+
     test('mints an unsigned link under auth_mode none', () {
       final url = sourceLinkerFor(baseUrl: 'http://localhost:3000', signed: false)!(CitationLayer.kg, '7');
 

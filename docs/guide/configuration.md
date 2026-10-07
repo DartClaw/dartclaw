@@ -626,7 +626,7 @@ A workflow run posts its lifecycle to chat. `workflow.chat_notifications` choose
 | `workflow.chat_notifications.recipient` | string, the conversation identifier on that channel (for Slack, a channel ID) | none (required) |
 | `workflow.chat_notifications.events` | list drawn from `started`, `awaiting_approval`, `finished`, `failed`, `step_completed` | `started`, `awaiting_approval`, `finished`, `failed` |
 
-`started` posts when a run goes from pending to running (not on a resume or retry), `awaiting_approval` when a step waits for an approval, `finished` when the run completes or is cancelled, `failed` when it fails, and `step_completed` adds one line per step. The approval message and a failure's error text are cut at 1,000 characters. When `server.base_url` is set, an approval post carries a link to `<server.base_url>/workflows/<runId>`.
+`started` posts when a run goes from pending to running (not on a resume or retry), `awaiting_approval` when a step waits for an approval, `finished` when the run completes or is cancelled, `failed` when it fails, and `step_completed` adds one line per step. The approval message and a failure's error text are cut at 1,000 characters. When `base_url` is set, an approval post carries a link to `<base_url>/workflows/<runId>`.
 
 The first rule that matches decides where a run's posts go:
 

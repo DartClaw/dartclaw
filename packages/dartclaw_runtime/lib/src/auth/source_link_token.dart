@@ -9,11 +9,16 @@ const sourceLinkPath = '/knowledge/source';
 /// The knowledge source a link token opens: a layer wire name and its layer-local locator.
 typedef SourceLinkTarget = ({String layer, String locator});
 
+// Prefixed to the signed data so a link's signature never verifies as a session cookie's (and
+// the reverse): both are signed under the gateway token, and a link is handed to every channel member.
+const _signingDomain = 'source-link\u0000';
+
 /// Creates a token naming one [layer] source at [locator].
 ///
-/// Format: unpadded `base64url(payload).base64url(signature)`, signed with the session
-/// cookie's HMAC under [key] (the gateway token), so `token rotate` revokes every
-/// link. A null [key] is `auth_mode: none`: the token carries the payload alone.
+/// Format: unpadded `base64url(payload).base64url(signature)`, signed under [key] (the
+/// gateway token) in a domain of its own, so `token rotate` revokes every link and a link
+/// is never accepted as a session cookie. A null [key] is `auth_mode: none`: the token
+/// carries the payload alone.
 String createSourceLinkToken({required String layer, required String locator, String? key, DateTime? now}) {
   final payload = jsonEncode({
     'layer': layer,
@@ -21,7 +26,7 @@ String createSourceLinkToken({required String layer, required String locator, St
     'iat': (now ?? DateTime.now()).millisecondsSinceEpoch,
   });
   final payloadB64 = base64Url.encode(utf8.encode(payload)).replaceAll('=', '');
-  return key == null ? payloadB64 : '$payloadB64.${hmacSign(payloadB64, key)}';
+  return key == null ? payloadB64 : '$payloadB64.${hmacSign('$_signingDomain$payloadB64', key)}';
 }
 
 /// The target [token] names, or null for anything that is not a live token under [key].
@@ -37,7 +42,7 @@ SourceLinkTarget? validateSourceLinkToken(String token, {String? key, DateTime? 
   } else {
     if (dot < 0 || dot == token.length - 1) return null;
     payloadB64 = token.substring(0, dot);
-    if (!hmacVerify(payloadB64, token.substring(dot + 1), key)) return null;
+    if (!hmacVerify('$_signingDomain$payloadB64', token.substring(dot + 1), key)) return null;
   }
 
   try {

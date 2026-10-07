@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_runtime/src/auth/session_token.dart' show sessionTtl;
+import 'package:dartclaw_runtime/src/auth/session_token.dart' show createSessionToken, sessionTtl;
 import 'package:dartclaw_runtime/src/auth/source_link_token.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTemporalKnowledgeGraphService;
 import 'package:shelf/shelf.dart';
@@ -190,6 +190,7 @@ void main() {
         'removed fact': get(createSourceLinkToken(layer: 'kg', locator: '${id + 100}', key: key)),
         'no token': get(null),
         'rotated gateway token': get(wikiToken('wiki/onboarding.md', signedWith: 'b')),
+        'session cookie': get(createSessionToken(key)),
         'unknown layer': get(createSourceLinkToken(layer: 'memory', locator: 'entry-1', key: key)),
         'locator outside the wiki root': get(wikiToken('wiki/../secret.md')),
       };

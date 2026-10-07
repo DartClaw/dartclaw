@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart';
 
 import '../auth/source_link_token.dart';
+import '../task/channel_notification_delivery.dart' show publicPageUrl;
 import 'citation_packet.dart';
 import 'mcp_server.dart';
 
@@ -23,9 +24,10 @@ typedef ContextResearchSourceLinker = String? Function(CitationLayer layer, Stri
 /// A [signed] deployment needs its gateway [key]; an `auth_mode: none` one mints unsigned links.
 ContextResearchSourceLinker? sourceLinkerFor({required String? baseUrl, required bool signed, String? key}) {
   if (baseUrl == null || (signed && key == null)) return null;
-  final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
-  return (layer, locator) =>
-      '$base$sourceLinkPath?t=${createSourceLinkToken(layer: layer.wireName, locator: locator, key: signed ? key : null)}';
+  return (layer, locator) => publicPageUrl(
+    baseUrl,
+    '$sourceLinkPath?t=${createSourceLinkToken(layer: layer.wireName, locator: locator, key: signed ? key : null)}',
+  );
 }
 
 /// Resolves the private research source admitted for one authenticated caller.

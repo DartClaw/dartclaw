@@ -7,12 +7,12 @@ void main() {
   final key = 'a' * 64;
 
   group('hmac signature', () {
-    test('session cookies and source links share one signing construction', () {
+    test('a session cookie signs its payload; a source link signs it under its own domain', () {
       final cookiePayload = createSessionToken(key).split('.');
       final linkPayload = createSourceLinkToken(layer: 'wiki', locator: 'wiki/a.md', key: key).split('.');
 
       expect(cookiePayload[1], hmacSign(cookiePayload[0], key));
-      expect(linkPayload[1], hmacSign(linkPayload[0], key));
+      expect(linkPayload[1], isNot(hmacSign(linkPayload[0], key)));
     });
 
     test('verification rejects a signature made under another key', () {
@@ -78,6 +78,16 @@ void main() {
 
     test('a session cookie is not a source link', () {
       expect(validateSourceLinkToken(createSessionToken(key), key: key), isNull);
+    });
+
+    test('a source link is not a session cookie, at any locator length', () {
+      // The cookie decoder reads the payload unpadded only when its length is a multiple of 4,
+      // so a locator sweep covers every padding residue.
+      for (var length = 1; length <= 12; length++) {
+        final token = createSourceLinkToken(layer: 'wiki', locator: 'a' * length, key: key);
+
+        expect(validateSessionToken(token, key), isFalse, reason: 'locator length $length');
+      }
     });
 
     test('without a key the token carries no signature and opens', () {

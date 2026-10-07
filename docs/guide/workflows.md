@@ -919,7 +919,7 @@ unresolved (an approval timeout) edits it to "No longer pending". WhatsApp and S
 The agent can do the same from a chat turn with `workflow_resume`, `workflow_cancel` and `workflow_request_changes` (all take `run_id`; cancel also
 takes an optional `feedback`, request changes a required one) and read a run's state with `workflow_status`. The write tools need a chat turn from an
 admin sender, so they are refused in web chat, scheduled turns and any call with the shared gateway token, and a bound
-agent has them only if its `allowedTools` names them. Resolving from the run page or the HTTP API needs no admin sender.
+agent has them only if its `tools` list names them. Resolving from the run page or the HTTP API needs no admin sender.
 Every resolution from a button, a tool or the web is written to the audit log (guard `RunApprovalGate`).
 
 ### Request changes

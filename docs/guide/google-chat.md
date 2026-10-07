@@ -199,7 +199,7 @@ Use **Slash command** entries for all DartClaw commands. Do not replace these wi
 
 The numeric IDs must match DartClaw's default `SlashCommandParser` mapping. DartClaw accepts both Google Chat slash-command event shapes: `MESSAGE + message.slashCommand` and `APP_COMMAND + appCommandMetadata`.
 
-Slash commands run the same inbound access checks as ordinary messages: a sender `dm_access` denies, a sender still awaiting pairing approval, or a space `group_access` blocks gets no command execution and no reply. `require_mention` is the one check they skip. `/stop`, `/pause` and `/resume` additionally require an admin sender (`governance.admins`); `/new`, `/reset` and `/status` act within what the sender's own session already grants, so passing the inbound checks is enough for them.
+Slash commands run the same inbound access checks as ordinary messages: a sender `dm_access` denies, a sender still awaiting pairing approval, or a space `group_access` blocks gets no command execution and no reply. `require_mention` is the one check they skip. `/stop`, `/pause` and `/resume` additionally require an admin sender (`governance.admin_senders`); `/new`, `/reset` and `/status` act within what the sender's own session already grants, so passing the inbound checks is enough for them.
 
 This guide documents the supported Console-based setup flow for slash commands. If you automate Chat app configuration by API or Terraform, keep the command IDs aligned with the mapping above.
 

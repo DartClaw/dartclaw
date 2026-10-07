@@ -377,7 +377,7 @@
       "dependsOn": [
         "S06"
       ],
-      "status": "pending",
+      "status": "in-progress",
       "fis": "s07-request-changes-at-approval-gates.md",
       "completedTaskIds": [],
       "scope": "Add request changes as the third approval outcome on gates that name a revise step: validator rules, re-entry with the reviewer's feedback, the revision bound, resolution through the run-control authority, and every surface (run page approval panel, HTTP, `workflow_request_changes` tool, Slack modal, Google Chat dialog), plus the opt-in plan-approval gate in the built-in `plan-and-implement` workflow.",

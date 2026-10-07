@@ -178,7 +178,7 @@
       "dependsOn": [
         "S01"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s02-slack-events-api-setup-and-diagnostics.md",
       "completedTaskIds": [
         "TI01",
@@ -188,6 +188,7 @@
         "TI05",
         "TI06",
         "TI07",
+        "TI08",
         "TI09",
         "TI10",
         "TI11",
@@ -196,6 +197,10 @@
         "TI14",
         "TI15"
       ],
+      "verified": {
+        "at": "2026-10-07T04:37Z",
+        "summary": "fast tier (analyze --fatal-infos; kernel, core, search, workflow, runtime, cli -x slow; plus slack +218, google_chat +514, signal +126, whatsapp +69, testing +57, dartclaw +11) -> exit=0, runtime +5492 ~25: All other tests passed!; arch_check -> 18/18 checks passed; fitness/run_all.sh -> exit=0, +122: All tests passed!; format check -> exit=0; git diff --check -> exit=0"
+      },
       "scope": "Add the Events API transport behind the S01 dispatch (signature verification, URL verification, enqueue-then-ack, event-ID dedupe, interactions and slash commands on the same signed path), built on framework-neutral webhook helpers in core that replace the duplicated bounded-read, trusted-proxy and failed-auth algorithms in runtime and Google Chat (architecture F5, closing TD-124). Ship the Slack app manifest, the `dartclaw doctor` Slack checks and the Slack setup guide page.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr2-slack-transports",

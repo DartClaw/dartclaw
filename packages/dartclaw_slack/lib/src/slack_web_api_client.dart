@@ -271,7 +271,7 @@ class SlackWebApiClient {
       final status = response.statusCode;
       if (status >= 300 && status < 400) {
         final location = response.headers['location'];
-        unawaited(response.stream.listen(null).cancel());
+        _discard(response);
         final next = location == null ? null : target.resolve(location);
         if (next == null) {
           throw SlackApiException(
@@ -284,7 +284,7 @@ class SlackWebApiClient {
         continue;
       }
       if (status != 200) {
-        unawaited(response.stream.listen(null).cancel());
+        _discard(response);
         throw SlackApiException(
           'Slack file download answered HTTP $status',
           errorCode: slackFileUnavailable,
@@ -293,14 +293,14 @@ class SlackWebApiClient {
       }
       final contentType = (response.headers['content-type'] ?? '').toLowerCase();
       if (contentType.startsWith('text/html') && !(declaredMediaType ?? '').toLowerCase().startsWith('text/html')) {
-        unawaited(response.stream.listen(null).cancel());
+        _discard(response);
         throw const SlackApiException(
           'Slack file download returned a web page; the app likely lacks the files:read scope',
           errorCode: slackFileScopeMissing,
         );
       }
       if ((response.contentLength ?? 0) > maxBytes) {
-        unawaited(response.stream.listen(null).cancel());
+        _discard(response);
         throw const SlackApiException('Slack file is larger than the allowed size', errorCode: slackFileTooLarge);
       }
       final bytes = BytesBuilder(copy: false);
@@ -320,6 +320,8 @@ class SlackWebApiClient {
     }
     throw const SlackApiException('Slack file download redirected too often', errorCode: slackFileUnavailable);
   }
+
+  static void _discard(http.StreamedResponse response) => unawaited(response.stream.listen(null).cancel());
 
   static bool _isSlackHost(Uri url) =>
       url.scheme == 'https' && (url.host == 'slack.com' || url.host.endsWith('.slack.com'));

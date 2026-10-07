@@ -19,12 +19,6 @@ typedef GoogleChatSendCallback =
 
 typedef GoogleChatEditMessageCallback = Future<bool> Function(String messageName, String newText);
 
-typedef GoogleChatEditCardMessageCallback = Future<bool> Function(
-  String messageName,
-  Map<String, dynamic> card,
-  String text,
-);
-
 typedef GoogleChatDeleteMessageCallback = Future<bool> Function(String messageName);
 
 typedef GoogleChatAddReactionCallback = Future<String?> Function(String messageName, String emoji);
@@ -51,7 +45,6 @@ class FakeGoogleChatRestClient extends GoogleChatRestClient {
     this.failRemoveReaction = false,
     this.onSend,
     this.onEditMessage,
-    this.onEditCardMessage,
     this.onDeleteMessage,
     this.onAddReaction,
     this.onRemoveReaction,
@@ -73,7 +66,6 @@ class FakeGoogleChatRestClient extends GoogleChatRestClient {
 
   final GoogleChatSendCallback? onSend;
   final GoogleChatEditMessageCallback? onEditMessage;
-  final GoogleChatEditCardMessageCallback? onEditCardMessage;
   final GoogleChatDeleteMessageCallback? onDeleteMessage;
   final GoogleChatAddReactionCallback? onAddReaction;
   final GoogleChatRemoveReactionCallback? onRemoveReaction;
@@ -237,10 +229,6 @@ class FakeGoogleChatRestClient extends GoogleChatRestClient {
   @override
   Future<bool> editCardMessage(String messageName, Map<String, dynamic> card, String text) async {
     editedCards.add((messageName, Map<String, dynamic>.from(card), text));
-    final callback = onEditCardMessage;
-    if (callback != null) {
-      return callback(messageName, card, text);
-    }
     return !failEdit;
   }
 

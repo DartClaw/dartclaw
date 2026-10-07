@@ -94,7 +94,7 @@ void main() {
     expect(decoded.toJson(), packet.toJson());
   });
 
-  test('S01 TI03 TI06 one call synthesizes a cited packet across all three layers', () async {
+  test('TI03 TI06 one call synthesizes a cited packet across all three layers', () async {
     File('${workspace.path}/wiki/kg.md')
         .writeAsStringSync('---\nprovenance: human-authored\n---\nTemporal KG decision wiki.');
     final factId = await kg.addFact(
@@ -199,7 +199,7 @@ void main() {
     },
   );
 
-  test('S03 one Context Research request traverses wiki once and keeps native provenance', () async {
+  test('one Context Research request traverses wiki once and keeps native provenance', () async {
     memory.results = const [
       MemorySearchResult(
         text: 'duplicate wiki page',
@@ -223,7 +223,7 @@ void main() {
     expect(sourceList, contains(predicate<Map<String, dynamic>>((source) => source['locator'] == 'entry-1')));
   });
 
-  test('S02 TI04 fabricated citation is flagged unattributed and resolver is reusable', () async {
+  test('TI04 fabricated citation is flagged unattributed and resolver is reusable', () async {
     File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
     memory.results = const [MemorySearchResult(text: 'Memory source exists.', source: 'MEMORY.md', score: 1)];
     final result = await tool(
@@ -356,7 +356,7 @@ void main() {
       );
     }
 
-    test('S01 a wiki and a graph source carry a host link, a memory source never does', () async {
+    test('a wiki and a graph source carry a host link, a memory source never does', () async {
       final factId = await seedAllLayers();
 
       final sources = await citedSources(
@@ -370,7 +370,7 @@ void main() {
       expect(byLayer['memory']!.containsKey('url'), isFalse);
     });
 
-    test('S01 no reference carries a url when the deployment serves no links', () async {
+    test('no reference carries a url when the deployment serves no links', () async {
       await seedAllLayers();
 
       final sources = await citedSources(
@@ -381,11 +381,11 @@ void main() {
       expect(sources.where((source) => source.containsKey('url')), isEmpty);
     });
 
-    test('S01 the tool description tells the model to link a source by its url', () {
+    test('the tool description tells the model to link a source by its url', () {
       expect(tool().description, contains('url'));
     });
 
-    test('S02 a url in synthesis output is discarded and an unresolved reference gets none', () async {
+    test('a url in synthesis output is discarded and an unresolved reference gets none', () async {
       File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
       const forged = 'https://attacker.example/phish';
 
@@ -497,7 +497,7 @@ void main() {
     expect(packet['degradedLayers'], contains('memory'));
   });
 
-  test('S03 TI05 identical repeat queries re-synthesize and can see a new KG fact', () async {
+  test('TI05 identical repeat queries re-synthesize and can see a new KG fact', () async {
     var dispatches = 0;
     memory.results = const [MemorySearchResult(text: 'Initial memory source.', source: 'MEMORY.md', score: 1)];
     final result1 = await tool(
@@ -529,7 +529,7 @@ void main() {
     expect(metrics.last.cacheBypass, isTrue);
   });
 
-  test('S04 TI06 no sources found returns explicit non-fabricated packet', () async {
+  test('TI06 no sources found returns explicit non-fabricated packet', () async {
     final result = await tool().callAsAgent({'query': 'no matches'});
     final json = _decodeResult(result);
     final packet = json['packet'] as Map<String, dynamic>;
@@ -539,7 +539,7 @@ void main() {
     expect(packet['statements'], isEmpty);
   });
 
-  test('S05 TI07 empty and oversized queries return isError before retrieval or synthesis', () async {
+  test('TI07 empty and oversized queries return isError before retrieval or synthesis', () async {
     final empty = await tool().callAsAgent({'query': '   '});
     final oversized = await ContextResearchTool(
       scopeResolver: (_) async =>
@@ -555,7 +555,7 @@ void main() {
     expect(memory.searchCalls, 0);
   });
 
-  test('S06 TI08 over-budget synthesis truncates while preserving citations and metrics', () async {
+  test('TI08 over-budget synthesis truncates while preserving citations and metrics', () async {
     memory.results = List.generate(
       5,
       (i) => MemorySearchResult(
@@ -602,7 +602,7 @@ void main() {
     expect(metrics.single.truncated, isTrue);
   });
 
-  test('S07 TI03 TI06 failed KG layer is reported while wiki and memory still synthesize', () async {
+  test('TI03 TI06 failed KG layer is reported while wiki and memory still synthesize', () async {
     File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
     memory.results = const [MemorySearchResult(text: 'Memory source survives.', source: 'MEMORY.md', score: 1)];
     final throwingKg = _ThrowingKg(backend);

@@ -54,8 +54,7 @@ void main() {
     final subscriber = TaskNotificationSubscriber(
       tasks: tasks,
       channelManager: manager,
-      threadBindings: store,
-      threadBindingEnabled: threads,
+      threadBindings: threads ? store : null,
     );
     subscriber.subscribe(eventBus);
     addTearDown(subscriber.dispose);

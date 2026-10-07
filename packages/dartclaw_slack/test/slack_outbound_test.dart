@@ -7,29 +7,6 @@ import 'package:test/test.dart';
 
 import 'support/slack_harness.dart';
 
-SlackChannel _channel(FakeSlackWebApi api) => SlackChannel(
-  config: const SlackConfig(enabled: true),
-  api: api,
-  dmAccess: DmAccessController(mode: DmAccessMode.open),
-  mentionGating: MentionGating(requireMention: true, mentionPatterns: const [], ownJid: ''),
-  channelManager: ChannelManager(
-    queue: MessageQueue(
-      dispatcher: (
-        sessionKey,
-        message, {
-        required ChannelType channelType,
-        String? senderJid,
-        String? senderDisplayName,
-        String? groupJid,
-        String? recipientId,
-        String? threadId,
-        List<ChannelAttachment> attachments = const [],
-      }) async => 'ok',
-    ),
-    config: const ChannelConfig.defaults(),
-  ),
-);
-
 String _only(List<ChannelResponse> chunks) => chunks.single.text;
 
 void main() {
@@ -38,7 +15,7 @@ void main() {
 
   setUp(() {
     api = FakeSlackWebApi();
-    channel = _channel(api);
+    channel = bareSlackChannel(api);
   });
 
   group('formatting', () {

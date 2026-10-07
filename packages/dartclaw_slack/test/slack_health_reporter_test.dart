@@ -6,15 +6,9 @@ import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_slack/testing.dart';
 import 'package:test/test.dart';
 
-const _secret = 'a1b2c3-signing-secret';
+import 'support/slack_harness.dart' show waitUntil;
 
-Future<void> _until(bool Function() condition) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!condition()) {
-    if (DateTime.now().isAfter(deadline)) throw TimeoutException('Condition not reached');
-    await Future<void>.delayed(const Duration(milliseconds: 5));
-  }
-}
+const _secret = 'a1b2c3-signing-secret';
 
 void main() {
   group('socket mode', () {
@@ -37,7 +31,7 @@ void main() {
     test('a connected socket reports the connection and when it came up', () async {
       final socket = client(() async => server.url)..start();
       addTearDown(socket.stop);
-      await _until(() => socket.state == SocketModeState.connected);
+      await waitUntil(() => socket.state == SocketModeState.connected);
 
       expect(SlackHealthReporter(socket: socket).status, {
         'mode': 'socket',
@@ -51,7 +45,7 @@ void main() {
       final socket = client(() async => throw const SlackApiException('Slack API apps.connections.open failed: x'))
         ..start();
       addTearDown(socket.stop);
-      await _until(() => socket.consecutiveFailures >= 3);
+      await waitUntil(() => socket.consecutiveFailures >= 3);
 
       final status = SlackHealthReporter(socket: socket).status;
       expect(status['mode'], 'socket');
@@ -63,11 +57,11 @@ void main() {
     test('a socket that lost its connection keeps its connect time and counts the failed reconnects', () async {
       final socket = client(() async => server.url)..start();
       addTearDown(socket.stop);
-      await _until(() => socket.state == SocketModeState.connected);
+      await waitUntil(() => socket.state == SocketModeState.connected);
 
       server.refuseConnections = true;
       await server.dropConnection();
-      await _until(() => socket.consecutiveFailures >= 2);
+      await waitUntil(() => socket.consecutiveFailures >= 2);
 
       final status = SlackHealthReporter(socket: socket).status;
       expect(status['connection'], isNot('connected'));

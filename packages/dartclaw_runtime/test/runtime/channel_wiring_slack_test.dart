@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast, TaskService;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, TaskService;
 import 'package:dartclaw_runtime/src/task/workflow_run_control.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -23,7 +23,6 @@ import 'package:dartclaw_runtime/src/execution_policy_resolver.dart';
 import 'package:dartclaw_runtime/src/logging/log_redactor.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_agent_binding.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_wiring.dart';
-import 'package:dartclaw_runtime/src/runtime/task_wiring.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_slack/testing.dart';
@@ -33,7 +32,6 @@ import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
 
 import '../guard_audit_test_support.dart';
-import 'harness_wiring_fixture.dart';
 
 import 'channel_wiring_test_support.dart';
 
@@ -105,16 +103,6 @@ agent:
       );
       final eventBus = EventBus();
       addTearDown(eventBus.dispose);
-      final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
-      final task = TaskWiring(
-        config: config,
-        dataDir: config.server.dataDir,
-        runtimeCwd: tempDir.path,
-        eventBus: eventBus,
-        storage: storage,
-      );
-      await task.wirePreServer();
-      final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
       final turns = RecordingChannelTurnManager();
       addTearDown(turns.executions.dispose);
       final health = HealthService(
@@ -123,31 +111,25 @@ agent:
         sessionsDir: config.sessionsDir,
         tasksDir: p.join(config.server.dataDir, 'tasks'),
       );
-      final channels = ChannelWiring(
-        config: config,
-        dataDir: config.server.dataDir,
-        port: 0,
+      final (:channels, storage: _) = await wireTestChannels(
+        config,
+        runtimeCwd: tempDir.path,
         eventBus: eventBus,
-        storage: storage,
-        task: task,
-        resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-        agentBinder: config.agent.definitions.isEmpty
-            ? null
-            : ChannelAgentBinder(
-                agents: {for (final agent in config.agent.definitions) agent.id: agent},
-                policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {}),
-                defaultProviderId: 'claude',
-                behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
-              ),
+        buildAgentBinder: () {
+          final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+          return config.agent.definitions.isEmpty
+              ? null
+              : ChannelAgentBinder(
+                  agents: {for (final agent in config.agent.definitions) agent.id: agent},
+                  policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {}),
+                  defaultProviderId: 'claude',
+                  behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
+                );
+        },
         auditLogger: auditLogger,
-      );
-      await channels.wire(
-        serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
         turnManagerGetter: () => turns,
-        sseBroadcast: SseBroadcast(),
         messageRedactor: redactor,
         healthService: health,
-        configNotifier: ConfigNotifier(config),
       );
       addTearDown(() => channels.channelManager?.queue.dispose());
       return (channels: channels, turns: turns, health: health);

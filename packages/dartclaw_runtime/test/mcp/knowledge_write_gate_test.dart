@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../guard_audit_test_support.dart';
+import 'mcp_test_support.dart' show AllowAllCallerPolicy;
 
 const _admin = 'admin-a';
 const _member = 'member-b';
@@ -211,7 +212,7 @@ void main() {
 
     test('a temporary conversation is refused with its own message first, even for an admin channel turn', () async {
       final temporary = base.scopedTo(
-        _AllowEveryTool(),
+        AllowAllCallerPolicy(),
         callerIdentity: const McpCallerIdentity(
           authorityId: 'temporary:temporary-session',
           sessionId: 'temporary-session',
@@ -247,14 +248,6 @@ Future<String> _call(McpProtocolHandler handler, String name, Map<String, dynami
         'params': {'name': name, 'arguments': arguments},
       }),
     ))!;
-
-final class _AllowEveryTool implements McpCallerPolicy {
-  @override
-  bool allows(String toolName) => true;
-
-  @override
-  void onDenied(String toolName) {}
-}
 
 final class _FailingAuditLogger extends GuardAuditLogger {
   @override

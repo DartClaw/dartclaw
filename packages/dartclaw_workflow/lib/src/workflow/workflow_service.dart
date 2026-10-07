@@ -652,19 +652,7 @@ class WorkflowService {
     _clearApprovalTimeoutTimer(runId, stepId);
     final at = DateTime.now();
     final round = revision.count + 1;
-    final interaction = WorkflowApprovalInteraction.of(run);
-    final consumed = interaction != null && interaction.stepId == stepId
-        ? interaction.consumed(
-            WorkflowApprovalResolution(
-              approved: false,
-              changesRequested: true,
-              source: resolver?.source,
-              senderId: resolver?.senderId,
-              displayName: resolver?.displayName,
-              at: at,
-            ),
-          )
-        : null;
+    final consumed = _consumedInteraction(run, stepId, resolver, at, approved: false, changesRequested: true);
     final context = await _loadResumeContext(run, null);
     final reviseKeys = [
       '$reviseId.status',
@@ -673,12 +661,14 @@ class WorkflowService {
       'step.$reviseId.outcome.reason',
     ];
     reviseKeys.forEach(context.remove);
-    final resolvedAt = at.toIso8601String();
-    context['$stepId.status'] = 'changes_requested';
-    context['$stepId.approval.status'] = 'changes_requested';
-    context['$stepId.approval.resolved_at'] = resolvedAt;
-    context['$stepId.approval.feedback'] = text;
-    context['$stepId.approval.revision'] = round;
+    final approvalEntries = {
+      '$stepId.status': 'changes_requested',
+      '$stepId.approval.status': 'changes_requested',
+      '$stepId.approval.resolved_at': at.toIso8601String(),
+      '$stepId.approval.feedback': text,
+      '$stepId.approval.revision': round,
+    };
+    approvalEntries.forEach((key, value) => context[key] = value);
 
     final running = run.copyWith(
       status: WorkflowRunStatus.running,
@@ -689,16 +679,12 @@ class WorkflowService {
         context,
         removeFlatKeys: {'_approval.pending.stepId', '_approval.pending.stepIndex', ...reviseKeys},
         extraFlat: {
-          '$stepId.status': 'changes_requested',
-          '$stepId.approval.status': 'changes_requested',
-          '$stepId.approval.resolved_at': resolvedAt,
-          '$stepId.approval.feedback': text,
-          '$stepId.approval.revision': round,
+          ...approvalEntries,
           workflowRevisionContextKey: stepId,
           if (consumed != null) workflowApprovalInteractionContextKey: consumed.toJson(),
         },
       ),
-      updatedAt: at.isAfter(run.updatedAt) ? at : run.updatedAt.add(const Duration(microseconds: 1)),
+      updatedAt: _monotonicUpdatedAt(run, at),
     );
     if (!await _repository.update(running, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
       throw StateError('Workflow status changed before request changes: $runId');
@@ -759,15 +745,42 @@ class WorkflowService {
         return true;
       });
 
+  /// The run's interaction for [stepId] consumed by a resolution at [at], or `null` when it holds none for that step.
+  WorkflowApprovalInteraction? _consumedInteraction(
+    WorkflowRun run,
+    String stepId,
+    WorkflowApprovalResolver? resolver,
+    DateTime at, {
+    required bool approved,
+    bool changesRequested = false,
+  }) {
+    final interaction = WorkflowApprovalInteraction.of(run);
+    if (interaction == null || interaction.stepId != stepId) return null;
+    return interaction.consumed(
+      WorkflowApprovalResolution(
+        approved: approved,
+        changesRequested: changesRequested,
+        source: resolver?.source,
+        senderId: resolver?.senderId,
+        displayName: resolver?.displayName,
+        at: at,
+      ),
+    );
+  }
+
+  /// [at], or one microsecond past the run's last update when the clock has not advanced, so the
+  /// compare-and-swap on `updatedAt` always sees a new value.
+  DateTime _monotonicUpdatedAt(WorkflowRun run, DateTime at) =>
+      at.isAfter(run.updatedAt) ? at : run.updatedAt.add(const Duration(microseconds: 1));
+
   bool _isPendingAt(WorkflowRun run, String stepId) =>
       (run.status == WorkflowRunStatus.awaitingApproval || run.status == WorkflowRunStatus.paused) &&
       run.contextJson['_approval.pending.stepId'] == stepId;
 
   Future<void> _storeInteraction(WorkflowRun run, WorkflowApprovalInteraction interaction) async {
-    final now = DateTime.now();
     final updated = run.copyWith(
       contextJson: {...run.contextJson, workflowApprovalInteractionContextKey: interaction.toJson()},
-      updatedAt: now.isAfter(run.updatedAt) ? now : run.updatedAt.add(const Duration(microseconds: 1)),
+      updatedAt: _monotonicUpdatedAt(run, DateTime.now()),
     );
     if (!await _repository.update(updated, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
       throw StateError('Workflow status changed before approval interaction update: ${run.id}');
@@ -1202,18 +1215,7 @@ class WorkflowService {
     _clearApprovalTimeoutTimer(run.id, stepId);
     final resolvedTime = DateTime.now();
     final resolvedAt = resolvedTime.toIso8601String();
-    final interaction = WorkflowApprovalInteraction.of(run);
-    final consumed = interaction != null && interaction.stepId == stepId
-        ? interaction.consumed(
-            WorkflowApprovalResolution(
-              approved: approved,
-              source: resolver?.source,
-              senderId: resolver?.senderId,
-              displayName: resolver?.displayName,
-              at: resolvedTime,
-            ),
-          )
-        : null;
+    final consumed = _consumedInteraction(run, stepId, resolver, resolvedTime, approved: approved);
     final stepStatus = approved ? 'accepted' : 'rejected';
     final approvalStatus = approved ? 'approved' : 'rejected';
     final context = await _loadResumeContext(run, null);
@@ -1235,11 +1237,7 @@ class WorkflowService {
         if (consumed != null) workflowApprovalInteractionContextKey: consumed.toJson(),
       },
     );
-    final now = DateTime.now();
-    final updatedRun = run.copyWith(
-      contextJson: updatedContext,
-      updatedAt: now.isAfter(run.updatedAt) ? now : run.updatedAt.add(const Duration(microseconds: 1)),
-    );
+    final updatedRun = run.copyWith(contextJson: updatedContext, updatedAt: _monotonicUpdatedAt(run, DateTime.now()));
     if (!await _repository.update(updatedRun, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
       throw StateError('Workflow status changed before approval resolution: ${run.id}');
     }

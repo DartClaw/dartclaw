@@ -10,30 +10,8 @@ import 'package:test/test.dart';
 
 import 'support/slack_harness.dart';
 
-SlackChannel _channel(FakeSlackWebApi api, {String mode = 'events', String? signingSecret = 'secret'}) => SlackChannel(
-  config: const SlackConfig(enabled: true),
-  api: api,
-  dmAccess: DmAccessController(mode: DmAccessMode.open),
-  mentionGating: MentionGating(requireMention: true, mentionPatterns: const [], ownJid: ''),
-  channelManager: ChannelManager(
-    queue: MessageQueue(dispatcher: _noDispatch),
-    config: const ChannelConfig.defaults(),
-  ),
-  mode: mode,
-  signingSecret: signingSecret,
-);
-
-Future<String> _noDispatch(
-  String sessionKey,
-  String message, {
-  required ChannelType channelType,
-  String? senderJid,
-  String? senderDisplayName,
-  String? groupJid,
-  String? recipientId,
-  String? threadId,
-  List<ChannelAttachment> attachments = const [],
-}) async => 'ok';
+SlackChannel _channel(FakeSlackWebApi api, {String mode = 'events', String? signingSecret = 'secret'}) =>
+    bareSlackChannel(api, mode: mode, signingSecret: signingSecret);
 
 void main() {
   late FakeSocketModeServer server;

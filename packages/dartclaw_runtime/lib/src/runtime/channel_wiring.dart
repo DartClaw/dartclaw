@@ -543,8 +543,7 @@ class ChannelWiring {
       _taskNotificationSubscriber = TaskNotificationSubscriber(
         tasks: taskService,
         channelManager: _channelManager!,
-        threadBindings: _threadBindingStore,
-        threadBindingEnabled: threadBindingEnabled,
+        threadBindings: taskThreadBindingStore,
         baseUrl: config.server.baseUrl,
       );
       _taskNotificationSubscriber!.subscribe(_eventBus);

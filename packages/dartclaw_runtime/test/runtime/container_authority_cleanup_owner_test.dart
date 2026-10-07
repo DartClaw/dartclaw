@@ -1,11 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:dartclaw_runtime/src/runtime/container_authority_cleanup_owner.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, TurnProvenance;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ContainerAuthorityLease;
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
+
+import 'fake_container_authority.dart' show FakeContainerExecutor;
 
 void main() {
   test('coalesces concurrent release and forgets only confirmed destruction', () {
@@ -86,7 +87,7 @@ final class _RecordingLease implements ContainerAuthorityLease {
   int releaseCalls = 0;
 
   @override
-  final ContainerExecutor container = _FakeContainerExecutor();
+  final ContainerExecutor container = FakeContainerExecutor();
 
   @override
   void bindActiveTurn(TurnProvenance? Function() activeTurn) {}
@@ -100,34 +101,4 @@ final class _RecordingLease implements ContainerAuthorityLease {
       throw StateError('docker rm -f failed');
     }
   }
-}
-
-final class _FakeContainerExecutor implements ContainerExecutor {
-  @override
-  String get generatedStateDir => '/tmp/dartclaw-cleanup-test';
-
-  @override
-  bool get hasProjectMount => false;
-
-  @override
-  String? get mcpBridgeUrl => null;
-
-  @override
-  String get profileId => 'restricted';
-
-  @override
-  String get providerBridgeUrl => 'http://127.0.0.1:8080';
-
-  @override
-  String get workingDir => '/tmp';
-
-  @override
-  String? containerPathForHostPath(String hostPath) => null;
-
-  @override
-  Future<Process> exec(List<String> command, {Map<String, String>? env, String? workingDirectory}) =>
-      throw UnsupportedError('not used');
-
-  @override
-  Future<void> start() async {}
 }

@@ -1,6 +1,5 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -14,32 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../guard_audit_test_support.dart';
-
-Future<Map<String, dynamic>> _call(
-  McpProtocolHandler handler,
-  String name, {
-  Map<String, dynamic> arguments = const {},
-}) async {
-  final raw = await handler.handleRequest(
-    jsonEncode({
-      'jsonrpc': '2.0',
-      'id': 1,
-      'method': 'tools/call',
-      'params': {'name': name, 'arguments': arguments},
-    }),
-  );
-  return jsonDecode(raw!) as Map<String, dynamic>;
-}
-
-Map<String, dynamic> _result(Map<String, dynamic> response) {
-  expect(response['error'], isNull, reason: 'a tool refusal must be a JSON-RPC success carrying isError');
-  return response['result'] as Map<String, dynamic>;
-}
-
-String _text(Map<String, dynamic> result) =>
-    ((result['content'] as List).single as Map<String, dynamic>)['text'] as String;
-
-Map<String, dynamic> _payload(Map<String, dynamic> result) => jsonDecode(_text(result)) as Map<String, dynamic>;
+import 'mcp_test_support.dart';
 
 void main() {
   const peerId = 'dm/contact/owner@s.whatsapp.net';
@@ -125,8 +99,8 @@ void main() {
     test('the file reaches the single DM target once, as the caption plus the resolved path', () async {
       await activateDmSession(peerId);
 
-      final result = _result(
-        await _call(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
+      final result = toolResult(
+        await callTool(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
       );
 
       expect(whatsapp.sentMessages, hasLength(1));
@@ -137,16 +111,16 @@ void main() {
       ], reason: 'the channel must receive the resolved path, not the model-supplied one');
 
       expect(result['isError'], isNull);
-      expect(_payload(result)['path'], 'reports/q3.pdf');
-      expect(_payload(result)['delivered_to'], ['whatsapp:$peerId']);
+      expect(resultPayload(result)['path'], 'reports/q3.pdf');
+      expect(resultPayload(result)['delivered_to'], ['whatsapp:$peerId']);
     });
 
     test('two active DM sessions each receive the file exactly once', () async {
       await activateDmSession(peerId);
       await activateDmSession(secondPeerId);
 
-      final result = _result(
-        await _call(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
+      final result = toolResult(
+        await callTool(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
       );
 
       expect(whatsapp.sentMessages, hasLength(2));
@@ -155,7 +129,7 @@ void main() {
         [resolvedReport],
         [resolvedReport],
       ]);
-      expect((_payload(result)['delivered_to'] as List).toSet(), {'whatsapp:$peerId', 'whatsapp:$secondPeerId'});
+      expect((resultPayload(result)['delivered_to'] as List).toSet(), {'whatsapp:$peerId', 'whatsapp:$secondPeerId'});
     });
 
     test(
@@ -164,25 +138,25 @@ void main() {
         await activateDmSession(peerId);
         whatsapp.throwOnSend = true;
 
-        final result = _result(
-          await _call(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
+        final result = toolResult(
+          await callTool(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
         );
 
         expect(result['isError'], isTrue);
         // Collapsing this into no_recipient would tell the owner their session is
         // gone when the file simply did not send.
-        expect(_payload(result)['reason'], 'delivery_failed');
-        expect(_payload(result)['attempted'], 1);
+        expect(resultPayload(result)['reason'], 'delivery_failed');
+        expect(resultPayload(result)['attempted'], 1);
       },
     );
 
     test('a call with no active DM session is a tool error, not a silent success', () async {
-      final result = _result(
-        await _call(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
+      final result = toolResult(
+        await callTool(passingHandler(), 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['reason'], 'no_recipient');
+      expect(resultPayload(result)['reason'], 'no_recipient');
       expect(whatsapp.sentMessages, isEmpty);
     });
   });
@@ -197,16 +171,16 @@ void main() {
 
       final escapes = ['../secrets.env', outsideFile, 'link.pdf'];
       for (final escape in escapes) {
-        final result = _result(await _call(handler, 'attach_media', arguments: {'path': escape}));
+        final result = toolResult(await callTool(handler, 'attach_media', arguments: {'path': escape}));
 
         expect(result['isError'], isTrue, reason: '$escape must refuse as a tool error, not a protocol error');
-        expect(_payload(result)['reason'], 'containment_refused');
+        expect(resultPayload(result)['reason'], 'containment_refused');
         expect(
-          _payload(result)['message'],
+          resultPayload(result)['message'],
           '"$escape" is not inside the workspace and cannot be sent',
           reason: 'the refusal names containment, so the model can tell it from a missing file',
         );
-        expect(_payload(result)['path'], escape);
+        expect(resultPayload(result)['path'], escape);
       }
 
       expect(whatsapp.sentMessages, isEmpty, reason: 'no escape attempt may reach a channel');
@@ -221,12 +195,12 @@ void main() {
         sink: audit,
       );
 
-      final result = _result(
-        await _call(handler, 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
+      final result = toolResult(
+        await callTool(handler, 'attach_media', arguments: {'path': 'reports/q3.pdf', 'caption': 'Q3'}),
       );
 
       expect(result['isError'], isTrue);
-      expect(_text(result), 'attach_media disabled');
+      expect(resultText(result), 'attach_media disabled');
       expect(whatsapp.sentMessages, isEmpty, reason: 'a blocked dispatch never runs the tool');
       expect(audit.entries.map((entry) => (entry.tool, entry.decision, entry.verdict)), [
         ('attach_media', 'deny', 'block'),
@@ -244,11 +218,11 @@ void main() {
       test('${testCase.label} is refused as an invalid request', () async {
         await activateDmSession(peerId);
 
-        final result = _result(await _call(passingHandler(), 'attach_media', arguments: testCase.arguments));
+        final result = toolResult(await callTool(passingHandler(), 'attach_media', arguments: testCase.arguments));
 
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'invalid_request');
-        expect(_payload(result)['message'], testCase.message);
+        expect(resultPayload(result)['reason'], 'invalid_request');
+        expect(resultPayload(result)['message'], testCase.message);
         expect(whatsapp.sentMessages, isEmpty);
       });
     }

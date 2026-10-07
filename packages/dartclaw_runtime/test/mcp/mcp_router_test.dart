@@ -10,6 +10,8 @@ import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import 'mcp_test_support.dart';
+
 class _ProfileTool implements McpTool {
   new(this.name, this.access);
 
@@ -344,14 +346,14 @@ void main() {
       senderId: 'users/alice',
     );
 
-    late _TurnProbeTool probe;
+    late TurnProbeTool probe;
     late McpProtocolHandler turnHandler;
     late HarnessMcpBearers bearers;
     late String harnessBearer;
     TurnProvenance? runningTurn;
 
     setUp(() {
-      probe = _TurnProbeTool();
+      probe = TurnProbeTool();
       turnHandler = McpProtocolHandler()..registerTool(probe);
       bearers = HarnessMcpBearers();
       runningTurn = turn;
@@ -411,29 +413,4 @@ void main() {
       },
     );
   });
-}
-
-class _TurnProbeTool implements TurnAwareMcpTool {
-  final turns = <TurnProvenance?>[];
-
-  @override
-  String get name => 'turn_probe';
-
-  @override
-  String get description => 'records the turn it is called with';
-
-  @override
-  Map<String, dynamic> get inputSchema => {'type': 'object', 'properties': <String, dynamic>{}};
-
-  @override
-  McpToolAccess get access => McpToolAccess.read;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text('no context');
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) async {
-    turns.add(context.turn);
-    return ToolResult.text('ok');
-  }
 }

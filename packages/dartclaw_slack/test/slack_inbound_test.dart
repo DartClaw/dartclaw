@@ -495,27 +495,8 @@ void main() {
       addTearDown(server.stop);
       final api = FakeSlackWebApi(socketUrl: server.url)
         ..socketUrlError = const SlackApiException('Slack API apps.connections.open failed: ratelimited');
-      final channel = SlackChannel(
-        config: const SlackConfig(enabled: true),
-        api: api,
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: MentionGating(requireMention: true, mentionPatterns: const [], ownJid: ''),
-        channelManager: ChannelManager(
-          queue: MessageQueue(
-            dispatcher: (
-              sessionKey,
-              message, {
-              required ChannelType channelType,
-              String? senderJid,
-              String? senderDisplayName,
-              String? groupJid,
-              String? recipientId,
-              String? threadId,
-              List<ChannelAttachment> attachments = const [],
-            }) async => 'ok',
-          ),
-          config: const ChannelConfig.defaults(),
-        ),
+      final channel = bareSlackChannel(
+        api,
         reconnectDelay: (_) => Future<void>.delayed(const Duration(milliseconds: 5)),
       );
       addTearDown(channel.disconnect);
@@ -533,28 +514,7 @@ void main() {
       await server.start();
       addTearDown(server.stop);
       final api = FakeSlackWebApi(socketUrl: server.url)..authError = const SlackApiException('invalid_auth');
-      final channel = SlackChannel(
-        config: const SlackConfig(enabled: true),
-        api: api,
-        dmAccess: DmAccessController(mode: DmAccessMode.open),
-        mentionGating: MentionGating(requireMention: true, mentionPatterns: const [], ownJid: ''),
-        channelManager: ChannelManager(
-          queue: MessageQueue(
-            dispatcher: (
-              sessionKey,
-              message, {
-              required ChannelType channelType,
-              String? senderJid,
-              String? senderDisplayName,
-              String? groupJid,
-              String? recipientId,
-              String? threadId,
-              List<ChannelAttachment> attachments = const [],
-            }) async => 'ok',
-          ),
-          config: const ChannelConfig.defaults(),
-        ),
-      );
+      final channel = bareSlackChannel(api);
 
       await expectLater(channel.connect(), throwsA(isA<SlackApiException>()));
       await Future<void>.delayed(const Duration(milliseconds: 50));

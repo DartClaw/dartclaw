@@ -88,6 +88,17 @@ void main() {
       expect(fake.sends.map((s) => s.post), [opened, reused]);
     });
 
+    test('records each edit by message identity and answers from its script', () async {
+      final fake = FakeThreadedNotifications();
+      const response = ChannelResponse(text: 'Approved');
+
+      expect(await fake.edit('C1', 'message-0', response), isTrue);
+      fake.editReturnsFalse = true;
+      expect(await fake.edit('C1', 'message-1', response), isFalse);
+
+      expect(fake.edits.map((e) => (e.$1, e.$2)), [('C1', 'message-0'), ('C1', 'message-1')]);
+    });
+
     test('scripted failures answer null or throw, and still record the attempt', () async {
       final fake = FakeThreadedNotifications()
         ..newThreadReturnsNull = true

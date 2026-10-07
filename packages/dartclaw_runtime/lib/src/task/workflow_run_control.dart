@@ -30,17 +30,8 @@ enum RunControlRefusal {
   feedbackRequired,
 }
 
-enum _RunAction {
-  resume('resume'),
-  cancel('cancel'),
-  requestChanges('requestChanges'),
-  checkRequestChanges('checkRequestChanges');
-
-  /// The name an audit entry records as the tool.
-  final String auditName;
-
-  new(this.auditName);
-}
+/// The action's `name` is what an audit entry records as the tool.
+enum _RunAction { resume, cancel, requestChanges, checkRequestChanges }
 
 /// What a run-control call came to.
 sealed class RunControlResult {
@@ -388,7 +379,7 @@ final class WorkflowRunControl {
           reason: reason,
           channel: channel,
           peerId: senderId,
-          tool: action.auditName,
+          tool: action.name,
           decision: allowed
               ? 'allow'
               : failed

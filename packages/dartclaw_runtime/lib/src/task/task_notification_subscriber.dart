@@ -10,7 +10,7 @@ import 'task_service.dart';
 /// Sends channel notifications for channel-originated task status changes.
 ///
 /// A channel that declares [Channel.threadedNotifications] renders the
-/// notification natively and, with thread binding on, threads a task's
+/// notification natively and, given [threadBindings], threads a task's
 /// notifications; every other channel gets one plain send.
 class TaskNotificationSubscriber {
   static final _log = Logger('TaskNotificationSubscriber');
@@ -24,20 +24,18 @@ class TaskNotificationSubscriber {
   /// deployment declares none and the notification can only name the
   /// conversational path.
   final String? _baseUrl;
-  final bool _threadBindingEnabled;
   StreamSubscription<TaskStatusChangedEvent>? _subscription;
 
+  /// [threadBindings] is the store task binding is enabled with, `null` while it is off.
   new({
     required TaskService tasks,
     required ChannelManager channelManager,
     ThreadBindingStore? threadBindings,
-    bool threadBindingEnabled = false,
     String? baseUrl,
   }) : _baseUrl = baseUrl,
        _tasks = tasks,
        _channelManager = channelManager,
-       _threadBindings = threadBindings,
-       _threadBindingEnabled = threadBindingEnabled;
+       _threadBindings = threadBindings;
 
   void subscribe(EventBus eventBus) {
     _subscription ??= eventBus.on<TaskStatusChangedEvent>().listen((event) {
@@ -111,7 +109,8 @@ class TaskNotificationSubscriber {
     }
 
     final response = threads.render(notification);
-    if (!_threadBindingEnabled) {
+    final threadBindings = _threadBindings;
+    if (threadBindings == null) {
       await _delivery.sendRendered(channel, origin.recipientId, response, subject: subject);
       return;
     }
@@ -125,14 +124,11 @@ class TaskNotificationSubscriber {
         threadKey: 'task-${task.id}',
         subject: subject,
       );
-      if (post != null) await _bindTaskThread(origin, task, post);
+      if (post != null) await _bindTaskThread(threadBindings, origin, task, post);
       return;
     }
 
-    final binding = _threadBindings
-        ?.lookupByTask(task.id)
-        .where((b) => b.channelType == origin.channelType)
-        .firstOrNull;
+    final binding = threadBindings.lookupByTask(task.id).where((b) => b.channelType == origin.channelType).firstOrNull;
     if (binding == null) {
       await _delivery.sendRendered(channel, origin.recipientId, response, subject: subject);
       return;
@@ -147,9 +143,12 @@ class TaskNotificationSubscriber {
     );
   }
 
-  Future<void> _bindTaskThread(TaskOrigin origin, Task task, ThreadedPost post) async {
-    final threadBindings = _threadBindings;
-    if (threadBindings == null) return;
+  Future<void> _bindTaskThread(
+    ThreadBindingStore threadBindings,
+    TaskOrigin origin,
+    Task task,
+    ThreadedPost post,
+  ) async {
     final now = DateTime.now();
     try {
       await threadBindings.create(

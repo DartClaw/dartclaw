@@ -83,7 +83,7 @@ void main() {
 
     Request wikiViewGet(String locator) => Request('GET', Uri.parse('http://localhost/knowledge/wiki/$locator'));
 
-    test('S03 a link opens the cited wiki page read-only with no session and sets no cookie', () async {
+    test('a link opens the cited wiki page read-only with no session and sets no cookie', () async {
       final res = await sourceHandler(gatewayToken: key)(get(wikiToken('wiki/onboarding.md')));
       final body = await res.readAsString();
 
@@ -100,7 +100,7 @@ void main() {
       expect(body, isNot(contains('restart-banner')));
     });
 
-    test('S03 hostile markdown stays escaped text inside the data-markdown container', () async {
+    test('hostile markdown stays escaped text inside the data-markdown container', () async {
       File('${tempDir.path}/workspace/wiki/evil.md').writeAsStringSync('<script>alert(1)</script>');
 
       final res = await sourceHandler(gatewayToken: key)(get(wikiToken('wiki/evil.md')));
@@ -112,7 +112,7 @@ void main() {
       expect(container, isNot(contains('<script')));
     });
 
-    test('S04 a link opens the cited graph fact and never shows its private source', () async {
+    test('a link opens the cited graph fact and never shows its private source', () async {
       final id = await kg.addFact(
         entity: 'Billing service',
         predicate: 'owned by',
@@ -135,7 +135,7 @@ void main() {
       expect(body, isNot(contains('<div class="shell"')));
     });
 
-    test('S04 a fact with no end date reads as ongoing and an invalidated one says so', () async {
+    test('a fact with no end date reads as ongoing and an invalidated one says so', () async {
       final open = await kg.addFact(
         entity: 'Cache',
         predicate: 'ttl',
@@ -165,7 +165,7 @@ void main() {
       expect(closedBody, isNot(contains('PRIVATE-REASON')));
     });
 
-    test('S05 every refusal is the same 404 as the wiki view\'s not-found', () async {
+    test('every refusal is the same 404 as the wiki view\'s not-found', () async {
       final id = await kg.addFact(
         entity: 'e',
         predicate: 'p',
@@ -206,7 +206,7 @@ void main() {
       }
     });
 
-    test('S05 only the exact path is auth-exempt, so a sibling path still needs a session', () async {
+    test('only the exact path is auth-exempt, so a sibling path still needs a session', () async {
       final res = await sourceHandler(gatewayToken: key)(
         Request('GET', Uri.parse('http://localhost/knowledge/source/extra?t=${wikiToken('wiki/onboarding.md')}')),
       );
@@ -214,7 +214,7 @@ void main() {
       expect(res.statusCode, 401);
     });
 
-    test('S06 under auth_mode none a link carries no signature and opens, outside the wiki root still 404s', () async {
+    test('under auth_mode none a link carries no signature and opens, outside the wiki root still 404s', () async {
       final handler = sourceHandler(authMode: 'none');
       final open = await handler(get(wikiToken('wiki/onboarding.md', signedWith: null)));
       final outside = await handler(get(wikiToken('wiki/../secret.md', signedWith: null)));

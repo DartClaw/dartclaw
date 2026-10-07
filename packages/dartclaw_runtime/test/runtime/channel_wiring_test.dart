@@ -3,7 +3,6 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast;
 import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_runtime/src/concurrency/session_lock_manager.dart';
 import 'package:dartclaw_runtime/src/config/config_load.dart';
@@ -14,7 +13,6 @@ import 'package:dartclaw_runtime/src/runtime/channel_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/feedback_observer_factory.dart';
 import 'package:dartclaw_runtime/src/runtime/reserved_command_handler.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart' show StorageWiring;
-import 'package:dartclaw_runtime/src/runtime/task_wiring.dart';
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -29,7 +27,6 @@ import 'package:path/path.dart' as p;
 
 import '../turn_manager_test_support.dart';
 import 'channel_wiring_test_support.dart';
-import 'harness_wiring_fixture.dart';
 
 void main() {
   late Directory tempDir;
@@ -611,52 +608,27 @@ agent:
     );
     final eventBus = EventBus();
     addTearDown(eventBus.dispose);
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
-    final task = TaskWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      runtimeCwd: tempDir.path,
-      eventBus: eventBus,
-      storage: storage,
-    );
-    await task.wirePreServer();
-    final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-    File(p.join(ownerWorkspace.path, 'SOUL.md')).writeAsStringSync('PAUSE OWNER SOUL MARKER');
-    File(p.join(ownerWorkspace.path, 'USER.md')).writeAsStringSync('PAUSE OWNER USER MARKER');
-    File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('PAUSE OWNER TOOLS MARKER');
-    File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('PAUSE OWNER MEMORY MARKER');
-    final behavior = BehaviorFileService(workspaceDir: ownerWorkspace.path);
-    final agent = config.agent.definitions.single;
-    final binder = ChannelAgentBinder(
-      agents: {agent.id: agent},
-      policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
-      defaultProviderId: 'claude',
-      behavior: behavior,
-    );
     final turns = RecordingChannelTurnManager()..reservation = Completer<void>();
     addTearDown(turns.executions.dispose);
-    final channels = ChannelWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      port: 0,
+    final (:channels, :storage) = await wireTestChannels(
+      config,
+      runtimeCwd: tempDir.path,
       eventBus: eventBus,
-      storage: storage,
-      task: task,
-      resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-      agentBinder: binder,
-    );
-    await channels.wire(
-      serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
       turnManagerGetter: () => turns,
-      sseBroadcast: SseBroadcast(),
-      messageRedactor: null,
-      healthService: HealthService(
-        worker: FakeAgentHarness(),
-        searchDbPath: config.searchDbPath,
-        sessionsDir: config.sessionsDir,
-        tasksDir: p.join(config.server.dataDir, 'tasks'),
-      ),
-      configNotifier: ConfigNotifier(config),
+      buildAgentBinder: () {
+        final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+        File(p.join(ownerWorkspace.path, 'SOUL.md')).writeAsStringSync('PAUSE OWNER SOUL MARKER');
+        File(p.join(ownerWorkspace.path, 'USER.md')).writeAsStringSync('PAUSE OWNER USER MARKER');
+        File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('PAUSE OWNER TOOLS MARKER');
+        File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('PAUSE OWNER MEMORY MARKER');
+        final agent = config.agent.definitions.single;
+        return ChannelAgentBinder(
+          agents: {agent.id: agent},
+          policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
+          defaultProviderId: 'claude',
+          behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
+        );
+      },
     );
     final manager = channels.channelManager!;
     expect(channels.signalChannel, isNotNull);
@@ -733,50 +705,29 @@ agent:
       );
       final eventBus = EventBus();
       addTearDown(eventBus.dispose);
-      storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
-      final task = TaskWiring(
-        config: config,
-        dataDir: config.server.dataDir,
-        runtimeCwd: tempDir.path,
-        eventBus: eventBus,
-        storage: storage,
-      );
-      await task.wirePreServer();
-      final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-      for (final file in ['SOUL.md', 'USER.md', 'TOOLS.md', 'MEMORY.md']) {
-        File(p.join(ownerWorkspace.path, file)).writeAsStringSync(file);
-      }
-      final agent = config.agent.definitions.single;
       turns = RecordingChannelTurnManager();
       addTearDown(turns.executions.dispose);
-      channels = ChannelWiring(
-        config: config,
-        dataDir: config.server.dataDir,
-        port: 0,
+      final wired = await wireTestChannels(
+        config,
+        runtimeCwd: tempDir.path,
         eventBus: eventBus,
-        storage: storage,
-        task: task,
-        resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-        agentBinder: ChannelAgentBinder(
-          agents: {agent.id: agent},
-          policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
-          defaultProviderId: 'claude',
-          behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
-        ),
-      );
-      await channels.wire(
-        serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
         turnManagerGetter: () => turns,
-        sseBroadcast: SseBroadcast(),
-        messageRedactor: null,
-        healthService: HealthService(
-          worker: FakeAgentHarness(),
-          searchDbPath: config.searchDbPath,
-          sessionsDir: config.sessionsDir,
-          tasksDir: p.join(config.server.dataDir, 'tasks'),
-        ),
-        configNotifier: ConfigNotifier(config),
+        buildAgentBinder: () {
+          final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+          for (final file in ['SOUL.md', 'USER.md', 'TOOLS.md', 'MEMORY.md']) {
+            File(p.join(ownerWorkspace.path, file)).writeAsStringSync(file);
+          }
+          final agent = config.agent.definitions.single;
+          return ChannelAgentBinder(
+            agents: {agent.id: agent},
+            policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
+            defaultProviderId: 'claude',
+            behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
+          );
+        },
       );
+      channels = wired.channels;
+      storage = wired.storage;
       addTearDown(channels.channelManager!.queue.dispose);
     });
 
@@ -875,35 +826,10 @@ agent:
     final notifier = ConfigNotifier(config);
     final eventBus = EventBus();
     addTearDown(eventBus.dispose);
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
-    final task = TaskWiring(
-      config: config,
-      dataDir: config.server.dataDir,
+    final (:channels, storage: _) = await wireTestChannels(
+      config,
       runtimeCwd: tempDir.path,
       eventBus: eventBus,
-      storage: storage,
-    );
-    await task.wirePreServer();
-    final channels = ChannelWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      port: 0,
-      eventBus: eventBus,
-      storage: storage,
-      task: task,
-      resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-    );
-    await channels.wire(
-      serverRefGetter: () => throw StateError('no server in this test'),
-      turnManagerGetter: () => throw StateError('no turn manager in this test'),
-      sseBroadcast: SseBroadcast(),
-      messageRedactor: null,
-      healthService: HealthService(
-        worker: FakeAgentHarness(),
-        searchDbPath: config.searchDbPath,
-        sessionsDir: config.sessionsDir,
-        tasksDir: p.join(config.server.dataDir, 'tasks'),
-      ),
       configNotifier: notifier,
     );
     final queue = channels.channelManager!.queue;
@@ -933,39 +859,7 @@ agent:
     );
     expect(config.warnings, isEmpty);
 
-    final eventBus = EventBus();
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: neverExit);
-    final task = TaskWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      runtimeCwd: tempDir.path,
-      eventBus: eventBus,
-      storage: storage,
-    );
-    await task.wirePreServer();
-
-    final channels = ChannelWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      port: 0,
-      eventBus: eventBus,
-      storage: storage,
-      task: task,
-      resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-    );
-    await channels.wire(
-      serverRefGetter: () => throw StateError('no server in this test'),
-      turnManagerGetter: () => throw StateError('no turn manager in this test'),
-      sseBroadcast: SseBroadcast(),
-      messageRedactor: null,
-      healthService: HealthService(
-        worker: FakeAgentHarness(),
-        searchDbPath: config.searchDbPath,
-        sessionsDir: config.sessionsDir,
-        tasksDir: p.join(config.server.dataDir, 'tasks'),
-      ),
-      configNotifier: ConfigNotifier(config),
-    );
+    await wireTestChannels(config, runtimeCwd: tempDir.path, eventBus: EventBus());
 
     expect(config.warnings.where((w) => w.contains('Invalid type for signal.port')), hasLength(1));
     expect(config.warnings.where((w) => w.contains('Invalid type for whatsapp.gowa_port')), hasLength(1));

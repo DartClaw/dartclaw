@@ -160,13 +160,7 @@ class SlackHarness {
       .handle(Uint8List.fromList(body), signedSlackHeaders(signingSecret, body, contentType: contentType));
 
   /// Waits for [condition], failing after five seconds.
-  Future<void> until(bool Function() condition) async {
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (!condition()) {
-      if (DateTime.now().isAfter(deadline)) throw TimeoutException('Condition not reached');
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
-  }
+  Future<void> until(bool Function() condition) => waitUntil(condition);
 
   Future<void> close() async {
     await channel.disconnect();
@@ -177,6 +171,47 @@ class SlackHarness {
 }
 
 typedef RecordedTurn = ({ChannelMessage message, String sessionKey});
+
+/// A [SlackChannel] over open DM access and a queue that answers `ok`, for tests that need no turn to be admitted.
+SlackChannel bareSlackChannel(
+  FakeSlackWebApi api, {
+  String mode = 'socket',
+  String? signingSecret,
+  Future<void> Function(Duration)? reconnectDelay,
+}) => SlackChannel(
+  config: const SlackConfig(enabled: true),
+  api: api,
+  dmAccess: DmAccessController(mode: DmAccessMode.open),
+  mentionGating: MentionGating(requireMention: true, mentionPatterns: const [], ownJid: ''),
+  channelManager: ChannelManager(
+    queue: MessageQueue(
+      dispatcher: (
+        sessionKey,
+        message, {
+        required ChannelType channelType,
+        String? senderJid,
+        String? senderDisplayName,
+        String? groupJid,
+        String? recipientId,
+        String? threadId,
+        List<ChannelAttachment> attachments = const [],
+      }) async => 'ok',
+    ),
+    config: const ChannelConfig.defaults(),
+  ),
+  mode: mode,
+  signingSecret: signingSecret,
+  reconnectDelay: reconnectDelay,
+);
+
+/// Waits for [condition], failing after five seconds.
+Future<void> waitUntil(bool Function() condition) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) throw TimeoutException('Condition not reached');
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
 
 Map<String, dynamic> eventCallback(Map<String, dynamic> event) => {
   'type': 'event_callback',

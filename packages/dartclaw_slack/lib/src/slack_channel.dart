@@ -151,20 +151,17 @@ class SlackChannel extends Channel {
   /// rejected (or `connect` has not yet verified) must stop them here: a turn that cannot post
   /// its reply is worse than none, and Socket Mode receives nothing in the same state.
   SlackEnvelopeHandler _whenIdentified(SlackEnvelopeHandler handler) => (envelope) async {
-    if (eventsHandler != null && _botUserId == null) {
-      _log.warning('Dropping a Slack ${envelope.kind.name} envelope: the bot token has not been verified');
-      return;
-    }
-    await handler(envelope);
+    if (!_isUnverified(envelope)) await handler(envelope);
   };
 
-  SlackAnsweringHandler _whenIdentifiedAnswering(SlackAnsweringHandler handler) => (envelope) async {
-    if (eventsHandler != null && _botUserId == null) {
-      _log.warning('Dropping a Slack ${envelope.kind.name} envelope: the bot token has not been verified');
-      return null;
-    }
-    return handler(envelope);
-  };
+  SlackAnsweringHandler _whenIdentifiedAnswering(SlackAnsweringHandler handler) =>
+      (envelope) async => _isUnverified(envelope) ? null : handler(envelope);
+
+  bool _isUnverified(SlackEnvelope envelope) {
+    if (eventsHandler == null || _botUserId != null) return false;
+    _log.warning('Dropping a Slack ${envelope.kind.name} envelope: the bot token has not been verified');
+    return true;
+  }
 
   @override
   Future<void> connect() async {

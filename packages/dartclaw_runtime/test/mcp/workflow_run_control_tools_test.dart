@@ -7,7 +7,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_runtime/src/mcp/context_engine_profile.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/workflow_run_control_tools.dart';
-import 'package:dartclaw_runtime/src/task/workflow_run_control.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show
         InMemoryAgentExecutionRepository,
@@ -20,7 +19,9 @@ import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunReposito
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../api/workflow_test_support.dart' show testRunControl;
 import '../guard_audit_test_support.dart';
+import 'mcp_test_support.dart' show resultPayload, toolResult;
 
 Future<Map<String, dynamic>> _rpc(McpProtocolHandler handler, String method, [Map<String, dynamic>? params]) async {
   final raw = await handler.handleRequest(jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': ?params}));
@@ -29,16 +30,6 @@ Future<Map<String, dynamic>> _rpc(McpProtocolHandler handler, String method, [Ma
 
 Future<Map<String, dynamic>> _call(McpProtocolHandler handler, String name, Map<String, dynamic> arguments) =>
     _rpc(handler, 'tools/call', {'name': name, 'arguments': arguments});
-
-Map<String, dynamic> _result(Map<String, dynamic> response) {
-  expect(response['error'], isNull, reason: 'a tool refusal must be a JSON-RPC success carrying isError');
-  return response['result'] as Map<String, dynamic>;
-}
-
-String _text(Map<String, dynamic> result) =>
-    ((result['content'] as List).single as Map<String, dynamic>)['text'] as String;
-
-Map<String, dynamic> _payload(Map<String, dynamic> result) => jsonDecode(_text(result)) as Map<String, dynamic>;
 
 Future<Set<String>> _toolNames(McpProtocolHandler handler) async {
   final result = (await _rpc(handler, 'tools/list'))['result'] as Map<String, dynamic>;
@@ -81,8 +72,8 @@ void main() {
   });
 
   McpProtocolHandler newHandler() {
-    final control = WorkflowRunControl(
-      workflows: workflows,
+    final control = testRunControl(
+      workflows,
       isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
       auditLogger: audit,
     );
@@ -151,10 +142,10 @@ void main() {
       final slackAdmin = turn(ChannelType.slack, sender: 'U-A', thread: 'C1:1700.1');
       final slackOther = turn(ChannelType.slack, sender: 'U-B', thread: 'C1:1700.1');
 
-      final denied = _result(
+      final denied = toolResult(
         await _call(newHandler().forHarness(() => slackOther), 'workflow_cancel', {'run_id': 'run-2'}),
       );
-      final ok = _result(
+      final ok = toolResult(
         await _call(newHandler().forHarness(() => slackAdmin), 'workflow_cancel', {
           'run_id': 'run-1',
           'feedback': 'the branch is stale',
@@ -162,7 +153,7 @@ void main() {
       );
 
       expect(denied['isError'], isTrue);
-      expect(_payload(denied)['message'], contains('admin senders'));
+      expect(resultPayload(denied)['message'], contains('admin senders'));
       expect((await repository.getById('run-2'))!.status, WorkflowRunStatus.awaitingApproval);
       expect(ok['isError'], isNot(true));
       final cancelled = (await repository.getById('run-1'))!;
@@ -184,21 +175,21 @@ void main() {
       await insertRun('run-sig');
       await insertRun('run-sig-2');
 
-      final whatsapp = _result(
+      final whatsapp = toolResult(
         await _call(
           newHandler().forHarness(() => turn(ChannelType.whatsapp, sender: '+4670000001', recipient: '+4670000001')),
           'workflow_resume',
           {'run_id': 'run-wa'},
         ),
       );
-      final signalAdmin = _result(
+      final signalAdmin = toolResult(
         await _call(
           newHandler().forHarness(() => turn(ChannelType.signal, sender: '+4670000002', recipient: 'group-1')),
           'workflow_resume',
           {'run_id': 'run-sig'},
         ),
       );
-      final signalOther = _result(
+      final signalOther = toolResult(
         await _call(
           newHandler().forHarness(() => turn(ChannelType.signal, sender: '+4670000009', recipient: 'group-1')),
           'workflow_resume',
@@ -219,14 +210,14 @@ void main() {
     });
 
     test('an unknown run answers an unknown-run error', () async {
-      final result = _result(
+      final result = toolResult(
         await _call(newHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A')), 'workflow_resume', {
           'run_id': 'nope',
         }),
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['reason'], 'unknown_run');
+      expect(resultPayload(result)['reason'], 'unknown_run');
     });
   });
 
@@ -239,7 +230,7 @@ void main() {
       adminSenders = ['U-A'];
       await insertRun('run-1');
 
-      final result = _result(
+      final result = toolResult(
         await _call(newHandler().forHarness(() => pushBack), 'workflow_resume', {'run_id': 'run-1'}),
       );
 
@@ -252,7 +243,7 @@ void main() {
     test('resolves, audited, where admin_senders is empty and every sender is an admin', () async {
       await insertRun('run-1');
 
-      final result = _result(
+      final result = toolResult(
         await _call(newHandler().forHarness(() => pushBack), 'workflow_resume', {'run_id': 'run-1'}),
       );
 
@@ -269,14 +260,14 @@ void main() {
       final webChat = newHandler().forHarness(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc'));
 
       final results = [
-        _result(await _call(gateway, 'workflow_resume', {'run_id': 'run-1'})),
-        _result(await _call(scheduled, 'workflow_cancel', {'run_id': 'run-1'})),
-        _result(await _call(webChat, 'workflow_resume', {'run_id': 'run-1'})),
+        toolResult(await _call(gateway, 'workflow_resume', {'run_id': 'run-1'})),
+        toolResult(await _call(scheduled, 'workflow_cancel', {'run_id': 'run-1'})),
+        toolResult(await _call(webChat, 'workflow_resume', {'run_id': 'run-1'})),
       ];
 
       for (final result in results) {
         expect(result['isError'], isTrue);
-        expect(_payload(result)['message'], contains('chat turn'));
+        expect(resultPayload(result)['message'], contains('chat turn'));
       }
       expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
       expect(audit.entries.map((e) => e.decision), ['deny', 'deny', 'deny']);
@@ -311,7 +302,7 @@ void main() {
       await insertRun('run-1', message: 'x' * 1500);
       final interaction = (await workflows.issueApprovalInteraction('run-1', 'gate'))!;
 
-      final payload = _payload(_result(await _call(newHandler(), 'workflow_status', {'run_id': 'run-1'})));
+      final payload = resultPayload(toolResult(await _call(newHandler(), 'workflow_status', {'run_id': 'run-1'})));
 
       expect(payload['status'], 'awaitingApproval');
       expect(payload['current_step'], 'gate');
@@ -335,8 +326,8 @@ void main() {
       );
       await insertRun('run-done', status: WorkflowRunStatus.completed, currentStepIndex: 2);
 
-      final failed = _payload(_result(await _call(newHandler(), 'workflow_status', {'run_id': 'run-failed'})));
-      final done = _payload(_result(await _call(newHandler(), 'workflow_status', {'run_id': 'run-done'})));
+      final failed = resultPayload(toolResult(await _call(newHandler(), 'workflow_status', {'run_id': 'run-failed'})));
+      final done = resultPayload(toolResult(await _call(newHandler(), 'workflow_status', {'run_id': 'run-done'})));
 
       expect(failed['status'], 'failed');
       expect(failed['current_step'], 'ship');
@@ -355,19 +346,19 @@ void main() {
         final other = newHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-B'));
         final admin = newHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A'));
 
-        final unknown = _result(await _call(other, 'workflow_status', {'run_id': 'nope'}));
-        final asOther = _payload(_result(await _call(other, 'workflow_status', {'run_id': 'run-1'})));
-        final asAdmin = _payload(_result(await _call(admin, 'workflow_status', {'run_id': 'run-1'})));
+        final unknown = toolResult(await _call(other, 'workflow_status', {'run_id': 'nope'}));
+        final asOther = resultPayload(toolResult(await _call(other, 'workflow_status', {'run_id': 'run-1'})));
+        final asAdmin = resultPayload(toolResult(await _call(admin, 'workflow_status', {'run_id': 'run-1'})));
 
         expect(unknown['isError'], isTrue);
-        expect(_payload(unknown)['reason'], 'unknown_run');
+        expect(resultPayload(unknown)['reason'], 'unknown_run');
         expect(asOther, asAdmin);
         expect(audit.entries, isEmpty);
       },
     );
 
     test('is classified read and the two resolving tools write', () {
-      final control = WorkflowRunControl(workflows: workflows, isAdmin: (_) => true, auditLogger: audit);
+      final control = testRunControl(workflows, auditLogger: audit);
 
       expect(WorkflowStatusTool(workflows: workflows).access, McpToolAccess.read);
       expect(WorkflowResumeTool(control: control).access, McpToolAccess.write);
@@ -411,8 +402,8 @@ void main() {
     });
 
     McpProtocolHandler fullHandler() {
-      final control = WorkflowRunControl(
-        workflows: full,
+      final control = testRunControl(
+        full,
         isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
         auditLogger: audit,
       );
@@ -473,7 +464,7 @@ void main() {
 
       final results = [
         for (final (runId, provenance) in calls)
-          _result(
+          toolResult(
             await _call(fullHandler().forHarness(() => provenance), 'workflow_request_changes', {
               'run_id': runId,
               'feedback': 'split story 3',
@@ -482,9 +473,13 @@ void main() {
       ];
 
       expect(results.take(3).map((r) => r['isError']), everyElement(isNot(true)));
-      expect(_payload(results.first), {'run_id': 'run-slack', 'outcome': 'changes_requested', 'status': 'running'});
+      expect(resultPayload(results.first), {
+        'run_id': 'run-slack',
+        'outcome': 'changes_requested',
+        'status': 'running',
+      });
       expect(results.last['isError'], isTrue);
-      expect(_payload(results.last)['message'], contains('admin senders'));
+      expect(resultPayload(results.last)['message'], contains('admin senders'));
       expect((await repository.getById('run-other'))!.status, WorkflowRunStatus.awaitingApproval);
       expect(audit.entries.map((e) => (e.hook, e.channel, e.peerId, e.tool, e.decision, e.reason)), [
         ('tool', 'slack', 'U-A', 'requestChanges', 'allow', 'revision 1/3'),
@@ -502,11 +497,11 @@ void main() {
       final webChat = fullHandler().forHarness(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc'));
 
       for (final handler in [gateway, scheduled, webChat]) {
-        final result = _result(
+        final result = toolResult(
           await _call(handler, 'workflow_request_changes', {'run_id': 'run-1', 'feedback': 'again'}),
         );
         expect(result['isError'], isTrue);
-        expect(_payload(result)['message'], contains('chat turn'));
+        expect(resultPayload(result)['message'], contains('chat turn'));
       }
       expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
       expect(audit.entries.map((e) => e.decision), ['deny', 'deny', 'deny']);
@@ -530,10 +525,10 @@ void main() {
           {'run_id': 'run-1'},
           {'run_id': 'run-1', 'feedback': '   '},
         ]) {
-          final result = _result(await _call(handler, 'workflow_request_changes', arguments));
+          final result = toolResult(await _call(handler, 'workflow_request_changes', arguments));
           expect(result['isError'], isTrue, reason: '$arguments');
           expect(
-            _payload(result)['reason'],
+            resultPayload(result)['reason'],
             'invalid_request',
             reason: 'the shared closed-schema pass refuses it first',
           );
@@ -549,11 +544,11 @@ void main() {
 
       final reasons = <String?>[];
       for (final (runId, feedback) in [('run-none', 'x'), ('run-bound', 'x')]) {
-        final result = _result(
+        final result = toolResult(
           await _call(handler, 'workflow_request_changes', {'run_id': runId, 'feedback': feedback}),
         );
         expect(result['isError'], isTrue, reason: runId);
-        reasons.add(_payload(result)['reason'] as String?);
+        reasons.add(resultPayload(result)['reason'] as String?);
       }
 
       expect(reasons, ['changes_not_offered', 'limit_reached']);
@@ -567,8 +562,10 @@ void main() {
         await insertGate('run-2', revise: null);
         final interaction = (await full.issueApprovalInteraction('run-1', 'gate'))!;
 
-        final withRevise = _payload(_result(await _call(fullHandler(), 'workflow_status', {'run_id': 'run-1'})));
-        final without = _payload(_result(await _call(fullHandler(), 'workflow_status', {'run_id': 'run-2'})));
+        final withRevise = resultPayload(
+          toolResult(await _call(fullHandler(), 'workflow_status', {'run_id': 'run-1'})),
+        );
+        final without = resultPayload(toolResult(await _call(fullHandler(), 'workflow_status', {'run_id': 'run-2'})));
 
         final pending = withRevise['pending_approval'] as Map<String, dynamic>;
         expect([pending['revision'], pending['max_revisions']], [1, 3]);
@@ -580,7 +577,7 @@ void main() {
     );
 
     test('is a write tool, and a named MCP client discovers none of the control tools', () async {
-      final control = WorkflowRunControl(workflows: workflows, isAdmin: (_) => true, auditLogger: audit);
+      final control = testRunControl(workflows, auditLogger: audit);
       expect(WorkflowRequestChangesTool(control: control).access, McpToolAccess.write);
 
       final client = newHandler().scopedTo(

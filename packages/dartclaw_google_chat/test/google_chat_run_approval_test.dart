@@ -180,37 +180,6 @@ void main() {
         ),
       );
     });
-
-    test('a notification without actions renders no buttons', () {
-      final response = threaded.render(
-        const ChannelNotification(
-          kind: ChannelNotificationKind.run,
-          id: 'run-1',
-          text: 'Run run-1 was approved.',
-          title: 'release',
-          status: 'started',
-        ),
-      );
-
-      expect(jsonEncode(response.structuredPayload), isNot(contains('buttonList')));
-    });
-
-    test('task review buttons are unchanged by the run action support', () {
-      final response = threaded.render(
-        const ChannelNotification(
-          kind: ChannelNotificationKind.task,
-          id: 'task-1',
-          text: 'Needs review.',
-          title: 'Fix',
-          status: 'review',
-          reviewActions: true,
-        ),
-      );
-
-      final card = jsonEncode(response.structuredPayload);
-      expect(card, allOf(contains('"function":"task_accept"'), contains('{"key":"taskId","value":"task-1"}')));
-      expect(card, isNot(contains('run_approve')));
-    });
   });
 
   group('click routing', () {

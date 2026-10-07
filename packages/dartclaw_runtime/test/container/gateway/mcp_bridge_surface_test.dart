@@ -2,11 +2,11 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, McpToolAccess, ToolResult, TurnProvenance;
-import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, TurnProvenance;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:test/test.dart';
 
+import '../../mcp/mcp_test_support.dart' show TurnProbeTool;
 import 'gateway_test_support.dart';
 
 const _canonicals = {
@@ -140,11 +140,11 @@ void main() {
   });
 
   group('trusted turn context', () {
-    late _TurnProbe probe;
+    late TurnProbeTool probe;
     late McpProtocolHandler probeRegistry;
 
     setUp(() {
-      probe = _TurnProbe();
+      probe = TurnProbeTool();
       probeRegistry = McpProtocolHandler()
         ..registerTool(probe)
         ..registerTool(RecordingMcpTool('web_fetch', called));
@@ -462,29 +462,4 @@ Future<Map<String, Object?>> _exchange(McpBridgeSurface surface, Map<String, Obj
   expect(response.status, 200);
   final body = utf8.decode((await response.body.toList()).expand((chunk) => chunk).toList());
   return jsonDecode(body) as Map<String, Object?>;
-}
-
-final class _TurnProbe implements TurnAwareMcpTool {
-  final contexts = <McpCallerContext>[];
-
-  @override
-  String get name => 'turn_probe';
-
-  @override
-  String get description => 'records the context it is called with';
-
-  @override
-  Map<String, dynamic> get inputSchema => const {'type': 'object', 'properties': <String, Object?>{}};
-
-  @override
-  McpToolAccess get access => McpToolAccess.read;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text('no context');
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) async {
-    contexts.add(context);
-    return ToolResult.text('ok');
-  }
 }

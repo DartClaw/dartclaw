@@ -1,15 +1,8 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show ChannelResponse;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannel, FakeChannelManager, FakeThreadedNotifications;
 import 'package:test/test.dart';
 
 void main() {
-  group('Channel.threadedNotifications', () {
-    test('defaults to no declaration, so a channel that does not opt in cannot thread', () {
-      expect(FakeChannel().threadedNotifications, isNull);
-    });
-  });
-
   group('ChannelManager.threadedNotificationsFor', () {
     late FakeChannelManager manager;
     late FakeThreadedNotifications googleChatDeclaration;
@@ -47,27 +40,6 @@ void main() {
       manager.registerChannel(FakeChannel(name: 'sig', type: ChannelType.signal, threadedNotifications: late));
 
       expect(manager.threadedNotificationsFor('signal'), same(late));
-    });
-  });
-
-  group('FakeThreadedNotifications', () {
-    test('reads a thread only from its metadata key and treats an empty value as none', () {
-      final fake = FakeThreadedNotifications(threadMetadataKey: 'threadName');
-
-      expect(fake.extractThread({'threadName': 'spaces/A/threads/B'}), 'spaces/A/threads/B');
-      expect(fake.extractThread({'threadName': ''}), isNull);
-      expect(fake.extractThread({'threadId': 'other'}), isNull);
-    });
-
-    test('records each edit by message identity and answers from its script', () async {
-      final fake = FakeThreadedNotifications();
-      const response = ChannelResponse(text: 'Approved');
-
-      expect(await fake.edit('C1', 'message-0', response), isTrue);
-      fake.editReturnsFalse = true;
-      expect(await fake.edit('C1', 'message-1', response), isFalse);
-
-      expect(fake.edits.map((e) => (e.$1, e.$2)), [('C1', 'message-0'), ('C1', 'message-1')]);
     });
   });
 }

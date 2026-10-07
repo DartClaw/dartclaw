@@ -13,8 +13,8 @@ typedef AttachmentWriteFailpoint = FutureOr<void> Function(String boundary, Stri
 
 const _maxAttachmentContextChars = 20000;
 
-/// Largest image sent to a harness as image input; a larger one stays a named attachment.
-const maxTurnImageBytes = 5 * 1024 * 1024;
+// Largest image sent to a harness as image input; a larger one stays a named attachment.
+const _maxTurnImageBytes = 5 * 1024 * 1024;
 
 const _turnImageMediaTypes = {'image/png', 'image/jpeg', 'image/gif', 'image/webp'};
 
@@ -155,7 +155,7 @@ Map<String, dynamic> metadataWithoutAttachmentContent(Map<String, dynamic> metad
 /// The model-input images among [attachments], as `{mediaType, data}` with base64 `data`.
 ///
 /// [attachments] are resolved attachments (see [readStagedAttachment]). An attachment qualifies when it is a PNG, JPEG,
-/// GIF or WebP of at most [maxTurnImageBytes]; its bytes come from the resolved map's `bytes` (process-retained
+/// GIF or WebP of at most 5 MiB; its bytes come from the resolved map's `bytes` (process-retained
 /// sessions) or the staged `.data` file in [attachmentsDir], and must match the recorded digest. Anything else stays a
 /// name in the rich-input context.
 Future<List<Map<String, dynamic>>> turnImages(String attachmentsDir, List<Map<String, dynamic>> attachments) async {
@@ -165,7 +165,7 @@ Future<List<Map<String, dynamic>>> turnImages(String attachmentsDir, List<Map<St
     final id = attachment['id'];
     final size = attachment['size'];
     if (mediaType is! String || !_turnImageMediaTypes.contains(mediaType)) continue;
-    if (id is! String || size is! int || size > maxTurnImageBytes) continue;
+    if (id is! String || size is! int || size > _maxTurnImageBytes) continue;
     final bytes = attachment['bytes'] is List<int>
         ? attachment['bytes'] as List<int>
         : await File(p.join(attachmentsDir, '$id.data')).readAsBytes();

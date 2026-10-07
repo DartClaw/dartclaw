@@ -1,6 +1,5 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
@@ -15,35 +14,10 @@ import 'package:test/test.dart';
 
 import '../guard_audit_test_support.dart';
 import '../task/task_review_test_support.dart';
+import 'mcp_test_support.dart';
 
 /// The six tools this suite covers, in registration order.
 const _taskToolNames = ['task_create', 'task_review', 'task_list', 'review_list', 'task_bind', 'task_unbind'];
-
-Future<Map<String, dynamic>> _call(
-  McpProtocolHandler handler,
-  String name, {
-  Map<String, dynamic> arguments = const {},
-}) async {
-  final raw = await handler.handleRequest(
-    jsonEncode({
-      'jsonrpc': '2.0',
-      'id': 1,
-      'method': 'tools/call',
-      'params': {'name': name, 'arguments': arguments},
-    }),
-  );
-  return jsonDecode(raw!) as Map<String, dynamic>;
-}
-
-Map<String, dynamic> _result(Map<String, dynamic> response) {
-  expect(response['error'], isNull, reason: 'a tool refusal must be a JSON-RPC success carrying isError');
-  return response['result'] as Map<String, dynamic>;
-}
-
-String _text(Map<String, dynamic> result) =>
-    ((result['content'] as List).single as Map<String, dynamic>)['text'] as String;
-
-Map<String, dynamic> _payload(Map<String, dynamic> result) => jsonDecode(_text(result)) as Map<String, dynamic>;
 
 Task _task({
   required String id,
@@ -121,14 +95,18 @@ void main() {
     test('both calls return the full ID and status, and each dispatch wrote one allow entry', () async {
       final handler = passingHandler();
 
-      final draft = _payload(
-        _result(
-          await _call(handler, 'task_create', arguments: {'title': 'Draft task', 'description': 'Leave it in draft'}),
+      final draft = resultPayload(
+        toolResult(
+          await callTool(
+            handler,
+            'task_create',
+            arguments: {'title': 'Draft task', 'description': 'Leave it in draft'},
+          ),
         ),
       );
-      final queued = _payload(
-        _result(
-          await _call(
+      final queued = resultPayload(
+        toolResult(
+          await callTool(
             handler,
             'task_create',
             arguments: {'title': 'Queued task', 'description': 'Start it now', 'auto_start': true},
@@ -158,7 +136,7 @@ void main() {
       final schema = TaskCreateTool(tasks: tasks).inputSchema;
       expect(schema['properties'] as Map, isNot(contains('type')));
 
-      final response = await _call(
+      final response = await callTool(
         passingHandler(),
         'task_create',
         arguments: {'title': 'Research', 'description': 'Investigate', 'type': 'research'},
@@ -196,7 +174,7 @@ void main() {
       };
 
       for (final MapEntry(key: key, value: value) in forbidden.entries) {
-        final response = await _call(
+        final response = await callTool(
           handler,
           'task_create',
           arguments: {'title': 'Widening attempt', 'description': 'Should never be created', key: value},
@@ -231,7 +209,7 @@ void main() {
     });
 
     test('the whole list equals exactly the review tasks in ascending creation order', () async {
-      final payload = _payload(_result(await _call(passingHandler(), 'review_list')));
+      final payload = resultPayload(toolResult(await callTool(passingHandler(), 'review_list')));
       final reviews = (payload['reviews'] as List).cast<Map<String, dynamic>>();
 
       expect(reviews.map((entry) => (entry['task_id'], entry['title'])).toList(), [
@@ -260,12 +238,12 @@ void main() {
       await repo.insert(_task(id: 'r-3', status: TaskStatus.review, createdAt: DateTime.utc(2026, 3, 3)));
       final handler = passingHandler();
 
-      final listed = (_payload(_result(await _call(handler, 'review_list')))['reviews'] as List)
+      final listed = (resultPayload(toolResult(await callTool(handler, 'review_list')))['reviews'] as List)
           .cast<Map<String, dynamic>>();
       final secondId = listed[1]['task_id'] as String;
 
-      final accepted = _payload(
-        _result(await _call(handler, 'task_review', arguments: {'task_id': secondId, 'action': 'accept'})),
+      final accepted = resultPayload(
+        toolResult(await callTool(handler, 'task_review', arguments: {'task_id': secondId, 'action': 'accept'})),
       );
 
       expect(accepted['task_id'], 'r-2');
@@ -284,9 +262,9 @@ void main() {
       await repo.insert(_task(id: 'pb-1', status: TaskStatus.review));
       // No PushBackFeedbackDelivery is wired — the stock-install shape — so a
       // response claiming delivery would be reporting something unobserved.
-      final payload = _payload(
-        _result(
-          await _call(
+      final payload = resultPayload(
+        toolResult(
+          await callTool(
             passingHandler(),
             'task_review',
             arguments: {'task_id': 'pb-1', 'action': 'push_back', 'feedback': 'Please add tests'},
@@ -297,30 +275,30 @@ void main() {
       expect(payload['status'], 'running');
       expect(payload['action'], 'push_back');
       expect(payload.keys, isNot(contains('delivered')));
-      expect(_payload(_result(await _call(passingHandler(), 'review_list')))['reviews'], isEmpty);
+      expect(resultPayload(toolResult(await callTool(passingHandler(), 'review_list')))['reviews'], isEmpty);
     });
 
     test('push_back without feedback is refused by the tool, before the review service', () async {
       await repo.insert(_task(id: 'pb-2', status: TaskStatus.review));
 
-      final result = _result(
-        await _call(passingHandler(), 'task_review', arguments: {'task_id': 'pb-2', 'action': 'push_back'}),
+      final result = toolResult(
+        await callTool(passingHandler(), 'task_review', arguments: {'task_id': 'pb-2', 'action': 'push_back'}),
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['reason'], 'invalid_request');
+      expect(resultPayload(result)['reason'], 'invalid_request');
       // The review service refuses a blank comment too, so the tool's own
       // message is what separates "the argument contract refused it" from
       // "the lifecycle refused it" — without it this test cannot fail.
-      expect(_payload(result)['message'], 'feedback is required when action is push_back');
+      expect(resultPayload(result)['message'], 'feedback is required when action is push_back');
       expect((await tasks.get('pb-2'))!.status, TaskStatus.review);
     });
 
     test('feedback alongside accept or reject is refused', () async {
       await repo.insert(_task(id: 'pb-3', status: TaskStatus.review));
 
-      final result = _result(
-        await _call(
+      final result = toolResult(
+        await callTool(
           passingHandler(),
           'task_review',
           arguments: {'task_id': 'pb-3', 'action': 'accept', 'feedback': 'looks good'},
@@ -328,7 +306,7 @@ void main() {
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['message'], 'feedback is only accepted when action is push_back');
+      expect(resultPayload(result)['message'], 'feedback is only accepted when action is push_back');
       expect((await tasks.get('pb-3'))!.status, TaskStatus.review, reason: 'a refused call has no side effect');
     });
   });
@@ -353,22 +331,22 @@ void main() {
         ),
       );
 
-      final missing = _result(
-        await _call(passingHandler(), 'task_review', arguments: {'task_id': 'nope', 'action': 'accept'}),
+      final missing = toolResult(
+        await callTool(passingHandler(), 'task_review', arguments: {'task_id': 'nope', 'action': 'accept'}),
       );
-      final wrongStatus = _result(
-        await _call(passingHandler(), 'task_review', arguments: {'task_id': 'draft-1', 'action': 'accept'}),
+      final wrongStatus = toolResult(
+        await callTool(passingHandler(), 'task_review', arguments: {'task_id': 'draft-1', 'action': 'accept'}),
       );
-      final conflict = _result(
-        await _call(conflicted, 'task_review', arguments: {'task_id': 'conflict-1', 'action': 'accept'}),
+      final conflict = toolResult(
+        await callTool(conflicted, 'task_review', arguments: {'task_id': 'conflict-1', 'action': 'accept'}),
       );
 
       expect([missing['isError'], wrongStatus['isError'], conflict['isError']], [isTrue, isTrue, isTrue]);
-      expect(_payload(missing)['reason'], 'not_found');
-      expect(_payload(wrongStatus)['reason'], 'invalid_status');
-      expect(_payload(wrongStatus)['current_status'], 'draft');
-      expect(_payload(conflict)['reason'], 'merge_conflict');
-      expect(_payload(conflict)['conflicting_files'], ['lib/a.dart', 'lib/b.dart']);
+      expect(resultPayload(missing)['reason'], 'not_found');
+      expect(resultPayload(wrongStatus)['reason'], 'invalid_status');
+      expect(resultPayload(wrongStatus)['current_status'], 'draft');
+      expect(resultPayload(conflict)['reason'], 'merge_conflict');
+      expect(resultPayload(conflict)['conflicting_files'], ['lib/a.dart', 'lib/b.dart']);
 
       expect((await tasks.get('draft-1'))!.status, TaskStatus.draft);
       expect((await tasks.get('conflict-1'))!.status, TaskStatus.review);
@@ -388,8 +366,8 @@ void main() {
     test('unfiltered and status-filtered calls each return exactly the matching tasks', () async {
       final handler = passingHandler();
 
-      final all = _payload(_result(await _call(handler, 'task_list')));
-      final byStatus = _payload(_result(await _call(handler, 'task_list', arguments: {'status': 'review'})));
+      final all = resultPayload(toolResult(await callTool(handler, 'task_list')));
+      final byStatus = resultPayload(toolResult(await callTool(handler, 'task_list', arguments: {'status': 'review'})));
 
       expect(ids(all).toSet(), {'task-review', 'task-queued', 'task-draft'});
       expect(all['truncated'], isFalse);
@@ -397,7 +375,7 @@ void main() {
     });
 
     test('the declared maximum bounds the listing and reports the truncation', () async {
-      final payload = _payload(_result(await _call(passingHandler(), 'task_list', arguments: {'limit': 2})));
+      final payload = resultPayload(toolResult(await callTool(passingHandler(), 'task_list', arguments: {'limit': 2})));
 
       expect(ids(payload), hasLength(2));
       expect(payload['truncated'], isTrue);
@@ -406,13 +384,13 @@ void main() {
     test('an unknown filter value and an over-maximum limit are refused, not silently ignored', () async {
       final handler = passingHandler();
 
-      final unknownStatus = _result(await _call(handler, 'task_list', arguments: {'status': 'archived'}));
-      final unknownType = await _call(handler, 'task_list', arguments: {'type': 'gardening'});
-      final overLimit = _result(await _call(handler, 'task_list', arguments: {'limit': 10000}));
+      final unknownStatus = toolResult(await callTool(handler, 'task_list', arguments: {'status': 'archived'}));
+      final unknownType = await callTool(handler, 'task_list', arguments: {'type': 'gardening'});
+      final overLimit = toolResult(await callTool(handler, 'task_list', arguments: {'limit': 10000}));
 
       for (final result in [unknownStatus, overLimit]) {
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'invalid_request');
+        expect(resultPayload(result)['reason'], 'invalid_request');
       }
       expect((unknownType['error'] as Map<String, dynamic>)['code'], -32602);
     });
@@ -426,9 +404,9 @@ void main() {
     });
 
     test('a live task and a free thread bind with the session key the HTTP route would produce', () async {
-      final payload = _payload(
-        _result(
-          await _call(
+      final payload = resultPayload(
+        toolResult(
+          await callTool(
             passingHandler(bindingStore: bindings),
             'task_bind',
             arguments: {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'spaces/AAA/threads/BBB'},
@@ -445,30 +423,30 @@ void main() {
 
     test('a terminal task and a thread bound elsewhere are each refused by reason', () async {
       final handler = passingHandler(bindingStore: bindings);
-      await _call(
+      await callTool(
         handler,
         'task_bind',
         arguments: {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'thread-taken'},
       );
 
-      final terminal = _result(
-        await _call(
+      final terminal = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'done-1', 'channel_type': 'googlechat', 'thread_id': 'thread-free'},
         ),
       );
-      final conflict = _result(
-        await _call(
+      final conflict = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'live-2', 'channel_type': 'googlechat', 'thread_id': 'thread-taken'},
         ),
       );
 
-      expect(_payload(terminal)['reason'], 'terminal_task');
-      expect(_payload(conflict)['reason'], 'thread_conflict');
-      expect(_payload(conflict)['bound_task_id'], 'live-1');
+      expect(resultPayload(terminal)['reason'], 'terminal_task');
+      expect(resultPayload(conflict)['reason'], 'thread_conflict');
+      expect(resultPayload(conflict)['bound_task_id'], 'live-1');
       expect(bindings.lookupByThread('googlechat', 'thread-free'), isNull);
       expect(bindings.lookupByThread('googlechat', 'thread-taken')!.targetId, 'live-1');
     });
@@ -494,15 +472,15 @@ void main() {
         reason: 'a channel registered after the tool still counts, because the choices are read at each call',
       );
 
-      final refused = _result(
-        await _call(
+      final refused = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'live-1', 'channel_type': 'whatsapp', 'thread_id': '120363000@g.us'},
         ),
       );
       expect(refused['isError'], isTrue);
-      expect(_payload(refused)['reason'], 'invalid_request');
+      expect(resultPayload(refused)['reason'], 'invalid_request');
       expect(bindings.lookupByThread('whatsapp', '120363000@g.us'), isNull);
     });
 
@@ -531,8 +509,8 @@ void main() {
         ),
       );
 
-      final conflict = _result(
-        await _call(
+      final conflict = toolResult(
+        await callTool(
           passingHandler(bindingStore: bindings),
           'task_bind',
           arguments: {'task_id': 'live-1', 'channel_type': 'slack', 'thread_id': 'C1:1700000000.000100'},
@@ -540,9 +518,9 @@ void main() {
       );
 
       expect(conflict['isError'], isTrue);
-      expect(_payload(conflict)['reason'], 'thread_conflict');
-      expect(_payload(conflict)['bound_run_id'], 'run-9');
-      expect(_text(conflict), contains('run-9'));
+      expect(resultPayload(conflict)['reason'], 'thread_conflict');
+      expect(resultPayload(conflict)['bound_run_id'], 'run-9');
+      expect(resultText(conflict), contains('run-9'));
       expect(bindings.lookupByRun('run-9'), hasLength(1));
       expect(bindings.lookupByTask('live-1'), isEmpty);
     });
@@ -551,12 +529,12 @@ void main() {
       final handler = passingHandler(bindingStore: bindings);
       const args = {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'thread-repeat'};
 
-      final first = _payload(_result(await _call(handler, 'task_bind', arguments: args)));
-      final second = _result(await _call(handler, 'task_bind', arguments: args));
+      final first = resultPayload(toolResult(await callTool(handler, 'task_bind', arguments: args)));
+      final second = toolResult(await callTool(handler, 'task_bind', arguments: args));
 
       expect(first['created'], isTrue);
       expect(second['isError'], isNull, reason: 'an identical binding is the state the caller asked for');
-      expect(_payload(second)['created'], isFalse);
+      expect(resultPayload(second)['created'], isFalse);
       expect(bindings.lookupByTask('live-1'), hasLength(1));
     });
   });
@@ -566,14 +544,16 @@ void main() {
       await repo.insert(_task(id: 'bound-1', status: TaskStatus.running));
       final handler = passingHandler(bindingStore: bindings);
       for (final thread in ['thread-a', 'thread-b']) {
-        await _call(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'bound-1', 'channel_type': 'googlechat', 'thread_id': thread},
         );
       }
 
-      final payload = _payload(_result(await _call(handler, 'task_unbind', arguments: {'task_id': 'bound-1'})));
+      final payload = resultPayload(
+        toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bound-1'})),
+      );
       expect(payload['removed'], 2);
       expect(bindings.lookupByTask('bound-1'), isEmpty);
 
@@ -585,12 +565,12 @@ void main() {
     });
 
     test('unbinding a task with no bindings is a success stating that none existed', () async {
-      final result = _result(
-        await _call(passingHandler(bindingStore: bindings), 'task_unbind', arguments: {'task_id': 'never-bound'}),
+      final result = toolResult(
+        await callTool(passingHandler(bindingStore: bindings), 'task_unbind', arguments: {'task_id': 'never-bound'}),
       );
 
       expect(result['isError'], isNull);
-      expect(_payload(result)['removed'], 0);
+      expect(resultPayload(result)['removed'], 0);
     });
   });
 
@@ -599,18 +579,18 @@ void main() {
       await repo.insert(_task(id: 'live-1', status: TaskStatus.running));
       final handler = passingHandler();
 
-      final bind = _result(
-        await _call(
+      final bind = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'thread-x'},
         ),
       );
-      final unbind = _result(await _call(handler, 'task_unbind', arguments: {'task_id': 'live-1'}));
+      final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'live-1'}));
 
       for (final result in [bind, unbind]) {
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'thread_binding_not_enabled');
+        expect(resultPayload(result)['reason'], 'thread_binding_not_enabled');
       }
     });
   });
@@ -644,9 +624,9 @@ void main() {
       };
 
       for (final name in _taskToolNames) {
-        final result = _result(await _call(handler, name, arguments: argumentsByTool[name]!));
+        final result = toolResult(await callTool(handler, name, arguments: argumentsByTool[name]!));
         expect(result['isError'], isTrue, reason: '$name must refuse as a tool error, not a protocol error');
-        expect(_text(result), 'mcp task tools disabled');
+        expect(resultText(result), 'mcp task tools disabled');
       }
 
       expect(
@@ -704,11 +684,11 @@ void main() {
       test('${testCase.tool}: ${testCase.message}', () async {
         final handler = passingHandler(bindingStore: bindings);
 
-        final result = _result(await _call(handler, testCase.tool, arguments: testCase.arguments));
+        final result = toolResult(await callTool(handler, testCase.tool, arguments: testCase.arguments));
 
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'invalid_request');
-        expect(_payload(result)['message'], testCase.message);
+        expect(resultPayload(result)['reason'], 'invalid_request');
+        expect(resultPayload(result)['message'], testCase.message);
         // Fail-closed means the refused call also left nothing behind.
         expect(await tasks.list(), hasLength(1));
         expect((await tasks.get('arg-1'))!.status, TaskStatus.review);

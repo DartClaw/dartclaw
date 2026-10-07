@@ -322,18 +322,8 @@ class McpProtocolHandler {
           TurnAwareMcpTool() when _policy != null && callerIdentity == null => Future<ToolResult>.value(
             const ToolResult.error('Tool requires authenticated caller context'),
           ),
-          TurnAwareMcpTool() => tool.callWithTurn(args, _turnContext(callerIdentity)),
-          ContextualMcpTool() when callerIdentity != null => tool.callWithContext(
-            args,
-            McpCallerContext(
-              authorityId: callerIdentity.authorityId,
-              sourceEvent: 'mcp-call:${callerIdentity.authorityId}:${_uuid.v4()}',
-              sessionId: callerIdentity.sessionId,
-              taskId: callerIdentity.taskId,
-              agentId: callerIdentity.agentId,
-              knowledgeScope: callerIdentity.knowledgeScope,
-            ),
-          ),
+          TurnAwareMcpTool() => tool.callWithTurn(args, _callerContext(callerIdentity, turn: _activeTurn?.call())),
+          ContextualMcpTool() when callerIdentity != null => tool.callWithContext(args, _callerContext(callerIdentity)),
           ContextualMcpTool() when _policy != null => Future<ToolResult>.value(
             const ToolResult.error('Tool requires authenticated caller context'),
           ),
@@ -363,7 +353,7 @@ class McpProtocolHandler {
     };
   }
 
-  McpCallerContext _turnContext(McpCallerIdentity? identity) {
+  McpCallerContext _callerContext(McpCallerIdentity? identity, {TurnProvenance? turn}) {
     final authorityId = identity?.authorityId ?? mcpStewardPrincipal;
     return McpCallerContext(
       authorityId: authorityId,
@@ -372,7 +362,7 @@ class McpProtocolHandler {
       taskId: identity?.taskId,
       agentId: identity?.agentId,
       knowledgeScope: identity?.knowledgeScope ?? McpKnowledgeScope.privateAndShared,
-      turn: _activeTurn?.call(),
+      turn: turn,
     );
   }
 

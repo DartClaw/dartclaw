@@ -43,24 +43,12 @@ class ChatCardBuilder {
 
     final trimmedDescription = description?.trim();
     if (trimmedDescription != null && trimmedDescription.isNotEmpty) {
-      sections.add({
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeAndTruncateDescription(trimmedDescription)},
-          },
-        ],
-      });
+      sections.add(_paragraphSection(_escapeAndTruncateDescription(trimmedDescription)));
     }
 
     final trimmedErrorSummary = errorSummary?.trim();
     if ((status == 'failed' || status == 'error') && trimmedErrorSummary != null && trimmedErrorSummary.isNotEmpty) {
-      sections.add({
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeText(trimmedErrorSummary)},
-          },
-        ],
-      });
+      sections.add(_paragraphSection(_escapeText(trimmedErrorSummary)));
     }
 
     final timestampWidgets = <Map<String, dynamic>>[];
@@ -125,24 +113,12 @@ class ChatCardBuilder {
 
     final trimmedBody = body?.trim();
     if (trimmedBody != null && trimmedBody.isNotEmpty) {
-      sections.add({
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeAndTruncateDescription(trimmedBody)},
-          },
-        ],
-      });
+      sections.add(_paragraphSection(_escapeAndTruncateDescription(trimmedBody)));
     }
 
     final trimmedErrorSummary = errorSummary?.trim();
     if (status == 'failed' && trimmedErrorSummary != null && trimmedErrorSummary.isNotEmpty) {
-      sections.add({
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeText(trimmedErrorSummary)},
-          },
-        ],
-      });
+      sections.add(_paragraphSection(_escapeText(trimmedErrorSummary)));
     }
 
     if (actions.isNotEmpty) {
@@ -184,15 +160,7 @@ class ChatCardBuilder {
     String? taskId,
     String? sessionId,
   }) {
-    final sections = <Map<String, dynamic>>[
-      {
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeText(errorSummary.trim())},
-          },
-        ],
-      },
-    ];
+    final sections = <Map<String, dynamic>>[_paragraphSection(_escapeText(errorSummary.trim()))];
 
     final referenceWidgets = <Map<String, dynamic>>[];
     if (taskId != null && taskId.isNotEmpty) {
@@ -243,13 +211,7 @@ class ChatCardBuilder {
           },
         ],
       },
-      {
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeText(body.trim())},
-          },
-        ],
-      },
+      _paragraphSection(_escapeText(body.trim())),
     ];
 
     if (details != null && details.isNotEmpty) {
@@ -275,15 +237,7 @@ class ChatCardBuilder {
     return _wrapCard(
       cardId: 'confirmation',
       header: {'title': title, 'subtitle': 'Confirmation'},
-      sections: [
-        {
-          'widgets': [
-            {
-              'textParagraph': {'text': _escapeText(message.trim())},
-            },
-          ],
-        },
-      ],
+      sections: [_paragraphSection(_escapeText(message.trim()))],
     );
   }
 
@@ -336,13 +290,15 @@ class ChatCardBuilder {
   Map<String, dynamic> messageDialog(String message) {
     return {
       'header': {'title': 'Request changes'},
-      'sections': [
+      'sections': [_paragraphSection(_escapeText(message.trim()))],
+    };
+  }
+
+  Map<String, dynamic> _paragraphSection(String escapedText) {
+    return {
+      'widgets': [
         {
-          'widgets': [
-            {
-              'textParagraph': {'text': _escapeText(message.trim())},
-            },
-          ],
+          'textParagraph': {'text': escapedText},
         },
       ],
     };

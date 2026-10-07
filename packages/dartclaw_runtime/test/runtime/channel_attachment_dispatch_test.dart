@@ -7,102 +7,16 @@ import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_runtime/src/execution_policy_resolver.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_agent_binding.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_wiring.dart';
-import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-import '../execution_coordinator_test_support.dart';
-import '../turn_runner_test_support.dart';
-
-/// Records the entries each channel turn is handed, on both the unbound (`startTurn`) and bound (`executeTurn`) paths.
-class _EntryRecordingTurnManager extends TurnManager {
-  new()
-    : super.fromCoordinator(
-        coordinator: coordinatorForRunners([FakeTurnRunner()]),
-        turnLimits: const TurnLimitsConfig.defaults(),
-      );
-
-  final turnEntries = <List<Map<String, dynamic>>>[];
-
-  @override
-  Future<String> startTurn(
-    String sessionId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    Duration? turnTimeout,
-    bool isHumanInput = false,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    PromptScope? promptScope,
-    TurnOrigin? origin,
-    TurnProvenance? provenance,
-  }) async {
-    turnEntries.add(messages);
-    return 'turn-${turnEntries.length}';
-  }
-
-  @override
-  Future<String> reserveTurn(
-    String sessionId, {
-    String agentName = 'main',
-    String? directory,
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    ExecutionPolicy? workerPolicy,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    Duration? turnTimeout,
-    bool isHumanInput = false,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    TurnOrigin? origin,
-    TurnProvenance? provenance,
-  }) async => 'turn-bound';
-
-  @override
-  void executeTurn(
-    String sessionId,
-    String turnId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-  }) => turnEntries.add(messages);
-
-  @override
-  void releaseTurn(String sessionId, String turnId) {}
-
-  @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async => TurnOutcome(
-    turnId: turnId,
-    sessionId: sessionId,
-    status: TurnStatus.completed,
-    responseText: 'reply',
-    completedAt: DateTime.now(),
-  );
-}
+import 'channel_wiring_test_support.dart' show RecordingChannelTurnManager;
 
 void main() {
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;
-  late _EntryRecordingTurnManager turns;
+  late RecordingChannelTurnManager turns;
 
   const sessionKey = 'agent:main:slack:dm:U1';
   final provenance = TurnProvenance.channel(
@@ -117,7 +31,7 @@ void main() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw-channel-attachments-');
     sessions = SessionService(baseDir: tempDir.path);
     messages = MessageService(baseDir: tempDir.path);
-    turns = _EntryRecordingTurnManager();
+    turns = RecordingChannelTurnManager();
     addTearDown(turns.executions.dispose);
   });
 

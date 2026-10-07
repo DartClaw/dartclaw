@@ -5,10 +5,11 @@ import 'dart:isolate';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show FakeAgentHarness, InMemoryTaskRepository, openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository, openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'harness_wiring_fixture.dart' show TurnContextHarness;
 
 Future<String> _resolvePackageDir(String packageRelativeAnchor) async {
   final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/$packageRelativeAnchor'));
@@ -18,20 +19,12 @@ Future<String> _resolvePackageDir(String packageRelativeAnchor) async {
   return p.dirname(uri.toFilePath());
 }
 
-final class _ProvenanceHarness extends FakeAgentHarness implements HarnessTurnContextSink {
-  @override
-  HarnessTurnContext? activeTurnContext;
-
-  @override
-  void setTurnContext(HarnessTurnContext? context) => activeTurnContext = context;
-}
-
 void main() {
   late String staticDirPath;
   late String templatesDirPath;
   late Directory tempDir;
   late Directory dataDir;
-  late _ProvenanceHarness harness;
+  late TurnContextHarness harness;
 
   setUpAll(() async {
     staticDirPath = await _resolvePackageDir('src/static/app.js');
@@ -41,7 +34,7 @@ void main() {
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_push_back_delivery_');
     dataDir = Directory(p.join(tempDir.path, 'data'))..createSync(recursive: true);
-    harness = _ProvenanceHarness();
+    harness = TurnContextHarness();
   });
 
   tearDown(() {

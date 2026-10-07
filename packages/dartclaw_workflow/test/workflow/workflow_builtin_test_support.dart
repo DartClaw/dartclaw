@@ -244,10 +244,11 @@ final class BuiltInWorkflowDriver {
   Future<void> tearDown() => harness.tearDown();
 
   WorkflowExecutor _makeExecutor({WorkflowTurnAdapter? turnAdapter}) {
-    return harness.makeExecutor(turnAdapter: turnAdapter ?? _defaultTurnAdapter());
+    return harness.makeExecutor(turnAdapter: turnAdapter ?? defaultTurnAdapter());
   }
 
-  WorkflowTurnAdapter _defaultTurnAdapter() {
+  /// The default stubbed turn adapter, for a [WorkflowService] that must run the same stubbed turn loop.
+  WorkflowTurnAdapter defaultTurnAdapter() {
     return WorkflowTurnAdapter(
       reserveTurn: (_) => Future.value('turn-1'),
       executeTurn: (sessionId, turnId, messages, {required source}) {},
@@ -369,7 +370,8 @@ final class BuiltInWorkflowDriver {
     await harness.seedDeclaredOutputs(task.id, normalized);
   }
 
-  void _ensureProjectRepo(String projectId) {
+  /// Creates the git project [projectId] a run binds its steps to.
+  void ensureProject(String projectId) {
     final projectDir = Directory(p.join(tempDir.path, 'projects', projectId));
     if (Directory(p.join(projectDir.path, '.git')).existsSync()) return;
     projectDir.createSync(recursive: true);
@@ -387,12 +389,6 @@ final class BuiltInWorkflowDriver {
     git(['add', '.']);
     git(['-c', 'user.name=DartClaw Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial']);
   }
-
-  /// Creates the git project [projectId] a run binds its steps to.
-  void ensureProject(String projectId) => _ensureProjectRepo(projectId);
-
-  /// The default stubbed turn adapter, for a [WorkflowService] that must run the same stubbed turn loop.
-  WorkflowTurnAdapter defaultTurnAdapter() => _defaultTurnAdapter();
 
   /// Answers every queued step task of [definition] with [responseForStep] until cancelled.
   ///
@@ -495,9 +491,9 @@ final class BuiltInWorkflowDriver {
   }) async {
     final projectId = variables['PROJECT']?.trim();
     if (projectId != null && projectId.isNotEmpty) {
-      _ensureProjectRepo(projectId);
+      ensureProject(projectId);
     }
-    final definition = await WorkflowDefinitionParser().parseFile(p.join(_definitionsDir!, workflowFileName));
+    final definition = await loadBuiltIn(workflowFileName);
     final run = WorkflowRun(
       id: '${definition.name}-run',
       definitionName: definition.name,
@@ -546,8 +542,6 @@ final class BuiltInStubSession {
   }) : _subscription = subscription;
 
   int count(String stepKey) => queuedStepOrder.where((step) => step == stepKey).length;
-
-  List<QueuedTaskRecord> tasksForStep(String stepKey) => queuedTasks.where((task) => task.stepKey == stepKey).toList();
 
   Future<void> cancel() => _subscription.cancel();
 

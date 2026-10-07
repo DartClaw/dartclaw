@@ -422,9 +422,25 @@
         "S07",
         "S09"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s08-documentation-parity-record-and-qualification.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11"
+      ],
+      "verified": {
+        "at": "2026-10-07T06:59Z",
+        "summary": "fast tier (dart analyze --fatal-infos; dart test packages/dartclaw_{kernel,core,search,workflow,runtime} and -x slow apps/dartclaw_cli) -> exit=0, runtime +5563 ~25: All other tests passed!; config_schema_corpus, config_advisory_baseline, slack_setup_assets tests -> +53: All tests passed!; bash dev/tools/fitness/run_all.sh -> +122: All tests passed!; dart format --set-exit-if-changed -> exit=0; git diff --check (public and private) -> exit=0."
+      },
       "scope": "Land the cross-cutting records: the channel parity matrix's Slack column and run rows, glossary rows for the four new terms, the feature comparison, the single-owner statements in the context-engine and tasks guides, PRODUCT.md and OUT-OF-SCOPE consistency, the channels testing profile README and Slack setup, a completeness pass over the Slack guide page (streaming, inbound files, run notifications, approvals, request changes, every new config key), and per-channel run-loop scenarios for the owner-led live qualification after this story (owner D22). The qualification scenarios cover importing both shipped manifests and every Slack API fact the earlier FIS record as an unverified `ASSUMPTION:`.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr10-documentation-and-parity-record",

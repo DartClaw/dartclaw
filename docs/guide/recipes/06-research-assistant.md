@@ -125,7 +125,7 @@ scheduling:
 - **Enable hybrid search**: Add `search.backend: hybrid`, configure an embedding provider, and provision pgvector for
   semantic memory retrieval
 - **Add research templates**: Include structured templates in TOOLS.md for common research formats (comparison tables, literature reviews, technical evaluations)
-- **Connect a messaging channel**: Add WhatsApp, Signal, or Google Chat so you can ask research questions on the go --
+- **Connect a messaging channel**: Add WhatsApp, Signal, Google Chat, or Slack so you can ask research questions on the go --
   the agent uses the same search agent and memory. For a restricted background task, use the authenticated task API
   with `"securityProfile": "restricted"`; the agent's `task_create` tool cannot choose a security boundary.
 

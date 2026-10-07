@@ -205,3 +205,18 @@ Decisions, each also stated where it bites:
 ## Discovered Requirements
 
 - **Title**: Qualification covers unverified Google Chat facts too. **Description**: Beside every unverified Slack API `ASSUMPTION:` in the earlier FIS, the per-channel run-loop scenarios also cover the Google Chat facts stories S06 and S07 could not confirm without a live workspace: whether a refused card click is shown only to the clicker, the `cards_v2,text` behaviour S06 relies on, and the `postMessageId` echo S07 reads from a dialog submission that carries no `message`. Collect them from the `ASSUMPTION:` lines and Implementation Observations of the S06 and S07 FIS files. **Rationale**: the FIS names Slack facts only; S06 and S07 recorded Google Chat facts as unverified after this FIS was written. **Interpretation**: scope-preserving; same qualification ledger, one more channel's rows. **Traced from**: S06 and S07 completion reports. **Date**: 2026-10-07
+
+## Implementation Observations
+
+- ASSUMPTION: the approval-gated run in the scenarios is `plan-and-implement` with `PLAN_REVIEW=true`, the only built-in definition with an approval gate – a custom one-step approval workflow would shorten each gated run but needs a definition the profile does not ship.
+- ASSUMPTION: the bound agent `eng-bot` holds `context_research` plus the five workflow tools; the FIS's "five context-engine read tools" has no counterpart in code (`kg_query`, `kg_timeline` have no canonical tool name) – a named read-tool set in a later story changes the seed and the guide example.
+- ASSUMPTION: the `slack.md` key table for `workflow.chat_notifications.*` and `features.thread_binding.enabled` is kept beside the links to `configuration.md`, since TI06 asks for the table and scenario S06 for the links.
+- ASSUMPTION: the success metric Q28-M01 is evidenced on Slack only (the PRD row is Slack-scoped); Google Chat approval audit is checked in its own scenario.
+- Glossary prunes (oldest changelog lines): 2026-08-12 Credential Proxy retired; 2026-08-12 0.24 execution-isolation terms; 2026-08-14 regrouping onto 15 contexts; 2026-08-15 0.24.2 subscription-credential vocabulary; 2026-08-17 0.24.1 knowledge-inbox wiki vocabulary.
+- Google Chat inbound media: the parity matrix now reads "Not wired into a turn" because `GoogleChatRestClient.downloadMedia()` has no production caller; the PRD's FR8 assumes it exists – someone should confirm.
+- Private files left uncommitted for the owner: `docs/specs/channel-parity-matrix.md`, `docs/specs/feature-comparison.md`, `docs/OUT-OF-SCOPE.md` (one sentence in the Decision paragraph of "Multi-tenant deployment and multiple administrators"; the rest of that file's diff is another author's), `docs/testing/channel-e2e-manual.md`.
+- NOTICED BUT NOT TOUCHING: `docs/guide/workflows.md` ("Approving from chat") says a bound agent needs `allowedTools`; the agent key is `tools`. Routing: Fix.
+- NOTICED BUT NOT TOUCHING: `docs/guide/configuration.md` line 629 says `server.base_url`; the key is top-level `base_url`. Routing: Fix.
+- NOTICED BUT NOT TOUCHING: `docs/guide/google-chat.md` line 202 says `governance.admins`; the key is `governance.admin_senders`. Routing: Fix.
+- NOTICED BUT NOT TOUCHING: the parity matrix cells for Google Chat and Signal still say shared `chunkText()`; the code uses `chunkNativeChatMarkup`. The feature comparison's "published baseline `v0.26.1`" predates 0.27. Routing: Note.
+- NOTICED BUT NOT TOUCHING: `docs/guide/recipes/05-contact-crm-tracker.md` says the agent processes text only, which Slack files and images contradict. Routing: Note.

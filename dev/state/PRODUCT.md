@@ -25,7 +25,7 @@ One runtime serves several use cases, alone or combined:
 - **Personal assistant:** conversations through the web UI and messaging channels, web research, memory across sessions, and scheduled jobs.
 - **Automated work:** background tasks, code changes, and validated workflows. Agent-composed, schema-validated workflow definitions are planned.
 - **Inspectable knowledge:** memory, a wiki, and a temporal knowledge graph, with read-only access for trusted clients over MCP. A broader knowledge steward loop is planned.
-- **Team assistant:** one shared session per thread in allowlisted channels, chat-started workflow runs, and shared knowledge via the context engine. Slack is in progress; knowledge visibility per channel or MCP client is planned.
+- **Team assistant:** one shared session per thread in allowlisted Slack and Google Chat channels, chat-started workflow runs, and shared knowledge via the context engine. Knowledge visibility per channel or MCP client is planned.
 
 **One administrator, many users.** One person administers the instance through the main conversation and alone owns configuration. Named agents are narrower execution identities of that assistant, not additional users or personas: each has a host-managed workspace and private personal-memory principal. Explicit publication puts accepted knowledge into the shared wiki or temporal graph; `context_research` combines a caller's own private memory with those shared sources and never another agent's memory or raw inbox inputs. Other people use it through channel-bound agents, team channels, or read-only access to the shared knowledge surface. Multi-tenant deployment, multiple administrators, and per-sender chat arbitration are out of scope.
 

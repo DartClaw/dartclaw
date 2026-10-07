@@ -37,7 +37,7 @@ The Dart host is the control plane. It is an AOT-compiled Shelf HTTP server with
 
 - **Stores state** — sessions/messages/canonical memory in files, relational/search data in PostgreSQL, instance-local recovery in files, and config in YAML
 - **Serves the web UI** — Trellis HTML templates, HTMX + SSE streaming, CSS design tokens
-- **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat), composes system prompts, dispatches to agent harnesses, streams results back
+- **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat, Slack), composes system prompts, dispatches to agent harnesses, streams results back
 - **Enforces security** — guard chain (command/file/network/tool guards, content classification), credential isolation, container management, audit logging
 - **Runs background work** — cron scheduling, session maintenance, memory pruning, task queue processing
 
@@ -293,7 +293,7 @@ Google Chat also carries reply metadata through the shared queue. Inbound `messa
 
 Runtime governance also applies at the channel boundary. Per-sender rate limits, deployment-wide token budgets, and facilitator-only emergency controls (`/stop`, `/pause`, `/resume`) are enforced before normal inbound processing continues.
 
-The shared channel abstractions and routing live in `dartclaw_core`; the WhatsApp, Signal, and Google Chat integrations live in their own packages.
+The shared channel abstractions and routing live in `dartclaw_core`; the WhatsApp, Signal, Google Chat, and Slack integrations live in their own packages.
 
 For channel setup, see the [WhatsApp](whatsapp.md), [Signal](signal.md), and [Configuration](configuration.md) guides.
 

@@ -1,4 +1,4 @@
-# DartClaw — Channels Testing Config (WhatsApp + Signal enabled)
+# DartClaw — Channels Testing Config (WhatsApp, Signal and Google Chat enabled; Slack ready, off by default)
 # Usage: bash dev/testing/profiles/channels/run.sh
 
 port: 3336
@@ -53,6 +53,38 @@ channels:
       - users/111261968043283685958
     group_access: allowlist
     require_mention: true
+
+  # Off until the owner has created the Slack app and stored both credentials
+  # (docs/guide/slack.md). Then, in the copy under DARTCLAW_CHANNELS_DATA_DIR
+  # and never in this tracked seed, set enabled: true and add the owner's own
+  # workspace IDs, for example under group_allowlist:
+  #   - id: <Slack channel ID>
+  #     agent: eng-bot
+  slack:
+    enabled: false
+    mode: socket
+    bot_token_credential: slack-bot
+    app_token_credential: slack-app
+    dm_access: allowlist
+    group_access: allowlist
+    require_mention: true
+    streaming: true
+
+features:
+  thread_binding:
+    enabled: true
+
+agent:
+  agents:
+    eng-bot:
+      description: Answers from shared knowledge and runs workflows for the Slack channel
+      tools:
+        - context_research
+        - workflow_run
+        - workflow_status
+        - workflow_resume
+        - workflow_cancel
+        - workflow_request_changes
 
 scheduling:
   heartbeat:

@@ -11,8 +11,9 @@ A named client can call exactly three read tools. It cannot write anything, cann
 cannot reach any DartClaw surface other than `/mcp`. Every call it makes, allowed or refused, is written to the guard
 audit trail under that client's name.
 
-DartClaw stays single-owner: one person owns the chat identity and every write. Context-engine mode is the one carved-out
-exception, and it is read-only.
+DartClaw has one administrator and many users: one person administers the instance and owns its configuration, and other
+people reach it through channel-bound agents and team channels (see [Channel members](#channel-members)). Context-engine
+mode adds read-only access for named MCP clients and no write path.
 
 ## Setup
 

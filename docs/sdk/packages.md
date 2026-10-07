@@ -97,7 +97,7 @@ dartclaw_cli
 | Embed the harness in my own process | Fork the repo; `dartclaw_core` |
 | Write a custom guard | Fork the repo; `dartclaw_kernel` |
 | Add PostgreSQL-backed memory and search to my own runtime | Fork the repo; `dartclaw_core` |
-| Add WhatsApp, Signal, or Google Chat to my own runtime | Fork the repo; `dartclaw_core` + the channel package |
+| Add WhatsApp, Signal, Google Chat, or Slack to my own runtime | Fork the repo; `dartclaw_core` + the channel package |
 | Fork the reference server as a starting point | Clone the repo and modify `dartclaw_runtime` / `dartclaw_cli` |
 
 ## Guides and Examples

@@ -26,7 +26,7 @@ Plus:
 - **Interactive research** -- ask questions anytime via web UI or channel; the agent searches the web and builds on previous research
 - **Persistent memory** -- everything the agent learns is saved and searchable
 - **Git-backed workspace** -- automatic versioning of memory, learnings, and behavior files
-- **Channel access** -- reach your assistant from WhatsApp, Signal, or Google Chat (optional)
+- **Channel access** -- reach your assistant from WhatsApp, Signal, Google Chat, or Slack (optional)
 
 ## A Day in the Life
 

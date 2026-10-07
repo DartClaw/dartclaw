@@ -14,6 +14,8 @@ WorkflowRunNotificationSubscriber? wireRunNotifications({
   required Future<WorkflowRun?> Function(String runId) lookupRun,
   required ChannelManager? channelManager,
   required ThreadBindingStore? threadBindings,
+  IssueApprovalInteraction? issueInteraction,
+  BindApprovalPost? bindPost,
 }) {
   if (channelManager == null) return null;
 
@@ -41,6 +43,8 @@ WorkflowRunNotificationSubscriber? wireRunNotifications({
     configured: configured,
     threadBindings: threadBindings,
     baseUrl: config.server.baseUrl,
+    issueInteraction: issueInteraction,
+    bindPost: bindPost,
   )..subscribe(eventBus);
 }
 

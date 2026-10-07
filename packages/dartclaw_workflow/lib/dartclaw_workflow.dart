@@ -186,6 +186,17 @@ export 'src/workflow/workflow_runner_types.dart'
         StorySpecOutputValidation,
         isSupportedWorkflowRunnerNode;
 export 'src/workflow/workflow_task_config.dart' show WorkflowTaskConfig;
+export 'src/workflow/workflow_approval_interaction.dart'
+    show
+        WorkflowApprovalExpectation,
+        WorkflowApprovalInteraction,
+        WorkflowApprovalPost,
+        WorkflowApprovalRefusal,
+        WorkflowApprovalRefused,
+        WorkflowApprovalResolution,
+        WorkflowApprovalResolver,
+        WorkflowApprovalSource,
+        workflowApprovalInteractionContextKey;
 export 'src/workflow/workflow_service.dart'
     show WorkflowService, missingRequiredWorkflowVariables, missingRequiredWorkflowVariablesMessage;
 export 'src/workflow/workflow_service_deps.dart'

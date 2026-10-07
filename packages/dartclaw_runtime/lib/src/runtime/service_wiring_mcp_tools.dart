@@ -15,6 +15,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
   SchedulingWiring scheduling,
   WorkflowDefinitionSource workflowDefinitions,
   WorkflowService workflowService,
+  WorkflowRunControl workflowRunControl,
   config_tools.ConfigWriter configWriter, {
   OutboundMcpTransportFactory? outboundMcpTransportFactory,
 }) async {
@@ -43,6 +44,9 @@ Future<OutboundMcpPool?> _registerMcpTools(
   );
   server.registerTool(WorkflowRunTool(definitions: workflowDefinitions, workflows: workflowService));
   server.registerTool(WorkflowListTool(definitions: workflowDefinitions));
+  server.registerTool(WorkflowResumeTool(control: workflowRunControl));
+  server.registerTool(WorkflowCancelTool(control: workflowRunControl));
+  server.registerTool(WorkflowStatusTool(workflows: workflowService));
   server.registerTool(ScheduleUpsertTool(mutations: scheduleMutations, schedules: scheduling.scheduleService));
   server.registerTool(ScheduleListTool(mutations: scheduleMutations, schedules: scheduling.scheduleService));
   server.registerTool(

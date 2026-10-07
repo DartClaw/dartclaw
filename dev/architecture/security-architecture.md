@@ -2,7 +2,7 @@
 
 Deep-dive reference on DartClaw's defense-in-depth security model: OS-level container isolation, application-level guards, credential management, access control, content classification, and audit logging.
 
-**Current through**: 0.28 Slack Events API signature verification and core-owned webhook helpers, openable citation sources and the channel shared-write gate; 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
+**Current through**: 0.28 run approval gate (admin-gated chat resolutions, single-use nonce, audit entries with run and step), 0.28 Slack Events API signature verification and core-owned webhook helpers, openable citation sources and the channel shared-write gate; 0.27 Claude host no-prompt permission fidelity, PostgreSQL-only storage, managed named-agent workspace principals and caller-scoped research,
 temporary conversation sink exclusion and confirmed cleanup, exact-request approval actions, principal-scoped search,
 the restricted-role connection posture, and owner Memory administration.
 
@@ -857,6 +857,17 @@ shelf Pipeline
 
 **Shared-write gate**: `wiki_write`, `kg_add` and `kg_invalidate` share one contextual guard (`KnowledgeWriteGate`). After the temporary-conversation refusal, a turn whose provenance names a chat channel changes shared knowledge only for a sender `GovernanceConfig.isAdmin` accepts, and each such call writes one `KnowledgeWriteGate` audit entry (channel, sender in `peerId` and `principal`, tool, decision). The sender comes only from the host's turn record (`McpCallerContext.turn`), never from arguments. A channel turn that names no sender (a task push-back feedback turn) is an admin only where every sender is. Web chat, scheduled turns, the gateway token and named clients carry no channel provenance and are not gated.
 
+**Run approval gate**: resolving a workflow run's approval from chat (the Approve and Reject buttons, `workflow_resume`, `workflow_cancel`) goes through one owner, `WorkflowRunControl` (`dartclaw_runtime/lib/src/task/workflow_run_control.dart`), which is the only reader of `GovernanceConfig.isAdmin` for run resolution, the only caller of `WorkflowService.resume`/`cancel` for chat, tools and the HTTP routes, and the only writer of run-resolution audit entries.
+
+- *Admin gate.* A chat or tool caller must be an admin under `governance.admin_senders`; a non-admin is refused before any resolution, so the run and the post stay as they were. A sender that is unidentified is an admin only where every sender is (the shared-write rule). The sender is the exact ID the inbound path uses: a button click carries the platform's actor, a tool call takes it from `McpCallerContext.turn` and never from an argument. A tool call from a turn with no chat channel (the gateway token, a scheduled turn, a web-chat turn) is refused whatever the list holds.
+- *Nonce.* A button resolves only while the run still waits at the step the post was issued for, and only with the run's live single-use nonce (128 bits from `Random.secure()`, compared in constant time) from the post bound to it. A stale, copied, forged or replayed click is refused as invalid or already resolved. The nonce lives in the run's private context (workflow-architecture § 4.2), so an authenticated run-detail API caller can read it; that caller can already resume through HTTP. No tool result, audit entry or log line carries it.
+- *Tools.* `workflow_resume` and `workflow_cancel` are write tools. `workflow_status` is a read tool returning status, current step, pending approval and last error, never the interaction. Bound agents reach the tools only through `allowedTools`, with no default grant; the primary agent gets all three like the other orchestration tools; named MCP clients get none.
+- *HTTP.* `POST /api/workflows/runs/<id>/resume` and `/cancel` go through the control's web entry: the caller is already authenticated, so the call is audited but never admin-gated, and its statuses and bodies are unchanged.
+- *Audit.* Every call writes exactly one `AuditEntry`: guard `RunApprovalGate`; hook `button`, `tool` or `web`; verdict `pass` or `block`; decision `allow`, `deny` (a refusal) or `error` (a failure to resolve); `channel`; the sender in `peerId` and `principal` (a web call has principal `owner` and no channel); `tool` `resume` or `cancel`; `reason` on a refusal or failure; and `runId` and `stepId`.
+- *Empty `admin_senders`.* An empty list makes every sender an admin. In a group channel that lets every member who can see the post resolve the run, so list the approvers explicitly wherever a channel has more than one person.
+
+Task review (`ChannelReviewHandler`, `task_accept`, `task_reject`) is not part of this gate and carries no admin check, nonce or audit entry.
+
 - The gateway token reaches the unscoped handler: every registered tool, and `mcpStewardPrincipal` in the dispatch audit — it authenticates the deployment, not a person.
 - A configured client token reaches a `scopedTo` handler carrying `ContextEngineCallerPolicy` (deny-by-default over the five context-engine read tools) and an `McpCallerIdentity` of `mcp-client:<name>`. Discovery and dispatch both filter through it; a denied name and an unregistered name answer with the same JSON-RPC code and message, so a client cannot enumerate what it may not call. The policy audits each refusal; the guarded dispatch seam audits each permitted call. Client tokens are configured as `${VAR}` references only, and a list the route cannot enforce is refused at load (§ `gateway.mcp_clients`).
 - A client token is confined to `/mcp`: it is never handed to `TokenService`, mints no session cookie, and does not satisfy the `?token=` bootstrap, so the REST API and web UI reject it exactly as they reject an invalid token.
@@ -933,7 +944,7 @@ All guard evaluations are logged with timestamps, verdicts, and context. The `Gu
 - Sequential writes chained via `_pendingWrite` future to prevent interleaving
 - Date-partition retention removes old files by partition date; legacy `audit.ndjson` remains readable during transition
 
-**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`. Guard events preserve both canonical `tool` and raw provider names so policy denials remain attributable and diagnosable.
+**AuditEntry fields**: `timestamp`, `guard`, `hook`, `verdict`, `reason`, `rawProviderToolName`, `agentId`, `sessionId`, `channel`, `peerId`, `server`, `tool`, `decision`, `principal`, `credentialRef`, `runId`, `stepId` (the last two only on run-resolution entries; each is omitted from the JSON when null, and an older line without them still parses). Guard events preserve both canonical `tool` and raw provider names so policy denials remain attributable and diagnosable.
 
 **Source**: `packages/dartclaw_kernel/lib/src/guard_audit.dart`
 
@@ -1098,9 +1109,9 @@ All governance features are configured under the `governance:` YAML section and 
 
 ### Admin Sender Model
 
-`governance.admin_senders` lists sender IDs exempt from per-sender rate limits. When the list is empty (default), **all senders are treated as admins** — suitable for single-user deployments. When non-empty, only the listed IDs are exempt. Admin status is checked via `GovernanceConfig.isAdmin(senderId)`.
+`governance.admin_senders` lists sender IDs exempt from per-sender rate limits. When the list is empty (default), **all senders are treated as admins**. That suits a single-user deployment; in a group channel it makes every member an admin, able to run the emergency commands, change shared knowledge and resolve workflow run approvals, so a deployment with a group channel lists its admins. When non-empty, only the listed IDs are exempt. Admin status is checked via `GovernanceConfig.isAdmin(senderId)`.
 
-Admin status exempts a sender from per-sender rate limiting and permits it to change shared knowledge from a channel turn (§ Shared-write gate). Global turn rate limits and budget enforcement apply to all senders equally, including admins.
+Admin status exempts a sender from per-sender rate limiting, permits it to change shared knowledge from a channel turn (§ Shared-write gate), and permits it to resolve a workflow run's approval from chat (§ Run approval gate). Global turn rate limits and budget enforcement apply to all senders equally, including admins.
 
 **Source**: `packages/dartclaw_kernel/lib/src/governance_config.dart`
 
@@ -1237,7 +1248,7 @@ This attribution chain enables audit logging of who requested what work, indepen
 
 ```yaml
 governance:
-  admin_senders: []           # empty = all are admins (backward compat)
+  admin_senders: []           # empty = every sender is an admin; single-user only (in a group channel every member is)
   rate_limits:
     per_sender:
       messages: 10            # 0 = disabled

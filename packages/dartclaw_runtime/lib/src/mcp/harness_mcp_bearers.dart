@@ -1,6 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show TurnProvenance;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show constantTimeEquals;
 
-import '../auth/auth_utils.dart';
 import '../auth/token_service.dart';
 
 /// Host-minted MCP bearers, one per host harness.

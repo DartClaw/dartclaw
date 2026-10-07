@@ -336,9 +336,27 @@
         "S04",
         "S05"
       ],
-      "status": "in-progress",
+      "status": "done",
       "fis": "s06-run-approvals-from-chat.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12",
+        "TI13"
+      ],
+      "verified": {
+        "at": "2026-10-07T05:38Z",
+        "summary": "fast tier (kernel, core, testing, slack, google_chat, workflow, runtime, dev/fitness, cli -x slow) -> exit=0, runtime +5531 ~25: All other tests passed!; dart analyze --fatal-infos -> No issues found!; dart run dev/tools/arch_check.dart -> 18/18 checks passed; bash dev/tools/fitness/run_all.sh -> exit=0; bash dev/tools/postgres_contract.sh -> exit=0."
+      },
       "scope": "Resolve paused runs from chat under one run-control authority (architecture F3): admin-gated, audited Approve and Reject on Slack buttons and Google Chat cards with post-bound single-use nonces, plus the `workflow_resume`, `workflow_cancel` and `workflow_status` agent tools gated on the originating turn's sender and reaching bound agents only through `allowedTools` (owner D21). WhatsApp and Signal approve through the tools.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28/prd.md#fr5-run-approvals-from-chat",

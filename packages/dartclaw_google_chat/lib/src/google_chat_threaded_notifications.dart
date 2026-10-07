@@ -45,6 +45,8 @@ class GoogleChatThreadedNotifications implements ThreadedNotifications {
           facts: notification.facts,
           body: notification.body,
           errorSummary: notification.error,
+          actions: notification.actions,
+          actionData: notification.actionData,
         ),
       };
       return ChannelResponse(text: notification.text, structuredPayload: card);
@@ -65,6 +67,17 @@ class GoogleChatThreadedNotifications implements ThreadedNotifications {
   @override
   Future<ThreadedPost?> sendToThread(String recipientId, ChannelResponse response, {required String threadId}) =>
       _send(recipientId, response, threadName: threadId);
+
+  @override
+  Future<bool> edit(String recipientId, String messageId, ChannelResponse response) async {
+    final card = response.structuredPayload;
+    if (card == null) {
+      // A text-only patch would leave the original card, and its buttons, in place.
+      _log.warning('Google Chat edit of $messageId refused: the response carries no card');
+      return false;
+    }
+    return _restClient.editCardMessage(messageId, card, outboundFallbackText(response));
+  }
 
   /// Sends the card, then the plain text when the card is refused.
   Future<ThreadedPost?> _send(

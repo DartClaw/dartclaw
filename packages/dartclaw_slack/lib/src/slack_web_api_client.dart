@@ -205,9 +205,21 @@ class SlackWebApiClient {
   }
 
   /// Replaces the text of the message [ts] in [channel].
-  Future<void> updateMessage({required String channel, required String ts, required String text}) {
+  ///
+  /// With [blocks] the message's Block Kit is replaced too, and an empty list
+  /// removes it; without them Slack keeps the blocks the message already has.
+  Future<void> updateMessage({
+    required String channel,
+    required String ts,
+    required String text,
+    List<Map<String, dynamic>>? blocks,
+  }) {
     return _write(channel, () async {
-      await _call('chat.update', token: _botToken, form: {'channel': channel, 'ts': ts, 'text': text});
+      await _call(
+        'chat.update',
+        token: _botToken,
+        form: {'channel': channel, 'ts': ts, 'text': text, if (blocks != null) 'blocks': jsonEncode(blocks)},
+      );
     });
   }
 
@@ -351,7 +363,8 @@ class SlackWebApiClient {
     ];
   }
 
-  /// Answers a slash command through its [responseUrl], visible only to the sender.
+  /// Answers a slash command or an interaction through its [responseUrl], visible only to the sender.
+  /// The message it replaces is left as it is.
   Future<void> postEphemeral(Uri responseUrl, String text) async {
     if (responseUrl.scheme != 'https') {
       throw const SlackApiException('Slack response URL is not https');
@@ -361,7 +374,7 @@ class SlackWebApiClient {
       response = await _client.post(
         responseUrl,
         headers: const {'content-type': 'application/json; charset=utf-8'},
-        body: jsonEncode({'response_type': 'ephemeral', 'text': text}),
+        body: jsonEncode({'response_type': 'ephemeral', 'replace_original': false, 'text': text}),
       );
     } on Exception catch (error) {
       // The type only: the exception's own text names the request URL, which is a secret here.

@@ -357,7 +357,8 @@ The task orchestrator transforms DartClaw from a single-session assistant into a
 | `RunnerObserver` | `task/runner_observer.dart` | Current runner lifecycle and cumulative turn metrics derived from coordinator events |
 | `TaskReviewService` | `task/task_review_service.dart` | Shared task-review lifecycle for HTTP, UI, and agent-tool paths. Owns state transition, merge execution for worktree-backed tasks, conflict artifact persistence, worktree cleanup, and `TaskStatusChangedEvent` firing |
 | `TaskNotificationSubscriber` | `task/task_notification_subscriber.dart` | Subscribes to `TaskStatusChangedEvent` on the event bus. For tasks with a `TaskOrigin`, sends best-effort in-channel notifications on key transitions. On a channel that threads, the initial `running` notification can establish the persisted task thread binding used by later notifications and inbound routing |
-| `WorkflowRunNotificationSubscriber` | `task/workflow_run_notification_subscriber.dart` | Subscribes to `WorkflowLifecycleEvent`s. Posts a run's started, awaiting-approval, finished or failed steps (and optionally each step) to the thread that started the run, or to the `workflow.chat_notifications` channel, one chain per run. Shares `ChannelNotificationDelivery` (`task/channel_notification_delivery.dart`) with the task subscriber |
+| `WorkflowRunNotificationSubscriber` | `task/workflow_run_notification_subscriber.dart` | Subscribes to `WorkflowLifecycleEvent`s. Posts a run's started, awaiting-approval, finished or failed steps (and optionally each step) to the thread that started the run, or to the `workflow.chat_notifications` channel, one chain per run. On a channel that threads, the awaiting-approval post carries Approve and Reject buttons, and the subscriber edits it once the approval is resolved (channel-messaging § 4.7). Shares `ChannelNotificationDelivery` (`task/channel_notification_delivery.dart`) with the task subscriber |
+| `WorkflowRunControl` | `task/workflow_run_control.dart` | The one admin gate, resolver and audit writer for resuming or cancelling a run from a chat button, the `workflow_resume`/`workflow_cancel` tools and the HTTP routes (security § Run approval gate) |
 | `AdvisorSubscriber` | `advisor/advisor_subscriber.dart` | EventBus-driven crowd-coding observer. Accumulates a bounded normalized context window, evaluates triggers (`periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`), acquires a pooled runner for an advisory turn, parses structured output, then routes the result to bound channels and the event bus |
 
 Task state machine: `draft` → `queued` → `running` → `review` → `accepted`/`rejected`/`cancelled`/`failed`. See [Data Model — Task State Machine](data-model.md) for valid transitions.
@@ -1005,7 +1006,7 @@ Runtime governance protects deployments from cost overruns, abuse, and runaway a
 
 ### Admin Sender Model
 
-`governance.admin_senders` lists sender IDs exempt from per-sender rate limits. When the list is empty (default), **all senders are treated as admins** — suitable for single-user deployments. When non-empty, only the listed IDs are exempt.
+`governance.admin_senders` lists sender IDs exempt from per-sender rate limits. When the list is empty (default), **all senders are treated as admins**. That suits a single-user deployment; in a group channel every member is then an admin, who can run the emergency commands, change shared knowledge and resolve workflow run approvals from chat, so a group deployment lists its admins. When non-empty, only the listed IDs are exempt.
 
 ### Rate Limiter Design
 
@@ -1015,7 +1016,7 @@ Runtime governance protects deployments from cost overruns, abuse, and runaway a
 
 ```yaml
 governance:
-  admin_senders: []           # empty = all are admins
+  admin_senders: []           # empty = all are admins (single-user; in a group channel every member)
   rate_limits:
     per_sender:
       messages: 10            # 0 = disabled
@@ -1061,7 +1062,7 @@ Emergency controls are admin-only command paths for immediate intervention. Goog
 
 **Admin enforcement**
 - `governance.admin_senders` defines which sender IDs may invoke emergency controls
-- Empty list = every sender is treated as admin (backward-compatible single-operator default)
+- Empty list = every sender is treated as admin (the single-operator default; in a group channel every member is an admin)
 - Non-empty list = only exact sender IDs are privileged; this applies consistently across Google Chat, WhatsApp, and Signal
 
 ---

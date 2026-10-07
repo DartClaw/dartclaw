@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show GoogleChatWebhookHandler;
-import 'package:dartclaw_kernel/dartclaw_kernel.dart' show GuardAuditLogger;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show GuardAuditLogger, constantTimeEquals;
 import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackChannel;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';

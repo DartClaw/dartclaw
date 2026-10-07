@@ -49,6 +49,13 @@ class ChannelNotification {
   /// Whether the rendering carries accept and reject actions for [id].
   final bool reviewActions;
 
+  /// Labelled actions the rendering offers, in order; empty for a post with no
+  /// buttons.
+  final List<ChannelNotificationAction> actions;
+
+  /// The payload every entry of [actions] carries back on a click.
+  final Map<String, String> actionData;
+
   /// Creates a notification.
   const new({
     required this.kind,
@@ -63,7 +70,21 @@ class ChannelNotification {
     this.createdAt,
     this.updatedAt,
     this.reviewActions = false,
+    this.actions = const [],
+    this.actionData = const {},
   });
+}
+
+/// One button of a [ChannelNotification]: its fixed action ID and label.
+class ChannelNotificationAction {
+  /// The ID a click on the rendered button reports.
+  final String id;
+
+  /// The button text.
+  final String label;
+
+  /// Creates an action.
+  const new({required this.id, required this.label});
 }
 
 /// Where a notification landed: the thread and the message within it.
@@ -101,4 +122,8 @@ abstract interface class ThreadedNotifications {
   /// Posts [response] to [recipientId] into the existing thread [threadId],
   /// returning where it landed, or `null` when the channel refuses the post.
   Future<ThreadedPost?> sendToThread(String recipientId, ChannelResponse response, {required String threadId});
+
+  /// Replaces the content of the posted message [messageId] in [recipientId]
+  /// with [response], returning whether the channel accepted the edit.
+  Future<bool> edit(String recipientId, String messageId, ChannelResponse response);
 }

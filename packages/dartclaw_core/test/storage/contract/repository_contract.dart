@@ -188,6 +188,14 @@ void repositoryContractGroups(ContractBackend Function() current) {
           'subject': 'storage',
           'attempt': 2,
           'flags': ['portable'],
+          // The approval interaction rides the run's context, so it must survive a backend round trip.
+          '_approval.interaction': {
+            'stepId': 'gate',
+            'nonce': '0123456789abcdef0123456789abcdef',
+            'issuedAt': '2026-10-07T07:00:00.000Z',
+            'post': {'channelType': 'slack', 'recipientId': 'C1', 'messageId': '1700.01'},
+            'resolution': {'approved': true, 'source': 'button', 'senderId': 'U1', 'at': '2026-10-07T07:05:00.000Z'},
+          },
         },
         variablesJson: const {'ENGINE': 'portable', 'REGION': 'local'},
         startedAt: _instant,

@@ -216,6 +216,9 @@ class ServerObservabilityDeps {
 
 class ServerWebDeps {
   final WorkflowService? workflowService;
+
+  /// The authority behind the run page's resume and cancel routes; they are not mounted without it.
+  final WorkflowRunControl? workflowRunControl;
   final WorkflowDefinitionSource? workflowDefinitionSource;
   final TemporalKnowledgeGraphService? kgService;
   final bool contentGuardApiKeyConfigured;
@@ -228,6 +231,7 @@ class ServerWebDeps {
 
   const new({
     this.workflowService,
+    this.workflowRunControl,
     this.workflowDefinitionSource,
     this.kgService,
     this.contentGuardApiKeyConfigured = false,

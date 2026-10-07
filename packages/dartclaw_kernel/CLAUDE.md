@@ -130,6 +130,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 - `lib/src/dartclaw_config.dart` and `config_parser*.dart` – load and parse pipeline.
 - `lib/src/config_meta.dart`, `config_meta/`, `config_constraints.dart`, `config_numeric_bounds.dart` – field registry and validation authority.
 - `lib/src/guard.dart`, `guard_verdict.dart`, and the `*_guard.dart` files – guard framework and built-ins; `content_scan.dart` – the one classification + fail-policy authority.
+- `lib/src/constant_time.dart` – `constantTimeEquals`, the one secret comparison (an empty side never matches); runtime auth and the workflow approval nonce check both use it.
 - `lib/src/safe_process.dart`, `process/git_runner.dart` – subprocess boundary.
 - `lib/src/http_request.dart` – the one-shot HTTP seam every package uses: create → optional connection timeout → open
   → headers → utf8-encoded body → close → utf8-decode → `close(force: true)`, returning `(statusCode, body)` without

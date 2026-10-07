@@ -114,7 +114,7 @@ void main() {
     workflows.pauseResult = _makeRun(status: WorkflowRunStatus.paused);
     workflows.resumeResult = _makeRun(status: WorkflowRunStatus.running);
 
-    handler = workflowRoutes(workflows, tasks, definitions).call;
+    handler = workflowRoutes(workflows, tasks, definitions, runControl: testRunControl(workflows)).call;
     api = ApiRouteTestClient(handler);
   });
 
@@ -360,7 +360,7 @@ void main() {
         ],
       );
       final src = InMemoryDefinitionSource([defWithDefault]);
-      final h = workflowRoutes(workflows, tasks, src).call;
+      final h = workflowRoutes(workflows, tasks, src, runControl: testRunControl(workflows)).call;
       final localApi = ApiRouteTestClient(h);
 
       await localApi.expectResponse(
@@ -594,7 +594,13 @@ void main() {
     test(
       'accounting stop and error pause keep their persisted cause and nullable usage in status and events',
       () async {
-        handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+        handler = workflowRoutes(
+          workflows,
+          tasks,
+          definitions,
+          runControl: testRunControl(workflows),
+          eventBus: eventBus,
+        ).call;
         for (final status in [WorkflowRunStatus.failed, WorkflowRunStatus.paused]) {
           final run = WorkflowRun.fromJson(
             _makeRun(
@@ -789,7 +795,12 @@ void main() {
     });
 
     test('returns empty array when no definitions', () async {
-      final h = workflowRoutes(workflows, tasks, InMemoryDefinitionSource([])).call;
+      final h = workflowRoutes(
+        workflows,
+        tasks,
+        InMemoryDefinitionSource([]),
+        runControl: testRunControl(workflows),
+      ).call;
 
       final response = await h(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
@@ -810,7 +821,7 @@ void main() {
         ],
       );
       final src = InMemoryDefinitionSource([defWithLoop]);
-      final h = workflowRoutes(workflows, tasks, src).call;
+      final h = workflowRoutes(workflows, tasks, src, runControl: testRunControl(workflows)).call;
 
       final response = await h(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
@@ -897,7 +908,13 @@ void main() {
     }
 
     test('emits map_iteration_completed and map_step_completed payloads for run', () async {
-      handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+      handler = workflowRoutes(
+        workflows,
+        tasks,
+        definitions,
+        runControl: testRunControl(workflows),
+        eventBus: eventBus,
+      ).call;
       workflows.getResult = _makeRun(id: 'run-001');
       await tasks.create(
         id: 'task-map-step',

@@ -800,7 +800,8 @@ GovernanceConfig
 ```
 
 All features default to disabled for backward compatibility. When `adminSenders`
-is empty, all senders are treated as admins (suitable for single-user deployments).
+is empty, all senders are treated as admins. That suits a single-user deployment; in a group channel every
+member is then an admin and can resolve workflow run approvals from chat, so a group deployment lists its admins.
 
 ### TurnGovernanceEnforcer
 

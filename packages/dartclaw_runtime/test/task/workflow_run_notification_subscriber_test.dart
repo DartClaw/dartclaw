@@ -5,7 +5,15 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/task/workflow_run_notification_subscriber.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunOrigin;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowApprovalInteraction,
+        WorkflowApprovalPost,
+        WorkflowApprovalResolution,
+        WorkflowApprovalSource,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        workflowApprovalInteractionContextKey;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -75,6 +83,8 @@ void main() {
     WorkflowChatNotificationsConfig? configured,
     ThreadBindingStore? bindings,
     String? baseUrl,
+    IssueApprovalInteraction? issue,
+    BindApprovalPost? bind,
   }) {
     final manager = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults());
     for (final channel in channels) {
@@ -86,6 +96,8 @@ void main() {
       configured: configured,
       threadBindings: bindings ?? store,
       baseUrl: baseUrl,
+      issueInteraction: issue,
+      bindPost: bind,
     );
     subscriber.subscribe(eventBus);
     addTearDown(subscriber.dispose);
@@ -631,6 +643,278 @@ void main() {
 
       expect(slackThreads.sends, isEmpty);
       expect(warnings('missing'), isNotEmpty);
+    });
+  });
+
+  group('approval interaction', () {
+    final resolvedAt = DateTime.utc(2026, 10, 6, 14, 5);
+    var issued = <(String, String)>[];
+    var bound = <(String, String, WorkflowApprovalPost)>[];
+    WorkflowApprovalInteraction? scripted;
+
+    Future<WorkflowApprovalInteraction?> issue(String runId, String stepId) async {
+      issued.add((runId, stepId));
+      return scripted;
+    }
+
+    Future<bool> bind(String runId, {required String nonce, required WorkflowApprovalPost post}) async {
+      bound.add((runId, nonce, post));
+      final run = runs[runId]!;
+      runs[runId] = run.copyWith(
+        contextJson: {...run.contextJson, workflowApprovalInteractionContextKey: scripted!.withPost(post).toJson()},
+      );
+      return true;
+    }
+
+    setUp(() {
+      issued = [];
+      bound = [];
+      scripted = WorkflowApprovalInteraction(stepId: 'gate', nonce: 'a' * 32, issuedAt: resolvedAt);
+    });
+
+    WorkflowRunNotificationSubscriber subscribeWithInteractions(List<Channel> channels) =>
+        subscribe(channels, issue: issue, bind: bind);
+
+    void resolve(String runId, WorkflowApprovalResolution resolution, {String stepId = 'gate'}) {
+      final run = runs[runId]!;
+      final interaction = WorkflowApprovalInteraction.of(run)!;
+      runs[runId] = run.copyWith(
+        contextJson: {
+          ...run.contextJson,
+          workflowApprovalInteractionContextKey: interaction.consumed(resolution).toJson(),
+        },
+      );
+      eventBus.fire(
+        WorkflowApprovalResolvedEvent(
+          runId: runId,
+          stepId: stepId,
+          approved: resolution.approved,
+          timestamp: resolvedAt,
+        ),
+      );
+    }
+
+    Future<void> postApproval() async {
+      addRun('run-1', slackOrigin);
+      approval('run-1');
+      await settle();
+    }
+
+    test(
+      'an approval on a threaded channel carries Approve and Reject over run, step and nonce, then binds its post',
+      () async {
+        subscribeWithInteractions([slack]);
+
+        await postApproval();
+
+        expect(issued, [('run-1', 'gate')]);
+        final notification = slackThreads.rendered.single;
+        expect(notification.actions.map((a) => (a.id, a.label)), [
+          ('run_approve', 'Approve'),
+          ('run_reject', 'Reject'),
+        ]);
+        expect(notification.actionData, {'runId': 'run-1', 'stepId': 'gate', 'nonce': 'a' * 32});
+        expect(bound.single.$1, 'run-1');
+        expect(bound.single.$2, 'a' * 32);
+        expect(bound.single.$3.channelType, 'slack');
+        expect(bound.single.$3.recipientId, 'C1');
+        expect(bound.single.$3.messageId, slackThreads.sends.single.post!.messageId);
+      },
+    );
+
+    test('an approval the service issues no interaction for gets a post with no buttons and binds nothing', () async {
+      scripted = null;
+      subscribeWithInteractions([slack]);
+
+      await postApproval();
+
+      expect(slackThreads.rendered.single.actions, isEmpty);
+      expect(bound, isEmpty);
+    });
+
+    test('a channel with no threaded capability never issues one and posts plain text', () async {
+      subscribeWithInteractions([whatsapp]);
+      addRun('run-1', const WorkflowRunOrigin(surface: 'whatsapp', channelType: 'whatsapp', recipientId: '+4670'));
+
+      approval('run-1');
+      await settle();
+
+      expect(issued, isEmpty);
+      expect(whatsapp.sentMessages.single.$2.text, contains('awaiting approval'));
+    });
+
+    test('a post that is not an approval, and a failing issue, carry no buttons', () async {
+      subscribe([slack], issue: (_, _) async => throw StateError('store down'), bind: bind);
+      addRun('run-1', slackOrigin);
+
+      status('run-1', WorkflowRunStatus.pending, WorkflowRunStatus.running);
+      approval('run-1');
+      await settle();
+
+      expect(slackThreads.rendered.map((n) => n.actions), everyElement(isEmpty));
+      expect(slackThreads.sends, hasLength(2), reason: 'a failed issue still posts the approval');
+      expect(warnings('approval interaction'), hasLength(1));
+    });
+
+    test('an approval resolved from any surface edits the post once, with who, how and when, and no buttons', () async {
+      subscribeWithInteractions([slack]);
+      final cases = <(String, WorkflowApprovalResolution, String)>[
+        (
+          'run-button',
+          WorkflowApprovalResolution(
+            approved: true,
+            source: WorkflowApprovalSource.button,
+            senderId: 'U1',
+            displayName: 'Ada',
+            at: resolvedAt,
+          ),
+          'Approved by Ada at 14:05 UTC',
+        ),
+        (
+          'run-reject',
+          WorkflowApprovalResolution(
+            approved: false,
+            source: WorkflowApprovalSource.button,
+            senderId: 'U1',
+            at: resolvedAt,
+          ),
+          'Rejected by U1 at 14:05 UTC',
+        ),
+        (
+          'run-tool',
+          WorkflowApprovalResolution(
+            approved: true,
+            source: WorkflowApprovalSource.tool,
+            senderId: 'U2',
+            at: resolvedAt,
+          ),
+          'Approved by U2 in chat at 14:05 UTC',
+        ),
+        (
+          'run-web',
+          WorkflowApprovalResolution(approved: true, source: WorkflowApprovalSource.web, at: resolvedAt),
+          'Approved from the web UI or API at 14:05 UTC',
+        ),
+        (
+          'run-web-cancel',
+          WorkflowApprovalResolution(approved: false, source: WorkflowApprovalSource.web, at: resolvedAt),
+          'Rejected from the web UI or API at 14:05 UTC',
+        ),
+        (
+          'run-unrecorded',
+          WorkflowApprovalResolution(approved: true, at: resolvedAt),
+          'Approved from the web UI or API at 14:05 UTC',
+        ),
+      ];
+      for (final (runId, _, _) in cases) {
+        addRun(runId, slackOrigin);
+        approval(runId);
+      }
+      await settle();
+      slackThreads.rendered.clear();
+
+      for (final (runId, resolution, _) in cases) {
+        resolve(runId, resolution);
+      }
+      await settle();
+
+      expect(slackThreads.edits.map((e) => e.$3.text), cases.map((c) => c.$3));
+      expect(
+        slackThreads.rendered.map((n) => n.body),
+        cases.map((c) => c.$3),
+        reason: 'the wording is what a card shows',
+      );
+      expect(slackThreads.edits.map((e) => e.$1), everyElement('C1'));
+      expect(slackThreads.rendered.map((n) => n.actions), everyElement(isEmpty));
+      expect(slackThreads.sends, hasLength(cases.length), reason: 'an edit is never a second post');
+    });
+
+    test(
+      'a run that ends with its approval unresolved retires the buttons once; a resolved one is not edited twice',
+      () async {
+        subscribeWithInteractions([slack]);
+        addRun('run-timeout', slackOrigin);
+        addRun('run-rejected', slackOrigin);
+        approval('run-timeout');
+        approval('run-rejected');
+        await settle();
+
+        runs['run-timeout'] = runs['run-timeout']!.copyWith(status: WorkflowRunStatus.cancelled);
+        status('run-timeout', WorkflowRunStatus.awaitingApproval, WorkflowRunStatus.cancelled);
+        resolve(
+          'run-rejected',
+          WorkflowApprovalResolution(approved: false, source: WorkflowApprovalSource.web, at: resolvedAt),
+        );
+        status('run-rejected', WorkflowRunStatus.awaitingApproval, WorkflowRunStatus.cancelled);
+        await settle();
+
+        final texts = slackThreads.edits.map((e) => e.$3.text).toList();
+        expect(texts, hasLength(2));
+        expect(texts.where((t) => t.startsWith('No longer pending: run cancelled at ')), hasLength(1));
+        expect(texts.where((t) => t.startsWith('Rejected from the web UI or API')), hasLength(1));
+      },
+    );
+
+    test('a resolution fired in the same turn as the request edits only after the post is bound', () async {
+      subscribeWithInteractions([slack]);
+      addRun('run-1', slackOrigin);
+
+      approval('run-1');
+      // The record the service would hold once the click was resolved: the post is bound by the time it is read.
+      runs['run-1'] = runs['run-1']!.copyWith(
+        contextJson: {
+          workflowApprovalInteractionContextKey: scripted!
+              .consumed(
+                WorkflowApprovalResolution(
+                  approved: true,
+                  source: WorkflowApprovalSource.tool,
+                  senderId: 'U9',
+                  at: resolvedAt,
+                ),
+              )
+              .toJson(),
+        },
+      );
+      eventBus.fire(
+        WorkflowApprovalResolvedEvent(runId: 'run-1', stepId: 'gate', approved: true, timestamp: resolvedAt),
+      );
+      await settle();
+
+      expect(slackThreads.sends, hasLength(1));
+      expect(bound, hasLength(1));
+      expect(slackThreads.edits, isEmpty, reason: 'no bound post in the record, so there is nothing to edit');
+    });
+
+    test('a failed edit warns once naming run and destination, and later edits for that run stay quiet', () async {
+      subscribeWithInteractions([slack]);
+      await postApproval();
+      slackThreads.editReturnsFalse = true;
+
+      resolve('run-1', WorkflowApprovalResolution(approved: true, source: WorkflowApprovalSource.web, at: resolvedAt));
+      status('run-1', WorkflowRunStatus.awaitingApproval, WorkflowRunStatus.completed);
+      await settle();
+
+      expect(warnings('run-1').where((r) => r.message.contains('edit')), hasLength(1));
+      expect(warnings('run-1').first.message, allOf(contains('slack'), contains('C1')));
+    });
+
+    test('an edit that throws is a warning, never an error out of the subscriber', () async {
+      subscribeWithInteractions([slack]);
+      await postApproval();
+      slackThreads.sendError = StateError('slack down');
+
+      resolve('run-1', WorkflowApprovalResolution(approved: true, source: WorkflowApprovalSource.web, at: resolvedAt));
+      await settle();
+
+      expect(warnings('run-1').where((r) => r.message.contains('edit')), hasLength(1));
+    });
+
+    test('without an interaction wired, an approval post carries no buttons', () async {
+      subscribe([slack]);
+
+      await postApproval();
+
+      expect(slackThreads.rendered.single.actions, isEmpty);
     });
   });
 }

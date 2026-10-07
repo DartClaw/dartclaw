@@ -5,7 +5,18 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast, TaskService;
+import 'package:dartclaw_runtime/src/task/workflow_run_control.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowApprovalInteraction,
+        WorkflowApprovalPost,
+        WorkflowDefinition,
+        WorkflowRun,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowTaskType;
+import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
 import 'package:dartclaw_runtime/src/config/config_load.dart';
 import 'package:dartclaw_runtime/src/execution_policy_resolver.dart';
@@ -21,6 +32,7 @@ import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
 
+import '../guard_audit_test_support.dart';
 import 'harness_wiring_fixture.dart';
 
 import 'channel_wiring_test_support.dart';
@@ -267,6 +279,106 @@ channels:
       expect(entries.single, containsPair('tool', '/stop'));
       expect(entries.single, containsPair('channel', 'signal'));
       expect(entries.single, containsPair('peerId', '+46700000999'));
+    });
+
+    group('run approvals', () {
+      Future<(WorkflowService, InMemoryWorkflowRunRepository, WorkflowApprovalInteraction)> holdRun(
+        EventBus eventBus,
+      ) async {
+        final repository = InMemoryWorkflowRunRepository();
+        final workflows = WorkflowService.lifecycleOnly(
+          repository: repository,
+          taskService: TaskService(InMemoryTaskRepository(), eventBus: eventBus),
+          messageService: MessageService(baseDir: p.join(tempDir.path, 'wf-sessions')),
+          eventBus: eventBus,
+          kvService: KvService(filePath: p.join(tempDir.path, 'wf-kv.json')),
+          dataDir: tempDir.path,
+        );
+        addTearDown(workflows.dispose);
+        final definition = WorkflowDefinition(
+          name: 'approval-run',
+          description: 'One approval gate',
+          steps: const [
+            WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+          ],
+        );
+        final now = DateTime.now();
+        await repository.insert(
+          WorkflowRun(
+            id: 'run-1',
+            definitionName: definition.name,
+            status: WorkflowRunStatus.awaitingApproval,
+            startedAt: now,
+            updatedAt: now,
+            currentStepIndex: 1,
+            definitionJson: definition.toJson(),
+            contextJson: {
+              '_approval.pending.stepId': 'gate',
+              '_approval.pending.stepIndex': 0,
+              'data': <String, dynamic>{},
+              'variables': <String, dynamic>{},
+            },
+          ),
+        );
+        final interaction = (await workflows.issueApprovalInteraction('run-1', 'gate'))!;
+        await workflows.bindApprovalPost(
+          'run-1',
+          nonce: interaction.nonce,
+          post: const WorkflowApprovalPost(channelType: 'slack', recipientId: 'C1', messageId: '1700.01'),
+        );
+        return (workflows, repository, interaction);
+      }
+
+      SlackEnvelope click(WorkflowApprovalInteraction interaction) => SlackEnvelope(
+        kind: SlackEnvelopeKind.blockAction,
+        payload: {
+          'type': 'block_actions',
+          'user': {'id': 'U-ADMIN', 'name': 'Ada'},
+          'container': {'type': 'message', 'message_ts': '1700.01', 'channel_id': 'C1'},
+          'response_url': 'https://hooks.slack.invalid/actions/1',
+          'actions': [
+            {
+              'type': 'button',
+              'action_id': 'run_approve',
+              'value': jsonEncode({'runId': 'run-1', 'stepId': 'gate', 'nonce': interaction.nonce}),
+            },
+          ],
+        },
+      );
+
+      test('a click is unavailable until run control is bound, then resolves the run through the wired adapter', () async {
+        const socketSection =
+            '  slack:\n    enabled: true\n    bot_token_credential: slack_bot\n    app_token_credential: slack_app\n    dm_access: open\n';
+        final wired = await wireChannels('$slackCredentials${'channels:\n  debounce_window_ms: 0\n$socketSection'}');
+        final eventBus = EventBus();
+        addTearDown(eventBus.dispose);
+        final (workflows, repository, interaction) = await holdRun(eventBus);
+        final audit = RecordingGuardAuditLogger();
+        final request = ChannelRunApprovalRequest(
+          action: ChannelRunApprovalAction.approve,
+          runId: 'run-1',
+          stepId: 'gate',
+          nonce: interaction.nonce,
+          senderId: 'U-ADMIN',
+          channelType: 'slack',
+          postMessageId: '1700.01',
+        );
+
+        expect(await wired.channels.runApprovalHandler(request), isA<ChannelRunApprovalFailed>());
+        await wired.channels.slackChannel!.dispatch.dispatch(click(interaction));
+        expect((await repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
+
+        wired.channels.bindRunApprovals(
+          WorkflowRunControl(workflows: workflows, isAdmin: (_) => true, auditLogger: audit).handleApproval,
+        );
+        await wired.channels.slackChannel!.dispatch.dispatch(click(interaction));
+        await pumpEventQueue(times: 50);
+
+        expect((await repository.getById('run-1'))!.status, isNot(WorkflowRunStatus.awaitingApproval));
+        expect(audit.entries.map((e) => (e.hook, e.channel, e.peerId, e.decision)), [
+          ('button', 'slack', 'U-ADMIN', 'allow'),
+        ]);
+      });
     });
 
     group('secrets and transport', () {

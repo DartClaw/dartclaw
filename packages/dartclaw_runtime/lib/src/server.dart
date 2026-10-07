@@ -76,6 +76,7 @@ import 'task/task_progress_tracker.dart';
 import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
 import 'task/task_service.dart';
+import 'task/workflow_run_control.dart';
 import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
 import 'embedded_static_handler.dart';
@@ -716,8 +717,9 @@ class DartclawServer {
     final wf = _web.workflowService;
     final ts = _tasks.taskService;
     final ds = _web.workflowDefinitionSource;
-    if (wf != null && ts != null && ds != null) {
-      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _observability.eventBus);
+    final control = _web.workflowRunControl;
+    if (wf != null && ts != null && ds != null && control != null) {
+      final workflowRouter = workflowRoutes(wf, ts, ds, runControl: control, eventBus: _observability.eventBus);
       router.mount('/', workflowRouter.call);
     }
   }

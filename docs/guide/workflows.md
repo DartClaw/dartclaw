@@ -905,6 +905,23 @@ A run started anywhere else (the web form, the API, the CLI, a schedule) posts t
 `workflow.chat_notifications`, one thread per run, or nowhere when that block is not set. See
 [Workflow run notifications](configuration.md#workflow-run-notifications).
 
+### Approving from chat
+
+The awaiting-approval post of a run on Google Chat or Slack carries **Approve** and **Reject** buttons. Approve resumes
+the run; Reject cancels it, with no feedback (use the run page or API to cancel with feedback). Only a sender listed
+under `governance.admin_senders` can resolve an approval; anyone else is told so (as an ephemeral reply on Slack, in the click response on Google Chat) and the buttons stay. An
+empty `admin_senders` list makes every sender an admin, which in a group channel means every member can approve or
+reject runs, so list the approvers before you rely on buttons in a shared space. See
+[Governance](governance.md#admin-senders). Each button works once: after a resolution, from any surface, the post is
+edited to say who resolved it and when ("Approved by Ana at 14:05 UTC"), and a run that ends with the approval
+unresolved (an approval timeout) edits it to "No longer pending". WhatsApp and Signal posts have no buttons.
+
+The agent can do the same from a chat turn with `workflow_resume` and `workflow_cancel` (both take `run_id`; cancel also
+takes an optional `feedback`) and read a run's state with `workflow_status`. The two write tools need a chat turn from an
+admin sender, so they are refused in web chat, scheduled turns and any call with the shared gateway token, and a bound
+agent has them only if its `allowedTools` names them. Resolving from the run page or the HTTP API needs no admin sender.
+Every resolution from a button, a tool or the web is written to the audit log (guard `RunApprovalGate`).
+
 ### Web launch forms
 
 The web UI's `/workflows` page renders a launch form for each loaded definition. Forms collect the workflow's declared variables (text inputs for free-form fields, project pickers for variables that resolve to a known project) and submit via HTMX.

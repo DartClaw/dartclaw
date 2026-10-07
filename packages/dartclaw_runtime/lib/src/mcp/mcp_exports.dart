@@ -53,4 +53,5 @@ export 'tavily_search_tool.dart' show TavilySearchProvider, TavilySearchTool;
 export 'tool_schema.dart' show toolError, toolJson, toolSchema, validateToolArguments;
 export 'web_fetch_tool.dart' show WebFetchTool;
 export 'wiki_write_tool.dart' show WikiWriteTool, wikiWritePrincipal;
+export 'workflow_run_control_tools.dart' show WorkflowCancelTool, WorkflowResumeTool, WorkflowStatusTool;
 export 'workflow_tools.dart' show WorkflowListTool, WorkflowRunTool;

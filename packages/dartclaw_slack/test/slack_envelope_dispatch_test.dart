@@ -1,6 +1,11 @@
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelRunApprovalResolved, runApproveActionId;
 import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
+
+import 'support/slack_harness.dart';
 
 void main() {
   const event = SlackEnvelope(kind: SlackEnvelopeKind.event, payload: {'event': {}});
@@ -60,5 +65,44 @@ void main() {
 
     expect(calls, 2);
     expect(records.where((r) => r.level == Level.WARNING), hasLength(1));
+  });
+
+  group('on a Slack channel', () {
+    late SlackHarness harness;
+    final clicks = <String>[];
+
+    setUp(() async {
+      clicks.clear();
+      harness = await SlackHarness.start(
+        runApprovalHandler: (request) async {
+          clicks.add(request.runId);
+          return const ChannelRunApprovalResolved();
+        },
+      );
+      harness.logs.clear();
+    });
+
+    tearDown(() => harness.close());
+
+    test('a block action reaches the run approval handler and a view submission reaches none', () async {
+      await harness.channel.dispatch.dispatch(
+        SlackEnvelope(
+          kind: SlackEnvelopeKind.blockAction,
+          payload: blockAction(
+            actionId: runApproveActionId,
+            user: 'U1',
+            messageTs: '1.1',
+            value: jsonEncode({'runId': 'run-1', 'stepId': 'gate', 'nonce': 'n'}),
+          ),
+        ),
+      );
+      await harness.channel.dispatch.dispatch(
+        const SlackEnvelope(kind: SlackEnvelopeKind.viewSubmission, payload: {'type': 'view_submission'}),
+      );
+
+      expect(clicks, ['run-1']);
+      expect(harness.logs.where((r) => r.level >= Level.INFO), isEmpty);
+      expect(harness.logs.any((r) => r.level == Level.FINE && r.message.contains('viewSubmission')), isTrue);
+    });
   });
 }

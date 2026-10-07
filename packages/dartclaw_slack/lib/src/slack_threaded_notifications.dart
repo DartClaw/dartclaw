@@ -3,6 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 import 'package:logging/logging.dart';
 
 import 'slack_markdown.dart';
+import 'slack_run_approval.dart';
 import 'slack_web_api_client.dart';
 
 /// Slack's limit for the text of one `section` block.
@@ -61,6 +62,19 @@ class SlackThreadedNotifications implements ThreadedNotifications {
               'type': 'section',
               'text': {'type': 'mrkdwn', 'text': _clip(text)},
             },
+          if (notification.actions.isNotEmpty)
+            {
+              'type': 'actions',
+              'elements': [
+                for (final action in notification.actions)
+                  {
+                    'type': 'button',
+                    'text': {'type': 'plain_text', 'text': action.label},
+                    'action_id': action.id,
+                    'value': encodeRunActionValue(notification.actionData),
+                  },
+              ],
+            },
         ],
       },
     );
@@ -87,14 +101,35 @@ class SlackThreadedNotifications implements ThreadedNotifications {
     return ts == null ? null : ThreadedPost(threadId: threadId, messageId: ts);
   }
 
-  Future<String?> _post(String recipientId, ChannelResponse response, {required String? threadTs}) async {
+  @override
+  Future<bool> edit(String recipientId, String messageId, ChannelResponse response) async {
+    try {
+      // Slack keeps a message's old blocks unless the update names new ones, so a response without blocks clears them.
+      await _api.updateMessage(
+        channel: recipientId,
+        ts: messageId,
+        text: response.text,
+        blocks: _blocksOf(response) ?? const [],
+      );
+      return true;
+    } on SlackApiException catch (error) {
+      _log.warning('Could not edit Slack message $messageId in $recipientId: $error');
+      return false;
+    }
+  }
+
+  static List<Map<String, dynamic>>? _blocksOf(ChannelResponse response) {
     final rawBlocks = response.structuredPayload?['blocks'];
-    final blocks = rawBlocks is List
+    return rawBlocks is List
         ? [
             for (final block in rawBlocks)
               if (block is Map) Map<String, dynamic>.from(block),
           ]
         : null;
+  }
+
+  Future<String?> _post(String recipientId, ChannelResponse response, {required String? threadTs}) async {
+    final blocks = _blocksOf(response);
     try {
       final ts = await _api.postMessage(channel: recipientId, text: response.text, threadTs: threadTs, blocks: blocks);
       if (ts == null) {

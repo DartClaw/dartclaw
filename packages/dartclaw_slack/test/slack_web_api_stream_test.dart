@@ -121,6 +121,28 @@ void main() {
       expect(harness.bodyOf(2), {'channel': 'C1', 'ts': '1.2'});
     });
 
+    test(
+      'chat.update sends replacement blocks JSON-encoded, an empty list included, and none when not given',
+      () async {
+        final harness = _Harness.api({'ok': true});
+
+        await harness.client.updateMessage(channel: 'C1', ts: '1.2', text: 'a', blocks: const []);
+        await harness.client.updateMessage(
+          channel: 'C1',
+          ts: '1.2',
+          text: 'b',
+          blocks: [
+            {'type': 'section'},
+          ],
+        );
+        await harness.client.updateMessage(channel: 'C1', ts: '1.2', text: 'c');
+
+        expect(harness.bodyOf(0)['blocks'], '[]');
+        expect(harness.bodyOf(1)['blocks'], '[{"type":"section"}]');
+        expect(harness.bodyOf(2).containsKey('blocks'), isFalse);
+      },
+    );
+
     test('chat.update and assistant.threads.setStatus carry their identifiers', () async {
       final harness = _Harness.api({'ok': true});
 

@@ -136,22 +136,28 @@ import 'loc_target.dart';
 // tree). The signed Events API handler, the health reporter and the events-mode channel are the second
 // transport behind the one envelope dispatch; the shared webhook helpers moved into core and shrank runtime
 // and Google Chat.
+// Reviewed necessity, 2026-10-07 (0.28 run approvals), targets re-measured on the finished tree: core 32367 -> 32588,
+// runtime 77328 -> 78856, slack 2602 -> 2832, workflow 25631 -> 26416. Core carries the click port, action IDs and
+// the capability edit; workflow the one interaction record and the serialized, typed resolution that replaced two
+// unguarded resume and cancel paths; runtime the single admin gate and audit writer (WorkflowRunControl), three
+// tools and the subscriber's post edit; slack the block-action handler and the block-bearing edit. Each has one
+// owner, and the adapters and tools hold no admin check or resume call of their own.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 14480,
   'dartclaw_client': 625,
-  'dartclaw_core': 32367,
+  'dartclaw_core': 32588,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 77328,
+  'dartclaw_runtime': 78856,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
-  'dartclaw_slack': 2602,
+  'dartclaw_slack': 2832,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
-  'dartclaw_workflow': 25631,
+  'dartclaw_workflow': 26416,
 };
 // Tracks the approved package inventory (ADR-056), including Slack and bridge.
 // Update with approved additions; this guards unrecorded packages, not growth.

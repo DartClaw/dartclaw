@@ -37,6 +37,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../task/task_service.dart';
+import '../task/workflow_run_control.dart';
 import '../task/workflow_start_precondition_exception.dart';
 import '../workflow_approval_metadata.dart';
 import 'api_helpers.dart';
@@ -50,11 +51,13 @@ const _maxWorkflowFormBodyBytes = 256 * 1024;
 ///
 /// All endpoints require authentication (handled by the server pipeline).
 /// Business logic delegated to [WorkflowService] — routes are thin
-/// request/response translators.
+/// request/response translators. Resume and cancel go through [runControl],
+/// which audits them as web resolutions.
 Router workflowRoutes(
   WorkflowService workflows,
   TaskService tasks,
   WorkflowDefinitionSource definitions, {
+  required WorkflowRunControl runControl,
   EventBus? eventBus,
 }) {
   final router = Router();
@@ -122,19 +125,12 @@ Router workflowRoutes(
 
   // POST /api/workflows/runs/<id>/resume
   router.post('/api/workflows/runs/<id>/resume', (Request request, String id) async {
-    try {
-      final existing = await workflows.get(id);
-      if (existing == null) {
-        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
-      }
-      final run = await workflows.resume(id);
-      return jsonResponse(200, run.toJson());
-    } on StateError catch (e) {
-      return errorResponse(409, 'INVALID_TRANSITION', e.message);
-    } catch (e, st) {
-      _log.severe('Failed to resume workflow run $id', e, st);
-      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume workflow run');
-    }
+    return switch (await runControl.resumeFromWeb(id)) {
+      RunControlResolved(:final run) => jsonResponse(200, run!.toJson()),
+      RunControlNotFound() => errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id'),
+      RunControlRefused(:final message) => errorResponse(409, 'INVALID_TRANSITION', message),
+      RunControlFailed() => errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume workflow run'),
+    };
   });
 
   // POST /api/workflows/runs/<id>/retry
@@ -156,37 +152,25 @@ Router workflowRoutes(
 
   // POST /api/workflows/runs/<id>/cancel
   router.post('/api/workflows/runs/<id>/cancel', (Request request, String id) async {
-    try {
-      final existing = await workflows.get(id);
-      if (existing == null) {
-        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
-      }
-      if (existing.status.terminal) {
-        return errorResponse(
-          409,
-          'INVALID_TRANSITION',
-          'Workflow run is already in a terminal state: ${existing.status.name}',
-        );
-      }
-      // Optional body: { "feedback": "..." } for approval rejection feedback.
-      String? feedback;
-      final contentType = request.headers['content-type'] ?? '';
-      if (contentType.contains('application/json')) {
-        final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
-        if (body.error != null) return body.error;
-        if (body.value != null) {
-          final feedbackField = body.value!['feedback'];
-          if (feedbackField is String && feedbackField.trim().isNotEmpty) {
-            feedback = feedbackField.trim();
-          }
+    // Optional body: { "feedback": "..." } for approval rejection feedback.
+    String? feedback;
+    final contentType = request.headers['content-type'] ?? '';
+    if (contentType.contains('application/json')) {
+      final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
+      if (body.error != null) return body.error;
+      if (body.value != null) {
+        final feedbackField = body.value!['feedback'];
+        if (feedbackField is String && feedbackField.trim().isNotEmpty) {
+          feedback = feedbackField.trim();
         }
       }
-      await workflows.cancel(id, feedback: feedback);
-      return Response(204);
-    } catch (e, st) {
-      _log.severe('Failed to cancel workflow run $id', e, st);
-      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to cancel workflow run');
     }
+    return switch (await runControl.cancelFromWeb(id, feedback: feedback)) {
+      RunControlResolved() => Response(204),
+      RunControlNotFound() => errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id'),
+      RunControlRefused(:final message) => errorResponse(409, 'INVALID_TRANSITION', message),
+      RunControlFailed() => errorResponse(500, 'INTERNAL_ERROR', 'Failed to cancel workflow run'),
+    };
   });
 
   // GET /api/workflows/definitions

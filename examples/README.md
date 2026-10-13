@@ -13,7 +13,8 @@ bash examples/run.sh
 ```
 
 `doctor` may also report a `secrets.permissions` failure when the example file is readable beyond its owner; that does
-not stop it bootstrapping the schema.
+not stop it bootstrapping the schema. Git checks the files out readable by everyone, so before putting a literal secret
+in a config, copy it outside the checkout and `chmod 600` the copy.
 
 Specify a config: `bash examples/run.sh production --port 8080`
 

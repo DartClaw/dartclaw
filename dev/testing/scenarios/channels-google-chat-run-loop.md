@@ -6,7 +6,7 @@ auth_token: devtoken0
 ---
 # Scenario: Google Chat Run Loop
 
-Proves on a real Google Chat space that a workflow run started from a thread posts its lifecycle into that thread, that its approval card and Request changes dialog behave for admins and non-admins, and that the existing task cards still work. It is ledger row Q28-R03 and settles Q28-F20 to Q28-F23; its green result is the Google Chat half of Q28-M05. Facts live in `dev/testing/0.28-qualification.md`; this file states only the steps and what to observe.
+Proves on a real Google Chat space that a workflow run started from a thread posts its lifecycle into that thread, that its approval card and Request changes dialog behave for admins and non-admins, and that the existing task cards still work. It states only the steps and what to observe.
 
 Mark each step as the file convention says. A conversational step allows one retry and records it. `$DATA` is `DARTCLAW_CHANNELS_DATA_DIR`; the Runner reads `$DATA/audit-<UTC date>.ndjson` for audit entries.
 
@@ -31,14 +31,14 @@ The approval-gated run is `plan-and-implement` with `PLAN_REVIEW=true`, on the f
 
 ### Steps
 
-1. Owner: click **Approve** on the card as a listed admin (Q28-F22)
+1. Owner: click **Approve** on the card as a listed admin
 2. Owner: look at the card after the click and try to click it again
 3. Runner: wait for the finished post and read the audit entries for the run
 
 ### Expected
 
 - The run resumes, and the card is edited to say who resolved it and when
-- The card has no buttons after the click, so there is nothing to click again (Q28-F22)
+- The card has no buttons after the click, so there is nothing to click again
 - A finished or failed post follows in the same thread
 - The audit log holds one allow entry for the run, with the channel, the sender, the run and the step
 
@@ -49,13 +49,13 @@ The approval-gated run is `plan-and-implement` with `PLAN_REVIEW=true`, on the f
 
 1. Owner: temporarily replace your ID in `governance.admin_senders` with another member's ID, then Runner: restart the profile
 2. Owner: start a second gated run as in S1, then click **Approve** on its card
-3. Owner: ask a second member of the space what, if anything, they saw appear after your click (Q28-F20)
+3. Owner: ask a second member of the space what, if anything, they saw appear after your click
 4. Runner: read the audit entries for the refusal
 
 ### Expected
 
 - The click is refused, the run stays at the gate, and the card keeps its buttons
-- The refusal text is visible only to you, not to the second member, or the opposite is recorded in the ledger (Q28-F20)
+- The refusal text is visible only to you, not to the second member, or the opposite is recorded
 - The audit log holds a deny entry with the channel, the sender, the run and the step
 
 
@@ -65,18 +65,18 @@ Restore your ID in `governance.admin_senders` and restart the profile first, the
 
 ### Steps
 
-1. Owner: click **Request changes**, enter "Reduce the plan to a single story" and submit (Q28-F23)
-2. Runner: watch the run return to the revise step and pause at the same gate, and read the log for the dialog event's `postMessageId` handling (Q28-F23)
-3. Owner: click **Request changes** again and submit with the feedback field blank. Watch whether the dialog stays open and what it shows (Q28-F21)
-4. Owner: temporarily replace your ID in `governance.admin_senders`, restart the profile, and click **Request changes** as a non-admin; ask a second member whether they saw the dialog (Q28-F21)
+1. Owner: click **Request changes**, enter "Reduce the plan to a single story" and submit
+2. Runner: watch the run return to the revise step and pause at the same gate, and read the log for the dialog event's `postMessageId` handling
+3. Owner: click **Request changes** again and submit with the feedback field blank. Watch whether the dialog stays open and what it shows
+4. Owner: temporarily replace your ID in `governance.admin_senders`, restart the profile, and click **Request changes** as a non-admin; ask a second member whether they saw the dialog
 5. Owner: restore your ID in `governance.admin_senders`, restart the profile, and click **Reject** on the card
 
 ### Expected
 
-- A submission with text closes the dialog, the run returns to the gate and the card names the revision round (Q28-F23)
-- The log shows the card was found through the identifier the dialog echoed back, not through a message in the submission (Q28-F23)
-- A blank submission keeps the dialog open with the reason under the field, or the dialog closing is recorded in the ledger (Q28-F21)
-- The non-admin's dialog holds only the refusal, with no form, and only the person who clicked sees it (Q28-F21)
+- A submission with text closes the dialog, the run returns to the gate and the card names the revision round
+- The log shows the card was found through the identifier the dialog echoed back, not through a message in the submission
+- A blank submission keeps the dialog open with the reason under the field, or the dialog closing is recorded
+- The non-admin's dialog holds only the refusal, with no form, and only the person who clicked sees it
 - **Reject** cancels the run and the card loses its buttons
 
 
@@ -89,6 +89,6 @@ Restore your ID in `governance.admin_senders` and restart the profile first, the
 
 ### Expected
 
-- The task's notifications open one thread in the space and the review card carries **Accept** and **Reject** buttons exactly as before this milestone
+- The task's notifications open one thread in the space and the review card carries **Accept** and **Reject** buttons exactly as before run threads existed
 - **Accept** accepts the task and **Reject** rejects it, each with the same card update as before
 - No run-approval wording appears on a task card

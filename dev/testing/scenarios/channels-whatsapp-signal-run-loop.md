@@ -6,7 +6,7 @@ auth_token: devtoken0
 ---
 # Scenario: WhatsApp And Signal Run Loop
 
-Proves on paired WhatsApp and Signal devices that a workflow run started from a DM or a group posts plain messages to that origin, that an admin resumes it by asking the agent, and that a non-admin is refused. These channels have no buttons and no threads, so the agent tools are the only way to resolve a run from chat. WhatsApp is ledger row Q28-R04 (S1, S2) and Signal is Q28-R05 (S3, S4); their green result is the WhatsApp and Signal half of Q28-M05. Facts live in `dev/testing/0.28-qualification.md`.
+Proves on paired WhatsApp and Signal devices that a workflow run started from a DM or a group posts plain messages to that origin, that an admin resumes it by asking the agent, and that a non-admin is refused. These channels have no buttons and no threads, so the agent tools are the only way to resolve a run from chat. WhatsApp is S1 and S2, Signal is S3 and S4.
 
 Mark each step as the file convention says. A step where the model chooses the tool allows one retry and records it. `$DATA` is `DARTCLAW_CHANNELS_DATA_DIR`; the Runner reads `$DATA/audit-<UTC date>.ndjson` for audit entries.
 
@@ -45,7 +45,7 @@ The approval-gated run is `plan-and-implement` with `PLAN_REVIEW=true`, on the f
 
 ### Expected
 
-- Both questions are answered as before this milestone
+- Both questions are answered as before run posts existed
 - Task notifications arrive as plain messages with no thread
 
 
@@ -79,5 +79,5 @@ The approval-gated run is `plan-and-implement` with `PLAN_REVIEW=true`, on the f
 
 ### Expected
 
-- Both questions are answered as before this milestone
+- Both questions are answered as before run posts existed
 - Task notifications arrive as plain messages with no thread

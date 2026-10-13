@@ -2,7 +2,7 @@
 
 This is the single ledger for the 0.28 live qualification: Slack, run lifecycle posts, run approvals and request changes, and cited shared knowledge in chat. It records the platform facts the unattended work could only assume, the success metrics, and one row per run-loop scenario file. It consumes the scenarios in `dev/testing/scenarios/channels-*.md`; it does not replace their assertions.
 
-The qualification is owner-led: it needs a Slack workspace, a Google Chat space, and paired WhatsApp and Signal devices, so nothing here is runnable unattended. Every status below is `pending` until the owner runs the step. Candidate identity, receipts and failed-attempt handling follow `dev/testing/0.27-qualification.md` (§ Candidate identity); a retry points to the earlier attempt instead of overwriting it.
+The qualification is owner-led: it needs a Slack workspace, a Google Chat space, and paired WhatsApp and Signal devices, so nothing here is runnable unattended. Every status below is `pending` until the owner runs the step. Candidate identity, receipts and failed-attempt handling follow `dev/guidelines/RELEASE_PREPARATION.md` (receipts: full commit SHA and tree, attempts retained, a failed retry never falls back to an older pass); a retry points to the earlier attempt instead of overwriting it.
 
 Setup: `bash dev/testing/profiles/channels/run.sh` (port 3336, token `devtoken0`) with `DARTCLAW_CHANNELS_DATA_DIR` set to a persistent directory, then the owner steps in the private channel manual. Steps in the scenarios are marked Owner (a person acts) or Runner (an agent acts through HTTP or the audit log); see `dev/testing/scenarios/README.md`.
 

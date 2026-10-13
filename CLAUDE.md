@@ -97,6 +97,7 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 - Single-threaded – add isolates only if profiling shows a bottleneck.
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_runtime/lib/src/static/` – see its `VENDORS.md` for versions and upgrade instructions.
 - Never reference specific story IDs or titles in code, filenames, or user-facing docs (project/development documents are the exception).
+- Version-specific documents (qualification ledgers, milestone runbooks) live in the plan bundle `dev/bundle/docs/specs/<version>/` and canonically in private `docs/specs/<version>/`, never elsewhere in the public tree.
 - Tests must run on Linux CI and local macOS – prefer Dart APIs over platform-specific shell flags; see `TESTING-STRATEGY.md` for POSIX file-permission checks.
 - **Tech debt backlog is a last resort** – `dev/state/TECH-DEBT-BACKLOG.md` is reserved for items that **cannot** be resolved without further requirements input or an architecture decision. Fixable now with current understanding → fix now, or capture it in an active spec/FIS. Entries describing known cleanups invite rot and dilute signal.
 - **Timestamps** – always run `date '+%Y-%m-%d %H:%M %Z'` before writing one. Never guess; internal time may be the wrong timezone.

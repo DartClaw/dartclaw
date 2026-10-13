@@ -31,15 +31,10 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 
 ## Evidence and milestone records
 
-Keep reusable runners and test instructions under `dev/testing/`. The single 0.27 result authority is
-[`0.27-qualification.md`](0.27-qualification.md); producer runs append actual candidate/environment-bound evidence or
-explicit holds there. During implementation, keep scenario mappings and working ledgers beside the exported plan in
-`dev/bundle/docs/specs/<version>/`. Remove that bundle before release under the
-[spec lifecycle](../state/SPEC-LIFECYCLE.md); this 0.27 ledger retains its release holds and results.
-
-The 0.28 live qualification (Slack, run lifecycle posts, run approvals) is owner-led and tracked in
-[`0.28-qualification.md`](0.28-qualification.md): platform facts, success metrics and one row per run-loop scenario
-file, driven by `scenarios/channels-*.md` on the `channels` profile.
+Keep reusable runners and test instructions under `dev/testing/`. Version-specific qualification ledgers and milestone
+runbooks live in the plan bundle `dev/bundle/docs/specs/<version>/` (canonically in private `docs/specs/<version>/`),
+never in this directory; remove the bundle before release under the [spec lifecycle](../state/SPEC-LIFECYCLE.md).
+Scenarios under `scenarios/` stay durable and carry no version or ledger-row references.
 
 Store run artifacts under `.agent_temp/`. Record the command, environment, tested revision and working-tree changes,
 exit status, and artifact paths. Distinguish focused evidence from full-suite results, working-tree results from

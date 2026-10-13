@@ -71,8 +71,8 @@ Exit codes: **0** means the selected automated gates passed, **1** means failure
 successful run. `--gate` and `--local` success do not imply full release readiness. Select manual/live/platform checks
 for changed surfaces and claims in this release. Do not run the whole inventory as a routine release gate.
 
-The [0.27 qualification ledger](../testing/0.27-qualification.md) records that initiative's development evidence.
-Its historical scenario inventory does not add release gates. Unavailable environments needed for a selected claim
+A milestone's qualification ledger lives in its plan bundle, not in the public tree, and never adds release gates.
+Unavailable environments needed for a selected claim
 remain holds; optional device and owner audits are deferred under the experimental-stage testing scope below.
 
 The final CI gate requires `Check`, `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green

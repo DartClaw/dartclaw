@@ -822,9 +822,22 @@ void main() {
       expect(result['isError'], isTrue);
       expect(resultPayload(result)['reason'], 'needs_chat_turn');
       expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
-      expect(gateAudit.entries.map((e) => (e.guard, e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId)), [
-        ('TaskReviewGate', 'tool', 'task_accept', 'deny', 'block', 'googlechat', 'users/admin'),
-      ], reason: 'the refusal writes exactly one entry; the dispatch entry is not a gate entry');
+      expect(
+        gateAudit.entries.map((e) => (e.guard, e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId, e.reason)),
+        [
+          (
+            'TaskReviewGate',
+            'tool',
+            'task_accept',
+            'deny',
+            'block',
+            'googlechat',
+            'users/admin',
+            'delegated work never stands in for a human (task gate-1)',
+          ),
+        ],
+        reason: 'the refusal writes exactly one entry, naming the task like every other TaskReviewGate entry',
+      );
     });
 
     test('a web turn and a caller with no turn review as before, gated by nothing', () async {

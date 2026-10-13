@@ -167,6 +167,7 @@ class TaskReviewTool implements TurnAwareMcpTool {
       'review a task',
       guard: taskReviewGuard,
       tool: 'task_$action',
+      delegatedReason: '$_delegatedTurnRefusal (task $taskId)',
       auditLogger: _auditLogger,
       admit: (channel, sender) => admitTaskReview(
         taskId,
@@ -507,13 +508,15 @@ Map<String, Object?> _taskSummary(Task task) => {
 /// sender is the host's record of the calling turn, never an argument.
 ///
 /// A delegated refusal is audited here, through [auditRefusal] under the concern's [guard] and [tool], because no
-/// [admit] step runs for it; [admit] audits the refusals it makes itself.
+/// [admit] step runs for it; [admit] audits the refusals it makes itself. [delegatedReason] is that entry's reason,
+/// so a caller whose other entries name a task names it here too.
 Future<ToolResult?> _refuseChatCaller(
   TurnProvenance? turn,
   String what, {
   required String guard,
   required String tool,
   required GuardAuditLogger? auditLogger,
+  String delegatedReason = _delegatedTurnRefusal,
   required Future<bool> Function(String channel, String? senderId) admit,
 }) async {
   if (turn == null) return null;
@@ -523,7 +526,7 @@ Future<ToolResult?> _refuseChatCaller(
       guard: guard,
       hook: 'tool',
       tool: tool,
-      reason: _delegatedTurnRefusal,
+      reason: delegatedReason,
       channel: turn.channelType,
       senderId: turn.senderId,
     );

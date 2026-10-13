@@ -95,19 +95,15 @@ Handler mcpRoute(
       final resolved = bearer == null ? null : resolveCaller(bearer);
       final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';
       if (resolved == null) {
-        final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
-        if (!limited) rateLimiter?.recordFailure(remoteKey);
-        fireFailedAuthEvent(
-          eventBus,
+        final limited = recordFailedAuth(
           request,
           source: 'mcp',
           reason: bearer == null ? 'missing_credentials' : 'invalid_bearer',
-          limited: limited,
+          rateLimiter: rateLimiter,
+          eventBus: eventBus,
           trustedProxies: trustedProxies,
         );
-        if (limited) {
-          return _mcpError(429, 'Too many failed authentication attempts');
-        }
+        if (limited != null) return _mcpError(429, 'Too many failed authentication attempts');
         return _mcpError(401, 'Unauthorized');
       }
       // Only a gateway-token success clears the window. The limiter is shared

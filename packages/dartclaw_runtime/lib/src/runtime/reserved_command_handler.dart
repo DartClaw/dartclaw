@@ -4,6 +4,8 @@ import 'package:dartclaw_core/dartclaw_core.dart' as core show TurnManager;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:logging/logging.dart';
 
+import '../governance/reserved_command_audit.dart';
+
 enum _ReservedChannelCommand { stop, pause, resume, bind, unbind }
 
 _ReservedChannelCommand? _reservedChannelCommand(String text) {
@@ -24,8 +26,6 @@ bool isReservedChannelCommand(String text) => _reservedChannelCommand(text) != n
 /// A bare prefix match would admit `/statusreport …` as a reserved command,
 /// which skips per-sender rate limiting and pause queueing.
 bool _isCommand(String lower, String command) => lower == command || lower.startsWith('$command ');
-
-const _adminOnlyRefusal = 'Only admin senders can use this command.';
 
 /// Handles reserved channel commands: `/stop`, `/pause`, `/resume`, `/bind`, `/unbind`.
 class ReservedCommandHandler {
@@ -62,9 +62,14 @@ class ReservedCommandHandler {
 
     // Admin check — same for all reserved commands.
     if (!governance.isAdmin(senderId)) {
-      await _auditRefusal(auditLogger, message);
+      await auditReservedCommandRefusal(
+        auditLogger,
+        channel: message.channelType.name,
+        senderId: senderId,
+        tool: message.text.trim().split(RegExp(r'\s+')).first.toLowerCase(),
+      );
       try {
-        await channel.sendMessage(recipientId, _replyTo(message, _adminOnlyRefusal));
+        await channel.sendMessage(recipientId, _replyTo(message, adminOnlyRefusal));
       } catch (e) {
         _log.warning('Failed to send reserved command rejection to $senderId', e);
       }
@@ -268,29 +273,6 @@ class ReservedCommandHandler {
       await channel.sendMessage(recipientId, _replyTo(message, text));
     } catch (e) {
       _log.warning('Failed to send reserved command response to $recipientId', e);
-    }
-  }
-
-  static Future<void> _auditRefusal(GuardAuditLogger? auditLogger, ChannelMessage message) async {
-    if (auditLogger == null) return;
-    final senderId = message.senderJid;
-    try {
-      await auditLogger.writeEntry(
-        AuditEntry(
-          timestamp: DateTime.now(),
-          guard: 'ReservedCommand',
-          hook: 'channel_command',
-          verdict: 'block',
-          reason: _adminOnlyRefusal,
-          channel: message.channelType.name,
-          peerId: senderId,
-          tool: message.text.trim().split(RegExp(r'\s+')).first.toLowerCase(),
-          decision: 'deny',
-          principal: senderId,
-        ),
-      );
-    } catch (e) {
-      _log.warning('Failed to audit reserved command refusal for $senderId', e);
     }
   }
 

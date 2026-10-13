@@ -214,8 +214,9 @@ and `task_bind` when the thread is already known by name.
 Binding is thread-scoped and opt-in through `features.thread_binding.enabled`. It works on every channel that carries a
 per-message thread identity, which is what a binding is keyed by: Google Chat (the thread resource name, such as
 `spaces/AAAA/threads/CCCC`) and Slack. A message with no thread, or on a channel with none (WhatsApp and Signal),
-answers `Cannot bind — this message is not in a thread.` rather than binding the group. A thread that a workflow run
-posts into cannot be bound to a task; the reply names the run.
+answers `Cannot bind — this message is not in a thread.` rather than binding the group. Slack registers no `/bind` or
+`/unbind`, because its slash payload carries no thread. A thread that a workflow run posts into cannot be bound to a
+task; the reply names the run.
 
 With the flag on, the first notification of a task started from a Google Chat space (queued to running) opens a thread
 in that space and binds it, so later status changes and review requests post into the same thread and replies there
@@ -232,7 +233,8 @@ A task's review card has **Accept** and **Reject** buttons, and a click is accep
 review. Every click, allowed or refused, is written to the audit log (guard `TaskReviewGate`, with the sender and task).
 An empty list makes every member of the space an admin, as for run approvals. A task started from a Chat message by
 the agent's `task_create` tool posts its review card back into that space, so list your reviewers before relying on
-the card in a shared space.
+the card in a shared space. The agent's `task_review` tool applies the same rule to a chat turn, so asking the agent to
+accept a task does not get around the card.
 
 The awaiting-approval card has **Approve** and **Reject** buttons. A click is accepted only from a sender listed in
 `governance.admin_senders` (the sender ID is the `users/<id>` form), and an empty list makes every member of the space an

@@ -55,22 +55,16 @@ void main() {
   }
 
   test('each reserved command reaches the handler as a message from that sender in that conversation', () async {
-    for (final (command, args) in [
-      ('/stop', ''),
-      ('/pause', ''),
-      ('/resume', ''),
-      ('/bind', 'task-1'),
-      ('/unbind', ''),
-    ]) {
-      await sendSlash(_slash(command, text: args));
+    for (final command in ['/stop', '/pause', '/resume']) {
+      await sendSlash(_slash(command));
     }
 
-    expect(handler.handled.map((m) => m.text), ['/stop', '/pause', '/resume', '/bind task-1', '/unbind']);
+    expect(handler.handled.map((m) => m.text), ['/stop', '/pause', '/resume']);
     for (final message in handler.handled) {
       expect(message.senderJid, 'U1');
       expect(message.groupJid, 'C1');
       expect(message.channelType, ChannelType.slack);
-      expect(message.threadId, isNull, reason: 'a slash payload carries no thread, so /bind and /unbind refuse');
+      expect(message.threadId, isNull, reason: 'a slash payload carries no thread');
       expect(message.metadata, isNot(contains('threadName')), reason: 'the Google Chat binding key is never stamped');
     }
   });

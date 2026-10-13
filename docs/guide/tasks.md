@@ -210,6 +210,10 @@ What these tools cannot do:
   channel, conversation and sender, so the task posts its status and review requests back to that conversation and the
   task's own turns act as that sender (a non-admin's task cannot change shared knowledge; see
   [Governance](governance.md#admin-senders)). A task created from web chat or without a turn records no origin.
+- **`task_review`, `task_bind` and `task_unbind` called during a channel message need an admin sender.** The sender is
+  the host's record of that message, as for the card buttons and the `/bind` and `/unbind` commands; a refusal is
+  audited. A task or workflow step never reviews or binds, even one an admin started. Web chat, scheduled turns and the
+  gateway token are not gated (see [Governance](governance.md#admin-senders)).
 - **`task_bind` cannot bind "the current thread".** A tool call carries no channel context, so the thread must be
   named explicitly. Binding the thread a message arrived in is what the `/bind` reserved command is for.
 

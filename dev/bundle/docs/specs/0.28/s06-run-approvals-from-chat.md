@@ -269,6 +269,7 @@ Decisions, each also stated where it bites:
 - Arch targets re-measured for core, runtime, slack and workflow with one reviewed-necessity line (TI13); core, runtime and workflow were already past their recorded targets before this story.
 - `constantTimeEquals` moved from `dartclaw_runtime`'s auth utilities to `dartclaw_kernel` (its test moved with it) so the workflow package's nonce check and runtime's secret comparisons use the one implementation; the runtime callers import it from the kernel.
 - Review applied (round 3): `WorkflowRunControl._fromTool` refuses a delegated task or workflow-step turn (`TurnProvenance.delegated`) with its existing `needsChatTurn` refusal and audit entry, whoever requested the work, so only a live admin chat turn resolves a gate from a tool. Google Chat's Accept and Reject task-review clicks now pass through `adminGatedReviewHandler` (`task/channel_review_gate.dart`): the same `governance.admin_senders` rule, one `TaskReviewGate` audit entry per click, no nonce. Slack posts no review buttons.
+- Review applied (round 4): `task_review`, `task_bind` and `task_unbind` are `TurnAwareMcpTool`s gated like the chat actions they mirror. `task_review` admits a chat turn through `admitTaskReview` (`task/channel_review_gate.dart`, the card's rule and `TaskReviewGate` entry, hook `tool`, all three actions); the binding tools check `GovernanceConfig.isAdmin` and audit a refusal through `auditReservedCommandRefusal`, which `ReservedCommandHandler` also calls. A delegated turn is refused (`needs_chat_turn`), a non-admin chat sender is refused (`not_admin`), web and turn-less callers are unchanged. `/stop`, `/pause` and `/resume` have no tool twin. Proved in `task_tools_test.dart`.
 
 #### DRIFT
 
@@ -278,6 +279,6 @@ Decisions, each also stated where it bites:
 
 #### NOTICED BUT NOT TOUCHING
 
-- The cancel route now reads its optional JSON body before the run is looked up, so a missing or already-settled run sent with a malformed or oversize body answers 400 or 413 instead of 404 or 409. Restoring the order needs a second run read in the route.
-- A run-action click whose payload lacks a run, step, nonce, sender or message, and a click that arrives before run control is bound (a startup window), are answered by the adapter and written to no audit entry, because they never reach `WorkflowRunControl`, the one audit writer.
+- The cancel route now reads its optional JSON body before the run is looked up, so a missing or already-settled run sent with a malformed or oversize body answers 400 or 413 instead of 404 or 409. Restoring the order needs a second run read in the route. Accepted (owner, review round 4): the 400/413 for a malformed body is kept.
+- A run-action click whose payload lacks a run, step, nonce, sender or message, and a click that arrives before run control is bound (a startup window), are answered by the adapter and written to no audit entry, because they never reach `WorkflowRunControl`, the one audit writer. Accepted (owner, review round 4): the interaction payload is platform-signed (Slack) or JWT-verified (Google Chat), so a member cannot craft an incomplete one; such a click resolves nothing.
 - A failed Slack edit logs one warning in the adapter (with the API error) and one from the subscriber (naming run and destination); the second is the once-per-run one.

@@ -107,6 +107,7 @@
 - **Suppress binary's built-in tools when providing MCP equivalents.** Add tool names to `disallowedTools` in `HarnessConfig`.
 - **`includeParentEnvironment: false` is load-bearing with an explicit `environment:` map.** `Process.start` otherwise re-inherits the parent env past the sanitized overlay; spawn via `SafeProcess`.
 - **Sanitize git subprocess env, not just the binary.** `.git/config` can route through `core.sshCommand`, hooks, filters, and credential helpers that spawn shell children.
+- **Gating a chat action means gating its MCP tool twin in the same change.** The card gate left `task_review` open via the agent, `/bind` left `task_bind`; make the tool `TurnAwareMcpTool`.
 - **Collapse whitespace where a one-line report is assembled, not per text source.** A provider error, filename, or OS string the pipeline never authored can otherwise forge a report line.
 
 ## Package Architecture

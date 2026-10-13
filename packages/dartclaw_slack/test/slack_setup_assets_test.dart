@@ -7,7 +7,8 @@ import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 
-const _slashCommands = {'/stop', '/pause', '/resume', '/bind', '/unbind'};
+// /bind and /unbind are unregistered: a slash payload carries no thread, so on Slack they could only refuse.
+const _slashCommands = {'/stop', '/pause', '/resume'};
 const _botEvents = {'app_mention', 'message.im', 'message.channels', 'message.groups'};
 const _slackKeyPrefix = 'channels.slack.';
 

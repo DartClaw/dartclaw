@@ -29,15 +29,6 @@ features:
       description: Resume message processing
       url: https://dartclaw.example.com/integrations/slack
       should_escape: false
-    - command: /bind
-      description: Bind this thread to a task
-      usage_hint: "<taskId>"
-      url: https://dartclaw.example.com/integrations/slack
-      should_escape: false
-    - command: /unbind
-      description: Remove this thread's task binding
-      url: https://dartclaw.example.com/integrations/slack
-      should_escape: false
 oauth_config:
   scopes:
     bot:

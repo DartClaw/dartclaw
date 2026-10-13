@@ -38,7 +38,7 @@ Both declare:
 - the agent view (`features.assistant_view`) and a bot user that can be messaged directly (Messages tab on)
 - ten bot scopes: `app_mentions:read`, `channels:history`, `groups:history`, `im:history`, `im:write`, `chat:write`, `assistant:write`, `files:read`, `users:read`, `commands`
 - bot events `app_mention`, `message.im`, `message.channels` and `message.groups`, and interactivity
-- slash commands `/stop`, `/pause`, `/resume`, `/bind` and `/unbind`
+- slash commands `/stop`, `/pause` and `/resume`
 
 Subscribe to the `message.*` events even though `app_mention` is listed: DartClaw ignores `app_mention` because the same message also arrives as a `message` event, which alone carries file attachments.
 
@@ -171,7 +171,7 @@ workflow:
     recipient: C0123ABCDEF       # Slack channel ID
 ```
 
-Run threads need only this block. `features.thread_binding.enabled` gates task threading alone: task notifications opening a thread, `/bind`, `task_bind` and routing replies in a bound thread to its task. An approval post links the run page, `<base_url>/workflows/<runId>`, when the top-level `base_url` is set. Posts to one channel go out at least a second apart.
+Run threads need only this block. `features.thread_binding.enabled` gates task threading alone: task notifications opening a thread, `task_bind` and routing replies in a bound thread to its task. An approval post links the run page, `<base_url>/workflows/<runId>`, when the top-level `base_url` is set. Posts to one channel go out at least a second apart.
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
@@ -216,17 +216,15 @@ A channel bound to an agent that holds `context_research` (the `eng-bot` entry a
 
 ## Slash Commands
 
-The manifests register five slash commands, all admin-only (`governance.admin_senders`, listing the sender's Slack user ID; see [Admin senders](governance.md#admin-senders)):
+The manifests register three slash commands, all admin-only (`governance.admin_senders`, listing the sender's Slack user ID; see [Admin senders](governance.md#admin-senders)):
 
 | Command | Effect |
 |---|---|
 | `/stop` | Emergency stop of in-flight tasks |
 | `/pause` | Pause message processing |
 | `/resume` | Resume queued message processing |
-| `/bind <taskId>` | Route a thread to a task's agent session |
-| `/unbind` | Remove the binding |
 
-Slash commands run the same access checks as ordinary messages but skip `require_mention`, and each is answered ephemerally to the sender. Slack's slash payload carries no thread, so `/bind` and `/unbind` currently answer "not in a thread" and bind nothing.
+Slash commands run the same access checks as ordinary messages but skip `require_mention`, and each is answered ephemerally to the sender. Slack's slash payload carries no thread, so `/bind` and `/unbind` are not registered on Slack (they exist on [Google Chat](google-chat.md#thread-binding)); a Slack thread is bound by a task notification that opens it, or by the agent's `task_bind` tool naming the thread.
 
 ## Socket Mode Setup to First DM
 

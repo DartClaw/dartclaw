@@ -758,7 +758,7 @@ Access runs through `ChannelInboundGate` as on the other channels. A reply in a 
 
 ### 9A.3 Slash commands
 
-The five reserved commands are Slack slash commands. The envelope is acknowledged with no body, becomes a `ChannelMessage` whose text is `/command args` (no thread: a slash payload carries none, so `/bind` and `/unbind` give the handler's "not in a thread" refusal), and passes access gating but not mention gating. The adapter keeps the command's `response_url` by message ID, so the handler's reply, which carries that ID as `sourceMessageId`, is delivered as an ephemeral `response_url` answer. `stop!` typed in a thread or DM is an ordinary message and its reply is posted into that thread.
+`/stop`, `/pause` and `/resume` are Slack slash commands; the manifests do not register `/bind` and `/unbind`, because a slash payload carries no thread and they could only give the handler's "not in a thread" refusal. The envelope is acknowledged with no body, becomes a `ChannelMessage` whose text is `/command args` (no thread), and passes access gating but not mention gating. The adapter keeps the command's `response_url` by message ID, so the handler's reply, which carries that ID as `sourceMessageId`, is delivered as an ephemeral `response_url` answer. `stop!` typed in a thread or DM is an ordinary message and its reply is posted into that thread.
 
 ### 9A.4 Outbound
 

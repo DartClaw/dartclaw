@@ -21,14 +21,28 @@ Future<OutboundMcpPool?> _registerMcpTools(
 }) async {
   server.registerTool(SessionsSpawnTool(sessions: harness.logicalAgentSessions));
   server.registerTool(SessionsSendTool(sessions: harness.logicalAgentSessions));
+  // The chat actions the admin rule gates, in their tool form: the same rule and audit writers as the chat twins.
+  final auditLogger = security.auditLogger;
   server.registerTool(TaskCreateTool(tasks: storage.taskService));
-  server.registerTool(TaskReviewTool(reviews: task.taskReviewService));
+  server.registerTool(
+    TaskReviewTool(reviews: task.taskReviewService, isAdmin: config.governance.isAdmin, auditLogger: auditLogger),
+  );
   server.registerTool(TaskListTool(tasks: storage.taskService));
   server.registerTool(ReviewListTool(tasks: storage.taskService));
   // The binding tools register unconditionally: an absent store is reported at
   // call time, so their availability does not change with an operator toggle.
-  server.registerTool(TaskBindTool(tasks: storage.taskService, bindings: threadBindingStore, channels: channelManager));
-  server.registerTool(TaskUnbindTool(bindings: threadBindingStore));
+  server.registerTool(
+    TaskBindTool(
+      tasks: storage.taskService,
+      bindings: threadBindingStore,
+      channels: channelManager,
+      isAdmin: config.governance.isAdmin,
+      auditLogger: auditLogger,
+    ),
+  );
+  server.registerTool(
+    TaskUnbindTool(bindings: threadBindingStore, isAdmin: config.governance.isAdmin, auditLogger: auditLogger),
+  );
   // Orchestration and content tools. They take no session, channel or caller
   // argument, which is what makes them answer the same way to a chat turn and a
   // cron turn — and is why a containerized lane reaches exactly what the host
@@ -53,7 +67,6 @@ Future<OutboundMcpPool?> _registerMcpTools(
   server.registerTool(
     AttachMediaTool(workspace: WorkspacePathGuard(config.workspaceDir), delivery: scheduling.deliveryService),
   );
-  final auditLogger = security.auditLogger;
   Future<ToolResult?> refuseTemporaryDurableWrite(McpCallerContext caller) async {
     final sessionId = caller.sessionId;
     if (sessionId == null) return null;

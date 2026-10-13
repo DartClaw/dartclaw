@@ -151,12 +151,12 @@ Preparation (Owner, once per transport): in `$DATA/dartclaw.yaml`, set `channels
 ### Steps
 
 1. Owner: in the test channel, send the bot's `/pause` command as an admin, then `/resume`
-2. Owner: in a thread, send `/bind` with any task ID
+2. Owner: in a thread, type `/` and look through the offered commands
 
 ### Expected
 
 - `/pause` and `/resume` are answered ephemerally to you only, and the channel gains no message from either
-- `/bind` answers "not in a thread" and binds nothing, which confirms the payload carries no thread (Q28-F10)
+- Only `/stop`, `/pause` and `/resume` are offered; `/bind` and `/unbind` are not registered, since a slash payload carries no thread (Q28-F10)
 
 
 ## S11: Images Reach The Model

@@ -40,7 +40,9 @@ void main() {
   late TaskService tasks;
   late ThreadBindingStore bindings;
   late RecordingGuardAuditLogger audit;
+  late RecordingGuardAuditLogger gateAudit;
   late ChannelManager channels;
+  var adminSenders = <String>[];
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_tools_');
@@ -49,6 +51,8 @@ void main() {
     bindings = ThreadBindingStore(File('${tempDir.path}/thread_bindings.json'));
     await bindings.load();
     audit = RecordingGuardAuditLogger();
+    gateAudit = RecordingGuardAuditLogger();
+    adminSenders = [];
     channels = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults())
       ..registerChannel(
         FakeChannel(name: 'gchat', type: ChannelType.googlechat, threadedNotifications: FakeThreadedNotifications()),
@@ -78,11 +82,31 @@ void main() {
     MergeExecutor? mergeExecutor,
   }) => McpProtocolHandler(guardChain: chain, auditLogger: sink)
     ..registerTool(TaskCreateTool(tasks: tasks))
-    ..registerTool(TaskReviewTool(reviews: reviewService(mergeExecutor: mergeExecutor)))
+    ..registerTool(
+      TaskReviewTool(
+        reviews: reviewService(mergeExecutor: mergeExecutor),
+        isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+        auditLogger: gateAudit,
+      ),
+    )
     ..registerTool(TaskListTool(tasks: tasks))
     ..registerTool(ReviewListTool(tasks: tasks))
-    ..registerTool(TaskBindTool(tasks: tasks, bindings: bindingStore, channels: channels))
-    ..registerTool(TaskUnbindTool(bindings: bindingStore));
+    ..registerTool(
+      TaskBindTool(
+        tasks: tasks,
+        bindings: bindingStore,
+        channels: channels,
+        isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+        auditLogger: gateAudit,
+      ),
+    )
+    ..registerTool(
+      TaskUnbindTool(
+        bindings: bindingStore,
+        isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+        auditLogger: gateAudit,
+      ),
+    );
 
   McpProtocolHandler passingHandler({ThreadBindingStore? bindingStore, MergeExecutor? mergeExecutor}) => handlerWith(
     chain: GuardChain(guards: [FakeGuard.pass()]),
@@ -514,7 +538,12 @@ void main() {
 
     test('a channel with no thread identity is not offered and is refused when named', () async {
       final handler = passingHandler(bindingStore: bindings);
-      final schema = TaskBindTool(tasks: tasks, bindings: bindings, channels: channels).inputSchema;
+      final schema = TaskBindTool(
+        tasks: tasks,
+        bindings: bindings,
+        channels: channels,
+        isAdmin: (_) => true,
+      ).inputSchema;
       final offered = ((schema['properties'] as Map)['channel_type'] as Map)['enum'] as List;
 
       expect(
@@ -526,7 +555,12 @@ void main() {
       channels.registerChannel(
         FakeChannel(name: 'sig', type: ChannelType.signal, threadedNotifications: FakeThreadedNotifications()),
       );
-      final later = TaskBindTool(tasks: tasks, bindings: bindings, channels: channels).inputSchema;
+      final later = TaskBindTool(
+        tasks: tasks,
+        bindings: bindings,
+        channels: channels,
+        isAdmin: (_) => true,
+      ).inputSchema;
       expect(
         (((later['properties'] as Map)['channel_type'] as Map)['enum'] as List),
         contains('signal'),
@@ -548,7 +582,7 @@ void main() {
     test('with no threading channel registered the schema offers no empty enum and every channel is refused', () async {
       final unthreaded = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults())
         ..registerChannel(FakeChannel(name: 'wa', type: ChannelType.whatsapp));
-      final tool = TaskBindTool(tasks: tasks, bindings: bindings, channels: unthreaded);
+      final tool = TaskBindTool(tasks: tasks, bindings: bindings, channels: unthreaded, isAdmin: (_) => true);
 
       final channelProperty = ((tool.inputSchema['properties'] as Map)['channel_type'] as Map);
       final refused = await tool.call({'task_id': 'live-1', 'channel_type': 'whatsapp', 'thread_id': 'T1'});
@@ -704,6 +738,174 @@ void main() {
     });
   });
 
+  group('a chat turn reaches the task tools only through the admin rule its chat twin applies', () {
+    TurnProvenance chatTurn({String? sender, bool delegated = false}) => TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      sessionKey: 'agent:main:group:googlechat:spaces/AAA',
+      recipientId: 'spaces/AAA',
+      senderId: sender,
+      delegated: delegated,
+    );
+
+    const bindArguments = {'task_id': 'bind-1', 'channel_type': 'googlechat', 'thread_id': 'spaces/AAA/threads/T1'};
+
+    McpProtocolHandler handlerFor(TurnProvenance? turn) {
+      final handler = passingHandler(bindingStore: bindings);
+      return turn == null ? handler : handler.forHarness(() => turn);
+    }
+
+    List<AuditEntry> gateEntries(String guard) => gateAudit.entries.where((e) => e.guard == guard).toList();
+
+    setUp(() async {
+      adminSenders = ['users/admin'];
+      await repo.insert(_task(id: 'gate-1', status: TaskStatus.review));
+      await repo.insert(_task(id: 'bind-1', status: TaskStatus.running));
+    });
+
+    for (final (action, feedback) in [('accept', null), ('reject', null), ('push_back', 'Add tests')]) {
+      test(
+        'task_review $action from a non-admin sender is refused and audited, and the task stays in review',
+        () async {
+          final result = toolResult(
+            await callTool(
+              handlerFor(chatTurn(sender: 'users/member')),
+              'task_review',
+              arguments: {'task_id': 'gate-1', 'action': action, 'feedback': ?feedback},
+            ),
+          );
+
+          expect(result['isError'], isTrue);
+          expect(resultPayload(result)['reason'], 'not_admin');
+          expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
+          expect(
+            gateEntries('TaskReviewGate').map((e) => (e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId)),
+            [('tool', 'task_$action', 'deny', 'block', 'googlechat', 'users/member')],
+          );
+        },
+      );
+    }
+
+    test('task_review from an admin sender reviews the task and audits the decision', () async {
+      final result = toolResult(
+        await callTool(
+          handlerFor(chatTurn(sender: 'users/admin')),
+          'task_review',
+          arguments: {'task_id': 'gate-1', 'action': 'accept'},
+        ),
+      );
+
+      expect(result['isError'], isNull);
+      expect(resultPayload(result)['status'], 'accepted');
+      expect(gateEntries('TaskReviewGate').map((e) => (e.tool, e.decision, e.verdict, e.peerId)), [
+        ('task_accept', 'allow', 'pass', 'users/admin'),
+      ]);
+    });
+
+    test('task_review from a chat turn carrying no sender is refused where admin_senders is set', () async {
+      final result = toolResult(
+        await callTool(handlerFor(chatTurn()), 'task_review', arguments: {'task_id': 'gate-1', 'action': 'accept'}),
+      );
+
+      expect(resultPayload(result)['reason'], 'not_admin');
+      expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
+    });
+
+    test('a delegated turn never reviews a task, even for an admin requester', () async {
+      final result = toolResult(
+        await callTool(
+          handlerFor(chatTurn(sender: 'users/admin', delegated: true)),
+          'task_review',
+          arguments: {'task_id': 'gate-1', 'action': 'accept'},
+        ),
+      );
+
+      expect(result['isError'], isTrue);
+      expect(resultPayload(result)['reason'], 'needs_chat_turn');
+      expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
+    });
+
+    test('a web turn and a caller with no turn review as before, gated by nothing', () async {
+      await repo.insert(_task(id: 'gate-2', status: TaskStatus.review));
+
+      final web = toolResult(
+        await callTool(
+          handlerFor(const TurnProvenance.web()),
+          'task_review',
+          arguments: {'task_id': 'gate-1', 'action': 'accept'},
+        ),
+      );
+      final bare = toolResult(
+        await callTool(handlerFor(null), 'task_review', arguments: {'task_id': 'gate-2', 'action': 'reject'}),
+      );
+
+      expect(resultPayload(web)['status'], 'accepted');
+      expect(resultPayload(bare)['status'], 'rejected');
+      expect(gateAudit.entries, isEmpty);
+    });
+
+    test(
+      'task_bind and task_unbind from a non-admin sender are refused and audited like the reserved commands',
+      () async {
+        await bindings.create(
+          ThreadBinding.task(
+            channelType: 'googlechat',
+            threadId: 'spaces/AAA/threads/T0',
+            taskId: 'bind-1',
+            sessionKey: SessionKey.taskSession(taskId: 'bind-1'),
+            createdAt: DateTime.utc(2026, 1, 1),
+            lastActivity: DateTime.utc(2026, 1, 1),
+          ),
+        );
+        final handler = handlerFor(chatTurn(sender: 'users/member'));
+
+        final bind = toolResult(await callTool(handler, 'task_bind', arguments: bindArguments));
+        final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+        expect(resultPayload(bind)['reason'], 'not_admin');
+        expect(resultPayload(unbind)['reason'], 'not_admin');
+        expect(bindings.lookupByThread('googlechat', 'spaces/AAA/threads/T1'), isNull);
+        expect(bindings.lookupByTask('bind-1'), hasLength(1), reason: 'the refused unbind removed nothing');
+        expect(gateEntries('ReservedCommand').map((e) => (e.tool, e.decision, e.verdict, e.channel, e.peerId)), [
+          ('task_bind', 'deny', 'block', 'googlechat', 'users/member'),
+          ('task_unbind', 'deny', 'block', 'googlechat', 'users/member'),
+        ]);
+      },
+    );
+
+    test('task_bind and task_unbind from an admin sender act as before', () async {
+      final handler = handlerFor(chatTurn(sender: 'users/admin'));
+
+      final bind = toolResult(await callTool(handler, 'task_bind', arguments: bindArguments));
+      expect(resultPayload(bind)['created'], isTrue);
+      final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+      expect(resultPayload(unbind)['removed'], 1);
+      expect(gateEntries('ReservedCommand'), isEmpty, reason: 'the reserved commands audit refusals only');
+    });
+
+    test('a delegated turn never binds or unbinds a task', () async {
+      final handler = handlerFor(chatTurn(sender: 'users/admin', delegated: true));
+
+      final bind = toolResult(await callTool(handler, 'task_bind', arguments: bindArguments));
+      final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+      expect(resultPayload(bind)['reason'], 'needs_chat_turn');
+      expect(resultPayload(unbind)['reason'], 'needs_chat_turn');
+      expect(bindings.lookupByThread('googlechat', 'spaces/AAA/threads/T1'), isNull);
+    });
+
+    test('a web turn and a caller with no turn bind and unbind as before', () async {
+      final web = toolResult(
+        await callTool(handlerFor(const TurnProvenance.web()), 'task_bind', arguments: bindArguments),
+      );
+      final bare = toolResult(await callTool(handlerFor(null), 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+      expect(resultPayload(web)['created'], isTrue);
+      expect(resultPayload(bare)['removed'], 1);
+      expect(gateAudit.entries, isEmpty);
+    });
+  });
+
   group('the declared argument contract is enforced for every tool', () {
     setUp(() async {
       await repo.insert(_task(id: 'arg-1', status: TaskStatus.review));
@@ -773,11 +975,11 @@ void main() {
     test('no schema property in any of the six can reach a host decision', () {
       final tools = <McpTool>[
         TaskCreateTool(tasks: tasks),
-        TaskReviewTool(reviews: reviewService()),
+        TaskReviewTool(reviews: reviewService(), isAdmin: (_) => true),
         TaskListTool(tasks: tasks),
         ReviewListTool(tasks: tasks),
-        TaskBindTool(tasks: tasks, bindings: bindings, channels: channels),
-        TaskUnbindTool(bindings: bindings),
+        TaskBindTool(tasks: tasks, bindings: bindings, channels: channels, isAdmin: (_) => true),
+        TaskUnbindTool(bindings: bindings, isAdmin: (_) => true),
       ];
       const hostOwned = {
         'security_profile',

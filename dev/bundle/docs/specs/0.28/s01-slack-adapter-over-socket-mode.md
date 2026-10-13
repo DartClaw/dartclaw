@@ -266,6 +266,7 @@ Further decisions, each also stated where it bites:
 #### DRIFT
 
 - spec-stale: TI11 Verify places the rejected-token/socket-failure proof in `channel_wiring_test.dart`; it lives in `slack_inbound_test.dart` (see the assumption above) | Stale targets: this FIS, TI11 Verify | –
+- spec-stale: the reserved-command scenarios and TI10 name `/bind` and `/unbind` as Slack slash commands answering "not in a thread"; they are not registered on Slack (the manifests carry `/stop`, `/pause` and `/resume`), because a slash payload carries no thread (owner decision, review round 4). The reserved-command handler still serves both on channels whose messages carry a thread | Stale targets: this FIS, OC02 and the reserved-command scenarios, TI10; PRD FR1 (updated) | –
 
 NOTICED BUT NOT TOUCHING:
 

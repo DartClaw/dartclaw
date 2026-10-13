@@ -22,7 +22,7 @@
 - **FR5: Run approvals from chat** _(Must / P0)_ – admin-gated Approve and Reject interactions plus `workflow_resume`, `workflow_cancel` and `workflow_status` agent tools.
 - **FR6: Threaded-channel seam** _(Must / P0)_ – thread capability declared by the channel, replacing the Google Chat instance check.
 - **FR7: Existing-channel parity** _(Must / P0)_ – Google Chat gets run threads and approval cards; WhatsApp and Signal get plain run updates and tool-mediated approvals.
-- **FR8: Inbound media** _(Should / P1)_ – images and files posted to the agent reach the turn, matching Google Chat.
+- **FR8: Inbound media** _(Should / P1)_ – images and files posted to the agent reach the turn through the same staged-attachment path as web-composer uploads.
 - **FR9: Setup, credentials and diagnostics** _(Must / P0)_ – shipped app manifest, guide page, credential references only, `dartclaw doctor` checks.
 - **FR10: Documentation and parity record** _(Must / P0)_ – guide, architecture deep-dives, parity matrix, glossary and feature comparison updated in-milestone.
 - **FR11: Request changes at approval gates** _(Should / P1)_ – a third approval outcome that sends the run back to the step that produced the gated artifact with the reviewer's feedback, plus an opt-in plan-approval gate in the built-in `plan-and-implement` workflow.
@@ -32,7 +32,7 @@
 ### Scope Highlights
 
 - **In scope**: `dartclaw_slack` package; channel-agnostic run origin, fan-out and approval substrate in core and runtime; parity wiring for the three existing channels; ADR-056 amendment admitting the fourteenth package; a request-changes approval outcome and an opt-in plan gate in `plan-and-implement`; openable citation sources and admin-gated shared-knowledge writes for every channel.
-- **Out of scope**: per-sender knowledge filtering, Knowledge Hub browsing by non-admin readers, Slack history ingestion, evidence store and built-in connectors (Team-Brain brief); a Slack command surface beyond the five reserved commands, and the 0.27 composer command surface; steering a run from chat; outbound file upload; Enterprise Grid and multiple workspaces.
+- **Out of scope**: per-sender knowledge filtering, Knowledge Hub browsing by non-admin readers, Slack history ingestion, evidence store and built-in connectors (Team-Brain brief); a Slack command surface beyond the three registered reserved commands, and the 0.27 composer command surface; steering a run from chat; outbound file upload; Enterprise Grid and multiple workspaces.
 - **MVP boundary**: FR1, FR2, FR4, FR5, FR6, FR9 and FR13 on Slack alone, with FR7 wiring for Google Chat. WhatsApp and Signal degradation, streaming, inbound media and openable citation sources complete the milestone.
 
 ### Key Constraints, Assumptions & Dependencies
@@ -52,7 +52,7 @@ DartClaw has three chat channels and none of them is Slack, the platform the own
 
 - **Instance owner** – creates the Slack app from the shipped manifest, binds channels to agents, names admin senders, and expects setup to work from the guide without reading code.
 - **Team member in an allowlisted channel** – asks the bound agent questions answered from the owner's knowledge, asks it to do work in its workspace, asks it to run a workflow, and follows the run in the thread.
-- **Admin sender** – approves or rejects paused runs, cancels runs with feedback, and issues the five reserved commands from Slack.
+- **Admin sender** – approves or rejects paused runs, cancels runs with feedback, and issues the three registered reserved commands from Slack.
 - **Existing Google Chat, WhatsApp and Signal users** – receive the same run lifecycle and approval capabilities their platform can carry.
 
 ### Desired Outcome
@@ -101,7 +101,7 @@ A team supervises DartClaw work from the chat tool it already uses. A run's whol
 - Per-sender knowledge filtering, principals, domain labels, evidence store, Slack history ingestion, built-in connectors – the Team-Brain brief, its own milestone after 0.28.
 - Knowledge Hub browsing by non-admin readers and per-person identity for MCP clients; both need a reader identity the Team-Brain brief owns. Readers open what an answer cites through FR12; a person who needs their own MCP identity gets their own `gateway.mcp_clients` entry.
 - Steering a run from chat, and session steer from any channel; 0.27 keeps steer web-only on user and main sessions.
-- Any Slack slash command beyond the five reserved ones, the 0.27 composer command surface, and any further channel command parity.
+- Any Slack slash command beyond the three registered ones, the 0.27 composer command surface, and any further channel command parity.
 - Outbound file upload from any channel; WhatsApp keeps its existing `attach_media` path unchanged.
 - Enterprise Grid, multiple Slack workspaces per instance, Slack Connect shared channels, user-token (`xoxp-`) features, reactions as commands.
 - A per-workflow `notify:` block in workflow definitions – DSL v2 territory, 0.30.
@@ -127,7 +127,7 @@ Slack DM and allowlisted-channel chat with a bound agent, Socket Mode, runs star
 | US08 | As a Google Chat user, I get the same run threads and approval cards, so that a second chat platform does not lag the first. | Run posts thread through the existing thread-binding store; the awaiting-approval card carries Approve and Reject resolved through the existing card-click handler extended to runs. | Must / P0 |
 | US09 | As a WhatsApp or Signal user, I get run updates as messages and can ask the agent to resume or cancel, so that no platform is left without the loop. | Started, awaiting-approval and finished or failed posts arrive as plain messages to the origin recipient; `workflow_resume` and `workflow_cancel` work in an ordinary turn under the same admin gate. | Must / P0 |
 | US10 | As the owner, I set Slack up from the shipped manifest and the guide, so that the first DM works without reading code. | Manifest import creates an app with the agent view, the required scopes and events; `dartclaw doctor` reports token, signing secret or app token, and connection state; the guide covers Socket Mode and Events API setup. | Must / P0 |
-| US11 | As a team member, I paste a screenshot or a file into the thread and the agent sees it, so that bug reports and documents need no re-typing. | Files the bot can read are downloaded with the bot token, bounded in size, and attached to the turn like Google Chat inbound media; an unreadable file yields a reply naming the reason. | Should / P1 |
+| US11 | As a team member, I paste a screenshot or a file into the thread and the agent sees it, so that bug reports and documents need no re-typing. | Files the bot can read are downloaded with the bot token, bounded in size, and attached to the turn through the same staged-attachment path as web-composer uploads; an unreadable file yields a reply naming the reason. | Should / P1 |
 | US12 | As a team member, I see the reply appear as it is generated, so that long answers do not look stalled. | Replies in threads and DMs stream through the Slack stream API; on any stream failure the reply is posted once, complete; the assistant status shows while the turn runs. | Should / P1 |
 | US13 | As an admin sender, I ask for changes to a gated artifact instead of rejecting the run, so that a weak plan is revised rather than thrown away with every step completed before it. | On a gate that names a revise step, Request changes opens a feedback form; submitting it re-runs that step with the feedback, then the steps after it, and the run pauses at the same gate again with a new awaiting-approval post; completed steps before the revise step are kept. | Should / P1 |
 | US14 | As the owner, I start `plan-and-implement` with plan review on, so that I approve the plan before any story is implemented. | With the review variable set, the run pauses after planning with a post naming the plan path and linking the run page; approve continues to the story pipeline, request changes re-plans with the feedback, reject cancels; with the variable unset the run is unchanged. | Should / P1 |
@@ -147,7 +147,7 @@ Slack DM and allowlisted-channel chat with a bound agent, Socket Mode, runs star
 - [ ] Outbound text is converted from standard Markdown to Slack mrkdwn and chunked at 4,000 characters with the shared chunker and `(n/total)` indicators.
 - [ ] Sender display names resolve through `users.info` and are cached for the process lifetime; failure falls back to the user ID.
 - [ ] Markdown links in a reply, including the FR12 source links a `context_research` answer carries, render as Slack links; a bound agent without the `context_research` grant answers from its workspace and states that owner knowledge was not consulted.
-- [ ] The five reserved commands, `/stop` (text alias `stop!`), `/pause`, `/resume`, `/bind <taskId>` and `/unbind`, are registered as Slack slash commands in the manifest and routed 1:1 to the existing admin-gated reserved-command handler; the handler's reply is the ephemeral command response; no other slash command exists. Slack never delivers slash-prefixed text to a bot unless the command is registered, so plain-text forms other than `stop!` are not supported.
+- [ ] The reserved commands `/stop` (text alias `stop!`), `/pause` and `/resume` are registered as Slack slash commands in the manifest and routed 1:1 to the existing admin-gated reserved-command handler; the handler's reply is the ephemeral command response; no other slash command exists. `/bind <taskId>` and `/unbind` stay reserved commands on channels whose messages carry a thread (Google Chat) and are not registered on Slack, because a slash payload carries no thread. Slack never delivers slash-prefixed text to a bot unless the command is registered, so plain-text forms other than `stop!` are not supported.
 
 **Inputs / Outputs**:
 - **Inputs**: `app_mention`, `message.im`, `message.channels`, `message.groups` events; `block_actions` interactions; config block `channels.slack`.
@@ -277,7 +277,7 @@ Slack DM and allowlisted-channel chat with a bound agent, Socket Mode, runs star
 **Priority**: Must / P0
 
 #### FR8: Inbound media
-**Description**: Files attached to a message the bot receives are downloaded with the bot token from their private URL, bounded at 20 MB per file and 5 files per message, stored under the session's media path, and attached to the turn the way Google Chat inbound media is.
+**Description**: Files attached to a message the bot receives are downloaded with the bot token from their private URL, bounded at 20 MB per file and 5 files per message, stored under the session's media path, and attached to the turn through the same staged-attachment path as web-composer uploads.
 
 **Acceptance Criteria**:
 - [ ] An image pasted into a thread is available to the agent's turn; the reply can describe it.
@@ -293,7 +293,7 @@ Slack DM and allowlisted-channel chat with a bound agent, Socket Mode, runs star
 **Priority**: Should / P1
 
 #### FR9: Setup, credentials and diagnostics
-**Description**: The public repo ships an app manifest declaring the agent view, the bot scopes (`app_mentions:read`, `channels:history`, `groups:history`, `im:history`, `im:write`, `chat:write`, `assistant:write`, `files:read`, `users:read`, `commands`), the event subscriptions, interactivity, the five reserved slash commands, and Socket Mode. Tokens and the signing secret are supplied as credential references (`credentials.<name>`), never inline. `dartclaw doctor` reports presence of each reference, `auth.test` success, transport state, and drift between the bot scopes granted to the token, read from the `X-OAuth-Scopes` header of the `auth.test` response, and the ten scopes the shipped manifest declares.
+**Description**: The public repo ships an app manifest declaring the agent view, the bot scopes (`app_mentions:read`, `channels:history`, `groups:history`, `im:history`, `im:write`, `chat:write`, `assistant:write`, `files:read`, `users:read`, `commands`), the event subscriptions, interactivity, the three reserved slash commands (`/stop`, `/pause`, `/resume`), and Socket Mode. Tokens and the signing secret are supplied as credential references (`credentials.<name>`), never inline. `dartclaw doctor` reports presence of each reference, `auth.test` success, transport state, and drift between the bot scopes granted to the token, read from the `X-OAuth-Scopes` header of the `auth.test` response, and the ten scopes the shipped manifest declares.
 
 **Acceptance Criteria**:
 - [ ] Importing the manifest into a new Slack app and following the guide yields a working DM on both transports.
@@ -513,8 +513,8 @@ Architecture F1–F5 were recorded on 2026-09-19 and accepted by the owner on 20
 | Steer for runs out of scope; cancel-with-feedback is the correction path (owner D11) | No run steer exists; 0.27 session steer refuses channel sessions | Thread replies injected into the run |
 | Starting a run is gated by the agent's tool grant; approve, reject, cancel and reserved commands by admin senders (owner D12) | Reuses the two existing gates; no new role model | Admin-only starts; anyone resolves |
 | Streaming with single-post fallback (owner D13) | Long replies read as alive; fallback keeps delivery deterministic | Post-then-edit; single post only |
-| Inbound media in, outbound upload out (owner D14) | Parity with Google Chat; outbound is a separate media story | Both; neither |
-| Five reserved commands only, registered as Slack slash commands (owner D15, refined by owner D19 on 2026-09-19) | Slack never delivers slash-prefixed text to a bot unless the command is registered; registration keeps the commands structured and 1:1 with the existing handler; 0.27 excluded any wider command parity | Mention-prefixed text forms; no reserved commands on Slack; a general `/dartclaw` command surface |
+| Inbound media in, outbound upload out (owner D14) | One staged-attachment path serves Slack files and web-composer uploads; outbound is a separate media story | Both; neither |
+| Three reserved commands only (`/stop`, `/pause`, `/resume`), registered as Slack slash commands; `/bind` and `/unbind` are left unregistered because a slash payload carries no thread (owner D15, refined by owner D19 on 2026-09-19 and by the 0.28 review) | Slack never delivers slash-prefixed text to a bot unless the command is registered; registration keeps the commands structured and 1:1 with the existing handler; 0.27 excluded any wider command parity | Mention-prefixed text forms; no reserved commands on Slack; a general `/dartclaw` command surface; `/bind` and `/unbind` registered with a not-in-a-thread refusal |
 | One workspace per instance; Grid, multi-workspace and history ingestion out (owner D16) | Proportionality: a handful of instances; ingestion belongs to Knowledge Interop and the Team-Brain brief | Multi-workspace |
 | Shipped manifest, guide, credential references, doctor checks (owner D17) | Setup without reading code is a success metric; matches the credential-registry decisions | Manual app setup instructions only |
 | No new web UI (owner D18) | 0.27 inbox already shows channel sessions | Run page mirror of thread posts |

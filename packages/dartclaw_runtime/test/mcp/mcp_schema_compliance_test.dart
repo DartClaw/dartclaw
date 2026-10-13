@@ -142,11 +142,14 @@ void main() {
       addTearDown(tasks.dispose);
       return [
         TaskCreateTool(tasks: tasks),
-        TaskReviewTool(reviews: TaskReviewService(tasks: tasks)),
+        TaskReviewTool(
+          reviews: TaskReviewService(tasks: tasks),
+          isAdmin: (_) => true,
+        ),
         TaskListTool(tasks: tasks),
         ReviewListTool(tasks: tasks),
-        TaskBindTool(tasks: tasks, bindings: null, channels: null),
-        TaskUnbindTool(bindings: null),
+        TaskBindTool(tasks: tasks, bindings: null, channels: null, isAdmin: (_) => true),
+        TaskUnbindTool(bindings: null, isAdmin: (_) => true),
       ];
     }
 

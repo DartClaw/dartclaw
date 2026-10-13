@@ -2,6 +2,8 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:uuid/uuid.dart';
 
+import '../governance/reserved_command_audit.dart';
+import '../task/channel_review_gate.dart';
 import '../task/task_review_service.dart';
 import '../task/task_service.dart';
 import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
@@ -94,10 +96,21 @@ class TaskCreateTool implements TurnAwareMcpTool {
 }
 
 /// MCP tool that accepts, rejects or pushes a task back from review.
-class TaskReviewTool implements McpTool {
-  new({required TaskReviewService reviews}) : _reviews = reviews;
+///
+/// A chat turn reviews only as an admin sender would on a review card, through the card's `TaskReviewGate` rule
+/// and audit entry ([admitTaskReview]); a delegated turn never reviews. Web and turn-less callers are not gated.
+class TaskReviewTool implements TurnAwareMcpTool {
+  new({
+    required TaskReviewService reviews,
+    required bool Function(String senderId) isAdmin,
+    GuardAuditLogger? auditLogger,
+  }) : _reviews = reviews,
+       _isAdmin = isAdmin,
+       _auditLogger = auditLogger;
 
   final TaskReviewService _reviews;
+  final bool Function(String senderId) _isAdmin;
+  final GuardAuditLogger? _auditLogger;
 
   @override
   String get name => 'task_review';
@@ -127,10 +140,16 @@ class TaskReviewTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _review(args, null);
+
+  @override
+  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _review(args, context.turn);
+
+  Future<ToolResult> _review(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
     if (invalid != null) return invalid;
 
+    final taskId = args['task_id'] as String;
     final action = args['action'] as String;
     final feedback = args['feedback'] as String?;
     // The pairing is part of this tool's declared input contract, so the model
@@ -143,12 +162,22 @@ class TaskReviewTool implements McpTool {
       return toolError('invalid_request', 'feedback is only accepted when action is push_back');
     }
 
-    final result = await _reviews.review(
-      args['task_id'] as String,
-      action,
-      comment: feedback,
-      trigger: _taskToolTrigger,
+    final refusal = await _refuseChatCaller(
+      turn,
+      'review a task',
+      (channel, sender) => admitTaskReview(
+        taskId,
+        action,
+        isAdmin: _isAdmin,
+        auditLogger: _auditLogger,
+        hook: 'tool',
+        channelType: channel,
+        senderId: sender,
+      ),
     );
+    if (refusal != null) return refusal;
+
+    final result = await _reviews.review(taskId, action, comment: feedback, trigger: _taskToolTrigger);
     return switch (result) {
       // push_back's feedback delivery is a best-effort callback the review
       // service does not report on, so the response claims only the transition.
@@ -260,15 +289,27 @@ class ReviewListTool implements McpTool {
 }
 
 /// MCP tool that binds an explicit channel thread to a task's session.
-class TaskBindTool implements McpTool {
-  new({required TaskService tasks, required ThreadBindingStore? bindings, required ChannelManager? channels})
-    : _tasks = tasks,
-      _bindings = bindings,
-      _channels = channels;
+///
+/// The twin of the admin-only `/bind` command: a chat turn binds only as an admin sender, and a refusal is audited
+/// as the command's is. A delegated turn never binds; web and turn-less callers are not gated.
+class TaskBindTool implements TurnAwareMcpTool {
+  new({
+    required TaskService tasks,
+    required ThreadBindingStore? bindings,
+    required ChannelManager? channels,
+    required bool Function(String senderId) isAdmin,
+    GuardAuditLogger? auditLogger,
+  }) : _tasks = tasks,
+       _bindings = bindings,
+       _channels = channels,
+       _isAdmin = isAdmin,
+       _auditLogger = auditLogger;
 
   final TaskService _tasks;
   final ThreadBindingStore? _bindings;
   final ChannelManager? _channels;
+  final bool Function(String senderId) _isAdmin;
+  final GuardAuditLogger? _auditLogger;
 
   @override
   String get name => 'task_bind';
@@ -304,12 +345,24 @@ class TaskBindTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _bind(args, null);
+
+  @override
+  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _bind(args, context.turn);
+
+  Future<ToolResult> _bind(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
     if (invalid != null) return invalid;
 
     final bindings = _bindings;
     if (bindings == null) return _bindingStoreAbsent();
+
+    final refusal = await _refuseChatCaller(
+      turn,
+      'bind a task',
+      _admitBindingCommand(name, isAdmin: _isAdmin, auditLogger: _auditLogger),
+    );
+    if (refusal != null) return refusal;
 
     final taskId = args['task_id'] as String;
     final channelType = args['channel_type'] as String;
@@ -375,10 +428,20 @@ class TaskBindTool implements McpTool {
 }
 
 /// MCP tool that removes every thread binding for a task.
-class TaskUnbindTool implements McpTool {
-  new({required ThreadBindingStore? bindings}) : _bindings = bindings;
+///
+/// The twin of the admin-only `/unbind` command, gated as [TaskBindTool] is.
+class TaskUnbindTool implements TurnAwareMcpTool {
+  new({
+    required ThreadBindingStore? bindings,
+    required bool Function(String senderId) isAdmin,
+    GuardAuditLogger? auditLogger,
+  }) : _bindings = bindings,
+       _isAdmin = isAdmin,
+       _auditLogger = auditLogger;
 
   final ThreadBindingStore? _bindings;
+  final bool Function(String senderId) _isAdmin;
+  final GuardAuditLogger? _auditLogger;
 
   @override
   String get name => 'task_unbind';
@@ -398,12 +461,24 @@ class TaskUnbindTool implements McpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async {
+  Future<ToolResult> call(Map<String, dynamic> args) => _unbind(args, null);
+
+  @override
+  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _unbind(args, context.turn);
+
+  Future<ToolResult> _unbind(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
     if (invalid != null) return invalid;
 
     final bindings = _bindings;
     if (bindings == null) return _bindingStoreAbsent();
+
+    final refusal = await _refuseChatCaller(
+      turn,
+      'unbind a task',
+      _admitBindingCommand(name, isAdmin: _isAdmin, auditLogger: _auditLogger),
+    );
+    if (refusal != null) return refusal;
 
     final taskId = args['task_id'] as String;
     final removed = await bindings.deleteByTaskId(taskId);
@@ -416,6 +491,33 @@ Map<String, Object?> _taskSummary(Task task) => {
   'title': task.title,
   'status': task.status.name,
   'created_at': task.createdAt.toUtc().toIso8601String(),
+};
+
+/// Refuses [what] to a delegated turn, which acts for a requester but is never a live chat message, and to a
+/// chat turn [admit] rejects. A web turn and a caller with no turn are not chat callers and pass untouched; the
+/// sender is the host's record of the calling turn, never an argument.
+Future<ToolResult?> _refuseChatCaller(
+  TurnProvenance? turn,
+  String what,
+  Future<bool> Function(String channel, String? senderId) admit,
+) async {
+  if (turn == null) return null;
+  if (turn.delegated) return toolError('needs_chat_turn', 'A task or workflow step cannot $what; ask in chat');
+  final channel = turn.channelType;
+  if (channel == null || await admit(channel, turn.senderId)) return null;
+  return toolError('not_admin', 'Only admin senders can $what from chat (governance.admin_senders)');
+}
+
+/// The admit step of the binding tools: an admin sender, or a refusal audited as `/bind` and `/unbind` audit theirs.
+Future<bool> Function(String channel, String? senderId) _admitBindingCommand(
+  String tool, {
+  required bool Function(String senderId) isAdmin,
+  required GuardAuditLogger? auditLogger,
+}) => (channel, senderId) async {
+  // A chat turn naming no sender is an admin only where every sender is, as for the other gates.
+  if (isAdmin(senderId ?? '')) return true;
+  await auditReservedCommandRefusal(auditLogger, channel: channel, senderId: senderId, tool: tool, hook: 'tool');
+  return false;
 };
 
 ToolResult _bindingStoreAbsent() =>

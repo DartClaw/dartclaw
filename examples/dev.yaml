@@ -5,6 +5,10 @@
 data_dir: ../.dartclaw-example
 dev_mode: true
 
+# PostgreSQL 14+; set DARTCLAW_DATABASE_URL first (examples/README.md).
+database:
+  url: ${DARTCLAW_DATABASE_URL}
+
 port: 3333
 
 # No auth needed for local dev

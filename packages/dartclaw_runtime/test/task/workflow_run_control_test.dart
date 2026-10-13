@@ -432,10 +432,10 @@ void main() {
         everyElement(isA<RunControlRefused>().having((r) => r.reason, 'reason', RunControlRefusal.needsChatTurn)),
       );
       expect(live, isA<RunControlResolved>());
-      expect(audit.entries.map((e) => (e.hook, e.decision, e.tool, e.peerId, e.reason)), [
-        ('tool', 'deny', 'resume', null, 'Run control needs a chat turn'),
-        ('tool', 'deny', 'cancel', null, 'Run control needs a chat turn'),
-        ('tool', 'allow', 'resume', 'U-A', null),
+      expect(audit.entries.map((e) => (e.guard, e.hook, e.decision, e.tool, e.channel, e.peerId, e.reason)), [
+        ('RunApprovalGate', 'tool', 'deny', 'resume', 'slack', 'U-A', 'Run control needs a chat turn'),
+        ('RunApprovalGate', 'tool', 'deny', 'cancel', 'slack', 'U-A', 'Run control needs a chat turn'),
+        ('RunApprovalGate', 'tool', 'allow', 'resume', 'slack', 'U-A', null),
       ]);
     });
 

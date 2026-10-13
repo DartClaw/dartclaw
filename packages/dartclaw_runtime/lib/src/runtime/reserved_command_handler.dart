@@ -4,7 +4,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' as core show TurnManager;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:logging/logging.dart';
 
-import '../governance/reserved_command_audit.dart';
+import '../governance/refusal_audit.dart';
 
 enum _ReservedChannelCommand { stop, pause, resume, bind, unbind }
 
@@ -62,11 +62,14 @@ class ReservedCommandHandler {
 
     // Admin check — same for all reserved commands.
     if (!governance.isAdmin(senderId)) {
-      await auditReservedCommandRefusal(
+      await auditRefusal(
         auditLogger,
+        guard: reservedCommandGuard,
+        hook: 'channel_command',
+        tool: message.text.trim().split(RegExp(r'\s+')).first.toLowerCase(),
+        reason: adminOnlyRefusal,
         channel: message.channelType.name,
         senderId: senderId,
-        tool: message.text.trim().split(RegExp(r'\s+')).first.toLowerCase(),
       );
       try {
         await channel.sendMessage(recipientId, _replyTo(message, adminOnlyRefusal));

@@ -822,6 +822,9 @@ void main() {
       expect(result['isError'], isTrue);
       expect(resultPayload(result)['reason'], 'needs_chat_turn');
       expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
+      expect(gateAudit.entries.map((e) => (e.guard, e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId)), [
+        ('TaskReviewGate', 'tool', 'task_accept', 'deny', 'block', 'googlechat', 'users/admin'),
+      ], reason: 'the refusal writes exactly one entry; the dispatch entry is not a gate entry');
     });
 
     test('a web turn and a caller with no turn review as before, gated by nothing', () async {
@@ -892,6 +895,10 @@ void main() {
       expect(resultPayload(bind)['reason'], 'needs_chat_turn');
       expect(resultPayload(unbind)['reason'], 'needs_chat_turn');
       expect(bindings.lookupByThread('googlechat', 'spaces/AAA/threads/T1'), isNull);
+      expect(gateAudit.entries.map((e) => (e.guard, e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId)), [
+        ('ReservedCommand', 'tool', 'task_bind', 'deny', 'block', 'googlechat', 'users/admin'),
+        ('ReservedCommand', 'tool', 'task_unbind', 'deny', 'block', 'googlechat', 'users/admin'),
+      ], reason: 'each refusal writes exactly one entry');
     });
 
     test('a web turn and a caller with no turn bind and unbind as before', () async {

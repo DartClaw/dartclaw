@@ -2,7 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:uuid/uuid.dart';
 
-import '../governance/reserved_command_audit.dart';
+import '../governance/refusal_audit.dart';
 import '../task/channel_review_gate.dart';
 import '../task/task_review_service.dart';
 import '../task/task_service.dart';
@@ -165,7 +165,10 @@ class TaskReviewTool implements TurnAwareMcpTool {
     final refusal = await _refuseChatCaller(
       turn,
       'review a task',
-      (channel, sender) => admitTaskReview(
+      guard: taskReviewGuard,
+      tool: 'task_$action',
+      auditLogger: _auditLogger,
+      admit: (channel, sender) => admitTaskReview(
         taskId,
         action,
         isAdmin: _isAdmin,
@@ -360,7 +363,10 @@ class TaskBindTool implements TurnAwareMcpTool {
     final refusal = await _refuseChatCaller(
       turn,
       'bind a task',
-      _admitBindingCommand(name, isAdmin: _isAdmin, auditLogger: _auditLogger),
+      guard: reservedCommandGuard,
+      tool: name,
+      auditLogger: _auditLogger,
+      admit: _admitBindingCommand(name, isAdmin: _isAdmin, auditLogger: _auditLogger),
     );
     if (refusal != null) return refusal;
 
@@ -476,7 +482,10 @@ class TaskUnbindTool implements TurnAwareMcpTool {
     final refusal = await _refuseChatCaller(
       turn,
       'unbind a task',
-      _admitBindingCommand(name, isAdmin: _isAdmin, auditLogger: _auditLogger),
+      guard: reservedCommandGuard,
+      tool: name,
+      auditLogger: _auditLogger,
+      admit: _admitBindingCommand(name, isAdmin: _isAdmin, auditLogger: _auditLogger),
     );
     if (refusal != null) return refusal;
 
@@ -496,17 +505,36 @@ Map<String, Object?> _taskSummary(Task task) => {
 /// Refuses [what] to a delegated turn, which acts for a requester but is never a live chat message, and to a
 /// chat turn [admit] rejects. A web turn and a caller with no turn are not chat callers and pass untouched; the
 /// sender is the host's record of the calling turn, never an argument.
+///
+/// A delegated refusal is audited here, through [auditRefusal] under the concern's [guard] and [tool], because no
+/// [admit] step runs for it; [admit] audits the refusals it makes itself.
 Future<ToolResult?> _refuseChatCaller(
   TurnProvenance? turn,
-  String what,
-  Future<bool> Function(String channel, String? senderId) admit,
-) async {
+  String what, {
+  required String guard,
+  required String tool,
+  required GuardAuditLogger? auditLogger,
+  required Future<bool> Function(String channel, String? senderId) admit,
+}) async {
   if (turn == null) return null;
-  if (turn.delegated) return toolError('needs_chat_turn', 'A task or workflow step cannot $what; ask in chat');
+  if (turn.delegated) {
+    await auditRefusal(
+      auditLogger,
+      guard: guard,
+      hook: 'tool',
+      tool: tool,
+      reason: _delegatedTurnRefusal,
+      channel: turn.channelType,
+      senderId: turn.senderId,
+    );
+    return toolError('needs_chat_turn', 'A task or workflow step cannot $what; ask in chat');
+  }
   final channel = turn.channelType;
   if (channel == null || await admit(channel, turn.senderId)) return null;
   return toolError('not_admin', 'Only admin senders can $what from chat (governance.admin_senders)');
 }
+
+const _delegatedTurnRefusal = 'delegated work never stands in for a human';
 
 /// The admit step of the binding tools: an admin sender, or a refusal audited as `/bind` and `/unbind` audit theirs.
 Future<bool> Function(String channel, String? senderId) _admitBindingCommand(
@@ -516,7 +544,15 @@ Future<bool> Function(String channel, String? senderId) _admitBindingCommand(
 }) => (channel, senderId) async {
   // A chat turn naming no sender is an admin only where every sender is, as for the other gates.
   if (isAdmin(senderId ?? '')) return true;
-  await auditReservedCommandRefusal(auditLogger, channel: channel, senderId: senderId, tool: tool, hook: 'tool');
+  await auditRefusal(
+    auditLogger,
+    guard: reservedCommandGuard,
+    hook: 'tool',
+    tool: tool,
+    reason: adminOnlyRefusal,
+    channel: channel,
+    senderId: senderId,
+  );
   return false;
 };
 

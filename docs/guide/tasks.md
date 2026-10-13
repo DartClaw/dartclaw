@@ -214,8 +214,8 @@ What these tools cannot do:
   the host's record of that message, as for the card buttons and the `/bind` and `/unbind` commands; a refusal is
   audited. A task or workflow step never reviews or binds, even one an admin started. Web chat, scheduled turns and the
   gateway token are not gated (see [Governance](governance.md#admin-senders)).
-- **`task_bind` cannot bind "the current thread".** A tool call carries no channel context, so the thread must be
-  named explicitly. Binding the thread a message arrived in is what the `/bind` reserved command is for.
+- **`task_bind` cannot bind "the current thread".** It takes the thread as an argument and never binds the thread the
+  message arrived in. Binding that thread is what the `/bind` reserved command is for.
 
 - **`task_bind` binds a thread, not a group, and `channel_type` accepts only a registered channel that threads
   (Google Chat and Slack).** A binding is keyed by the per-message thread identity that inbound routing reads from the

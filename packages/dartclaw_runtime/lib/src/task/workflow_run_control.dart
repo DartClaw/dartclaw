@@ -3,6 +3,8 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:logging/logging.dart';
 
+import '../governance/refusal_audit.dart';
+
 /// Why [WorkflowRunControl] refused a call.
 enum RunControlRefusal {
   /// The sender is not in `governance.admin_senders`.
@@ -194,13 +196,16 @@ final class WorkflowRunControl {
     // An approval gate needs a human: delegated work may write as its requester but never resolve a gate.
     if (turn == null || channel == null || turn.delegated) {
       const message = 'Run control needs a chat turn';
-      await _audit(
+      await auditRefusal(
+        _auditLogger,
+        guard: _guardName,
         hook: 'tool',
-        action: action,
+        tool: action.name,
+        reason: message,
+        channel: channel,
+        senderId: turn?.senderId,
         runId: runId,
         stepId: await _pendingStep(runId),
-        allowed: false,
-        reason: message,
       );
       return const RunControlRefused(RunControlRefusal.needsChatTurn, message);
     }

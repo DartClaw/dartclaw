@@ -4,7 +4,8 @@ import 'package:logging/logging.dart';
 
 final _log = Logger('ChannelReviewGate');
 
-const _guardName = 'TaskReviewGate';
+/// Guard name on the entries a task review writes.
+const taskReviewGuard = 'TaskReviewGate';
 const _refusal = 'Only admin senders can accept or reject tasks';
 
 /// Decides whether a chat sender may review [taskId], and audits the decision: the one admin rule and the one
@@ -28,7 +29,7 @@ Future<bool> admitTaskReview(
       await auditLogger.writeEntry(
         AuditEntry(
           timestamp: DateTime.now(),
-          guard: _guardName,
+          guard: taskReviewGuard,
           hook: hook,
           verdict: admin ? 'pass' : 'block',
           reason: admin

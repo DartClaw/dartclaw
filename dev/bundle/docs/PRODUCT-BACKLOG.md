@@ -367,7 +367,7 @@ _Channel adapter plus chat-threaded workflow runs promoted to [0.28 PRD](specs/0
 
 Remaining future extensions (not in 0.28):
 - **Enterprise Grid / multiple workspaces per instance**, Slack Connect shared channels
-- **A general `/dartclaw` command surface** beyond the five reserved commands 0.28 registers as slash commands; 0.27 excluded wider channel command parity
+- **A general `/dartclaw` command surface** beyond the three reserved commands (`/stop`, `/pause`, `/resume`) 0.28 registers as Slack slash commands; 0.27 excluded wider channel command parity
 - **Outbound file upload** (`files.uploadV2`)
 - **Slack history ingestion**: Team-Brain brief (`0.next-team-brain`) via the Knowledge Interop inbox and steward path
 - **Reactions as commands**, user-token (`xoxp-`) features

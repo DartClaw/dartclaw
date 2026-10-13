@@ -2,6 +2,19 @@
 
 Quick start: `bash examples/run.sh` (uses `dev.yaml` by default, stores data in `.dartclaw-example/`).
 
+**Prerequisite:** every config reads its database from `${DARTCLAW_DATABASE_URL}`, so a PostgreSQL 14+ database must
+exist first ([PostgreSQL guide](../docs/guide/postgresql.md)). Export the URL, then bootstrap the empty schema once with
+the config you will run:
+
+```bash
+export DARTCLAW_DATABASE_URL='postgresql://dartclaw:<password>@127.0.0.1:5432/dartclaw?sslmode=disable'
+dart run dartclaw_cli:dartclaw --config examples/dev.yaml doctor --fix
+bash examples/run.sh
+```
+
+`doctor` may also report a `secrets.permissions` failure when the example file is readable beyond its owner; that does
+not stop it bootstrapping the schema.
+
 Specify a config: `bash examples/run.sh production --port 8080`
 
 | File | Purpose |

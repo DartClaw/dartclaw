@@ -122,7 +122,7 @@ Run the full CI-equivalent gate from `KEY_DEVELOPMENT_COMMANDS.md` before pushin
 For release preparation, the evidence-reuse procedure in `RELEASE_PREPARATION.md` satisfies this gate: retain completed
 review proof, verify unchanged inputs, and run affected checks. GitHub CI runs on the final squash commit.
 
-Example configs: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), data in `.dartclaw-example/`. Pick a config with `bash examples/run.sh production --port 8080`.
+Example configs: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), data in `.dartclaw-example/`. It needs `DARTCLAW_DATABASE_URL` pointing at a PostgreSQL 14+ database whose schema `doctor --fix` has bootstrapped once (`examples/README.md`). Pick a config with `bash examples/run.sh production --port 8080`.
 
 
 ---

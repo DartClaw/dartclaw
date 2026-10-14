@@ -37,6 +37,7 @@ class HarnessWiring {
   new({
     required this.config,
     required String dataDir,
+    required String runtimeCwd,
     required int port,
     required HarnessFactory harnessFactory,
     required ExitFn exitFn,
@@ -60,6 +61,7 @@ class HarnessWiring {
        _codexRefresh = codexRefresh,
        _subscriptionCredentials = subscriptionCredentials ?? _noSubscriptionCredentials,
        _dataDir = dataDir,
+       _runtimeCwd = runtimeCwd,
        _port = port,
        _harnessFactory = harnessFactory,
        _exitFn = exitFn,
@@ -76,6 +78,9 @@ class HarnessWiring {
 
   final DartclawConfig config;
   final String _dataDir;
+
+  /// The repository agents spawn in and whose `.dartclaw/` holds project behavior files.
+  final String _runtimeCwd;
   final int _port;
   final HarnessFactory _harnessFactory;
   final ExitFn _exitFn;
@@ -423,7 +428,7 @@ class HarnessWiring {
   Future<void> wire({required TurnManager? Function() turnManagerGetter}) async {
     _behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
-      projectDir: p.join(Directory.current.path, '.dartclaw'),
+      projectDir: p.join(_runtimeCwd, '.dartclaw'),
       maxMemoryBytes: config.memory.maxBytes,
       memoryCorpus: _storage.personalMemoryCorpus,
       personalMemoryEnabled: !_headless,
@@ -1440,7 +1445,7 @@ class HarnessWiring {
       declaredCanonicalTools: declaredCanonicalTools,
       declaredWritableRoots: declaredWritableRoots,
       skillWorkspaceDir: skillWorkspaceDir,
-      cwd: Directory.current.path,
+      cwd: _runtimeCwd,
       executable: executable,
       turnTimeout: config.governance.turnLimits.turnTimeout > Duration.zero
           ? config.governance.turnLimits.turnTimeout + const Duration(seconds: 60)

@@ -796,6 +796,8 @@ steps:
           'BRANCH': 'runtime-feature',
         }, origin: WorkflowRunOrigin.unknown);
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
+        expect(Directory.current.path, isNot(runtimeCwd.path));
+        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
       },
     );
   });

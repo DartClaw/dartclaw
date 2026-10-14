@@ -3,12 +3,14 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ExecutionAdmission, ExecutionRequest, ExecutionSurface;
 import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/model_catalogue_discovery.dart';
 import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'harness_wiring_fixture.dart';
@@ -105,7 +107,7 @@ void main() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      test('discovers on the host from the worker\'s inputs and stops the probe', () async {
+      Future<List<(HarnessFactoryConfig, _CatalogueHarness)>> wireRecording({String? runtimeCwd}) async {
         final config = DartclawConfig(
           server: ServerConfig(dataDir: tempDir.path, claudeExecutable: Platform.resolvedExecutable),
           agent: const AgentConfig(provider: 'claude', model: 'sonnet', effort: 'high'),
@@ -140,6 +142,7 @@ void main() {
         harnessWiring = await wireTestHarness(
           config: config,
           dataDir: tempDir.path,
+          runtimeCwd: runtimeCwd,
           harnessFactory: factory,
           exitFn: _unexpectedExit,
           storage: storage!,
@@ -147,12 +150,20 @@ void main() {
           eventBus: eventBus,
           serverRefGetter: () => throw UnimplementedError(),
         );
-        harnessWiring!.startModelCatalogueDiscovery();
+        return created;
+      }
 
+      Future<void> awaitCatalogue() async {
+        harnessWiring!.startModelCatalogueDiscovery();
         for (var i = 0; i < 100 && harnessWiring!.modelCatalogueFor('claude') == null; i++) {
           await Future<void>.delayed(const Duration(milliseconds: 5));
         }
         expect(harnessWiring!.modelCatalogueFor('claude'), same(_catalogue));
+      }
+
+      test('discovers on the host from the worker\'s inputs and stops the probe', () async {
+        final created = await wireRecording();
+        await awaitCatalogue();
 
         final primary = created.first;
         final probe = created.singleWhere((entry) => entry.$2.discoveries > 0);
@@ -173,6 +184,36 @@ void main() {
         expect(probeConfig.declaredWritableRoots, isEmpty);
         expect(probe.$2.disposeCalled, isTrue);
         expect(primary.$2.disposeCalled, isFalse);
+      });
+
+      test('factory configs carry the injected runtime directory', () async {
+        final runtimeCwd = Directory(p.join(tempDir.path, 'repository'))..createSync();
+        final dartclawDir = Directory(p.join(runtimeCwd.path, '.dartclaw'))..createSync();
+        final projectSoul = p.join(dartclawDir.path, 'SOUL.md');
+        File(projectSoul).writeAsStringSync('deprecated project soul');
+        expect(Directory.current.path, isNot(runtimeCwd.path));
+        final warnings = <String>[];
+        final subscription = Logger('BehaviorFileService').onRecord.listen((record) => warnings.add(record.message));
+        addTearDown(subscription.cancel);
+
+        final created = await wireRecording(runtimeCwd: runtimeCwd.path);
+        final lease = await harnessWiring!.executions.acquire(
+          const ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            policy: ExecutionPolicy.host(),
+            sessionId: 'worker-session',
+            admission: ExecutionAdmission.failFast,
+          ),
+        );
+        await lease!.release();
+        await awaitCatalogue();
+
+        // The `/` entry is the catalogue capability check, which never spawns; the rest are the primary, the
+        // worker and the catalogue probe.
+        final spawns = [for (final entry in created) entry.$1.cwd].where((cwd) => cwd != '/');
+        expect(spawns, [runtimeCwd.path, runtimeCwd.path, runtimeCwd.path]);
+        expect(warnings, contains(contains(projectSoul)));
       });
     });
   });

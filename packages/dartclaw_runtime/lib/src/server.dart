@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
@@ -614,7 +613,7 @@ class DartclawServer {
       projects: projects,
       projectConfig: _core.config?.projects ?? const ProjectConfig.defaults(),
       containerEnabled: _core.config?.container.enabled ?? false,
-      containerMountRoots: _projectRouteContainerMountRoots(),
+      containerMountRoots: _projectRouteContainerMountRoots(projects),
       tasks: _tasks.taskService,
       worktreeManager: _tasks.worktreeManager,
       taskFileGuard: _tasks.taskFileGuard,
@@ -632,14 +631,13 @@ class DartclawServer {
     }
   }
 
-  List<String> _projectRouteContainerMountRoots() {
+  List<String> _projectRouteContainerMountRoots(ProjectService projects) {
+    final runtimeRoot = p.normalize(p.absolute(projects.localProject.localPath));
     final config = _core.config;
-    if (config == null) {
-      return [p.normalize(p.absolute(Directory.current.path))];
-    }
+    if (config == null) return [runtimeRoot];
 
     final roots = <String>{
-      p.normalize(p.absolute(Directory.current.path)),
+      runtimeRoot,
       if (config.workspaceDir.trim().isNotEmpty) p.normalize(p.absolute(config.workspaceDir)),
       if (config.projectsClonesDir.trim().isNotEmpty) p.normalize(p.absolute(config.projectsClonesDir)),
       ..._configuredLocalPathRoots(config),

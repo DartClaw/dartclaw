@@ -48,6 +48,7 @@ void main() {
   });
 
   ProjectServiceImpl makeService({
+    String? localDir,
     ProjectConfig? projectConfig,
     CredentialsConfig? credentials,
     EventBus? eventBus,
@@ -56,6 +57,7 @@ void main() {
     gitHubProbeRunner,
   }) => ProjectServiceImpl(
     dataDir: dataDir,
+    localDir: localDir ?? p.join(tempDir.path, 'local-repo'),
     projectConfig: projectConfig ?? const ProjectConfig.defaults(),
     credentials: credentials ?? const CredentialsConfig.defaults(),
     eventBus: eventBus,
@@ -65,10 +67,13 @@ void main() {
 
   group('initialize', () {
     test('creates _local project', () async {
-      final svc = makeService();
+      final localDir = p.join(tempDir.path, 'runtime-repo');
+      final svc = makeService(localDir: localDir);
       await svc.initialize();
       final local = svc.localProject;
       expect(local.id, equals('_local'));
+      expect(local.localPath, localDir);
+      expect(local.name, 'runtime-repo');
       expect(local.status, equals(ProjectStatus.ready));
       expect(local.configDefined, isFalse);
     });

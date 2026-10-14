@@ -751,15 +751,6 @@ void main() {
       expect(translated, '/projects/alias/new-checkout');
     });
 
-    test('defaults buildContextDir to current working directory', () {
-      final manager = _manager(
-        buildContextDir: null,
-        run: (executable, arguments) async => ProcessResult(1, 0, '', ''),
-      );
-
-      expect(manager.buildContextDir, Directory.current.path);
-    });
-
     test('stop reports a container it could not destroy', () async {
       final manager = _manager(
         run: (executable, arguments) async {
@@ -827,6 +818,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: const [],
         generatedStateDir: _tempStateDir(),
+        buildContextDir: '/tmp/project',
         runCommand: (executable, arguments) async => ProcessResult(1, 0, '', ''),
       );
 
@@ -945,7 +937,7 @@ ContainerManager _manager({
   String profileId = 'workspace',
   List<String> workspaceMounts = const ['/tmp/workspace:/workspace:rw', '/tmp/project:/project:ro'],
   List<String> localPathAllowlist = const [],
-  String? buildContextDir = '/tmp/project',
+  String buildContextDir = '/tmp/project',
   String workingDir = '/project',
   String? generatedStateDir,
   String? artifactsDir,

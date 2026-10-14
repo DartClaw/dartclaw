@@ -14,8 +14,8 @@ late String _templatesDir;
 
 /// Resolves a `dartclaw_runtime` asset directory to an absolute path.
 ///
-/// Relative paths and cwd-relative `existsSync` probes are unsafe here: sibling
-/// suites in this package set `Directory.current`, which is process-wide.
+/// Relative paths and cwd-relative `existsSync` probes are unsafe here: the
+/// suite runs from either the package or the repo root.
 Future<String> _resolveServerAssetDir(String child) async {
   final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
   if (uri == null) {

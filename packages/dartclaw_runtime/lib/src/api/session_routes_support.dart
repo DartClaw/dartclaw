@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -100,9 +99,10 @@ Future<({Map<String, dynamic> json, Response? error})> parseJsonObjectBody(
   }
 }
 
-/// Filesystem root that file-type references are resolved against.
-Future<String> sessionReferenceRoot(ProjectService? projects) async {
-  if (projects == null) return Directory.current.path;
+/// Filesystem root that file-type references are resolved against, or `null`
+/// when there is no project service and so no `_local` to root them in.
+Future<String?> sessionReferenceRoot(ProjectService? projects) async {
+  if (projects == null) return null;
   return (await projects.defaultProject).localPath;
 }
 

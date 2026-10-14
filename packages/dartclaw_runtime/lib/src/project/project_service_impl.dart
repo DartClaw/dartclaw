@@ -64,9 +64,10 @@ class GitFetchException implements Exception {
 /// Manages three project sources:
 /// - Config-defined: seeded from [ProjectConfig] on startup, read-only
 /// - Runtime-created: created via [create], persisted to `projects.json`
-/// - Implicit `_local`: always present, ephemeral, not persisted
+/// - Implicit `_local`: the runtime's working directory, always present, ephemeral, not persisted
 class ProjectServiceImpl implements ProjectService {
   final String _dataDir;
+  final String _localDir;
   final ProjectConfig _projectConfig;
   final CredentialsConfig _credentials;
   final EventBus? _eventBus;
@@ -96,6 +97,7 @@ class ProjectServiceImpl implements ProjectService {
   /// [gitRunner] defaults to [_isolateGitRunner] but can be replaced for testing.
   new({
     required String dataDir,
+    required String localDir,
     required ProjectConfig projectConfig,
     required CredentialsConfig credentials,
     EventBus? eventBus,
@@ -103,6 +105,7 @@ class ProjectServiceImpl implements ProjectService {
     HttpClientFactory? httpClientFactory,
     GitHubProbeRunner? gitHubProbeRunner,
   }) : _dataDir = dataDir,
+       _localDir = localDir,
        _projectConfig = projectConfig,
        _credentials = credentials,
        _eventBus = eventBus,
@@ -453,12 +456,11 @@ class ProjectServiceImpl implements ProjectService {
   // ---------------------------------------------------------------------------
 
   Project _createLocalProject() {
-    final cwd = Directory.current.path;
     return Project(
       id: '_local',
-      name: _deriveNameFromPath(cwd),
+      name: _deriveNameFromPath(_localDir),
       remoteUrl: '',
-      localPath: cwd,
+      localPath: _localDir,
       defaultBranch: 'main',
       status: ProjectStatus.ready,
       configDefined: false,

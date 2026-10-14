@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
+import 'package:dartclaw_runtime/src/api/session_message_routes.dart' show resolveConversationReference;
+import 'package:dartclaw_runtime/src/api/session_routes_support.dart' show sessionReferenceRoot;
 import 'package:dartclaw_runtime/src/auth/request_auth_context.dart' show dartclawAuthIsAdminContextKey;
 import 'package:dartclaw_runtime/src/conversation/conversation_service.dart' show ConversationService;
 import 'package:dartclaw_runtime/src/templates/sidebar.dart'
@@ -925,6 +927,23 @@ void main() {
       final persisted = await messages.getMessages(session.id);
       final metadata = jsonDecode(persisted.single.metadata!) as Map<String, dynamic>;
       expect((metadata['references'] as List).single, containsPair('type', 'file'));
+    });
+
+    test('retained file reference without a project service is unavailable', () async {
+      // Present under the process cwd whether the suite runs from the package or the repo root.
+      const launchDirectoryFile = 'pubspec.yaml';
+      expect(File(p.join(Directory.current.path, launchDirectoryFile)).existsSync(), isTrue);
+
+      final resolved = await resolveConversationReference(
+        type: 'file',
+        id: launchDirectoryFile,
+        sessions: sessions,
+        projects: null,
+      );
+
+      expect(resolved.reference, isNull);
+      expect(resolved.error?.statusCode, 400);
+      expect(await sessionReferenceRoot(null), isNull);
     });
 
     test('rejects nonexistent file and memory rich input references before persistence', () async {

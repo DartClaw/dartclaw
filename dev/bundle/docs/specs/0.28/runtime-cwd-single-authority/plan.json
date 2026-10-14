@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "2",
+  "prd": null,
+  "overview": {
+    "summary": "One authority for the runtime working directory: an injected runtimeCwd reaches every repository-scoped site, and _local has one answer."
+  },
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Runtime cwd single authority",
+      "dependsOn": [],
+      "status": "done",
+      "fis": "s01-runtime-cwd-single-authority.md",
+      "completedTaskIds": ["TI01", "TI02", "TI03", "TI04", "TI05", "TI06", "TI07", "TI08", "TI09", "TI10", "TI11"],
+      "verified": {
+        "at": "2026-10-14T16:08Z",
+        "summary": "cd packages/dartclaw_runtime && dart test --run-skipped --reporter=failures-only test/integration/container_provider_parity_integration_test.dart --name \"production acquisition pins each workspace\" -> exit=0, +1: All tests passed!"
+      },
+      "scope": "Route DartclawRuntime.runtimeCwd to every runtime site that means the runtime's repository (harness spawn cwd, behavior files, model-catalogue probe, container /project mount, server mount roots) and make it the _local project's directory; require the directory on repository-scoped constructors; name and justify the remaining process-cwd reads.",
+      "sourceRefs": [
+        ".agent_temp/briefs/runtime-cwd-single-authority.md"
+      ]
+    }
+  ]
+}

@@ -672,7 +672,7 @@ Project
 
 **Storage**: `<dataDir>/projects.json` — JSON array of project objects, atomic writes (temp file + rename).
 **Clones**: `<dataDir>/projects/<projectId>/` — full or shallow git repositories.
-**Implicit `_local` project**: Synthesized from `Directory.current.path` at startup; not persisted in `projects.json`.
+**Implicit `_local` project**: The runtime's working directory (`DartclawRuntime.runtimeCwd`, the process cwd unless injected), supplied by `ProjectService.localProject`; not persisted in `projects.json`.
 **Package**: `dartclaw_kernel` (model), `dartclaw_core` (service interface), `dartclaw_runtime` (implementation)
 
 ### Turn Trace

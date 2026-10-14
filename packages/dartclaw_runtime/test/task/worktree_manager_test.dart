@@ -369,14 +369,12 @@ void main() {
       );
     });
 
-    test('projectDir fallback uses the current cwd when create is called', () async {
+    test('create without a project runs git in projectDir', () async {
       final calls = <GitInvocation>[];
-      // Injected rather than assigned to `Directory.current`: the cwd is
-      // process-wide and would leak into every concurrently running suite.
-      const expectedWorkingDirectory = '/tmp/worktree-manager-cwd';
+      const expectedWorkingDirectory = '/tmp/worktree-manager-project';
       final manager = WorktreeManager(
         dataDir: '/tmp/test-data',
-        currentDirectory: () => expectedWorkingDirectory,
+        projectDir: expectedWorkingDirectory,
         processRunner: RecordingGitRunner(
           responder: (call) {
             final arguments = call.arguments;
@@ -432,7 +430,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project);
 
@@ -454,7 +456,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project);
 
@@ -476,7 +482,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project, baseRef: 'origin/release/0.16');
 
@@ -498,7 +508,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await expectLater(
           manager.create('task-1', project: project, baseRef: '--upload-pack=/tmp/pwn'),
@@ -522,7 +536,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project, baseRef: 'release/0.16');
 
@@ -543,7 +561,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project, baseRef: 'feature/local');
 
@@ -565,7 +587,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project);
 
@@ -587,7 +613,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project);
 
@@ -611,6 +641,7 @@ void main() {
 
         final manager = WorktreeManager(
           dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
           processRunner: RecordingGitRunner(
             responder: (call) {
               final arguments = call.arguments;
@@ -649,7 +680,11 @@ void main() {
           createdAt: DateTime.now(),
         );
 
-        final manager = WorktreeManager(dataDir: '/tmp/test-data', processRunner: recordingRunner());
+        final manager = WorktreeManager(
+          dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
+          processRunner: recordingRunner(),
+        );
 
         await manager.create('task-1', project: project);
 
@@ -731,6 +766,7 @@ void main() {
 
         final manager = WorktreeManager(
           dataDir: '/tmp/test-data',
+          projectDir: '/tmp/test-project',
           processRunner: RecordingGitRunner(
             responder: (call) {
               final arguments = call.arguments;

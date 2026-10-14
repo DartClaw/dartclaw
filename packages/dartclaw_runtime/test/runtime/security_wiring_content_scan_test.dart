@@ -37,6 +37,7 @@ void main() {
     final wiring = SecurityWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       eventBus: eventBus,
       exitFn: (code) => throw Exception('exitFn called with $code'),
       auditLogger: GuardAuditLogger(dataDir: tempDir.path),

@@ -520,7 +520,7 @@ Future<({Map<String, dynamic>? reference, Response? error})> resolveConversation
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
     final root = referenceRoot ?? await sessionReferenceRoot(projects);
-    if (_hasHiddenPathSegment(normalized)) {
+    if (root == null || _hasHiddenPathSegment(normalized)) {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
     final target = File(p.join(root, normalized));

@@ -263,9 +263,12 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
     }
   }
 
-  final root = Directory(referenceRoot ?? await sessionReferenceRoot(projectService));
-  if (await root.exists()) {
-    references.addAll(await collectFileReferenceSuggestions(root, normalizedQuery));
+  final rootPath = referenceRoot ?? await sessionReferenceRoot(projectService);
+  if (rootPath != null) {
+    final root = Directory(rootPath);
+    if (await root.exists()) {
+      references.addAll(await collectFileReferenceSuggestions(root, normalizedQuery));
+    }
   }
 
   for (final tool in const ['memory_search', 'memory_read', 'kg_query', 'kg_timeline', 'workflow']) {

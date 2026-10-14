@@ -612,17 +612,15 @@ extension _ConversationServicePersistence on ConversationService {
     }
     final ownerWebChat =
         session.workspace == null && (session.type == SessionType.user || session.type == SessionType.main);
-    final project = ownerWebChat || projects == null ? null : await projects!.defaultProject;
-    final projectId = ownerWebChat ? null : project?.id ?? '_local';
-    final root = p.normalize(
-      p.absolute(ownerWebChat ? ownerWorkspaceDir : project?.localPath ?? Directory.current.path),
-    );
+    final ownerWorkspace = ownerWebChat || projects == null;
+    final project = ownerWorkspace ? null : await projects!.defaultProject;
+    final root = p.normalize(p.absolute(project?.localPath ?? ownerWorkspaceDir));
     final provider = session.provider?.trim().isNotEmpty == true ? session.provider!.trim() : defaultProvider;
     final context = await _validatedContext(
-      projectId: projectId,
+      projectId: project?.id,
       directory: root,
       provider: provider,
-      allowImplicitLocal: !ownerWebChat,
+      allowImplicitLocal: !ownerWorkspace,
     );
     final initialized = ConversationState(
       revision: persist ? state.revision + 1 : state.revision,
@@ -658,9 +656,7 @@ extension _ConversationServicePersistence on ConversationService {
     final project = projectId == null
         ? null
         : projects == null
-        ? projectId == '_local'
-              ? null
-              : throw const ConversationMutationException(403, 'PROJECT_FORBIDDEN', 'Project is not available')
+        ? throw const ConversationMutationException(403, 'PROJECT_FORBIDDEN', 'Project is not available')
         : await projects!.get(projectId);
     if (projectId != null && projects != null && project == null) {
       throw const ConversationMutationException(403, 'PROJECT_FORBIDDEN', 'Project is not available');
@@ -668,9 +664,7 @@ extension _ConversationServicePersistence on ConversationService {
     if (project != null && project.status != ProjectStatus.ready) {
       throw const ConversationMutationException(409, 'PROJECT_UNAVAILABLE', 'Project is not ready');
     }
-    final root = _canonicalDirectory(
-      project?.localPath ?? (allowImplicitLocal ? Directory.current.path : ownerWorkspaceDir),
-    );
+    final root = _canonicalDirectory(project?.localPath ?? ownerWorkspaceDir);
     final chosen = _canonicalDirectory(directory);
     if (!p.equals(root, chosen) && (projectId == null || !p.isWithin(root, chosen))) {
       throw ConversationMutationException(

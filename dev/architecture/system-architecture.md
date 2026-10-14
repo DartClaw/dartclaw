@@ -714,7 +714,7 @@ Tasks declaring `configJson.needsWorktree: true` receive a worktree from that pr
 | `ProjectService` | `task/project_service.dart` | CRUD for projects; clone/fetch/push management via `Isolate.run()` |
 | `ProjectConfig` | `config/project_config.dart` | Parser for `projects:` config section |
 | `Project` | `dartclaw_kernel` | Domain model: id, name, remoteUrl, localPath, defaultBranch, credentialsRef, cloneStrategy, prStrategy, status |
-| Implicit `_local` | (ephemeral) | Backward-compatible project synthesized from `Directory.current.path`; not persisted |
+| Implicit `_local` | (ephemeral) | Backward-compatible project rooted at the runtime's working directory (`runtimeCwd`); not persisted |
 
 Key characteristics:
 - **Config-seeded, API-managed** pattern: projects defined in `dartclaw.yaml` are read-only via the API; projects added at runtime are fully mutable

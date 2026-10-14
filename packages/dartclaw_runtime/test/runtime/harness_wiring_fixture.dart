@@ -53,12 +53,16 @@ Future<StorageWiring> wireTestStorage({
 Future<SecurityWiring> wireTestSecurity({
   required DartclawConfig config,
   required String dataDir,
+  String? runtimeCwd,
+  String? sourceCheckoutDir,
   required EventBus eventBus,
   required Never Function(int) exitFn,
 }) async {
   final security = SecurityWiring(
     config: config,
     dataDir: dataDir,
+    runtimeCwd: runtimeCwd ?? dataDir,
+    sourceCheckoutDir: sourceCheckoutDir,
     eventBus: eventBus,
     exitFn: exitFn,
     auditLogger: GuardAuditLogger(dataDir: dataDir),
@@ -78,6 +82,7 @@ Future<HarnessWiring> wireTestHarness({
   required SecurityWiring security,
   required EventBus eventBus,
   required DartclawServer Function() serverRefGetter,
+  String? runtimeCwd,
   Map<String, CredentialEntry> Function()? subscriptionCredentials,
   List<HarnessRegistrar> harnessRegistrars = const [],
   bool headless = false,
@@ -89,6 +94,7 @@ Future<HarnessWiring> wireTestHarness({
   final harnessWiring = HarnessWiring(
     config: config,
     dataDir: dataDir,
+    runtimeCwd: runtimeCwd ?? dataDir,
     port: port,
     harnessFactory: harnessFactory,
     exitFn: exitFn,

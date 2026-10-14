@@ -13,10 +13,8 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-// Resolved via package URI in setUpAll. Avoids depending on Directory.current
-// (mutated concurrently by sibling test files), which previously caused the
-// relative-path versions of these helpers to misresolve under default-
-// concurrency runs.
+// Resolved via package URI in setUpAll, so the suite does not depend on
+// whether it runs from the package or the repo root.
 late String _staticDirPath;
 late String _templatesDirPath;
 

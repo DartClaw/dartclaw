@@ -235,6 +235,8 @@ void main() {
       final security = await wireTestSecurity(
         config: config,
         dataDir: dataDir.path,
+        runtimeCwd: checkoutRoot,
+        sourceCheckoutDir: checkoutRoot,
         eventBus: eventBus,
         exitFn: unexpectedExit,
       );
@@ -247,6 +249,7 @@ void main() {
       final wiring = HarnessWiring(
         config: config,
         dataDir: dataDir.path,
+        runtimeCwd: checkoutRoot,
         port: 0,
         harnessFactory: factory,
         exitFn: unexpectedExit,

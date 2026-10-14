@@ -126,6 +126,7 @@ void main() {
     harnessWiring = HarnessWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       port: 3333,
       harnessFactory: factory,
       exitFn: _unexpectedExit,
@@ -163,6 +164,7 @@ void main() {
     harnessWiring = HarnessWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       port: 3333,
       harnessFactory: factory,
       exitFn: _unexpectedExit,
@@ -230,6 +232,7 @@ void main() {
     harnessWiring = HarnessWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       port: 0,
       harnessFactory: fakeFactory(['claude']),
       exitFn: _unexpectedExit,

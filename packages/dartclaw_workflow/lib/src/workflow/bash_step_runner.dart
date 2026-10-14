@@ -85,15 +85,16 @@ Future<StepOutcome> bashStepRun(ActionNode node, StepExecutionContext ctx) async
   final definition = ctx.definition;
   final run = ctx.run;
   final context = ctx.workflowContext;
-  if (definition == null || run == null || context == null) {
-    throw StateError('bashStepRun requires run, definition, and workflowContext on StepExecutionContext.');
+  final dataDir = ctx.dataDir;
+  if (definition == null || run == null || context == null || dataDir == null) {
+    throw StateError('bashStepRun requires run, definition, workflowContext, and dataDir on StepExecutionContext.');
   }
   final step = definition.steps.firstWhere((candidate) => candidate.id == node.stepId);
   return executeBashStep(
     run: run,
     step: step,
     context: context,
-    dataDir: ctx.dataDir ?? Directory.current.path,
+    dataDir: dataDir,
     templateEngine: ctx.templateEngine ?? WorkflowTemplateEngine(),
     hostEnvironment: ctx.hostEnvironment,
     envAllowlist: ctx.bashStepEnvAllowlist,

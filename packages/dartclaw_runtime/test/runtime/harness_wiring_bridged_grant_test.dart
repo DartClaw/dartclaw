@@ -77,6 +77,7 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
   new({
     required super.config,
     required super.dataDir,
+    required super.runtimeCwd,
     required super.eventBus,
     required super.exitFn,
     required super.auditLogger,
@@ -184,6 +185,7 @@ void main() {
     security = _GrantRecordingSecurityWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       eventBus: eventBus,
       exitFn: _unexpectedExit,
       auditLogger: GuardAuditLogger(dataDir: tempDir.path),
@@ -195,6 +197,7 @@ void main() {
       harnessWiring = HarnessWiring(
         config: config,
         dataDir: tempDir.path,
+        runtimeCwd: tempDir.path,
         port: 3333,
         harnessFactory: fakeFactory(),
         exitFn: _unexpectedExit,

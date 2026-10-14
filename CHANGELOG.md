@@ -56,6 +56,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - The channel message queue now follows `concurrency.max_parallel_turns` reloads; before, it kept the startup value. A freed queue slot is no longer taken by a second turn alongside its waiter, and stopping the queue while a session waits for a slot no longer raises an unhandled error.
 - A queued task or workflow step polled every 2 s behind a full worker pool (`providers.<id>.pool_size`) no longer counts toward loop detection or the global rate limit. Under `governance.loop_detection` action `abort`, such a task could fail as a detected loop without ever running.
 - A WhatsApp or Signal reply that fails to send is now retried on its own under `channels.retry_policy`; before, the queue re-ran the whole agent turn, recording the inbound message again and possibly answering twice. A failed turn now gets one apology and is not re-run.
+- A `runtimeCwd` injected into `DartclawRuntime.build` or `stageHeadless` now reaches every repository-scoped surface, where it reached only task wiring before: agent spawn directories, project behavior files, the container `/project` mount and the implicit `_local` project. A runtime built for one repository from another directory no longer splits across the two. Without a project service, session and conversation routes no longer treat the process directory as `_local`.
 
 ## [0.27.2] - 2026-10-02
 

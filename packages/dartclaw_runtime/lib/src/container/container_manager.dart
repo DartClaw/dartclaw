@@ -126,12 +126,11 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
     this.hasMcpBridge = false,
     this.localPathAllowlist = const [],
     this.bridgeBinaryPath,
-    String? buildContextDir,
+    required this.buildContextDir,
     this.workingDir = '/project',
     RunCommand? runCommand,
     StartCommand? startCommand,
   }) : _ownerLabel = ownerLabel,
-       buildContextDir = buildContextDir ?? Directory.current.path,
        _run = runCommand ?? Process.run,
        _start = startCommand ?? Process.start;
 

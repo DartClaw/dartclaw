@@ -166,6 +166,57 @@ void main() {
     }
   });
 
+  test('no project service yields no implicit _local', () async {
+    final owner = Directory('${root.path}/owner')..createSync();
+    final service = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      ownerWorkspaceDir: owner.path,
+    );
+    final nonOwner = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'configured-agent', directory: root.path),
+    );
+
+    final initial = await service.snapshot(nonOwner.id);
+    expect(initial.nextContext?.projectId, isNull);
+    expect(initial.nextContext?.directory, owner.resolveSymbolicLinksSync());
+    expect(initial.nextContext?.referenceRoot, owner.resolveSymbolicLinksSync());
+
+    final ownerChat = await sessions.createSession();
+    final before = await service.snapshot(ownerChat.id);
+    await expectLater(
+      service.updateContext(
+        sessionId: ownerChat.id,
+        expectedRevision: before.revision,
+        projectId: '_local',
+        directory: owner.path,
+        provider: 'claude',
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'PROJECT_FORBIDDEN')),
+    );
+    expect((await service.snapshot(ownerChat.id)).toJson(), before.toJson());
+
+    await sessions.updateConversationState(
+      nonOwner.id,
+      ConversationState(
+        revision: initial.revision,
+        nextContext: EffectiveConversationContext(
+          projectId: '_local',
+          directory: owner.resolveSymbolicLinksSync(),
+          referenceRoot: owner.resolveSymbolicLinksSync(),
+          provider: 'claude',
+        ),
+      ),
+    );
+    await expectLater(
+      _submit(service, nonOwner.id, 'stored-local'),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'PROJECT_FORBIDDEN')),
+    );
+    expect(turns.reserveCalled, isFalse);
+  });
+
   test('a stored general reference root outside owner workspace cannot dispatch', () async {
     final owner = Directory('${root.path}/owner')..createSync();
     final checkout = Directory('${root.path}/checkout')..createSync();

@@ -548,20 +548,22 @@ class _RuntimeAssembly {
   final ResolvedAssets resolvedAssets;
   final PlatformCapabilities platformCapabilities;
 
-  /// The repository this build operates on — the invocation cwd.
+  /// The repository this build operates on, defaulting to the invocation cwd
+  /// (`Directory.current.path`), which is read here and nowhere else for it.
   ///
-  /// Worktree placement, diff generation, the local-project fallback and the
-  /// workflow output root all key off it. `serve` reads the same value it read
-  /// as `Directory.current.path`; a headless caller injects one so a run
-  /// started from a repository other than the launch directory still roots
-  /// there.
+  /// Agent spawns and behavior files, the container `/project` mount, worktree
+  /// placement, diff generation, the `_local` project and the workflow output
+  /// root all key off it. A headless caller injects one so a run started from a
+  /// repository other than the launch directory still roots there.
   final String runtimeCwd;
 
   /// The directory a workflow run falls back to when it resolves no project —
   /// non-null only for the zero-server lane, and the one arm that selects its
   /// local-repository posture: worktree root, workflow output root, publish
   /// strategy, and the source-tree asset precedence a checkout run expects.
-  final String? localFallbackDir;
+  String? get localFallbackDir => _localRepositoryPosture ? runtimeCwd : null;
+
+  final bool _localRepositoryPosture;
 
   /// Inverts asset precedence so the live source tree wins over the embedded
   /// built-ins, for skills and workflow YAML alike. The maintainer profile
@@ -659,7 +661,7 @@ class _RuntimeAssembly {
            platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment),
        _environment = environment ?? Platform.environment,
        runtimeCwd = runtimeCwd ?? Directory.current.path,
-       localFallbackDir = localRepositoryPosture ? (runtimeCwd ?? Directory.current.path) : null,
+       _localRepositoryPosture = localRepositoryPosture,
        resolvedAssets =
            resolvedAssets ?? const AssetResolver().resolveAssets(const AssetResolutionRequest.noConfiguredAssets()),
        prCreatorOverride = prCreator,
@@ -919,7 +921,7 @@ class _RuntimeAssembly {
   }
 
   Future<ProjectWiring> _wireProjects(_WiringContext ctx) async {
-    final project = ProjectWiring(config: config, dataDir: ctx.dataDir, eventBus: ctx.eventBus);
+    final project = ProjectWiring(config: config, dataDir: ctx.dataDir, runtimeCwd: runtimeCwd, eventBus: ctx.eventBus);
     await project.wire(readOnly: headless);
     return project;
   }
@@ -974,6 +976,7 @@ class _RuntimeAssembly {
     final security = SecurityWiring(
       config: config,
       dataDir: ctx.dataDir,
+      runtimeCwd: runtimeCwd,
       eventBus: ctx.eventBus,
       exitFn: exitFn,
       platformCapabilities: platformCapabilities,
@@ -1000,6 +1003,7 @@ class _RuntimeAssembly {
     final harness = HarnessWiring(
       config: config,
       dataDir: ctx.dataDir,
+      runtimeCwd: runtimeCwd,
       port: ctx.port,
       harnessFactory: harnessFactory,
       exitFn: exitFn,

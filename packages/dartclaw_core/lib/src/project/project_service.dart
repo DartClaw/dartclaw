@@ -98,7 +98,7 @@ abstract class ProjectService {
 
   /// Returns the implicit `_local` project.
   ///
-  /// The `_local` project represents `Directory.current.path`. It is always
+  /// The `_local` project represents the runtime's working directory. It is always
   /// [ProjectStatus.ready] and is never persisted to `projects.json`.
   Project get localProject;
 

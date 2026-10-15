@@ -146,6 +146,11 @@ The `andthen:visual-validation` skill auto-reads this `## Visual Validation Work
 
 See `dev/guidelines/RELEASE_PREPARATION.md` for the release preparation workflow, gates, and sequence.
 
+**Shipping a version branch is releasing it.** `andthen:ship` on `feat/<version>` runs release preparation through the
+scope-frozen commit (release sequence step 1) before it publishes, because that branch merges only as the release.
+Its bundle deletion is the exported-bundle cleanup, done after the private PRD is consolidated
+(`dev/state/SPEC-LIFECYCLE.md`), and live or owner checks it cannot run are reported as holds.
+
 Treat the existing `HOMEBREW_TAP_TOKEN` scope as an operator-maintained invariant. Do not request reconfirmation during
 routine releases; audit it only after token rotation/widening or a relevant environment/repository-protection change.
 

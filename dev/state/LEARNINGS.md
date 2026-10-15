@@ -169,7 +169,7 @@
 - **Loop crash recovery needs a checkpoint after every successful sibling step.** Checkpointing only at iteration boundaries loses outputs the next sibling depends on.
 - **Workflow start must preflight and persist effective `PROJECT`/`BRANCH` before any workflow task is created**, and local-path projects need their dirty-tree / branch-mismatch gate at the same seam. Deferring either leaks tasks against a live checkout.
 - **Resolve a null `gitStrategy` as the default `auto` before keying behavior on the mode.** All resolution flows through `step_config_policy.resolveWorktreeMode`; the concurrency clamp keys on the *resolved* mode so clamp and dispatcher agree – fix at the resolution layer, never a clamp special-case.
-- **Standard crash recovery derives the resume step from completed tasks, so it breaks wherever a flow re-runs a step the tasks already finished.** A request-changes round re-enters an earlier step; `_recoverRun` therefore restarts a run carrying `_revision.gateId` at `currentStepIndex`. Any new rewind needs the same cursor-first rule.
+- **Standard crash recovery derives the resume step from completed tasks, so it breaks wherever a flow re-runs a step the tasks already finished.** A request-changes round re-enters an earlier step; `_recoverRun` therefore restarts a run carrying `_revision.gateId` at `currentStepIndex`. Any new rewind needs the same cursor-first rule. Keep a revise gate's `entryGate` independent of run context: `_revision.gateId` outlives a gate that is false on the return pass.
 - **A foreach dependency-hold pause has no resume path.** After a settled-failed story blocks a dependent, `workflow resume` re-pauses immediately – cancel and start a fresh run; discovery re-derives only unfinished stories.
 - **Workflow git cleanup must run after child-task shutdown and walk the full run-owned set.** Shared-key cleanup is insufficient for `per-map-item` workflows; standalone teardown must preserve non-terminal (approval-held, paused, running) git state for resume.
 - **Artifact auto-commit must verify task worktree paths are real git worktrees, and use output resolver semantics, not raw output formats.** List-shaped filesystem outputs can be `lines` yet still be load-bearing artifacts.
@@ -251,6 +251,7 @@
 
 ## Specs / Documentation
 
+- **A `git grep` Verify over `dev/` or `docs/` matches the bundle's own FIS, PRD and research.** It can never go clean; exclude `':!dev/bundle'` and dry-run it before relying on it.
 - **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.
 - **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** – it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
 - **A checklist item naming a recorder in another story has no owner.** Verify the artifact exists before relying on it; absence is a gate defect.
@@ -270,6 +271,7 @@
 
 ## Testing
 
+- **A single-test run of a skip-tagged suite exits 0 having run nothing.** Integration/slow suites (e.g. the Docker parity suite) need `--run-skipped`, or the "pass" proves nothing.
 - **Template comments ship in rendered pages.** `tasks_s11_test`/`task_detail_template_test` assert no `—` over the whole page and `inbox_template_test` bans a state-attribute name in prose, sidebar included – a template comment fails tests far from the edit.
 - **Bound-asserting tests must enumerate the set** – a test named 'only/every/no other' must assert with unorderedEquals/containsAll, never isNot(contains(...)).
 - **Fixtures built by the code under test never exercise its parser.** `writePage`-built fixtures meant `_readPage` never parsed foreign input – four data-loss bugs, suite green. Write raw literals.

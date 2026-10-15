@@ -519,7 +519,7 @@ Future<({Map<String, dynamic>? reference, Response? error})> resolveConversation
     if (p.isAbsolute(normalized) || normalized.startsWith('..${p.separator}') || normalized == '..') {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
-    final root = referenceRoot ?? await sessionReferenceRoot(projects);
+    final root = referenceRoot;
     if (root == null || _hasHiddenPathSegment(normalized)) {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }

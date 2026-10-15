@@ -76,13 +76,14 @@ service graph, and the standalone-only behaviours are parameters of the one root
 - The registry is built in the **base** phase, so a caller can resolve a definition before any execution capacity
   exists. Its `continuityProviders` therefore come from `HarnessFactory.probeContinuityProviders()` capability probes
   (`cwd: '/'`, no spawn) rather than from a wired harness — that is what makes a registry available before one exists.
-- `runtimeCwd` (default `Directory.current.path`) is the repository the runtime operates on, and each wiring that means
-  that repository takes it as a required constructor input: `ProjectWiring` → `ProjectServiceImpl.localProject`
-  (`_local`, the one answer: the server's container mount roots, the conversation `_local` context and the session
-  reference root read it from `ProjectService`, and a composition without one has no `_local`); `SecurityWiring` (the
-  container `/project` mount); `HarnessWiring` (`<runtimeCwd>/.dartclaw` behavior files, every
-  `HarnessFactoryConfig.cwd`, the model-catalogue probe); `TaskWiring` (`MergeExecutor`, `WorktreeManager.projectDir`,
-  `DiffGenerator`, `TaskExecutor.currentDirectory`) and, for `serve`, the artifact workspace. Two process-cwd reads
+- `runtimeCwd` (default `Directory.current.path`, made absolute once) is the repository the runtime operates on, and
+  each wiring that means that repository takes it as a required constructor input: `ProjectWiring` →
+  `ProjectServiceImpl.localProject` (`_local`, the one answer: the server's container mount roots, the conversation
+  `_local` context and the session reference root read it from `ProjectService`, and a composition without one has no
+  `_local`); `SecurityWiring` (the container `/project` mount); `HarnessWiring` (`<runtimeCwd>/.dartclaw` behavior
+  files, every spawning `HarnessFactoryConfig.cwd`, the model-catalogue probe; capability probes stay `cwd: '/'` and
+  never spawn); `TaskWiring` (`MergeExecutor`, `WorktreeManager.projectDir`, `DiffGenerator`,
+  `TaskExecutor.currentDirectory`) and, for `serve`, the artifact workspace. Two process-cwd reads
   remain in runtime and core library code: the `runtimeCwd` default itself, and `SecurityWiring`'s optional
   `sourceCheckoutDir`, which locates DartClaw's own checkout for the image build context (`docker/`) and
   `build/bridge` – a checkout of DartClaw, not the repository the runtime operates on. The workflow package's
@@ -264,7 +265,7 @@ tests construct sparse compositions through the same two functions.
   injected `DatabaseBackendFactory` closures return a fresh backend per open. Standalone persistence tests use the real
   file store and a temp data directory (`test/runtime/headless_file_storage_test.dart`); the lease test starts a second
   Dart process to prove the cross-process refusal (`test/runtime/standalone_execution_lease_test.dart`).
-- Suites run in parallel; keep them that way. `dart test` runs suites as isolates in **one OS process**, so ports, the filesystem, and the working directory are shared. Bind port `0`, keep fixtures in per-test temp dirs, and never assign `Directory.current` in-process – inject it. The constructors that take a directory require it (`DartclawRuntime.stageHeadless(runtimeCwd:)`, `WorktreeManager(projectDir:)`, `TaskExecutor(currentDirectory:)`, `HarnessWiring`/`SecurityWiring`/`ProjectServiceImpl`), so a test gives each a per-test temp dir or its `dataDir` and never the process cwd; `wireTestSecurity`/`wireTestHarness` default `runtimeCwd` to `dataDir` for that reason. Container suites also pass the checkout root as `sourceCheckoutDir`. A test that needs a different process cwd runs a child process: `test/static/fixtures/unrelated_cwd_node_harness_fixture.dart` is the one file that assigns it, and `controller_test_support_test.dart` runs it in its own process. Breaking this forces the package back to `-j 1` (≈5× wall time). See `dev/guidelines/TESTING-STRATEGY.md` Layer 2 note.
+- Suites run in parallel; keep them that way. `dart test` runs suites as isolates in **one OS process**, so ports, the filesystem, and the working directory are shared. Bind port `0`, keep fixtures in per-test temp dirs, and never assign `Directory.current` in-process – inject it. `WorktreeManager(projectDir:)`, `TaskExecutor(currentDirectory:)`, `HarnessWiring`/`SecurityWiring`/`ProjectWiring` (`runtimeCwd:`) and `ProjectServiceImpl(localDir:)` require a directory; `DartclawRuntime.build`/`stageHeadless` default `runtimeCwd` to the process cwd, so a test must pass one. Give each a per-test temp dir or its `dataDir`, never the process cwd; `wireTestSecurity`/`wireTestHarness` default `runtimeCwd` to `dataDir` for that reason. A suite that composes `SecurityWiring` with containers (the parity suite) passes the checkout root as `sourceCheckoutDir`; suites that build `ContainerManager` directly pass a literal or temp `buildContextDir`. A test that needs a different process cwd runs a child process: `test/static/fixtures/unrelated_cwd_node_harness_fixture.dart` is the one file that assigns it, and `controller_test_support_test.dart` runs it in its own process. Breaking this forces the package back to `-j 1` (≈5× wall time). See `dev/guidelines/TESTING-STRATEGY.md` Layer 2 note.
 - Template-rendering correctness (HTML structure, escaping) is asserted at Layer 2/3 against rendered output strings — visual layout is covered by manual UI smoke tests, not Dart tests.
 
 ## Key files

@@ -6,7 +6,6 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/api/session_message_routes.dart' show resolveConversationReference;
-import 'package:dartclaw_runtime/src/api/session_routes_support.dart' show sessionReferenceRoot;
 import 'package:dartclaw_runtime/src/auth/request_auth_context.dart' show dartclawAuthIsAdminContextKey;
 import 'package:dartclaw_runtime/src/conversation/conversation_service.dart' show ConversationService;
 import 'package:dartclaw_runtime/src/templates/sidebar.dart'
@@ -943,7 +942,6 @@ void main() {
 
       expect(resolved.reference, isNull);
       expect(resolved.error?.statusCode, 400);
-      expect(await sessionReferenceRoot(null), isNull);
     });
 
     test('rejects nonexistent file and memory rich input references before persistence', () async {

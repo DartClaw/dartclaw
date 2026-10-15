@@ -802,6 +802,18 @@ steps:
     );
   });
 
+  test('relative runtime cwd is resolved once to an absolute directory', () async {
+    final runtimeCwd = fixture.seedGitRepo('relative-runtime-repo', readme: 'runtime\n');
+
+    await fixture.withWiredRuntime(
+      fixture.config(),
+      runtimeCwd: p.relative(runtimeCwd.path),
+      body: (runtime) async {
+        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+      },
+    );
+  });
+
   test('standalone workflow output validation uses runtime cwd as default workspace root', () async {
     final runtimeCwd = fixture.seedGitRepo('runtime-output-root', readme: 'runtime\n');
     File(p.join(runtimeCwd.path, 'docs/specs/demo/prd.md'))

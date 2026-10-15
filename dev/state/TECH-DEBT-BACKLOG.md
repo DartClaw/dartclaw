@@ -179,15 +179,15 @@ Last reviewed: 2026-05-18
 
 ---
 
-## TD-081 – `_resolveReapWorkingDirectory` orphan-task fallback uses `_defaultProjectDir`
+## TD-081 – `_resolveReapWorkingDirectory` orphan-task fallback uses `_projectDir` (the runtime directory)
 
 **Severity**: Low (bounded operational risk – orphan reaping for true-orphan tasks)
 **Found**: 2026-04-30 0.16.4 sub-plan inventory (originally documented inline in `phase-22-s37-s39-implementation-notes-2026-04-21.md` §"Open residual gaps")
 **Affects**: orphan-turn detection / reaper paths around `WorktreeManager` / project-dir resolution
 
-**Context**: `_resolveReapWorkingDirectory` falls back to `_defaultProjectDir` when no project binding is recoverable for an orphan task. The full fix encodes `projectId` into the worktree path scheme so the reaper can recover the correct project dir without a fallback. Explicitly out of scope per S37 boundary; documented inline rather than booked.
+**Context**: `_resolveReapWorkingDirectory` falls back to `_projectDir` (the runtime directory) when no project binding is recoverable for an orphan task. The full fix encodes `projectId` into the worktree path scheme so the reaper can recover the correct project dir without a fallback. Explicitly out of scope per S37 boundary; documented inline rather than booked.
 
-**Fix shape**: encode `projectId` into the worktree path scheme; teach the reaper to parse it; remove the `_defaultProjectDir` fallback.
+**Fix shape**: encode `projectId` into the worktree path scheme; teach the reaper to parse it; remove the `_projectDir` fallback.
 
 **Trigger**: orphan-task reaping observed using the wrong project dir in production; or any worktree-path-scheme refactor.
 

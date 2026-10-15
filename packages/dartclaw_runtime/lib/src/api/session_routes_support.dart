@@ -99,13 +99,6 @@ Future<({Map<String, dynamic> json, Response? error})> parseJsonObjectBody(
   }
 }
 
-/// Filesystem root that file-type references are resolved against, or `null`
-/// when there is no project service and so no `_local` to root them in.
-Future<String?> sessionReferenceRoot(ProjectService? projects) async {
-  if (projects == null) return null;
-  return (await projects.defaultProject).localPath;
-}
-
 /// The model catalogue a provider reported, or `null` before or without one.
 typedef ModelCatalogueLookup = ModelCatalogue? Function(String providerId);
 

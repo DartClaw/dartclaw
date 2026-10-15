@@ -263,8 +263,7 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
     }
   }
 
-  final rootPath = referenceRoot ?? await sessionReferenceRoot(projectService);
-  final root = rootPath == null ? null : Directory(rootPath);
+  final root = referenceRoot == null ? null : Directory(referenceRoot);
   if (root != null && await root.exists()) {
     references.addAll(await collectFileReferenceSuggestions(root, normalizedQuery));
   }

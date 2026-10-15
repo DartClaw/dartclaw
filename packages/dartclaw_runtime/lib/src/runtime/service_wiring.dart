@@ -550,6 +550,8 @@ class _RuntimeAssembly {
 
   /// The repository this build operates on, defaulting to the invocation cwd
   /// (`Directory.current.path`), which is read here and nowhere else for it.
+  /// An injected relative path is made absolute here, once, so no consumer
+  /// re-resolves it against the process cwd.
   ///
   /// Agent spawns and behavior files, the container `/project` mount, worktree
   /// placement, diff generation, the `_local` project and the workflow output
@@ -660,7 +662,7 @@ class _RuntimeAssembly {
        platformCapabilities =
            platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment),
        _environment = environment ?? Platform.environment,
-       runtimeCwd = runtimeCwd ?? Directory.current.path,
+       runtimeCwd = p.normalize(p.absolute(runtimeCwd ?? Directory.current.path)),
        _localRepositoryPosture = localRepositoryPosture,
        resolvedAssets =
            resolvedAssets ?? const AssetResolver().resolveAssets(const AssetResolutionRequest.noConfiguredAssets()),

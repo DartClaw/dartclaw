@@ -25,6 +25,7 @@ pubspec.lock
 CLAUDE.local.md
 .claude/worktrees/
 .claude/scheduled_tasks.lock
+.claude/settings.local.json
 
 # OS
 .DS_Store

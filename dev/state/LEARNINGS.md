@@ -1,9 +1,11 @@
 # Project Learnings
 
-<!-- Traps only, one bullet each: `- **{title}** – …`, trap + pointer, under 200 chars; postmortem depth lives in
-     the spec archive, an ADR, or an architecture doc. Bar: "Would a competent developer with code and git access
-     still get bitten?" Skills read this document whole. Maintain it directly; the ceiling is the Project Document Index
-     row – at the ceiling, prune this file, never shard it. Delete entries once encoded as checks or stale. -->
+<!-- Traps only, one bullet each: `- **{title}** – …`, trap + pointer; postmortem depth lives in
+     an ADR or an architecture doc. An entry is admitted only if a frontier model does not already know it, the code
+     and git history do not already carry it, and it outlives the current initiative. Skills read this document whole:
+     read it before appending, so no reworded duplicate lands, keep it short, and delete entries once encoded as checks
+     or stale. A topic that outgrows this index moves to `learnings/<topic-slug>.md` and leaves one pointer line here;
+     open a shard only when the task names its topic. -->
 
 ## Dart Language
 

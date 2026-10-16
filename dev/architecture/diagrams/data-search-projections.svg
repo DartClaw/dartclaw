@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">Derived search projections</title>
+  <desc id="desc">Two lanes, memory and conversation, each flowing from a canonical source through a projection into a lexical table and, in hybrid mode, a vector table; below, the three mechanisms that keep the tables current.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .mono-s { font-size: 11.5px; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="600"/>
+  <text class="title" x="24" y="34">Derived search projections</text>
+  <text class="lede" x="24" y="56">Search rows are projections of canonical files. They are rebuilt from the sources, never the other way round.</text>
+  <rect class="group" x="607" y="82" width="377" height="222" rx="8"/>
+  <text class="group-label" x="619" y="100">hybrid mode only (pgvector)</text>
+  <g class="node k-store">
+    <title>Validated canonical memory of one principal (owner or agent:id). Only topic, archive, observation and learning entries are projected; MEMORY.md, errors.md and MEMORY.audit.md are never indexed.</title>
+    <path class="edge" d="M154,147 H187"/>
+    <a href="../data-model.md#memory-corpus">
+    <rect class="box" x="24" y="112" width="130" height="70" rx="6"/>
+    <text class="mono mono-s" x="36" y="134">canonical corpus</text>
+    <text class="sub" x="36" y="152">topic, archive,</text>
+    <text class="sub" x="36" y="167">observation, learning</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>MemoryIndexProjection.documents(corpus): one SearchDocument per entry, chunked, carrying role, provenance, entry_id and entry_revision. packages/dartclaw_core/lib/src/memory/memory_index_projection.dart</title>
+    <path class="edge" d="M397,147 H422"/>
+    <a href="../data-model.md#derived-search-indexes">
+    <rect class="box" x="189" y="112" width="208" height="70" rx="6"/>
+    <text class="mono mono-s" x="201" y="134">MemoryIndexProjection</text>
+    <text class="sub" x="201" y="152">document id = entry locator</text>
+    <text class="sub" x="201" y="167">role, provenance, revision</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>PostgresFtsIndex over memory_chunks; text-search configuration is database.fts_language. Rows are scoped by user_id (owner or agent:id).</title>
+    <path class="edge" d="M584,147 H617"/>
+    <a href="../data-model.md#34-tables">
+    <rect class="box" x="424" y="112" width="160" height="70" rx="6"/>
+    <text class="mono mono-s" x="436" y="134">memory_chunks</text>
+    <text class="sub" x="436" y="152">content_tsv, GIN</text>
+    <text class="sub" x="436" y="167">per user_id</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>VectorSynchronizer (dartclaw_search) reuses a vector only when content hash and provider fingerprint match, retires stale identities, and refuses a late result whose source changed. An embedding failure leaves the lexical index current.</title>
+    <path class="edge" d="M779,147 H812"/>
+    <a href="../data-model.md#derived-search-indexes">
+    <rect class="box" x="619" y="112" width="160" height="70" rx="6"/>
+    <text class="mono mono-s" x="631" y="134">VectorSynchronizer</text>
+    <text class="sub" x="631" y="152">embeds missing chunks</text>
+    <text class="sub" x="631" y="167">hash + fingerprint reuse</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>PostgresVectorIndex: transactional mutations, ranking scoped by user_id and filtered by model fingerprint and dimension.</title>
+    <a href="../data-model.md#34-tables">
+    <rect class="box" x="814" y="112" width="162" height="70" rx="6"/>
+    <text class="mono mono-s" x="826" y="134">memory_vectors</text>
+    <text class="sub" x="826" y="152">public.vector</text>
+    <text class="sub" x="826" y="167">fingerprint, dimension</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>Transcript of durable user, main, channel and archive sessions. Temporary (process-retained) conversations are never indexed.</title>
+    <path class="edge" d="M154,249 H187"/>
+    <a href="../data-model.md#sessions-and-messages">
+    <rect class="box" x="24" y="214" width="130" height="70" rx="6"/>
+    <text class="mono mono-s" x="36" y="236">messages.ndjson</text>
+    <text class="sub" x="36" y="254">durable chat-facing</text>
+    <text class="sub" x="36" y="269">sessions only</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>One document and one chunk per user or assistant message that ConversationState.includesMessage shows; queued, held or removed input is excluded.</title>
+    <path class="edge" d="M397,249 H422"/>
+    <a href="../data-model.md#derived-search-indexes">
+    <rect class="box" x="189" y="214" width="208" height="70" rx="6"/>
+    <text class="mono mono-s" x="201" y="236">ConversationIndexProjection</text>
+    <text class="sub" x="201" y="254">document id = message UUID</text>
+    <text class="sub" x="201" y="269">user/assistant only</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>PostgresFtsIndex over conversation_chunks. Rows use the session pinned workspace principal, or owner when the session has none.</title>
+    <path class="edge" d="M584,249 H617"/>
+    <a href="../data-model.md#34-tables">
+    <rect class="box" x="424" y="214" width="160" height="70" rx="6"/>
+    <text class="mono mono-s" x="436" y="236">conversation_chunks</text>
+    <text class="sub" x="436" y="254">content_tsv, GIN</text>
+    <text class="sub" x="436" y="269">per user_id</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>A separate VectorSynchronizer per corpus, over the conversation lexical and vector indexes.</title>
+    <path class="edge" d="M779,249 H812"/>
+    <a href="../data-model.md#derived-search-indexes">
+    <rect class="box" x="619" y="214" width="160" height="70" rx="6"/>
+    <text class="mono mono-s" x="631" y="236">VectorSynchronizer</text>
+    <text class="sub" x="631" y="254">embeds missing chunks</text>
+    <text class="sub" x="631" y="269">hash + fingerprint reuse</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>PostgresVectorIndex over conversation_vectors.</title>
+    <a href="../data-model.md#34-tables">
+    <rect class="box" x="814" y="214" width="162" height="70" rx="6"/>
+    <text class="mono mono-s" x="826" y="236">conversation_vectors</text>
+    <text class="sub" x="826" y="254">public.vector</text>
+    <text class="sub" x="826" y="269">fingerprint, dimension</text>
+    </a>
+  </g>
+
+  <text class="group-label" x="24" y="338">What keeps the tables current</text>
+  <g class="node k-host">
+    <title>Live path. The memory corpus calls a post-commit projection hook after each commit; on failure the index is marked degraded and canonical memory stays available. ConversationIndexer observes MessageService and SessionService and runs every mutation on one serialized chain; failures are logged and never fail message persistence.</title>
+    <rect class="box" x="24" y="348" width="300" height="104" rx="6"/>
+    <text class="mono" x="38" y="370">live writes</text>
+    <text class="sub" x="38" y="389">memory: post-commit hook on the corpus</text>
+    <text class="sub" x="38" y="405">conversation: ConversationIndexer, one queue</text>
+    <text class="sub" x="38" y="421">failure is logged or marks the index degraded;</text>
+    <text class="sub" x="38" y="437">canonical data is never affected</text>
+  </g>
+  <g class="node k-host">
+    <title>Startup. CanonicalIndexReconciler.ensureCurrentBatched compares the canonical collection revision and fingerprint with the evidence in .dartclaw-memory-index.json (healthy, degraded, rebuilding, unknown). An interrupted rebuilding state reads as degraded.</title>
+    <rect class="box" x="350" y="348" width="300" height="104" rx="6"/>
+    <text class="mono" x="364" y="370">startup reconcile</text>
+    <text class="sub" x="364" y="389">health evidence current: validate live rows</text>
+    <text class="sub" x="364" y="405">otherwise: rebuild that principal's memory</text>
+    <text class="sub" x="364" y="421">conversation re-projected after a memory</text>
+    <text class="sub" x="364" y="437">rebuild, and on every hybrid start</text>
+  </g>
+  <g class="node k-host">
+    <title>dartclaw rebuild-index runs with DartClaw stopped. TransactionalRebuildTarget populates, validates and swaps each principal's memory rows inside one transaction. The conversation rebuild clears each principal and repopulates from NDJSON as separate steps, so a crash can leave it partial until rerun. Message NDJSON, wiki pages and KG facts are never changed.</title>
+    <rect class="box" x="676" y="348" width="300" height="104" rx="6"/>
+    <text class="mono" x="690" y="370">dartclaw rebuild-index</text>
+    <text class="sub" x="690" y="389">DartClaw stopped</text>
+    <text class="sub" x="690" y="405">memory: one transaction per principal</text>
+    <text class="sub" x="690" y="421">conversation: clear, then repopulate</text>
+    <text class="sub" x="690" y="437">vectors last, in hybrid mode</text>
+  </g>
+
+  <text class="note" x="24" y="486">Principals: the owner (user_id owner) and each named agent with personal memory (agent:&lt;id&gt;) are separate corpora in every table.</text>
+  <text class="note" x="24" y="504">The knowledge graph (kg_facts) is authoritative, not a projection: it has no stored vector and is searched with database.fts_language at query time.</text>
+  <path class="edge" d="M24,548 L64,548"/>
+  <text class="note" x="74" y="552">derived from (source to projection)</text>
+  <rect x="340" y="538" width="34" height="18" rx="4" fill="none" stroke="var(--store)" stroke-width="1.4"/>
+  <text class="note" x="382" y="552">canonical source</text>
+  <rect x="520" y="538" width="34" height="18" rx="4" fill="none" stroke="var(--host)" stroke-width="1.4"/>
+  <text class="note" x="562" y="552">projection code or derived rows</text>
+  <text class="note" x="24" y="580">Opened directly in a browser, hovering a node shows its detail and highlights its outgoing edge.</text>
+</svg>

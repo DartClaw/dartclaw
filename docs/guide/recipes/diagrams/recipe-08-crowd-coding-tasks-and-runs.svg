@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" role="img" aria-labelledby="title desc">
+  <title id="title">Crowd coding: from a request to a task or workflow run</title>
+  <desc id="desc">The shared-session agent turns an ordinary-language request into a task_create or workflow_run tool call. Task and run state changes post into the Space thread, an optional thread binding routes thread replies to the task session, and review and approval decisions from chat need an admin sender.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .step { font-size: 12px; font-weight: 700; fill: var(--accent); }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .chip-sec { fill: var(--box); stroke: var(--sec); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.both { marker-start: url(#arrow); }
+    .edge.plain { marker-end: none; }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    svg .node:hover .edge.both { marker-start: url(#arrow-hi); }
+    svg .node:hover .edge.plain { marker-end: none; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="580"/>
+
+  <text class="title" x="24" y="34">Crowd coding: from a request to a task or workflow run</text>
+  <text class="lede" x="24" y="56">The agent chooses the tool. Review and approval decisions made from chat need a sender in governance.admin_senders.</text>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-host">
+    <title>The shared group session turn. It has no chat grammar to parse: it decides from the conversation which registered tool to call, and SOUL.md tells it never to claim success before the tool result confirms it.</title>
+    <path class="edge" d="M244,250 H266 V142 H290"/>
+    <path class="edge" d="M244,326 H266 V442 H290"/>
+    <rect class="box" x="24" y="223" width="220" height="130" rx="6"/>
+    <text class="mono" x="36" y="243">group session turn</text>
+    <text class="sub" x="36" y="261">participants ask in ordinary</text>
+    <text class="sub" x="36" y="277">language; the agent picks</text>
+    <text class="sub" x="36" y="293">the tool and reports what</text>
+    <text class="sub" x="36" y="309">the tool result confirms</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-host">
+    <title>task_create records the creating message as the task origin (channel, conversation, sender), so status posts return to that conversation. The task queues, then runs on a provider worker lease (providers.&lt;id&gt;.pool_size is shared with workflows and scheduled work). A worktree is used only when the request asks for one (configJson.needsWorktree).</title>
+    <path class="edge" d="M500,142 H530"/>
+    <path class="edge" d="M395,200 V244"/>
+    <rect class="box" x="290" y="84" width="210" height="116" rx="6"/>
+    <text class="mono" x="302" y="104">task_create</text>
+    <text class="sub" x="302" y="122">origin = this conversation</text>
+    <text class="sub" x="302" y="138">queued, then running on a</text>
+    <text class="sub" x="302" y="154">worker lease (pool_size)</text>
+    <text class="sub" x="302" y="170">worktree only when requested</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-host">
+    <title>task_list and review_list return full task IDs; task_review takes accept, reject or push_back for a full ID. From a chat message the caller must be an admin sender and every attempt is audited. With tasks.completion_action: accept the finished task is accepted without waiting here.</title>
+    <path class="edge" d="M740,142 H770"/>
+    <path class="edge" d="M635,200 V244"/>
+    <rect class="box" x="530" y="84" width="210" height="116" rx="6"/>
+    <text class="mono" x="542" y="104">review</text>
+    <text class="sub" x="542" y="122">task_review: accept, reject,</text>
+    <text class="sub" x="542" y="138">push_back (full task ID)</text>
+    <text class="sub" x="542" y="154">completion_action: accept</text>
+    <text class="sub" x="542" y="170">skips this pause</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#scenario-b-external-repository">
+  <g class="node k-host">
+    <title>Accept finalizes the task: a worktree is merged into the base ref (_local project) or the branch is pushed and a pull request opened when projects.&lt;id&gt;.pr.strategy is github-pr. Reject closes the task without merging.</title>
+    <path class="edge" d="M873,200 V244"/>
+    <rect class="box" x="770" y="84" width="206" height="116" rx="6"/>
+    <text class="mono" x="782" y="104">accepted / rejected</text>
+    <text class="sub" x="782" y="122">accept: worktree merged,</text>
+    <text class="sub" x="782" y="138">or branch pushed (draft PR</text>
+    <text class="sub" x="782" y="154">with pr.strategy: github-pr)</text>
+    <text class="sub" x="782" y="170">reject: changes discarded</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#thread-binding">
+  <g class="node k-chan">
+    <title>TaskNotificationSubscriber and WorkflowRunNotificationSubscriber post into the origin conversation. With features.thread_binding.enabled the first task post opens a thread named task-&lt;id&gt; and writes a binding in thread-bindings.json; a message in a bound thread is enqueued on the task session instead of the shared session. Run posts go into the thread the request came from, or a run-&lt;id&gt; thread, and a run binding cannot be removed by /unbind.</title>
+    <rect class="box" x="290" y="244" width="686" height="96" rx="6"/>
+    <text class="mono" x="302" y="264">notifications into the Space thread</text>
+    <text class="sub" x="302" y="282">task posts: queued to running, running to review, review to accepted or rejected, running to failed</text>
+    <text class="sub" x="302" y="298">run posts: started, awaiting approval, finished or cancelled, failed</text>
+    <text class="sub" x="302" y="314">thread_binding.enabled: the first task post opens a task-&lt;id&gt; thread; replies there go to the task session</text>
+    <text class="sub" x="302" y="330">a binding ends when the task is terminal or idle 60 min; /bind and /unbind (admin) adjust it</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-host">
+    <title>workflow_list shows the loaded definitions; workflow_run starts one with its variables. The web launch forms at /workflows and the standalone CLI remain available for deterministic starts.</title>
+    <path class="edge" d="M500,442 H530"/>
+    <path class="edge" d="M395,384 V340"/>
+    <rect class="box" x="290" y="384" width="210" height="116" rx="6"/>
+    <text class="mono" x="302" y="404">workflow_run</text>
+    <text class="sub" x="302" y="422">workflow_list names the</text>
+    <text class="sub" x="302" y="438">definitions; workflow_run</text>
+    <text class="sub" x="302" y="454">starts one with variables</text>
+    <text class="sub" x="302" y="470">run posts to the thread</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-host">
+    <title>At an approval step the run's post carries Approve and Reject buttons, plus Request changes when the gate names a revise step. Only a sender in governance.admin_senders can use them; anyone else is refused and the buttons stay. An empty admin_senders list lets every member of the room approve.</title>
+    <path class="edge" d="M740,442 H770"/>
+    <path class="edge" d="M635,384 V340"/>
+    <rect class="box" x="530" y="384" width="210" height="116" rx="6"/>
+    <text class="mono" x="542" y="404">approval step</text>
+    <text class="sub" x="542" y="422">post has Approve and</text>
+    <text class="sub" x="542" y="438">Reject buttons</text>
+    <text class="sub" x="542" y="454">(Request changes on a</text>
+    <text class="sub" x="542" y="470">revise gate)</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-host">
+    <title>Approve resumes the run; Reject cancels it without feedback. The post is then edited to say who resolved it and when. The same resolution is available from the run page, the API, and the workflow_resume and workflow_cancel tools, which are granted only through an agent's allowedTools.</title>
+    <path class="edge" d="M873,384 V340"/>
+    <rect class="box" x="770" y="384" width="206" height="116" rx="6"/>
+    <text class="mono" x="782" y="404">run outcome</text>
+    <text class="sub" x="782" y="422">Approve: the run resumes</text>
+    <text class="sub" x="782" y="438">Reject: the run is cancelled</text>
+    <text class="sub" x="782" y="454">post edited with who and</text>
+    <text class="sub" x="782" y="470">when</text>
+  </g>
+  </a>
+    <rect class="chip-sec" x="542" y="176" width="150" height="20" rx="4"/><text class="chip-text" x="550" y="190">admin sender only</text>
+    <rect class="chip-sec" x="542" y="476" width="150" height="20" rx="4"/><text class="chip-text" x="550" y="490">admin sender only</text>
+  <path class="edge" d="M24,540 L64,540"/>
+  <text class="note" x="74" y="544">data or control flow</text>
+  <rect x="230" y="530" width="34" height="20" rx="4" fill="none" stroke="var(--sec)"/>
+  <text class="note" x="274" y="544">needs a sender listed in governance.admin_senders when it comes from chat</text>
+  <text class="note" x="24" y="568">Opened directly in a browser, hovering a box highlights its outgoing arrows and shows its detail.</text>
+</svg>

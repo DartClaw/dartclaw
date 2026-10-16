@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+  <title id="title">Control nodes: parallel group, foreach and loop</title>
+  <desc id="desc">The executor normalizes authored steps into action, parallel-group, foreach and loop nodes. Foreach fans a collection out through a bounded dispatch engine into per-item sub-pipelines; a loop repeats its body until its exit gate passes or maxIterations is reached.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="590"/>
+  <text class="title" x="24" y="34">Control nodes: action, parallel group, foreach, loop</text>
+  <text class="lede" x="24" y="56">normalizeNodes builds these from authored order; loops and foreach bodies run steps through the same dispatch as top-level steps.</text>
+  <a href="../workflow-architecture.md#61-linear-steps-and-entry-gates">
+  <g class="node k-host">
+    <title>One ordinary step. entryGate is the only gate a step declares; it is not evaluated on a foreach controller (put it on the children).</title>
+    <rect class="box" x="24" y="80" width="468" height="64" rx="6"/>
+    <text class="mono" x="38" y="101">ActionNode</text>
+    <text class="sub" x="38" y="118">entryGate false: step.&lt;id&gt;.outcome = skipped,</text>
+    <text class="sub" x="38" y="132">StepSkippedEvent, advance; otherwise dispatch one step</text>
+  </g>
+  </a>
+  <a href="../workflow-architecture.md#62-parallel-groups">
+  <g class="node k-host">
+    <title>A non-parallel step, loop or foreach ends the group. Pause or cancel during the group keeps its operator-driven status. parallel is ignored inside loops.</title>
+    <rect class="box" x="508" y="80" width="468" height="64" rx="6"/>
+    <text class="mono" x="522" y="101">ParallelGroupNode</text>
+    <text class="sub" x="522" y="118">adjacent parallel: true steps, Future.wait, results merged in step order;</text>
+    <text class="sub" x="522" y="132">blocking failure keeps _parallel.failed.stepIds, run fails or pauses</text>
+  </g>
+  </a>
+  <rect class="group" x="16" y="168" width="484" height="388" rx="8"/>
+  <text class="group-label" x="28" y="188">ForeachNode</text>
+  <g class="node k-host">
+    <title>An empty list succeeds with an empty result. A missing or non-list key fails the controller.</title>
+    <path class="edge" d="M258,260 V292"/>
+    <rect class="box" x="36" y="204" width="444" height="56" rx="6"/>
+    <text class="mono" x="50" y="225">mapOver collection</text>
+    <text class="sub" x="50" y="242">context list (or a one-key object wrapping a list, e.g. story_specs.items)</text>
+  </g>
+  <a href="../workflow-architecture.md#63-foreach-sub-pipelines">
+  <g class="node k-host">
+    <title>iteration_dispatch_engine.dart. max_parallel is an integer, "unlimited" or a template; omitted means 1. A dependency cycle is rejected at dispatch time. First hard failure cancels pending iterations; in flight ones settle.</title>
+    <path class="edge" d="M258,358 V392"/>
+    <rect class="box" x="36" y="292" width="444" height="66" rx="6"/>
+    <text class="mono" x="50" y="313">Dispatch engine</text>
+    <text class="sub" x="50" y="330">in flight &lt;= min(max_parallel, runner capacity); inline worktree forces 1</text>
+    <text class="sub" x="50" y="344">DependencyGraph: item id + dependencies, dispatched when prerequisites done</text>
+  </g>
+  </a>
+  <text class="edge-label" x="268" y="380" text-anchor="start">N concurrent iterations</text>
+  <g class="node k-host">
+    <title>Bare child output keys are visible to later siblings and isolated from plan-level context until the iteration ends. Nested foreach is not allowed. Tokens per child are recorded as &lt;childId&gt;[&lt;i&gt;].tokenCount.</title>
+    <path class="edge" d="M258,462 V494"/>
+    <rect class="box" x="36" y="392" width="444" height="70" rx="6"/>
+    <text class="mono" x="50" y="413">Iteration i</text>
+    <text class="sub" x="50" y="430">overlay = copy of context + map; child steps run in order,</text>
+    <text class="sub" x="50" y="444">each child entryGate-guarded; may contain a nested loop</text>
+  </g>
+  <g class="node k-host">
+    <title>Failed slots hold {error, kind, message, task_id}; kind is the persisted discriminator resume reads.</title>
+    <rect class="box" x="36" y="494" width="444" height="50" rx="6"/>
+    <text class="mono" x="50" y="515">Aggregate</text>
+    <text class="sub" x="50" y="532">one list under the controller output, index-ordered, keyed by child step id</text>
+  </g>
+  <rect class="group" x="508" y="168" width="484" height="388" rx="8"/>
+  <text class="group-label" x="520" y="188">LoopNode</text>
+  <a href="../workflow-architecture.md#64-loops">
+  <g class="node k-host">
+    <title>WorkflowExecutionCursor.loop and _loop.current.* are set at the start of every iteration and after each step, so recovery can tell before first step, mid-iteration, and after iteration before the exit decision.</title>
+    <path class="edge" d="M750,260 V292"/>
+    <rect class="box" x="532" y="204" width="436" height="56" rx="6"/>
+    <text class="mono" x="546" y="225">Iteration n  (1 .. maxIterations)</text>
+    <text class="sub" x="546" y="242">cursor = loop id, n, step id; entryGate checked: false on n=1 skips the loop</text>
+  </g>
+  </a>
+  <g class="node k-host">
+    <title>A failing body step follows its onError policy (the run fails by default). continueSession cannot cross the loop boundary.</title>
+    <path class="edge" d="M750,348 V380"/>
+    <rect class="box" x="532" y="292" width="436" height="56" rx="6"/>
+    <text class="mono" x="546" y="313">Body steps in order</text>
+    <text class="sub" x="546" y="330">normal step dispatch; outputs merged and persisted after every step</text>
+  </g>
+  <g class="node k-host">
+    <title>Evaluated every iteration after the body, even the first. GateUnproducedOutputFailure fails the run when a gate reads an output a failed step never produced.</title>
+    <path class="edge" d="M532,408 H520 V232 H532"/>
+    <path class="edge" d="M640,436 V478"/>
+    <path class="edge" d="M860,436 V478"/>
+    <rect class="box" x="532" y="380" width="436" height="56" rx="6"/>
+    <text class="mono" x="546" y="401">exitGate after the full iteration</text>
+    <text class="sub" x="546" y="418">true: done. false: next iteration (arrow on the left edge)</text>
+  </g>
+  <text class="edge-label" x="648" y="462" text-anchor="start">pass</text>
+  <text class="edge-label" x="868" y="462" text-anchor="start">false and n = max</text>
+  <g class="node k-host">
+    <title>LoopIterationCompletedEvent fires each iteration with the gate result.</title>
+    <rect class="box" x="532" y="478" width="200" height="66" rx="6"/>
+    <text class="mono" x="546" y="499">Loop done</text>
+    <text class="sub" x="546" y="516">clear cursor and</text>
+    <text class="sub" x="546" y="530">_loop.current.*, next node</text>
+  </g>
+  <g class="node k-sec">
+    <title>continue falls through to the next node (top-level loops only). escalate settles the foreach item as needsInput (foreach-nested loops only). The validator enforces the scope.</title>
+    <rect class="box" x="768" y="478" width="200" height="66" rx="6"/>
+    <text class="mono" x="782" y="499">onMaxIterations</text>
+    <text class="sub" x="782" y="516">fail (default) | continue</text>
+    <text class="sub" x="782" y="530">(top level) | escalate (nested)</text>
+  </g>
+  <rect x="24" y="566" width="26" height="14" rx="3" fill="none" stroke="var(--sec)" stroke-width="1.4"/>
+  <text class="note" x="58" y="577">failure or stop path</text>
+  <text class="note" x="200" y="577">Hover (direct view) for invariants and file details.</text>
+</svg>

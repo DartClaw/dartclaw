@@ -1,1093 +1,416 @@
 # DartClaw Configuration Architecture
 
-Canonical reference for the configuration subsystem: loading pipeline, composed model, 3-tier mutation model, hot-reload infrastructure, credential management, extension system, and Settings UI.
+How `dartclaw.yaml` becomes an immutable `DartclawConfig`, how a key is described, validated and written back, and how a change reaches a running server: the composed model, the load pipeline, the field registry, persistence, hot reload, the extension seam, credential configuration and the settings form. Per-key defaults and meanings live in the generated reference in [`docs/guide/configuration.md`](../../docs/guide/configuration.md#full-config-reference) and the published `schemas/dartclaw.schema.json`, not here. What the guards, the credential stores and container isolation do with configuration is [Security Architecture](security-architecture.md); the HTTP surface as a whole is [CLI & API Architecture](cli-api-architecture.md).
 
-**Current through**: 0.28 reloadable channel queue cap; 0.27 PostgreSQL-only database and lexical/hybrid configuration, managed named-agent workspace
-derivation, versioned schema `$id`, the offline `dartclaw config schema` command and the declared-view config load;
-0.25 security posture corrections, capacity-only lane retirement, the description-bearing config field registry, the shared field-constraint evaluator
-and kernel/channel loader constraint derivation, the declared per-section reload tiers, the schema-driven settings
-form, and kernel package formation.
+**Current through**: 0.28.0
 
 ---
 
-## 1. Overview & Design Philosophy
-
-Configuration is a first-class subsystem and the single source of truth for all runtime behavior, from server port to guard chains to governance thresholds. The design is guided by four principles:
+## 1. Principles and mutation paths
 
 | Principle | Meaning |
 |-----------|---------|
-| **Immutable composed model** | The runtime config is a single `DartclawConfig` instance composed of typed section classes. Once loaded, sections are immutable value objects with `==` and `hashCode` |
-| **3-tier mutation model** | Changes are classified by latency: Tier 1 (ephemeral, instant), Tier 2 (persistent YAML, restart), Tier 3 (persistent YAML, hot-reload without restart) |
-| **Safe persistence** | YAML writes use atomic temp-file-then-rename with `.bak` backup. Comment and key ordering are preserved via `yaml_edit` |
-| **Typed validation** | Every writable field has registered metadata (`FieldMeta`) with type, range, and mutability classification. Invalid values are rejected before write |
+| **Immutable composed model** | One `DartclawConfig` of typed section value objects with `==`/`hashCode`, so a reload can diff section by section |
+| **One registry** | `ConfigMeta.fields` describes every key the loader accepts. The write API, the settings form, the load sweep and the published JSON Schema all read it, so none keeps a second copy of a type, range or allowed set |
+| **Classified by latency** | Each field is `live`, `reloadable`, `restart` or `readonly` (`ConfigMutability`). The class decides how a write is applied, never whether it is persisted |
+| **Safe persistence** | Writes are comment-preserving (`yaml_edit`), serialized, backed up and atomically renamed |
 
-### 3-Tier Mutation Model
+Five ways a value changes. Only the first does not touch the file:
 
-```
-  Tier 1: Ephemeral Runtime Toggles         Tier 2: Persistent YAML (restart)     Tier 3: Hot-Reload (no restart)
-  ─────────────────────────────────         ─────────────────────────────────     ───────────────────────────────
-  RuntimeConfig holds toggle state          ConfigWriter writes to YAML           ConfigNotifier computes delta
-  EventBus fires ConfigChangedEvent         restart.pending marker written        Reconfigurable services notified
-  Resets on process restart                 Applied on next server start          Applied immediately via reload()
-                                                                                 Trigger: SIGUSR1 or file-watch
+| Path | Trigger | Persisted | Takes effect |
+|------|---------|-----------|--------------|
+| Ephemeral toggle | `POST /api/settings/{heartbeat,git-sync}/toggle`, `POST /api/scheduling/jobs/<name>/toggle` | No | Immediately; `RuntimeConfig` resets on restart |
+| `live` field | `PATCH /api/config`, settings form | Yes | Immediately, via `ConfigChangedEvent` (§5) |
+| `reloadable` field | `PATCH /api/config`, settings form, or a file edit plus a reload trigger | Yes | `ConfigNotifier.reload()` notifies `Reconfigurable` services (§6) |
+| `restart` field | Same | Yes | Next start; recorded in `restart.pending` |
+| `readonly` field | File edit only | n/a | Next start. The API refuses it |
 
-  Examples:                                 Examples:                             Examples:
-  - heartbeat on/off                        - port, host, data_dir               - sessions.reset_hour
-  - git sync on/off                         - agent.model, agent.effort           - concurrency.max_parallel_turns
-  - context.warning_threshold               - container settings                  - logging.redact_patterns
-  - sessions.dm_scope / group_scope         - scheduling/git-sync intervals       - context.reserve_tokens
-```
-
-All three tiers persist to YAML via `ConfigWriter` so changes survive restarts. The distinction is in **when they take effect**: Tier 1 changes apply immediately via in-memory services, Tier 2 changes require a server restart, and Tier 3 changes are applied by `ConfigNotifier.reload()` without restart.
+Two vocabularies are easy to confuse. **`ConfigMutability`** is per field and drives what `PATCH` does. **`ConfigReloadTier`** is per `DartclawConfig` section and drives what a file reload does (§6). A `live` field under a restart-tier section (`scheduling.heartbeat.enabled`) works because live fields never ride the notifier.
 
 ---
 
-## 2. Composed Config Model
+## 2. Composed config model
 
-### DartclawConfig
+`DartclawConfig` (`packages/dartclaw_kernel/lib/src/dartclaw_config.dart`) holds 28 typed section fields plus `extensions` (§8). Every section has a `const` defaults constructor, so a missing file or section yields a runnable config. `warnings` collects load diagnostics (§3), and derived path getters (`workspaceDir`, `sessionsDir`, `logsDir`, `credentialsDir`, ...) are all computed from `server.dataDir`.
 
-`DartclawConfig` is the immutable top-level configuration object, defined in `dartclaw_kernel` package. It holds all section configs as typed fields with `const` defaults.
+Section classes live beside it in `dartclaw_kernel/lib/src/*_config.dart`, named `<Section>Config` (`ServerConfig`, `McpServersConfig`, ...) except `tasks` → `TaskConfig`, `projects` → `ProjectConfig` and `channels` → `ChannelConfig`. YAML keys that do not match the field name: `port`, `host`, `name`, `data_dir`, `base_url`, `dev_mode` and `concurrency.max_parallel_turns` parse into `server`; `guards` and `guard_audit` into `security`; `mcp_servers` into `mcpServers`; the top-level `memory_max_bytes` is a deprecated alias of `memory.max_bytes`.
 
-```
-packages/dartclaw_kernel/lib/src/dartclaw_config.dart
-```
+| Section | Class | Reload tier | What a reload applies |
+|---------|-------|-------------|-----------------------|
+| `server` | `ServerConfig` | `reloadable` | `concurrency.max_parallel_turns` only (§6). `port`, `host`, `data_dir` are carried forward from the running config |
+| `sessions` | `SessionConfig` | `reloadable` | `reset_hour`, `idle_timeout_minutes`; `dm_scope`/`group_scope` are declared `live` but do not reach session-key derivation (§5) |
+| `context` | `ContextConfig` | `reloadable` | `reserve_tokens`, `max_result_bytes`; `warning_threshold` is `live` |
+| `security` | `SecurityConfig` | `reloadable` | Guard chain rebuilt from the new declarations |
+| `logging` | `LoggingConfig` | `reloadable` | `redact_patterns`; `level`, `format`, `file` need a restart |
+| `workspace` | `WorkspaceConfig` | `reloadable` | Git-sync push flag; `git_sync.enabled`/`push_enabled` are `live`, `interval_minutes` needs a restart |
+| `alerts` | `AlertsConfig` | `reloadable` | Targets, routes, cooldown, burst threshold |
+| `agent`, `auth`, `gateway`, `harness`, `memory`, `knowledge`, `search`, `database`, `mcpServers`, `providers`, `credentials`, `tasks`, `scheduling`, `onboarding`, `workflow`, `usage`, `container`, `channels`, `governance`, `features`, `projects` | `<Section>Config` | `restart` | Nothing. A change is persisted and reported through `ConfigNotifier.restartRequiredSections` |
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                         DartclawConfig                               │
-│  ────────────────────────────────────────────────────────────────    │
-│  server: ServerConfig          agent: AgentConfig                    │
-│  auth: AuthConfig              gateway: GatewayConfig                │
-│  harness: HarnessConfig        sessions: SessionConfig               │
-│  context: ContextConfig        security: SecurityConfig              │
-│  memory: MemoryConfig          knowledge: KnowledgeConfig            │
-│  search: SearchConfig          mcpServers: McpServersConfig          │
-│  providers: ProvidersConfig    credentials: CredentialsConfig        │
-│  tasks: TaskConfig             scheduling: SchedulingConfig          │
-│  workspace: WorkspaceConfig    onboarding: OnboardingConfig          │
-│  workflow: WorkflowConfig      logging: LoggingConfig                │
-│  usage: UsageConfig            container: ContainerConfig            │
-│  channels: ChannelConfig       governance: GovernanceConfig          │
-│  features: FeaturesConfig      projects: ProjectConfig               │
-│  alerts: AlertsConfig                                                │
-│  extensions: Map<String, Object?>                                    │
-│  ────────────────────────────────────────────────────────────────    │
-│  + warnings: List<String>     (collected during load)                │
-│  + parseWithLoadWarnings      (load-warning sink for out-of-package  │
-│                                parsers)                              │
-│  + Derived paths: workspaceDir, sessionsDir, logsDir, etc.          │
-└──────────────────────────────────────────────────────────────────────┘
-```
+The tier column is `ConfigNotifier.sectionTiers`; the reference for each key's own tier is its `_meta.fields` entry or the `(live)`, `(reload)`, `(restart required)` suffix on its schema description.
 
-Key characteristics:
+Two sections carry rules that are easy to miss:
 
-- **27 typed section fields** plus `extensions` map for deployer-registered custom sections
-- **`const` constructor** with named defaults for every section (e.g., `const ServerConfig.defaults()`)
-- **Value equality** on all sections via `==` and `hashCode` overrides, enabling `ConfigNotifier` to compute section-level deltas
-- **Warnings list** collected during parsing (unknown keys, deprecated syntax, invalid values that fell back to defaults)
-- **Derived path getters** (`workspaceDir`, `sessionsDir`, `logsDir`, `searchDbPath`, `dartclawDbPath`, `credentialsDir`, etc.) computed from `server.dataDir`
+- **`harness`** retains `harness.<name>` blocks as raw maps. The package that owns a block parses it through the shared warning sink (`dartclaw_acp` owns `acp.agents.*`), and `primeHarnessSections` refuses a populated block no composed parser claimed.
+- **`channels`** holds the subsystem defaults (`debounce_window_ms`, `max_queue_depth`, `retry_policy`) plus the raw per-channel maps. Typed channel configs are not in the kernel (§3).
 
-### Section Config Classes
+### Managed named-agent workspaces
 
-Each section is a standalone Dart class in `dartclaw_kernel/lib/src/`:
+`agent.agents.<id>` defines an execution identity, not a path. Parsing derives `data_dir/agents/<id>/workspace` and the storage principal `agent:<id>` without touching disk (`AgentWorkspace.managed` in `agent_definition.dart`). An id is 1–64 lowercase letters, digits, hyphens or underscores starting alphanumeric, and `main` is reserved for the owner workspace. The removed `workspace` entry key is detected, including null or blank values, and recorded as a blocking per-agent `workspaceConfigurationError`: the config still loads, but a reload is refused and that agent's sessions are not admitted.
 
-| Section | Class | Domain | Key Fields |
-|---------|-------|--------|------------|
-| `server` | `ServerConfig` | Server runtime | `port`, `host`, `name`, `dataDir`, `baseUrl`, `claudeExecutable`, `devMode`, `maxParallelTurns` |
-| `agent` | `AgentConfig` | Agent harness | `model`, `effort`, `maxTurns`, `provider`, logical agents with optional per-agent provider and derived managed workspace |
-| `auth` | `AuthConfig` | Authentication | `cookieSecure`, `trustedProxies`, tokens |
-| `gateway` | `GatewayConfig` | Gateway/proxy | `authMode`, `token`, `hsts`, `reload` (`ReloadConfig`: mode, debounceMs) |
-| `harness` | `HarnessConfig` | Harness-owned raw sections | Map-valued `harness.<name>` sections retained as data. The package owning a section parses it through the shared warning sink; `dartclaw_acp` owns `acp.agents.*`, and startup refuses any populated section for which no parser was composed. ACP container fields feed startup compatibility only, so `container_isolation_required: true` is startup-fatal |
-| `sessions` | `SessionConfig` | Session lifecycle | `resetHour`, `idleTimeoutMinutes`, `scopeConfig` (dm/group scope), `maintenanceConfig` |
-| `context` | `ContextConfig` | Context management | `reserveTokens`, `maxResultBytes`, `warningThreshold`, `compactInstructions`, `identifierPreservation` |
-| `security` | `SecurityConfig` | Guard chain config | `contentGuardEnabled`, `contentGuardClassifier`, `contentGuardModel`, `contentGuardFailOpen` |
-| `memory` | `MemoryConfig` | Memory/workspace files | `maxBytes`, `pruningEnabled`, `archiveAfterDays`, `pruningSchedule` |
-| `knowledge` | `KnowledgeConfig` | Knowledge ingestion | `inbox` (`KnowledgeInboxConfig`: enabled, intervalMinutes, maxBytes, deliveryMode, effort), `wikiLint` (`KnowledgeWikiLintConfig`) |
-| `search` | `SearchConfig` | Retrieval and embedding selection | `backend` (`lexical`, `hybrid`), `defaultDepth`, and `embedding` (`provider`, `model`, `endpoint`, `credential`); the removed `qmd` subtree is parser-only transition input |
-| `mcpServers` | `McpServersConfig` | External MCP server registry | `entries` map of `McpServerEntry` (command/url, enabled, networkClass, credential) |
-| `providers` | `ProvidersConfig` | Multi-provider registry | `entries` map of `ProviderEntry` (executable, hard worker-execution `poolSize`, options such as `inherit_user_settings`) |
-| `credentials` | `CredentialsConfig` | Multi-credential store | `entries` map of `CredentialEntry` (apiKey) |
-| `tasks` | `TaskConfig` | Task execution | `artifactRetentionDays`, `completionAction`, `worktreeBaseRef`, `worktreeMergeStrategy`; no independent concurrency control |
-| `scheduling` | `SchedulingConfig` | Scheduled jobs | `heartbeatEnabled`, `heartbeatIntervalMinutes`, `jobs` list |
-| `workspace` | `WorkspaceConfig` | Workspace git sync | `gitSyncEnabled`, `gitSyncPushEnabled`, `gitSyncIntervalMinutes` |
-| `onboarding` | `OnboardingConfig` | Conversational onboarding | `expiryDays` |
-| `workflow` | `WorkflowConfig` | Workflow engine | `workspaceDir` (override), `chatNotifications` (channel, recipient, events; null when unset or invalid) |
-| `logging` | `LoggingConfig` | Log configuration | `level`, `format`, `file`, `redactPatterns` |
-| `usage` | `UsageConfig` | Usage tracking | `budgetWarningTokens`, `maxFileSizeBytes` |
-| `container` | `ContainerConfig` | Container isolation | Docker settings (from `dartclaw_kernel`) |
-| `channels` | `ChannelConfig` | Channel routing | Per-channel configs (WhatsApp, Signal, Google Chat) |
-| `governance` | `GovernanceConfig` | Runtime governance | `adminSenders`, `rateLimits`, `budget`, `loopDetection`, `queueStrategy`, `crowdCoding`, `turnLimits` |
-| `features` | `FeaturesConfig` | Feature flags | `threadBinding` (enabled, idleTimeoutMinutes) |
-| `projects` | `ProjectConfig` | Multi-project | Project definitions |
-| `alerts` | `AlertsConfig` | Alert routing | `enabled`, `cooldownSeconds`, `burstThreshold`, `targets`, `routes` – all five registered in `ConfigMeta` |
+The filesystem phase is separate: `dartclaw init` and `dartclaw serve` call `WorkspaceService.validateManagedAgents` (id-only marker bytes, symlink and non-empty-unmarked refusal) before `prepareManagedAgents`, so a partial setup cannot turn an arbitrary existing directory into a managed workspace.
 
-### Managed named-agent workspace derivation
+### Execution capacity
 
-`agent.agents.<id>` defines an execution identity, not a filesystem path. Parsing derives
-`data_dir/agents/<id>/workspace` and the `agent:<id>` storage principal without touching disk. Ids are restricted to
-1–64 lowercase ASCII letters, digits, hyphens, or underscores, must start alphanumeric, and reserve `main` for the
-owner. The removed `workspace` entry field is absent from `ConfigMeta`, the generated JSON Schema, and the generated
-operator reference. The parser still detects its presence, including null or blank values, and records a fatal
-per-agent admission error directing the operator to remove it; no replacement path or sharing field exists.
-
-Init and serve own the filesystem phase. They validate every managed destination first, including exact id-only marker
-bytes and symlink/non-empty-unmarked refusal, then prepare all accepted homes before owner scaffolding or runtime/storage
-wiring. This keeps configuration parsing pure and makes partial setup unable to convert an arbitrary existing directory
-into a managed workspace.
-
-### Nested Config Types
-
-Several sections contain deeply nested typed configs:
-
-- `GovernanceConfig` nests `RateLimitsConfig` (with `PerSenderRateLimitConfig` and `GlobalRateLimitConfig`), `BudgetConfig`, `LoopDetectionConfig`, `CrowdCodingConfig`, and `TurnLimitsConfig`
-- `SessionConfig` nests `SessionScopeConfig` (with per-channel overrides) and `SessionMaintenanceConfig`
-- `GatewayConfig` nests `ReloadConfig`
-
-### Execution Allocation Configuration Contract
-
-Execution allocation deliberately has one capacity knob: `providers.<id>.pool_size`.
-
-- It is a hard per-provider ceiling on concurrent worker executions.
-- It excludes the fixed serialized primary-interactive lane used by main-agent user and channel turns.
-- Cron/system jobs, background tasks, logical-agent sessions, and workflow steps consume worker capacity.
-- `governance.rate_limits.global.turns` / `max_parallel_turns` remain earlier global admission controls; they do not create provider capacity.
-- `tasks.max_concurrent`, per-agent quotas, and other duplicate execution limits are not configuration surfaces.
-
-Reusable harnesses are an opportunistic implementation cache. There are no cache size, TTL, prewarm, affinity, or replacement knobs. Harness-construction inputs are fixed for a coordinator's lifetime, so normalized provider plus the complete effective execution policy identify compatible workers within it. A mismatch or unknown health means fresh creation; unhealthy workers are disposed; unconfirmed root teardown quarantines capacity.
-
-Container settings define isolation templates only. Each execution owner receives a dedicated container: a logical-agent container spans that exact owner's turns, a task container spans its turn, and a workflow container spans its step. None crosses principals. Container count does not alter `pool_size`, which remains the worker-execution capacity limit. The SDK single-harness compatibility path is selected by programmatic composition, not YAML, and is never a server logical-agent routing option.
-
-Provider-specific `options` are interpreted only by the matching adapter/factory wiring. Execution, task, scheduling, logical-agent, and observability services receive normalized provider identity and provider-neutral contracts; configuration does not authorize provider-name branching in those layers.
+Capacity has one configuration knob, `providers.<id>.pool_size`: the hard per-provider ceiling on concurrent worker executions (`0` means 2, `ProviderEntry.effectivePoolSize`). It excludes the fixed serialized primary-interactive lane. `governance.rate_limits.global.turns` and `concurrency.max_parallel_turns` are earlier admission controls and create no provider capacity. `tasks.max_concurrent` is a tolerated legacy key. Provider-specific `options` are read only by the matching adapter wiring. Lease and lane behavior is in [Task Execution Architecture](task-execution-architecture.md); container lifetime in [Security Architecture](security-architecture.md).
 
 ---
 
-## 3. Config Loading Pipeline
+## 3. Config loading pipeline
 
-Loading follows a strict resolution order: **CLI overrides > YAML file > environment variables > defaults**.
+Every production load goes through `loadCliConfig` → `loadDartclawConfig` → `DartclawConfig.load` (`dev/fitness/test/config_load_seam_test.dart` fails on a production call to `DartclawConfig.load` outside an allowlist).
 
-```
-┌────────────┐     ┌──────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  CLI flags  │────>│  YAML loader │────>│  Section parsers │────>│  DartclawConfig  │
-│  --config   │     │  _loadYaml() │     │  _parseAgent()   │     │  (immutable)     │
-│  --port     │     │              │     │  _parseServer()  │     │                  │
-└────────────┘     └──────┬───────┘     │  _parseAuth()    │     └────────┬────────┘
-                          │             │  _parseChannels() │              │
-                   ┌──────▼───────┐     │  ...26 parsers   │     ┌───────▼─────────┐
-                   │  YAML source │     └──────────────────┘     │  warnings: []   │
-                   │  resolution  │                               │  (diagnostics)  │
-                   │  order:      │                               └─────────────────┘
-                   │  1. --config │
-                   │  2. $DARTCLAW_CONFIG
-                   │  3. instance dir
-                   │  4. defaults │
-                   └──────────────┘
-```
+[![Config load pipeline: nine steps from loadCliConfig to primeHarnessSections](diagrams/config-load-pipeline.svg)](diagrams/config-load-pipeline.svg)
 
-### YAML Source Resolution (`_loadYaml`)
+### Precedence and sources
 
-1. **Explicit path** (`--config` flag) — takes precedence. Warns if file not found, falls back to defaults
-2. **Environment variable** (`DARTCLAW_CONFIG`) — second priority. Same fallback behavior
-3. **Instance directory** — `DARTCLAW_HOME/dartclaw.yaml` if `DARTCLAW_HOME` is set, otherwise the default `~/.dartclaw/dartclaw.yaml`
-4. **Defaults** — if no config file is found, all sections use `const` defaults
+Values resolve **CLI override > YAML > default**. Only some keys have a CLI override (`port`, `host`, `name`, `data_dir`, `log_*`, `memory`, ...). The environment does not override YAML. It locates files (`DARTCLAW_CONFIG`, `DARTCLAW_HOME`, `HOME`), supplies the default `data_dir` (`DARTCLAW_HOME`) and expands `${VAR}` inside YAML string values via `envSubstitute` (`env_substitute.dart`). `$VAR` is not expanded and an undefined `${VAR}` becomes an empty string with a warning, so a credential-shaped consumer must treat blank as absent.
 
-A `dartclaw.yaml` in the current working directory is no longer discovered (deprecated in 0.16.2); if one is present a warning is emitted but it is not loaded.
+The file is the first of: `--config`; `DARTCLAW_CONFIG`; `$DARTCLAW_HOME/dartclaw.yaml`; `~/.dartclaw/dartclaw.yaml` (`$USERPROFILE` where `$HOME` is unset). An explicit path or env var that points at a missing file warns and loads defaults. A `dartclaw.yaml` in the working directory is never discovered; if one exists an advisory says so. A relative `data_dir` in YAML resolves against the config file's directory, a CLI one against the working directory.
 
-Paths with leading `~` are expanded via `expandHome()` using `$HOME` (falling back to `$USERPROFILE`).
+### What stops the load
 
-### Acceptance Sweep (fatal)
+| Condition | Result |
+|-----------|--------|
+| Malformed YAML, or a non-map root | `FormatException`: refuse to start rather than boot unisolated on defaults |
+| Retired `worker_timeout`, `governance.turn_progress`, `harness.turn_monitor` | `FormatException` naming the replacement |
+| Any undescribed path (acceptance sweep, below) | One `FormatException` listing every offending path |
+| A known top-level key set to null | Warning, default used |
+| A bad value in a described key | Warning, default used (`blocking`, below) |
+| `agent.execution`, `agent.agents.<id>.execution` or `tasks.execution` selecting `container` while containers are disabled | `FormatException`; skipped while `container.enabled` is unset and re-run by startup resolution |
 
-Once the document is assembled and before any section parses, `_loadYaml` sweeps it once against the registry and
-refuses to start if anything in it is undescribed. This replaced the pre-0.25 behaviour, where an unrecognised
-top-level key produced an `Unknown config key: …` advisory and was carried into `config.extensions` unread — so a typo
-went on looking configured while doing nothing.
+A fatal load is a startup gate, not a runtime one. `ReloadTriggerService` catches it and keeps the running config; `ConfigApplyService` reports it as a read failure and writes nothing. `dartclaw doctor` reports it as `config.valid: fail` ([ADR-059](../adrs/059-doctor-preserves-config-load-refusals.md)).
 
-`_sweepConfigPaths` (`config_accept_set.dart`) is the **only** decision. It reads `ConfigMeta.fields`,
-`ConfigMeta.toleratedLegacyKeys` and the registered extension keys, and nothing else — it holds no path literal of its
-own, and no section contributes a hand-written list of allowed sub-keys. A path is accepted when:
+**Warnings are typed.** `ConfigLoadWarnings` marks each entry *blocking* (a plain `warns.add`) or *advisory* (`addConfigAdvisory`). A blocking warning marks invalid input that fell back to a default: `DartclawConfig.reloadBlockingWarnings` carries them, `ConfigNotifier.reload` refuses a config that has any, and doctor reports them as failures. Advisories (deprecations, retired keys) never block.
+
+### Acceptance sweep
+
+`_sweepConfigPaths` (`config_accept_set.dart`) runs once over the assembled document, before any section parses. It reads `ConfigMeta.fields`, `ConfigMeta.toleratedLegacyKeys` and the registered extension keys, and holds no path literal of its own. A path is accepted when it is:
 
 | Rule | Accepts |
 |---|---|
-| Registered | The path is a `ConfigMeta.fields` key — a leaf unless the registry also declares fields below it, in which case the walk descends |
-| Section | The path is a proper prefix of a registered path or of a tolerated row — descend into it |
-| Tolerated | A `ToleratedLegacyKey` row names it (see § 4) |
-| Extension | Its first segment is a registered extension parser key — accept the section whole |
+| Registered | A `ConfigMeta.fields` key. It is a leaf unless the registry also declares fields below it, in which case the walk descends |
+| Section | A proper prefix of a registered or tolerated path: descend |
+| Tolerated | Named by a `ToleratedLegacyKey` row (§4) |
+| Extension | Its first segment is a registered extension key: accepted whole |
 
-Everything else is collected, and a non-empty collection throws one `FormatException` naming **every** offending path,
-each rendered by `unknownConfigFieldMessage` — the same helper `ConfigValidator` uses, so the parser and the config API
-refuse an unknown path in identical words.
+Everything else is collected and the load throws once, naming each path with `unknownConfigFieldMessage`, the same helper `ConfigValidator` uses, so the parser and the config API refuse an unknown path in the same words.
 
-**Rejection breadth is exactly the registry's declared breadth, and no wider.** Three things are leaves rather than
-sections to walk:
+**Rejection breadth equals the registry's declared breadth.** The walk stops at a list value, at an extension section, and at a registered path with nothing registered below it, including one that declares an entry shape. A shape says what an entry *may* contain; the owning parser decides what it may not, and several keep an open per-entry map on purpose (`ProviderEntry.options` absorbs every `providers.<id>` key the parser does not name, and `dartclaw init` writes two of them). So `providers.claude.typo` loads, but `channels.google_chat.typoo` does not, because `channels` is a registered container with described children: under an entry-shaped container a described child is walked and any other child is accepted whole as an operator-named entry (`channels.foo` and `projects.<name>.anything` load). Registering a container to describe it must never retire the sweep over the children the registry describes. [TD-134](../state/TECH-DEBT-BACKLOG.md) carries the open decision on descending further.
 
-- a **list value** — nothing inside an element is judged (list-element shapes are the schema artifact's concern)
-- a section under a **registered extension key**
-- **a registered path with nothing registered below it**, including one that declares a `ConfigEntryShape`. A shape
-  states what an entry *may* contain, for a consumer that renders or validates it; the owning parser decides what an
-  entry may *not*, and several keep an open per-entry map deliberately — `ProviderEntry.options` absorbs every
-  `providers.<id>` key the parser does not name, and `dartclaw init` writes two of them. Treating a shape as an
-  allowlist would refuse a config DartClaw writes itself. The rule is stated on the registration rather than on the
-  shape because it also has to cover a registered scalar handed a map value, where the type advisory the parser already
-  emits is the better diagnostic.
+### Section parsing
 
-Registration alone is *not* a leaf, and the distinction is load-bearing: `channels` and `projects` are registered
-containers that also have registered fields beneath them, so the walk descends and `channels.google_chat.typoo` still
-refuses the load. Registering a container to describe it — `channels` is registered `readonly` so a wholesale write
-cannot carry its read-only fields past their refusal — must never retire the sweep over the children the registry
-describes. Under an entry-shaped container the two rules compose: a described child is walked, and any other child is
-one of the container's operator-named entries and is accepted whole, which is what keeps `projects.<name>.anything`
-loading.
+One parser per section (`config_parser*.dart`, `part` files of `dartclaw_config.dart`). Parsers extract their map with `_sectionMap`, coerce types, resolve each integer bound from `ConfigMeta` by dotted path through `ConfigNumericBounds`, and collect warnings. Order matters in one place: `credentials` parse before `search` (including the embedding block) and `mcp_servers`, which reference credentials by name.
 
-A fatal parse is a startup gate, not a runtime one: `ReloadTriggerService.doReload` and the config `PATCH` route both
-catch it and keep the config they are already running, so a bad hand-edit cannot take down a process that was up.
+### Channel config resolution
 
-### Section Parsing
+Typed channel configs (WhatsApp, Signal, Google Chat, Slack) are not in the kernel: the channel packages depend on it, so naming their types there would invert [ADR-034](../adrs/034-enforced-package-dependency-direction.md). `dartclaw_runtime` is the lowest package depending on all four and owns `resolveChannelConfig<T>(config, ChannelType)` (`config/channel_config_resolver.dart`), which parses `config.channels.channelConfigs[<key>]` once per `DartclawConfig` instance and caches it, so `copyWith` results and test fixtures resolve too. It throws `ArgumentError` for `ChannelType.web` and for a type the config is not assignable to.
 
-Each section has a dedicated parser function (e.g., `_parseServer()`, `_parseAgent()`, `_parseGovernance()`) defined as `part` files in `dartclaw_config.dart`. Parsers:
-
-- Extract their YAML section via `_sectionMap()` helper
-- Apply type coercion (strings to enums, ints to durations)
-- Resolve each live integer bound from `ConfigMeta` by dotted path and ask `FieldConstraints` for the range verdict
-- Collect warnings for unrecognized keys or invalid values
-- Return typed section objects with defaults for missing fields
-
-```
-packages/dartclaw_kernel/lib/src/config_parser.dart
-packages/dartclaw_kernel/lib/src/config_parser_governance.dart
-```
-
-### Channel Config Resolution
-
-Channel-specific configs (WhatsApp, Signal, Google Chat) are not part of `dartclaw_kernel` — the three channel packages depend on it, so naming their config types there would invert ADR-034. `dartclaw_runtime` is the lowest package that already depends on all three, and it owns the switch:
-
-```dart
-final waConfig = resolveChannelConfig<WhatsAppConfig>(config, ChannelType.whatsapp);
-```
-
-```
-packages/dartclaw_runtime/lib/src/config/channel_config_resolver.dart
-```
-
-`resolveChannelConfig` parses `config.channels.channelConfigs[<yaml key>]` once per `DartclawConfig` instance and caches the result, so a config `loadDartclawConfig` never produced resolves too - a `copyWith` result, or a test fixture built from `const DartclawConfig.defaults()`. It throws `ArgumentError` for `ChannelType.web`, which has no config section, and for a requested type the channel's config is not assignable to.
-
-Parsing runs through `DartclawConfig.parseWithLoadWarnings`, the one generic seam `dartclaw_kernel` keeps for out-of-package parsers: it hands over the config's live load-warning sink so channel parse warnings land in `config.warnings` and block hot reloads exactly like built-in section warnings.
+Parsing runs through `DartclawConfig.parseWithLoadWarnings`, the one generic seam the kernel keeps for out-of-package parsers. It hands over the config's live warning sink, so channel warnings reach `config.warnings` and block hot reloads like built-in ones. `loadDartclawConfig` resolves every channel eagerly for that reason: lazy parsing would drop their warnings from a production load.
 
 ---
 
-## 4. Config Validation & Field Metadata
+## 4. Field registry and validation
 
-### FieldMeta Registry
+### FieldMeta
 
-Every key the loader accepts is registered in `ConfigMeta.fields` — a static `Map<String, FieldMeta>` keyed by YAML path. Registration describes a key; it does not make it writable (see `mutability` below):
-
-```
-packages/dartclaw_kernel/lib/src/config_meta.dart          # types + ConfigMeta
-packages/dartclaw_kernel/lib/src/config_meta/*_fields.dart # per-section `part` files
-```
-
-The declarations are const-spread from per-section `part` files (`server`, `agent`, `channel`, `governance`). The split is for reviewability only: because the assembly is `const`, a duplicate `yamlPath` and a contradictory declaration are compile errors rather than test failures. Keep them `part` files — a per-section exported library would spend the barrel-export budget for nothing.
-
-Each `FieldMeta` captures:
+`ConfigMeta.fields` is a const `Map<String, FieldMeta>` keyed by YAML path, spread from per-section `part` files (`config_meta/{server,agent,channel,governance,database}_fields.dart`). A duplicate path or contradictory declaration is a compile error. Keep them `part` files; a per-section exported library would spend the barrel-export budget for nothing.
 
 | Property | Purpose |
 |----------|---------|
-| `yamlPath` | Dot-separated YAML path (e.g., `'scheduling.heartbeat.interval_minutes'`) |
-| `jsonKey` | CamelCase JSON key for API responses (e.g., `'scheduling.heartbeat.intervalMinutes'`) |
-| `type` | `ConfigFieldType`: `int_`, `string`, `bool_`, `enum_`, `stringList`, `objectList`, `objectMap` |
-| `alsoAccepts` | Optional second `ConfigFieldType` the parser also accepts for this field. `type` stays the canonical one — it is what the write path enforces and what a form control is built from |
-| `mutability` | `ConfigMutability`: `live`, `reloadable`, `restart`, `readonly` |
-| `description` | **Required, non-empty.** Prose an operator can act on — unit, default, consequence. An empty one fails compilation; one that only restates the key's own words fails a test |
-| `nullable` | Whether `null` is a valid value |
-| `min` / `max` | Integer range constraints |
-| `allowedValues` | Enum allowed string values |
-| `entry` | For `objectList` / `objectMap`: the shape of **one** entry. Mutually exclusive with `min`/`max`/`allowedValues`, and rejected on a scalar type — both asserted in the const constructor |
+| `yamlPath`, `jsonKey` | Dotted YAML path and its camelCase API key |
+| `type` | `ConfigFieldType`: `int_`, `double_`, `string`, `bool_`, `enum_`, `stringList`, `objectList`, `objectMap`. `alsoAccepts` names one more type the parser takes; `type` stays canonical for forms and the write path |
+| `mutability` | `live`, `reloadable`, `restart`, `readonly` |
+| `description` | Required and non-empty: unit, default, consequence. A restating description fails a test |
+| `nullable`, `min`, `max`, `allowedValues` | Constraints |
+| `entry` | Shape of one entry of an `objectList`/`objectMap`; exclusive with `min`/`max`/`allowedValues` |
 
-`description` is emitted on `_meta.fields` alongside the existing keys. Mutability is read in-process as a `ConfigMutability` value; nothing parses a reload tier back out of emitted JSON or a schema description string.
+`mutability` is read in-process as an enum; nothing parses a tier back out of emitted JSON or a description string.
 
-### Entry Shapes
+**Registration is description, not permission.** A key the API must not set registers `readonly` instead of being left out: credential material (`credentials`, `search.providers`, `search.embedding.credential`, `gateway.token`, `database.url`, `database.credential`), gateway auth mode, guard enforcement and its rule extensions (the guard-editor endpoints own those writes), Google Chat service account and audience, placement (`container.enabled`, `tasks.execution`) and host-filesystem reach (`projects.allowApiLocalPath`, `projects.localPathAllowlist`). A container holding a read-only field is itself `readonly` (`credentials`, `channels`), because an object-valued field is written wholesale and a settable container would carry the read-only child past its own refusal. `config_meta_test.dart` pins the set.
 
-A field whose value is a list or map of operator-named entries declares what one entry may contain, so a consumer validates or renders it without hard-coding the field's path. The vocabulary is sealed, so a consumer's switch is exhaustive:
+**Exact path wins.** A key resolves to an exact registration, else to the entry shape of its nearest registered ancestor (longest match first). That is how `projects` is an `objectMap` and also carries scalar siblings. An entry shape resolves a descendant only when it *names* it. This is the coverage rule the registry tests apply, not the load-sweep rule in §3; the two differ on purpose, since coverage must catch a partly registered section while acceptance must not refuse a key the owning parser takes.
+
+### Entry shapes
+
+A list or map of operator-named entries declares what one entry may contain. The vocabulary is sealed so consumers switch exhaustively.
 
 | Shape | Meaning | Example |
 |-------|---------|---------|
-| `ObjectEntry` | One entry is a map of named fields, keyed by dotted paths relative to the entry root (`'rate_limit.calls'`) | `mcp_servers`, `providers`, `github.triggers`, `alerts.targets` |
-| `ValueEntry` | One entry is a single value rather than a map | `alerts.routes` — alert type to string list |
-| `OpaqueEntry` | The entry's keys are defined elsewhere, with `reason` stating why | `channels` — every map-valued key outside the three declared siblings is loaded as a channel definition, and a channel outside the built-in set is shaped by the package registering it |
+| `ObjectEntry` | A map of named fields (`EntryFieldMeta`), keyed by path relative to the entry, with `requiredFields` | `mcp_servers`, `providers`, `github.triggers`, `alerts.targets` |
+| `ValueEntry` | One entry is a single value | `alerts.routes` |
+| `OpaqueEntry` | Keys defined elsewhere, with a stated `reason` | `channels` |
 
-`EntryFieldMeta` carries `type`, `alsoAccepts`, a required non-empty `description`, `nullable`, `min`/`max`, `allowedValues` and a nested `entry`. It carries **no** `mutability` and no `jsonKey`: an entry is replaced through its container, so the container's tier and JSON key govern.
+`EntryFieldMeta` has the field properties minus `mutability` and `jsonKey` (the container's govern) and adds `minLength` and `pattern`, which only the schema emits.
 
-The entry-shape layer is metadata only. `FieldConstraints` checks the container's outer type (list-of-maps, map) and nothing inside it; **no consumer enforces an entry shape at validation time** and no story owns doing so. Two consequences worth naming: an object-valued field is validated and written **wholesale**, so a `PATCH` of `providers`, `projects`, `agent.agents`, `harness.acp.agents` or `sessions.channels` replaces the entire block rather than merging one entry — which is why a container holding a read-only field is itself registered `readonly` (`credentials`, `channels`), or the wholesale write would carry that field past its own refusal; and per-entry keys that decide placement and posture (`agent.agents.<id>.execution` / `security_profile`, `providers.<id>.sandbox` / `approval`) reach the runtime through a map the config API does not inspect at all. The *loader* catches some of it at the next boot — an `execution: container` selection is startup-fatal while the *resolved* posture is disabled — parsing defers that check while `container.enabled` is unset, and the startup resolution step re-runs it, and an unrecognized `security_profile` warns and falls back — so the realistic failure is write-accepted / boot-refused rather than a silent posture escalation. Whether the config API should accept a wholesale write of those sections at all is an open product decision; it is carried in `dev/state/TECH-DEBT-BACKLOG.md`.
+`ConfigValidator` enforces declared entry shapes on the write path: it descends into every `objectMap`/`objectList` value and judges each entry's *declared* keys, and `requiredFields`, through the same `FieldConstraints` evaluator. A per-entry key that decides placement or posture (`agent.agents.<id>.execution`, `providers.<id>.approval`) is therefore refused at write time instead of at the next boot. Undeclared keys inside an entry are accepted, deliberately. A section `PATCH` still replaces the whole YAML node, so writing `providers` deletes every entry it omits (TD-134).
 
-**Closed gap — fractional fields.** `ConfigFieldType` gained `double_` when the § 3 sweep made an undescribed path fatal: the live global `channels.retry_policy.jitter_factor` and `tasks.budget.warning_threshold` were parser-accepted and deliberately unregistered because typing them `string` or `int_` would make `ConfigValidator` reject a valid `0.2`, and leaving them unregistered would have stopped a working config from booting. `FieldConstraints` judges a `double_` against the same `min`/`max` as an integer and `OutOfRange.value` is a `num`, so a fractional offender is reported as itself. The three former per-channel retry policies were removed because no delivery path consumed them. One divergence remains, recorded in the disposition table: `tasks.budget.warning_threshold`'s parse site also accepts a numeric `String`, which the write path refuses.
+### FieldConstraints and ConfigValidator
 
-**Registration is description, not permission.** A key that must not be settable through the API registers `readonly` rather than being left out: guard enforcement and its rule extensions (which the guard-editor endpoints own writes to), credential material (`credentials`, `search.providers`), placement (`container.enabled`, `tasks.execution`), and host-filesystem reach (`projects.allowApiLocalPath`, `projects.localPathAllowlist`). `packages/dartclaw_kernel/test/config_meta_test.dart` pins that set exactly.
+`FieldConstraints.evaluate(FieldMeta, Object?)` (`config_constraints.dart`) is the single answer to "does this value satisfy this declaration". It returns `null` or one sealed `FieldConstraintViolation` (`NullNotAllowed`, `TypeMismatch`, `OutOfRange`, `BlankString`, `ValueNotAllowed`, `ElementTypeMismatch`) that carries the declaration and value and **no text**. The split exists because the consumers need different outcomes: the config API refuses with a sentence (`ConfigValidator`), while a parse site warns and falls back in its own words. Sharing only the verdict lets both keep their behavior and makes "two consumers disagree" impossible by construction.
 
-**Resolution rule — exact path wins.** A key resolves to an exact `yamlPath` registration if one exists, otherwise to the entry shape of its nearest registered ancestor (longest match first). That is what lets `projects` be an `objectMap` of project entries *and* carry reserved scalar siblings (`projects.fetchCooldownMinutes`, `projects.allowApiLocalPath`, `projects.localPathAllowlist`) registered as ordinary fields. An entry shape resolves a descendant only when it *names* it — the coverage gates rely on that, and a shape that merely existed would make its whole section unfailable.
+Rules, in order: nullability first (so `null` on a non-nullable field is never a type error); type, with `alsoAccepts` tried when the primary type mismatches and `int_` accepting a whole-number finite `double` (JSON decoders emit `3000.0`); `min`/`max` applied independently; a non-nullable string may not be blank; `allowedValues` honored **only for `enum_`**; element typing for lists.
 
-This rule answers *coverage* — can the registry describe this path — and it is the rule the coverage gates in `config_meta_test.dart` apply. It is **not** the § 3 acceptance rule: the load sweep stops at a registered path only where the registry declares nothing below it, and it reads an entry shape only to absorb the entries it did not descend into — so it accepts `projects.<name>.anything` while this rule resolves it to nothing. The two differ on purpose — coverage must stay strict enough to catch a partly-registered section, and acceptance must stay loose enough not to refuse a key the owning parser accepts.
+`ConfigValidator.validate` gates on known field (exact path), then writable, then the field declaration, then the entry shape. Cross-field rules are the only path-keyed logic left: Google Chat `service_account` and `audience` when enabled, GitHub `webhook_secret` when enabled, Pub/Sub triple for space events, `search.embedding.*` coherence (local takes only the managed model and no endpoint or credential; http needs endpoint and model, a credential only over HTTPS or loopback), `agent.execution: container` while `container.enabled` is false, and the stall/turn timeout ordering.
 
-### Published JSON Schema
+`ConfigWriter.updateFields` additionally pre-validates `memory.max_bytes` and `memory.pruning.archive_after_days` by name, because their loaders throw where every other integer reader warns, and narrows a whole-number `double` to `int` for any `int_` field so a validated `3000.0` is not persisted as YAML the loader rejects.
 
-`ConfigMeta.toJsonSchema(version: version)` projects the whole registry into a JSON Schema (draft 2020-12) over `dartclaw.yaml`, committed at `schemas/dartclaw.schema.json` so an operator can attach it in a schema-aware editor and see an unknown key, a wrong type, an out-of-range number or an invalid enum value before the server is started.
+### Where a parse site also decides
 
-```
-packages/dartclaw_kernel/lib/src/config_meta/json_schema.dart   # the projection
-packages/dartclaw_kernel/tool/generate_config_schema.dart       # writer, and --check for the gate
-schemas/dartclaw.schema.json                                    # the committed artifact
-```
+A declared bound is the source a parse site derives its check *from*; it never replaces the parse site's behavior, so a file that boots today boots to the same values. Three loader outcomes coexist after the shared decision: silent clamp (saturate to `min`/`max`), warn and fall back to the section default, and throw (memory positivity). Known places where the registry and a parse site do not fully agree are pinned as a closed disposition table in `packages/dartclaw_kernel/test/config_meta_test.dart`, so drift fails a test:
 
-`ConfigMeta.jsonSchemaSource(version: version)` owns the JSON bytes for both the generator and the offline
-`dartclaw config schema` command. The generator reads the kernel pubspec version; the CLI and `init` use
-`dartclawVersion`, which the workspace version gate holds in lockstep. New `init` configs begin with a modeline
-pointing to that release URL; existing headers are preserved. A version bump requires schema regeneration.
+- Four `string`-typed fields carry `allowedValues` the write path does not apply (`workflow.approvals`, `tasks.completion_action`, `knowledge.inbox.delivery_mode`, `knowledge.wiki_lint.delivery_mode`), because their loaders trim before comparing and the write path trims nowhere.
+- Duration fields (`governance.turn_limits.stall_timeout`, `turn_timeout`, two Google Chat feedback durations) cannot be declared: `FieldMeta` has no duration type or pattern.
+- Several membership checks stay in their loaders (session scope aliases, logging strings, entry-shaped membership), recorded as residuals; a source scan compares numeric literals in the parsers to a closed residual table. It is a regex ratchet against the common shape, not a proof that no undeclared bound exists.
 
-**Generated only.** The artifact is a third representation of the same field metadata, so it may never be hand-edited: `dev/tools/fitness/run_all.sh` runs the generator's `--check`, which fails on any byte difference — and on a missing file — naming the artifact and the regeneration command. Output is timestamp-free and key-sorted at every level, so reordering declarations inside `ConfigMeta` leaves the bytes identical.
+### Tolerated legacy keys
 
-The operator reference in `docs/guide/configuration.md` is also generated-only. `dev/tools/render_config_reference.dart`
-projects its exhaustive table from the committed schema artifact, while `dev/tools/config_reference_core_keys.txt`
-curates a capped orientation table without hiding any non-core field. The fitness run checks renderer behavior, guide
-drift in both directions, and that each published leaf has either a production consumer or a rationale naming its
-indirect consumer.
+`ConfigMeta.toleratedLegacyKeys` holds paths the loader still accepts with a warning and never exposes as fields; it is what keeps the §3 sweep from being a regression. A `ToleratedLegacyKey` row has `path`, `match` (`exact` tolerates the path alone; `subtree` tolerates everything below it), operator-facing `replacement` text, and `announcedBySweep` (`false` where a parse site already emits its own advisory). A row carries no type or bound: it is not a second schema.
 
-**Closed vocabulary.** Exactly `$id`, `$schema`, `title`, `description`, `type`, `properties`, `additionalProperties`, `items`, `enum`, `minimum`, `maximum` — asserted closed by schema position, not by key name (real config keys are called `default`, `title`, `description` and `type`). No `required` and no `default`: `required` would need the per-variant conditional keywords the vocabulary deliberately excludes (see *What stays runtime-only* below — several fields do have required keys, and the loader diagnoses them), and `FieldMeta` carries no default, so emitting one would invent a second source. `$id` appears only at the root and names the release-tag URL returned by `ConfigMeta.jsonSchemaUrl(version)`.
+Membership is evidence-based: the shipped parser still names the path, or DartClaw's own examples or testing profiles carried it in a released version. A story that deregisters a field adds its row in the same change, or an un-migrated config becomes a boot failure. Two gates in `config_meta_test.dart` hold it: membership is asserted against a literal, and every row must appear under `## Deprecated Keys` in `docs/guide/configuration.md`, which is the one live inventory (`docs/guide/deprecated-config-keys.md` details the database and search transition spellings).
 
-**Mutability is description, never a keyword.** Every registered field is emitted regardless of tier — the YAML file stays authoritative, so `guards.enabled`, `credentials.*` and the `channels` block are legal to write there and only the API refuses them. The tier rides in the `description` as one of four fixed suffixes (` (live)`, ` (reload)`, ` (restart required)`, ` (file-only, not settable via API or CLI)`), and an entry field inherits its container's. No `readOnly`, `writeOnly` or `deprecated` is emitted.
+### Generated artifacts
 
-**Nullability.** A field states the registry's answer. A section the emitter *synthesised* has no declaration to state, so it accepts `null` as well as an object: YAML lets an operator leave a section body empty and the loader reads that as absent, and flagging it would be a red squiggle on a file DartClaw loads.
+The registry projects to two committed artifacts, both generated-only:
 
-**Unions.** A field the registry declares as accepting two shapes emits one node: `type` becomes a sorted list, and `enum` — which applies to an instance of any type — carries every accepted literal, including booleans. `channels.google_chat.typing_indicator` emits `["boolean","string"]`, `governance.rate_limits.{global,per_sender}.window` emits `["integer","string"]` with its integer bounds still declared, and `scheduling.jobs[].schedule` — declared as both a leaf and a prefix — emits `["string","object"]` with the mapping's four properties closed. The union widens which *types* are accepted; it never opens an object.
+| Artifact | Generator | Drift gate |
+|----------|-----------|------------|
+| `schemas/dartclaw.schema.json` (JSON Schema 2020-12) | `packages/dartclaw_kernel/tool/generate_config_schema.dart`, via `ConfigMeta.toJsonSchema` / `jsonSchemaSource` | `dev/tools/fitness/run_all.sh` runs the generator's `--check` |
+| The exhaustive key table in `docs/guide/configuration.md` (between the `GENERATED CONFIG REFERENCE` markers) | `dev/tools/render_config_reference.dart`, from the schema artifact; `dev/tools/config_reference_core_keys.txt` curates a capped orientation table without hiding any non-core key | `check_config_reference_drift.sh` plus `test_render_config_reference.sh`; `dev/fitness/test/config_key_consumers_test.dart` requires each published leaf to have a production consumer or a rationale naming its indirect one |
 
-**What stays runtime-only.** Cross-field rules the vocabulary cannot carry: an `interval` schedule needing `minutes`, a `type: task` job needing a `task:` block, and `credentials.<name>`'s discriminated union (`api-key` needs `api_key`, `github-token` needs `token`). Those entries emit one flat shape carrying the union of both variants' keys, so the schema is knowingly looser than the loader there. It never *rejects* a legal file, which is the property that matters; the runtime owns and already diagnoses the rest.
+The schema is a function of registry content: key-sorted and timestamp-free, so reordering declarations leaves the bytes unchanged. Rules that matter when changing the emitter:
 
-**Two divergences, both deliberate.** Tolerated-legacy paths are not emitted, so a config still carrying one gets an editor warning the loader would only advise about — none is present in any shipped config file. And the union widens what the *schema* accepts without widening what the *write path* accepts: `FieldConstraints` decides from `type` and `allowedValues` and cannot see an alternative shape, so `typing_indicator: true` validates in an editor while `PATCH /api/config` still refuses it. That divergence is pre-existing — the registry declared a string enum over a boolean parse site — and publishing it makes it visible rather than creating it.
-
-### Tolerated Legacy Keys — the accept-set
-
-`ConfigMeta.toleratedLegacyKeys` is a separate named map of paths the loader still accepts with a warning and never
-exposes as fields. It is what keeps the § 3 sweep from being a regression: a key DartClaw itself once shipped, or still
-names in its own parser, is *deprecated*, not unknown, and deprecation is announced rather than enforced.
-
-Each `ToleratedLegacyKey` row carries its `path`, its `match` (`exact` tolerates the path alone and resolves anything
-nested under it normally; `subtree` tolerates the path and everything below it, unexamined), its operator-facing
-`replacement` text, and `announcedBySweep` — `false` where a parser site already emits its own advisory for the path,
-so an operator sees one message rather than two. A row carries no type, bound or mutability: it is not a second schema.
-
-**Membership is evidence-based.** A path qualifies on either test alone: (i) the shipped parser still names it — a
-dedicated deprecation advisory, a retired-key constant, or a per-section known-key miss with a test pinning its
-message; or (ii) DartClaw's own examples or testing profiles have carried it in any released version. A row is never
-added to make a test pass — a path that must load and is not legacy belongs in `fields`.
-
-Two gates hold the set honest, both in `packages/dartclaw_kernel/test/config_meta_test.dart`: its membership is
-asserted against a literal, so every addition is a deliberate edit; and every row's path must appear verbatim under
-`## Deprecated Keys` in `docs/guide/configuration.md`, so a deferred break stays announced rather than becoming
-permanent silence. That guide section is the one live inventory of what the loader tolerates; `CHANGELOG.md` records a
-removal once, under the version that removed it, and carries no rolling copy.
-
-**This map is the named receiving artifact for deregistration.** A story that removes a path from `fields` adds its row
-here in the same change, and the enforcing artifact is the membership test above. Deregistering without a row turns an
-un-migrated config into a boot failure; `test/config_accept_set_test.dart` proves the transition end to end against an
-injected registry, in both directions.
-
-### ConfigMutability
-
-The mutability enum drives the config API's field routing:
-
-| Value | Meaning | Config API Behavior |
-|-------|---------|-------------------|
-| `live` | Ephemeral Tier 1 toggle | Written to YAML + fires `ConfigChangedEvent` for immediate side-effects |
-| `reloadable` | Hot-reloadable Tier 3 | Written to YAML + `ConfigNotifier.reload()` notifies `Reconfigurable` services |
-| `restart` | Requires restart | Written to YAML + `restart.pending` marker written |
-| `readonly` | Not editable via API | Rejected by `ConfigValidator` |
-
-### FieldConstraints — the decision, and ConfigValidator — the wording
-
-`FieldConstraints.evaluate(FieldMeta, Object?)` is the **single** answer to "does this value satisfy this field's declaration". It reads every bound off the `FieldMeta` it is handed and returns either `null` or one `FieldConstraintViolation` — a sealed verdict (`NullNotAllowed`, `TypeMismatch`, `OutOfRange`, `BlankString`, `ValueNotAllowed`, `ElementTypeMismatch`) carrying the declaration and the offending value and **no message text**.
-
-```
-packages/dartclaw_kernel/lib/src/config_constraints.dart   # the decision
-packages/dartclaw_kernel/lib/src/config_numeric_bounds.dart # loader path resolution and silent saturation
-packages/dartclaw_kernel/lib/src/config_validator.dart     # the config API's wording
-```
-
-The split exists because the two consumer classes have incompatible semantics: the config API refuses with an operator-facing sentence, while a parse site warns and falls back to a default in its own wording. Sharing a *validator* would force the parse sites to adopt reject-with-message; sharing a *message helper* would freeze the loader's advisory strings into this package. Sharing only the verdict lets both keep their observable behaviour, and is what makes "two schema consumers disagree" impossible by construction rather than by convention. `ConfigNumericBounds` resolves a loader's dotted path, requires the declared bound and delegates the decision to `FieldConstraints`; it owns no bound and fails if the declaration is missing.
-
-The loader keeps three existing dispositions after that shared decision. Silent clamp sites saturate to `FieldMeta.min` / `max` and emit nothing. Warning guards retain their exact advisory and fall back to the section default rather than the bound. Memory positivity rejects the load with its existing `FormatException`. The standalone workflow parser uses the same resolver but retains its `int` type arm, so a whole-number `double` does not become newly accepted.
-
-Decision rules, in the order `evaluate` applies them:
-
-| Step | Rule |
-|------|------|
-| Nullability | Decided ahead of the type switch, so `null` on a non-nullable field is always `NullNotAllowed`, never a type error |
-| Type | `int_` also accepts a whole-number finite `double` (`3000.0` passes, `3000.5` and `Infinity` do not) — JSON decoders emit doubles for whole numbers |
-| Range | `min` and `max` are applied **independently**, on the integral value. No field declares `max` without `min`, pinned by a registry test |
-| Blank | A non-nullable `string` may not be whitespace-only. No value is trimmed or normalized on the write path — the loader's per-key trimming is its own |
-| Membership | `allowedValues` is honoured **only** for `ConfigFieldType.enum_`, matching what the property documents itself to mean |
-| Elements | `stringList` / `objectList` element typing; the container's outer type for `objectMap` |
-
-`ConfigWriter.updateFields` additionally pre-validates — by path name — exactly `memory.max_bytes` and `memory.pruning.archive_after_days` before queueing a write, because their loader throws where every other integer reader warns and falls back. It is the only field-level check the writer makes; a direct SDK caller writing any other field through it is unvalidated. It also narrows a whole-number `double` to `int` for any field declared `int_`, so a validator-accepted `3000.0` is not persisted as YAML the loader rejects.
-
-**The registry's exception set — where a parse site also decides.** A declared bound is the source a parse site derives its check *from*, never a replacement for it: the loader keeps clamping and keeps warning-and-defaulting, so a `dartclaw.yaml` that boots today boots to the same values. The complete set of declarations whose bound or allowed set a parse site decides, plus the agreeing integer control set, is pinned as a disposition table in `packages/dartclaw_kernel/test/config_meta_test.dart` under one closed vocabulary, so a drift away from a recorded ruling fails rather than accumulating:
-
-| Disposition | Paths | What it means |
-|---|---|---|
-| `declaredMax` | `knowledge.inbox.interval_minutes`, `.max_bytes`, `.retry_attempts`, `.processed_retention_days`, `knowledge.wiki_lint.interval_minutes` | The declaration gained the upper bound its clamp already applies. All five clamps are silent, so a write above the bound used to return success, reach YAML and set `restart.pending` for a value the clamp discarded at that restart; it is refused at write time now. The load-side saturation remains, derived from the declaration |
-| `derivedMembership` | `search.backend`, `guards.content.classifier`, both gateway modes, session maintenance, context identifier preservation, four governance strategy/action fields, workflow artifact-retention mode, `tasks.worktree.merge_strategy`, all three channels' access modes, and Google Chat typing, reactions, audience type and feedback style | The loaders ask `FieldConstraints` instead of carrying a second value set. Typed channel mappers still convert an accepted spelling to their enum, including Google Chat's `true` and `app-url` aliases. `merge_strategy` also trims before deciding, so `"squash "` and `"merge "` now select their named strategies instead of warning and falling back to `squash` |
-| `maxDropped` | `channels.google_chat.pubsub.poll_interval_seconds` | The declaration carried a `max: 60` no parse site enforced. Dropping it loosened the write API onto existing behaviour; `PubSubConfig` now derives the remaining minimum and continues accepting `61` without warning |
-| `declaredNotEnforcedOnWrite` | `workflow.approvals`, `tasks.completion_action`, `knowledge.inbox.delivery_mode`, `knowledge.wiki_lint.delivery_mode` | The allowed set is declared over a `string` type, so `FieldConstraints` does not apply it. Each loader trims before comparing and the write path trims nowhere; the loaders keep their checks until the declaration can enforce membership without refusing a value that works end to end today |
-| `loaderMembershipResidual` | Session-scope aliases, unchecked logging strings, `agent.execution`, entry-shaped membership sites, Google Chat quote-reply compatibility spellings, shared channel maximum chunk size, and logical-agent security/execution fields | Derivation would change accepted spellings, introduce a new load check, cross the typed decision's owner, serve an unregistered Google Chat path, or require a scalar `FieldMeta` that an entry shape cannot provide |
-| `inexpressible` | `governance.turn_limits.stall_timeout`, `.turn_timeout`, and the two Google Chat feedback durations | `FieldMeta` has no duration type and no string `pattern`, so the `tryParseDuration` check cannot be declared at all. The parse sites keep their own checks |
-| `agrees` | `context.warning_threshold`, `tasks.artifact_retention_days`, `tasks.worktree.stale_timeout_hours`, `guard_audit.max_retention_days`, `gateway.reload.debounce_ms`, `alerts.cooldown_seconds`, `alerts.burst_threshold`, `onboarding.expiry_days`, `channels.google_chat.pubsub.max_messages_per_pull`, `channels.signal.port` | Declaration and parse site agree, and their loaders derive the range from the declaration |
-| `retired` | `context.exploration_summary_threshold`, `advisor.triggers` | Field and parse-site check were both deleted. The rows survive so the removal cannot silently reverse into an undeclared bound |
-
-Config-package enum membership is registry-driven at twelve scalar sites: `search.backend`,
-`guards.content.classifier`, both gateway modes, session maintenance, context identifier preservation, the four
-governance strategy/action fields, workflow artifact-retention mode, and task worktree merge strategy. Each resolves
-its `FieldMeta` by dotted path and passes the same raw or site-trimmed spelling to `FieldConstraints`; typed mappers
-still own spelling-to-enum conversion. The table pins each mapper's accepted spellings against `allowedValues`, so an
-enum member or declaration cannot drift behind the membership gate unnoticed.
-
-The membership residual records `sessions.dm_scope` and `.group_scope` because their mappers accept underscore aliases
-the declaration omits; `logging.level` and `.format` because load applies no membership check; `agent.execution`
-because its typed decision remains separately owned; and the provider, MCP server, ACP agent, project, session-channel,
-and scheduling-job entry-shaped paths because no scalar `FieldMeta` resolves for one operator-named entry. A source
-inventory of literal membership conditions is compared with these residuals, so adding an unruled loader site fails.
-
-Channel-package constraint sites resolve the same central registry directly: `CommonChannelFields` builds
-`channels.<channel>.dm_access` and `.group_access`; Google Chat resolves its four private enum paths and both Pub/Sub
-bounds; Signal resolves its port range. They retain their own warning strings, defaults and spelling-to-enum mappers.
-The out-of-package residual inventory names Google Chat quote-reply compatibility spellings, the shared
-`max_chunk_size` check whose Google Chat path is unregistered, the two feedback duration parsers, and logical-agent
-security/execution membership carried by the `agent.agents` entry shape.
-
-The numeric residual table records the checks that cannot use a scalar integer `FieldMeta`: `tasks.budget.warning_threshold`'s fractional/string-compatible range; `tasks.budget.default_max_tokens`'s unbudgeted sentinel; `providers.<id>.pool_size` and the four `mcp_servers` non-negatives inside entry shapes; IPv4 octet validation inside an MCP URL string; the `governance.turn_limits` duration and ordering rules; and `agent.history.max_total_chars < max_message_chars`. A source scan compares the numeric comparison and clamp literals it can see in the config parsers to that closed table, so a new undecided literal in that shape fails `config_meta_test.dart` with its source fragment. The scan is a regex over Dart sources, not a semantic pass: it does not see `math.max`/`math.min`, a literal on the left of the comparison, a clamp split across nested parentheses, `isNegative`, or a bound hoisted into a named const, and it skips three `part` files that carry no bound literal today. It is a ratchet against the common shape, not a proof that no undeclared bound exists. Separately, a bound enforced at a parse site but never declared remains invisible to the registry.
-
-### Timeout Registry
-
-This registry covers execution and control-path durations whose overlap can change whether work completes. Retention ages, retry backoffs, cache lifetimes, and protocol polling intervals are included when the timeout-architecture sweep identified a relation or duplicate authority. Pure presentation delays are not execution budgets.
-
-| Duration or key | Owner | Single enforcement site | Relation and verdict |
-|---|---|---|---|
-| `governance.turn_limits.stall_timeout` (5m; `0` disables) | `TurnLimitsConfig` | `TurnRunner` through `TurnLivenessTracker` | Must be shorter than `governance.turn_limits.turn_timeout` when both global limits are enabled. A tighter agent-step `turn_timeout` intentionally makes stall unreachable for that turn; a known approval wait suspends only the stall clock |
-| `governance.turn_limits.turn_timeout` (30m; `0` disables) | `TurnLimitsConfig` | `TurnRunner` | Covers every provider turn on every lane. An agent step's `turn_timeout` replaces this value for that turn |
-| Agent-step `turn_timeout` | `WorkflowStep` / `ResolvedStepConfig` | `TurnRunner` | Per-turn override, not a whole-step deadline. Bash and approval `timeout` values are separate operation deadlines |
-| Harness turn deadline | Runtime harness wiring | Provider harness | Derived from the effective turn timeout plus 60s. Zero remains unbounded. This is a crash backstop, never a competing operator budget |
-| Turn observation thresholds (30s waiting, 120s stuck) | `TurnLivenessTracker` | `TurnLivenessTracker` | Internal status thresholds are capped below the next enabled threshold; they do not cancel work |
-| Guard evaluation budget (5s base) | Each `Guard` | `GuardChain` | One timer per guard. The base timeout defers to chain `fail_open` only when the guard supplies no timeout verdict |
-| Content classification (15s + 1s guard grace) | `ContentGuard` | Classifier for the inner request; `GuardChain` for the enclosing guard budget | Enclosing budget is strictly above classifier timeout, and timeout uses `ContentGuard.failOpen` |
-| Bridge idle/request limits (5m/10m) | `BridgeLimits` | Bridge server / gateway pipe | **Deferred:** request timeout remains below a full turn budget. Changing it affects container transport capacity and needs an independent operational decision |
-| Heartbeat interval | `scheduling.heartbeat.interval_minutes` | Scheduler | **Deferred:** the default can coincide with a full turn budget. Overlap policy belongs to scheduling, not turn enforcement |
-| Restart drain deadline (30s) | `RestartService` | `RestartService.restart` | **Deferred:** the same value is supplied to `waitForCompletion` and an outer wait. Collapse requires preserving per-turn diagnostics while removing the duplicate timer |
-| Outcome retention (30s) | Coordinator outcome store | `_OutcomeRetention` | **Deferred:** runner, manager, and coordinator expose agreeing defaults, but construction still repeats the value. Choose one owner before changing the public constructors |
-| Completion wait (10s) | Turn manager API | `TurnRunner.waitForCompletion` | **Deferred:** interface and implementations repeat the default. A shared constant would change a public API contract and is separate from provider-turn enforcement |
-| Codex credential lifetime/warning (8d/48h) | `CredentialHealthMonitor` | Credential-health evaluation | **Deferred:** warning must stay shorter than assumed lifetime. The values model an external credential format and remain code constants |
-| Knowledge inbox stability window (10s) | `KnowledgeInboxService` | Inbox file-stability check | **Deferred:** constructor defaults and profile behavior need a separate ingestion decision; unrelated to turn liveness |
-| Session, cron, task-artifact, and workflow-runtime-artifact retention | Their config value objects | Their respective maintenance/pruner stage | **Deferred:** similarly named retention values delete different records. They remain separate authorities and must not be aligned merely because the units match |
-
-`ConfigValidator` gates on known field (exact path only) and writable, then renders the verdict — including the nullable-dependent type labels (`an integer or null` vs `an integer`) and the two range wordings. No **per-field** bound survives in it: it holds no range, type or allowed set of its own and no path name decides one. The cross-field rules do still key on path names, by design, because they are conditional-requirement rules rather than per-field bounds: Google Chat requires `service_account` and `audience` when `enabled: true`, GitHub requires `webhook_secret` and well-formed triggers, space events require their Pub/Sub triple, and `agent.execution: container` is refused while `container.enabled` is false.
+- **Closed keyword set**: `$id`, `$schema`, `title`, `description`, `type`, `properties`, `additionalProperties`, `items`, `oneOf`, `enum`, `minimum`, `maximum`, `minLength`, `pattern`, `required` (only from `ObjectEntry.requiredFields`). No `default` (`FieldMeta` carries none, so emitting one would invent a second source) and no conditional keyword. `config_json_schema_test.dart` asserts closure by schema position, not key name, since real config keys are called `default`, `title`, `type`.
+- **Mutability is description, never a keyword.** Every registered field is emitted whatever its tier, because the file stays authoritative and only the API refuses `readonly`. The tier rides as one of four description suffixes; an entry field inherits its container's.
+- **Unions**: an `alsoAccepts` field emits a sorted `type` list and an `enum` carrying every accepted literal. The write path accepts the same union, since `FieldConstraints` tries the alternative type.
+- A synthesized section accepts `null` as well as an object, because the loader reads an empty section body as absent.
+- Cross-field rules (an `interval` job needs `minutes`; `credentials.<name>` is a discriminated union) stay runtime-only, so the schema is knowingly looser than the loader there. It never rejects a legal file. Tolerated legacy paths are not emitted, so an editor warns on a key the loader only advises about.
+- `$id` is the release-tag URL `ConfigMeta.jsonSchemaUrl(version)`. `dartclaw config schema` prints it offline, `dartclaw init` writes a `yaml-language-server` modeline pointing at it, and a version bump requires regeneration (`dev/tools/check_versions.sh` holds the package versions and `dartclawVersion` in lockstep).
 
 ---
 
-## 5. Config Persistence
+## 5. Persistence and apply
 
 ### ConfigWriter
 
-`ConfigWriter` provides non-destructive YAML config writing with write-queue serialization:
+`packages/dartclaw_kernel/lib/src/config_writer.dart`. `updateFields(Map<dotted path, value>)` queues the write on a `StreamController`, so concurrent writes serialize. Each operation reads the file fresh (no cache), applies surgical `yaml_edit` edits (`applyEdit` creates missing intermediate maps; a `null` value removes the key; comments, ordering and unknown keys outside the edited paths survive, but a value written over a subtree replaces it whole), copies the current file to `<path>.bak` (the write aborts if the backup fails), then writes `<path>.tmp` and renames it over the resolved target. A symlinked config path is written through to its target and the link survives. `readDocument()` gives other readers (the settings form) the persisted YAML as plain maps.
 
-```
-packages/dartclaw_kernel/lib/src/config_writer.dart
-```
+### ConfigApplyService
 
-```
-  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-  │  updateFields │───>│  Write Queue  │───>│  yaml_edit    │───>│  Atomic Write│
-  │  (Map)        │    │  (serialized) │    │  (preserves   │    │  .tmp+rename │
-  └──────────────┘    └──────────────┘    │   comments)   │    │  .bak backup │
-                                           └──────────────┘    └──────────────┘
-```
+`packages/dartclaw_runtime/lib/src/api/config_apply_service.dart` is the one authority from a proposed change to an applied one. `PATCH /api/config` and the settings form's `POST /settings` only parse a body and call `apply`, so the two cannot disagree on what validates, what is written, or what "applied" means. `normalizeConfigPatch` beside it is the only place the blank-to-null fold (nullable fields), the `provider/model` shorthand expansion (`agent.model`, `workflow.defaults.*.model`) and the task-trigger spelling are applied.
 
-Key behaviors:
+[![Config mutation paths: validate, partition by mutability, write, apply](diagrams/config-mutation-paths.svg)](diagrams/config-mutation-paths.svg)
 
-- **Write queue** — `StreamController<_WriteOp>` serializes concurrent writes. Each write operation gets its own `Completer<void>`
-- **Fresh reads** — reads YAML from disk on each write (no stale cache)
-- **Path creation** — `_updateWithPathCreation()` creates intermediate YAML maps for dot-path writes (e.g., writing `scheduling.heartbeat.enabled` creates `scheduling:` and `heartbeat:` if absent)
-- **Backup-on-write** — copies current config to `<path>.bak` before each write. Write aborts if backup fails
-- **Atomic write** — writes to `<path>.tmp`, then renames to target path
-- **Null value removal** — writing `null` removes the key from YAML
+The result has `applied` (live and reloaded fields), `pendingRestart`, and `errors`; `errors` non-empty means nothing was written.
 
-### Config API Routes
+### Restart-pending marker
 
-Two routers handle config mutations at different tiers:
+`restart.pending` in `dataDir` (`restart_service.dart`) is `{timestamp, fields}`, merged and atomically replaced by `writeRestartPending`. It is the durable record of what is waiting on a restart (`ConfigNotifier.restartRequiredSections` reflects only the latest reload). `RestartService.restart` writes it again before exit; `consumeRestartPending` removes it after a successful restart. Pages read it on render and show `restart_banner.dart` (`restartBannerHtml(dataDir)`).
 
-**`config_routes.dart`** — Tier 1 ephemeral toggles:
-
-```
-packages/dartclaw_runtime/lib/src/api/config_routes.dart
-```
+### HTTP surface
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/settings/heartbeat/toggle` | Pause/resume the built-in `heartbeat` job |
-| `POST /api/settings/git-sync/toggle` | Pause/resume the built-in `git-sync` job + push flag |
-| `POST /api/scheduling/jobs/<name>/toggle` | Pause/resume scheduled jobs |
-| `GET /api/settings/runtime` | Current runtime toggle state |
+| `GET /api/config` | Serialized config plus `_meta` (`configPath`, `lastBackup`, `restartPending`, `pendingFields`, `fields`) |
+| `PATCH /api/config` | Admin-only (403 otherwise). Body capped at 128 KB; `scheduling.jobs` is refused (use the job endpoints) |
+| `POST /api/system/restart` | Graceful restart; drains turns up to `RestartService.drainDeadline` |
+| `GET/POST/PUT/DELETE /api/scheduling/jobs[/<name>]`, `/api/scheduling/tasks` | Job CRUD through `ScheduleMutationService` |
+| `/api/config/guards/...` | Guard rule extensions (`GuardEditorService`) |
+| `/api/config/channels/<type>/{dm,group}-allowlist` | Channel allowlists (`ChannelAccessService`) |
+| `POST /api/settings/{heartbeat,git-sync}/toggle`, `POST /api/scheduling/jobs/<name>/toggle`, `POST .../run`, `GET /api/settings/runtime` | Ephemeral toggles (`config_routes.dart`); nothing is written |
 
-These pause or resume the built-in job and update `RuntimeConfig` in memory. The `RuntimeConfig` state resets on restart; the YAML value is what the next boot uses.
+Both routers read bodies through the capped reader in `api_helpers.dart` (`readRequestBody`/`readJsonObject`): an oversized body is `413 REQUEST_TOO_LARGE`, non-UTF-8 is `400 INVALID_INPUT`. Request and response shapes are [CLI & API Architecture](cli-api-architecture.md).
 
-The heartbeat and git-sync runtime effects are not re-implemented here: both this router and the `ConfigChangeSubscriber`
-branch that `PATCH /api/config` feeds go through the same `RuntimeToggleApplier`
-(`packages/dartclaw_runtime/lib/src/config/runtime_toggle_applier.dart`), so those two surfaces cannot drift. The applier
-touches runtime state only – persistence stays with the caller, which is what keeps these toggles ephemeral.
+**Scheduled jobs are live.** `ScheduleMutationService` is the single owner of every `scheduling.jobs` mutation. Each write commits to the file and then calls `ScheduleService.replaceConfigJobs`, which arms, re-arms or unloads config-declared jobs without a restart, so these routes record no `restart.pending`. The built-in heartbeat and git-sync jobs are fixed at registration, which is why their `interval_minutes` fields are `restart`. A model-originated `schedule_upsert` can be parked for operator approval (`ScheduleMutationApproval.operator`), decided in the composition root, not by the caller.
 
-`workspace.git_sync.push_enabled` has a third writer the applier does not cover: `WorkspaceGitSync` is a `Reconfigurable`
-registered on `ConfigNotifier` with `watchKeys: {'workspace.*'}`, so any persisted `workspace.*` write re-applies the
-*persisted* push flag and silently reverts an ephemeral toggle – without updating `RuntimeConfig`, which then
-misreports it on `GET /api/settings/runtime`. Reconciling those three writers is not settled here.
+### Live-field side effects
 
-Both routers read their bodies through the shared capped reader in `api_helpers.dart` (`readRequestBody` /
-`readJsonObject`), the only raw body read declared in `lib/src/api/`. `config_routes` caps at 256 KB and
-`config_api_routes` at 128 KB; a larger body is refused with `413 REQUEST_TOO_LARGE` at the cap rather than buffered,
-and a body that is not UTF-8 with `400 INVALID_INPUT`. Each route keeps its own content-type handling and empty-body
-meaning – a form-encoded toggle body that is empty still decodes to an empty map, where an empty `PATCH /api/config`
-body is `400 "Request body must be valid JSON"`.
+`ConfigChangeSubscriber` (`config/config_change_subscriber.dart`) listens for `ConfigChangedEvent` and applies the four `live` runtime keys by exact dotted key: `scheduling.heartbeat.enabled`, `workspace.git_sync.enabled`, `workspace.git_sync.push_enabled` and `context.warning_threshold` (clamped 50–99). Only `PATCH`/settings deliver exact keys; the notifier emits section wildcards to `Reconfigurable`s, so a key that must take effect at runtime has to be declared `live` and handled in that switch. `ScopeReconciler` updates a `LiveScopeConfig` when `sessions.dm_scope` or `sessions.group_scope` change. **Known defect:** `service_wiring.dart` (`_wireScopeReconciler`) builds the reconciler its own `LiveScopeConfig`, while `ChannelManager` reads the separate instance built in `channel_wiring.dart`, and nothing else reads the reconciler's. A `PATCH` of either key is persisted but changes session-key derivation only after a restart.
 
-**`config_api_routes.dart`** — Tier 2/3 persistent config:
-
-```
-packages/dartclaw_runtime/lib/src/api/config_api_routes.dart
-```
-
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /api/config` | Full config JSON with `_meta` (field metadata, restart pending state) |
-| `PATCH /api/config` | Admin-only validate, write, and apply config changes; returns `403` without admin access |
-| `GET /api/scheduling/jobs` | List persisted scheduling jobs for operational clients |
-| `GET /api/scheduling/jobs/<name>` | Read a single scheduling job by name |
-| `POST /api/scheduling/jobs` | Create scheduled job |
-| `PUT /api/scheduling/jobs/<name>` | Update scheduled job |
-| `DELETE /api/scheduling/jobs/<name>` | Delete scheduled job |
-
-Both tiers go through one authority. `ConfigApplyService`
-(`packages/dartclaw_runtime/lib/src/api/config_apply_service.dart`) owns the whole
-validate → partition → write → apply → mark sequence; `PATCH /api/config` and
-the settings form's `POST /settings` are body-parsing plus a call, so the two
-cannot disagree about what validates, what is written, or what "applied" means.
-`normalizeConfigPatch` lives beside it and is the one place the blank-to-null
-fold, the `provider/model` shorthand expansion and the task-trigger spelling are
-applied.
-
-The sequence it implements is the full 3-tier routing:
-
-```
-  ┌─────────────────┐
-  │  PATCH body      │
-  │  (validated)     │
-  └────────┬────────┘
-           │
-  ┌────────▼────────┐
-  │  Partition by    │
-  │  ConfigMutability│
-  └─┬──────┬──────┬─┘
-    │      │      │
-  ┌─▼──┐ ┌▼────┐ ┌▼───────┐
-  │live │ │relo-│ │restart │
-  │     │ │adab-│ │        │
-  └──┬──┘ │le  │ └───┬────┘
-     │    └─┬──┘     │
-     │      │        │
-     ▼      ▼        ▼
-  Fire    Reload   Write
-  Config  via      restart
-  Changed Config   .pending
-  Event   Notifier marker
-```
-
-1. **All fields** are written to YAML (so they persist across restarts)
-2. **Live fields** fire a `ConfigChangedEvent` on the `EventBus`
-3. **Reloadable fields** trigger `ConfigNotifier.reload()` (re-reads YAML, computes delta, notifies services)
-4. **Restart fields** write a `restart.pending` marker file with the changed field names
-
-### Restart Pending Marker
-
-When restart-required fields change, a `restart.pending` JSON file is written to `dataDir`. The Settings UI reads this file on every render and renders a restart banner via `restart_banner.dart`.
-
-### Settings UI Rendering Path
-
-The `/settings` form is a projection of `ConfigMeta`; no field list is hand-maintained anywhere in the web layer.
-
-```
-packages/dartclaw_runtime/lib/src/web/settings/
-  settings_sections.dart     panel/tab taxonomy + the registry prefixes each panel claims
-  settings_field_view.dart   FieldMeta -> control kind, label, hint, badge, value
-  settings_form_model.dart   panel render model + form-encoded submission decoding
-  settings_surface.dart      the object both the page render and POST /settings use
-packages/dartclaw_runtime/lib/src/templates/settings_form.html   the swappable section fragment
-```
-
-- **Assignment is total.** Every registered field resolves to exactly one panel (longest claimed prefix wins) or to a named owner in `settingsFieldOwners` — `channels.*` to the channel detail pages, `guards.*` to the guard editor. `test/web/settings_form_test.dart` fails on a field that reaches neither and on a prefix two panels declare.
-- **Values are server-rendered.** `SettingsValueResolver` resolves each field through one chain: the `ConfigSerializer` JSON tree by `FieldMeta.jsonKey` (effective values, defaults and live `RuntimeConfig` state included, and its `gateway.token` masking inherited), otherwise the persisted YAML value at `yamlPath`, otherwise unset. `credentials`, `gateway.token` and `github.webhook_secret` resolve to a presence marker and never to a value.
-- **Mutability stays typed.** `ConfigMutability` reaches the renderer as an enum; nothing parses a reload tier out of `_meta.fields`, a description, or a rendered attribute.
-- **A field with no persisted value is not an edit.** An unset field renders an empty control (an unset non-nullable enum leads with a blank *Not set* row so nothing is preselected), and the emptiness the browser submits back compares equal to the absence. Without that, an untouched section refuses itself on every non-nullable string it was never given, and materialises `false` / `[]` keys for the ones that validate. Live-tier fields resolve through `RuntimeConfig`, so a value toggled by the Tier-1 API reads as its runtime state, and submitting it unchanged persists nothing.
-- **Saving** posts form-encoded to `POST /settings` (registered explicitly in `web/web_routes.dart`, admin-gated with `requestHasAdminAccess` before any config read). The submission is coerced through `FieldMeta.type`, diffed against the current values, and handed to `ConfigApplyService`; the response is the re-rendered section at 200 on both success and validation failure, with the `#restart-banner` fragment swapped out of band. A refusal re-renders the *persisted* values, not the rejected input: nothing was written, and echoing the input back would make the native reset restore it and the section then read as clean.
+The heartbeat and git-sync effects go through one `RuntimeToggleApplier` (`config/runtime_toggle_applier.dart`) for both the toggle routes and the subscriber, and it is the only writer of `WorkspaceGitSync.pushEnabled` and the matching `RuntimeConfig` fields. A persisted `workspace.*` reload reaches it through `WorkspaceGitSyncReconfigurer`, so an ephemeral push toggle is cleared by the next persisted `workspace.*` write, deliberately, and `RuntimeConfig` reports the value in force.
 
 ---
 
-## 6. Hot-Reload Infrastructure (Tier 3)
-
-Hot-reload eliminates restarts for frequently changed settings like scheduling intervals, concurrency limits, and log patterns.
+## 6. Hot reload
 
 ### ConfigNotifier
 
-```
-packages/dartclaw_kernel/lib/src/config_notifier.dart
-```
+`packages/dartclaw_kernel/lib/src/config_notifier.dart` holds the current config and, on `reload(newConfig)`:
 
-`ConfigNotifier` is the reactive config holder. It:
+1. Primes out-of-package section parsers (`sectionPrimers`) so their warnings are present.
+2. **Admits or refuses**: throws `FormatException` if the config carries blocking warnings, and `UnsupportedCapabilityError` if it enables container isolation on a platform without it. A refused reload leaves the running config and `restartRequiredSections` untouched.
+3. Compares every section in `ConfigNotifier.sectionTiers` with `==`. A changed `reloadable` section adds `<section>.*` to `ConfigDelta.changedKeys`; a changed `restart` section goes to `restartRequiredSections` and a warning is logged, and is withheld from the delta. `server` is special: a change confined to `port`, `host`, `data_dir` is excluded with a warning.
+4. Carries the running values forward for what a reload must not change: `server.port/host/data_dir`, and `container` (the posture is settled by a startup probe a reload cannot rerun, and an unset section re-parses as disabled).
+5. Returns `null` when nothing reloadable changed; otherwise builds a `ConfigDelta(previous, current, changedKeys)` and calls `reconfigure` on each registered service whose `watchKeys` match, logging and continuing if one throws.
 
-1. Holds the current `DartclawConfig` instance
-2. On `reload(newConfig)`, compares every declared section using `==` to detect changes
-3. Builds a `ConfigDelta` with the set of changed **reloadable-tier** section keys (e.g., `{'alerts.*', 'security.*'}`)
-4. Iterates registered `Reconfigurable` services, filtering by each service's `watchKeys`
-5. Calls `reconfigure(delta)` on matching services
+Tier keys are the `DartclawConfig` field names, not YAML keys: YAML `guards:` parses into `security`, YAML `concurrency:` into `server`, so a `guards.*` watcher sits dead where a `security.*` one fires. `register()` therefore throws `ArgumentError` for a watch key whose section is restart-tier or undeclared. A section added to `DartclawConfig` without a tier fails `dev/fitness/test/config_section_tier_coverage_test.dart`; that gap once left `AlertRouter` dead. `extensions` is outside the table because a `Map<String, Object?>` has no value equality, so every parse would differ.
 
-**Declared reload tiers**: each section field on `DartclawConfig` carries exactly one `ConfigReloadTier` in the notifier's tier table (`ConfigNotifier.sectionTiers`), keyed by the `DartclawConfig` field name rather than the YAML top-level key — the same namespace `changedKeys` and `watchKeys` use, and one that genuinely differs (YAML `guards:` parses into `security`, YAML `concurrency:` into `server`).
+A section is `reloadable` only while a registered service genuinely applies its change. Field `mutability` is independent: every `reloadable` field currently sits under a reloadable-tier section, but nothing enforces it, since the two are keyed in different namespaces. `guards.content.*` stays `restart` although `SecurityWiring` rebuilds the chain on any `security` change, which over-reports in the safe direction.
 
-| Tier | Meaning |
-|------|---------|
-| `reloadable` | Compared, and a change rides the delta to the services watching the section. Declared only while a registered service genuinely applies the change: `server`, `sessions`, `context`, `security`, `logging`, `workspace`, `alerts` |
-| `restart` | Compared, but a change is reported through `ConfigNotifier.restartRequiredSections` (and logged) and withheld from the delta. Every other section |
+`ConfigDelta.hasChanged(key)` matches bidirectionally by prefix: watch key `context.reserve_tokens` matches changed key `context.*`, and watch key `context.*` matches any `context.`-prefixed changed key.
 
-`extensions` is deliberately outside the table: it is a `Map<String, Object?>` of deployer-registered sections with no value equality, so `!=` between two parses is always true. A section added to `DartclawConfig` without a tier fails the `config_section_tier_coverage` fitness gate rather than being silently skipped at reload.
+### Reconfigurable services
 
-`restartRequiredSections` reflects the most recent successful reload alone; a reload with no restart-tier change empties it, and a reload rejected by an admission guard leaves it untouched.
+`Reconfigurable` (`reconfigurable.dart`) is `Set<String> get watchKeys` plus a synchronous `void reconfigure(ConfigDelta)` that must not throw. Registered today:
 
-**Registration admission**: `register()` throws `ArgumentError` when a service's watch key resolves to a restart-tier section, and when its first segment names no section in the table at all — neither delta is ever produced, so the watcher could never fire. The undeclared-section refusal names the key, because the trap is the namespace: watch keys use the `DartclawConfig` field name, so a `guards.*` watcher sits dead where a `security.*` one fires. The complementary gap — a section on `DartclawConfig` that is absent from the table and therefore never compared, which is what left `AlertRouter` dead for a release — is held by the `config_section_tier_coverage` fitness gate.
+| Service | Watch keys | Applies |
+|---------|-----------|---------|
+| `SecurityWiring` | `security.*` | Rebuilds the guard chain, swapping the list atomically |
+| `_MessageRedactorAdapter` (`security_wiring.dart`) | `logging.*` | Replaces redaction patterns |
+| `WorkspaceGitSyncReconfigurer` | `workspace.*` | Push flag via `RuntimeToggleApplier` |
+| `SessionResetService` | `sessions.*` | Reset hour, idle timeout |
+| `SessionLockManager` | `server.*` | Max parallel turns; a raise wakes callers waiting for capacity |
+| `MessageQueueReconfigurer` | `server.*` | The channel `MessageQueue`'s own slot cap; registered only when a channel is enabled |
+| `ContextMonitor` | `context.*` | Reserve tokens, warning threshold |
+| `ResultTrimmer` | `context.*` | Host tool-result byte cap |
+| `AlertRouter` | `alerts.*` | Targets, routes, cooldowns |
 
-**Non-reloadable field handling**: `server.port`, `server.host`, and `server.data_dir` are explicitly excluded. If they change, a warning is logged but the delta does not include `server.*` (unless other server fields also changed).
+A service that only logged "needs a restart" must not register: the requirement belongs in the section's restart tier.
 
-**Best-effort model**: if a service's `reconfigure()` throws, the error is logged and remaining services continue to be notified.
+### Reload triggers
 
-**A `live` field is independent of its section's tier**: `live` fields never ride the notifier at all — `PATCH /api/config` fires a `ConfigChangedEvent` for them and `ConfigChangeSubscriber` applies the side-effect (§9). `scheduling.heartbeat.enabled` is `live` under a restart-tier section for exactly that reason.
-
-### ConfigDelta
-
-```
-packages/dartclaw_kernel/lib/src/config_delta.dart
-```
-
-An immutable snapshot containing `previous` config, `current` config, and `changedKeys`. The `hasChanged(key)` method supports bidirectional prefix matching:
-
-- `'context.*'` matches changed key `'context.*'`
-- `'context.reserve_tokens'` matches changed key `'context.*'` (specific watch key within changed section)
-- Glob watch keys match section-level changes
-
-Restart-tier sections never appear in `changedKeys`, so no watch key can match one.
-
-### Reconfigurable Interface
-
-```
-packages/dartclaw_kernel/lib/src/reconfigurable.dart
-```
-
-```dart
-abstract interface class Reconfigurable {
-  Set<String> get watchKeys;
-  void reconfigure(ConfigDelta delta);
-}
-```
-
-Services implement `Reconfigurable` and register with `ConfigNotifier`. Currently registered services:
-
-| Service | Watch Keys | Reconfigure Behavior |
-|---------|------------|---------------------|
-| `SecurityWiring` | `{'security.*'}` | Rebuilds the guard chain from the new declarations |
-| `_MessageRedactorAdapter` (in `security_wiring.dart`) | `{'logging.*'}` | Replaces the redactor's pattern set |
-| `WorkspaceGitSyncReconfigurer` (in `runtime_toggle_applier.dart`) | `{'workspace.*'}` | Updates push-enabled state through `RuntimeToggleApplier` |
-| `SessionResetService` | `{'sessions.*'}` | Updates reset hour and idle timeout |
-| `SessionLockManager` | `{'server.*'}` | Updates max parallel turns; a raise wakes callers waiting for admission capacity |
-| `MessageQueueReconfigurer` | `{'server.*'}` | Applies max parallel turns to the channel `MessageQueue`'s own slot cap; registered only when a channel is enabled |
-| `ContextMonitor` | `{'context.*'}` | Updates reserve tokens and warning threshold |
-| `ResultTrimmer` | `{'context.*'}` | Updates the host tool-result byte cap |
-| `AlertRouter` | `{'alerts.*'}` | Rebuilds alert targets, cooldowns |
-
-Every entry applies something. `ScheduleService` and `TurnManager` were registered but only logged that the change would need a restart; both were retired, and the restart requirement is now carried by the `scheduling` and `governance` sections' restart tier (and, for the job list, by `PATCH /api/config` rejecting `scheduling.jobs` while the job CRUD routes write `restart.pending`).
-
-### Reload Triggers
-
-`ReloadTriggerService` manages the external triggers that initiate config reload:
-
-```
-apps/dartclaw_cli/lib/src/commands/reload_trigger_service.dart
-```
-
-Controlled by `gateway.reload.mode`:
+`ReloadTriggerService` (`apps/dartclaw_cli/lib/src/commands/reload_trigger_service.dart`), controlled by `gateway.reload.mode`:
 
 | Mode | Behavior |
 |------|----------|
-| `'signal'` (default) | SIGUSR1 handler on POSIX systems. On Windows, reports that signal reload is POSIX-only and points to `auto` |
-| `'auto'` | Parent-directory file-watch with debounce on all platforms; also registers SIGUSR1 on POSIX |
-| `'off'` | No reload triggers |
+| `signal` (default) | SIGUSR1 on POSIX. Elsewhere it logs that signal reload is POSIX-only and points to `auto` |
+| `auto` | Parent-directory file watch with debounce (`gateway.reload.debounce_ms`, default 500) on every platform, plus SIGUSR1 where available |
+| `off` | No triggers |
 
-**File-watch design**: Watches the parent directory (not the config file directly) to handle atomic writes (temp + rename) correctly on macOS kqueue. Events for the config filename are debounced using a `Timer` (default 500ms, configurable via `gateway.reload.debounce_ms`).
+The watch is on the **parent directory**, matching create, modify and move events by basename: an atomic temp+rename save surfaces as create/modify on macOS kqueue but as a move on Linux inotify. A watch failure falls back to SIGUSR1 only, or to no reload on Windows.
 
-**Reload cycle**:
-1. Trigger received (file-watch on all platforms; SIGUSR1 on POSIX)
-2. `loadDartclawConfig()` re-reads YAML from disk and parses every channel section
-3. `ConfigNotifier.reload(newConfig)` computes delta and notifies services
-4. The summary logs the changed sections, and — when `restartRequiredSections` is non-empty — the sections now persisted but waiting on a restart; without that line a restart-tier-only edit reads as "no reloadable changes detected"
-5. If reload fails (parse error), the existing config is preserved and error is logged
+A cycle runs `loadCliConfig` (so extension parsers, the credential provider and every channel parse run), logs advisories, calls `notifier.reload`, then logs the changed sections and, if `restartRequiredSections` is non-empty, the sections now persisted but awaiting restart. Without that line a restart-tier-only edit reads as "no reloadable changes". Any exception, including a fatal parse or a refused admission, keeps the existing config. The reload loader passes no CLI overrides (`loadCliConfig(configPath:)` only), so a value the process was started with via a flag is re-read from YAML.
 
-### What's Hot-Reloadable vs. What Requires Restart
+[![Config hot reload: triggers, ConfigNotifier.reload outcomes, Reconfigurable services](diagrams/config-hot-reload.svg)](diagrams/config-hot-reload.svg)
 
-This is the **field-level** view — `ConfigMeta` mutability, which is what `PATCH /api/config` partitions on, independently of the section tier above. Today every `reloadable` field sits under a `reloadable`-tier section, which is what keeps `applied` honest; nothing enforces that, because the two are keyed in different namespaces (`ConfigMeta` by YAML path, the tier table by `DartclawConfig` field) and mapping between them is deliberately not modelled. A `restart` field may sit under either tier — the guard chain is the standing case: `SecurityWiring` genuinely rebuilds it, but `guards.*` stays declared `restart`, over-reporting in the safe direction.
+### Field-level view
 
-| Hot-Reloadable (Tier 3) | Requires Restart (Tier 2) |
-|--------------------------|--------------------------|
-| `concurrency.max_parallel_turns` | `port`, `host`, `data_dir` |
-| `sessions.reset_hour`, `sessions.idle_timeout_minutes` | `scheduling.heartbeat.interval_minutes`, `workspace.git_sync.interval_minutes` |
-| `logging.redact_patterns` | `agent.model`, `agent.effort`, `agent.max_turns` |
-| `context.reserve_tokens`, `context.max_result_bytes` | `auth.cookie_secure`, `auth.trusted_proxies` |
-| `alerts.*` (targets, cooldowns, thresholds) | `logging.level`, `logging.format` |
-| | `governance.*` (turn limits, budgets, stall detection) |
-| | `container.*` |
-| | `search.backend`, `search.embedding.*`; `search.qmd` is a removed parser-only transition key |
-| | `database.*` |
-| | `providers.*.pool_size`, `tasks.worktree.*`, guard chain (`guards.*`) |
-| | `harness.*`, `knowledge.*`, `workflow.*`, `mcp_servers.*` |
+The table is `ConfigMeta` mutability, which is what `PATCH` partitions on, independent of the section tier. The definitive per-key tier is the `(live)`/`(reload)`/`(restart required)` suffix in the schema.
 
-Both schedule intervals are restart-tier because a `ScheduledJob`'s schedule is fixed at registration -- `ScheduleService` exposes `pauseJob`/`resumeJob`, not job-definition mutation -- which is the same contract the rest of the scheduling surface already has (`PATCH /api/config` rejects `scheduling.jobs`; the job CRUD routes write `restart.pending`).
-
-### Restart Banner
-
-When restart-required fields are changed, the Settings UI displays a banner listing the pending fields:
-
-```
-packages/dartclaw_runtime/lib/src/templates/restart_banner.dart
-packages/dartclaw_runtime/lib/src/templates/restart_banner.html
-```
-
-The banner is rendered by `restartBannerTemplate()` using Trellis fragment rendering. Each page calls `context.restartBannerHtml()` to inject the banner when `restart.pending` exists.
+| `live` / `reloadable` | `restart` |
+|-----------------------|-----------|
+| `scheduling.heartbeat.enabled`, `workspace.git_sync.enabled`, `workspace.git_sync.push_enabled`, `sessions.dm_scope`, `sessions.group_scope`, `context.warning_threshold` (live) | `port`, `host`, `data_dir`, `agent.*`, `auth.*`, `gateway.*`, `container.*`, `database.*`, `providers.*`, `governance.*`, `search.*`, `tasks.*` |
+| `concurrency.max_parallel_turns`, `sessions.reset_hour`, `sessions.idle_timeout_minutes`, `logging.redact_patterns`, `context.reserve_tokens`, `context.max_result_bytes`, `alerts.*` (reloadable) | `logging.level/format`, `scheduling.heartbeat.interval_minutes`, `workspace.git_sync.interval_minutes`, `guards.content.*` |
 
 ---
 
-## 7. Extension System
+## 7. Timeouts
 
-The extension system allows private deployers to add custom config sections without forking `dartclaw_kernel`.
+Execution and control-path durations whose overlap can change whether work completes, each with one enforcing site. Retention values with similar names delete different records and must not be aligned because the units match.
 
-```
-packages/dartclaw_kernel/lib/src/config_extensions.dart
-```
+| Duration or key | Enforced at | Relation |
+|---|---|---|
+| `governance.turn_limits.stall_timeout` (5m; `0` disables) | `TurnRunner` via `TurnLivenessTracker` | Must be shorter than `turn_timeout` when both are enabled. A tighter agent-step `turn_timeout` makes stall unreachable for that turn; a known approval wait suspends only the stall clock |
+| `governance.turn_limits.turn_timeout` (30m; `0` disables) | `TurnRunner` | Covers every provider turn on every lane. An agent step's `turn_timeout` replaces it for that turn |
+| Harness turn deadline | Provider harness (`harness_wiring.dart`) | Effective turn timeout + 60s; zero stays unbounded. A crash backstop, not a second budget |
+| Turn observation thresholds (30s waiting, 120s stuck) | `TurnLivenessTracker` | Status only; never cancel work |
+| Guard evaluation (5s base) | `GuardChain`, one timer per guard | Defers to chain `fail_open` unless the guard supplies `onEvaluationTimeout` |
+| Content classification (15s + 1s) | Classifier for the request, `GuardChain` for the enclosing budget | Enclosing budget strictly above the classifier's; timeout uses `ContentGuard.failOpen` |
 
-### Registration
-
-```dart
-DartclawConfig.registerExtensionParser(
-  'myCustomSection',
-  (yaml, warns) => MyCustomConfig.fromYaml(yaml),
-);
-```
-
-- **Required**, not advisory, and before **every** `DartclawConfig.load()`. Since 0.25 the § 3 sweep refuses a
-  top-level section neither the registry nor a registered parser describes, so registering a parser is the one
-  sanctioned way to keep a section DartClaw does not own. The pre-0.25 fallback — store the unparsed section as a raw
-  map for forward-compatibility — is gone; there is no silent retention to fall back on.
-- Throws `ArgumentError` if the name conflicts with a built-in config key (protected by `_knownKeys` set)
-- Registered parsers are stored in a module-level `_extensionParsers` map
-
-### Parsing
-
-During `DartclawConfig.load()`, `_parseExtensions()` iterates the registered extension keys present in the YAML:
-
-1. Invoke the registered parser with the YAML map
-2. If the parser throws, store the raw map and add a warning
-3. A key with no registered parser never reaches here — the load has already refused it
-
-`DartclawConfig.extensions` therefore holds registered sections only.
-
-**`channels.<name>` is not an extension point.** `ChannelConfig.fromYaml` treats any map-valued key under `channels`
-that is not one of its own three as a channel definition, and stores it. Since 0.25 the § 3 sweep refuses a
-`channels.<name>` block for anything but `whatsapp`, `signal` and `google_chat`, and `registerExtensionParser` does not
-reach it — the sweep consults registered extension keys at the top level only. Nothing read such a block after 0.25
-closed `resolveChannelConfig` to the three built-in channels, so what changes is that an inert section is now named
-rather than stored.
-
-### Typed Access
-
-```dart
-final myConfig = config.extension<MyCustomConfig>('myCustomSection');
-```
-
-- Throws `StateError` if no extension is present
-- Throws `ArgumentError` if the stored value is not assignable to `T`
-
-### Test Hygiene
-
-`DartclawConfig.clearExtensionParsers()` is `@visibleForTesting` — call in `setUp`/`tearDown` to avoid parser leakage between tests.
+Durations that repeat a value in more than one place and are left as separate authorities on purpose: bridge idle/request limits (5m/10m, `BridgeLimits`; request timeout stays below a full turn budget), `RestartService` drain deadline (30s, passed both to `waitForCompletion` and an outer wait), coordinator/runner/manager outcome retention (30s each), `TurnRunner.waitForCompletion` default (10s), Codex credential staleness and warning (8d/48h in `CredentialHealthMonitor`; the warning must stay shorter than the lifetime), knowledge inbox stability window (10s), and the heartbeat interval (its default can coincide with a full turn budget; overlap policy belongs to scheduling).
 
 ---
 
-## 8. Credential Management
+## 8. Extension system
 
-Config loads merge named-store credentials by default. Diagnostic callers pass `resolveStoredCredentials: false`
-through the existing loader chain to read the declared view, even after registration. That load never invokes the
-store callback. Named-store config reads and subscription diagnostic reads use guarded `readOnly` factories;
-provisioning remains with explicit store writers.
+`DartclawConfig.registerExtensionParser(name, (yaml, warns) => T)` (`config_extensions.dart`) is how a deployer or a non-kernel package keeps a top-level section DartClaw's registry does not own.
 
-Credentials follow a reference-based model. The `credentials:` config section may hold a literal but should normally
-reference environment variables; `dartclaw secrets` keeps named values outside `dartclaw.yaml` entirely. Consumers
-resolve a credential name at runtime rather than embedding its value in their own config.
+- **Required before every `load()`**, because the §3 sweep refuses a top-level section neither the registry nor a registered parser describes. There is no raw-retention fallback.
+- Throws `ArgumentError` if `name` is a built-in key (`_knownKeys`). Parsers sit in a module-level map; `clearExtensionParsers()` is `@visibleForTesting`.
+- `_parseExtensions` runs the parser for each registered key present in the YAML. If it throws, the raw map is stored and a blocking warning added; a non-map value is stored raw with a warning. `config.extensions` therefore holds registered sections only.
+- `config.extension<T>(name)` throws `StateError` if absent and `ArgumentError` if not assignable to `T`.
 
-`search.embedding.provider: local` accepts only the managed EmbeddingGemma model and rejects endpoint or credential
-fields. `provider: http` requires an explicit endpoint and non-empty model; its optional `credential` names a generic
-API-key entry. Query and document bodies are sent as raw OpenAI-compatible `input`, so the endpoint owns preprocessing
-and is an explicit trust boundary. Provider kind, normalized endpoint/model or verified local model identity, and
-input convention form the vector fingerprint; the fingerprint is derived runtime identity, not configuration.
+The built-in use is `github` (`GitHubWebhookConfig`): `ensureGitHubWebhookConfigRegistered()` is called by `loadCliConfig`, `ConfigSerializer`, and the config routes. Its keys are also in `ConfigMeta`, so the write API and form handle `github.*`, while the load sweep treats the section as an opaque extension.
 
-Hybrid retrieval is independent of `agent.provider`, model, effort and execution placement. The embedding
-configuration above is its only model boundary; it creates no generative-agent turn or relevance-worker route.
-
-`database.credential` names one generic API-key entry whose resolved value is the PostgreSQL connection URL. It is
-mutually exclusive with `database.url`. There is no current database-engine selector. The 0.27 loader accepts only
-the exact legacy `database.backend: postgres` spelling with removal guidance and refuses other values. The exact old
-`search.backend: fts5` spelling similarly warns and normalizes to `lexical` for this transition release.
-
-### CredentialsConfig
-
-```
-packages/dartclaw_kernel/lib/src/credentials_config.dart
-```
-
-Maps credential names to `CredentialEntry` objects. The `credentials:` YAML section provides named API key entries that `CredentialRegistry` can look up.
-
-`NamedCredentialStore` persists operator-named API keys and GitHub tokens as one `0600` JSON file per name under
-`<data_dir>/credentials/named/`, with owner-only directories. Each config load reads the store and overlays it onto the
-YAML declarations by name; a stored entry wins. Search providers may use `credential: <name>` instead of `api_key`,
-and blank, missing, or non-API-key entries are refused. Config reload repeats the same merge; `credentials` is a
-restart-tier section, so a rotation is reported as restart-required and applied at the next restart. `dartclaw secrets
-audit` opens the store without provisioning missing paths.
-
-### CredentialRegistry
-
-```
-packages/dartclaw_kernel/lib/src/credential_registry.dart
-```
-
-Synchronous provider-to-credential lookup:
-
-```dart
-final registry = CredentialRegistry(credentials: config.credentials, env: env);
-final apiKey = registry.getApiKey('claude');  // returns String?
-```
-
-Resolution order:
-1. Overlay stored named credentials onto YAML entries by name; the stored entry wins
-2. Check `CredentialsConfig` entries by provider-to-credential mapping (`claude` -> `anthropic`, `codex` -> `openai`)
-3. Fall back to environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
-
-### ProviderValidator
-
-```
-packages/dartclaw_kernel/lib/src/provider_validator.dart
-```
-
-Validates all configured providers at startup:
-
-- **Binary probe** — runs `<executable> --version` with 15-second timeout
-- **Auth status probe** — checks binary-level authentication (Claude: `claude auth status` for OAuth; Codex: `~/.codex/auth.json` for tokens)
-- **Credential check** — verifies API key is available via `CredentialRegistry`
-
-Missing binary/credentials for the **default** provider are errors; the same for secondary providers are warnings.
-
-### Credential Injection
-
-Credentials flow to agent harnesses through two mechanisms:
-
-- **Container harnesses**: the host gateway's provider adapter injects the host credential per request over a framed `docker exec` pipe (never in container env). Only the Claude and Codex clients have a verified adapter, so ACP registrations have no container execution.
-- **Git operations**: injected via `GIT_SSH_COMMAND`/`GIT_ASKPASS` environment variables
-
-See [Security Architecture](security-architecture.md) for the full credential isolation model.
+**`channels.<name>` is not an extension point.** `ChannelConfig.fromYaml` stores any map-valued key under `channels` other than its three defaults as a channel definition, and the sweep accepts it whole (OpaqueEntry). Only `whatsapp`, `signal`, `google_chat` and `slack` are ever read, by `resolveChannelConfig`; a fifth block is stored and inert.
 
 ---
 
-## 9. Tier 1 Side-Effects: ConfigChangeSubscriber and ScopeReconciler
+## 9. Credential and provider configuration
 
-Two server-side subscribers bridge Tier 1 config changes to runtime services:
+Credential protection (stores, file permissions, container isolation, gateway injection) is [Security Architecture](security-architecture.md). This section covers how credentials are declared, loaded and resolved.
 
-### ConfigChangeSubscriber
+**Declaration.** `credentials:` holds named entries of `type: api-key` (`api_key`) or `github-token` (`token`, optional `repository`). Values should be `${ENV_VAR}` references; the parser keeps the variable names (`CredentialEntry.envVars`) so diagnostics can name the real variable. Subscription (OAuth) credentials are never in YAML: they live in DartClaw's dedicated stores. `search.embedding.credential`, `search.providers.<id>.credential`, `mcp_servers.*.credential` and `database.credential` reference entries by name instead of embedding a value. `database.credential` names an api-key entry whose value is the PostgreSQL URL and is exclusive with `database.url`; a persisted password in `database.url` is refused.
 
-```
-packages/dartclaw_runtime/lib/src/config/config_change_subscriber.dart
-```
+**Named store merge.** `dartclaw secrets` writes operator-named credentials outside `dartclaw.yaml`: one JSON file per name under `<data_dir>/credentials/named/` (`NamedCredentialStore`, `dartclaw_core`), protected by permissions (`0600` files, `0700` directories) and not encrypted. The kernel opens no credential file. The CLI registers a provider with `DartclawConfig.registerStoredCredentialProvider`, and `load` calls it on every load with that load's `credentialsDir` and merges the result **over** the YAML entries by name, so the store wins and a leftover YAML block cannot shadow a rotated secret. An unusable store reads as no stored credentials, not as a failed load. Callers that need the declared view alone (audits) pass `resolveStoredCredentials: false`, which never invokes the provider. `credentials` is a restart-tier section, so a rotation is reported as restart-required and applied at the next start.
 
-Subscribes to `ConfigChangedEvent` on the `EventBus` and applies side-effects for live-mutable fields:
+**Resolution.** `CredentialRegistry.resolve(providerId, family:)` (`credential_registry.dart`) returns exactly one credential or a typed reason, and never falls back across modes when the mode is forced:
 
-| Key | Action |
-|-----|--------|
-| `scheduling.heartbeat.enabled` | Pause/resume the built-in `heartbeat` job + `RuntimeConfig.heartbeatEnabled` |
-| `workspace.git_sync.enabled` | Pause/resume the built-in `git-sync` job + `RuntimeConfig.gitSyncEnabled` |
-| `workspace.git_sync.push_enabled` | Update `WorkspaceGitSync.pushEnabled` + runtime |
-| `context.warning_threshold` | Update `ContextMonitor.warningThreshold` (clamped 50-99) |
+1. Effective `providers.<id>.auth` (`auto`, `subscription`, `api_key`): the entry's own setting, else the resolved family's, else `auto`; an unrecognized value refuses.
+2. Unless `api_key` is forced, a present subscription credential from the dedicated store wins.
+3. Otherwise an API key: the `credentials` entry for the family (`claude` → `anthropic`, `codex` → `openai`), then the environment (`ANTHROPIC_API_KEY`; `CODEX_API_KEY`, then `OPENAI_API_KEY`). A provider alias resolves its own family's credentials, so a foreign provider's key never leaks through.
 
-### ScopeReconciler
+`credentialRemediationFor` is the single author of the operator-facing fix text, so execution admission, the startup provider gate and the workflow preflight give the same message. See [ADR-053](../adrs/053-subscription-default-provider-authentication.md) for why subscription is the default.
 
-```
-packages/dartclaw_runtime/lib/src/config/scope_reconciler.dart
-```
+**Startup validation.** `ProviderValidator.validate` probes each configured provider's binary (`<executable> --version`, 15s) unless its resolved execution is a container, resolves the credential through the registry, and falls back to the binary's own login (`claude auth status`; `~/.codex/auth.json`) only when nothing is configured and execution is on the host. A forced selection is never rescued that way. Missing binary or credential is an error for the default provider and a warning for the others.
 
-Subscribes to `ConfigChangedEvent` and updates `LiveScopeConfig` when `sessions.dm_scope` or `sessions.group_scope` change. This allows session scope changes to take effect immediately without restart.
+**Embedding provider.** `search.embedding.provider: local` accepts only the managed model and rejects endpoint and credential. `http` requires an explicit endpoint (absolute HTTP(S), no userinfo, query or fragment) and non-empty model; an optional `credential` must name an api-key entry and requires HTTPS except for a literal loopback host. The endpoint is a trust boundary; retrieval behavior is in [System Architecture](system-architecture.md).
 
 ---
 
 ## 10. Settings UI
 
-### Settings Page
+The `/settings` form is a projection of `ConfigMeta`; no field list is maintained in the web layer.
 
 ```
-packages/dartclaw_runtime/lib/src/web/pages/settings_page.dart
+packages/dartclaw_runtime/lib/src/web/settings/
+  settings_sections.dart     panels, tabs, and the registry prefixes each claims; settingsFieldOwners
+  settings_field_view.dart   FieldMeta -> control kind, label, hint, tier badge, value (SettingsValueResolver)
+  settings_form_model.dart   panel render model; form-encoded submission decoding
+  settings_surface.dart      the object the page render and POST /settings both use
+packages/dartclaw_runtime/lib/src/templates/settings_form.html
+packages/dartclaw_runtime/lib/src/config/config_serializer.dart   GET /api/config body and _meta.fields
 ```
 
-The web-based Settings page renders a comprehensive system status view:
+- **Assignment is total.** Every registered field resolves to exactly one panel (longest claimed prefix wins) or to a named owner in `settingsFieldOwners`: `channels.*` to the channel detail pages, `guards.*` to the guard editor, `database.*` to the file. `test/web/settings_form_test.dart` fails on an unassigned field or a prefix two panels declare.
+- **Values are server-rendered** through one chain: the `ConfigSerializer` JSON tree by `FieldMeta.jsonKey` (effective values, defaults and live `RuntimeConfig` state), else the persisted YAML value, else unset. `settingsMaskedFields` (`credentials`, `search.embedding.credential`, `gateway.token`, `github.webhook_secret`, `channels.google_chat.service_account`) resolve to a presence marker, never a value.
+- **A field with no persisted value is not an edit.** An unset field renders an empty control (an unset non-nullable enum leads with a blank *Not set* row) and the emptiness the browser submits compares equal to absence. Otherwise an untouched section would refuse itself on every non-nullable string it was never given.
+- **Saving** posts form-encoded to `POST /settings` (registered in `web/web_routes.dart`, admin-gated before any config read). The submission is coerced through `FieldMeta.type`, diffed against current values and handed to `ConfigApplyService`. The response is the re-rendered section at 200 on success and on validation failure, with the `#restart-banner` fragment swapped out of band. A refusal re-renders the *persisted* values, not the rejected input, so the native reset does not restore it.
 
-- **Server status** — uptime, session count, worker state, version
-- **Provider cards** — per-provider health, binary status, credential status, and lease-derived configured/effective/active/queued/cached/quarantined worker state; primary lane shown separately
-- **Channel status** — WhatsApp, Signal, Google Chat connection status
-- **Guard chain summary** — enabled guards with configuration
-- **Workspace path** — current workspace directory
-
-### Config Serializer
-
-```
-packages/dartclaw_runtime/lib/src/config/config_serializer.dart
-```
-
-`ConfigSerializer.toJson()` converts the full `DartclawConfig` to nested camelCase JSON for the `GET /api/config` response. Live-mutable fields are read from `RuntimeConfig` (not the startup YAML) so the UI reflects current toggle state.
-
-The `metaJson()` method serializes `ConfigMeta.fields` to the `_meta.fields` shape, providing the UI with field metadata (mutability, type, constraints) to drive dynamic form rendering.
+`ConfigSerializer.toJson` produces the nested camelCase tree for `GET /api/config`, reading `live` fields from `RuntimeConfig` so the UI shows current toggle state; `metaJson()` emits `_meta.fields` per YAML path (`mutable` = the mutability name, `type`, `description`, `min`, `max`, `allowedValues`, `nullable`). `dartclaw config show|get|set|schema` are the CLI counterparts (`apps/dartclaw_cli/lib/src/commands/config/`): `set` is a `PATCH /api/config`, and `schema` is offline.
 
 ---
 
-## 11. Package Architecture
-
-### dartclaw_kernel Package
+## 11. Code map
 
 ```
-packages/dartclaw_kernel/
-```
-
-The `dartclaw_kernel` package owns the full config lifecycle: parsing, validation, persistence, hot-reload, and extension system.
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      dartclaw_kernel                             │
-│  ─────────────────────────────────────────────────────────────  │
-│  DartclawConfig          ConfigParser        ConfigValidator    │
-│  ConfigWriter            ConfigNotifier       ConfigDelta       │
-│  ConfigMeta / FieldMeta  Reconfigurable       CredentialRegistry│
-│  ProviderValidator       ProviderIdentity     ReloadConfig      │
-│  25+ section configs     Extension system     Duration parser   │
-└──────────────────────────────┬──────────────────────────────────┘
-```
-
-**Dependency direction**: `dartclaw_kernel` has no DartClaw dependency. Shared data, configuration, and guard contracts are intra-package; runtime consumers depend directly on the kernel barrel. Channel-specific config classes live in their respective channel packages and register parsers at import time.
-
-### Server-Side Config Components
-
-```
-packages/dartclaw_runtime/lib/src/config/
-  config_change_subscriber.dart   # Tier 1 side-effect subscriber
-  scope_reconciler.dart           # Live scope config reconciliation
-  config_serializer.dart          # JSON serialization for API
-  config_exports.dart             # Re-exports
-```
-
-```
-packages/dartclaw_runtime/lib/src/api/
-  config_routes.dart              # Tier 1 ephemeral toggle endpoints
-  config_api_routes.dart          # Tier 2/3 persistent config API
-```
-
-```
+packages/dartclaw_kernel/lib/src/
+  dartclaw_config.dart, config_parser*.dart, config_accept_set.dart   composed model, section parsers, sweep
+  config_meta.dart, config_meta/*_fields.dart, config_meta/json_schema.dart   registry, schema projection
+  config_constraints.dart, config_numeric_bounds.dart, config_validator.dart   the verdict, loader bounds, wording
+  config_writer.dart, config_notifier.dart, config_delta.dart, reconfigurable.dart
+  config_extensions.dart, config_load_warnings.dart, env_substitute.dart
+  credentials_config.dart, credential_registry.dart, provider_validator.dart
+packages/dartclaw_kernel/tool/generate_config_schema.dart
+packages/dartclaw_runtime/lib/src/
+  config/        config_load.dart, channel_config_resolver.dart, config_change_subscriber.dart,
+                 scope_reconciler.dart, runtime_toggle_applier.dart, message_queue_reconfigurer.dart, config_serializer.dart
+  api/           config_apply_service.dart, config_api_routes.dart, config_routes.dart
+  restart_service.dart, runtime_config.dart
+  web/settings/, templates/restart_banner.*
 apps/dartclaw_cli/lib/src/commands/
-  config/                     # Connected config command group
-  jobs/                       # Connected scheduling/job command group
-  reload_trigger_service.dart     # SIGUSR1 + file-watch triggers
+  config_loader.dart, reload_trigger_service.dart, config/
+dev/tools/render_config_reference.dart, dev/tools/fitness/, dev/fitness/test/config_*_test.dart
 ```
 
----
-
-## 12. Config Sections Reference
-
-Comprehensive listing of all sections with hot-reload status. The **Reload Tier** column is the section's declared `ConfigReloadTier` (§6); **Hot-Reloadable** narrows that to which fields actually reload.
-
-### Server & Infrastructure
-
-| Section | Config Class | Reload Tier | Hot-Reloadable | Key Responsibilities |
-|---------|-------------|-------------|---------------|---------------------|
-| `server` | `ServerConfig` | `reloadable` | Partial (port/host/dataDir: no; name/baseUrl/devMode: yes via reload) | Server binding and paths |
-| `auth` | `AuthConfig` | `restart` | No | Cookie security, trusted proxies |
-| `gateway` | `GatewayConfig` | `restart` | No | Auth mode, HSTS, reload trigger config |
-| `harness` | `HarnessConfig` | `restart` | No | Harness-owned raw sections, including ACP agent registrations |
-| `logging` | `LoggingConfig` | `reloadable` | Partial (`redact_patterns`: yes; `level`/`format`: no) | Log level, format, file, redaction |
-| `container` | `ContainerConfig` | `restart` | No | Docker isolation settings |
-| `extensions` | `Map<String, Object?>` | — (outside the table) | No | Deployer-registered sections; no value equality, so never compared |
-
-### Agent & Providers
-
-| Section | Config Class | Reload Tier | Hot-Reloadable | Key Responsibilities |
-|---------|-------------|-------------|---------------|---------------------|
-| `agent` | `AgentConfig` | `restart` | No | Default model, effort, max turns |
-| `providers` | `ProvidersConfig` | `restart` | No | Provider binary paths, hard worker-execution `pool_size`, credential selection `auth` (`auto`/`subscription`/`api_key`; unset on an entry, so an alias whose resolved family differs from its own id inherits that family's selection, while an explicit value on the alias — including `auto` — wins), provider-specific adapter options |
-| `credentials` | `CredentialsConfig` | `restart` | No | API key entries |
-| `mcpServers` | `McpServersConfig` | `restart` | No | External MCP server registry |
-
-### Sessions & Governance
-
-| Section | Config Class | Reload Tier | Hot-Reloadable | Key Responsibilities |
-|---------|-------------|-------------|---------------|---------------------|
-| `sessions` | `SessionConfig` | `reloadable` | Yes (`reset_hour`, `idle_timeout_minutes`, scopes) | Session lifecycle, scoping, maintenance |
-| `governance` | `GovernanceConfig` | `restart` | No | Turn limits, rate limits, budgets, loop detection, queue strategy |
-| `features` | `FeaturesConfig` | `restart` | No | Thread binding feature flags |
-| `onboarding` | `OnboardingConfig` | `restart` | No | Personalization onboarding expiry (0.17) |
-
-### Tasks & Scheduling
-
-| Section | Config Class | Reload Tier | Hot-Reloadable | Key Responsibilities |
-|---------|-------------|-------------|---------------|---------------------|
-| `tasks` | `TaskConfig` | `restart` | No | Retention, worktree, completion action; no independent concurrency limit |
-| `scheduling` | `SchedulingConfig` | `restart` | No (`heartbeat.enabled` is live-tier; intervals and the job list need a restart) | Heartbeat, scheduled jobs |
-
-### Storage & Context
-
-| Section | Config Class | Reload Tier | Hot-Reloadable | Key Responsibilities |
-|---------|-------------|-------------|---------------|---------------------|
-| `memory` | `MemoryConfig` | `restart` | No | Max bytes, pruning config |
-| `knowledge` | `KnowledgeConfig` | `restart` | No | Scheduled inbox ingestion + wiki-lint job settings (0.17) |
-| `search` | `SearchConfig` | `restart` | No | Backend (`lexical`, `hybrid`) and the four `search.embedding.*` provider fields |
-| `database` | `DatabaseConfig` | `restart` | No | PostgreSQL URL or credential reference, pool size, text-search language |
-| `context` | `ContextConfig` | `reloadable` | Yes (`reserve_tokens`, `max_result_bytes`, `warning_threshold`) | Context limits, host tool-result byte cap |
-| `workspace` | `WorkspaceConfig` | `reloadable` | Yes (git sync toggles; `interval_minutes` needs a restart) | Git sync enabled/push/interval |
-| `workflow` | `WorkflowConfig` | `restart` | No | Workflow workspace directory |
-
-### Security & Alerts
-
-| Section | Config Class | Reload Tier | Hot-Reloadable | Key Responsibilities |
-|---------|-------------|-------------|---------------|---------------------|
-| `security` | `SecurityConfig` | `reloadable` | Yes (guard chain rebuilt on change), though the fields stay declared `restart` | Content guard, command/file/network guards |
-| `alerts` | `AlertsConfig` | `reloadable` | Yes – all five keys are `reloadable`; `AlertRouter.reconfigure` swaps the whole section | Alert delivery targets, routing |
-| `usage` | `UsageConfig` | `restart` | No | Budget warning, file size limits |
-
-### Channels & Projects
-
-| Section | Config Class | Reload Tier | Hot-Reloadable | Key Responsibilities |
-|---------|-------------|-------------|---------------|---------------------|
-| `channels` | `ChannelConfig` | `restart` | No | Per-channel configs (WhatsApp, Signal, Google Chat) |
-| `projects` | `ProjectConfig` | `restart` | No | Multi-project definitions |
+`dartclaw_kernel` has no workspace dependencies; channel-specific config types live in their channel packages and are resolved in `dartclaw_runtime` (§3).
 
 ---
 
-## Cross-References
+## Cross-references
 
-- [System Architecture](system-architecture.md) — component map, package DAG, where config fits in the overall system
-- [Security Architecture](security-architecture.md) — guard chain config, credential isolation, container security settings
-- [Data Model](data-model.md) — `dartclaw.yaml` as primary config store, `restart.pending` marker, config backup files
-- [Workflow Architecture](workflow-architecture.md) — workflow config section, workspace directory override
-- ADR-016 — live config tiers (Tier 1 and 2 design rationale; Tier 3 hot-reload resolved as "Future" item)
-- [`CHANGELOG.md`](../../CHANGELOG.md) — authoritative per-release history of configuration changes
+- [System Architecture](system-architecture.md): package DAG, composition root, where config is wired
+- [Security Architecture](security-architecture.md): guard chain, credential stores and isolation, container posture
+- [Control Protocol](control-protocol.md): harness construction and turn enforcement that consume provider and turn-limit config
+- [Data Model](data-model.md): `dartclaw.yaml` as primary config store, `restart.pending`, `.bak`
+- [Task Execution Architecture](task-execution-architecture.md): worker leases behind `providers.<id>.pool_size`
+- [`CHANGELOG.md`](../../CHANGELOG.md): per-release configuration changes

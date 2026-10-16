@@ -142,7 +142,7 @@ weaker than the host tool gate. DartClaw does not today refuse an ACP provider n
 | Guard | Category | What It Blocks |
 |-------|----------|---------------|
 | **CommandGuard** | command | Shell injection, dangerous commands (rm -rf, curl to untrusted hosts) |
-| **FileGuard** | filesystem | Access to `.ssh/`, `.aws/`, credentials files, symlink escape |
+| **FileGuard** | filesystem | Access to `.ssh/`, `.aws/`, credentials files, symlink escape, including a Claude `Grep` or `Glob` search rooted at or inside a `no_access` path; reads of `.env` files, private keys and the data directory's config, gateway token and credential store |
 | **NetworkGuard** | network | Connections to non-allowlisted hosts/ports |
 | **ContentGuard** | content | Prompt injection and harmful content at agent boundaries, in `web_fetch` results, and in results from `network_class: public` MCP servers |
 | **TaskToolFilterGuard** | tool | Tools not in the task's allowlist; every shell command not proven read-only while a task is read-only |
@@ -185,6 +185,31 @@ A file rule's `pattern` is a glob, matched against the full path, the file's bas
 | `*` | any run of characters inside one path segment |
 | `**` | any run of characters, separators included |
 | `**/` | zero or more whole leading segments — anchored to a segment boundary, so `**/.ssh/*` matches `a/.ssh/k` but not `a/my.ssh/k` |
+
+A `level` is `no_access` (no read, write or delete), `read_only`, `no_delete`, or `allow`. Where rules overlap, an
+`allow` rule exempts the path from every other rule, built-in ones included; otherwise the most restrictive level wins.
+
+Agents cannot read these by default, on any harness, because a read puts the secret in the provider's context:
+
+| Path | Default |
+|---|---|
+| `.env`, `.env.*` | `no_access`, except `.env.example`, `.env.sample`, `.env.template`, `.env.dist` (unrestricted) |
+| `*.pem`, `*.p12`, `*.pfx`, `id_rsa*`, `id_dsa*`, `id_ecdsa*`, `id_ed25519*` | `no_access` |
+| `<data_dir>/dartclaw.yaml`, `<data_dir>/gateway_token`, `<data_dir>/credentials/` | `no_access` |
+| `.ssh/`, `.gnupg/`, `.aws/credentials`, `.netrc` | `no_access` |
+| `*.key`, `.kube/config` | `read_only` |
+
+A Claude `Grep` or `Glob` is refused only when the directory it searches is, or lies inside, a protected path; a
+protected file below that directory is left to the harness's own deny rules and sandbox. A config file loaded from
+outside the data directory is not covered. If an agent must read a protected file, re-allow it:
+
+```yaml
+guards:
+  file:
+    extra_rules:
+      - pattern: '**/.env'
+        level: allow
+```
 | `?` | one character inside a segment |
 | `{a,b}` | either alternative, each taken literally |
 

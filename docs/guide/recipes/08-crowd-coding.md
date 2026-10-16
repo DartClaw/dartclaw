@@ -36,12 +36,16 @@ Start with this complete configuration, then add a `projects:` entry if the grou
 ```yaml
 data_dir: ~/.dartclaw
 
+database:
+  url: ${DARTCLAW_DATABASE_URL}        # PostgreSQL 14+, already set if you followed Getting Started
+
 agent:
   model: sonnet
   max_turns: 100
 
 providers:
   claude:
+    executable: claude                 # an entry without it is skipped at load
     pool_size: 5
 
 features:
@@ -81,9 +85,7 @@ channels:
     enabled: true
     service_account: ${GOOGLE_CHAT_SERVICE_ACCOUNT}
     group_access: open
-    require_mention: false
-    space_events:
-      enabled: true
+    require_mention: false             # answers every message Google delivers; see the note below
 
 sessions:
   group_scope: shared
@@ -100,6 +102,11 @@ guards:
 This is a shared-session configuration. Every ordinary message enters the same group session. When someone asks for
 background work, the agent calls `task_create`; when someone asks for a workflow, it uses `workflow_list` or
 `workflow_run`. See [Tasks](../tasks.md#agent-tool-surface) for the exact tool contracts.
+
+Without Space Events, Google Chat delivers only messages that @mention the bot. To hear the whole room, also configure
+[Space Events](../google-chat.md#space-events-full-participation), which needs a Pub/Sub topic and user OAuth.
+`tasks.completion_action: accept` lands a finished task without a human review pause; set it to `review` to park tasks
+for a `task_review` decision.
 
 ### Scenario B: External Repository
 
@@ -182,7 +189,7 @@ choice. Keep the room informed about what you are changing and what needs human 
 
 - Tasks: `task_create`, `task_list`, `review_list`, `task_review`, `task_bind`, `task_unbind`
 - Workflows: `workflow_list`, `workflow_run`
-- Run approvals: Approve and Reject buttons on the run's post (plus Request changes on a gate that names a `revise` step); `workflow_status`, `workflow_resume`, `workflow_cancel` and `workflow_request_changes` are granted only through an agent's `allowedTools`
+- Run approvals: Approve and Reject buttons on the run's post (plus Request changes on a gate that names a `revise` step); `workflow_status`, plus `workflow_resume`, `workflow_cancel` and `workflow_request_changes` from an admin sender's chat turn
 - Media delivery: `attach_media`
 ```
 
@@ -198,9 +205,12 @@ choice. Keep the room informed about what you are changing and what needs human 
 
 ### Running the session
 
+[![Crowd coding: requests become tasks or workflow runs](diagrams/recipe-08-crowd-coding-tasks-and-runs.svg)](diagrams/recipe-08-crowd-coding-tasks-and-runs.svg)
+
 Participants ask for work in ordinary language. For example: “Create a background task to add a health endpoint to the
 workshop project.” The agent calls `task_create` and reports the returned full ID. Later requests to inspect or decide
-the task cause it to call `review_list`, `task_list`, or `task_review`.
+the task cause it to call `review_list`, `task_list`, or `task_review`. From a chat message, `task_review`,
+`task_bind`, and `task_unbind` succeed only for a sender in `governance.admin_senders`.
 
 To start a workflow, ask the agent what workflows are available, select one, and provide its required inputs. The agent
 calls `workflow_list` and `workflow_run`. The web launch forms at `/workflows` and the standalone CLI remain available
@@ -213,14 +223,17 @@ every member of the room approve or reject runs. A click from anyone else is ref
 
 ### Deterministic controls (all scenarios)
 
+[![Crowd coding: the path of a message through a shared room](diagrams/recipe-08-crowd-coding-message-path.svg)](diagrams/recipe-08-crowd-coding-message-path.svg)
+
 - Google Chat app commands are `/new <description>`, `/reset`, `/status`, `/stop`, `/pause`, and `/resume`. Register
   those six command IDs in the Chat app configuration before the workshop.
 - The bridge-reserved text commands are `/stop`, `/pause`, `/resume`, `/bind <full-task-id>`, and `/unbind`. They are
   consumed before pause queueing and per-sender rate limiting. `/bind` and `/unbind` are text commands, not Google Chat
   app commands.
-- `/stop` cancels active work and clears queued messages. All five bridge-reserved commands are admin-only when
+- `/stop` cancels active turns and every running or queued task. All five bridge-reserved commands are admin-only when
   `admin_senders` is non-empty.
-- `/pause` stops queue draining while preserving queued messages; `/resume` resumes it.
+- `/pause` holds new messages in a queue instead of starting turns; `/resume` replays them as one collapsed prompt per
+  session.
 - `/status` reports the current runtime state, `/new` creates and starts a Google Chat task, and `/reset` starts a fresh
   shared session context.
 
@@ -237,8 +250,9 @@ and Signal send none, so `/bind` in a WhatsApp or Signal group answers `Cannot b
 `task_unbind` requires only the full task ID and removes all bindings for that task. A thread that a workflow run posts
 into is refused with a message naming the run.
 
-Thread replies route to a bound task session before ordinary session routing. See [Tasks](../tasks.md#agent-tool-surface)
-for the command, tool, and API forms.
+A binding ends when its task reaches a terminal state or after `features.thread_binding.idle_timeout_minutes` (default
+60) without a routed message. Thread replies route to a bound task session before ordinary session routing. See
+[Tasks](../tasks.md#agent-tool-surface) for the command, tool, and API forms.
 
 ## Governance Tuning Guide
 
@@ -270,9 +284,9 @@ Signal guides.
 
 `governance.rate_limits.per_sender` prevents one participant from filling the queue, while
 `governance.rate_limits.global` caps total turn starts. Admin senders and bridge-reserved text commands (`/stop`,
-`/pause`, `/resume`, `/bind`, and `/unbind`) are exempt from the per-sender check; review requests and the Google Chat
-`/new`, `/reset`, and `/status` commands receive no bridge exemption. Rate-limit state is in memory and resets when the
-server restarts.
+`/pause`, `/resume`, `/bind`, and `/unbind`) are exempt from the per-sender check; ordinary messages, including requests
+to review a task, count. Google Chat app commands are answered by the webhook before the bridge, so the per-sender limit
+never sees them. Rate-limit state is in memory and resets when the server restarts.
 
 `governance.queue_strategy: fair` drains one queued item per sender in rotation. Use
 `per_sender.max_queued` and `max_pause_queued` to bound how much of either queue a participant can occupy.
@@ -315,8 +329,8 @@ and choose the desired approval and sandbox policy for the deployment. See [Conf
 - A shared session does not provide per-contribution rollback. Use an explicit worktree-backed task or workflow when
   changes must be isolated.
 - `/bind` needs a full task ID and a supported thread context. It does not resolve an ID prefix.
-- Task review-ready notifications on WhatsApp and Signal do not currently include a prescribed call to action. Teach
-  participants to ask the agent for pending reviews or use the task UI; do not rely on notification wording.
+- A review-ready notification says to open the task page "or tell me here to accept or reject it". That reply is an
+  ordinary message: the agent decides whether to call `task_review`, and the call succeeds only for an admin sender.
 - Per-sender and global rate-limit counters reset at restart.
 - Workspace git sync covers the configured workspace, not every project directory.
 - Provider capacity is shared by group turns, tasks, and workflows; a full pool queues later work.

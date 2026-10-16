@@ -177,10 +177,11 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   ///
   /// The inverse of [mapToolName] for the built-ins it maps; a name that is
   /// not a canonical stable name is already native (or an MCP tool) and passes
-  /// through. `file_edit` names two built-ins, so it expands to both.
+  /// through. `file_read` and `file_edit` name several built-ins, so they
+  /// expand to all of them.
   static List<String> nativeToolNames(String name) => switch (name) {
     'shell' => const ['Bash'],
-    'file_read' => const ['Read'],
+    'file_read' => const ['Read', 'Grep', 'Glob'],
     'file_write' => const ['Write'],
     'file_edit' => const ['Edit', 'NotebookEdit'],
     'web_fetch' => const ['WebFetch'],
@@ -192,7 +193,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   CanonicalTool? mapToolName(String providerToolName, {String? kind}) {
     final canonical = switch (providerToolName) {
       'Bash' => CanonicalTool.shell,
-      'Read' => CanonicalTool.fileRead,
+      'Read' || 'Grep' || 'Glob' => CanonicalTool.fileRead,
       'Write' || 'write_file' => CanonicalTool.fileWrite,
       'Edit' || 'NotebookEdit' || 'edit_file' => CanonicalTool.fileEdit,
       'WebFetch' || 'web_fetch' => CanonicalTool.webFetch,

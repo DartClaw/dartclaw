@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 850" width="1000" height="850" role="img" aria-labelledby="title desc">
+  <title id="title">Session maintenance and reset</title>
+  <desc id="desc">SessionMaintenanceService runs six stages in order (auto-settle, prune, count cap, cron retention, disk budget, artifact retention) with a fixed protected set; SessionResetService archives or clears sessions on a daily or idle trigger.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .num { fill: var(--k); }
+    .num-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    .state .box { rx: 14px; }
+    .edge.hot { stroke: var(--sec); }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="850"/>
+  <text class="title" x="24" y="34">Session maintenance and reset</text>
+  <text class="lede" x="24" y="56">Two lifecycle paths over the same session store. Maintenance trims by age, count and size; reset restarts a conversation under the same key.</text>
+  <text class="group-label" x="24" y="84">Maintenance (SessionMaintenanceService)</text>
+  <g class="node k-host">
+    <title>Built-in scheduled job registered in scheduling_wiring.dart. Empty or 'disabled' schedules nothing. Also runs audit-file cleanup after the session stages.</title>
+    <path class="edge" d="M174,138 L174,160"/>
+    <rect class="box" x="24" y="94" width="300" height="44" rx="6"/>
+    <text class="mono" x="38" y="114">session-maintenance job</text>
+    <text class="sub" x="38" y="132">sessions.maintenance.schedule, default 0 3 * * *</text>
+  </g>
+  <g class="node k-host">
+    <title>apps/dartclaw_cli cleanup_command.dart. Passes no inbox or task service, so stages 0 and 5 do not run.</title>
+    <path class="edge" d="M490,138 L490,160"/>
+    <rect class="box" x="340" y="94" width="300" height="44" rx="6"/>
+    <text class="mono" x="354" y="114">dartclaw cleanup</text>
+    <text class="sub" x="354" y="132">--dry-run forces warn, --enforce forces enforce</text>
+  </g>
+  <g class="node k-host">
+    <title>maintenance/session_maintenance_service.dart. Each action is reported as archive or delete with a reason and whether it was applied.</title>
+    <path class="edge" d="M332,204 L332,222"/>
+    <rect class="box" x="24" y="160" width="616" height="44" rx="6"/>
+    <text class="mono" x="38" y="180">SessionMaintenanceService.run</text>
+    <text class="sub" x="38" y="198">mode warn (default): plan and report only; enforce: apply</text>
+  </g>
+  <g class="node k-host">
+    <title>ConversationInboxService.autoSettleIdleSessions. Settling is not archival.</title>
+    <path class="edge" d="M332,266 L332,276"/>
+    <rect class="box" x="24" y="222" width="616" height="44" rx="6"/>
+    <text class="mono" x="38" y="242">0  autoSettleIdleSessions</text>
+    <text class="sub" x="38" y="260">settle idle read conversations: sessions.auto_settle_idle_days (0); scheduled job only</text>
+  </g>
+  <g class="node k-host">
+    <title>Skips archive, task and protected sessions.</title>
+    <path class="edge" d="M332,320 L332,330"/>
+    <rect class="box" x="24" y="276" width="616" height="44" rx="6"/>
+    <text class="mono" x="38" y="296">1  prune stale</text>
+    <text class="sub" x="38" y="314">archive sessions not updated within prune_after_days (30)</text>
+  </g>
+  <g class="node k-host">
+    <title>Sorted by updatedAt ascending.</title>
+    <path class="edge" d="M332,374 L332,384"/>
+    <rect class="box" x="24" y="330" width="616" height="44" rx="6"/>
+    <text class="mono" x="38" y="350">2  count cap</text>
+    <text class="sub" x="38" y="368">archive the oldest unprotected sessions beyond max_sessions (500)</text>
+  </g>
+  <g class="node k-host">
+    <title>The session type is flipped to user first so the delete guard passes.</title>
+    <path class="edge" d="M332,428 L332,438"/>
+    <rect class="box" x="24" y="384" width="616" height="44" rx="6"/>
+    <text class="mono" x="38" y="404">3  cron retention</text>
+    <text class="sub" x="38" y="422">delete orphaned cron sessions older than cron_retention_hours (24)</text>
+  </g>
+  <g class="node k-host">
+    <title>Skips protected (active) sessions; warns if still over budget.</title>
+    <path class="edge" d="M332,482 L332,492"/>
+    <rect class="box" x="24" y="438" width="616" height="44" rx="6"/>
+    <text class="mono" x="38" y="458">4  disk budget</text>
+    <text class="sub" x="38" y="476">delete archived sessions oldest-first until usage &lt;= 80% of max_disk_mb (0)</text>
+  </g>
+  <g class="node k-host">
+    <title>Needs taskService and dataDir; the CLI passes neither.</title>
+    <rect class="box" x="24" y="492" width="616" height="44" rx="6"/>
+    <text class="mono" x="38" y="512">5  artifact retention</text>
+    <text class="sub" x="38" y="530">delete artifacts of terminal tasks past tasks.artifact_retention_days; scheduled job only</text>
+  </g>
+  <g class="node k-sec">
+    <title>_isProtected in session_maintenance_service.dart. The scheduled job treats every channel session key as active whenever a channel is registered; the CLI does so when a channel is enabled in config.</title>
+    <rect class="box" x="664" y="222" width="312" height="124" rx="6"/>
+    <text class="mono" x="678" y="242">protected (stages 1, 2, 4)</text>
+    <text class="sub" x="678" y="260">main sessions</text>
+    <text class="sub" x="678" y="276">task sessions</text>
+    <text class="sub" x="678" y="292">any session with an active turn</text>
+    <text class="sub" x="678" y="308">channel sessions whose key is active</text>
+    <text class="sub" x="678" y="324">cron sessions whose job is active</text>
+  </g>
+  <text class="note" x="664" y="370">Disabling a stage: set its limit to 0.</text>
+  <text class="note" x="664" y="386">prune_after_days, max_sessions, max_disk_mb,</text>
+  <text class="note" x="664" y="402">cron_retention_hours, auto_settle_idle_days.</text>
+  <rect class="group" x="16" y="568" width="968" height="242" rx="8"/>
+  <text class="group-label" x="28" y="586">Reset (SessionResetService)</text>
+  <g class="node k-host">
+    <title>A negative hour disables the daily timer. The timer reschedules itself each day.</title>
+    <path class="edge" d="M174,640 L174,662 H332 V672"/>
+    <rect class="box" x="24" y="596" width="300" height="44" rx="6"/>
+    <text class="mono" x="38" y="616">daily reset</text>
+    <text class="sub" x="38" y="634">sessions.reset_hour, default 4, local time</text>
+  </g>
+  <g class="node k-host">
+    <title>touchActivity(sessionId) restarts a per-session timer on turn reservation and on forward-progress events.</title>
+    <path class="edge" d="M490,640 L490,662 H332 V672"/>
+    <rect class="box" x="340" y="596" width="300" height="44" rx="6"/>
+    <text class="mono" x="354" y="616">idle timeout</text>
+    <text class="sub" x="354" y="634">sessions.idle_timeout_minutes, default 0 (off)</text>
+  </g>
+  <g class="node k-host">
+    <title>session_reset_service.dart. TurnManager.resetSessionContinuity is bound through server_composition.dart.</title>
+    <path class="edge" d="M120,738 V752"/>
+    <path class="edge" d="M332,738 V752"/>
+    <path class="edge" d="M544,738 V752"/>
+    <rect class="box" x="24" y="672" width="616" height="66" rx="6"/>
+    <text class="mono" x="38" y="692">resetSession(id)</text>
+    <text class="sub" x="38" y="710">first resets provider continuity (BusyTurnException if a turn is active)</text>
+    <text class="sub" x="38" y="726">the daily reset logs that failure and moves on</text>
+  </g>
+  <g class="node k-store">
+    <title>The old session becomes type archive (titled from its title or creation date); getOrCreateByKey then creates a new session with the same key and type.</title>
+    <rect class="box" x="24" y="752" width="196" height="44" rx="6"/>
+    <text class="mono" x="38" y="772">keyed, with messages</text>
+    <text class="sub" x="38" y="790">archive + fresh session, same key</text>
+  </g>
+  <g class="node k-store">
+    <title>No archive title is written; the key index treats an archived mapping as stale.</title>
+    <rect class="box" x="236" y="752" width="196" height="44" rx="6"/>
+    <text class="mono" x="250" y="772">keyed, empty</text>
+    <text class="sub" x="250" y="790">marked archive; mapping stale</text>
+  </g>
+  <g class="node k-store">
+    <title>User sessions without a channel key are cleared in place; no archive is created.</title>
+    <rect class="box" x="448" y="752" width="192" height="44" rx="6"/>
+    <text class="mono" x="462" y="772">unkeyed</text>
+    <text class="sub" x="462" y="790">cleared in place, no archive</text>
+  </g>
+  <text class="note" x="664" y="610">Timers cover main, channel and cron.</text>
+  <text class="note" x="664" y="626">POST /api/sessions/&lt;id&gt;/reset can</text>
+  <text class="note" x="664" y="642">target any other non-task session.</text>
+  <text class="note" x="664" y="666">Hour and idle timeout reload live</text>
+  <text class="note" x="664" y="682">(Reconfigurable on sessions.*).</text>
+  <text class="note" x="24" y="836">Opened directly in a browser, hovering a node shows its detail and highlights its outgoing edges.</text>
+</svg>

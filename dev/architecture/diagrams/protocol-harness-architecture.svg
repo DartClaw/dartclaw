@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">Harness architecture: host, harness contract, provider processes</title>
+  <desc id="desc">The turn engine in the Dart host calls one AgentHarness contract; three implementations each spawn a provider binary over stdio with its own wire protocol. All three route tool use through the GuardChain, and Claude and Codex call back into the host&#x27;s /mcp endpoint.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+
+    .mono-sm { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--sub); }
+    .step { font-size: 12.5px; font-weight: 700; }
+    .num { fill: var(--host); font-weight: 700; font-size: 12px; }
+    .legend-text { fill: var(--sub); font-size: 11px; }
+    .edge.guard { stroke: var(--sec); stroke-dasharray: 5 4; }
+    .edge.fail { stroke: var(--sec); stroke-dasharray: 5 4; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="600"/>
+  <text class="title" x="24" y="34">Harness architecture: host, harness contract, provider processes</text>
+  <text class="lede" x="24" y="56">TurnRunner drives any harness through AgentHarness.turn(); provider differences stay below the contract.</text>
+  <a href="../control-protocol.md#63-reserve-execute-settle">
+  <g class="node k-host">
+    <title>TurnManager: reserve, execute, cancel and outcome lookup across runners. dartclaw_runtime/lib/src/turn_manager.dart</title>
+    <path class="edge" d="M224,109 L290,109"/>
+    <rect class="box" x="24" y="84" width="200" height="50" rx="6"/>
+    <text class="mono" x="36" y="105">TurnManager</text>
+    <text class="sub" x="36" y="122">reserveTurn / executeTurn</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>ExecutionCoordinator: sole post-governance allocator. Lane choice, capacity permits, worker reuse, quarantine. execution_coordinator.dart</title>
+    <path class="edge" d="M520,109 L596,109"/>
+    <rect class="box" x="290" y="84" width="230" height="50" rx="6"/>
+    <text class="mono" x="302" y="105">ExecutionCoordinator</text>
+    <text class="sub" x="302" y="122">lanes, pool_size, leases</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#63-reserve-execute-settle">
+  <g class="node k-host">
+    <title>TurnRunner: one harness&#x27;s turn engine. Guards, prompt, event stream, usage, persistence, limits, cancel. turn_runner*.dart</title>
+    <path class="edge" d="M696,134 L696,190"/>
+    <rect class="box" x="596" y="84" width="200" height="50" rx="6"/>
+    <text class="mono" x="608" y="105">TurnRunner</text>
+    <text class="sub" x="608" y="122">one active turn per runner</text>
+  </g>
+  </a>
+  <text class="edge-label" x="232" y="102" text-anchor="start">acquire</text>
+  <text class="edge-label" x="528" y="102" text-anchor="start">lease.runner</text>
+  <text class="edge-label" x="704" y="166" text-anchor="start">turn()</text>
+  <rect class="group" x="16" y="190" width="740" height="170" rx="8"/>
+  <text class="group-label" x="30" y="350">AgentHarness contract</text>
+  <text class="sub" x="364" y="322">Claude and Codex extend BaseHarness:</text>
+  <text class="sub" x="364" y="336">lifecycle lock, crash backoff,</text>
+  <text class="sub" x="364" y="350">bounded output</text>
+  <a href="../control-protocol.md#3-claude-code-protocol">
+  <g class="node k-host">
+    <title>ClaudeCodeHarness: spawns the claude CLI, speaks stream-json JSONL. Restarts the process when spawn-time state changes. claude_code_harness.dart</title>
+    <path class="edge guard" d="M142,218 V206 H880 V218"/>
+    <path class="edge" d="M112,298 L112,420"/>
+    <rect class="box" x="32" y="218" width="220" height="80" rx="6"/>
+    <text class="mono" x="44" y="239">ClaudeCodeHarness</text>
+    <text class="sub" x="44" y="256">ClaudeProtocolAdapter</text>
+    <text class="sub" x="44" y="271">PreToolUse hook callbacks</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#4-codex-protocol">
+  <g class="node k-host">
+    <title>CodexHarness: spawns codex app-server, JSON-RPC over JSONL, one thread per session. codex_harness.dart</title>
+    <path class="edge guard" d="M382,218 V206 H880 V218"/>
+    <path class="edge" d="M352,298 L352,420"/>
+    <rect class="box" x="272" y="218" width="220" height="80" rx="6"/>
+    <text class="mono" x="284" y="239">CodexHarness</text>
+    <text class="sub" x="284" y="256">CodexProtocolAdapter</text>
+    <text class="sub" x="284" y="271">requestApproval replies</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#5-acp">
+  <g class="node k-host">
+    <title>AcpHarness: ACP agent over stdio JSON-RPC, one ACP session per turn. dartclaw_acp/lib/src/acp_harness.dart</title>
+    <path class="edge guard" d="M622,218 V206 H880 V218"/>
+    <path class="edge" d="M592,298 L592,420"/>
+    <rect class="box" x="512" y="218" width="220" height="80" rx="6"/>
+    <text class="mono" x="524" y="239">AcpHarness</text>
+    <text class="sub" x="524" y="256">AcpProtocolAdapter</text>
+    <text class="sub" x="524" y="271">fs/* reverse-calls</text>
+  </g>
+  </a>
+  <g class="node k-sec">
+    <title>GuardChain.evaluateBeforeToolCall: every tool call from every provider is checked here before it runs. Fail closed: a block or an exception denies.</title>
+    <rect class="box" x="776" y="218" width="208" height="80" rx="6"/>
+    <text class="mono" x="788" y="239">GuardChain</text>
+    <text class="sub" x="788" y="256">evaluateBeforeToolCall</text>
+    <text class="sub" x="788" y="271">fails closed unless fail_open</text>
+  </g>
+  <text class="edge-label" x="790" y="200" text-anchor="start">tool calls</text>
+  <text class="edge-label" x="118" y="386" text-anchor="start">stream-json JSONL</text>
+  <text class="edge-label" x="358" y="386" text-anchor="start">JSON-RPC JSONL</text>
+  <text class="edge-label" x="598" y="386" text-anchor="start">ACP JSON-RPC</text>
+  <g class="node k-ext">
+    <title>claude CLI process: long-lived, one per harness. Host spawn or docker exec -i into a container.</title>
+    <path class="edge" d="M190,476 L190,520"/>
+    <rect class="box" x="32" y="420" width="220" height="56" rx="6"/>
+    <text class="mono" x="44" y="441">claude</text>
+    <text class="sub" x="44" y="458">claude --print, stream-json</text>
+  </g>
+  <g class="node k-ext">
+    <title>codex app-server process: long-lived, one thread per DartClaw session.</title>
+    <path class="edge" d="M430,476 L430,520"/>
+    <rect class="box" x="272" y="420" width="220" height="56" rx="6"/>
+    <text class="mono" x="284" y="441">codex app-server</text>
+    <text class="sub" x="284" y="458">JSON-RPC 2.0-like</text>
+  </g>
+  <g class="node k-ext">
+    <title>Configured ACP agent binary, for example goose acp. Host execution only.</title>
+    <rect class="box" x="512" y="420" width="220" height="56" rx="6"/>
+    <text class="mono" x="524" y="441">ACP agent binary</text>
+    <text class="sub" x="524" y="458">goose acp, vibe-acp, ...</text>
+  </g>
+  <text class="edge-label" x="196" y="504" text-anchor="start">tools/call over HTTP</text>
+  <text class="edge-label" x="436" y="504" text-anchor="start">tools/call over HTTP</text>
+  <a href="../control-protocol.md#8-mcp-integration">
+  <g class="node k-host">
+    <title>McpProtocolHandler behind POST /mcp: memory, knowledge graph, sessions, tasks, workflows, web and search tools. Each call is guarded and audited at the dispatch seam. dartclaw_runtime/lib/src/mcp/</title>
+    <rect class="box" x="130" y="520" width="400" height="56" rx="6"/>
+    <text class="mono" x="142" y="541">McpProtocolHandler: POST /mcp</text>
+    <text class="sub" x="142" y="558">Streamable HTTP, JSON-RPC 2.0, bearer per caller</text>
+  </g>
+  </a>
+  <g class="k-host"><rect class="box" x="600" y="550" width="14" height="14" rx="3"/></g>
+  <text class="legend-text" x="620" y="561">DartClaw code</text>
+  <g class="k-ext"><rect class="box" x="720" y="550" width="14" height="14" rx="3"/></g>
+  <text class="legend-text" x="740" y="561">provider process</text>
+  <g class="k-sec"><rect class="box" x="858" y="550" width="14" height="14" rx="3"/></g>
+  <text class="legend-text" x="878" y="561">guard</text>
+</svg>

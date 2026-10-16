@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">Config hot reload</title>
+  <desc id="desc">How a reload trigger becomes a ConfigDelta and reaches Reconfigurable services, and the three outcomes of ConfigNotifier.reload.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .step-no { fill: var(--accent); }
+    .step-no-t { fill: var(--bg); font-size: 11px; font-weight: 700; }
+    .fatal { fill: var(--sec); font-size: 11px; }
+    .warn { fill: var(--sub); font-size: 11px; }
+    .legend-box { fill: var(--box); stroke: var(--line); }
+    .group-label { text-transform: none; letter-spacing: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="600"/>
+  <text class="title" x="24" y="34">Config hot reload</text>
+  <text class="lede" x="24" y="56">Reloadable sections: server, sessions, context, security, logging, workspace, alerts. Every other section is restart-tier.</text>
+  <g class="node k-host">
+    <title>Registered whenever POSIX signals are available and the mode is not off. In signal mode on Windows the service only logs that signal reload is POSIX-only.</title>
+    <path class="edge" d="M224,109 H272"/>
+    <a href="../configuration-architecture.md#reload-triggers">
+    <rect class="box" x="24" y="88" width="200" height="42" rx="6"/>
+    <text class="mono" x="38" y="107">SIGUSR1</text>
+    <text class="sub" x="38" y="123">POSIX; mode signal or auto</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Watches the parent directory, not the file: an atomic temp+rename save is create/modify on macOS but a move on Linux. Debounce is gateway.reload.debounce_ms, default 500.</title>
+    <path class="edge" d="M224,159 H272"/>
+    <a href="../configuration-architecture.md#reload-triggers">
+    <rect class="box" x="24" y="138" width="200" height="42" rx="6"/>
+    <text class="mono" x="38" y="157">config file watch</text>
+    <text class="sub" x="38" y="173">parent dir; mode auto; debounce</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Calls notifier.reload(loadDartclawConfig(file)) directly. A throw falls back to restart-pending for those fields.</title>
+    <path class="edge" d="M224,209 H520"/>
+    <a href="../configuration-architecture.md#configapplyservice">
+    <rect class="box" x="24" y="188" width="200" height="42" rx="6"/>
+    <text class="mono" x="38" y="207">ConfigApplyService</text>
+    <text class="sub" x="38" y="223">after a reloadable PATCH</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>apps/dartclaw_cli/lib/src/commands/reload_trigger_service.dart. Any exception, fatal parse included, logs and keeps the existing config.</title>
+    <path class="edge" d="M482,135 H520"/>
+    <a href="../configuration-architecture.md#reload-triggers">
+    <rect class="box" x="272" y="100" width="210" height="70" rx="6"/>
+    <text class="mono" x="286" y="119">ReloadTriggerService</text>
+    <text class="sub" x="286" y="135">loadCliConfig(), then reload</text>
+    <text class="sub" x="286" y="149">any throw: log, keep config</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>packages/dartclaw_kernel/lib/src/config_notifier.dart. Section tiers are keyed by DartclawConfig field name, not YAML key.</title>
+    <a href="../configuration-architecture.md#confignotifier">
+    <rect class="box" x="520" y="96" width="340" height="126" rx="6"/>
+    <text class="mono" x="534" y="115">ConfigNotifier.reload(newConfig)</text>
+    <text class="sub" x="534" y="134">1  prime out-of-package section parsers</text>
+    <text class="sub" x="534" y="150">2  admit: blocking warnings, container isolation</text>
+    <text class="sub" x="534" y="166">3  compare every section with == (sectionTiers)</text>
+    <text class="sub" x="534" y="182">4  carry forward server.port, host, data_dir</text>
+    <text class="sub" x="534" y="198">    and the container section</text>
+    </a>
+  </g>
+  <path class="edge" d="M690,222 V252 H189 V282"/>
+  <path class="edge" d="M690,222 V252 H509 V282"/>
+  <path class="edge" d="M690,222 V252 H820 V282"/>
+  <g class="node k-sec">
+    <title>Nothing changes, and restartRequiredSections is left as it was.</title>
+    <rect class="box" x="24" y="282" width="330" height="64" rx="6"/>
+    <text class="mono" x="38" y="301">reload refused, config kept</text>
+    <text class="sub" x="38" y="317">blocking warnings: FormatException</text>
+    <text class="sub" x="38" y="331">isolation unsupported: UnsupportedCapabilityError</text>
+  </g>
+  <g class="node k-host">
+    <title>The change is persisted but only takes effect after a restart. A warning is logged and ReloadTriggerService logs the section names. restart.pending is the durable record, not this set.</title>
+    <rect class="box" x="374" y="282" width="270" height="64" rx="6"/>
+    <text class="mono" x="388" y="301">restartRequiredSections</text>
+    <text class="sub" x="388" y="317">restart-tier section changed:</text>
+    <text class="sub" x="388" y="331">logged, withheld from the delta</text>
+  </g>
+  <g class="node k-host">
+    <title>changedKeys holds one &lt;section&gt;.* entry per changed reloadable section. A change confined to port, host, data_dir is excluded.</title>
+    <path class="edge" d="M820,346 V392"/>
+    <rect class="box" x="664" y="282" width="312" height="64" rx="6"/>
+    <text class="mono" x="678" y="301">ConfigDelta</text>
+    <text class="sub" x="678" y="317">reloadable section changed: &lt;section&gt;.*</text>
+    <text class="sub" x="678" y="331">previous, current, changedKeys</text>
+  </g>
+  <text class="edge-label" x="830" y="376">filtered by watchKeys</text>
+  <text class="warn" x="24" y="372">Red: rejected before any section is compared.</text>
+  <rect class="group" x="24" y="392" width="952" height="198" rx="8"/>
+  <text class="group-label" x="34" y="408">Reconfigurable services · called when delta.hasChangedAny(watchKeys); a throw is logged, the rest still run</text>
+  <g class="node k-host">
+    <title>Reconfigurable registered for security.*</title>
+    <rect class="box" x="36" y="420" width="214" height="62" rx="6"/>
+    <text class="mono" x="50" y="439">security.*</text>
+    <text class="sub" x="50" y="455">SecurityWiring</text>
+    <text class="sub" x="50" y="469">rebuilds the guard chain</text>
+  </g>
+  <g class="node k-host">
+    <title>Reconfigurable registered for logging.*</title>
+    <rect class="box" x="270" y="420" width="214" height="62" rx="6"/>
+    <text class="mono" x="284" y="439">logging.*</text>
+    <text class="sub" x="284" y="455">_MessageRedactorAdapter</text>
+    <text class="sub" x="284" y="469">replaces redaction patterns</text>
+  </g>
+  <g class="node k-host">
+    <title>Reconfigurable registered for sessions.*</title>
+    <rect class="box" x="504" y="420" width="214" height="62" rx="6"/>
+    <text class="mono" x="518" y="439">sessions.*</text>
+    <text class="sub" x="518" y="455">SessionResetService</text>
+    <text class="sub" x="518" y="469">reset hour, idle timeout</text>
+  </g>
+  <g class="node k-host">
+    <title>Reconfigurable registered for server.*</title>
+    <rect class="box" x="738" y="420" width="214" height="62" rx="6"/>
+    <text class="mono" x="752" y="439">server.*</text>
+    <text class="sub" x="752" y="455">SessionLockManager</text>
+    <text class="sub" x="752" y="469">MessageQueueReconfigurer</text>
+  </g>
+  <g class="node k-host">
+    <title>Reconfigurable registered for context.*</title>
+    <rect class="box" x="36" y="498" width="214" height="62" rx="6"/>
+    <text class="mono" x="50" y="517">context.*</text>
+    <text class="sub" x="50" y="533">ContextMonitor</text>
+    <text class="sub" x="50" y="547">ResultTrimmer</text>
+  </g>
+  <g class="node k-host">
+    <title>Reconfigurable registered for workspace.*</title>
+    <rect class="box" x="270" y="498" width="214" height="62" rx="6"/>
+    <text class="mono" x="284" y="517">workspace.*</text>
+    <text class="sub" x="284" y="533">WorkspaceGitSyncReconfigurer</text>
+    <text class="sub" x="284" y="547">push flag via RuntimeToggleApplier</text>
+  </g>
+  <g class="node k-host">
+    <title>Reconfigurable registered for alerts.*</title>
+    <rect class="box" x="504" y="498" width="214" height="62" rx="6"/>
+    <text class="mono" x="518" y="517">alerts.*</text>
+    <text class="sub" x="518" y="533">AlertRouter</text>
+    <text class="sub" x="518" y="547">targets, routes, cooldowns</text>
+  </g>
+  <text class="warn" x="738" y="514">register() throws for a watch key</text>
+  <text class="warn" x="738" y="530">naming a restart-tier or undeclared</text>
+  <text class="warn" x="738" y="546">section, so no watcher is ever dead.</text>
+</svg>

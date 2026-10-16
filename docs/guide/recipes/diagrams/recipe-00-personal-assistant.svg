@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 664" width="1000" height="664" role="img" aria-labelledby="title desc">
+  <title id="title">Personal assistant: a day of scheduled turns over one memory</title>
+  <desc id="desc">Five cron jobs and the heartbeat start agent turns in isolated sessions. The turns read the behavior files, use a search agent for the web, and read and write one canonical memory. Only delivery: announce reaches web clients and DM sessions. A separate git-sync job commits the workspace.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .step { font-size: 12px; font-weight: 700; fill: var(--accent); }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .chip-sec { fill: var(--box); stroke: var(--sec); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.both { marker-start: url(#arrow); }
+    .edge.plain { marker-end: none; }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    svg .node:hover .edge.both { marker-start: url(#arrow-hi); }
+    svg .node:hover .edge.plain { marker-end: none; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="664"/>
+
+  <text class="title" x="24" y="34">Personal assistant: a day of scheduled turns over one memory</text>
+  <text class="lede" x="24" y="56">Every fire gets its own session. Only delivery: announce reaches your phone. Cron times are server-local.</text>
+  <rect class="band" x="16" y="72" width="968" height="144" rx="6"/>
+  <text class="group-label" x="28" y="90">Cron jobs in scheduling.jobs</text>
+  <a href="../00-personal-assistant.md#configuration">
+  <g class="node k-host">
+    <title>Reads errors.md and canonical learnings, searches earlier reflections, saves 3-5 insights with memory_apply. Skips when there is nothing to review.</title>
+    <path class="edge" d="M113,196 V218 H501 V240"/>
+    <rect class="box" x="28" y="100" width="170" height="96" rx="6"/>
+    <text class="sub" x="38" y="117">03:00 daily</text>
+    <text class="mono" x="38" y="137">nightly-reflection</text>
+    <text class="sub" x="38" y="154">errors.md + learnings become</text>
+    <text class="sub" x="38" y="170">insights (topic reflection)</text>
+    <text class="sub" x="38" y="187">delivery: none</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#configuration">
+  <g class="node k-host">
+    <title>Reads USER.md and SOUL.md, searches memory for reminders, searches the web, and announces a mobile-sized briefing.</title>
+    <path class="edge" d="M307,196 V218 H501 V240"/>
+    <rect class="box" x="222" y="100" width="170" height="96" rx="6"/>
+    <text class="sub" x="232" y="117">07:00 daily</text>
+    <text class="mono" x="232" y="137">morning-briefing</text>
+    <text class="sub" x="232" y="154">weather, news, reminders,</text>
+    <text class="sub" x="232" y="170">pending items</text>
+    <text class="sub" x="232" y="187">delivery: announce</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#configuration">
+  <g class="node k-host">
+    <title>Optional entry in the config. Summarizes the week from canonical observations and reflections.</title>
+    <path class="edge" d="M501,196 V240"/>
+    <rect class="box" x="416" y="100" width="170" height="96" rx="6" stroke-dasharray="5 4"/>
+    <text class="sub" x="426" y="117">Mon 10:00, optional</text>
+    <text class="mono" x="426" y="137">weekly-review</text>
+    <text class="sub" x="426" y="154">week summary from the</text>
+    <text class="sub" x="426" y="170">observations (weekly-review)</text>
+    <text class="sub" x="426" y="187">delivery: announce</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#configuration">
+  <g class="node k-host">
+    <title>Searches the web for each topic under "Topics to Track", checks memory for duplicates, saves new findings with memory_observe.</title>
+    <path class="edge" d="M695,196 V218 H501 V240"/>
+    <rect class="box" x="610" y="100" width="170" height="96" rx="6"/>
+    <text class="sub" x="620" y="117">12:00 daily</text>
+    <text class="mono" x="620" y="137">knowledge-inbox</text>
+    <text class="sub" x="620" y="154">searches SOUL.md topics,</text>
+    <text class="sub" x="620" y="170">saves only new findings</text>
+    <text class="sub" x="620" y="187">delivery: none</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#configuration">
+  <g class="node k-host">
+    <title>Records notable observations. It cannot read your main chat session; it works from behavior files and memory.</title>
+    <path class="edge" d="M889,196 V218 H501 V240"/>
+    <rect class="box" x="804" y="100" width="170" height="96" rx="6"/>
+    <text class="sub" x="814" y="117">22:00 daily</text>
+    <text class="mono" x="814" y="137">daily-journal</text>
+    <text class="sub" x="814" y="154">selected observations of</text>
+    <text class="sub" x="814" y="170">the day (memory_observe)</text>
+    <text class="sub" x="814" y="187">delivery: none</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#behavior-files">
+  <g class="node k-host">
+    <title>Behavior files in the workspace directory. SOUL.md holds identity and "Topics to Track", USER.md holds timezone, location and goals, AGENTS.md holds safety and retrieval-precedence rules, TOOLS.md holds environment notes. Replace-mode and fresh-composition providers re-read them every turn.</title>
+    <path class="edge" d="M250,288 H301"/>
+    <rect class="box" x="24" y="240" width="226" height="96" rx="6"/>
+    <text class="mono" x="36" y="260">behavior files</text>
+    <text class="sub" x="36" y="276">workspace/, read every turn</text>
+    <rect class="chip" x="36" y="286" width="96" height="20" rx="4"/><text class="chip-text" x="44" y="300">SOUL.md</text>
+    <rect class="chip" x="142" y="286" width="96" height="20" rx="4"/><text class="chip-text" x="150" y="300">USER.md</text>
+    <rect class="chip" x="36" y="308" width="96" height="20" rx="4"/><text class="chip-text" x="44" y="322">AGENTS.md</text>
+    <rect class="chip" x="142" y="308" width="96" height="20" rx="4"/><text class="chip-text" x="150" y="322">TOOLS.md</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#a-day-in-the-life">
+  <g class="node k-host">
+    <title>One agent turn per job fire, in an isolated cron session. The model is agent.model unless the job sets model: or effort:. Guards stay active, so tool calls are checked as in any turn.</title>
+    <path class="edge" d="M701,288 H750"/>
+    <path class="edge both" d="M331,336 V358 H164 V380"/>
+    <path class="edge" d="M671,336 V358 H836 V380"/>
+    <rect class="box" x="301" y="240" width="400" height="96" rx="6"/>
+    <text class="mono" x="313" y="260">agent turn</text>
+    <text class="sub" x="313" y="278">own session per fire; per-job model: and effort: override</text>
+    <text class="sub" x="313" y="296">memory_search, memory_read, memory_observe, memory_apply</text>
+    <text class="sub" x="313" y="314">guards: command, file, network, content</text>
+  </g>
+  </a>
+<text class="edge-label" x="180" y="352" text-anchor="start">memory tools</text>
+<text class="edge-label" x="700" y="352" text-anchor="start">delivery: announce</text>
+  <a href="../00-personal-assistant.md#configuration">
+  <g class="node k-host">
+    <title>Built-in logical agent. The main turn starts it with sessions_spawn; its tools are web_search and web_fetch, it runs in a hidden session, and its result is content-guard scanned before it returns.</title>
+    <rect class="box" x="750" y="240" width="226" height="96" rx="6"/>
+    <text class="mono" x="762" y="260">search agent</text>
+    <text class="sub" x="762" y="278">logical agent, via sessions_spawn</text>
+    <text class="sub" x="762" y="294">web_search, web_fetch; model: haiku</text>
+    <text class="sub" x="762" y="310">result content-guarded</text>
+    <text class="sub" x="762" y="326">reads the open web</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#a-day-in-the-life">
+  <g class="node k-store">
+    <title>Canonical memory in the workspace: MEMORY.md index, memory/topics/*.md, memory/YYYY-MM-DD.md observations, learnings.md, errors.md (host-written, the agent cannot write it). Searched through the PostgreSQL lexical index; hybrid search is opt-in.</title>
+    <rect class="box" x="24" y="380" width="280" height="98" rx="6"/>
+    <text class="mono" x="36" y="400">canonical memory</text>
+    <text class="sub" x="36" y="418">memory_observe: observations, learnings</text>
+    <text class="sub" x="36" y="434">memory_apply: curated topic entries</text>
+    <text class="sub" x="36" y="450">memory_search, memory_read: reads</text>
+    <text class="sub" x="36" y="466">errors.md is written by the host only</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#a-day-in-the-life">
+  <g class="node k-host">
+    <title>Built-in job. Reads HEARTBEAT.md and runs the whole checklist as one turn; a missing or empty file skips the fire. Results are logged, not saved to a chat session. It does not run git sync.</title>
+    <path class="edge" d="M501,380 V336"/>
+    <rect class="box" x="351" y="380" width="300" height="66" rx="6"/>
+    <text class="mono" x="363" y="400">heartbeat</text>
+    <text class="sub" x="363" y="418">every 60 min here (default 30)</text>
+    <text class="sub" x="363" y="434">HEARTBEAT.md checklist; skipped when empty</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#gotchas--limitations">
+  <g class="node k-chan">
+    <title>announce: the result goes to connected web clients over SSE and to every DM session's peer on a registered channel, and is recorded in each DM session. Group sessions and thread sessions are skipped. Use delivery: webhook to push to an external endpoint.</title>
+    <rect class="box" x="696" y="380" width="280" height="98" rx="6"/>
+    <text class="mono" x="708" y="400">announce targets</text>
+    <text class="sub" x="708" y="418">web UI clients (SSE)</text>
+    <text class="sub" x="708" y="434">DM sessions: WhatsApp, Signal,</text>
+    <text class="sub" x="708" y="450">Google Chat, Slack; groups skipped</text>
+    <text class="sub" x="708" y="466">also recorded in each DM session</text>
+  </g>
+  </a>
+  <a href="../00-personal-assistant.md#getting-started">
+  <g class="node k-host">
+    <title>Built-in callback job, no agent turn. Commits workspace changes (behavior files, memory/) on workspace.git_sync.interval_minutes, default 30, and pushes when an origin is configured. Independent of the heartbeat.</title>
+    <path class="edge" d="M164,520 V478"/>
+    <path class="edge" d="M304,555 H351"/>
+    <rect class="box" x="24" y="520" width="280" height="70" rx="6"/>
+    <text class="mono" x="36" y="540">git-sync</text>
+    <text class="sub" x="36" y="558">every 30 min (default), no agent turn</text>
+    <text class="sub" x="36" y="574">commits the workspace</text>
+  </g>
+  </a>
+<text class="edge-label" x="172" y="504" text-anchor="start">commit</text>
+  <a href="../00-personal-assistant.md#getting-started">
+  <g class="node k-chan">
+    <title>The remote you add with git remote add origin. Without it the workspace stays a local repository.</title>
+    <rect class="box" x="351" y="520" width="300" height="70" rx="6"/>
+    <text class="mono" x="363" y="540">git remote origin</text>
+    <text class="sub" x="363" y="558">push_enabled: true, once the remote exists</text>
+    <text class="sub" x="363" y="574">local commits only without an origin</text>
+  </g>
+  </a>
+  <path class="edge" d="M24,624 L64,624"/>
+  <text class="note" x="74" y="628">data or control flow</text>
+  <rect x="230" y="614" width="34" height="20" rx="4" fill="none" stroke="var(--host)" stroke-dasharray="5 4"/>
+  <text class="note" x="274" y="628">optional job</text>
+  <text class="note" x="24" y="652">Opened directly in a browser, hovering a box highlights its outgoing arrows and shows its detail.</text>
+</svg>

@@ -1857,13 +1857,14 @@
           "additionalProperties": false,
           "properties": {
             "extra_rules": {
-              "description": "Path rules added to the built-in protections. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "description": "Path rules added to the built-in protections. An allow rule exempts matching paths from every other rule, built-in ones included. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
               "items": {
                 "additionalProperties": false,
                 "properties": {
                   "level": {
-                    "description": "How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete blocks deletes only. (file-only, not settable via API or CLI)",
+                    "description": "How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete blocks deletes only, allow lifts every other rule. (file-only, not settable via API or CLI)",
                     "enum": [
+                      "allow",
                       "no_access",
                       "no_delete",
                       "read_only"

@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" width="1000" height="560" role="img" aria-labelledby="title desc">
+  <title id="title">Security: HTTP request pipeline and authentication</title>
+  <desc id="desc">Every request passes six shelf stages in order. authMiddleware accepts public paths, a session cookie, a Bearer gateway token or a one-time ?token= bootstrap; /mcp, webhooks and source links authenticate themselves.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 12.5px; font-weight: 700; }
+    .num { fill: var(--accent); font-size: 11px; font-weight: 700; }
+    .legend { fill: var(--sub); font-size: 11px; }
+    a { cursor: pointer; }
+    a:hover .box { stroke-width: 2.6; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="560"/>
+  <text class="title" x="24" y="34">Security: HTTP request pipeline and authentication</text>
+  <text class="lede" x="24" y="56">Browser writes are additionally bound to the request origin. A failed attempt fires FailedAuthEvent and counts on AuthRateLimiter (5 per minute per remote key).</text>
+
+  <g class="node k-host">
+    <title>Request logging through a sanitized logger.</title>
+    <path class="edge" d="M159,140 V154"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="24" y="84" width="270" height="56" rx="6"/>
+    <text class="mono" x="36" y="105">logRequests</text>
+    <text class="sub" x="36" y="122">shelf request log; ?secret= redacted</text>
+    <text class="num" x="284" y="102" text-anchor="end">1</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Outermost response middleware: CSP with a hash for the one inline theme script, Referrer-Policy same-origin, X-Frame-Options DENY, Cache-Control no-store unless set, Vary HX-Request, HSTS when gateway.hsts is on.</title>
+    <path class="edge" d="M159,210 V224"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="24" y="154" width="270" height="56" rx="6"/>
+    <text class="mono" x="36" y="175">securityHeadersMiddleware</text>
+    <text class="sub" x="36" y="192">CSP, nosniff, framing denied, no-store</text>
+    <text class="num" x="284" y="172" text-anchor="end">2</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Any other origin is answered with Access-Control-Allow-Origin http://localhost. OPTIONS is answered directly.</title>
+    <path class="edge" d="M159,280 V294"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="24" y="224" width="270" height="56" rx="6"/>
+    <text class="mono" x="36" y="245">_corsMiddleware</text>
+    <text class="sub" x="36" y="262">only http://localhost and 127.0.0.1 origins</text>
+    <text class="num" x="284" y="242" text-anchor="end">3</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Skipped only for auth_mode none, where every request gets local-admin context. Stateless: cookies are HMAC-signed with the gateway token, so token rotate invalidates all of them.</title>
+    <path class="edge" d="M159,350 V364"/>
+    <path class="edge" d="M294,322 H330"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="24" y="294" width="270" height="56" rx="6"/>
+    <text class="mono" x="36" y="315">authMiddleware</text>
+    <text class="sub" x="36" y="332">auth_mode: none installs</text>
+    <text class="sub" x="36" y="345">localAdminMiddleware instead</text>
+    <text class="num" x="284" y="312" text-anchor="end">4</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>403 on mismatch or when both headers are missing. No-auth local-admin writes also need a literal loopback server.host and Host. Safe methods and Bearer requests are exempt.</title>
+    <path class="edge" d="M159,420 V434"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="24" y="364" width="270" height="56" rx="6"/>
+    <text class="mono" x="36" y="385">originHostGuardMiddleware</text>
+    <text class="sub" x="36" y="402">POST/PUT/PATCH/DELETE with cookie auth:</text>
+    <text class="sub" x="36" y="415">Origin (else Referer) must equal Host</text>
+    <text class="num" x="284" y="382" text-anchor="end">5</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Routes are mounted under the pipeline; unmatched requests fall through a Cascade to the 404 page.</title>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="24" y="434" width="270" height="56" rx="6"/>
+    <text class="mono" x="36" y="455">router</text>
+    <text class="sub" x="36" y="472">shelf_router, then styled 404</text>
+    <text class="num" x="284" y="452" text-anchor="end">6</text>
+    </a>
+  </g>
+  <rect class="group" x="330" y="84" width="350" height="376" rx="8"/>
+  <text class="group-label" x="340" y="99">authMiddleware check order</text>
+  <g class="node k-host">
+    <title>authMiddleware checks in this order: pass, no auth context</title>
+    <path class="edge" d="M505,180 V196"/>
+    <path class="edge" d="M664,142 H700"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="346" y="112" width="318" height="68" rx="6"/>
+    <text class="name" x="358" y="133">public path</text>
+    <text class="sub" x="358" y="150">/health /login /favicon.ico</text>
+    <text class="sub" x="358" y="163">/knowledge/source, /webhook/*, /static/*</text>
+    <text class="sub" x="358" y="176">+ /mcp and webhook paths when mounted</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>authMiddleware checks in this order: pass, cookie context</title>
+    <path class="edge" d="M505,240 V256"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="346" y="196" width="318" height="44" rx="6"/>
+    <text class="name" x="358" y="217">session cookie</text>
+    <text class="sub" x="358" y="234">dart_session: HMAC valid, 30-day TTL</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>authMiddleware checks in this order: pass, admin context</title>
+    <path class="edge" d="M505,300 V316"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="346" y="256" width="318" height="44" rx="6"/>
+    <text class="name" x="358" y="277">Authorization: Bearer</text>
+    <text class="sub" x="358" y="294">gateway token, constant-time compare</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>authMiddleware checks in this order: 302 with cookie</title>
+    <path class="edge" d="M505,372 V388"/>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="346" y="316" width="318" height="56" rx="6"/>
+    <text class="name" x="358" y="337">GET ?token=</text>
+    <text class="sub" x="358" y="354">valid gateway token: Set-Cookie,</text>
+    <text class="sub" x="358" y="367">redirect to the URL without the token</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>authMiddleware checks in this order: refused</title>
+    <a href="../security-architecture.md#http-authentication">
+    <rect class="box" x="346" y="388" width="318" height="56" rx="6"/>
+    <text class="name" x="358" y="409">otherwise</text>
+    <text class="sub" x="358" y="426">browser: redirect /login, API: 401 JSON</text>
+    <text class="sub" x="358" y="439">over 5 failures per minute: 429</text>
+    </a>
+  </g>
+  <rect class="group" x="700" y="84" width="276" height="376" rx="8"/>
+  <text class="group-label" x="710" y="99">authenticate themselves</text>
+  <g class="node k-sec">
+    <title>Resolved without short-circuiting, in constant time. Only a gateway-token success resets the shared failure window.</title>
+    <a href="../security-architecture.md#inbound-mcp-authentication">
+    <rect class="box" x="712" y="112" width="252" height="88" rx="6"/>
+    <text class="mono" x="724" y="133">/mcp</text>
+    <text class="sub" x="724" y="150">mcpRoute: gateway token, a</text>
+    <text class="sub" x="724" y="163">gateway.mcp_clients token or a</text>
+    <text class="sub" x="724" y="176">host harness bearer; shared</text>
+    <text class="sub" x="724" y="189">AuthRateLimiter, 1 MiB body</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Each route verifies itself; Slack also checks a 300 s replay window and audits refusals.</title>
+    <a href="../security-architecture.md#webhooks">
+    <rect class="box" x="712" y="214" width="252" height="88" rx="6"/>
+    <text class="mono" x="724" y="235">webhooks</text>
+    <text class="sub" x="724" y="252">WhatsApp query secret,</text>
+    <text class="sub" x="724" y="265">Google Chat JWT,</text>
+    <text class="sub" x="724" y="278">GitHub and Slack HMAC;</text>
+    <text class="sub" x="724" y="291">1 MiB body cap</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Exact auth-exempt path; token verified before any file or database read.</title>
+    <a href="../security-architecture.md#source-links">
+    <rect class="box" x="712" y="316" width="252" height="64" rx="6"/>
+    <text class="mono" x="724" y="337">/knowledge/source</text>
+    <text class="sub" x="724" y="354">signed link token; failures</text>
+    <text class="sub" x="724" y="367">count on AuthRateLimiter</text>
+    </a>
+  </g>
+  <text class="note" x="24" y="516" text-anchor="start">Gateway token: 32 random bytes as 64 hex chars in &lt;data_dir&gt;/gateway_token (chmod 600); dartclaw token rotate invalidates every cookie and source link.</text>
+  <text class="note" x="24" y="536" text-anchor="start">Session cookie: HttpOnly, SameSite=Strict, Path=/, Max-Age 30 days, Secure when auth.cookie_secure is set.</text>
+</svg>

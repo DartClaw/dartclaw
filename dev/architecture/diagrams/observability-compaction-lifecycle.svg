@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 490" width="1000" height="490" role="img" aria-labelledby="title desc">
+  <title id="title">Compaction lifecycle</title>
+  <desc id="desc">Claude and Codex each produce a starting and a completed compaction event on the EventBus. The starting event reaches SSE; the completed event reaches alert routing, the context monitor, and a task event when a task is running in the session.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .mono.s { font-size: 12px; }
+    .refuse { fill: var(--sec); }
+    .legend-text { fill: var(--sub); font-size: 11px; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="490"/>
+  <text class="title" x="24" y="34">Compaction lifecycle</text>
+  <text class="lede" x="24" y="56">Two sources, one event pair: Claude supplies pre_tokens and a pre-compact observation, Codex supplies neither.</text>
+<text class="group-label" x="24" y="84">PROVIDER</text>
+<text class="group-label" x="200" y="84">HOST</text>
+<text class="group-label" x="720" y="84">SUBSCRIBERS</text>
+  <g class="node k-ext">
+    <title>External Claude Code process. compact_boundary carries trigger and pre_tokens.</title>
+    <path class="edge" d="M174,133 H200"/>
+    <rect class="box" x="24" y="98" width="150" height="70" rx="6"/>
+    <text class="mono s" x="38" y="119">claude binary</text>
+    <text class="sub" x="38" y="137">PreCompact hook,</text>
+    <text class="sub" x="38" y="155">compact_boundary</text>
+  </g>
+  <a href="../observability-operations-architecture.md#compaction-lifecycle">
+  <g class="node k-host">
+    <title>Wired in runtime/harness_wiring_memory.dart. Before firing CompactionStartingEvent it captures a pre-compact memory observation (tail of the conversation, redacted, byte-capped).</title>
+    <path class="edge" d="M410,120 H560"/>
+    <path class="edge" d="M410,150 H560"/>
+    <rect class="box" x="200" y="98" width="210" height="70" rx="6"/>
+    <text class="mono s" x="214" y="119">ClaudeCodeHarness</text>
+    <text class="sub" x="214" y="137">onCompactionStarting,</text>
+    <text class="sub" x="214" y="155">onCompactionCompleted</text>
+  </g>
+  </a>
+  <text class="edge-label" x="485" y="114" text-anchor="middle">CompactionStartingEvent</text>
+  <text class="edge-label" x="485" y="164" text-anchor="middle">CompactionCompletedEvent</text>
+  <g class="node k-ext">
+    <title>External Codex process. No pre-compact hook and no pre_tokens.</title>
+    <path class="edge" d="M174,333 H200"/>
+    <rect class="box" x="24" y="298" width="150" height="70" rx="6"/>
+    <text class="mono s" x="38" y="319">codex app-server</text>
+    <text class="sub" x="38" y="337">contextCompaction item</text>
+    <text class="sub" x="38" y="355">started / completed</text>
+  </g>
+  <a href="../observability-operations-architecture.md#compaction-lifecycle">
+  <g class="node k-host">
+    <title>turn_runner_execution_loop.dart maps the bridge events to bus events with trigger "auto" and no preTokens.</title>
+    <path class="edge" d="M410,320 H560"/>
+    <path class="edge" d="M410,350 H560"/>
+    <rect class="box" x="200" y="298" width="210" height="70" rx="6"/>
+    <text class="mono s" x="214" y="319">TurnRunner</text>
+    <text class="sub" x="214" y="337">CompactionStarting/</text>
+    <text class="sub" x="214" y="355">CompletedBridgeEvent</text>
+  </g>
+  </a>
+  <text class="edge-label" x="485" y="314" text-anchor="middle">CompactionStartingEvent</text>
+  <text class="edge-label" x="485" y="364" text-anchor="middle">CompactionCompletedEvent</text>
+  <a href="../observability-operations-architecture.md#1-overview">
+  <g class="node k-host">
+    <title>Compaction events are CompactionLifecycleEvent subtypes (dartclaw_core/lib/src/events/compaction_events.dart). summary is reserved and always null.</title>
+    <path class="edge" d="M650,125 H720"/>
+    <path class="edge" d="M650,225 H720"/>
+    <path class="edge" d="M650,285 H720"/>
+    <path class="edge" d="M650,365 H720"/>
+    <rect class="box" x="560" y="90" width="90" height="330" rx="6"/>
+    <text class="mono s" x="574" y="111">EventBus</text>
+  </g>
+  </a>
+  <text class="edge-label" x="685" y="119" text-anchor="middle">Starting</text>
+  <text class="edge-label" x="685" y="219" text-anchor="middle">Completed</text>
+  <a href="../observability-operations-architecture.md#global-broadcast-get-apievents">
+  <g class="node k-host">
+    <title>Broadcast on /api/events.</title>
+    <rect class="box" x="720" y="98" width="256" height="50" rx="6"/>
+    <text class="mono s" x="734" y="119">EventBusSseBridge</text>
+    <text class="sub" x="734" y="137">SSE compaction_starting</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#2-alerts">
+  <g class="node k-host">
+    <title>classifyAlert maps CompactionCompletedEvent to compaction / info.</title>
+    <rect class="box" x="720" y="196" width="256" height="50" rx="6"/>
+    <text class="mono s" x="734" y="217">AlertRouter</text>
+    <text class="sub" x="734" y="235">alert compaction, info</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#contextmonitor">
+  <g class="node k-host">
+    <title>Advances the compaction cycle counter so the next pre-compaction flush is allowed.</title>
+    <rect class="box" x="720" y="260" width="256" height="50" rx="6"/>
+    <text class="mono s" x="734" y="281">ContextMonitor</text>
+    <text class="sub" x="734" y="299">onCompactionCompleted: next flush cycle</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#compaction-lifecycle">
+  <g class="node k-host">
+    <title>task/compaction_task_event_subscriber.dart. Sessions without a running task get the bus event only.</title>
+    <rect class="box" x="720" y="330" width="256" height="70" rx="6"/>
+    <text class="mono s" x="734" y="351">CompactionTaskEventSubscriber</text>
+    <text class="sub" x="734" y="369">TaskEvent kind compaction,</text>
+    <text class="sub" x="734" y="387">only if a task runs in the session</text>
+  </g>
+  </a>
+<text class="note" x="24" y="452">Separate from this chain: after a turn, ContextMonitor.shouldFlushForCompactionSignal may run a flush turn. It is suppressed when the harness has a</text>
+<text class="note" x="24" y="470">deterministic pre-compact signal (supportsPreCompactHook: Claude yes; Codex and ACP no).</text>
+
+</svg>

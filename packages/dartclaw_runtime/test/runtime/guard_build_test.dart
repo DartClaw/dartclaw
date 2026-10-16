@@ -261,6 +261,34 @@ void main() {
         expect(success.guards.whereType<TaskToolFilterGuard>(), isEmpty);
       });
 
+      test('the file guard denies reads of the data directory credentials and accepts allow rules', () async {
+        final result = buildGuardsFromConfig(
+          securityConfig: _configFromYaml({
+            'file': {
+              'extra_rules': [
+                {'pattern': '**/.env', 'level': 'allow'},
+              ],
+            },
+          }),
+          dataDir: dataDir,
+          toolPolicyCascade: _cascade,
+        );
+
+        final fileGuard = (result as GuardBuildSuccess).guards.whereType<FileGuard>().single;
+        Future<bool> blocksRead(String path) async => (await fileGuard.evaluate(
+          GuardContext(
+            hookPoint: 'beforeToolCall',
+            toolName: 'file_read',
+            toolInput: {'file_path': path},
+            timestamp: DateTime.now(),
+          ),
+        )).isBlock;
+        expect(await blocksRead('$dataDir/dartclaw.yaml'), isTrue);
+        expect(await blocksRead('$dataDir/gateway_token'), isTrue);
+        expect(await blocksRead('$dataDir/credentials/claude.json'), isTrue);
+        expect(await blocksRead('/repo/.env'), isFalse);
+      });
+
       test('multiple invalid patterns aggregate all errors into single failure', () {
         final result = buildGuardsFromConfig(
           securityConfig: _configFromYaml({

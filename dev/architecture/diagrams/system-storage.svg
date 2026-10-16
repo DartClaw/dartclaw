@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" width="1000" height="640" role="img" aria-labelledby="title desc">
+  <title id="title">Storage at a glance</title>
+  <desc id="desc">Three storage zones: authoritative files under the data directory, PostgreSQL with authoritative rows and derived search projections, and instance-local recovery files, plus the serving startup order.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 13.5px; font-weight: 700; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="640"/>
+  <text class="title" x="24" y="34">Storage at a glance</text>
+  <text class="lede" x="24" y="56">Files and PostgreSQL are the two authorities. Search rows are derived and rebuilt from files.</text>
+  <rect class="group" x="16" y="76" width="360" height="410" rx="8"/>
+  <text class="group-label" x="28" y="92">Files under data_dir</text>
+  <rect class="group" x="416" y="76" width="360" height="410" rx="8"/>
+  <text class="group-label" x="428" y="92">PostgreSQL 14+</text>
+  <rect class="group" x="816" y="76" width="168" height="410" rx="8"/>
+  <text class="group-label" x="828" y="92">Local recovery</text>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>One directory per session: metadata and the append-only transcript. .session_keys.json indexes deterministic session keys.</title>
+    <path class="edge dashed" d="M364,143 L428,143"/>
+    <rect class="box" x="28" y="112" width="336" height="62" rx="6"/>
+    <text class="name" x="42" y="133">sessions/&lt;uuid&gt;/</text>
+    <text class="chip-text" x="42" y="150">meta.json · messages.ndjson</text>
+    <text class="sub" x="42" y="165">SessionService, MessageService (write queue)</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>MemoryCorpusService owns the canonical files per principal (owner, agent:&lt;id&gt;). A manifest is non-authoritative coordination state rebuilt from the Markdown.</title>
+    <path class="edge dashed" d="M364,215 L428,215"/>
+    <rect class="box" x="28" y="184" width="336" height="62" rx="6"/>
+    <text class="name" x="42" y="205">workspace/ and agents/&lt;id&gt;/workspace/</text>
+    <text class="sub" x="42" y="222">canonical memory Markdown</text>
+    <text class="chip-text" x="42" y="237">MEMORY.md · memory/topics/ · learnings.md</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>Config is written with temp file plus rename and a backup. kv.json holds daily usage summaries and other small global state.</title>
+    <rect class="box" x="28" y="256" width="336" height="62" rx="6"/>
+    <text class="name" x="42" y="277">dartclaw.yaml · kv.json</text>
+    <text class="sub" x="42" y="294">config (ConfigWriter, atomic write)</text>
+    <text class="sub" x="42" y="309">global key-value store (KvService)</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>Guard audit is date-partitioned with retention cleanup. usage.jsonl rotates by size.</title>
+    <rect class="box" x="28" y="328" width="336" height="62" rx="6"/>
+    <text class="name" x="42" y="349">audit-YYYY-MM-DD.ndjson · usage.jsonl</text>
+    <text class="sub" x="42" y="366">append-only logs (GuardAuditLogger,</text>
+    <text class="sub" x="42" y="381">UsageTracker); audit has retention cleanup</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>Channel thread bindings, the runtime project registry and parked schedule changes.</title>
+    <rect class="box" x="28" y="400" width="336" height="76" rx="6"/>
+    <text class="name" x="42" y="421">small atomic documents</text>
+    <text class="chip-text" x="42" y="438">thread-bindings.json · projects.json</text>
+    <text class="chip-text" x="42" y="453">pending-schedule-changes.json</text>
+    <text class="sub" x="42" y="468">temp file + rename</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>Derived projection of chat-facing messages. Rebuilt from session NDJSON; authenticated against current content before results are published.</title>
+    <rect class="box" x="428" y="112" width="336" height="62" rx="6"/>
+    <text class="name" x="442" y="133">conversation_chunks</text>
+    <text class="sub" x="442" y="150">+ conversation_vectors (optional)</text>
+    <text class="sub" x="442" y="165">derived: lexical, optional pgvector</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>Derived projection of canonical memory, one owner-scoped corpus per principal. Hybrid search needs administrator-provisioned pgvector.</title>
+    <rect class="box" x="428" y="184" width="336" height="62" rx="6"/>
+    <text class="name" x="442" y="205">memory_chunks</text>
+    <text class="sub" x="442" y="222">+ memory_vectors (optional)</text>
+    <text class="sub" x="442" y="237">derived: lexical, optional pgvector</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-store">
+    <title>Relational authority. turns is written fire-and-forget by TurnTraceService; task_events is awaited by TaskEventService before the bus event is emitted.</title>
+    <rect class="box" x="428" y="256" width="336" height="134" rx="6"/>
+    <text class="name" x="442" y="277">Authoritative rows</text>
+    <text class="chip-text" x="442" y="294">tasks · task_artifacts · task_events</text>
+    <text class="chip-text" x="442" y="309">goals · agent_executions</text>
+    <text class="chip-text" x="442" y="324">workflow_runs · workflow_step_executions</text>
+    <text class="chip-text" x="442" y="339">turns · kg_facts</text>
+    <text class="sub" x="442" y="354">Tasks, executions, runs, traces, KG facts</text>
+  </g>
+  </a>
+  <a href="../data-model.md">
+  <g class="node k-host">
+    <title>Prepared statements and asynchronous transactions behind the DatabaseBackend port. The schema gate refuses an incompatible schema before any repository is built.</title>
+    <rect class="box" x="428" y="400" width="336" height="72" rx="6"/>
+    <text class="name" x="442" y="421">PostgresBackend + PostgresSchemaGate</text>
+    <text class="sub" x="442" y="438">one pool (database.pool_size, default 5)</text>
+    <text class="sub" x="442" y="453">serving interlock; schema gate before repositories</text>
+  </g>
+  </a>
+  <a href="../session-state-architecture.md">
+  <g class="node k-store">
+    <title>TurnStateStore: synchronous atomic document of in-flight turns. Transient; never replicated.</title>
+    <rect class="box" x="828" y="112" width="144" height="80" rx="6"/>
+    <text class="name" x="842" y="133">turn_state.json</text>
+    <text class="sub" x="842" y="150">active-turn records</text>
+    <text class="sub" x="842" y="165">read at startup to</text>
+    <text class="sub" x="842" y="180">recover orphaned turns</text>
+  </g>
+  </a>
+  <a href="../channel-messaging-architecture.md">
+  <g class="node k-store">
+    <title>WebhookDeliveryStore: one marker per delivery id with a TTL purge. Instance-local.</title>
+    <rect class="box" x="828" y="204" width="144" height="80" rx="6"/>
+    <text class="name" x="838" y="225" style="font-size:12px">webhook_deliveries/</text>
+    <text class="sub" x="842" y="242">exclusive claim</text>
+    <text class="sub" x="842" y="257">markers for inbound</text>
+    <text class="sub" x="842" y="272">webhook dedup</text>
+  </g>
+  </a>
+  <a href="../system-architecture.md#service-wiring">
+  <g class="node k-host">
+    <title>DartclawRuntime.build(headless: true) uses FileExecutionStore and standalone session, KV and turn-state files under &lt;data_dir&gt;/standalone/, held by a StandaloneExecutionLease.</title>
+    <rect class="box" x="828" y="296" width="144" height="176" rx="6"/>
+    <text class="name" x="842" y="317">Standalone mode</text>
+    <text class="sub" x="842" y="334">Headless workflow runs</text>
+    <text class="sub" x="842" y="349">open no PostgreSQL</text>
+    <text class="sub" x="842" y="364">connection. Tasks, runs,</text>
+    <text class="sub" x="842" y="379">traces and sessions live</text>
+    <text class="sub" x="842" y="394">in files under</text>
+    <text class="chip-text" x="838" y="409">data_dir/standalone/</text>
+    <text class="sub" x="842" y="424">guarded by a lease.</text>
+  </g>
+  </a>
+  <text class="group-label" x="16" y="516">Serving startup order</text>
+  <g class="node k-host">
+    <title>memory preflight</title>
+    <path class="edge" d="M144,553 L163,553"/>
+    <rect class="box" x="26" y="528" width="118" height="50" rx="6"/>
+    <text class="name" x="36" y="546">1</text>
+    <text class="sub" x="50" y="546">memory preflight</text>
+  </g>
+  <g class="node k-host">
+    <title>turn_state.json + orphan scan</title>
+    <path class="edge" d="M281,553 L300,553"/>
+    <rect class="box" x="163" y="528" width="118" height="50" rx="6"/>
+    <text class="name" x="173" y="546">2</text>
+    <text class="sub" x="187" y="546">turn_state.json</text>
+    <text class="sub" x="187" y="561">+ orphan scan</text>
+  </g>
+  <g class="node k-host">
+    <title>PostgreSQL pool</title>
+    <path class="edge" d="M418,553 L437,553"/>
+    <rect class="box" x="300" y="528" width="118" height="50" rx="6"/>
+    <text class="name" x="310" y="546">3</text>
+    <text class="sub" x="324" y="546">PostgreSQL pool</text>
+  </g>
+  <g class="node k-host">
+    <title>serving interlock</title>
+    <path class="edge" d="M555,553 L574,553"/>
+    <rect class="box" x="437" y="528" width="118" height="50" rx="6"/>
+    <text class="name" x="447" y="546">4</text>
+    <text class="sub" x="461" y="546">serving</text>
+    <text class="sub" x="461" y="561">interlock</text>
+  </g>
+  <g class="node k-host">
+    <title>schema gate</title>
+    <path class="edge" d="M692,553 L711,553"/>
+    <rect class="box" x="574" y="528" width="118" height="50" rx="6"/>
+    <text class="name" x="584" y="546">5</text>
+    <text class="sub" x="598" y="546">schema gate</text>
+  </g>
+  <g class="node k-host">
+    <title>language check, index reconcile</title>
+    <path class="edge" d="M829,553 L848,553"/>
+    <rect class="box" x="711" y="528" width="118" height="50" rx="6"/>
+    <text class="name" x="721" y="546">6</text>
+    <text class="sub" x="735" y="546">language check,</text>
+    <text class="sub" x="735" y="561">index reconcile</text>
+  </g>
+  <g class="node k-host">
+    <title>orphan turns acknowledged</title>
+    <rect class="box" x="848" y="528" width="118" height="50" rx="6"/>
+    <text class="name" x="858" y="546">7</text>
+    <text class="sub" x="872" y="546">orphan turns</text>
+    <text class="sub" x="872" y="561">acknowledged</text>
+  </g>
+  <text class="note" x="24" y="606">Local state is scanned before PostgreSQL opens; the interlock precedes the schema gate; headless and one-shot clients skip the orphan scan, the interlock and step 7.</text>
+  <text class="note" x="24" y="626">Dashed arrows: derived rows are rebuilt from the files, never the other way round (dartclaw rebuild-index).</text>
+</svg>

@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 612" width="1000" height="612" role="img" aria-labelledby="title desc">
+  <title id="title">Step dispatch paths and outcome protocol</title>
+  <desc id="desc">_executeStep branches by step type. Agent steps create a task triple, run the prompt chain and a finalizer turn on a leased worker, extract outputs, resolve a semantic outcome and map it through onFailure and onError.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="612"/>
+  <text class="title" x="24" y="34">Step dispatch paths and outcome protocol</text>
+  <text class="lede" x="24" y="56">Only agent steps create tasks. Every path ends in a StepOutcome that the node loop merges, holds or fails on.</text>
+  <a href="../workflow-architecture.md#71-dispatch-paths">
+  <g class="node k-host">
+    <title>Clears a stale failed status first, then dispatches by WorkflowTaskType. Agent steps run inside runWithWorkflowRetry.</title>
+    <path class="edge" d="M24,106 H12 V204 H24"/>
+    <path class="edge" d="M24,106 H12 V274 H24"/>
+    <path class="edge" d="M24,106 H12 V344 H24"/>
+    <path class="edge" d="M24,106 H12 V414 H24"/>
+    <path class="edge" d="M324,106 H520 V150"/>
+    <rect class="box" x="24" y="80" width="300" height="52" rx="6"/>
+    <text class="mono" x="38" y="101">_executeStep</text>
+    <text class="sub" x="38" y="118">workflow/step_dispatcher.dart, branch by type</text>
+  </g>
+  </a>
+  <g class="node k-host">
+    <title>Errors are execution errors governed by onError.</title>
+    <rect class="box" x="24" y="180" width="276" height="52" rx="6"/>
+    <text class="mono" x="38" y="201">bash</text>
+    <text class="sub" x="38" y="218">SafeProcess, no task; exit code, stdout</text>
+  </g>
+  <g class="node k-host">
+    <title>Persist hold, fire WorkflowApprovalRequestedEvent; auto-resolved under approvals auto.</title>
+    <rect class="box" x="24" y="250" width="276" height="52" rx="6"/>
+    <text class="mono" x="38" y="271">approval</text>
+    <text class="sub" x="38" y="288">hold run: awaitingApproval</text>
+  </g>
+  <g class="node k-host">
+    <title>Host-side; publishes bare review_report_path, findings_count, gating_findings_count.</title>
+    <rect class="box" x="24" y="320" width="276" height="52" rx="6"/>
+    <text class="mono" x="38" y="341">aggregate-reviews</text>
+    <text class="sub" x="38" y="358">merge reports, sum counts</text>
+  </g>
+  <g class="node k-host">
+    <title>A loop inside a foreach body converges independently per item.</title>
+    <rect class="box" x="24" y="390" width="276" height="52" rx="6"/>
+    <text class="mono" x="38" y="411">loop (foreach-nested)</text>
+    <text class="sub" x="38" y="428">_executeNestedLoopStep</text>
+  </g>
+  <text class="edge-label" x="30" y="172" text-anchor="start">host-side, no task</text>
+  <g class="node k-host">
+    <title>workflow_task_factory.dart. Task.maxRetries is 0 so workflow retry is the only retry authority.</title>
+    <path class="edge" d="M520,206 V232"/>
+    <path class="edge" d="M660,178 H700"/>
+    <rect class="box" x="370" y="150" width="290" height="56" rx="6"/>
+    <text class="mono" x="384" y="171">1  Task triple</text>
+    <text class="sub" x="384" y="188">AgentExecution + Task + WorkflowStepExecution,</text>
+    <text class="sub" x="384" y="202">one transaction; reviewMode auto-accept</text>
+  </g>
+  <g class="node k-host">
+    <title>WorkflowOneShotRunner. Skill activation line applies to the first prompt only.</title>
+    <path class="edge" d="M520,288 V314"/>
+    <rect class="box" x="370" y="232" width="290" height="56" rx="6"/>
+    <text class="mono" x="384" y="253">2  Work turn(s)</text>
+    <text class="sub" x="384" y="270">prompt chain on one leased worker;</text>
+    <text class="sub" x="384" y="284">--resume between prompts, budget check each</text>
+  </g>
+  <g class="node k-host">
+    <title>Only for steps with model-derived outputs. Failure reasons: control-protocol.md section 2.3.</title>
+    <path class="edge" d="M520,370 V396"/>
+    <rect class="box" x="370" y="314" width="290" height="56" rx="6"/>
+    <text class="mono" x="384" y="335">3  Finalizer turn</text>
+    <text class="sub" x="384" y="352">no work tools, at most 4 turns; envelope</text>
+    <text class="sub" x="384" y="366">{outputs, step_outcome}; one re-ask</text>
+  </g>
+  <g class="node k-host">
+    <title>Missing artifacts or schema violations become a validation failure eligible for retry.</title>
+    <path class="edge" d="M520,452 V478"/>
+    <rect class="box" x="370" y="396" width="290" height="56" rx="6"/>
+    <text class="mono" x="384" y="417">4  Extract + validate</text>
+    <text class="sub" x="384" y="434">ContextExtractor: source, path and inline</text>
+    <text class="sub" x="384" y="448">resolvers, schema, story_specs paths</text>
+  </g>
+  <g class="node k-host">
+    <title>Terminal failed or rejected forces failed; cancelled forces cancelled.</title>
+    <path class="edge" d="M660,506 H680 V260 H700"/>
+    <path class="edge" d="M660,506 H680 V342 H700"/>
+    <path class="edge" d="M660,506 H680 V424 H700"/>
+    <rect class="box" x="370" y="478" width="290" height="56" rx="6"/>
+    <text class="mono" x="384" y="499">5  Resolve outcome</text>
+    <text class="sub" x="384" y="516">envelope step_outcome, or &lt;step-outcome&gt; tag</text>
+    <text class="sub" x="384" y="530">(emitsOwnOutcome), else task status</text>
+  </g>
+  <text class="edge-label" x="380" y="142" text-anchor="start">agent step</text>
+  <g class="node k-sec">
+    <title>Raised while dispatching, before any outcome exists: task creation or wait failure, unstartable or non-zero bash. pause gives status paused.</title>
+    <rect class="box" x="700" y="150" width="276" height="56" rx="6"/>
+    <text class="mono" x="714" y="171">execution error</text>
+    <text class="sub" x="714" y="188">task create or wait, bash exit; no outcome yet</text>
+    <text class="sub" x="714" y="202">onError: fail | pause | continue</text>
+  </g>
+  <g class="node k-host">
+    <title>Outputs merged into WorkflowContext; the last branch-touching step in scope promotes.</title>
+    <rect class="box" x="700" y="232" width="276" height="56" rx="6"/>
+    <text class="mono" x="714" y="253">succeeded</text>
+    <text class="sub" x="714" y="270">merge outputs, continue</text>
+  </g>
+  <g class="node k-sec">
+    <title>retry: at most maxRetries+1 attempts; stops early on two equal consecutive failures. pause moves the run to awaitingApproval.</title>
+    <rect class="box" x="700" y="314" width="276" height="56" rx="6"/>
+    <text class="mono" x="714" y="335">failed</text>
+    <text class="sub" x="714" y="352">onFailure: fail | continue | retry | pause</text>
+  </g>
+  <g class="node k-host">
+    <title>onFailure: continue records the reason and advances; approvals auto-on-stall and auto resolve it.</title>
+    <rect class="box" x="700" y="396" width="276" height="56" rx="6"/>
+    <text class="mono" x="714" y="417">needsInput</text>
+    <text class="sub" x="714" y="434">awaitingApproval (or auto-approved)</text>
+  </g>
+  <text class="note" x="24" y="574">Cancellation, budget or security stops and unavailable token accounting take precedence over onFailure and onError.</text>
+  <rect x="24" y="586" width="26" height="14" rx="3" fill="none" stroke="var(--sec)" stroke-width="1.4"/>
+  <text class="note" x="58" y="597">failure policy</text>
+  <text class="note" x="200" y="597">Hover (direct view) for details.</text>
+</svg>

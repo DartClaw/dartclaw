@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 704" width="1000" height="704" role="img" aria-labelledby="title desc">
+  <title id="title">Config load pipeline</title>
+  <desc id="desc">The path from command line and dartclaw.yaml to an immutable DartclawConfig: nine numbered steps through loadCliConfig, loadDartclawConfig and DartclawConfig.load. Red text marks steps that refuse to start; everything else degrades to a warning and a default.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .step-no { fill: var(--accent); }
+    .step-no-t { fill: var(--bg); font-size: 11px; font-weight: 700; }
+    .fatal { fill: var(--sec); font-size: 11px; }
+    .warn { fill: var(--sub); font-size: 11px; }
+    .legend-box { fill: var(--box); stroke: var(--line); }
+    .group-label { text-transform: none; letter-spacing: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="704"/>
+  <text class="title" x="24" y="34">Config load pipeline</text>
+  <text class="lede" x="24" y="56">Every production load runs these steps in order. Red: refuses to start. Grey: warning, default used.</text>
+  <rect class="group" x="236" y="132" width="520" height="418" rx="8"/>
+  <text class="group-label" x="246" y="148">loadDartclawConfig · dartclaw_runtime</text>
+  <rect class="group" x="248" y="158" width="496" height="326" rx="8"/>
+  <text class="group-label" x="258" y="174">DartclawConfig.load · dartclaw_kernel</text>
+  <g class="node k-store">
+    <title>Environment locates the file (DARTCLAW_CONFIG, DARTCLAW_HOME, HOME), supplies the default data_dir and expands ${VAR} in YAML strings. It never overrides a YAML value.</title>
+    <path class="edge" d="M220,204 L264,204"/>
+    <rect class="box" x="24" y="182" width="196" height="44" rx="6"/>
+    <text class="mono" x="38" y="201">env</text>
+    <text class="sub" x="38" y="217">locates file; ${VAR} in values</text>
+  </g>
+  <g class="node k-store">
+    <title>The single config file. Written back only through ConfigWriter.</title>
+    <path class="edge" d="M220,254 L264,254"/>
+    <rect class="box" x="24" y="234" width="196" height="40" rx="6"/>
+    <text class="mono" x="38" y="253">dartclaw.yaml</text>
+    <text class="sub" x="38" y="269">the operator file</text>
+  </g>
+  <g class="node k-host">
+    <title>Only some keys have a CLI override. A CLI value beats YAML; the environment never does.</title>
+    <path class="edge" d="M220,392 L264,392"/>
+    <rect class="box" x="24" y="364" width="196" height="44" rx="6"/>
+    <text class="mono" x="38" y="383">CLI overrides</text>
+    <text class="sub" x="38" y="399">port, host, data_dir, log_*</text>
+  </g>
+  <g class="node k-store">
+    <title>NamedCredentialStore: one owner-only JSON file per name. Merged over YAML credentials by name; the store wins. Read through a provider registered by loadCliConfig.</title>
+    <path class="edge" d="M220,420 L264,420"/>
+    <rect class="box" x="24" y="414" width="196" height="44" rx="6"/>
+    <text class="mono" x="38" y="433">credentials/named/</text>
+    <text class="sub" x="38" y="449">dartclaw secrets store</text>
+  </g>
+  <g class="node k-host">
+    <title>apps/dartclaw_cli/lib/src/commands/config_loader.dart. Entry point for every CLI load, the config API and the reload trigger.</title>
+    <path class="edge" d="M700,120 L700,184"/>
+    <a href="../configuration-architecture.md#3-config-loading-pipeline">
+    <rect class="box" x="264" y="80" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="100" r="10"/><text class="step-no-t" x="282" y="104" text-anchor="middle">1</text>
+    <text class="mono" x="302" y="99">loadCliConfig</text>
+    <text class="sub" x="302" y="115">registers the github extension parser and the named-credential provider</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>kernel config_parser.dart. A missing explicit path warns and loads defaults; a dartclaw.yaml in the working directory is never discovered.</title>
+    <path class="edge" d="M700,224 L700,234"/>
+    <a href="../configuration-architecture.md#precedence-and-sources">
+    <rect class="box" x="264" y="184" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="204" r="10"/><text class="step-no-t" x="282" y="208" text-anchor="middle">2</text>
+    <text class="mono" x="302" y="203">_loadYaml: locate file</text>
+    <text class="sub" x="302" y="219">--config &gt; DARTCLAW_CONFIG &gt; DARTCLAW_HOME &gt; ~/.dartclaw/dartclaw.yaml</text>
+    </a>
+  </g>
+  <text class="warn" x="770" y="208">missing explicit path: warning, defaults</text>
+  <g class="node k-host">
+    <title>Malformed YAML must stop the load: silently loading defaults would boot a container-enabled deployment unisolated.</title>
+    <path class="edge" d="M700,274 L700,284"/>
+    <a href="../configuration-architecture.md#what-stops-the-load">
+    <rect class="box" x="264" y="234" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="254" r="10"/><text class="step-no-t" x="282" y="258" text-anchor="middle">3</text>
+    <text class="mono" x="302" y="253">_loadYaml: parse</text>
+    <text class="sub" x="302" y="269">root must be a map; a null known key warns and takes its default</text>
+    </a>
+  </g>
+  <text class="fatal" x="770" y="258">fatal: malformed YAML, non-map root</text>
+  <g class="node k-host">
+    <title>Each throws a FormatException naming its replacement under governance.turn_limits.</title>
+    <path class="edge" d="M700,324 L700,334"/>
+    <a href="../configuration-architecture.md#what-stops-the-load">
+    <rect class="box" x="264" y="284" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="304" r="10"/><text class="step-no-t" x="282" y="308" text-anchor="middle">4</text>
+    <text class="mono" x="302" y="303">_rejectRetiredTurnLimitKeys</text>
+    <text class="sub" x="302" y="319">worker_timeout, governance.turn_progress, harness.turn_monitor</text>
+    </a>
+  </g>
+  <text class="fatal" x="770" y="308">fatal, names the replacement</text>
+  <g class="node k-host">
+    <title>config_accept_set.dart. Holds no path literal of its own. One FormatException names every undescribed path.</title>
+    <path class="edge" d="M700,374 L700,384"/>
+    <a href="../configuration-architecture.md#acceptance-sweep">
+    <rect class="box" x="264" y="334" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="354" r="10"/><text class="step-no-t" x="282" y="358" text-anchor="middle">5</text>
+    <text class="mono" x="302" y="353">_sweepConfigPaths</text>
+    <text class="sub" x="302" y="369">reads ConfigMeta.fields, toleratedLegacyKeys and extension keys</text>
+    </a>
+  </g>
+  <text class="fatal" x="770" y="358">fatal: lists every undescribed path</text>
+  <g class="node k-host">
+    <title>config_parser*.dart. credentials parse first because search, mcp_servers and embedding reference them by name. Bad values add a blocking warning and keep the default.</title>
+    <path class="edge" d="M700,424 L700,434"/>
+    <a href="../configuration-architecture.md#section-parsing">
+    <rect class="box" x="264" y="384" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="404" r="10"/><text class="step-no-t" x="282" y="408" text-anchor="middle">6</text>
+    <text class="mono" x="302" y="403">section parsers</text>
+    <text class="sub" x="302" y="419">CLI &gt; YAML &gt; default; credentials before search; named store merged over YAML</text>
+    </a>
+  </g>
+  <text class="warn" x="770" y="408">bad value: blocking warning, default</text>
+  <g class="node k-host">
+    <title>validateExecutionPolicySelections runs only when container.enabled is declared; startup resolution re-runs it once the posture is known.</title>
+    <path class="edge" d="M700,474 L700,500"/>
+    <a href="../configuration-architecture.md#what-stops-the-load">
+    <rect class="box" x="264" y="434" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="454" r="10"/><text class="step-no-t" x="282" y="458" text-anchor="middle">7</text>
+    <text class="mono" x="302" y="453">_parseExtensions + container check</text>
+    <text class="sub" x="302" y="469">extension parsers; container selection checked against container.enabled</text>
+    </a>
+  </g>
+  <text class="fatal" x="770" y="458">fatal: execution: container while disabled</text>
+  <g class="node k-host">
+    <title>dartclaw_runtime config_load.dart. Channel types live outside the kernel (ADR-034), so they parse here; warnings reach config.warnings through parseWithLoadWarnings.</title>
+    <path class="edge" d="M700,540 L700,566"/>
+    <a href="../configuration-architecture.md#channel-config-resolution">
+    <rect class="box" x="264" y="500" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="520" r="10"/><text class="step-no-t" x="282" y="524" text-anchor="middle">8</text>
+    <text class="mono" x="302" y="519">resolveChannelConfig x4</text>
+    <text class="sub" x="302" y="535">parses 4 channels; refuses undeclared-agent rows and unusable Slack</text>
+    </a>
+  </g>
+  <text class="fatal" x="770" y="524">fatal: FormatException</text>
+  <g class="node k-host">
+    <title>config_loader.dart. The kernel retains harness.&lt;name&gt; blocks as raw maps; the owning package parses them.</title>
+    <path class="edge" d="M700,606 L700,630"/>
+    <a href="../configuration-architecture.md#3-config-loading-pipeline">
+    <rect class="box" x="264" y="566" width="480" height="40" rx="6"/>
+    <circle class="step-no" cx="282" cy="586" r="10"/><text class="step-no-t" x="282" y="590" text-anchor="middle">9</text>
+    <text class="mono" x="302" y="585">primeHarnessSections</text>
+    <text class="sub" x="302" y="601">runs the composed parsers (acp); refuses a section nothing claims</text>
+    </a>
+  </g>
+  <text class="fatal" x="770" y="590">fatal: unclaimed harness section</text>
+  <g class="node k-host">
+    <title>The result. config.warnings keeps every warning; reloadBlockingWarnings keeps the blocking ones, which ConfigNotifier.reload refuses and doctor reports as failures.</title>
+    <a href="../configuration-architecture.md#2-composed-config-model">
+    <rect class="box" x="264" y="630" width="480" height="46" rx="6"/>
+    <text class="mono" x="278" y="649">DartclawConfig</text>
+    <text class="sub" x="278" y="665">immutable; 28 sections + extensions; warnings: blocking | advisory</text>
+    </a>
+  </g>
+  <text class="warn" x="24" y="640">Warnings are typed:</text>
+  <text class="warn" x="24" y="656">plain = blocking,</text>
+  <text class="warn" x="24" y="672">addConfigAdvisory = advisory.</text>
+</svg>

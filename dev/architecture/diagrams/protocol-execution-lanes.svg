@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" width="1000" height="620" role="img" aria-labelledby="title desc">
+  <title id="title">Execution lanes: from request to lease and back</title>
+  <desc id="desc">ExecutionCoordinator routes each request to the fixed primary lane or to a provider&#x27;s worker gate, reuses or creates a worker under a capacity permit, and hands out one lease. Release caches, disposes or quarantines the worker.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+
+    .mono-sm { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--sub); }
+    .step { font-size: 12.5px; font-weight: 700; }
+    .num { fill: var(--host); font-weight: 700; font-size: 12px; }
+    .legend-text { fill: var(--sub); font-size: 11px; }
+    .edge.guard { stroke: var(--sec); stroke-dasharray: 5 4; }
+    .edge.fail { stroke: var(--sec); stroke-dasharray: 5 4; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="620"/>
+  <text class="title" x="24" y="34">Execution lanes: from request to lease and back</text>
+  <text class="lede" x="24" y="56">Capacity is permits, not processes: pool_size caps concurrent executions per provider and idle cached workers hold none.</text>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Main-agent user and channel conversations. Channel turns always take the primary lane unless the session is bound to a logical agent; an interactive turn does only when its provider and execution policy equal the primary runner&#x27;s.</title>
+    <path class="edge" d="M162,134 V186"/>
+    <path class="edge dashed" d="M300,109 H560 V186"/>
+    <rect class="box" x="24" y="84" width="276" height="50" rx="6"/>
+    <text class="step" x="36" y="105">Interactive and channel turns</text>
+    <text class="sub" x="36" y="122">main-agent conversations</text>
+  </g>
+  </a>
+  <text class="edge-label" x="310" y="102" text-anchor="start">provider or policy differs from the primary</text>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Scheduler and cron jobs, tasks, workflow steps, logical agents and temporary conversations always run on the worker lane. Tasks and workflow steps acquire fail-fast and are retried by their poller; logical agents also fail fast.</title>
+    <path class="edge" d="M795,134 V186"/>
+    <rect class="box" x="620" y="84" width="350" height="50" rx="6"/>
+    <text class="step" x="632" y="105">Cron, tasks, workflow steps</text>
+    <text class="sub" x="632" y="122">logical agents, temporary conversations</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Primary gate: one permit, outside providers.&lt;id&gt;.pool_size. Main-agent turns are serialized.</title>
+    <path class="edge" d="M162,246 V300"/>
+    <rect class="box" x="24" y="186" width="276" height="60" rx="6"/>
+    <text class="step" x="36" y="207">Primary gate</text>
+    <text class="sub" x="36" y="224">capacity 1, serialized</text>
+    <text class="sub" x="36" y="239">outside pool_size</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Worker gate: one per provider, sized by providers.&lt;id&gt;.pool_size. Interactive, scheduler and temporary requests wait for a permit; tasks, workflow steps and logical agents fail fast.</title>
+    <path class="edge" d="M610,246 V300"/>
+    <path class="edge" d="M860,246 V300"/>
+    <rect class="box" x="500" y="186" width="470" height="60" rx="6"/>
+    <text class="step" x="512" y="207">Worker gate, one per provider</text>
+    <text class="sub" x="512" y="224">providers.&lt;id&gt;.pool_size permits</text>
+    <text class="sub" x="512" y="239">wait, or fail fast for tasks and logical agents</text>
+  </g>
+  </a>
+  <text class="edge-label" x="618" y="278" text-anchor="start">hit</text>
+  <text class="edge-label" x="868" y="278" text-anchor="start">miss</text>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>The primary TurnRunner wraps the deployment&#x27;s fixed primary harness.</title>
+    <path class="edge" d="M162,366 V420"/>
+    <rect class="box" x="24" y="300" width="276" height="66" rx="6"/>
+    <text class="step" x="36" y="321">Primary TurnRunner</text>
+    <text class="sub" x="36" y="338">fixed harness for the</text>
+    <text class="sub" x="36" y="353">configured primary provider</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Reusable-worker lookup: a healthy exact-session worker, else any healthy host worker with the same provider, policy, agent and workspace. Requests with execution-scoped construction inputs bypass the cache.</title>
+    <path class="edge" d="M610,366 V420"/>
+    <rect class="box" x="500" y="300" width="220" height="66" rx="6"/>
+    <text class="step" x="512" y="321">Cached worker</text>
+    <text class="sub" x="512" y="338">same session first, else</text>
+    <text class="sub" x="512" y="353">same provider and policy</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Fresh worker from provider wiring; the harness is started and must be idle. Workflow steps with an artifacts directory or spawn environment always get a single-use worker.</title>
+    <path class="edge" d="M860,366 V420"/>
+    <rect class="box" x="750" y="300" width="220" height="66" rx="6"/>
+    <text class="step" x="762" y="321">New worker</text>
+    <text class="sub" x="762" y="338">HarnessFactory.create,</text>
+    <text class="sub" x="762" y="353">start(), single-use if scoped</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>ExecutionLease: the caller&#x27;s handle to one runner. Idempotent release; the active set is the source of truth for busy and free state.</title>
+    <path class="edge" d="M225,476 V530"/>
+    <path class="edge" d="M500,476 V530"/>
+    <path class="edge" d="M775,476 V530"/>
+    <rect class="box" x="100" y="420" width="800" height="56" rx="6"/>
+    <text class="step" x="112" y="441">ExecutionLease</text>
+    <text class="sub" x="112" y="458">idempotent; released exactly once on success, failure, cancel or setup error</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Release: an idle healthy host worker returns to the cache; a logical-agent or temporary container worker is retained only for its owner.</title>
+    <rect class="box" x="100" y="530" width="250" height="60" rx="6"/>
+    <text class="step" x="112" y="551">Back to cache</text>
+    <text class="sub" x="112" y="568">idle healthy host worker; owner&#x27;s</text>
+    <text class="sub" x="112" y="583">logical-agent or temporary container</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>Release: task and workflow containers, and workers that are not reusable or not idle, are torn down.</title>
+    <rect class="box" x="375" y="530" width="250" height="60" rx="6"/>
+    <text class="step" x="387" y="551">Dispose</text>
+    <text class="sub" x="387" y="568">task and workflow containers,</text>
+    <text class="sub" x="387" y="583">non-reusable workers</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-sec">
+    <title>Replacement needs confirmed termination of the managed root process. If exit is unconfirmed the permit is quarantined: effective capacity falls and no overlapping replacement starts.</title>
+    <rect class="box" x="650" y="530" width="250" height="60" rx="6"/>
+    <text class="step" x="662" y="551">Quarantine the permit</text>
+    <text class="sub" x="662" y="568">root exit unconfirmed:</text>
+    <text class="sub" x="662" y="583">capacity falls, no replacement</text>
+  </g>
+  </a>
+</svg>

@@ -1,8 +1,10 @@
 # Decisions
 
 <!-- Maintenance:
-     - `andthen:decide` authors ADRs. Maintain this index directly when an ADR
-       is accepted or superseded; keep each ADR ID in one current or superseded row.
+     - `andthen:decide` authors ADRs and registers each here (appends to Current
+       ADRs; moves prior rows to Superseded on supersession), idempotent on ADR ID.
+       An ADR written by hand is registered the same way; keep each ADR ID in one
+       current or superseded row.
      - "Still Current" captures load-bearing choices that don't warrant a full
        ADR. Use `andthen:decide` if the choice becomes contested.
      - Status enum (Current ADRs): Proposed | Accepted | Deprecated.
@@ -73,6 +75,7 @@
 | [058](../adrs/058-report-quarantined-workers-truthfully.md) | Report Quarantined Workers Truthfully | Accepted 2026-08-21 (0.25 S75/TD-125 – after the physical teardown attempt, the execution coordinator publishes exactly one terminal outcome with the existing runner ID: `disposed` when confirmed or `quarantined` when unconfirmed; capacity quarantine is committed first, and the observer retains the latter as a bounded `crashed` tombstone. Existing REST/SSE shapes and values stay; the newly reachable `crashed` behavior is accepted) | Execution lifecycle / observability |
 | [059](../adrs/059-doctor-preserves-config-load-refusals.md) | Doctor preserves config load refusals | Accepted | CLI diagnostics / directory repair |
 | [060](../adrs/060-postgresql-only-storage.md) | PostgreSQL server storage and standalone workflow files | Accepted 2026-09-20; amended 2026-09-29 (standalone uses files; partially supersedes ADR-045/048/050) | Storage / standalone workflows / native setup / optional hybrid search |
+| [061](../adrs/061-credential-files-unreadable-by-default.md) | Credential files unreadable by default for every harness | Accepted 2026-10-16 | Security / FileGuard defaults |
 
 ## Superseded
 

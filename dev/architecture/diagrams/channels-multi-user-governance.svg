@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="title desc">
+  <title id="title">Multi-user governance</title>
+  <desc id="desc">Participants pass the access gate, then pause, reserved commands, the per-sender rate limit, the queue strategy and the group model default apply in order before messages reach tasks, notifications and thread binding.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .halo { paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; fill: none; }
+    .num { font-size: 11px; font-weight: 700; fill: var(--accent); }
+    .badge { fill: var(--accent); }
+    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    a:hover text { text-decoration: underline; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="600"/>
+  <text class="title" x="24" y="34">Multi-user governance</text>
+  <text class="lede" x="24" y="56">What sits between shared-channel participants and the task system. Doc: channel-messaging-architecture.md section 9.</text>
+  <g class="node k-chan">
+    <title>Several people steering one agent from a shared conversation. Each sender is identified by the adapter (senderJid, senderDisplayName) so pause replay and task origin can attribute messages.</title>
+    <path class="edge" d="M500,136 L500,166"/>
+    <a href="../channel-messaging-architecture.md#9-multi-user-channels-crowd-coding">
+      <rect class="box" x="60" y="80" width="880" height="56" rx="6"/>
+      <text class="mono" x="74" y="101">Participants</text>
+      <text class="sub" x="74" y="119">senders admitted by allowlists: Google Chat spaces, Slack channels, WhatsApp and Signal groups</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>ChannelInboundGate per adapter; see the inbound pipeline figure.</title>
+    <path class="edge" d="M500,218 L500,246"/>
+    <a href="../channel-messaging-architecture.md#3-inbound-pipeline">
+      <rect class="box" x="300" y="166" width="400" height="52" rx="6"/>
+      <text class="mono" x="314" y="187">adapters and access gate</text>
+      <text class="sub" x="314" y="205">dm_access, group_access, require_mention</text>
+    </a>
+  </g>
+  <rect class="group" x="24" y="246" width="952" height="180" rx="8"/>
+  <text class="group-label" x="40" y="264">Governance, in pipeline order</text>
+  <g class="node k-sec">
+    <title>ChannelManager checks pause first (reserved commands skip it); ReservedCommandHandler runs the commands. Non-admin refusals are audited (guard ReservedCommand).</title>
+    <path class="edge" d="M255,335 L275,335"/>
+    <a href="../channel-messaging-architecture.md#93-pause-and-resume">
+      <rect class="box" x="40" y="280" width="215" height="110" rx="6"/>
+      <text class="mono" x="54" y="301">pause and commands</text>
+      <text class="sub" x="54" y="319">PauseController holds</text>
+      <text class="sub" x="54" y="334">non-reserved traffic;</text>
+      <text class="sub" x="54" y="349">/stop /pause /resume</text>
+      <text class="sub" x="54" y="364">are admin-only</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>governance.rate_limits.per_sender.messages per window (minutes). Evaluated before bound-thread routing so a bound thread is not a bypass.</title>
+    <path class="edge" d="M490,335 L510,335"/>
+    <a href="../channel-messaging-architecture.md#41-routing-precedence">
+      <rect class="box" x="275" y="280" width="215" height="110" rx="6"/>
+      <text class="mono" x="289" y="301">per-sender rate limit</text>
+      <text class="sub" x="289" y="319">SlidingWindowRateLimiter in</text>
+      <text class="sub" x="289" y="334">the bridge; admins and</text>
+      <text class="sub" x="289" y="349">reserved commands exempt;</text>
+      <text class="sub" x="289" y="364">off when messages is 0</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>governance.queue_strategy and governance.rate_limits.per_sender.max_queued. A full session queue answers busy.</title>
+    <path class="edge" d="M725,335 L745,335"/>
+    <a href="../channel-messaging-architecture.md#71-messagequeue">
+      <rect class="box" x="510" y="280" width="215" height="110" rx="6"/>
+      <text class="mono" x="524" y="301">queue strategy</text>
+      <text class="sub" x="524" y="319">MessageQueue: fifo or fair</text>
+      <text class="sub" x="524" y="334">(round-robin senders);</text>
+      <text class="sub" x="524" y="349">max_queued per sender,</text>
+      <text class="sub" x="524" y="364">admins exempt</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>runtime/model_resolver.dart resolveChannelTurnOverrides. Applied when the turn is dispatched.</title>
+    <a href="../channel-messaging-architecture.md#72-dispatchchannelturn">
+      <rect class="box" x="745" y="280" width="215" height="110" rx="6"/>
+      <text class="mono" x="759" y="301">group model / effort</text>
+      <text class="sub" x="759" y="319">row model, sessions.channels,</text>
+      <text class="sub" x="759" y="334">sessions.*, then</text>
+      <text class="sub" x="759" y="349">governance.crowd_coding</text>
+      <text class="sub" x="759" y="364">(group sessions only)</text>
+    </a>
+  </g>
+  <text class="note" x="40" y="414">governance.admin_senders decides who may run commands, review tasks and resolve run approvals. An empty list makes every sender an admin.</text>
+  <path class="edge" d="M200,426 L200,480"/>
+  <text class="edge-label halo" x="212" y="452" text-anchor="start">task_create, /new, bound threads</text>
+  <text class="group-label" x="40" y="468">Task system</text>
+  <g class="node k-host">
+    <title>task_origin.dart. channelType, sessionKey, recipientId and optional contact and sender fields. Tells subscribers where to post.</title>
+    <path class="edge" d="M255,520 L275,520"/>
+    <a href="../channel-messaging-architecture.md#44-taskorigin">
+      <rect class="box" x="40" y="480" width="215" height="80" rx="6"/>
+      <text class="mono" x="54" y="501">TaskOrigin</text>
+      <text class="sub" x="54" y="519">recorded in task.configJson</text>
+      <text class="sub" x="54" y="534">when a task starts from chat</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Posts on queued to running, running to review, review to accepted or rejected, and running to failed.</title>
+    <path class="edge" d="M490,520 L510,520"/>
+    <a href="../channel-messaging-architecture.md#61-delivery">
+      <rect class="box" x="275" y="480" width="215" height="80" rx="6"/>
+      <text class="mono" x="289" y="501">task notifications</text>
+      <text class="sub" x="289" y="519">TaskNotificationSubscriber</text>
+      <text class="sub" x="289" y="534">posts status changes</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Optional (features.thread_binding.enabled).</title>
+    <a href="../channel-messaging-architecture.md#5-thread-binding">
+      <rect class="box" x="510" y="480" width="215" height="80" rx="6"/>
+      <text class="mono" x="524" y="501">thread binding</text>
+      <text class="sub" x="524" y="519">the thread routes to the</text>
+      <text class="sub" x="524" y="534">task session</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>ChannelReviewHandler behind adminGatedReviewHandler; guard TaskReviewGate.</title>
+    <a href="../channel-messaging-architecture.md#43-creating-and-reviewing-tasks-from-chat">
+      <rect class="box" x="745" y="480" width="215" height="80" rx="6"/>
+      <text class="mono" x="759" y="501">task_review</text>
+      <text class="sub" x="759" y="519">admin-only, audited;</text>
+      <text class="sub" x="759" y="534">Accept / Reject cards</text>
+      <text class="sub" x="759" y="549">on Google Chat</text>
+    </a>
+  </g>
+  <text class="note" x="24" y="584" text-anchor="start">A message held by a pause skips the rate limit when it replays after /resume.</text>
+</svg>

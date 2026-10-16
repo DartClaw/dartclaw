@@ -1,1154 +1,393 @@
 # DartClaw System Architecture Overview
 
-Canonical reference for understanding how DartClaw works. Covers the 2-layer runtime model, all major subsystems, package structure, and how they connect.
+The map of the whole system: the two-layer runtime model, the subsystems and where they live in code, the package
+topology, the deployment model and the service wiring that assembles it. It stays an overview. Each subsystem's design,
+invariants and failure modes live in the document named for it in the [Subsystem Index](#subsystem-index), and this
+document owns only package topology, tier order, the composition root, service wiring and the deployment model.
 
-**Current through**: 0.28.0 turn provenance for MCP tools, 0.27.1 PostgreSQL server storage and standalone workflow files, conversation snapshot and attempt authority, managed workspace
-principals and caller-scoped research, temporary retention, product search, inbox and attention projections, plus the
-Trellis and HTMX upgrade.
+**Current through**: 0.28.0
 
 ---
 
-## Design Philosophy
-
-Five principles shape every architectural decision:
+## Design Principles
 
 | Principle | Meaning |
 |-----------|---------|
-| **Minimal attack surface** | No Node.js/npm in the chain. Fewer dependencies = fewer supply chain vulnerabilities. Prefer capable standard libraries over third-party packages |
-| **Dart as host** | AOT-compiled native binary, complete built-in toolchain (formatter, analyzer, linter, test runner), capable stdlib. No external toolchain dependencies |
-| **Direct control protocol** | Dart spawns native provider binaries directly (`claude`, `codex`, or ACP agents such as Goose/Vibe), no intermediate runtime. All state/storage/security lives in Dart |
-| **Outpost pattern** | Purpose-built CLI tools in the best language for the job (Go for WhatsApp, Python for ML/NLP), invoked as subprocesses with structured JSON I/O. No shared runtime, no dependency contamination |
-| **Auditable** | Dependencies stay minimal and every subsystem has one owner. 156,183 production LOC across 858 `lib/` Dart files at the 0.25 close, excluding generated Dart, tests and tooling — no longer one context window, which is what the per-package LOC targets and the context map exist to keep navigable |
+| **Minimal attack surface** | No Node.js or npm in the chain. Few dependencies; prefer the Dart standard library over third-party packages |
+| **Dart as host** | AOT-compiled native binary with the formatter, analyzer, linter and test runner built in |
+| **Direct control protocol** | Dart spawns the provider binaries (`claude`, `codex`, ACP agents) itself, with no intermediate runtime. State, storage and security stay in Dart |
+| **Outpost pattern** | Purpose-built CLI tools in the best language for the job (GOWA in Go for WhatsApp, `signal-cli` for Signal), driven as subprocesses with structured I/O |
+| **Auditable** | Dependency direction, per-package `lib/` size targets and the package count are enforced mechanically ([Architecture Governance](architecture-governance.md), [ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md)) |
 
-See also: [Product – Core Philosophy](../state/PRODUCT.md#core-philosophy)
+Product-level philosophy and scale: [PRODUCT.md](../state/PRODUCT.md). Two rules bind every subsystem: model-first
+delegation and one authority per concern ([ADR-054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md)).
 
 ---
 
 ## System Overview
 
-DartClaw is a **2-layer agent runtime**. The Dart host is the control plane (full trust); `claude`, `codex`, and configured ACP agent binaries are execution-plane providers with provider-specific security boundaries.
+DartClaw is a **2-layer agent runtime**. The Dart host is the control plane and is fully trusted. The provider binaries
+(`claude`, `codex`, configured ACP agents) are the execution plane, each with a provider-specific security boundary.
+Claude and Codex run in a container or on the host; ACP agents run on the host only. The two layers talk over the provider
+control protocol on stdio.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  Layer 1: Dart Host (AOT binary)                                   │
-│  ────────────────────────────────                                   │
-│  Owns: persistent storage, HTTP API + web UI, turn orchestration,  │
-│        security policy, credential isolation, container management,│
-│        session/task lifecycle, event bus, scheduling, MCP server    │
-│  Trust: FULL — operator-controlled                                 │
-└──────────────────────────┬──────────────────────────────────────────┘
-                           │ Provider control protocol
-                           │ over stdin/stdout
-┌──────────────────────────▼──────────────────────────────────────────┐
-│  Layer 2: Provider CLI Binaries                                    │
-│  ─────────────────────────────                                     │
-│  Owns: LLM reasoning, tool execution through the active provider   │
-│        boundary, context management, streaming, prompt caching     │
-│  Runtime: `claude`, `codex`, and ACP agent binaries such as Goose  │
-│           or Vibe                                                  │
-│  Trust: PROVIDER-BOUND — Claude can run in Docker; Codex uses      │
-│         approval/sandbox controls; ACP depends on topology         │
-└─────────────────────────────────────────────────────────────────────┘
-```
+Claude uses bidirectional JSONL, Codex uses JSON-RPC over JSONL, and ACP agents use stdio JSON-RPC. The wire formats,
+spawn flags and turn lifecycle are in [Control Protocol & Harness Architecture](control-protocol.md). The 2-layer
+decision, and the reverse-engineering of the Claude protocol it rests on, is
+[ADR-001](../adrs/001-sdk-integration-and-security-architecture.md).
 
-**Key insight**: The provider binaries are _not_ called via the TypeScript Agent SDK. Dart reimplements the provider-specific control boundaries directly, eliminating the Deno/TypeScript middleman. Claude uses bidirectional JSONL, Codex uses bidirectional JSON-RPC JSONL, and ACP agents use stdio JSON-RPC; see [Control Protocol & Harness Architecture](control-protocol.md). The original Claude path was validated by reverse-engineering the protocol from official SDKs in Python, Go, and Elixir (see [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md)).
+The host is built on Dart (AOT via `dart build cli`), `shelf` for HTTP, Trellis templates with vendored HTMX for the web
+UI, `postgres` for the server database, and `llamadart` for optional in-process embeddings. Versions stay in each
+package's `pubspec.yaml` and the workspace `pubspec.lock`; vendored frontend assets are listed in
+`packages/dartclaw_runtime/lib/src/static/VENDORS.md`.
 
-### What Each Layer Owns
+| Concern | Layer 1 (host) | Layer 2 (providers) |
+|---------|----------------|---------------------|
+| State | Sessions, messages, memory, tasks, workflow runs, config, audit | Provider-side conversation continuity only, which the host can reset |
+| Security | Guard chain, container orchestration, host gateway, audit | Tool execution inside the active provider boundary |
+| Networking | HTTP server, SSE, channel ingress, MCP endpoint | Container executions have no network of their own and reach one upstream through the host gateway |
+| Agent logic | Turn orchestration, prompt composition, hook and reverse-call evaluation, admission and governance | LLM reasoning, tool selection and execution |
+| Credentials | Holds every credential. Container executions never receive one; host executions receive only their provider-scoped credential | Receives only what its provider family needs |
 
-| Concern | Layer 1 (Dart Host) | Layer 2 (Execution-Plane Providers) |
-|---------|--------------------|-----------------------|
-| State | Sessions, messages, memory, tasks, config, audit logs | Stateless (no session persistence) |
-| Security | Guard chain, container orchestration, host gateway mediation, audit | Tool execution inside the active provider boundary |
-| Networking | HTTP server, SSE streaming, channel webhooks, MCP endpoint | Constrained by the active boundary (Claude container or Codex sandbox/runtime) |
-| Agent logic | Turn orchestration, prompt composition, hook/reverse-call evaluation, logical-agent session admission | LLM reasoning, tool selection and execution inside the provider boundary |
-| Credentials | Owns all API keys; container executions reach their provider only through the host gateway, host executions receive their provider-scoped credential directly, and an ACP registration (host-only) receives nothing unless it names a `credential:` API key | Provider binaries receive only the credentials required for their family |
-
-Design rationale: [ADR-001 (SDK Integration & Security Architecture)](../adrs/001-sdk-integration-and-security-architecture.md)
-
-Provider-specific credential and interception details live in [Security Architecture](security-architecture.md). Protocol details live in [Control Protocol & Harness Architecture](control-protocol.md).
+Credential isolation and the container boundary are in [Security Architecture](security-architecture.md).
 
 ### Platform Capability Surface
 
-`dartclaw_kernel` owns the immutable `PlatformCapabilities` policy surface defined by
-[ADR-049](../adrs/049-typed-platform-capability-surface.md). Consumers query this surface instead of scattering raw
-operating-system checks across lifecycle, workflow, reload, and isolation code. It covers:
+`PlatformCapabilities` (`packages/dartclaw_kernel/lib/src/platform_capabilities.dart`, [ADR-049](../adrs/049-typed-platform-capability-surface.md))
+is the one place that answers operating-system questions: home directory (`HOME`, then `USERPROFILE`), executable
+search candidates from `PATH`/`PATHEXT` (never the current directory), trusted Windows system-helper paths, Bash shell
+policy, POSIX signal and file-permission availability, process-termination semantics and container-isolation
+availability. `UnsupportedCapabilityError` names the capability, the attempted context and a remediation. The value is
+policy only. Callers keep subprocess I/O, lookup and their own remediation text.
 
-- home-directory resolution with `HOME` then `USERPROFILE` fallback;
-- executable search candidates derived from injected `PATH`/`PATHEXT`, with empty entries excluded so lookup never implies the current directory;
-- trusted absolute Windows system-helper paths with a minimal environment;
-- Bash shell policy and POSIX signal/file-permission availability;
-- process-termination semantics and container-isolation availability; and
-- `UnsupportedCapabilityError`, which names the capability, attempted context, and remediation.
-
-The Windows constraints are explicit:
-
-| Area | Native Windows contract |
+| Area | Native Windows behaviour |
 |---|---|
-| Process lifecycle | Directly managed root-handle hard termination with bounded exit observation; no SIGTERM-to-SIGKILL or descendant-containment claim |
-| Config reload | `gateway.reload.mode: auto` uses debounced file watching; SIGUSR1 is POSIX-only |
-| Storage/search | Native or managed PostgreSQL 14+; lexical search needs no pgvector or embedding model |
-| Bash workflow steps | Git Bash is required and selected through executable lookup; absence is an explicit failed step |
-| Container isolation | Unavailable and fail-closed; remediation points to a POSIX host or WSL |
-
-The capability value is deterministic policy only. Consumers retain ownership of subprocess I/O, executable lookup,
-and context-specific remediation text.
+| Process lifecycle | Hard termination of the directly managed process (`ProcessTerminationSemantics.hardTerminate`), with no SIGTERM-then-SIGKILL escalation |
+| Config reload | `gateway.reload.mode: auto` (debounced file watch) works. `signal` (`SIGUSR1`, the default) is POSIX-only |
+| Bash workflow steps | Git Bash is required (`BashShellPolicy.gitBashRequired`). Its absence fails the step with an `UnsupportedCapabilityError` message |
+| Container isolation | Unavailable. `container.enabled: true` is startup-fatal; otherwise the host runs unisolated with a warning |
 
 ---
 
 ## Component Map
 
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                           Dart Host Process                              │
-│                                                                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ Web UI      │  │ REST API    │  │ MCP Server   │  │ Channel       │  │
-│  │ (Trellis +  │  │ (shelf)     │  │ (/mcp)       │  │ Ingress       │  │
-│  │  HTMX+SSE)  │  │             │  │              │  │ (WA/Sig/GC)   │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬───────┘  └───────┬───────┘  │
-│         │                │                │                   │          │
-│  ┌──────▼────────────────▼────────────────▼───────────────────▼───────┐  │
-│  │                    DartclawServer (shelf)                          │  │
-│  │  Auth middleware · Security headers · PageRegistry                │  │
-│  └────────────────────────────┬───────────────────────────────────────┘  │
-│                               │                                          │
-│  ┌──────────┐  ┌──────────────▼───────────────┐  ┌────────────────────┐ │
-│  │ Event    │  │ Turn Orchestration            │  │ Task Orchestrator  │ │
-│  │ Bus      │◄─┤ TurnManager · TurnRunner     │  │ TaskExecutor       │ │
-│  │          │  │ ExecutionCoordinator · locks │  │ WorktreeManager    │ │
-│  └────┬─────┘  └──────────────┬───────────────┘  │ DiffGenerator      │ │
-│       │                       │                   │ MergeExecutor      │ │
-│       │        ┌──────────────▼───────────────┐   └────────┬───────────┘ │
-│       │        │ HarnessFactory (core)         │            │             │
-│       │        │ ProtocolAdapter (core)        │            │             │
-│       │        │ ClaudeProtocolAdapter        │            │             │
-│       │        │ CodexProtocolAdapter         │            │             │
-│       │        │ AcpProtocolAdapter (acp)     │            │             │
-│       │        │ ClaudeCodeHarness             │◄───────────┘             │
-│       │        │ CodexHarness                  │                          │
-│       │        │ AcpHarness (dartclaw_acp)     │                          │
-│       │        └──────────────┬───────────────┘                          │
-│       │                       │                                          │
-│  ┌────▼─────┐  ┌──────────────▼───────────────┐  ┌────────────────────┐ │
-│  │ Guard    │  │ Security & Isolation          │  │ Storage            │ │
-│  │ Chain    │  │ ContainerManager(s)           │  │ Files: NDJSON/JSON │ │
-│  │ Cmd/File │  │ CredentialRegistry            │  │ PostgreSQL          │ │
-│  │ Net/Cont │  │ HostGateway (per authority)   │  │         dartclaw.db   │ │
-│  │          │  │ Docker (per authority)        │  │ turn_state.json    │ │
-│  └──────────┘  └──────────────────────────────┘  └────────────────────┘ │
-│                                                                          │
-│  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐  │
-│  │ Channels │  │ Scheduling & │  │ Memory &    │  │ Config & Reload  │  │
-│  │ WA/Sig/  │  │ Alerts       │  │ Search      │  │ ConfigNotifier   │  │
-│  │ GChat    │  │ AlertRouter  │  │ Lexical     │  │ Reconfigurable   │  │
-│  │          │  │ Cron jobs    │  │             │  │ SIGUSR1/filewatch│  │
-│  └──────────┘  └──────────────┘  └─────────────┘  └──────────────────┘  │
-│                                                                          │
-│  ┌──────────────────────────┐  ┌──────────────────────────────────────┐  │
-│  │ Project Management       │  │ Agent Observability                  │  │
-│  │ ProjectService           │  │ RunnerObserver                        │  │
-│  │ RemotePushService        │  │ TurnTraceService · TaskEventService  │  │
-│  │ PrCreator · Isolate git  │  │ TaskEventRecorder                    │  │
-│  └──────────────────────────┘  └──────────────────────────────────────┘  │
-│                                                                          │
-│  ┌──────────────────────────┐                                            │
-│  │ Workflow Engine           │                                            │
-│  │ WorkflowExecutor          │                                            │
-│  │ WorkflowRegistry          │                                            │
-│  │ DefinitionParser          │                                            │
-│  │ SkillIntrospector         │                                            │
-│  └──────────────────────────┘                                            │
-└───────────────────────────────────────────────────────────────────────────┘
-                           │
-            Provider control protocol over stdin/stdout
-                           │
-┌──────────────────────────▼────────────────────────────────────────────────┐
-│  Execution Boundary Examples                                              │
-│                                                                          │
-│  Claude path (container mode):                                           │
-│    ├── Docker container (network:none, cap-drop=ALL, read-only rootfs)   │
-│    ├── claude binary (Bun standalone)                                    │
-│    ├── PreToolUse/PostToolUse hooks (evaluated by Dart host via JSONL)   │
-│    └── MCP client → connects back to Dart host /mcp endpoint             │
-│                                                                          │
-│  Codex path (app-server mode):                                           │
-│    ├── codex app-server (long-lived JSON-RPC over stdio)                 │
-│    ├── Direct OPENAI_API_KEY env injection                               │
-│    └── Approval or sandbox boundary depending on config                  │
-│                                                                          │
-│  ACP path (stdio JSON-RPC):                                               │
-│    ├── AcpHarness + AcpClient                                             │
-│    ├── Direct-provider targets can be guard-mediated after verification   │
-│    └── Relay or unverified targets are unavailable (host-only ACP)        │
-│                                                                          │
-│  Sidecar binaries (outpost pattern):                                     │
-│    ├── GOWA (Go) — WhatsApp Web protocol                                │
-│    └── signal-cli — Signal protocol                                     │
-└───────────────────────────────────────────────────────────────────────────┘
-```
-
-### Subsystem Details
-
-#### Agent Harness
-
-The harness layer is the interface between the Dart host and the execution-plane provider binaries. `AgentHarness` is an abstract class; `HarnessFactory` selects the provider family; `ProtocolAdapter` is the abstract wire-format boundary. `ClaudeCodeHarness`, `CodexHarness`, and `AcpHarness` are the production implementations.
-
-| Component | File | Role |
-|-----------|------|------|
-| `AgentHarness` | `packages/dartclaw_core/lib/src/harness/agent_harness.dart` | Abstract interface: `start()`, `turn()`, `cancel()`, `stop()`, `dispose()` |
-| `HarnessFactory` | `packages/dartclaw_core/lib/src/harness/harness_factory.dart` | Provider creation point that resolves the provider family and returns the matching harness and protocol adapter |
-| `ProtocolAdapter` | `packages/dartclaw_core/lib/src/harness/protocol_adapter.dart` | Abstract protocol boundary for provider-specific wire formats |
-| `ClaudeProtocolAdapter` | `packages/dartclaw_core/lib/src/harness/claude_protocol_adapter.dart` | Claude-specific adapter for bidirectional JSONL control protocol |
-| `CodexProtocolAdapter` | `packages/dartclaw_core/lib/src/harness/codex_protocol_adapter.dart` | Codex adapter for bidirectional JSON-RPC JSONL |
-| `AcpProtocolAdapter` | `packages/dartclaw_acp/lib/src/acp_protocol_adapter.dart` | ACP session update adapter for stdio JSON-RPC agents |
-| `ClaudeCodeHarness` | `packages/dartclaw_core/lib/src/harness/claude_code_harness.dart` | Spawns `claude` binary, manages JSONL I/O, implements the Claude control protocol |
-| `CodexHarness` | `packages/dartclaw_core/lib/src/harness/codex_harness.dart` | Spawns `codex` binary, manages JSON-RPC JSONL I/O, implements the Codex control protocol |
-| `AcpHarness` | `packages/dartclaw_acp/lib/src/acp_harness.dart` | Spawns configured ACP agent binaries, manages stdio JSON-RPC lifecycle, and delegates reverse-calls to guarded host handlers |
-| `AcpClient` | `packages/dartclaw_acp/lib/src/acp_client.dart` | Minimal ACP JSON-RPC client used by `AcpHarness` |
-| `AcpReverseCallHandlers` | `packages/dartclaw_acp/lib/src/acp_reverse_call_handlers.dart` | Binds ACP filesystem reverse-calls to the active session and maps them to canonical guarded host tools |
-| `ClaudeProtocol` | `packages/dartclaw_core/lib/src/harness/claude_protocol.dart` | Sealed class hierarchy for Claude JSONL message parsing (`SystemInit`, `StreamTextDelta`, `ToolUseBlock`, `ControlRequest`, etc.) |
-| `HarnessConfig` | `packages/dartclaw_core/lib/src/harness/harness_config.dart` | Per-harness configuration: model, max turns, disallowed tools, MCP config |
-| `ToolPolicyCascade` | `packages/dartclaw_core/lib/src/harness/tool_policy.dart` | 3-layer tool approval: global deny, agent deny, sandbox allow |
-| `BridgeEvent` | `packages/dartclaw_core/lib/src/bridge/bridge_events.dart` | Typed stream events for consumers (text deltas, tool activity, results) |
-| `NdjsonChannel` | `packages/dartclaw_acp/lib/src/ndjson_channel.dart` | NDJSON line splitting and framing over `stdin`/`stdout` |
-
-The Claude `initialize` control-protocol handshake registers hooks, MCP servers, and system prompt. Hook callbacks (`PreToolUse`/`PostToolUse`) and MCP tool calls (`mcp_message`) are handled in-process by the Dart host, with request-response correlation via `request_id`. ACP agents use stdio JSON-RPC instead: `AcpHarness` owns the subprocess, `AcpClient` owns request correlation, and filesystem reverse-calls are bound to the active host session and evaluated through the same guard chain before host work. ACP terminal reverse-calls are disabled. For protocol details, see [Control Protocol & Harness Architecture](control-protocol.md).
-
-**Packages**: `dartclaw_core` owns the common contracts plus Claude and Codex; `dartclaw_acp` owns the ACP implementation.
-
-#### Turn Orchestration
-
-Turn orchestration coordinates message flow from user input through guard evaluation, harness execution, and response persistence.
-
-| Component | File | Role |
-|-----------|------|------|
-| `TurnManager` | `turn_manager.dart` | Entry point for turns after routing. Acquires an execution lease and delegates to `TurnRunner` |
-| `TurnRunner` | `turn_runner.dart` | Per-harness turn engine: guard evaluation, message persistence, SSE event streaming, progress-aware stall handling, cost tracking, crash recovery |
-| `TurnLivenessTracker` | `turn_liveness_tracker.dart` | One per-turn tracker for waiting/stuck observations and stall enforcement. Forward-progress events reset it; known approval waits suspend only the stall budget |
-| `ExecutionCoordinator` | `execution_coordinator.dart` | Post-governance authority: one fixed serialized primary lane for main user/channel turns; hard per-provider worker leases for tasks, scheduled/system work, logical agents, and workflow steps |
-| `SessionMutationCoordinator` | `concurrency/session_mutation_coordinator.dart` | Per-session promise chain that runs operations in arrival order; one instance orders `TurnManager` reservations, another the API's session mutations |
-| `SessionLockManager` | `concurrency/session_lock_manager.dart` | Per-session lock with a global cap; orders the callers that have reached `acquire` |
-| `ConversationService` | `conversation/conversation_service.dart` | Revision-checked admission, queue, steer, attempt, branch, history, context, and telemetry operations over one `ConversationState` snapshot |
-| `InboxService` | `conversation/inbox_service.dart` | Derives active, settled, unread, execution, attention, and action-availability projections without becoming a second state authority |
-| `ContextMonitor` | `context/context_monitor.dart` | Tracks context window usage; suppresses heuristic flush when deterministic compaction signals exist; deduplicates pre-compaction flushes per cycle; emits SSE `context_warning` when usage exceeds configurable threshold (one-shot per session) |
-| `ResultTrimmer` | `context/result_trimmer.dart` | Head+tail truncation with a `...[trimmed N bytes]...` marker, applied by `McpProtocolHandler` to the successful text result of every `tools/call` it dispatches, outbound MCP relays included |
-| `CompactionTaskEventSubscriber` | `task/compaction_task_event_subscriber.dart` | Listens for `CompactionCompletedEvent` and records a `compaction` task-timeline event when the compacted session belongs to an active running task |
-
-`providers.<id>.pool_size` is the hard concurrent worker-lease limit for that provider, not a target runner count.
-Workers are created on demand. After release, a healthy idle worker may be retained and reused only when its
-provider and security profile match within the immutable coordinator composition; the exact prior session is preferred. Reuse is
-an optimization, never the capacity authority. Each container authority is owned by one execution principal and is
-destroyed only after teardown is confirmed; container count and worker capacity remain independent.
-
-Each ordinary attempt captures one complete effective context at admission. Project, directory, provider, model, and
-effort may change for a later attempt, while the session's owner or named-agent workspace and storage principal remain
-pinned. Durable conversations persist their snapshot beside session metadata. Process-retained conversations use the
-same services in memory and release their worker, container, attachments, and conversation state through one confirmed
-cleanup path.
-
-Named-agent workspaces are derived from the configured id at `data_dir/agents/<id>/workspace`; configuration does not
-select their path. Setup validates all homes before mutation, writes the exact id-only marker in the parent managed home,
-then scaffolds the workspace. The existing tool-policy cascade decides eligibility: a read or `context_research` grant
-wires retrieval and rebuild work, while a memory-write grant wires mutation and journal or curation schedules. Either
-kind may require a personal-memory corpus; directory existence alone is not a memory grant.
-
-**Context management strategy** (0.10): Layered mechanisms preserve useful context in long-running sessions:
-1. **Compact instructions** — `BehaviorFileService.composeSystemPrompt()` appends a `# Compact instructions` section for long-running session types (web, DM, group, cron), guiding the binary on what to preserve during auto-compaction. Configurable via `context.compact_instructions`.
-2. **Tool-result cap** — `ResultTrimmer` bounds the text every tool registered on the MCP handler returns over `tools/call` at `context.max_result_bytes` (default 50KB), inserting a `...[trimmed N bytes]...` marker so the model reads the result as truncated. Nothing reshapes the assistant's own reply.
-3. **Context warning** — `ContextMonitor.checkThreshold()` emits an SSE `context_warning` event when usage exceeds `context.warning_threshold` (default 80%, live-mutable). One-shot per session; web UI renders a dismissable banner.
-4. **Compaction observability** (0.16) — provider compaction signals now flow into the shared event model. Claude emits `CompactionStartingEvent` from `PreCompact` and `CompactionCompletedEvent` from `compact_boundary`; Codex parses `contextCompaction` items into bridge events. `ContextMonitor` advances its compaction cycle on completion, pre-compaction flushes are SHA-256 deduplicated, and running task sessions record a `compaction` timeline event.
-
-**Progress-aware turn liveness**: `TurnRunner` treats `DeltaEvent`, `ToolUseEvent`, and `ToolResultEvent` as forward progress. `TurnLivenessTracker` resets only on those events, not on `SystemInitEvent`, so long-running turns with steady tool activity do not trip a false stall timeout. Known approval waits suspend the stall clock, while the wall-clock turn limit continues. The same forward-progress events also call `SessionResetService.touchActivity()` so idle-session maintenance follows actual harness activity rather than wall-clock turn duration.
-
-**Package**: `dartclaw_runtime`
-
-#### Channels
-
-Channels normalize external messaging platforms behind shared core abstractions. WhatsApp and Signal use outpost binaries; Google Chat integrates directly over HTTP.
-
-| Channel | Sidecar | Protocol | Session Keying |
-|---------|---------|----------|----------------|
-| **WhatsApp** | GOWA (Go/whatsmeow) | REST + webhooks | `dmPerChannelContact()` / `groupShared()` |
-| **Signal** | signal-cli | JSON-RPC + SSE events | `dmPerChannelContact()` / `groupShared()` |
-| **Google Chat** | None (pure REST) | Inbound webhook + REST API | `dmPerChannelContact()` / `groupShared()` |
-
-Common infrastructure:
-
-| Component | File | Role |
-|-----------|------|------|
-| `Channel` | `channel/channel.dart` | Abstract interface for lifecycle, delivery, response formatting, and optional typing feedback |
-| `ChannelManager` | `channel/channel_manager.dart` | Routes inbound messages to sessions, derives session keys from scope config, preserves routed session context during pause, and delegates task-aware interception to `ChannelTaskBridge` before normal `MessageQueue` enqueue |
-| `DmAccessController` | `channel/dm_access.dart` | Unified access control: pairing, allowlist, open, disabled modes |
-| `MessageQueue` | `channel/message_queue.dart` | Per-session FIFO with debouncing (1000ms default) and global concurrency cap. Preserves channel-specific reply metadata on outbound chunks and can attach a `TurnObserver` for channel-specific in-flight feedback |
-| `SessionScopeConfig` | `scoping/session_scope_config.dart` | Configurable DM/group scope with per-channel overrides (5 DM + 3 group modes) |
-| `GroupEntry` | `scoping/group_entry.dart` | Structured group allowlist entry with optional `name`, `project`, `model`, `effort` overrides. Parsed by `GroupEntry.parseList()` which accepts mixed string/map YAML |
-| `GroupConfigResolver` | `scoping/group_config_resolver.dart` | Lookup service keyed by `(ChannelType, groupId)`. Constructed in `ChannelWiring` from per-channel allowlists. Used by `resolveChannelTurnOverrides()` (model/effort precedence tier) and `ChannelTaskBridge` (project binding) |
-| `TaskOrigin` | `channel/task_origin.dart` | Persisted metadata linking a task back to its originating channel contact (`channelType`, `sessionKey`, `recipientId`, `contactId`) |
-| `ThreadedNotifications` | `channel/threaded_notifications.dart` | The one declaration that a channel threads (`Channel.threadedNotifications`, resolved by `ChannelManager.threadedNotificationsFor(channelType)`): `extractThread`, `render(ChannelNotification)`, `sendToNewThread`, `sendToThread`. Implemented by Google Chat and Slack; WhatsApp and Signal declare nothing |
-| `ThreadBinding` | `channel/thread_binding.dart` | Immutable model: `(channelType, threadId) → (kind, targetId)`, where `kind` is `task` (with a `sessionKey` inbound messages route to) or `run` (a thread a workflow run posts into; routes nothing). Key: `"<channelType>::<threadId>"`. Fields: `createdAt`, `lastActivity` |
-| `ThreadBindingStore` | `channel/thread_binding.dart` | In-memory `Map<String, ThreadBinding>` with JSON persistence to `thread-bindings.json`. CRUD + `reconcile({activeTaskIds, activeRunIds})` (prunes bindings of terminal or unknown tasks and runs on startup); the idle sweep skips run bindings |
-
-Design rationale: [ADR-005 (WhatsApp Integration)](../adrs/005-whatsapp-integration.md)
-
-**Package**: `dartclaw_core` (interfaces, `DmAccessController`, `ChannelManager`), `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat`, `dartclaw_slack` (channel implementations), `dartclaw_runtime` (webhook routes, pairing UI)
-
-#### Inbound Message Pipeline
-
-Channel adapters normalize platform-specific payloads into `ChannelMessage` before any session routing begins. Google
-Chat contributes thread metadata (`thread.name`), sender display name, and avatar URL; Slack contributes the conversation
-ID and `thread_ts`; WhatsApp and Signal contribute equivalent sender/contact metadata through the same DTO shape. The
-routing stack then composes pause handling, governance, thread binding, and ordinary session routing. Task binding is
-opt-in: the runtime wires `/bind`, `task_bind`, the task bindings routes and bound-thread routing only when
-`features.thread_binding.enabled` is true. The binding store itself also exists when `workflow.chat_notifications` is
-configured, so a run gets its own thread without the flag.
-
-**Stage 1 — `ChannelManager.handleInboundMessage()`**
-
-1. Resolve the owning `Channel`.
-2. Derive the default session key from the current live scope config.
-3. Look up an existing thread binding and compute the routed session key early.
-4. If the runtime is paused and the message is not a reserved command, enqueue it in `PauseController` using the already-resolved session key so bound-thread messages resume to the correct task session.
-5. Delegate task-aware interception to `ChannelTaskBridge.tryHandle()`.
-6. If nothing consumes the message, enqueue it to the normal `MessageQueue`.
-
-##### Thread Binding Routing
-
-**Stage 2 — `ChannelTaskBridge.tryHandle()` routing precedence**
-
-1. Bridge-reserved text commands: `/stop`, `/pause`, `/resume`, `/bind`, and `/unbind`.
-2. Thread-binding resolution: capture bound task/session context when a thread ID maps to a `ThreadBinding`.
-3. Per-sender rate limit check: reject excess non-admin, non-reserved traffic with a polite response.
-4. Bound-thread routing: enqueue the message directly to the bound task session and update `lastActivity`.
-5. Fall through: route to the default shared or scoped session via `MessageQueue`.
-
-Design rationale:
-- Reserved commands stay ahead of pause and rate limiting so operators can always recover the runtime.
-- Thread-binding lookup happens before rate limiting so the bridge preserves the task-session context.
-- Thread binding supports multiple bindings per task. Only a channel that declares `ThreadedNotifications` (Google Chat, Slack) can hold one, keyed by the thread identity the capability reads from the message; WhatsApp and Signal cannot be bound. The lookup routes task bindings only, so a run binding never captures a message.
-
-**Outbound channel notifications**
-
-- `TaskNotificationSubscriber` posts lifecycle updates back to the originating channel for tasks carrying a `TaskOrigin`, and `WorkflowRunNotificationSubscriber` posts a workflow run's started, awaiting-approval, finished and failed steps. Both deliver through `ChannelNotificationDelivery`, which renders natively through the channel's `ThreadedNotifications` and sends plain text where a channel declares none.
-- With `features.thread_binding.enabled`, the first task notification (`queued` to `running`) opens a thread keyed `task-<id>` on a channel that threads; the returned thread identity becomes the persisted task `ThreadBinding`.
-- A run posts into the thread it was started from, as plain messages to its origin recipient on a channel that does not thread, or to the `workflow.chat_notifications` channel (one thread per run, held by a run `ThreadBinding` until the terminal post).
-- Review-ready notifications are posted into the bound thread; review decisions use the task UI, API, or `task_review`.
-- Terminal task states remove the binding through lifecycle cleanup, so later replies fall back to normal session routing.
-- Governance events also surface back to channels when relevant: budget warnings post once per day after the 80% threshold, and loop-detection warnings or aborts emit notifications tied to the originating task/session context.
-
-**Queued outbound reply handling** (0.14.4):
-- `MessageQueue` copies Google Chat reply metadata (`messageName`, `messageCreateTime`, plus the originating `sourceMessageId`) from the inbound `ChannelMessage` onto each outbound `ChannelResponse`.
-- `ChannelResponse.replyToMessageId` is now the explicit runtime field for "reply to this inbound channel message" instead of overloading metadata-only conventions.
-- `GoogleChatChannel` uses `replyToMessageId` together with `messageCreateTime` to populate `quotedMessageMetadata`, which keeps quote-reply working across both direct webhook ingress and Space Events ingress.
-- CLI channel wiring can attach a `TurnObserver` that watches the live turn future and bridge events, letting `GoogleChatFeedbackStrategy` update a placeholder message or emoji reaction during long-running turns without changing the normal queue contract.
-
-#### Task Orchestrator
-
-The task orchestrator transforms DartClaw from a single-session assistant into a parallel task execution platform with structured review flows.
-
-| Component | File | Role |
-|-----------|------|------|
-| `TaskService` | `dartclaw_runtime/src/task/task_service.dart` | CRUD + state machine transitions over the shared PostgreSQL repository; backs the task HTTP, UI, and agent-tool surfaces |
-| `TaskExecutor` | `task/task_executor.dart` | Acquires harness from pool, runs task turn, collects artifacts, transitions status |
-| `WorktreeManager` | `task/worktree_manager.dart` | Git worktree lifecycle: create branch, register with file guard, cleanup on accept/reject |
-| `DiffGenerator` | `task/diff_generator.dart` | Structured diff output: files changed, additions, deletions, hunks |
-| `MergeExecutor` | `task/merge_executor.dart` | Squash/merge worktree back to main branch, conflict detection |
-| `TaskFileGuard` | `task/task_file_guard.dart` | Path containment via `p.isWithin()` for tasks with a registered declared worktree |
-| `ArtifactCollector` | `task/artifact_collector.dart` | Collects task outputs as typed artifacts (`diff`, `document`, `data`, `log`) |
-| `RunnerObserver` | `task/runner_observer.dart` | Current runner lifecycle and cumulative turn metrics derived from coordinator events |
-| `TaskReviewService` | `task/task_review_service.dart` | Shared task-review lifecycle for HTTP, UI, and agent-tool paths. Owns state transition, merge execution for worktree-backed tasks, conflict artifact persistence, worktree cleanup, and `TaskStatusChangedEvent` firing |
-| `TaskNotificationSubscriber` | `task/task_notification_subscriber.dart` | Subscribes to `TaskStatusChangedEvent` on the event bus. For tasks with a `TaskOrigin`, sends best-effort in-channel notifications on key transitions. On a channel that threads, the initial `running` notification can establish the persisted task thread binding used by later notifications and inbound routing |
-| `WorkflowRunNotificationSubscriber` | `task/workflow_run_notification_subscriber.dart` | Subscribes to `WorkflowLifecycleEvent`s. Posts a run's started, awaiting-approval, finished or failed steps (and optionally each step) to the thread that started the run, or to the `workflow.chat_notifications` channel, one chain per run. On a channel that threads, the awaiting-approval post carries Approve and Reject buttons (and Request changes at a gate that names a revise step), and the subscriber edits it once the approval is resolved (channel-messaging § 4.7). Shares `ChannelNotificationDelivery` (`task/channel_notification_delivery.dart`) with the task subscriber |
-| `WorkflowRunControl` | `task/workflow_run_control.dart` | The one admin gate, resolver and audit writer for resuming, cancelling or requesting changes at a run from a chat button or form, the `workflow_resume`/`workflow_cancel`/`workflow_request_changes` tools and the HTTP routes (security § Run approval gate) |
-| `AdvisorSubscriber` | `advisor/advisor_subscriber.dart` | EventBus-driven crowd-coding observer. Accumulates a bounded normalized context window, evaluates triggers (`periodic`, `task_review`, `turn_depth`, `token_velocity`, `explicit`), acquires a pooled runner for an advisory turn, parses structured output, then routes the result to bound channels and the event bus |
-
-Task state machine: `draft` → `queued` → `running` → `review` → `accepted`/`rejected`/`cancelled`/`failed`. See [Data Model — Task State Machine](data-model.md) for valid transitions.
-
-Task dispatch defaults to the `workspace` profile. An authenticated operator may explicitly declare `restricted`;
-legacy `research` input and stored rows are refused.
-
-**Package**: `dartclaw_runtime` (service, executor), `dartclaw_core` (models, status enum, PostgreSQL repository)
-
-**Worktree lifecycle hardening (0.16.4)**:
-- `WorktreeManager.create()` now reconciles three sources of truth before `git worktree add`: the in-memory cache, the on-disk worktree directory, and `git worktree list --porcelain`. Matching state is adopted; orphaned or mismatched state is reaped and recreated.
-- Workflow-shared worktrees are no longer a plain read-then-create race. `TaskExecutor` now serializes lookup+create per `workflowWorktreeKey`, persists the resulting `{key, path, branch, workflowRunId}` binding on the `workflow_runs` row, and rehydrates that binding on resume/retry/recovery before execution restarts.
-- The path invariant is explicit: worktrees stay keyed by the caller-supplied task UUID. Shared identity fields such as workflow run ID can select a binding, but must never derive the on-disk worktree path.
-
-#### Workflow Engine
-
-`dartclaw_workflow` owns framework-agnostic YAML parsing, validation, discovery, execution, skill preflight, output extraction, concurrency, and workflow lifecycle coordination. Server and CLI wiring provide persistence, guarded harness execution, and git/workspace ports. Bounded agent steps use one leased harness worker for their complete prompt chain; host-owned deterministic and approval steps remain inside the engine. Built-in definitions and skills are embedded and materialized into runtime-visible paths.
-
-Connected HTTP/UI and standalone CLI paths share this engine. See [Workflow Engine Architecture](workflow-architecture.md) and the [Workflows guide](../../docs/guide/workflows.md) for execution, recovery, isolation, and authoring contracts.
-
-**Package**: `dartclaw_workflow` (engine and definition lifecycle), `dartclaw_runtime` (connected HTTP and web integration plus the in-`serve` provider and persistence wiring), `dartclaw_cli` (standalone/connected commands)
-
-#### Security
-
-Defense-in-depth across five layers:
-
-```
-Layer 5:  OS-level container isolation (Docker kernel namespaces)
-Layer 4:  Network isolation (network:none + host-gateway mediation)
-Layer 3:  Guard chain (command/file/network/content/tool)
-Layer 2:  Prompt-level safety rules (AGENTS.md, hardcoded rules)
-Layer 1:  Credential isolation (container provider traffic is mediated by the host gateway; credentials stay host-side)
-```
-
-| Component | File | Role |
-|-----------|------|------|
-| `GuardChain` | `security/guard.dart` | Ordered guard evaluation; fail-closed by default |
-| `CommandGuard` | `security/command_guard.dart` | Regex + pipe analysis + quote stripping on bash commands |
-| `FileGuard` | `security/file_guard.dart` | 3-level path access (`no_access`/`read_only`/`no_delete`), symlink resolution |
-| `NetworkGuard` | `security/network_guard.dart` | Domain allowlist + SSRF detection (DNS resolution + address range validation) |
-| `ContentGuard` | `security/content_guard.dart` | LLM-based content classification at agent boundary (Haiku) |
-| `MessageRedactor` | `security/message_redactor.dart` | Best-effort pattern-based redaction of secrets in logged output |
-| `GuardAuditLogger` | `security/guard_audit.dart` | Date-partitioned `audit-YYYY-MM-DD.ndjson` files with retention cleanup |
-| `ContainerManager` | `container/container_manager.dart` | Docker lifecycle: create, start, exec, stop. Per-security-profile containers |
-| `ContentClassifier` | `security/content_classifier.dart` | Pluggable backends: `ClaudeBinaryClassifier` (default) or `AnthropicApiClassifier` |
-
-Service wiring gives each runner a layered chain: the shared reloadable base guards plus that runner's `TaskToolFilterGuard`. The executing harness evaluates that chain, so base reloads propagate without discarding per-turn or per-task policy. SDK hosts own the same composition boundary; see [Security Architecture](security-architecture.md).
-
-Container naming: `dartclaw-<fnv1a8(dataDir)>-<profileId>` — deterministic 8-char FNV-1a digest of the data directory (Docker-safe local identifier, not a cryptographic hash), collision-free across installs.
-
-| Security Profile | Container | Mounts | Used By |
-|------------------|-----------|--------|---------|
-| `workspace` | `dartclaw-<id>-workspace` | `/workspace:rw`, `/project:ro` | Main chat, default tasks, cron |
-| `restricted` | `dartclaw-<id>-restricted` | No workspace | Search agent, explicitly declared tasks |
-
-Design rationale: [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md), [ADR-012 (Per-Type Container Isolation)](../adrs/012-per-type-container-isolation.md)
-
-**Package**: `dartclaw_kernel` (guards, all concrete guard implementations, content classification interfaces, message redaction, guard audit primitives, `ContainerConfig`, `GuardConfig`), `dartclaw_core` (`GuardBlockEvent`), `dartclaw_runtime` (guard wiring with EventBus, container health monitor)
-
-#### Storage
-
-Storage mechanisms follow each authority and access pattern:
-
-| Mechanism | Used For | Access Pattern | Source of Truth? |
-|-----------|----------|----------------|-----------------|
-| **Files** (NDJSON, JSON, YAML, Markdown) | Sessions, messages, memory, config, audit, usage | Append-only logs, atomic documents | **Yes** |
-| **PostgreSQL 14+** (configured database) | Authoritative relational data and derived lexical/vector projections | Pooled transactions, language-aware full-text search and optional pgvector cosine search | Relational rows: **authoritative**. Search projections: derived. |
-| **Local files** (`turn_state.json`, `webhook_deliveries/`) | Active-turn recovery and webhook reservations | Synchronous atomic documents, exclusive delivery markers | Transient recovery and dedup state |
-
-The dependency-free `DatabaseBackend` port defines prepared statements and asynchronous transaction semantics.
-Goal, task-domain, execution and workflow-run persistence share its `PostgresBackend` implementation. The execution
-repository transactor delegates to the backend rather than owning another queue or issuing transaction SQL. Runtime
-and CLI open the pool through the PostgreSQL backend factory; the opener owns closure.
-
-PostgreSQL uses one `PostgresBackend` pool, with a default maximum of five connections, and
-`PostgresSchemaGate` prepares its current
-schema before repository construction. Runtime and CLI own closure; repositories retain the same backend port. The
-optional PostgreSQL vector projection uses the same pool after read-only public-pgvector preflight and authoritative
-schema validation. Canonical memory and index-health evidence stay in local files.
-
-Serving startup runs memory preflight, opens and scans local orphan-turn state, then opens PostgreSQL.
-PostgreSQL acquires its dedicated session interlock before the schema gate. Language validation and derived-index
-reconciliation follow the gate. Only after storage wiring returns do the serving runners acknowledge orphan records. Headless and
-one-shot clients omit the serving interlock and orphan scan. Shutdown closes the pool before releasing ownership.
-
-File-based services use write queues (`StreamController`) or fire-and-forget patterns for concurrency safety. All mutable JSON/YAML files use temp-file + atomic rename.
-
-Full persistence details: [Data Model & Persistence Overview](data-model.md)
-
-Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
-
-**Package**: `dartclaw_core` (file services and PostgreSQL backend)
-
-#### Web UI
-
-Server-rendered HTML with declarative interactivity — zero JavaScript build toolchain.
-
-| Layer | Technology | Role |
-|-------|-----------|------|
-| Templates | Trellis 0.11.1 (`.html` files with `tl:` attributes) | Server-side rendering with auto-escaping, fragment support |
-| Interactivity | HTMX 4.0.0 + Stimulus controllers | HTMX owns navigation, requests, swaps, and OOB updates; Stimulus owns `dc-*` browser behavior attached to server-rendered DOM |
-| Streaming | Bundled HTMX 4.0.0 `hx-sse` extension | `hx-sse:connect` / `hx-sse:close`; named events feed awaited controller swaps |
-| Markdown | marked.js + highlight.js | Client-side rendering of agent responses |
-| Styling | Afterglow `tokens.css` + `design-system.css`, then app-only `app-tokens.css` + `app.css` | Canonical primitives followed by product-specific tokens and composition |
-
-Navigation uses HTMX fragment rendering: `wantsFragment()` distinguishes `HX-Request` from history refetches,
-which receive full pages. Ordinary navigation swaps `#main-content` with OOB sidebar/topbar/restart updates.
-The `.shell` root carries `hx-history-elt`, so history refetches restore the route-dependent shell and main
-regions together. The layout explicitly inherits indicator and 4xx/5xx no-swap policies; ordinary form validation remains a status-200 HTML fragment. `HX-Trigger` dispatches
-toast events after the awaited swap. Core and streaming assets are vendored and served same-origin; the extension
-carries a recorded cleanup correction for an upstream unhandled cancellation Promise on close.
-
-Stimulus controllers live under `static/controllers/` and use `dc-*` controller names. Trellis templates attach behavior with `data-controller`, `data-action="event->controller#method"`, controller targets, and typed values. Controller `connect()`/`disconnect()` lifecycle handles HTMX replacement and history restoration without page-global reinitialization.
-
-SSE streaming flow: POST `/api/sessions/:id/send` returns a fragment with `hx-sse:connect`. The extension reads
-the fetch stream and dispatches named messages. The chat controller awaits `htmx.swap` for `delta`, `tool_use`,
-and OOB `tool_result` fragments through the before-message event, then handles success, cancellation, or error
-and the terminal `done` close. Markdown rendering and sanitization retain their existing ownership.
-
-`PageRegistry` can include Health Dashboard, Settings, Memory, Knowledge, Scheduling, Tasks, Projects, and Workflows. Settings and Knowledge are always registered; the other pages depend on active services or configuration. The Knowledge timeline is a registered nested route but not a top-level navigation item. SDK consumers can add pages via `server.registerDashboardPage()`.
-
-**Package**: `dartclaw_runtime`
-
-#### Configuration
-
-Three-tier configuration system:
-
-| Tier | Mechanism | Restart Required? |
-|------|-----------|-------------------|
-| **Tier 1** (0.5) | Runtime toggles via API | No — applied immediately |
-| **Tier 2** (0.6) | Full YAML editing + graceful restart | Yes — 30s turn drain + restart |
-| **Tier 3** (0.16) | `ConfigNotifier` + `Reconfigurable` services + reload triggers (`SIGUSR1` / file-watch) | No — reloadable sections apply to the running process |
-
-| Component | File | Role |
-|-----------|------|------|
-| `DartclawConfig` | `dartclaw_kernel/dartclaw_kernel.dart` | Parsed YAML config with env var substitution (`${ENV_VAR}`) |
-| `ConfigWriter` | `dartclaw_kernel/config_writer.dart` | YAML round-trip writer (preserves comments via `yaml_edit`), backup-on-write |
-| `ConfigValidator` | `dartclaw_kernel/config_validator.dart` | Server-side validation before write |
-| `ConfigMeta` | `dartclaw_kernel/config_meta.dart` | Schema metadata for UI form generation |
-| `RuntimeConfig` | `runtime_config.dart` | In-memory toggles for live config fields |
-| `ConfigNotifier` | `dartclaw_kernel/config_notifier.dart` | Holds the current `DartclawConfig`, computes `ConfigDelta`, and synchronously notifies registered `Reconfigurable` services |
-| `ConfigDelta` | `dartclaw_kernel/config_delta.dart` | Immutable changed-section snapshot (`previous`, `current`, `changedKeys`) used to filter reconfiguration work |
-| `Reconfigurable` | `dartclaw_kernel/reconfigurable.dart` | Interface implemented by hot-reloadable services (`watchKeys`, synchronous `reconfigure`) |
-| `ReloadConfig` | `config/gateway_config.dart` | `gateway.reload` sub-config: `mode` (`off` / `signal` / `auto`) and file-watch `debounce_ms` |
-| `ReloadTriggerService` | `apps/dartclaw_cli/.../reload_trigger_service.dart` | Process-level trigger integration: `SIGUSR1` plus parent-directory file watching with debounce for atomic writes |
-
-Config resolution order: CLI flags > config file (`--config` > `DARTCLAW_CONFIG` env > `DARTCLAW_HOME/dartclaw.yaml` > `~/.dartclaw/dartclaw.yaml`) > defaults. Standalone workflow commands add a scoped cwd-local `.dartclaw/dartclaw.yaml` lookup before the default instance path when no explicit config path or home is set.
-
-The config API now partitions fields into three mutability classes:
-- **live** — handled immediately by existing Tier 1 side effects
-- **reloadable** — written to YAML, then applied by `ConfigNotifier.reload()` without restart
-- **restart** — written to YAML and tracked in `restart.pending` until the next graceful restart
-
-In 0.16, this powers hot-reload for context settings, scheduling services, alert routing config, guard-chain rebuilds, queue/lock tuning, and other runtime-owned services. Server socket bindings (`server.port`, `server.host`, `server.data_dir`) remain explicitly non-reloadable and are excluded from `ConfigDelta`.
-
-Every turn receives an authoritative prompt for its scope. Replace-mode providers recompose current behavior files and,
-for primary turns, a fresh bounded canonical-memory index projection. Append-mode providers receive scoped static
-behavior plus the same fresh bounded projection through the turn prompt; topic bodies remain available on demand through
-`memory_search` and `memory_read`.
-
-**Package**: `dartclaw_kernel` (typed config model, metadata, validator, writer, live notifier, delta, runtime-facing interfaces), `dartclaw_runtime` (API routes), `dartclaw_cli` (reload triggers)
-
-#### Event Bus
-
-Lightweight typed event bus for internal decoupling (~50 LOC, zero external dependencies).
-
-```dart
-class EventBus {
-  final _controller = StreamController<DartclawEvent>.broadcast();
-  Stream<T> on<T extends DartclawEvent>() => _controller.stream.whereType<T>();
-  void fire(DartclawEvent event) { /* runZonedGuarded wrapper */ }
-}
-```
-
-Event hierarchy (Dart 3 sealed classes — compiler-checked exhaustive matching):
-
-```
-sealed class DartclawEvent
-├── FailedAuthEvent              — authentication failure
-├── GuardBlockEvent              — guard blocks/warns on input
-├── ToolPermissionDeniedEvent    — Claude denied a tool at its own permission layer
-├── ConfigChangedEvent           — config values changed via API
-├── sealed CompactionLifecycleEvent
-│   ├── CompactionStartingEvent  — provider signaled compaction is about to begin
-│   └── CompactionCompletedEvent — provider signaled compaction boundary completed
-├── sealed SessionLifecycleEvent
-│   ├── SessionCreatedEvent      — session created
-│   ├── SessionEndedEvent        — session ended
-│   └── SessionErrorEvent        — session error
-├── sealed TaskLifecycleEvent
-│   ├── TaskStatusChangedEvent   — task state machine transitions
-│   ├── TaskReviewReadyEvent     — task ready for review
-│   ├── TaskEventCreatedEvent    — task timeline event created
-│   └── BudgetWarningEvent       — token budget threshold reached
-├── ScheduledJobFailedEvent      — scheduled job exhausted retries
-├── sealed WorkflowLifecycleEvent
-│   ├── WorkflowRunStatusChangedEvent — workflow run status transitions
-│   ├── WorkflowStepCompletedEvent    — individual step completed
-│   ├── ParallelGroupCompletedEvent   — parallel group completed
-│   ├── WorkflowBudgetWarningEvent    — workflow token budget threshold
-│   ├── LoopIterationCompletedEvent   — loop iteration completed
-│   ├── MapIterationCompletedEvent    — map iteration completed
-│   ├── MapStepCompletedEvent         — map step fully completed
-│   ├── WorkflowApprovalRequestedEvent — approval step paused for review
-│   └── WorkflowApprovalResolvedEvent  — approval resolved
-├── sealed ProjectLifecycleEvent
-│   └── ProjectStatusChangedEvent — project status transitions
-├── LoopDetectedEvent            — governance loop detection triggered
-├── EmergencyStopEvent           — /stop command executed
-├── sealed RunnerLifecycleEvent
-│   └── RunnerStateChangedEvent   — harness busy/idle transitions
-└── sealed ContainerLifecycleEvent
-    ├── ContainerStartedEvent    — container started
-    ├── ContainerStoppedEvent    — container stopped
-    └── ContainerCrashedEvent    — container crashed
-```
-
-Subscriber exceptions are caught via `runZonedGuarded` and logged without propagating to the event source. Events are fire-and-forget notifications — no buffering, no persistence.
-
-Design rationale: [ADR-011 (Event-Driven Architecture)](../adrs/011-event-driven-architecture.md)
-
-**Package**: `dartclaw_core`
-
-#### Scheduling
-
-Scheduled automation with three job modes and two delivery patterns:
-
-| Component | File | Role |
-|-----------|------|------|
-| `ScheduleService` | `scheduling/schedule_service.dart` | Manages job lifecycle, timer scheduling, delivery |
-| `buildHeartbeatJob` | `behavior/heartbeat_job.dart` | Built-in `heartbeat` job: periodic `HEARTBEAT.md` checklist |
-| `buildWorkspaceGitSyncJob` | `workspace/workspace_git_sync_job.dart` | Built-in `git-sync` job: workspace versioning on its own interval |
-| `CronParser` | `scheduling/cron_parser.dart` | 5-field cron expression parser |
-| `ScheduledTaskRunner` | `scheduling/scheduled_task_runner.dart` | Bridges scheduling to task orchestrator (`task` job type) |
-
-Job types: `cron` (cron expression), `interval` (repeat every N minutes), `once` (one-shot).
-
-Delivery modes: `announce` (sends result to a session), `webhook` (HTTP POST to URL), `none` (run silently), `task` (creates a reviewable task).
-
-0.16 adds `ScheduledJobFailedEvent` to the event hierarchy. `ScheduleService` emits it after the final retry attempt fails, letting observability and alert-routing subscribers react without coupling scheduling logic to channels or UI concerns.
-
-**Package**: `dartclaw_runtime`
-
-#### System Alerts
-
-0.16 introduces an explicit alert-routing subsystem for operational events.
-
-| Component | File | Role |
-|-----------|------|------|
-| `AlertsConfig` | `dartclaw_kernel` `alerts_config.dart` | Top-level `alerts:` config section: `enabled`, `cooldown_seconds`, `burst_threshold`, `targets`, `routes` – all five registered in `ConfigMeta` as `reloadable` |
-| `classifyAlert` | `alerts/alert_classifier.dart` | **The single decision point**: whether an event is alertable, its type, its severity, its body and its detail fields, returned together. A wildcard-free switch over the sealed `DartclawEvent` base, so a new event type fails the build until it is consciously classified ([ADR-057](../adrs/057-workflow-events-stay-in-the-sealed-event-library.md)) |
-| `AlertRouter` | `alerts/alert_router.dart` | EventBus subscriber that classifies runtime events, resolves explicit channel targets, and delegates formatting/delivery |
-| `AlertDeliveryAdapter` | `alerts/alert_delivery_adapter.dart` | Resolves `(channelType, recipient)` into the concrete `Channel.sendMessage()` call without going through job-oriented delivery services |
-| `AlertFormatter` | `alerts/alert_formatter.dart` | Channel shape only – plain text for WhatsApp/Signal, Cards v2 payloads for Google Chat – over an already-classified alert. It holds the alert-type-to-title table and knows nothing about event types, so an unclassified event has no route to a channel |
-| `AlertThrottle` | `alerts/alert_throttle.dart` | Per-target cooldown and burst-summary accumulator keyed by `(eventType, channelType, recipient)`; carries the classified severity into the summary so a burst is never summarised below the severity of the alerts it stands for |
-
-The shipped classification covers guard blocks, container crashes, non-channel task failures, scheduled-job failures, budget warnings (task and workflow), compaction completion, loop detection, emergency stops, and the four degraded credential-health states – `credential_expiry`, `credential_refresh_failure`, `credential_reauth_required` and `credential_contract_break` (healthy and unknown are recorded, never alerted). Routing is explicit: operators declare recipient/channel pairs in `alerts.targets`, then optionally narrow delivery per event type through `alerts.routes`.
-
-An alert's type, severity and content are host-decided throughout; no alert path parses model output.
-
-**Package**: `dartclaw_kernel` (`AlertsConfig`), `dartclaw_runtime` (classification, routing, formatting, throttling)
-
-#### Memory & Search
-
-```
-canonical memory ─────────────► memory lexical projection ──┐
-chat-facing message NDJSON ───► conversation lexical projection ─┤──► weighted RRF candidates
-                                  │                            │
-                                  └─► provider embeddings ─► corpus-specific vector projection
-```
-
-Hybrid search authenticates lexical/vector candidates against current owner-scoped content, combines their ranks
-through weighted RRF and selects top-K. Search adds no generative-agent session, credential requirement or model
-judgment. Answer sufficiency is the caller's responsibility. Query embedding and database I/O remain asynchronous;
-source verification prevents stale candidates or fallback snapshots from being published after those awaits.
-
-Live saves and pruning reconcile the same line-ending-normalized entry rows, source timestamps, and canonical-file
-union that `dartclaw rebuild-index` restores. Each corpus has its own `VectorSynchronizer`; it reuses only vectors whose
-content hash and embedding-provider fingerprint still match, retires stale identities, and authenticates the source
-again before publication. Provider or vector failure leaves the lexical projection current and reports unembedded
-counts and a structured degradation.
-
-| Component | File | Role |
-|-----------|------|------|
-| `MemoryFileService` | `packages/dartclaw_core/lib/src/memory/memory_file_service.dart` | Daily-observation adapter over `MemoryCorpusService`, plus bounded source reads and indexing helpers |
-| `SelfImprovementService` | `packages/dartclaw_runtime/lib/src/behavior/self_improvement_service.dart` | Auto-populate `errors.md` on failures and bound canonical learning captures |
-| `MemoryPruner` | `packages/dartclaw_core/lib/src/memory/memory_pruner.dart` | Archive recognized entries >90d under their original categories, deduplicate them, preserve opaque content |
-| `FullTextIndex` / `VectorIndex` / `EmbeddingProvider` | `packages/dartclaw_kernel/lib/src/` | Owner-scoped lexical, vector and embedding contracts with stable chunk identity |
-| `PostgresFtsIndex` | `packages/dartclaw_core/lib/src/search/postgres_fts_index.dart` | Language-aware PostgreSQL lexical projection |
-| `PostgresVectorIndex` | `packages/dartclaw_core/lib/src/search/vector_index.dart` | Corpus-fixed optional vector storage and owner-scoped cosine ranking |
-| `MemoryIndexProjection` | `packages/dartclaw_core/lib/src/memory/memory_index_projection.dart` | Canonical memory document mapping and result reconstruction |
-| `PostgresBackend` / `PostgresSchemaGate` | `packages/dartclaw_core/lib/src/storage/` | Connection lifecycle, schema compatibility and empty-schema bootstrap gate |
-| `LexicalSearchBackend` | `packages/dartclaw_core/lib/src/search/` | Default PostgreSQL text search |
-| `HybridSearch` / `VectorSynchronizer` | `packages/dartclaw_search/lib/src/` | Fixed 0.25/0.75 weighted RRF and incremental vector lifecycle over injected indexes |
-| `NativeEmbeddingProvider` / `HttpEmbeddingProvider` | `packages/dartclaw_search/lib/src/` | Verified local EmbeddingGemma or explicit raw-input HTTP embedding boundary |
-
-`lexical` remains the zero-model, zero-extension default. `hybrid` composes the two current corpus projections through
-`dartclaw_search` and requires administrator-provisioned pgvector.
-The local provider applies the EmbeddingGemma query/document conventions and fingerprints the verified model and
-preprocessing contract. The HTTP provider sends raw query or document input to an explicitly configured endpoint,
-whose service owns preprocessing; its endpoint and model form a separate fingerprint and trust boundary.
-
-Memory MCP tools (`memory_apply`, `memory_observe`, `memory_search`, `memory_read`) are registered on the internal MCP server and invoked by the agent via standard MCP protocol.
-
-#### Context Research Synthesis
-
-`context_research` is the Context Engine's MCP synthesis tool. It returns one compact citation packet instead of
-requiring separate `memory_search`, temporal-KG, and wiki reads. Design rationale:
-[ADR-042](../adrs/042-context-research-synthesis-and-citation-model.md).
-
-At call time the tool fans out retrieval across:
-
-- caller-private PostgreSQL lexical or built-in hybrid personal-memory search for an owner or named-agent session whose
-  tool policy grants it;
-- temporal-KG facts and timelines for query-derived entity candidates on the shared published surface;
-- wiki documents on that same shared surface.
-
-`McpCallerContext` is the source authority. Owner/default calls use principal `owner`; named-agent calls use only their
-pinned `agent:<id>` principal; named MCP clients are shared-only. The knowledge inbox and every other principal's memory
-are excluded. The client profile exposes exactly `context_research`, `kg_query`, and `kg_timeline`. Wiki/KG writes are
-separate publication paths, and returned KG provenance is labelled as published rather than exposing the stored source.
-
-`McpCallerContext.turn` carries the **turn provenance** of the call: the channel type, recipient, thread, session key and
-sender of the inbound chat turn, surface `web` with the session's key for a web-chat turn, or surface `cron` for a
-scheduled prompt turn. The host builds it where the turn starts (both inbound channel dispatch routes, the two web-chat
-turn sites and scheduled prompt turns), carries it through `TurnManager` reserve/start into `HarnessTurnContext`, set
-and cleared with the turn, and each MCP authority resolves it per call from the harness it is bound to: a container
-authority is bound after its harness exists and reads that harness's active turn, and every host harness (primary and
-worker) presents its own host-minted bearer, valid until the harness is disposed, which `/mcp` resolves to that
-harness's turn. The shared gateway token and named MCP clients carry no turn. Only a tool implementing
-`TurnAwareMcpTool` receives it, so existing contextual tools see no change on any lane, and a turn with no sender is a
-non-channel turn that each reading tool gates by its own rule.
-
-Results are deduplicated while preserving source metadata. Synthesis then runs through the injected background-turn
-seam; production wiring uses the logical-agent session path, while tests can inject a deterministic synthesizer.
-The returned `CitationPacket` contains statements, source references, degraded layers, and a
-`noSourcesFound` flag. If no sources are found, the packet reports that state instead of fabricating an answer. If the
-synthesizer returns malformed output, assembly falls back to citation-preserving snippets.
-
-Synthesized answers are never cached. Every `context_research` call reruns retrieval and synthesis so temporal facts,
-wiki edits, and memory updates are reflected by the next request.
-
-**Packages**: `dartclaw_runtime` (caller/source composition and tool), `dartclaw_core` (file services, PostgreSQL
-services, and search backends)
-
-#### Project Management
-
-Multi-project support added in 0.14. DartClaw can manage multiple git repositories and route tasks to the selected project.
-Tasks declaring `configJson.needsWorktree: true` receive a worktree from that project.
-
-| Component | File | Role |
-|-----------|------|------|
-| `ProjectService` | `task/project_service.dart` | CRUD for projects; clone/fetch/push management via `Isolate.run()` |
-| `ProjectConfig` | `config/project_config.dart` | Parser for `projects:` config section |
-| `Project` | `dartclaw_kernel` | Domain model: id, name, remoteUrl, localPath, defaultBranch, credentialsRef, cloneStrategy, prStrategy, status |
-| Implicit `_local` | (ephemeral) | Backward-compatible project rooted at the runtime's working directory (`runtimeCwd`); not persisted |
-
-Key characteristics:
-- **Config-seeded, API-managed** pattern: projects defined in `dartclaw.yaml` are read-only via the API; projects added at runtime are fully mutable
-- **`Isolate.run()`** for blocking git operations (clone, fetch, push) — prevents blocking the Dart event loop on I/O-intensive operations. First use of Isolates in DartClaw; simple args in / `ProcessResult` out, no complex objects cross the isolate boundary
-- **`projects.json`** with atomic writes for runtime project registry persistence
-- Clones stored at `<dataDir>/projects/<projectId>/`
-
-As of 0.16.4, config/API projects can also be bound directly to an existing checkout via `projects.<id>.localPath:`. The runtime still uses `remoteUrl == ''` as the single discriminator for local-only projects (covering both the implicit `_local` project and named local-path projects). Workflow start now preflights named local-path projects before any workflow task is created: dirty trees and branch mismatches fail fast unless the operator explicitly opts in with `--allow-dirty-localpath`, publish requires an existing `origin` remote in the working tree, and containerized runs mount named local-path projects under the same `/projects/<id>` container convention used for cloned repositories.
-
-Design rationale: [ADR-017 (Multi-Project Architecture)](../adrs/017-multi-project-architecture.md)
-
-**Package**: `dartclaw_kernel` (model), `dartclaw_core` (service interface), `dartclaw_runtime` (implementation, API routes)
-
-#### Agent Observability
-
-Enriched turn recording and task event system added in 0.14.
-
-| Component | File | Role |
-|-----------|------|------|
-| `ToolCallRecord` | `dartclaw_core/turn/tool_call_record.dart` | Per-tool-call record: name, success, durationMs, errorType |
-| `TaskEvent`, `TaskEventKind` | `dartclaw_core/task/task_event.dart` | Typed task-timeline event and its closed event-kind vocabulary |
-| `TurnTraceService` | `dartclaw_core` | Fire-and-forget persistence to the PostgreSQL `turns` table (NF03 — zero latency impact) |
-| `TaskEventService` | `dartclaw_core` | Awaited persistence through `DatabaseBackend` to the `task_events` table in `dartclaw.db` |
-| `TaskEventRecorder` | `dartclaw_runtime` | Centralized event recording helper with typed convenience methods |
-
-**Dual write pattern**: Turn traces are fire-and-forget (async, same as `usage.jsonl`) — low latency, best-effort. Task event recording returns `Future<void>` and awaits persistence before emitting the bus event or completing. An insert failure propagates without emitting the event. The two patterns reflect different durability requirements: traces are analytical; events are operational (used for timeline display and progress tracking).
-
-0.16 extends task observability with compaction tracking. `CompactionTaskEventSubscriber` listens for `CompactionCompletedEvent` and records a `TaskEventKind.compaction` row when the compacted SDK session belongs to a currently running task. This keeps long-running task sessions observable even when provider-managed compaction occurs mid-task.
-
-Cache token normalization is handled at the `ProtocolAdapter` layer: Anthropic cache fields (`cache_read_input_tokens`, `cache_creation_input_tokens`) and OpenAI fields (`cached_input_tokens`) are both normalized to canonical `cacheReadTokens` / `cacheWriteTokens` before reaching `TurnOutcome`. See [Control Protocol & Harness Architecture](control-protocol.md) for details.
-
-**Package**: `dartclaw_core` (`ToolCallRecord`, `TaskEvent`, `TaskEventKind`, `TurnTraceService`, `TaskEventService`), `dartclaw_runtime` (`TaskEventRecorder`)
-
-#### MCP Server
-
-Internal MCP server hosted as a `/mcp` endpoint on the existing shelf HTTP server. Provider binaries connect back to this endpoint for tool invocations: Claude receives MCP server config via `--mcp-config`, while Codex receives the same endpoint through generated `config.toml`.
-
-| Component | File | Role |
-|-----------|------|------|
-| `McpProtocolHandler` | `mcp/mcp_server.dart` | MCP protocol handling, tool registration |
-| `McpRouter` | `mcp/mcp_router.dart` | Shelf route adapter for MCP HTTP transport |
-| `MemoryTools` | `mcp/memory_tools.dart` | `memory_apply`, `memory_observe`, `memory_search`, `memory_read` |
-| `SessionsSpawnTool` | `mcp/sessions_spawn_tool.dart` | Create a configured logical-agent conversation (sync) |
-| `SessionsSendTool` | `mcp/sessions_send_tool.dart` | Continue a logical-agent conversation (sync) |
-| `WebFetchTool` | `mcp/web_fetch_tool.dart` | SSRF-hardened fetch with inline ContentGuard scanning |
-| `BraveSearchTool` | `mcp/brave_search_tool.dart` | Brave Search API |
-| `TavilySearchTool` | `mcp/tavily_search_tool.dart` | Tavily Search API |
-| `SearchProvider` | `mcp/search_provider.dart` | Configurable search backend selection |
-| `ContextResearchTool` | `mcp/context_research_tool.dart` | `context_research` synthesis over memory, temporal KG, and wiki sources |
-| `OutboundMcpPool` | `mcp/outbound/outbound_mcp_pool.dart` | Pooled outbound MCP client with guard, audit, governance, and selective tool surfacing |
-
-The outbound MCP client consumes configured external MCP servers rather than serving tools to provider binaries. It
-owns native stdio and HTTP transports, performs `initialize`, `tools/list`, and `tools/call`, pools connections with
-idle teardown, and surfaces only tools listed in `mcp_servers.<name>.surface_tools`. Calls are mediated by the egress
-guard and audited before dispatch; guard, governance, or audit failure denies the call without contacting the external
-server.
-See [Security Architecture](security-architecture.md#outbound-mcp-egress-boundary) and
-[ADR-039](../adrs/039-outbound-mcp-trust-boundary-and-transport.md).
-
-SDK extensibility: `server.registerTool(McpTool)` — implement `name`, `description`, `inputSchema`, `access`
-(`McpToolAccess.read` / `.write`, required and undefaulted), and `call()`. Guard evaluation and audit belong to
-dispatch, not to the tool.
-
-Design rationale: [ADR-009 (Internal MCP Server)](../adrs/009-internal-mcp-server.md)
-
-**Package**: `dartclaw_runtime`
+[![System architecture overview](diagrams/system-overview.svg)](diagrams/system-overview.svg)
+
+Arrows show the main request path. Every subsystem persists through storage and publishes on the `EventBus`; the
+provider binaries are the only processes outside the host apart from the channel sidecars.
+
+### Subsystem Index
+
+Paths are under `packages/` unless noted.
+
+| Subsystem | Main components and where to look | Package | Design in |
+|-----------|-----------------------------------|---------|-----------|
+| Harness and protocols | `AgentHarness`, `HarnessFactory`, `ProtocolAdapter`, Claude and Codex harnesses (`dartclaw_core/lib/src/harness/`); `AcpHarness` (`dartclaw_acp/lib/src/`) | core, acp | [Control Protocol](control-protocol.md) |
+| Turn orchestration | `TurnManager`, `TurnRunner`, `TurnLivenessTracker`, `ExecutionCoordinator` (`dartclaw_runtime/lib/src/`); contracts in `dartclaw_core/lib/src/turn/` | runtime | [Control Protocol](control-protocol.md), [Task & Execution](task-execution-architecture.md) |
+| Sessions and conversations | `SessionService` (`dartclaw_core/lib/src/storage/`); `ConversationService`, `InboxService` (`dartclaw_runtime/lib/src/conversation/`), session locks (`.../concurrency/`) | core, runtime | [Session & State](session-state-architecture.md) |
+| Event bus | `EventBus` and the sealed `DartclawEvent` hierarchy (`dartclaw_core/lib/src/events/`) | core | [Session & State](session-state-architecture.md) |
+| Channels | `ChannelManager`, `ChannelTaskBridge`, `MessageQueue`, `ThreadBindingStore` (`dartclaw_core/lib/src/channel/`); adapters `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat`, `dartclaw_slack`; `channel_wiring.dart` | core, channel packages, runtime | [Channel & Messaging](channel-messaging-architecture.md) |
+| Tasks, worktrees, projects | `TaskService`, `TaskExecutor`, `TaskReviewService`, `WorktreeManager` (`dartclaw_runtime/lib/src/task/`); `ProjectService` interface in core, implementation in `.../project/` | runtime, core | [Task & Execution](task-execution-architecture.md) |
+| Workflows | `WorkflowService`, `WorkflowExecutor`, `WorkflowRegistry`, parser and validator (`dartclaw_workflow/lib/src/workflow/`) | workflow | [Workflow Architecture](workflow-architecture.md) |
+| Security and isolation | Guards, `GuardChain`, `MessageRedactor`, `GuardAuditLogger` (`dartclaw_kernel/lib/src/`); `ContainerManager`, `HostGateway` (`dartclaw_runtime/lib/src/container/`); `security_wiring.dart` | kernel, runtime | [Security Architecture](security-architecture.md) |
+| Runtime governance | Rate limits, daily token budget, loop detection, turn limits, `/stop` `/pause` `/resume` (`dartclaw_runtime/lib/src/governance/`, `.../emergency/`, `turn_governance_enforcer.dart`) | kernel, runtime | [Security Architecture](security-architecture.md) |
+| Configuration | `DartclawConfig`, `ConfigNotifier`, `Reconfigurable`, `ConfigMeta` (`dartclaw_kernel/lib/src/`); `ReloadTriggerService` (`apps/dartclaw_cli/lib/src/commands/`) | kernel, cli | [Configuration](configuration-architecture.md) |
+| Persistence | Session, message and KV file services, `PostgresBackend`, `PostgresSchemaGate`, repositories (`dartclaw_core/lib/src/storage/`) | core | [Storage](#storage) below, [Data Model](data-model.md) |
+| Observability | `ScheduleService` (`dartclaw_runtime/lib/src/scheduling/`), `AlertRouter` (`.../alerts/`), `UsageTracker`, `TurnTraceService`, `TaskEventRecorder`, health and SSE | runtime, core | [Observability & Operations](observability-operations-architecture.md) |
+| HTTP API and CLI | Routes (`dartclaw_runtime/lib/src/api/`); `DartclawApiClient` (`dartclaw_client`); commands (`apps/dartclaw_cli/lib/src/commands/`) | runtime, client, cli | [CLI & API](cli-api-architecture.md) |
+| Web UI | [Web UI](#web-ui) below | runtime | this document |
+| MCP server | [MCP Server](#mcp-server) below | runtime | this document |
+| Memory, search, knowledge | [Memory, Search and Context Research](#memory-search-and-context-research) below | core, search, runtime | this document, [Data Model](data-model.md) |
+
+Bounded contexts and the relationships between them: [Context Map](context-map.md).
+
+### Main Flows
+
+| Flow | Path |
+|------|------|
+| **Web chat turn** | `POST /api/sessions/<id>/send` admits the message through `ConversationService.submit` (revision-checked; a busy session queues it and returns 202). The returned fragment opens `hx-sse` on `GET /api/sessions/<id>/stream?turn=<turnId>`. `TurnManager` reserves the turn and `TurnRunner` runs it under governance and the guard chain on a lease from `ExecutionCoordinator` |
+| **Channel message** | `ChannelManager.handleInboundMessage` resolves the owning channel, the session key and any thread binding, parks the message in `PauseController` while paused (reserved commands excepted), then asks `ChannelTaskBridge.tryHandle` to consume it (reserved commands, per-sender rate limit, bound-thread routing). Unconsumed messages go to `MessageQueue` (per-session FIFO, 1000 ms debounce) and then to a turn |
+| **Task** | Created from the API, UI, a channel or an MCP tool, `TaskService` stores it `queued`. `TaskExecutor` polls, requests a worker lease for the task's provider and security profile, runs the turn in a registered worktree if one was declared, then moves it to `review`. `TaskReviewService` merges or cleans up. Status changes are `TaskStatusChangedEvent`s that the notification subscribers turn into channel posts |
+| **Workflow step** | `WorkflowExecutor` runs an agent step as a workflow-owned task whose whole prompt chain uses one leased worker. Bash and approval steps are host-owned inside the engine. Connected runs and the standalone CLI share the engine |
+| **Config reload** | `SIGUSR1` or a debounced file watch calls `ReloadTriggerService`, which reloads the YAML and hands it to `ConfigNotifier.reload`. The resulting `ConfigDelta` reaches only the `Reconfigurable` services watching the changed sections |
+
+[![Work admission: from entry point to provider turn](diagrams/system-flows.svg)](diagrams/system-flows.svg)
+
+Admission is separate from capacity. `TurnRunner.admitTurn` applies the daily token budget (a read-only check), takes the
+session lock, then applies the loop-chain check and the global rate window. The lock comes first because the last two
+record state, and an attempt the lock rejects must not count. A polled fail-fast task or workflow request takes its capacity permit
+first, so an attempt the lane cannot run leaves no record.
+
+### Cross-Cutting Invariants
+
+- **One execution allocator.** After governance, `ExecutionCoordinator` alone grants capacity: a fixed serialized primary lane plus a hard per-provider worker lease limit (`providers.<id>.pool_size`). Container count and worker capacity are independent ([ADR-016](../adrs/016-multi-provider-harness-architecture.md)).
+- **One container, one principal.** A Container Authority is dedicated to a single execution owner and destroyed only after teardown is confirmed. Containers are never shared across principals ([ADR-012](../adrs/012-per-type-container-isolation.md)).
+- **Events are notifications, not records.** `EventBus.fire` is fire-and-forget: no buffering, no persistence, and a throwing subscriber is logged inside `runZonedGuarded` without reaching the sender. Facts that must survive live in a store ([ADR-011](../adrs/011-event-driven-architecture.md)).
+- **Host-decided provenance.** Who a turn came from, an alert's type and severity, and a tool call's caller identity are set by the host and never parsed from model output.
+- **Dependency direction is mechanical.** An import may only point at a strictly lower tier ([Package Architecture](#package-architecture)).
+
+---
+
+## Storage
+
+[![Storage at a glance](diagrams/system-storage.svg)](diagrams/system-storage.svg)
+
+Files under the data directory are authoritative for sessions, messages, memory, configuration and audit.
+PostgreSQL 14+ holds tasks, executions, workflow runs, traces, events and knowledge-graph facts, plus search
+projections that are derived and rebuilt from the files. Two small file stores sit outside both: `turn_state.json`
+for crash recovery and `webhook_deliveries/` for dedup. Headless workflow runs replace PostgreSQL with files under
+`<data_dir>/standalone/`.
+
+Startup order matters. Local orphan-turn state is scanned before PostgreSQL opens, the serving interlock is acquired
+before the schema gate, and serving runners acknowledge orphan records only after storage wiring returns. Headless and
+one-shot clients skip the interlock and the scan. Entities, write safety, retention and recovery are in
+[Data Model](data-model.md).
+
+---
+
+## Web UI
+
+Server-rendered HTML with declarative interactivity and no JavaScript build step. Code: `packages/dartclaw_runtime/lib/src/{web,templates,static}/`.
+
+| Layer | Technology |
+|-------|-----------|
+| Templates | Trellis 0.11 (`.html` with `tl:` attributes), auto-escaping, fragments |
+| Interactivity | HTMX 4.0.0 owns navigation, requests, swaps and out-of-band updates. Stimulus controllers (`static/controllers/dc_*_controller.js`, `data-controller="dc-*"`) own browser behaviour on server-rendered DOM |
+| Streaming | The bundled HTMX 4 `hx-sse` extension (`static/sse.js`, locally patched); named events feed awaited swaps |
+| Markdown | marked.js and highlight.js, sanitized with DOMPurify |
+| Styling | `tokens.css` and `design-system.css`, then the app-only `app-tokens.css` and `app.css` |
+
+Navigation swaps `#main-content` with out-of-band sidebar and topbar updates. `wantsFragment()` (`web/web_utils.dart`)
+returns a fragment for an `HX-Request` and a full page for a history restore, and each page's `.shell` root carries
+`hx-history-elt` so a history refetch restores the route-dependent regions together. The layout applies the loading
+indicator and `swap:none` for 4xx/5xx by inheritance, so ordinary form validation errors are status-200 fragments.
+Vendored assets are served same-origin; `static/VENDORS.md` records versions and local patches.
+
+`PageRegistry` registers dashboard pages and validates each page's routes at startup: a malformed, reserved or duplicate
+route is fatal rather than a request-time surprise. `system_pages.dart` registers Settings, Knowledge and the Knowledge
+timeline always; Health, Memory, Scheduling, Tasks, Projects and Workflows depend on the active services and
+configuration. SDK hosts add pages with `DartclawServer.registerDashboardPage`. Controller conventions are in
+`static/controllers/CONVENTIONS.md`; HTMX and template rules in the [HTMX](../guidelines/HTMX-GUIDELINES.md) and
+[Trellis](../guidelines/TRELLIS-GUIDELINES.md) guidelines; the SSE event protocol in
+[Observability & Operations](observability-operations-architecture.md).
+
+---
+
+## MCP Server
+
+The host serves MCP on `/mcp` of the same shelf server (`McpProtocolHandler`, `McpRouter` in `dartclaw_runtime/lib/src/mcp/`).
+Provider binaries connect back to it ([ADR-009](../adrs/009-internal-mcp-server.md)); how each provider is pointed at the
+endpoint is in [Control Protocol](control-protocol.md). Tools are registered at startup by
+`service_wiring_mcp_tools.dart` and by hosts through `DartclawServer.registerTool(McpTool)`.
+
+| Family | Tools |
+|--------|-------|
+| Memory | `memory_apply`, `memory_observe`, `memory_search`, `memory_read` |
+| Knowledge | `context_research`, `kg_query`, `kg_timeline`, `kg_contradictions`, `kg_add`, `kg_invalidate`, `wiki_write` |
+| Agents | `sessions_spawn`, `sessions_send` |
+| Tasks | `task_create`, `task_list`, `review_list`, `task_review`, `task_bind`, `task_unbind` |
+| Workflows | `workflow_run`, `workflow_list`, `workflow_status`, `workflow_resume`, `workflow_cancel`, `workflow_request_changes` |
+| Scheduling and media | `schedule_upsert`, `schedule_list`, `attach_media` |
+| Web | `web_fetch`; `brave_search` and `tavily_search` when that provider is enabled with an API key |
+| Onboarding | `onboarding_complete`, registered only while `ONBOARDING.md` exists |
+
+`McpTool` requires `name`, `description`, `inputSchema`, `access` (`McpToolAccess.read` or `.write`, undefaulted so a
+tool cannot fall into the permissive half by omission) and `call()`. Guard evaluation and audit belong to dispatch, not
+to the tool: after caller-policy authorization and schema validation, `McpProtocolHandler` runs the dispatch guard,
+audits, calls the tool with a 120 s timeout, and trims a successful text result to `context.max_result_bytes`
+(`ResultTrimmer`, head and tail with a `...[trimmed N bytes]...` marker). Errors are not trimmed.
+
+Callers: the shared gateway token (the steward principal), a host-minted per-harness bearer, and named MCP
+clients, whose profile is exactly `context_research`, `kg_query` and `kg_timeline` (`context_engine_profile.dart`).
+`ContextualMcpTool` receives a trusted `McpCallerContext` (authority, session, task, agent, knowledge scope).
+
+**Turn provenance.** `McpCallerContext.turn` is a `TurnProvenance` (`dartclaw_core/lib/src/turn/turn_provenance.dart`):
+the surface (a channel type, `web` or `cron`), recipient, thread, session key and sender of the turn the calling harness
+is running, plus a `delegated` flag for autonomous task or workflow-step turns that carry a requester's identity. The
+host builds it where a turn starts, carries it through `TurnManager` into the harness turn context, and resolves it per
+call: a container authority reads its own harness's active turn, and every host harness presents a bearer minted by
+`HarnessMcpBearers` that is valid until the harness is disposed and maps to that harness's turn. The gateway token and
+named clients carry no turn. Only a `TurnAwareMcpTool` receives it, no tool argument can set it, and a turn without a
+sender is a non-channel turn that each reading tool gates by its own rule. Consumers are the shared-write and run-approval
+gates in [Security Architecture](security-architecture.md).
+
+**Outbound MCP.** `OutboundMcpPool` consumes configured external MCP servers over stdio or HTTP, pools connections with
+a 5-minute idle teardown (a pooled connection is reused only after a successful ping, else respawned), and surfaces only tools listed in `mcp_servers.<name>.surface_tools`. Every call passes the
+egress guard and is audited first; a guard, governance or audit failure denies the call without contacting the server
+([ADR-039](../adrs/039-outbound-mcp-trust-boundary-and-transport.md), [Security Architecture](security-architecture.md#outbound-mcp-egress)).
+
+---
+
+## Memory, Search and Context Research
+
+Search merges the lexical projection of canonical memory, the lexical projection of the chat-facing message NDJSON and
+the per-corpus vector projections (built from embeddings) by weighted reciprocal rank fusion (RRF), and returns the
+top-K.
+
+Canonical memory is Markdown under the workspace (`MemoryCorpusService`, `MemoryFileService`, `MemoryPruner`, in
+`dartclaw_core/lib/src/memory/`); lexical and vector rows in PostgreSQL are derived and rebuilt from it
+(`dartclaw rebuild-index`). Conversation rows rebuild from the session NDJSON. Entities and rebuild rules are in
+[Data Model](data-model.md).
+
+| Mode (`search.backend`) | Behaviour |
+|---|---|
+| `lexical` (default) | PostgreSQL full-text search (`PostgresFtsIndex`, `LexicalSearchBackend`). Needs no model and no extension |
+| `hybrid` | Adds a per-corpus vector projection (`PostgresVectorIndex`, administrator-provisioned pgvector) and ranks both lists with `HybridSearch` in `dartclaw_search`: reciprocal-rank fusion with k=60 and weights 0.25 keyword, 0.75 vector |
+
+Embeddings come from `NativeEmbeddingProvider` (verified local EmbeddingGemma, default) or `HttpEmbeddingProvider` (an
+explicitly configured endpoint that owns its preprocessing; its endpoint and model form a separate fingerprint and trust
+boundary). `VectorSynchronizer` reuses only vectors whose content hash and provider fingerprint still match. Candidates
+are re-authenticated against current owner-scoped content before publication, so a stale candidate cannot surface after
+an await. A provider or vector failure leaves the lexical projection current and reports a structured degradation.
+Search adds no agent session, credential or model judgment ([ADR-050](../adrs/050-native-hybrid-search.md)).
+
+**`context_research`** is the Context Engine's one-call retrieval tool ([ADR-042](../adrs/042-context-research-synthesis-and-citation-model.md)).
+It fans out over three sources: the caller's private personal-memory search (only where the caller's tool policy grants
+it), temporal-KG facts and timelines for entities derived from the query, and wiki documents on the shared published
+surface. The source authority is `McpCallerContext`: owner and default calls use principal `owner`, a named agent uses
+only its pinned `agent:<id>` principal, and a named MCP client is shared-only. Results are de-duplicated with source
+metadata and synthesized through the injected background-turn seam into a `CitationPacket` (statements, source
+references, degraded layers, `noSourcesFound`). Malformed synthesis falls back to citation-preserving snippets, and
+nothing is cached: every call reruns retrieval and synthesis.
 
 ---
 
 ## Package Architecture
 
-DartClaw uses a Dart pub workspace with strict dependency layering.
+A Dart pub workspace with 16 members: 14 packages under `packages/`, `apps/dartclaw_cli` and the non-shipping
+`dev/fitness` gates. `dev/package_tiers.txt` is the sole authority for dependency direction: **an import or re-export
+may only point at a strictly lower tier, and same-tier edges are forbidden.** There is no per-edge exception mechanism
+([ADR-034](../adrs/034-enforced-package-dependency-direction.md), [ADR-056](../adrs/056-package-topology-consolidation.md);
+the gates are in [Architecture Governance](architecture-governance.md)).
 
-The shipped `packages/` inventory contains 14 packages. The application and non-shipping fitness member bring the
-root workspace to 16 members; `dev/package_tiers.txt` is the sole dependency-direction authority.
+[![Package topology: tier order](diagrams/system-package-topology.svg)](diagrams/system-package-topology.svg)
 
-### Dependency DAG
+The figure omits edges implied by a longer path. The CLI also depends directly on `core`, `kernel`, `workflow`,
+`search`, `google_chat` and `slack`, the runtime on `core` and `kernel`, and every other package above T0 except
+`client`, `bridge` and `fitness` on `kernel`. Each `pubspec.yaml` lists the full set.
 
-```
-dartclaw_kernel      → no workspace dependencies
-dartclaw_core        → kernel
-dartclaw_search      → kernel
-dartclaw_workflow    → core, kernel
-dartclaw_whatsapp    → core, kernel
-dartclaw_signal      → core, kernel
-dartclaw_google_chat → core, kernel
-dartclaw_slack       → core, kernel
-dartclaw_testing     → core, kernel
-dartclaw_client      → kernel
-dartclaw             → client, kernel
-dartclaw_acp         → core, kernel
-dartclaw_bridge      → (none)
-dartclaw_runtime      → bridge, core, kernel, search, workflow, all channels
-dartclaw_cli         → acp, client, core, kernel, search, workflow, runtime, google_chat
-```
-
-The `dartclaw` umbrella package re-exports the client tier — `dartclaw_client` and `dartclaw_kernel` — and nothing from the runtime. Embedding the runtime means depending on `dartclaw_core` and friends directly (ADR-008).
-
-### Package Responsibilities
-
-| Package | Owns | Key Constraint |
+| Package | Owns | Key constraint |
 |---------|------|----------------|
-| `dartclaw_kernel` | Shared models, database and repository ports, typed config, guards, content classification, validation, authoring helpers, and dependency-free utilities | No DartClaw dependencies; shared contracts and deterministic policy remain usable without runtime, storage, or EventBus wiring |
-| `dartclaw_core` | `AgentHarness`, channel interfaces/infrastructure, events, file persistence, PostgreSQL backend and repositories, lexical/vector index implementations, `EventBus`, workflow/task seams | Runtime and persistence authority; no server or workflow dependency |
-| `dartclaw_search` | Hybrid retrieval composition and embedding providers over injected indexes | T1 package depending only on kernel contracts; owns no canonical corpus or database driver |
-| `dartclaw_acp` | ACP stdio JSON-RPC client/harness, reverse-call mediation, target validation, `harness.acp` DTOs/parser and `AcpHarnessRegistrar` | Depends on the public kernel and core barrels only, implementing core's `HarnessRegistrar` seam; the CLI composes it and runtime production code never imports or names it |
-| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser/validator, template engine, workflow registry, workflow materialization, `WorkflowDefinition`/`WorkflowRun` models, `SkillIntrospector`, schema presets | Workflow definition + execution package shared by server and CLI. Production dependencies: kernel + core. Owns workflow-run persistence through `DatabaseBackend` and the fakes of its ports |
-| `dartclaw_whatsapp` | `WhatsAppChannel`, `GowaManager`, response formatting, WhatsApp config registration | Depends on kernel + core – WhatsApp-specific logic isolated |
-| `dartclaw_signal` | `SignalChannel`, `SignalCliManager`, sender mapping, Signal config registration | Depends on kernel + core – Signal-specific logic isolated |
-| `dartclaw_google_chat` | `GoogleChatChannel`, REST client, GCP auth, Google Chat config registration | Depends on kernel + core – Google auth + HTTP isolated from core. Owns `FakeGoogleChatRestClient` behind `lib/testing.dart` |
-| `dartclaw_slack` | `SlackChannel`, Web API client, Socket Mode client, envelope dispatch, Slack config parsing | Depends on kernel + core – Slack transport and formatting isolated from core. Owns `FakeSlackWebApi` and `FakeSocketModeServer` behind `lib/testing.dart` |
-| `dartclaw_bridge` | Framed bridge protocol, codec, runner, and the executable delivered into `network:none` containers | Standing zero-dependency leaf; keeping the graph hook-free preserves `dart compile exe` cross-compilation for both Linux targets |
-| `dartclaw_runtime` | `DartclawServer`, `TurnManager`, `TurnRunner`, `ExecutionCoordinator`, `TaskService`, `TaskExecutor`, `ProjectService`, `TaskEventRecorder`, `AlertRouter`, container orchestration, scheduling, behavior/workspace/maintenance/observability services, project API routes, trace query API, workflow HTTP routes, MCP server, web routes, templates, auth | shelf, http, workflow — server-only, not Flutter-compatible |
-| `dartclaw_testing` | Shared test doubles and in-memory test helpers for core-and-below boundaries (`FakeAgentHarness`, `FakeGuard`, `InMemorySessionService`, `InMemoryTaskRepository`, `TestEventBus`) | Test-only support package, production-depending on kernel + core only. A double for a port owned above core lives in that port's package under `lib/src/testing/`, behind an opt-in `lib/testing.dart` the package barrel does not re-export |
-| `dartclaw_cli` | CLI runner (command layer only — the service graph lives in `dartclaw_runtime`), `DartclawApiClient`, connected command groups (`workflow`, `tasks`, `config`, `projects`, `sessions`, `runners`, `traces`, `jobs`), plus local lifecycle/maintenance commands (`serve`, `status`, `init`, `service`, `token`, `rebuild-index`, `sessions cleanup`) | args — application entry point and loopback operations surface |
-| `dartclaw` | Client-tier umbrella re-export of `dartclaw_client` and `dartclaw_kernel` | Lean API-client entry point; it never re-exports runtime packages |
+| `dartclaw_kernel` | Shared models, database and repository ports (`DatabaseBackend`), typed config and `ConfigMeta`, guards and content classification, redaction and audit primitives, `PlatformCapabilities`, dependency-free utilities | No workspace dependency and no `EventBus`, so guards and typed config work without server wiring |
+| `dartclaw_core` | `AgentHarness` contracts and the Claude and Codex harnesses, `HarnessRegistrar`, channel contracts and routing, `EventBus` and events, file persistence, `PostgresBackend` and repositories, PostgreSQL lexical and vector indexes, memory corpus, `McpTool` | Runtime and persistence authority. No server or workflow dependency |
+| `dartclaw_search` | `HybridSearch`, `VectorSynchronizer`, embedding providers over injected indexes | Owns no corpus and no database driver |
+| `dartclaw_acp` | ACP client and harness, reverse-call mediation, target validation, `harness.acp` config, `AcpHarnessRegistrar` | The CLI composes it. The runtime never imports it, and it sits beside the runtime at the same tier |
+| `dartclaw_workflow` | `WorkflowService`, `WorkflowExecutor`, parser and validator, registry, materialization, `SkillIntrospector`, workflow-run persistence | Framework-agnostic engine shared by server and CLI; kernel and core only |
+| `dartclaw_whatsapp`, `_signal`, `_google_chat`, `_slack` | One channel adapter each, with its sidecar or transport client and config parsing | Heavy transitive dependencies stay out of core. Google Chat and Slack ship fakes behind an opt-in `lib/testing.dart` |
+| `dartclaw_bridge` | Framed bridge protocol and the executable delivered into `network:none` containers | Standing zero-dependency leaf: `dart compile exe` rejects build-hook graphs ([ADR-051](../adrs/051-container-bridge-binary-packaging.md)) |
+| `dartclaw_client` | HTTP and SSE client and transport DTOs | Zero dependencies, so the client tier stays free of the runtime |
+| `dartclaw` | Umbrella re-export of `dartclaw_client` and part of `dartclaw_kernel` | Never re-exports runtime packages |
+| `dartclaw_runtime` | `DartclawServer`, turn and execution stack, tasks, projects, alerts, scheduling, container orchestration, MCP server, web UI, HTTP API, `DartclawRuntime.build` | The service graph lives here. Server-only |
+| `dartclaw_testing` | Shared doubles (`FakeAgentHarness`, `FakeGuard`, `InMemorySessionService`, `InMemoryTaskRepository`, `TestEventBus`) | Kernel and core only. A double for a port owned above core lives in that port's package |
+| `dartclaw_cli` | Command layer: `serve`, workflow, tasks, config, sessions and maintenance commands; connected versus standalone execution | Thin; composes the runtime and registers `AcpHarnessRegistrar` |
 
-### Why These Boundaries?
-
-The critical boundaries are **`dartclaw_kernel` has no workspace dependency**, **runtime persistence lives in `dartclaw_core`**, and **workflow execution plus workflow-run persistence lives in `dartclaw_workflow`**. The kernel gives shared models, config, guard contracts, and deterministic utilities one owner without pulling in runtime machinery.
-
-`dartclaw_kernel` remains zero-EventBus, so consumers can use guards and typed configuration without server wiring. Its external dependencies are small Dart libraries needed by those contracts; it has no upward workspace edge.
-
-`dartclaw_core` owns the PostgreSQL driver and the repositories that share aggregate hydration and row mapping.
-
-`dartclaw_bridge` stays a standing zero-dependency leaf because `dart compile exe` refuses build-hook graphs, while a
-different hook-free host would only preserve cross-compilation until its next dependency change (ADR-051).
-
-Channel packages (`dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat`, `dartclaw_slack`) isolate their heavy transitive dependencies — a consumer using only WhatsApp does not pull in Google Cloud libraries.
-
-`dartclaw_runtime` is `publish_to: none` — it contains the HTTP server, templates, and application logic that SDK consumers don't need.
-
-Design rationale: [ADR-008 (SDK Publishing Strategy)](../adrs/008-sdk-publishing-strategy.md), [ADR-056 (Package Topology Consolidation)](../adrs/056-package-topology-consolidation.md)
-
----
-
-## The JSONL Control Protocol
-
-This section summarizes the Claude Code protocol. Codex app-server uses bidirectional JSON-RPC JSONL instead; see [Control Protocol & Harness Architecture](control-protocol.md) for the multi-provider comparison and the Codex lifecycle.
-
-### Message Types
-
-**Host → claude stdin:**
-
-| Type | Purpose |
-|------|---------|
-| `user` | User message (starts a turn) |
-| `control_response` | Response to a `control_request` (hook verdict, MCP tool result, permission decision) |
-
-**claude stdout → host:**
-
-| Type | Purpose |
-|------|---------|
-| `system:init` | Session ID, available tools, context window size |
-| `stream_event` | Text deltas, tool use blocks, tool results (real-time) |
-| `assistant` | Complete assistant message (after turn completes) |
-| `result` | Turn result with token counts |
-| `control_request` | Hook callback, tool approval, MCP tool call |
-
-### Control Request Subtypes
-
-| Subtype | Direction | Purpose |
-|---------|-----------|---------|
-| `initialize` | Host → binary | Register hooks, MCP servers, system prompt |
-| `hook_callback` | Binary → host | `PreToolUse`/`PostToolUse` evaluation |
-| `can_use_tool` | Binary → host | Tool approval (when `--permission-prompt-tool stdio`) |
-| `mcp_message` | Binary → host | MCP tool invocation (JSONRPC proxied over control protocol) |
-
-Request-response correlation uses `request_id` fields. The Dart host multiplexes concurrent control requests using a `Map<String, Completer>`.
-
-### Spawn Command
-
-```
-claude --print --input-format stream-json --output-format stream-json \
-       --verbose --include-partial-messages --no-session-persistence \
-       --permission-prompt-tool stdio --model <model>
-       [--directory <worktree-path>]
-       [--mcp-config <temp-file-path>]
-```
-
-Environment: `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, and `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` are cleared to prevent nesting detection.
+Publication intent ([ADR-008](../adrs/008-sdk-publishing-strategy.md)): the client tier (`dartclaw_client`, `dartclaw`)
+is the publishable set. Everything else is the fork-the-runtime tier, and no package is published yet. Embedding the
+runtime in-process means depending on `dartclaw_core` and its neighbours by path.
 
 ---
 
 ## Deployment Model
 
-### Single-User, Single-Binary
+One administrator per instance, one process on one host. The host is an AOT binary built with `dart build cli`
+(`dev/tools/build.sh`); the server listens on `server.port` (default 3333).
 
-DartClaw targets one user, one deployment. The host is AOT-compiled via `dart build cli`; PostgreSQL 14+ is a
-separately operated native or managed service. No Node.js, npm, or Deno is required at runtime.
+Runtime prerequisites:
+- `claude` and `codex` CLIs for the providers in use (see the [getting started guide](../../docs/guide/getting-started.md))
+- Docker or Podman for container isolation (`ContainerManager.runtimeBinaries`)
+- PostgreSQL 14+, native or managed, for the server. pgvector is needed only for `hybrid` search. Standalone workflow execution needs only local files
+- Optional sidecars: GOWA (WhatsApp), `signal-cli` (Signal)
 
-Runtime dependencies:
-- `claude` CLI binary (~185-234 MB, Bun standalone — installed via `curl -fsSL https://claude.ai/install.sh | bash`)
-- `codex` CLI binary (required for `codex` workers)
-- Docker (OrbStack on macOS, native Engine on Linux) — for container isolation
-- PostgreSQL 14+ service — authoritative relational data and lexical search; pgvector is optional for hybrid mode
-- Channel sidecars (optional): GOWA binary (WhatsApp), signal-cli (Signal)
+[![Container isolation topology](diagrams/system-containers.svg)](diagrams/system-containers.svg)
 
-### Container Isolation Topology
+The container name is `dartclaw-<fnv1a32(dataDir) as 8 hex digits>-<profile>-<authority>`, so installs sharing a host
+do not collide. API keys live on the host and never enter a container environment. A container reaches exactly one
+upstream, through the framed pipes `HostGateway` serves for its authority, and the provider adapter strips any
+client-supplied credential before injecting the host's. Claude and Codex have a verified adapter and run on either
+boundary. ACP registrations have none, so they never run in a container; the computed compatibility rule is in
+[Control Protocol](control-protocol.md).
 
-```
-Host OS
-  ├── dartclaw binary (Dart AOT)
-  │     ├── HTTP server (port 3000)
-  │     ├── HostGateway (one authority per live container execution)
-  │     └── Container orchestrator
-  │
-  ├── Docker: dartclaw-<hash>-workspace-<authority>
-  │     ├── claude or codex binary packaged in the image
-  │     ├── dartclaw-bridge (read-only mount) → framed stdio over docker exec
-  │     ├── /workspace:rw mount, /project:ro mount
-  │     ├── per-authority generated-state mount (destroyed with the container)
-  │     └── network:none, cap-drop=ALL, read-only rootfs
-  │
-  ├── Docker: dartclaw-<hash>-restricted-<authority>
-  │     ├── claude or codex binary packaged in the image
-  │     ├── dartclaw-bridge (read-only mount)
-  │     ├── No workspace mount
-  │     └── network:none, cap-drop=ALL, read-only rootfs
-  │
-  ├── GOWA sidecar (optional, Go binary)
-  └── signal-cli sidecar (optional)
-```
-
-Credential flow: API keys live on the host and never enter a container environment. Each live authority owns its own container plus a pair of framed `docker exec` pipes served by `HostGateway`; the provider adapter strips any client-supplied credential and injects the host one per request. A container reaches exactly one upstream, holds no reusable credential, and has no network of its own.
-
-Both Claude and Codex have a verified provider adapter and run on either execution boundary. ACP registrations have none, so they have no mediated container execution — see [Control Protocol](control-protocol.md) for the computed compatibility rule.
-
-### Dev Mode
-
-When the resolved posture is disabled — declared `container.enabled: false`, or an unset posture with no container runtime detected — all harnesses run as direct subprocesses on the host. Guards still evaluate, but there is no OS-level isolation boundary. Acceptable for local development; `examples/dev.yaml` declares it rather than relying on whether a runtime happens to be installed.
-
----
-
-## Runtime Governance
-
-Runtime governance protects deployments from cost overruns, abuse, and runaway agent behavior. It is configured under the `governance:` YAML section and enforced across two integration points.
-
-### Components
-
-| Component | Package | Role |
-|-----------|---------|------|
-| `GovernanceConfig` | `dartclaw_kernel` | Parsed governance schema: rate limits, budget, loop detection |
-| `RateLimitsConfig` | `dartclaw_kernel` | Per-sender + global rate limit sub-config |
-| `BudgetConfig` | `dartclaw_kernel` | Daily token budget sub-config: threshold, action, timezone |
-| `LoopDetectionConfig` | `dartclaw_kernel` | Loop detection thresholds and action |
-| `TurnLimitsConfig` | `dartclaw_kernel` | Turn-budget sub-config: `turn_timeout`, `stall_timeout`, and `stall_action` |
-| `SlidingWindowRateLimiter` | `dartclaw_kernel` | In-memory sliding window rate limiter utility |
-
-### Integration Points
-
-**Per-sender rate limiting** (enforced in `ChannelTaskBridge.tryHandle()`):
-- Applies after thread-binding lookup, before bound-thread or ordinary session routing
-- Keyed by sender JID
-- Rejects excess messages with a polite "too fast" response and returns `true` (consumed — not enqueued)
-- Exempt: admin senders and recognized reserved commands
-- Review requests are ordinary model turns and receive no exemption
-
-**Global turn rate limiting** (enforced in `TurnRunner.reserveTurn()`):
-- Applies across all sessions and senders combined
-- Defers turn reservation (waits for window capacity) rather than rejecting
-- Emits SSE `rate_limit_warning` event at 80% usage; resets hysteresis below 60%
-
-**Daily token budget enforcement** (enforced in `TurnRunner` via `BudgetEnforcer`, the daily scope over the shared `BudgetEngine`):
-- Configured by `governance.budget.daily_tokens`, `action`, and `timezone`
-- Posts a budget warning once per day when usage reaches 80% of the configured budget; reaching 100% consumes the same daily warning
-- `BudgetEnforcer` reports consumption only; `TurnGovernanceEnforcer` maps it onto the configured action — at 100% it either logs and allows (`warn`) or blocks new turns until the next budget window (`block`)
-- Uses KvService-backed daily usage summaries so the warning state survives restarts
-
-**Loop detection** (enforced in `TurnRunner` via `LoopDetector`):
-
-| Mechanism | What it detects | Default threshold |
-|-----------|-----------------|-------------------|
-| **Turn chain depth** | Consecutive autonomous turns without human input | 5 |
-| **Token velocity** | Sustained token burn within a rolling window | 10,000 tokens/min over 2 minutes |
-| **Tool fingerprinting** | Repeated identical tool calls (`tool_name` + canonical args hash) | 5 consecutive |
-
-- Actions: `abort` fails the active turn/task; `warn` emits observability events but allows execution to continue
-- Human input resets the autonomous-turn counter, which keeps intentional pause/resume and reviewer feedback from looking like loops
-- All loop-detection state is intentionally in-memory; a restart clears counters just as it clears active execution state
-
-**Turn limits** (enforced in `TurnRunner` via `TurnLivenessTracker`):
-- Configured by `governance.turn_limits.stall_timeout`, `.stall_action`, and `.turn_timeout`
-- Resets only on forward-progress bridge events: `DeltaEvent`, `ToolUseEvent`, and `ToolResultEvent`
-- Stall actions: `warn` emits SSE `turn_progress_stall`, `cancel` aborts the active turn, `ignore` logs only
-- Known tool-approval waits suspend stall accounting, but never the wall-clock turn limit
-- A limit-attributed cancellation records `limit_breach` as `stall` or `turn_timeout`; ordinary user cancellation remains un-attributed
-- Uses the same progress signals as `SessionResetService.touchActivity()`, so long-running tool execution refreshes session activity without weakening stall detection
-
-### Admin Sender Model
-
-`governance.admin_senders` lists sender IDs exempt from per-sender rate limits. When the list is empty (default), **all senders are treated as admins**. That suits a single-user deployment; in a group channel every member is then an admin, who can run the emergency commands, change shared knowledge and resolve workflow run approvals from chat, so a group deployment lists its admins. When non-empty, only the listed IDs are exempt.
-
-### Rate Limiter Design
-
-`SlidingWindowRateLimiter` uses lazy eviction (expired entries removed on `check()` calls — no background timers). `check()` both verifies and records the event atomically: a passing check records; a failing check does not. This makes it safe to use in deferral retry loops without self-inflating the counter.
-
-### Configuration
-
-```yaml
-governance:
-  admin_senders: []           # empty = all are admins (single-user; in a group channel every member)
-  rate_limits:
-    per_sender:
-      messages: 10            # 0 = disabled
-      window: 5m              # supports 30s, 5m, 1h etc.
-    global:
-      turns: 60               # 0 = disabled
-      window: 1h
-  budget:
-    daily_tokens: 100000      # 0 = disabled
-    action: warn              # warn or block
-    timezone: UTC
-  loop_detection:
-    enabled: false
-    max_consecutive_turns: 0
-    max_tokens_per_minute: 0
-    velocity_window_minutes: 5
-    max_consecutive_identical_tool_calls: 0
-    action: abort
-```
-
-Missing `governance:` section → all defaults (all disabled).
-
----
-
-### Emergency Controls
-
-Emergency controls are admin-only command paths for immediate intervention. Google Chat exposes them as slash commands; other channels reach the same handlers through reserved message prefixes.
-
-**`/stop`**
-- Executes `EmergencyStopHandler`, which aborts all active turns and cancels running or queued tasks in a best-effort sequence
-- Returns counts for cancelled turns and tasks so the operator gets an explicit outcome
-- Failures are logged per item and do not stop cancellation of the remaining work
-
-**`/pause`**
-- Sets `PauseController.isPaused = true`
-- Queues inbound non-reserved messages in memory (default cap: 200) while preserving their resolved session key, including bound task-thread routes
-- Acknowledges queued messages immediately; once the queue is full, new inbound messages are rejected with a pause-capacity warning
-
-**`/resume`**
-- Drains the pause queue by session key, then groups messages by sender within each session into one collapsed human-input message
-- Delivers one synthesized turn per session, which both preserves task-thread routing and resets autonomous-turn loop counters
-- Returns a summary of how many queued messages and sessions were resumed
-
-**Admin enforcement**
-- `governance.admin_senders` defines which sender IDs may invoke emergency controls
-- Empty list = every sender is treated as admin (the single-operator default; in a group channel every member is an admin)
-- Non-empty list = only exact sender IDs are privileged; this applies consistently across Google Chat, WhatsApp, and Signal
+**Isolation posture.** `resolveContainerPosture` settles it once at startup ([ADR-055](../adrs/055-container-by-default-posture.md)).
+An unset `container.enabled` means "isolate if a runtime is detected" and degrades to host execution with a warning if
+none is. A declared `true` keeps its fail-closed refusals, and a declared `false` is never overridden. With the posture
+disabled, harnesses run as direct host subprocesses and guards still evaluate, but there is no OS-level boundary.
+`examples/dev.yaml` declares `false` for development checkouts.
 
 ---
 
 ## Service Wiring
 
-`DartclawRuntime.build(config, {headless, harnessRegistrars, …})` (in `dartclaw_runtime`, `lib/src/runtime/`) is the dependency injection root. It constructs all services, wires them together, and returns a `DartclawRuntime` carrying everything `ServeCommand.run` needs plus the `shutdown()` that tears them down. `headless: true` composes the same guarded execution, task and workflow stacks while constructing none of the inbound or scheduled surfaces — no `DartclawServer`, channel manager, heartbeat, schedule service or token service — so a caller that is not `serve` boots a runtime without copying application code. `harnessRegistrars` lets the composer contribute provider families `dartclaw_runtime` does not name.
+`DartclawRuntime.build` (`dartclaw_runtime/lib/src/runtime/service_wiring.dart`) is the dependency-injection root. It
+constructs and wires every service and returns a `DartclawRuntime` carrying the handles `ServeCommand` needs plus
+`shutdown()`. Two parameters shape the composition:
 
-Headless workflow composition also omits the personal-memory corpus, preflight, search database/backends, knowledge graph and self-improvement service. Harnesses receive no DartClaw memory callbacks or memory prompt hints. Task, session and turn persistence remain available through a file checkpoint and standalone session/recovery files under `<data_dir>/standalone/`; no PostgreSQL connection is opened. `selfImprovement` is absent and storage handles remain private to wiring. The construction order below describes the connected runtime.
+- `headless: true` composes the same guarded execution, task and workflow stacks but no `DartclawServer`, channel
+  manager, schedule service or token service. It omits the personal-memory corpus, search backends, knowledge graph and
+  self-improvement service, and keeps session, task and turn state in files under `<data_dir>/standalone/` guarded by a
+  `StandaloneExecutionLease`; no PostgreSQL connection is opened unless a backend factory is injected. The standalone
+  workflow CLI uses it, and `DartclawRuntime.stageHeadless` pauses it after base assembly so the CLI can resolve a
+  definition and gate provider authentication before any execution capacity exists.
+- `harnessRegistrars` lets the composer contribute provider families the runtime does not name. `serve` passes
+  `AcpHarnessRegistrar`; either registrar member may throw to abort assembly fail-closed.
 
-The search gate uses a short-lived connection that closes before reconciliation can swap index files. A refusal logs
-the store and rebuild remedy, preserves the original store and health evidence, skips reconciliation, and boots with
-search unavailable. Runtime disposal and shutdown close the owned task and search backends after their consumers.
-
-### Construction Order (simplified)
+### Construction Order (connected runtime, simplified)
 
 ```
-1.  Config parsing (DartclawConfig from YAML)
-2.  Config notifier (`ConfigNotifier`) for reloadable sections
-3.  File services (SessionService, MessageService, KvService)
-4.  Storage (search gate → reconciliation → prepared search/task backends → TurnStateStore/turn_state.json)
-5.  Search backends (PostgreSQL lexical; optional built-in hybrid)
-6.  Memory services and corpus synchronization (MemoryFileService, lexical/vector indexes, embedding provider, SelfImprovementService)
-7.  Security (GuardChain, concrete guards, `MessageRedactor`, `GuardAuditLogger`, and `GuardConfig` from `dartclaw_kernel`; `GuardBlockEvent` from `dartclaw_core`; guard verdict wiring + `GuardAuditSubscriber` from `dartclaw_runtime`)
-8.  Container managers (per-profile: workspace, restricted)
-9.  Primary provider harness and `TurnRunner`
-10. Execution coordinator (primary lane + per-provider capacity gates; workers remain lazy)
-11. Execution observers derived from coordinator leases and snapshots
-12. Event bus + subscribers
-13. Channels (dartclaw_whatsapp, dartclaw_signal, dartclaw_google_chat, dartclaw_slack — if configured)
-14. Scheduling (ScheduleService, including the built-in heartbeat and git-sync jobs)
-15. Task orchestrator (TaskService, TaskExecutor)
-16. Project management (ProjectService, RemotePushService)
-17. Workflow engine (WorkflowRegistry, WorkflowService, WorkflowExecutor)
-18. Alert routing (AlertRouter, AlertDeliveryAdapter — if alerts configured)
-19. MCP server (register tools: memory, sessions_spawn, sessions_send, web_fetch, search)
-20. DartclawServer (shelf handler assembly, page registration)
-21. Reload triggers (`ReloadTriggerService`) for `SIGUSR1` / file-watch hot-reload
+Base (wireBase)
+ 1.  workflow-skill bootstrap, subscription credential store, EventBus, ConfigNotifier
+ 2.  projects (ProjectService)
+ 3.  storage: file services, memory preflight, turn-state store, orphan-turn scan,
+              PostgreSQL pool → serving interlock → schema gate → derived-index reconciliation
+ 4.  workflow registry
+Execution (completeWithExecution)
+ 5.  security: container posture, ContainerManagers + HostGateway, GuardChain, audit
+ 6.  harnesses: HarnessFactory, ExecutionCoordinator, primary harness (workers stay lazy)
+ 7.  task wiring (TaskService, TaskExecutor, review)
+ 8.  channels and AlertRouter (not headless)
+ 9.  provider status, TurnManager and TurnRunner, orphan-turn acknowledgement
+10.  WorkflowService, WorkflowRunControl, thread-binding lifecycle, run notifications
+11.  credential health, scheduling (ScheduleService), group-session initialization
+12.  DartclawServer composition and MCP tool registration
+13.  start: primary harness, TaskExecutor, ScheduleService
 ```
 
-All services are single-instance, single-threaded. Isolates are avoided unless profiling shows a bottleneck.
+`ServeCommand` scaffolds the workspace before the build. After the build returns, it binds the HTTP server, starts the
+session reset service, connects channels, installs signal handlers and starts `ReloadTriggerService`. Shutdown stops
+the reload trigger, closes the HTTP server and calls `runtime.shutdown()` under a 10 s ceiling. All services are single-instance
+and single-threaded; isolates are used only for blocking git clone, fetch and push.
 
 ---
 
-## Cross-References
+## Related Documents
 
-### Architecture Documents
-
-| Document | Path | Content |
-|----------|------|---------|
-| Control protocol & harness | [`dev/architecture/control-protocol.md`](control-protocol.md) | JSONL protocol spec, multi-provider comparison, harness lifecycle |
-| Security architecture | [`dev/architecture/security-architecture.md`](security-architecture.md) | Defense-in-depth model, guard pipeline, container isolation, credential security |
-| Data model & persistence | [`dev/architecture/data-model.md`](data-model.md) | Entity models, storage zones, write safety, rotation |
-| Workflow architecture | [`dev/architecture/workflow-architecture.md`](workflow-architecture.md) | Workflow engine deep-dive: parser, executor, skill system, map/fan-out |
-| CLI & API architecture | [`dev/architecture/cli-api-architecture.md`](cli-api-architecture.md) | CLI runner, loopback API client, command groups, connected-vs-standalone execution, route mapping |
-| Channel & messaging | [`dev/architecture/channel-messaging-architecture.md`](channel-messaging-architecture.md) | Channel abstractions, inbound pipeline, thread binding, outbound routing |
-| Task & execution | [`dev/architecture/task-execution-architecture.md`](task-execution-architecture.md) | Task orchestrator, worktree lifecycle, review flows, project dispatch |
-| Configuration | [`dev/architecture/configuration-architecture.md`](configuration-architecture.md) | Three-tier config, hot-reload, ConfigNotifier, Reconfigurable pattern |
-| Observability & operations | [`dev/architecture/observability-operations-architecture.md`](observability-operations-architecture.md) | Turn traces, task events, alert routing, scheduling |
-| Session & state management | [`dev/architecture/session-state-architecture.md`](session-state-architecture.md) | Session lifecycle, scoping, locks, pause/resume, crash recovery |
-| Architecture governance | [`dev/architecture/architecture-governance.md`](architecture-governance.md) | Fitness functions, structural boundaries, update rules, and governance scope |
-| Roadmap | `docs/ROADMAP.md` (private repo) | Sole milestone, status and future-scope record |
-| Feature comparison | `docs/specs/feature-comparison.md` (private repo) | OpenClaw vs NanoClaw vs DartClaw |
-| Product Backlog | `docs/PRODUCT-BACKLOG.md` (private repo) | Deferred/future features with rationale |
-| Learnings | [`dev/state/LEARNINGS.md`](../state/LEARNINGS.md) | Traps, gotchas, non-obvious patterns |
-| User-facing architecture overview | [`docs/guide/architecture.md`](../../docs/guide/architecture.md) | Operator-oriented 2-layer overview |
+| Document | Content |
+|----------|---------|
+| [Control Protocol & Harness](control-protocol.md) | Harness abstraction, Claude/Codex/ACP protocols, turn lifecycle, crash recovery |
+| [Security Architecture](security-architecture.md) | Threat model, guards, container isolation, credentials, audit chain, runtime governance |
+| [Data Model & Persistence](data-model.md) | Stores, schemas, entities, write safety, retention, backup |
+| [Session & State](session-state-architecture.md) | Sessions, keys, locking, event bus, maintenance, conversation attempts |
+| [Channel & Messaging](channel-messaging-architecture.md) | Adapters, inbound pipeline, thread binding, outbound delivery |
+| [Task & Execution](task-execution-architecture.md) | Task pipeline, worktrees, review, budgets, execution lanes |
+| [Workflow Architecture](workflow-architecture.md) | Definitions, executor, step types, gates, loops |
+| [Configuration](configuration-architecture.md) | Config model, loading, validation, hot reload, settings UI |
+| [CLI & API](cli-api-architecture.md) | CLI structure, connected versus standalone, HTTP API surface |
+| [Observability & Operations](observability-operations-architecture.md) | Health, alerts, audit mechanics, usage, logging, SSE |
+| [Context Map](context-map.md) | Bounded contexts and context-mapping patterns |
+| [Architecture Governance](architecture-governance.md) | Fitness functions and structural gates |
+| [LEARNINGS](../state/LEARNINGS.md), [UBIQUITOUS_LANGUAGE](../state/UBIQUITOUS_LANGUAGE.md) | Known traps; canonical terms |
+| [User-facing architecture overview](../../docs/guide/architecture.md) | Operator-oriented summary |
 
 ### Key ADRs
 
 | ADR | Decision |
 |-----|----------|
-| [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md) | 2-layer architecture: Dart → claude binary via JSONL (replaced 3-layer Dart → Deno → claude) |
-| [ADR-002](../adrs/002-file-based-storage.md) | File-based storage for sessions/messages; SQLite only for search index and tasks |
-| [ADR-005](../adrs/005-whatsapp-integration.md) | WhatsApp via GOWA (Go/whatsmeow) sidecar — outpost pattern |
-| [ADR-007](../adrs/007-system-prompt-architecture.md) | System prompt via `--append-system-prompt` — preserve Claude Code built-in prompt |
-| [ADR-008](../adrs/008-sdk-publishing-strategy.md) | SDK publishing strategy — 5-package structure, barrel narrowing |
-| [ADR-009](../adrs/009-internal-mcp-server.md) | Internal MCP server at `/mcp` for tool extensions |
-| [ADR-011](../adrs/011-event-driven-architecture.md) | Lightweight event bus with sealed class hierarchy |
-| [ADR-012](../adrs/012-per-type-container-isolation.md) | Per-profile, per-owner containers (workspace + restricted profiles) |
-| [ADR-014](../adrs/014-sdk-package-decomposition.md) | Original package decomposition; its storage split is superseded by ADR-056 |
-| [ADR-016](../adrs/016-multi-provider-harness-architecture.md) | Multi-provider harness architecture — abstract harness + protocol adapter for Claude and Codex |
-| [ADR-017](../adrs/017-multi-project-architecture.md) | Multi-project architecture — config-seeded + API-managed project registry, Isolate git ops |
-| [ADR-018](../adrs/018-cli-onboarding-architecture.md) | CLI onboarding architecture |
-| [ADR-019](../adrs/019-tui-cli-package-selection.md) | TUI CLI package selection |
-| [ADR-020](../adrs/020-package-decomposition-phase-2.md) | Package decomposition phase 2 — workflow package extraction |
-
-### Diagrams
-
-Architecture diagrams are maintained as Excalidraw source files in `docs/diagrams/` (private repo). Rendered PNGs in `docs/diagrams/renders/` are gitignored and regenerable.
+| [001](../adrs/001-sdk-integration-and-security-architecture.md) | Dart spawns `claude` directly over JSONL; the Deno middle layer was dropped |
+| [002](../adrs/002-file-based-storage.md) | File-based storage for sessions and messages; the search index is derived |
+| [009](../adrs/009-internal-mcp-server.md) | Internal MCP server at `/mcp` as the tool extension point |
+| [011](../adrs/011-event-driven-architecture.md) | Lightweight event bus with a sealed event hierarchy |
+| [012](../adrs/012-per-type-container-isolation.md), [055](../adrs/055-container-by-default-posture.md) | Security-profile containers per execution owner; container-by-default posture |
+| [016](../adrs/016-multi-provider-harness-architecture.md), [037](../adrs/037-universal-acp-harness.md) | Abstract harness plus protocol adapter; execution lanes; ACP |
+| [034](../adrs/034-enforced-package-dependency-direction.md), [056](../adrs/056-package-topology-consolidation.md) | Tiered, strictly downward dependencies; current package topology |
+| [049](../adrs/049-typed-platform-capability-surface.md) | `PlatformCapabilities` |
+| [054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md) | Model-first delegation; one authority per concern |
+| [060](../adrs/060-postgresql-only-storage.md) | PostgreSQL server storage and standalone workflow files |

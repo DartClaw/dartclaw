@@ -367,8 +367,8 @@ const Map<String, FieldMeta> _governanceFields = {
     type: ConfigFieldType.objectList,
     mutability: ConfigMutability.readonly,
     description:
-        'Path rules added to the built-in protections. Two rules over one pattern with different levels fail the guard '
-        'build.'
+        'Path rules added to the built-in protections. An allow rule exempts matching paths from every other rule, '
+        'built-in ones included. Two rules over one pattern with different levels fail the guard build.'
         'Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects.',
     entry: ObjectEntry(
       fields: {
@@ -378,8 +378,10 @@ const Map<String, FieldMeta> _governanceFields = {
         ),
         'level': EntryFieldMeta(
           type: ConfigFieldType.enum_,
-          description: 'How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete blocks deletes only.',
-          allowedValues: ['no_access', 'read_only', 'no_delete'],
+          description:
+              'How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete '
+              'blocks deletes only, allow lifts every other rule.',
+          allowedValues: ['no_access', 'read_only', 'no_delete', 'allow'],
         ),
       },
     ),

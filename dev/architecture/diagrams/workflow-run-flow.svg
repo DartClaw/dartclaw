@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" width="1000" height="640" role="img" aria-labelledby="title desc">
+  <title id="title">Run execution flow</title>
+  <desc id="desc">A trigger starts a run through WorkflowService.start; the executor runs preflight, then walks the definition nodes in authored order, persisting after every step, until the nodes run out or a failure or hold stops it.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="640"/>
+  <text class="title" x="24" y="34">Run execution flow</text>
+  <text class="lede" x="24" y="56">Numbers give the order. Persistence after each step is what makes crash recovery resume from the last committed cursor.</text>
+  <g class="node k-host">
+    <title>Every surface resolves a definition from the registry and calls WorkflowService.start with a required WorkflowRunOrigin.</title>
+    <path class="edge" d="M204,116 H244"/>
+    <rect class="box" x="24" y="84" width="180" height="64" rx="6"/>
+    <text class="mono" x="38" y="105">1  Trigger</text>
+    <text class="sub" x="38" y="122">API · form · webhook</text>
+    <text class="sub" x="38" y="136">· tool · CLI</text>
+  </g>
+  <a href="../workflow-architecture.md#52-start-and-trigger-convergence">
+  <g class="node k-host">
+    <title>Validates required variables and applies defaults, lets the host resolve project and base branch, stores definitionJson, inserts the run as pending then running, writes context.json, fires WorkflowRunStatusChangedEvent, spawns the executor.</title>
+    <path class="edge" d="M468,116 H508"/>
+    <rect class="box" x="244" y="84" width="224" height="64" rx="6"/>
+    <text class="mono" x="258" y="105">2  start()</text>
+    <text class="sub" x="258" y="122">validate variables, defaults,</text>
+    <text class="sub" x="258" y="136">snapshot, insert, spawn</text>
+  </g>
+  </a>
+  <a href="../workflow-architecture.md#53-executor-preflight-and-traversal">
+  <g class="node k-host">
+    <title>workflow_executor.dart execute(): reconcile pending usage accounting, initialize the integration branch when gitStrategy.integrationBranch is set, then skill preflight (provider authentication, visible skills). A failure ends the run before any dispatch.</title>
+    <path class="edge" d="M744,116 H784"/>
+    <rect class="box" x="508" y="84" width="236" height="64" rx="6"/>
+    <text class="mono" x="522" y="105">3  Preflight</text>
+    <text class="sub" x="522" y="122">reconcile accounting, init git,</text>
+    <text class="sub" x="522" y="136">skill + provider auth check</text>
+  </g>
+  </a>
+  <g class="node k-host">
+    <title>ActionNode, ParallelGroupNode, ForeachNode and LoopNode in authored order; resumes from a start index or a persisted WorkflowExecutionCursor.</title>
+    <path class="edge" d="M880,148 V190"/>
+    <rect class="box" x="784" y="84" width="192" height="64" rx="6"/>
+    <text class="mono" x="798" y="105">4  Walk nodes</text>
+    <text class="sub" x="798" y="122">definition.nodes,</text>
+    <text class="sub" x="798" y="136">authored order</text>
+  </g>
+  <a href="../workflow-architecture.md#6-control-nodes">
+  <g class="node k-host">
+    <title>isCancelled, then entryGate (false: step.&lt;id&gt;.outcome = skipped, StepSkippedEvent), then _budgetPreflight (80% warning, fail at maxTokens, incomplete accounting stops the run). Inside loops and foreach the same guards run per body step.</title>
+    <path class="edge" d="M880,250 V274 H124 V304"/>
+    <path class="edge" d="M880,250 V274 H354 V304"/>
+    <path class="edge" d="M880,250 V274 H584 V304"/>
+    <path class="edge" d="M880,250 V304"/>
+    <rect class="box" x="784" y="190" width="192" height="60" rx="6"/>
+    <text class="mono" x="798" y="211">5  Guards per node</text>
+    <text class="sub" x="798" y="228">cancelled? · entryGate</text>
+    <text class="sub" x="798" y="242">· budget preflight</text>
+  </g>
+  </a>
+  <g class="node k-host">
+    <title>Bash, approval, aggregate-reviews or agent task. See the step dispatch figure.</title>
+    <path class="edge" d="M124,360 V410"/>
+    <rect class="box" x="24" y="304" width="200" height="56" rx="6"/>
+    <text class="mono" x="38" y="325">ActionNode</text>
+    <text class="sub" x="38" y="342">one step dispatch</text>
+  </g>
+  <g class="node k-host">
+    <title>Adjacent parallel: true steps run concurrently after all prior steps settled.</title>
+    <path class="edge" d="M354,360 V410"/>
+    <rect class="box" x="254" y="304" width="200" height="56" rx="6"/>
+    <text class="mono" x="268" y="325">ParallelGroupNode</text>
+    <text class="sub" x="268" y="342">Future.wait, merge in order</text>
+  </g>
+  <g class="node k-host">
+    <title>Per-item sub-pipelines with max_parallel and dependency ordering.</title>
+    <path class="edge" d="M584,360 V410"/>
+    <rect class="box" x="484" y="304" width="200" height="56" rx="6"/>
+    <text class="mono" x="498" y="325">ForeachNode</text>
+    <text class="sub" x="498" y="342">items x child steps</text>
+  </g>
+  <g class="node k-host">
+    <title>Body steps repeat; exitGate after each iteration; maxIterations is the cap.</title>
+    <path class="edge" d="M845,360 V410"/>
+    <rect class="box" x="714" y="304" width="262" height="56" rx="6"/>
+    <text class="mono" x="728" y="325">LoopNode</text>
+    <text class="sub" x="728" y="342">iterate until exitGate</text>
+  </g>
+  <a href="../workflow-architecture.md#55-crash-recovery">
+  <g class="node k-store">
+    <title>Persisted atomically after every completed step or iteration boundary. updateOwned only writes while the run is still running; otherwise the executor stops with WorkflowRunOwnershipLost.</title>
+    <path class="edge" d="M964,439 H986 V220 H976"/>
+    <path class="edge" d="M688,468 V520"/>
+    <rect class="box" x="24" y="410" width="940" height="58" rx="6"/>
+    <text class="mono" x="38" y="431">6  Merge outputs and persist</text>
+    <text class="sub" x="38" y="448">merge into WorkflowContext; update run row (updateOwned) and context.json; advance currentStepIndex / executionCursor; fire step events</text>
+  </g>
+  </a>
+  <g class="node k-host">
+    <title>A publish failure fails the run without git cleanup so the integration branch survives. Terminal transitions call the host cleanup callback; gitStrategy.cleanup: false keeps worktrees and branches.</title>
+    <rect class="box" x="412" y="520" width="552" height="70" rx="6"/>
+    <text class="mono" x="426" y="541">7  No nodes left</text>
+    <text class="sub" x="426" y="558">publish hook (if gitStrategy.publish.enabled), status completed,</text>
+    <text class="sub" x="426" y="572">clear cursor, git cleanup callback</text>
+  </g>
+  <text class="edge-label" x="696" y="500" text-anchor="start">last node done</text>
+  <a href="../workflow-architecture.md#51-status-model">
+  <g class="node k-sec">
+    <title>A step failure, gate or budget failure, onError: pause hold, approval or needsInput hold, or an external pause or cancel stops the executor. Resume and retry rebuild it from the stored definitionJson and cursor. See the run status figure.</title>
+    <rect class="box" x="24" y="520" width="364" height="70" rx="6"/>
+    <text class="mono" x="38" y="541">Stop instead of completing</text>
+    <text class="sub" x="38" y="558">failed, paused, awaitingApproval or cancelled:</text>
+    <text class="sub" x="38" y="572">state is already persisted; resume or retry continues</text>
+  </g>
+  </a>
+  <text class="edge-label" x="22" y="388" text-anchor="start">failure or hold</text>
+  <path class="edge dashed" d="M24,332 H12 V555 H24"/>
+  <rect x="24" y="612" width="26" height="14" rx="3" fill="none" stroke="var(--sec)" stroke-width="1.4"/>
+  <text class="note" x="58" y="623">failure or hold path</text>
+  <text class="note" x="200" y="623">Dashed left edge: a failure or hold in any node's guards or dispatch. Right edge up: next node. Hover (direct view) for details.</text>
+</svg>

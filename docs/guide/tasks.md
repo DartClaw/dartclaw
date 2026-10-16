@@ -14,7 +14,7 @@ draft -> queued -> running -> review -> accepted
                  -> interrupted -> queued
 ```
 
-Push-back sends a review task back to `queued` with operator feedback attached.
+Push-back sends a review task back to `running` with operator feedback attached.
 
 Starting a failed task — from the task page or `POST /api/tasks/<id>/start` — re-queues it as a fresh attempt: the
 retry counter resets to zero and the previous run's recorded error and error summary are cleared, so the restarted run
@@ -159,7 +159,7 @@ Set it to `false` to run in the workflow or project workspace. The web form alwa
 - `tasks.worktree.stale_timeout_hours` controls when abandoned worktrees are considered stale
 - `tasks.worktree.merge_strategy` chooses `squash` or `merge` for accepted `_local` work
 
-The worktree path is guarded so file operations stay contained to the task's assigned checkout. See [Projects & Git](projects-and-git.md) for the full worktree lifecycle and accept flow.
+The agent runs with the worktree as its working directory; no guard currently restricts file access to that checkout (the global `FileGuard` still blocks sensitive paths). See [Projects & Git](projects-and-git.md) for the full worktree lifecycle and accept flow.
 
 ## Review Workflow
 

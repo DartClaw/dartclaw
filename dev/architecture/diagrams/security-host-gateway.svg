@@ -1,0 +1,241 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" width="1000" height="620" role="img" aria-labelledby="title desc">
+  <title id="title">Security: host-owned credential mediation</title>
+  <desc id="desc">A container with no network reaches its provider only through a per-authority framed stdio pipe to HostGateway, which pins the upstream and injects the host-held credential. The credential never exists in the container.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 12.5px; font-weight: 700; }
+    .num { fill: var(--accent); font-size: 11px; font-weight: 700; }
+    .legend { fill: var(--sub); font-size: 11px; }
+    a { cursor: pointer; }
+    a:hover .box { stroke-width: 2.6; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="620"/>
+  <text class="title" x="24" y="34">Security: host-owned credential mediation</text>
+  <text class="lede" x="24" y="56">The pipe, not any frame the container sends, decides principal, upstream, credential and tool policy.</text>
+
+  <rect class="group" x="16" y="80" width="262" height="330" rx="8"/>
+  <text class="group-label" x="26" y="96">container, --network none</text>
+  <rect class="group" x="310" y="80" width="486" height="330" rx="8"/>
+  <text class="group-label" x="320" y="96">host, DartClaw process</text>
+  <g class="node k-ext">
+    <title>The provider CLI inside the container speaks plain HTTP to a loopback port. It holds no credential: the Claude container env carries only a placeholder key and a Codex home is created fresh, never seeded with auth.</title>
+    <path class="edge" d="M147,212 V292"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="32" y="116" width="230" height="96" rx="6"/>
+    <text class="mono" x="44" y="137">claude / codex</text>
+    <text class="sub" x="44" y="154">claude: ANTHROPIC_BASE_URL</text>
+    <text class="sub" x="44" y="167">codex: base_url in config.toml</text>
+    <text class="sub" x="44" y="180">= http://127.0.0.1:&lt;port&gt; (codex adds /v1)</text>
+    <text class="sub" x="44" y="198">no real credential held</text>
+    </a>
+  </g>
+  <text class="edge-label" x="156" y="252" text-anchor="start">loopback HTTP</text>
+  <g class="node k-ext">
+    <title>Host-provisioned executable started with docker exec -i, one process per surface (provider, mcp). It is the only thing in the container that can reach the host.</title>
+    <path class="edge" d="M262,336 H360"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="32" y="292" width="230" height="88" rx="6"/>
+    <text class="mono" x="44" y="313">dartclaw-bridge</text>
+    <text class="sub" x="44" y="330">read-only mount at</text>
+    <text class="sub" x="44" y="343">/opt/dartclaw/dartclaw-bridge</text>
+    <text class="sub" x="44" y="356">one process per surface</text>
+    </a>
+  </g>
+  <text class="edge-label" x="282" y="326" text-anchor="start">docker exec -i</text>
+  <text class="edge-label" x="282" y="354" text-anchor="start">framed stdio</text>
+  <g class="node k-sec">
+    <title>GatewayAuthority holds principal, required surfaces and allowed MCP tools. Refusals fire GuardBlockEvent (guard host-gateway, hook bridge). A provider with no host credential is refused at register(), before any container exists.</title>
+    <path class="edge" d="M550,336 H590"/>
+    <path class="edge" d="M455,292 V230"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="360" y="292" width="190" height="88" rx="6"/>
+    <text class="mono" x="372" y="313">HostGateway</text>
+    <text class="sub" x="372" y="330">one authority per live</text>
+    <text class="sub" x="372" y="343">execution; pipe = identity</text>
+    <text class="sub" x="372" y="356">release revokes, permanently</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Only POST to /v1/messages, /v1/messages/count_tokens (Anthropic) or /v1/responses (OpenAI) passes. Provider-side network tools in the request body are refused, and Codex rejections are classified.</title>
+    <path class="edge" d="M776,336 H806 V255 H826"/>
+    <path class="edge" d="M776,336 H826"/>
+    <path class="edge" d="M776,336 H806 V417 H826"/>
+    <a href="../security-architecture.md#provider-authentication">
+    <rect class="box" x="590" y="292" width="186" height="88" rx="6"/>
+    <text class="mono" x="602" y="313">ProviderMediator</text>
+    <text class="sub" x="602" y="330">Anthropic or OpenAI adapter:</text>
+    <text class="sub" x="602" y="343">pins upstream and paths,</text>
+    <text class="sub" x="602" y="356">drops client auth, injects</text>
+    <text class="sub" x="602" y="369">the host credential</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Bridged MCP: allowed tools are fixed host-side from the effective agent definition. The surface is not started at all when the set is empty.</title>
+    <a href="../security-architecture.md#inbound-mcp-dispatch">
+    <rect class="box" x="360" y="116" width="190" height="114" rx="6"/>
+    <text class="mono" x="372" y="137">McpProtocolHandler</text>
+    <text class="sub" x="372" y="154">mcp surface, only when the</text>
+    <text class="sub" x="372" y="167">authority has host MCP tools:</text>
+    <text class="sub" x="372" y="180">canonical tool policy,</text>
+    <text class="sub" x="372" y="193">base chain, audit</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>providers.&lt;id&gt;.auth selects subscription or api_key; resolution never falls back across modes. Stores live under &lt;data_dir&gt;/credentials with 0700 and 0600 modes.</title>
+    <path class="edge" d="M683,216 V292"/>
+    <a href="../security-architecture.md#provider-authentication">
+    <rect class="box" x="590" y="116" width="186" height="100" rx="6"/>
+    <text class="mono" x="602" y="137">credential stores</text>
+    <text class="sub" x="602" y="154">CredentialRegistry.resolve:</text>
+    <text class="sub" x="602" y="167">one CredentialResolution,</text>
+    <text class="sub" x="602" y="180">subscription stores,</text>
+    <text class="sub" x="602" y="193">named store, env</text>
+    </a>
+  </g>
+  <text class="edge-label" x="675" y="258" text-anchor="end">resolved per authority</text>
+  <g class="node k-chan">
+    <title>Claude upstream. Subscription: authorization Bearer plus anthropic-beta oauth-2025-04-20. API key: x-api-key.</title>
+    <rect class="box" x="826" y="224" width="154" height="62" rx="6"/>
+    <text class="mono" x="838" y="245">api.anthropic.com</text>
+    <text class="sub" x="838" y="262">Claude: x-api-key, or</text>
+    <text class="sub" x="838" y="275">Bearer + oauth beta</text>
+  </g>
+  <g class="node k-chan">
+    <title>Codex upstream when an API key is selected.</title>
+    <rect class="box" x="826" y="304" width="154" height="62" rx="6"/>
+    <text class="mono" x="838" y="325">api.openai.com</text>
+    <text class="sub" x="838" y="342">Codex with an API key:</text>
+    <text class="sub" x="838" y="355">authorization Bearer</text>
+  </g>
+  <g class="node k-chan">
+    <title>Codex subscription: upstream re-pinned to https://chatgpt.com/backend-api/codex, /v1/responses mapped to /responses, with chatgpt-account-id and originator headers.</title>
+    <rect class="box" x="826" y="386" width="154" height="62" rx="6"/>
+    <text class="mono" x="838" y="407">chatgpt.com</text>
+    <text class="sub" x="838" y="424">/backend-api/codex,</text>
+    <text class="sub" x="838" y="437">Codex subscription</text>
+  </g>
+  <text class="group-label" x="24" y="444" text-anchor="start">Authority lifecycle: SecurityWiring.acquireContainerAuthority, then lease.release</text>
+  <g class="node k-host">
+    <title>gateway.register: a provider with no host mediation adapter, or an unusable credential, is refused before a container exists.</title>
+    <path class="edge" d="M142,516 H158"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="18" y="466" width="124" height="100" rx="6"/>
+    <text class="name" x="30" y="487">register</text>
+    <text class="sub" x="30" y="504">rejected before</text>
+    <text class="sub" x="30" y="517">any container if</text>
+    <text class="sub" x="30" y="530">no host credential</text>
+    <text class="num" x="132" y="484" text-anchor="end">1</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>ContainerManager.start is single-use; a lost container is never recreated.</title>
+    <path class="edge" d="M282,516 H298"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="158" y="466" width="124" height="100" rx="6"/>
+    <text class="name" x="170" y="487">create, start</text>
+    <text class="sub" x="170" y="504">--network none,</text>
+    <text class="sub" x="170" y="517">hardened flags,</text>
+    <text class="sub" x="170" y="530">health watch</text>
+    <text class="num" x="272" y="484" text-anchor="end">2</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Bridges must handshake within 30 s or the authority is abandoned; a turn never starts on a partial boundary.</title>
+    <path class="edge" d="M422,516 H438"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="298" y="466" width="124" height="100" rx="6"/>
+    <text class="name" x="310" y="487">start bridges</text>
+    <text class="sub" x="310" y="504">one per surface,</text>
+    <text class="sub" x="310" y="517">handshake, then</text>
+    <text class="sub" x="310" y="530">authority.ready</text>
+    <text class="num" x="412" y="484" text-anchor="end">3</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>The ProviderMediator drops client auth headers and presents the resolved credential.</title>
+    <path class="edge" d="M562,516 H578"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="438" y="466" width="124" height="100" rx="6"/>
+    <text class="name" x="450" y="487">turns run</text>
+    <text class="sub" x="450" y="504">host injects the</text>
+    <text class="sub" x="450" y="517">credential on</text>
+    <text class="sub" x="450" y="530">every request</text>
+    <text class="num" x="552" y="484" text-anchor="end">4</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>ContainerHealthMonitor.unwatch runs before teardown.</title>
+    <path class="edge" d="M702,516 H718"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="578" y="466" width="124" height="100" rx="6"/>
+    <text class="name" x="590" y="487">unwatch</text>
+    <text class="sub" x="590" y="504">so a normal</text>
+    <text class="sub" x="590" y="517">release is never</text>
+    <text class="sub" x="590" y="530">read as a crash</text>
+    <text class="num" x="692" y="484" text-anchor="end">5</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Revocation is permanent: a captured pipe or request id cannot be revived by a later execution.</title>
+    <path class="edge" d="M842,516 H858"/>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="718" y="466" width="124" height="100" rx="6"/>
+    <text class="name" x="730" y="487">revoke pipes</text>
+    <text class="sub" x="730" y="504">permanent;</text>
+    <text class="sub" x="730" y="517">container still</text>
+    <text class="sub" x="730" y="530">exists</text>
+    <text class="num" x="832" y="484" text-anchor="end">6</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>ContainerManager.stop throws when removal cannot be confirmed; a failed destruction stays retryable.</title>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <rect class="box" x="858" y="466" width="124" height="100" rx="6"/>
+    <text class="name" x="870" y="487">destroy</text>
+    <text class="sub" x="870" y="504">rm -f, delete</text>
+    <text class="sub" x="870" y="517">state, then</text>
+    <text class="sub" x="870" y="530">confirm removal</text>
+    <text class="num" x="972" y="484" text-anchor="end">7</text>
+    </a>
+  </g>
+  <text class="note" x="24" y="592" text-anchor="start">Steps 1 to 4 acquire, 5 to 7 release in isolation order; every release step runs even if an earlier one fails.</text>
+</svg>

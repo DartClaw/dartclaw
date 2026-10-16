@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" width="1000" height="560" role="img" aria-labelledby="title desc">
+  <title id="title">Task execution pipeline</title>
+  <desc id="desc">A task is created as a row, polled from queued, given a session, provider and policy, leased through ExecutionCoordinator.acquire with fail-fast admission, checked out to running, executed by _executeCore, settled, and the lease released.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 13px; font-weight: 600; }
+    .badge { fill: var(--accent); }
+    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    .k-dev .box.reserved, .reserved .box { stroke-dasharray: 5 4; }
+    .legend-swatch { fill: none; stroke-width: 1.4; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="560"/>
+  <text class="title" x="24" y="34">Task execution pipeline</text>
+  <text class="lede" x="24" y="56">Steps 1 to 5 run inside one poll of TaskExecutor; steps 6 to 8 run unawaited per task. Creation never executes inline.</text>
+  <g class="node k-chan">
+    <title>Every surface ends in TaskService.create. TaskCreationService validates untrusted bodies for the UI and API; scheduled and workflow tasks call TaskService directly.</title>
+    <path class="edge" d="M260,131 L330,131"/>
+    <a href="../task-execution-architecture.md#32-entry-points">
+    <rect class="box " x="24" y="96" width="236" height="70" rx="6"/>
+    <text class="name" x="36" y="116">Creation surfaces</text>
+    <text class="sub" x="36" y="132">Web UI, HTTP API, task_create tool,</text>
+    <text class="sub" x="36" y="146">channel, schedule, workflow step</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Creates or links the AgentExecution in the same transaction as the task row, records the statusChanged event, then fires TaskStatusChangedEvent.</title>
+    <path class="edge" d="M580,131 L650,131"/>
+    <a href="../task-execution-architecture.md#32-entry-points">
+    <rect class="box " x="330" y="96" width="250" height="70" rx="6"/>
+    <text class="mono" x="342" y="116">TaskService.create</text>
+    <text class="sub" x="342" y="132">row + AgentExecution, one transaction</text>
+    <text class="sub" x="342" y="146">autoStart: draft to queued</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>Persistent task rows behind TaskRepository. Updates are compare-and-set on status and version.</title>
+    <path class="edge" d="M813,166 L813,200 L106,200 L106,230"/>
+    <a href="../task-execution-architecture.md#26-optimistic-locking">
+    <rect class="box " x="650" y="96" width="326" height="70" rx="6"/>
+    <text class="name" x="662" y="116">tasks table</text>
+    <text class="sub" x="662" y="132">PostgreSQL (server) or FileExecutionStore (standalone)</text>
+    <text class="sub" x="662" y="146">row with status = queued</text>
+    </a>
+  </g>
+  <text class="edge-label" x="300" y="194">polls status = queued, every 2 s, oldest first</text>
+  <g class="node k-host">
+    <title>TaskExecutor._pollOnceInner. Legacy-category rows (research, undeclared coding) fail here, non-retryably.</title>
+    <path class="edge" d="M189,268 L219,268"/>
+    <a href="../task-execution-architecture.md#33-taskexecutor">
+    <rect class="box " x="24" y="230" width="165" height="76" rx="6"/>
+    <text class="mono" x="36" y="250">pollOnce</text>
+    <text class="sub" x="36" y="266">TaskExecutor</text>
+    <text class="sub" x="36" y="280">one pass over all queued</text>
+    <text class="sub" x="36" y="294">tasks</text>
+    <circle class="badge" cx="24" cy="230" r="10"/><text class="badge-text" x="24" y="234">1</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>_prepareQueuedTask and _prepareExecutionSession. A missing or archived continueSession fails the task non-retryably.</title>
+    <path class="edge" d="M384,268 L414,268"/>
+    <a href="../task-execution-architecture.md#33-taskexecutor">
+    <rect class="box " x="219" y="230" width="165" height="76" rx="6"/>
+    <text class="mono" x="231" y="250">project + session</text>
+    <text class="sub" x="231" y="266">cloning: wait; error: fail</text>
+    <text class="sub" x="231" y="280">SessionKey.taskSession</text>
+    <text class="sub" x="231" y="294">created or continued</text>
+    <circle class="badge" cx="219" cy="230" r="10"/><text class="badge-text" x="219" y="234">2</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Provider: task, then agent.provider, then the primary runner. Policy: tasks.execution location plus the declared securityProfile.</title>
+    <path class="edge" d="M579,268 L609,268"/>
+    <a href="../task-execution-architecture.md#33-taskexecutor">
+    <rect class="box " x="414" y="230" width="165" height="76" rx="6"/>
+    <text class="mono" x="426" y="250">provider + policy</text>
+    <text class="sub" x="426" y="266">ExecutionPolicyResolver</text>
+    <text class="sub" x="426" y="280">.resolveForTask</text>
+    <text class="sub" x="426" y="294">refusal fails the task</text>
+    <circle class="badge" cx="414" cy="230" r="10"/><text class="badge-text" x="414" y="234">3</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>ExecutionCoordinator.acquire. A null lease leaves the task queued; BusyTurnException ends the pass; LoopDetectedException and BudgetExhaustedException fail the task non-retryably.</title>
+    <path class="edge" d="M774,268 L804,268"/>
+    <a href="../task-execution-architecture.md#33-taskexecutor">
+    <rect class="box " x="609" y="230" width="165" height="76" rx="6"/>
+    <text class="mono" x="621" y="250">acquire(failFast)</text>
+    <text class="sub" x="621" y="266">permit first, then admission</text>
+    <text class="sub" x="621" y="280">no capacity: stays queued</text>
+    <text class="sub" x="621" y="294">and retries next poll</text>
+    <circle class="badge" cx="609" cy="230" r="10"/><text class="badge-text" x="609" y="234">4</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>TaskService.transition(running). A StateError means another actor changed the task; the lease is released and the task skipped.</title>
+    <path class="edge" d="M886,306 L886,380"/>
+    <a href="../task-execution-architecture.md#33-taskexecutor">
+    <rect class="box " x="804" y="230" width="165" height="76" rx="6"/>
+    <text class="mono" x="816" y="250">checkout</text>
+    <text class="sub" x="816" y="266">queued to running</text>
+    <text class="sub" x="816" y="280">loses the race: lease</text>
+    <text class="sub" x="816" y="294">released</text>
+    <circle class="badge" cx="804" cy="230" r="10"/><text class="badge-text" x="804" y="234">5</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Shared execution core. Ordinary tasks run one turn; workflow-owned tasks run WorkflowOneShotRunner on the same leased runner.</title>
+    <path class="edge" d="M804,418 L760,418"/>
+    <a href="../task-execution-architecture.md#34-execution-core">
+    <rect class="box " x="804" y="380" width="165" height="76" rx="6"/>
+    <text class="mono" x="816" y="400">_executeCore</text>
+    <text class="sub" x="816" y="416">project, worktree, budget,</text>
+    <text class="sub" x="816" y="430">prompt, turn on the</text>
+    <text class="sub" x="816" y="444">leased TurnRunner</text>
+    <circle class="badge" cx="804" cy="380" r="10"/><text class="badge-text" x="804" y="384">6</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Completed turn: collect artifacts, post-turn budget check, transition to the reviewMode status, optional auto-accept. Failure retries by re-queueing (failed to queued) until maxRetries.</title>
+    <path class="edge" d="M560,418 L500,418"/>
+    <a href="../task-execution-architecture.md#35-failure-and-retry">
+    <rect class="box " x="560" y="380" width="200" height="76" rx="6"/>
+    <text class="mono" x="572" y="400">settle</text>
+    <text class="sub" x="572" y="416">artifacts, then review or</text>
+    <text class="sub" x="572" y="430">accepted; failure goes to</text>
+    <text class="sub" x="572" y="444">markFailedOrRetry</text>
+    <circle class="badge" cx="560" cy="380" r="10"/><text class="badge-text" x="560" y="384">7</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>ExecutionLease.release is idempotent. Reuse, disposal and quarantine are the coordinator's decision; task code never touches the cache.</title>
+    <a href="../task-execution-architecture.md#33-taskexecutor">
+    <rect class="box " x="270" y="380" width="230" height="76" rx="6"/>
+    <text class="mono" x="282" y="400">lease.release()</text>
+    <text class="sub" x="282" y="416">finally block of _runLeasedTask</text>
+    <text class="sub" x="282" y="430">coordinator caches, disposes</text>
+    <text class="sub" x="282" y="444">or quarantines the worker</text>
+    <circle class="badge" cx="270" cy="380" r="10"/><text class="badge-text" x="270" y="384">8</text>
+    </a>
+  </g>
+  <text class="note" x="24" y="492">Failures anywhere after step 5 go through TaskFailureHandler.markFailedOrRetry: retry re-queues the task and the next poll starts again at step 1.</text>
+  <text class="note" x="24" y="512">Opened directly in a browser, hovering a step shows its detail and highlights its outgoing arrow; numbers give execution order.</text>
+</svg>

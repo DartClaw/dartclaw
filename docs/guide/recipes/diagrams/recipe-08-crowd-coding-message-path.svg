@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 772" width="1000" height="772" role="img" aria-labelledby="title desc">
+  <title id="title">Crowd coding: the path of a message through a shared room</title>
+  <desc id="desc">A message from a participant passes the Google Chat access gate, the ChannelManager pause check, the ChannelTaskBridge steps (reserved commands, per-sender rate limit, bound-thread routing) and the MessageQueue before one shared-session turn. Facilitator commands, the pause queue and turn limits branch off the main path.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .step { font-size: 12px; font-weight: 700; fill: var(--accent); }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .chip-sec { fill: var(--box); stroke: var(--sec); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.both { marker-start: url(#arrow); }
+    .edge.plain { marker-end: none; }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    svg .node:hover .edge.both { marker-start: url(#arrow-hi); }
+    svg .node:hover .edge.plain { marker-end: none; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="772"/>
+
+  <text class="title" x="24" y="34">Crowd coding: the path of a message through a shared room</text>
+  <text class="lede" x="24" y="56">Pause, reserved commands and the rate limit are decided before a message can reach a session or a task.</text>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-chan">
+    <title>Participants write ordinary language in a Google Chat Space. Facilitators are the senders listed in governance.admin_senders; an empty list makes every sender an admin.</title>
+    <path class="edge" d="M234,140 V166"/>
+    <rect class="box" x="24" y="76" width="420" height="64" rx="6"/>
+    <text class="mono" x="60" y="96">participants and facilitators</text>
+    <text class="sub" x="60" y="114">a trusted group in one Google Chat Space</text>
+    <text class="sub" x="60" y="130">facilitators are listed in governance.admin_senders</text>
+    <text class="step" x="36" y="96">1</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#configuration-scenarios">
+  <g class="node k-host">
+    <title>Google Chat webhook (GoogleChatWebhookHandler). Runs the inbound gate: group_access and the group allowlist, then require_mention. A registered app command is answered here and never reaches the ChannelManager. A message that also arrives through Space Events is processed once.</title>
+    <path class="edge" d="M234,250 V280"/>
+    <path class="edge" d="M444,208 H520"/>
+    <rect class="box" x="24" y="166" width="420" height="84" rx="6"/>
+    <text class="mono" x="60" y="186">GoogleChatWebhookHandler</text>
+    <text class="sub" x="60" y="204">access gate: group_access, group_allowlist, require_mention</text>
+    <text class="sub" x="60" y="220">app commands are answered here (right)</text>
+    <text class="sub" x="60" y="236">de-duplicated against Space Events delivery</text>
+    <text class="step" x="36" y="186">2</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#thread-binding">
+  <g class="node k-host">
+    <title>ChannelManager.handleInboundMessage: finds the owning channel, derives the session key (group_scope: shared gives one session per space), looks up a task thread binding, then checks the pause flag. A paused, non-reserved message goes to the PauseController queue.</title>
+    <path class="edge" d="M234,364 V394"/>
+    <path class="edge" d="M444,322 H520"/>
+    <rect class="box" x="24" y="280" width="420" height="84" rx="6"/>
+    <text class="mono" x="60" y="300">ChannelManager</text>
+    <text class="sub" x="60" y="318">session key: group_scope: shared</text>
+    <text class="sub" x="60" y="334">thread-binding lookup</text>
+    <text class="sub" x="60" y="350">paused and not a reserved command: held in the queue</text>
+    <text class="step" x="36" y="300">3</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#rate-limits">
+  <g class="node k-sec">
+    <title>ChannelTaskBridge.tryHandle, in this order: 0 reserved command (consumed whether run or refused), 1 per-sender rate limit (admins and reserved commands exempt; the sender gets a rejection naming the limit), 2 bound-thread routing. The rate limit comes before bound-thread routing so a limited sender cannot bypass it inside a bound thread.</title>
+    <path class="edge" d="M234,494 V524"/>
+    <path class="edge" d="M444,425 H520"/>
+    <path class="edge" d="M444,478 H520"/>
+    <rect class="box" x="24" y="394" width="420" height="100" rx="6"/>
+    <text class="mono" x="60" y="414">ChannelTaskBridge</text>
+    <text class="sub" x="60" y="432">0  reserved command: /stop /pause /resume /bind /unbind</text>
+    <text class="sub" x="60" y="448">1  per-sender rate limit (admins exempt)</text>
+    <text class="sub" x="60" y="464">2  bound thread: route to that task's session</text>
+    <text class="sub" x="60" y="480">a message consumed at 0, 1 or 2 stops here</text>
+    <text class="step" x="36" y="414">4</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#rate-limits">
+  <g class="node k-host">
+    <title>MessageQueue: messages from one sender in one session inside the debounce window (1 s) are joined; one turn runs per session at a time. queue_strategy: fair rotates across senders so one participant cannot monopolize the shared session.</title>
+    <path class="edge" d="M234,588 V618"/>
+    <rect class="box" x="24" y="524" width="420" height="64" rx="6"/>
+    <text class="mono" x="60" y="544">MessageQueue</text>
+    <text class="sub" x="60" y="562">debounce 1 s, one turn per session at a time</text>
+    <text class="sub" x="60" y="578">governance.queue_strategy: fair</text>
+    <text class="step" x="36" y="544">5</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#model-routing">
+  <g class="node k-host">
+    <title>dispatchChannelTurn: persist the message, start a primary-lane turn. Model and effort resolve from the allowlist row, sessions.channels, sessions, then governance.crowd_coding for group sessions, then the provider default. The agent calls registered MCP tools; the host parses no chat grammar.</title>
+    <path class="edge" d="M444,690 H620"/>
+    <rect class="box" x="24" y="618" width="420" height="84" rx="6"/>
+    <text class="mono" x="60" y="638">group session turn</text>
+    <text class="sub" x="60" y="656">model: governance.crowd_coding.model and effort</text>
+    <text class="sub" x="60" y="672">tools: task_*, review_list, workflow_*, attach_media</text>
+    <text class="sub" x="60" y="688">one conversation shared by every participant</text>
+    <text class="step" x="36" y="638">6</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#deterministic-controls-all-scenarios">
+  <g class="node k-host">
+    <title>SlashCommandHandler. Google Chat app commands: /new &lt;description&gt; creates and starts a task, /reset starts a fresh shared session, /status reports state, /stop, /pause and /resume act as the reserved commands do and need an admin sender. They are handled in the webhook, after the access gate, so neither the pause queue nor the per-sender rate limit applies to them.</title>
+    <rect class="box" x="520" y="166" width="456" height="84" rx="6"/>
+    <text class="mono" x="532" y="186">Google Chat app commands</text>
+    <text class="sub" x="532" y="204">/new &lt;description&gt;, /reset, /status, /stop, /pause, /resume</text>
+    <text class="sub" x="532" y="220">/stop, /pause, /resume need an admin sender</text>
+    <text class="sub" x="532" y="236">answered before the bridge: no rate limit applies</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#deterministic-controls-all-scenarios">
+  <g class="node k-sec">
+    <title>PauseController: in-memory, so it resets on restart. While paused, reserved commands still run and every other message is queued (capacity 200, plus governance.rate_limits.per_sender.max_pause_queued per sender, admins exempt). /resume drains the queue and unpauses in one step; messages are grouped by session and replayed as one "While paused, N participants sent messages" prompt.</title>
+    <rect class="box" x="520" y="280" width="456" height="84" rx="6"/>
+    <text class="mono" x="532" y="300">PauseController</text>
+    <text class="sub" x="532" y="318">/pause: new messages wait in an in-memory queue</text>
+    <text class="sub" x="532" y="334">/resume replays them as one prompt per session</text>
+    <text class="sub" x="532" y="350">max_pause_queued per sender; resets on restart</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#deterministic-controls-all-scenarios">
+  <g class="node k-sec">
+    <title>ReservedCommandHandler. Matches /stop (and stop!), /pause, /resume, /bind &lt;task-id&gt;, /unbind exactly. Non-admin senders are refused and one audit entry is written. /stop runs EmergencyStopHandler: cancels active turns and every running or queued task, and broadcasts an emergency_stop event.</title>
+    <rect class="box" x="520" y="394" width="456" height="62" rx="6"/>
+    <text class="mono" x="532" y="414">ReservedCommandHandler</text>
+    <text class="sub" x="532" y="432">/stop cancels active turns and running or queued tasks</text>
+    <text class="sub" x="532" y="448">non-admin senders refused and audited</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#thread-binding">
+  <g class="node k-host">
+    <title>Thread binding (features.thread_binding.enabled). A message in a thread bound to a live task is enqueued on that task's session instead of the shared session. Bindings are written by /bind, task_bind and the first task notification; they end when the task is terminal or after idle_timeout_minutes (default 60).</title>
+    <rect class="box" x="520" y="466" width="456" height="48" rx="6"/>
+    <text class="mono" x="532" y="486">bound task session</text>
+    <text class="sub" x="532" y="504">a bound thread routes straight to that task's session</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#governance-tuning-guide">
+  <g class="node k-sec">
+    <title>governance limits that apply to every turn, whoever sent the message. rate_limits.global caps turn starts per window across all senders; budget.daily_tokens refuses new turns once spent (action: block) or only warns; loop_detection aborts or warns on runaway turns. Admin senders are not exempt from any of these three.</title>
+    <path class="edge" d="M560,604 V660 H444"/>
+    <rect class="box" x="520" y="524" width="456" height="80" rx="6"/>
+    <text class="mono" x="532" y="544">turn limits (governance)</text>
+    <text class="sub" x="532" y="562">rate_limits.global: turns per window, all senders</text>
+    <text class="sub" x="532" y="578">budget: daily_tokens, action block or warn</text>
+    <text class="sub" x="532" y="594">loop_detection: action abort or warn</text>
+  </g>
+  </a>
+  <a href="../08-crowd-coding.md#running-the-session">
+  <g class="node k-chan">
+    <title>The reply goes back into the Space, in the message's thread when it has one. Outbound text passes the redactor, then Google Chat formatting and chunking.</title>
+    <rect class="box" x="620" y="618" width="356" height="84" rx="6"/>
+    <text class="mono" x="632" y="638">reply in the room</text>
+    <text class="sub" x="632" y="656">same Space, same thread when there is one</text>
+    <text class="sub" x="632" y="672">redacted, formatted, chunked</text>
+  </g>
+  </a>
+  <path class="edge" d="M24,738 L64,738"/>
+  <text class="note" x="74" y="742">data or control flow; numbers give the order of the main path</text>
+  <text class="note" x="24" y="764">Opened directly in a browser, hovering a box highlights its outgoing arrows and shows its detail.</text>
+</svg>

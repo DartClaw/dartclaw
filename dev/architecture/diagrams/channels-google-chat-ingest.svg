@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 780" width="1000" height="780" role="img" aria-labelledby="title desc">
+  <title id="title">Google Chat: two ingest paths</title>
+  <desc id="desc">Chat events arrive by signed webhook or by Pub/Sub pull from Workspace Events subscriptions. Both are gated, deduplicated and handed to ChannelManager; slash commands and card clicks are answered in the webhook handler.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .halo { paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; fill: none; }
+    .num { font-size: 11px; font-weight: 700; fill: var(--accent); }
+    .badge { fill: var(--accent); }
+    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    a:hover text { text-decoration: underline; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="780"/>
+  <text class="title" x="24" y="34">Google Chat: two ingest paths</text>
+  <text class="lede" x="24" y="56">Webhook and Pub/Sub meet at one MessageDeduplicator. Doc: channel-messaging-architecture.md section 10.</text>
+  <g class="node k-chan">
+    <title>Chat delivers MESSAGE, ADDED_TO_SPACE, REMOVED_FROM_SPACE, CARD_CLICKED and APP_COMMAND events to channels.google_chat.webhook_path.</title>
+    <path class="edge" d="M170,136 L170,166"/>
+    <rect class="box" x="40" y="80" width="260" height="56" rx="6"/>
+    <text class="mono" x="54" y="101">Google Chat</text>
+    <text class="sub" x="54" y="119">HTTP POST events (signed JWT)</text>
+  </g>
+  <g class="node k-host">
+    <title>google_chat_webhook.dart. Handles MESSAGE (gate, dedup, typing indicator, ChannelManager), ADDED_TO_SPACE (welcome and auto-subscribe), REMOVED_FROM_SPACE (unsubscribe), CARD_CLICKED and APP_COMMAND. Replies are delivered later through the REST client, not in the webhook response.</title>
+    <path class="edge" d="M300,200 L335,200 L335,110 L370,110"/>
+    <path class="edge" d="M170,284 L170,326"/>
+    <path class="edge" d="M300,260 L335,260 L335,560 L370,560"/>
+    <a href="../channel-messaging-architecture.md#101-ingest">
+      <rect class="box" x="40" y="166" width="260" height="118" rx="6"/>
+      <text class="mono" x="54" y="187">GoogleChatWebhookHandler</text>
+      <text class="sub" x="54" y="205">verify JWT (401 on failure)</text>
+      <text class="sub" x="54" y="220">bounded body, normalize add-on</text>
+      <text class="sub" x="54" y="235">payload, inbound gate (full),</text>
+      <text class="sub" x="54" y="250">typing indicator</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>These events never reach ChannelManager. /new creates a task; task_accept and task_reject go to the admin-gated review handler; run actions go to the run-approval handler.</title>
+    <a href="../channel-messaging-architecture.md#106-slash-commands">
+      <rect class="box" x="40" y="326" width="260" height="116" rx="6"/>
+      <text class="mono" x="54" y="347">answered in the handler</text>
+      <text class="sub" x="54" y="365">slash commands: SlashCommandHandler</text>
+      <text class="sub" x="54" y="380">(/new /reset /status /stop</text>
+      <text class="sub" x="54" y="395">/pause /resume), CARD_CLICKED:</text>
+      <text class="sub" x="54" y="410">review and run-approval handlers</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>workspace_events_manager.dart. TTL 4 h with include_resource, 7 d name-only. Reconcile recreates expired or unverifiable subscriptions, then discovers spaces and subscribes to missing ones. 409 ALREADY_EXISTS fetches the existing subscription.</title>
+    <path class="edge" d="M630,112 L700,112"/>
+    <path class="edge" d="M500,144 L500,176"/>
+    <a href="../channel-messaging-architecture.md#103-workspace-events-subscriptions">
+      <rect class="box" x="370" y="80" width="260" height="64" rx="6"/>
+      <text class="mono" x="384" y="101">WorkspaceEventsManager</text>
+      <text class="sub" x="384" y="119">subscribe, renew at 75% of TTL,</text>
+      <text class="sub" x="384" y="134">reconcile at startup</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>Atomic writes under the data dir; loaded by reconcile().</title>
+    <rect class="box" x="370" y="176" width="260" height="56" rx="6"/>
+    <text class="mono" x="384" y="197">google-chat-subscriptions.json</text>
+    <text class="sub" x="384" y="215">persisted subscription records</text>
+  </g>
+  <g class="node k-host">
+    <title>Created only when space_events and pubsub are both configured; without it the webhook path skips dedup. The first path to see a message wins.</title>
+    <path class="edge" d="M500,606 L500,646"/>
+    <a href="../channel-messaging-architecture.md#3-inbound-pipeline">
+      <rect class="box" x="370" y="536" width="260" height="70" rx="6"/>
+      <text class="mono" x="384" y="557">MessageDeduplicator</text>
+      <text class="sub" x="384" y="575">one instance for both paths</text>
+      <text class="sub" x="384" y="590">capacity 1000, message resource name</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Common entry for both ingest paths; continues as in the inbound pipeline figure.</title>
+    <a href="../channel-messaging-architecture.md#3-inbound-pipeline">
+      <rect class="box" x="370" y="646" width="260" height="52" rx="6"/>
+      <text class="mono" x="384" y="667">ChannelManager</text>
+      <text class="sub" x="384" y="685">handleInboundMessage</text>
+    </a>
+  </g>
+  <g class="node k-chan">
+    <title>Delivers un-mentioned space traffic, which is the point of the subscriptions. Authenticated with user OAuth only; no service-account fallback.</title>
+    <path class="edge" d="M830,144 L830,176"/>
+    <rect class="box" x="700" y="80" width="260" height="64" rx="6"/>
+    <text class="mono" x="714" y="101">Workspace Events API</text>
+    <text class="sub" x="714" y="119">message.v1.created and</text>
+    <text class="sub" x="714" y="134">batchCreated CloudEvents</text>
+  </g>
+  <g class="node k-chan">
+    <title>Pull needs only the pubsub scope on the service account.</title>
+    <path class="edge" d="M830,232 L830,262"/>
+    <rect class="box" x="700" y="176" width="260" height="56" rx="6"/>
+    <text class="mono" x="714" y="197">Cloud Pub/Sub subscription</text>
+    <text class="sub" x="714" y="215">pulled over REST</text>
+  </g>
+  <text class="edge-label halo" x="842" y="250" text-anchor="start">pull</text>
+  <g class="node k-host">
+    <title>pubsub_client.dart. Health: unavailable before the first successful pull, degraded from 5 consecutive errors. stop() waits up to 5 s. Reported in /health by PubSubHealthReporter.</title>
+    <path class="edge" d="M830,332 L830,362"/>
+    <a href="../channel-messaging-architecture.md#104-pubsubclient-behavior">
+      <rect class="box" x="700" y="262" width="260" height="70" rx="6"/>
+      <text class="mono" x="714" y="283">PubSubClient</text>
+      <text class="sub" x="714" y="301">poll every 2 s, 100 per pull;</text>
+      <text class="sub" x="714" y="316">backoff 2^n s capped at 32</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>cloud_event_adapter.dart. Accepts structured CloudEvents and the Pub/Sub binding format.</title>
+    <path class="edge" d="M830,424 L830,454"/>
+    <rect class="box" x="700" y="362" width="260" height="62" rx="6"/>
+    <text class="mono" x="714" y="383">CloudEventAdapter</text>
+    <text class="sub" x="714" y="401">to MessageResult, Filtered,</text>
+    <text class="sub" x="714" y="416">LogOnly or Acknowledged</text>
+  </g>
+  <g class="node k-host">
+    <title>google_chat_space_events_wiring.dart. Display names cached 1 h (500 entries); none is shown rather than a raw ID when the lookup fails.</title>
+    <path class="edge" d="M700,500 L665,500 L665,571 L630,571"/>
+    <a href="../channel-messaging-architecture.md#101-ingest">
+      <rect class="box" x="700" y="454" width="260" height="92" rx="6"/>
+      <text class="mono" x="714" y="475">GoogleChatSpaceEventsWiring</text>
+      <text class="sub" x="714" y="493">gate with mention stage off,</text>
+      <text class="sub" x="714" y="508">refusals acked; dedup; resolve</text>
+      <text class="sub" x="714" y="523">sender name (members API);</text>
+      <text class="sub" x="714" y="538">true acks, false nacks</text>
+    </a>
+  </g>
+  <text class="note" x="24" y="746" text-anchor="start">Both paths share one dedup set so a message seen by webhook and Pub/Sub runs once.</text>
+  <text class="note" x="24" y="764" text-anchor="start">ADDED_TO_SPACE makes the handler subscribe the space (arrow to WorkspaceEventsManager). Hover a box for details.</text>
+</svg>

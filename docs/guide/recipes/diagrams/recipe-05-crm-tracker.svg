@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 512" width="1000" height="512" role="img" aria-labelledby="title desc">
+  <title id="title">Contact CRM tracker: messages in, structured memory out</title>
+  <desc id="desc">A message from an allowlisted contact passes the DM access gate into that contact's session and one agent turn, which writes contacts, action items and notes into canonical memory with memory_apply and replies briefly. Questions from the web UI reach the same turn and read memory with memory_search.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .step { font-size: 12px; font-weight: 700; fill: var(--accent); }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .chip-sec { fill: var(--box); stroke: var(--sec); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.both { marker-start: url(#arrow); }
+    .edge.plain { marker-end: none; }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    svg .node:hover .edge.both { marker-start: url(#arrow-hi); }
+    svg .node:hover .edge.plain { marker-end: none; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="512"/>
+
+  <text class="title" x="24" y="34">Contact CRM tracker: messages in, structured memory out</text>
+  <text class="lede" x="24" y="56">Event-driven: no cron job is required. The same turn answers channel messages and web UI questions.</text>
+  <a href="../05-contact-crm-tracker.md#configuration">
+  <g class="node k-chan">
+    <title>Contacts listed in channels.&lt;type&gt;.dm_allowlist. The sample uses WhatsApp JIDs (&lt;phone&gt;@s.whatsapp.net); Signal, Google Chat (users/&lt;id&gt;) and Slack work the same way and all write to the same memory.</title>
+    <path class="edge" d="M164,150 H190"/>
+    <rect class="box" x="24" y="100" width="140" height="100" rx="6"/>
+    <text class="mono" x="36" y="120">contacts</text>
+    <text class="sub" x="36" y="138">Alice, Bob, Carol</text>
+    <text class="sub" x="36" y="154">via WhatsApp,</text>
+    <text class="sub" x="36" y="170">Signal, Google Chat</text>
+    <text class="sub" x="36" y="186">or Slack</text>
+  </g>
+  </a>
+  <a href="../05-contact-crm-tracker.md#configuration">
+  <g class="node k-sec">
+    <title>ChannelInboundGate: with dm_access: allowlist only senders in dm_allowlist are admitted. An unlisted sender gets no response. The list can change at runtime through POST/DELETE /api/config/channels/&lt;type&gt;/dm-allowlist.</title>
+    <path class="edge" d="M350,150 H376"/>
+    <rect class="box" x="190" y="100" width="160" height="100" rx="6"/>
+    <text class="mono" x="202" y="120">DM access gate</text>
+    <text class="sub" x="202" y="138">dm_access: allowlist</text>
+    <text class="sub" x="202" y="154">dm_allowlist holds the</text>
+    <text class="sub" x="202" y="170">contact IDs; unlisted</text>
+    <text class="sub" x="202" y="186">senders get no reply</text>
+  </g>
+  </a>
+  <a href="../05-contact-crm-tracker.md#customization-tips">
+  <g class="node k-host">
+    <title>sessions.dm_scope: per-contact gives each contact one session, shared across channels (the default per-channel-contact keeps a session per channel). MessageQueue debounces for 1 s and runs one turn per session at a time. sessions.maintenance archives sessions idle for prune_after_days.</title>
+    <path class="edge" d="M541,150 H567"/>
+    <rect class="box" x="376" y="100" width="165" height="100" rx="6"/>
+    <text class="mono" x="388" y="120">contact session</text>
+    <text class="sub" x="388" y="138">dm_scope: per-contact</text>
+    <text class="sub" x="388" y="154">queue: debounce, FIFO</text>
+    <text class="sub" x="388" y="170">sessions.maintenance:</text>
+    <text class="sub" x="388" y="186">prune_after_days: 90</text>
+  </g>
+  </a>
+  <a href="../05-contact-crm-tracker.md#workflow">
+  <g class="node k-host">
+    <title>One primary-lane turn per message. SOUL.md carries the extraction rules and storage format, USER.md the contact directory. Guards (guards.enabled, guards.content.enabled) bound what the turn may do with the message. The turn curates memory with memory_apply under topics contacts, action-items and notes, and answers questions with memory_search.</title>
+    <path class="edge" d="M737,135 H781"/>
+    <path class="edge both" d="M737,255 H781"/>
+    <rect class="box" x="567" y="100" width="170" height="300" rx="6"/>
+    <text class="mono" x="579" y="120">agent turn</text>
+    <text class="sub" x="579" y="144">SOUL.md: extraction</text>
+    <text class="sub" x="579" y="160">rules, storage format</text>
+    <text class="sub" x="579" y="180">USER.md: contact</text>
+    <text class="sub" x="579" y="196">directory</text>
+    <text class="sub" x="579" y="232">guards on the turn</text>
+    <text class="sub" x="579" y="312">tools: memory_apply,</text>
+    <text class="sub" x="579" y="328">memory_search</text>
+    <text class="sub" x="579" y="352">reply: outbound</text>
+    <text class="sub" x="579" y="368">redaction on</text>
+    <rect class="chip" x="579" y="244" width="70" height="20" rx="4"/><text class="chip-text" x="587" y="258">command</text>
+    <rect class="chip" x="655" y="244" width="70" height="20" rx="4"/><text class="chip-text" x="663" y="258">file</text>
+    <rect class="chip" x="579" y="268" width="70" height="20" rx="4"/><text class="chip-text" x="587" y="282">network</text>
+    <rect class="chip" x="655" y="268" width="70" height="20" rx="4"/><text class="chip-text" x="663" y="282">content</text>
+  </g>
+  </a>
+  <a href="../05-contact-crm-tracker.md#workflow">
+  <g class="node k-chan">
+    <title>The confirmation goes back to the sender on the same channel. Outbound redaction strips secrets from the reply.</title>
+    <rect class="box" x="781" y="100" width="195" height="70" rx="6"/>
+    <text class="mono" x="793" y="120">reply</text>
+    <text class="sub" x="793" y="138">short confirmation to the</text>
+    <text class="sub" x="793" y="154">sender, secrets redacted</text>
+  </g>
+  </a>
+  <a href="../05-contact-crm-tracker.md#behavior-files">
+  <g class="node k-store">
+    <title>Canonical memory topic entries. Writes go through memory_apply with the current collection revision, one atomic change set per request; reads use memory_search. Data is stored as topic entries, not a relational database.</title>
+    <rect class="box" x="781" y="205" width="195" height="100" rx="6"/>
+    <text class="mono" x="793" y="225">memory</text>
+    <text class="sub" x="793" y="243">canonical topic entries:</text>
+    <text class="sub" x="793" y="259">contacts, action-items, notes</text>
+    <text class="sub" x="793" y="275">memory_apply writes,</text>
+    <text class="sub" x="793" y="291">memory_search reads</text>
+  </g>
+  </a>
+  <a href="../05-contact-crm-tracker.md#cron-prompts">
+  <g class="node k-host">
+    <title>Optional prompt job from the Cron Prompts section: reviews the day's interactions and saves a summary under topic daily-crm-summary, then announces it to active DM sessions and web clients.</title>
+    <path class="edge" d="M878,345 V305"/>
+    <rect class="box" x="781" y="345" width="195" height="94" rx="6" stroke-dasharray="5 4"/>
+    <text class="mono" x="793" y="365">crm-daily-summary</text>
+    <text class="sub" x="793" y="383">Mon-Fri 18:00, optional</text>
+    <text class="sub" x="793" y="399">memory_search, then</text>
+    <text class="sub" x="793" y="415">memory_apply daily summary</text>
+    <text class="sub" x="793" y="431">delivery: announce</text>
+  </g>
+  </a>
+  <a href="../05-contact-crm-tracker.md#workflow">
+  <g class="node k-host">
+    <title>A web UI chat turn. It does not pass the channel DM gate; it is the same kind of primary-lane turn and answers from memory_search.</title>
+    <path class="edge" d="M164,350 H567"/>
+    <rect class="box" x="24" y="300" width="140" height="100" rx="6"/>
+    <text class="mono" x="36" y="320">web UI</text>
+    <text class="sub" x="36" y="338">you ask:</text>
+    <text class="sub" x="36" y="354">'What action items</text>
+    <text class="sub" x="36" y="370">do I have with Alice?'</text>
+  </g>
+  </a>
+<text class="edge-label" x="300" y="343" text-anchor="start">question</text>
+  <path class="edge" d="M24,470 L64,470"/>
+  <text class="note" x="74" y="474">data or control flow</text>
+  <rect x="230" y="460" width="34" height="20" rx="4" fill="none" stroke="var(--host)" stroke-dasharray="5 4"/>
+  <text class="note" x="274" y="474">optional job</text>
+  <text class="note" x="24" y="498">Opened directly in a browser, hovering a box highlights its outgoing arrows and shows its detail.</text>
+</svg>

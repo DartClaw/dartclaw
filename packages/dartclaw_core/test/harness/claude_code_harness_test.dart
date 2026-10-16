@@ -1246,6 +1246,50 @@ void main() {
         expect(fake.capturedStdinJson, isNotEmpty);
       });
 
+      test('PreToolUse holds Claude Grep and Glob to FileGuard from the hook cwd', () async {
+        final ws = Directory.systemTemp.createTempSync('claude_search_guard_').resolveSymbolicLinksSync();
+        addTearDown(() => Directory(ws).deleteSync(recursive: true));
+        Directory('$ws/.ssh').createSync();
+        Directory('$ws/proj').createSync();
+        final recording = RecordingGuard();
+        late CapturingFakeProcess fake;
+        final h = buildClaudeHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          guardChain: GuardChain(guards: [recording, FileGuard()]),
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+
+        Future<String?> decisionFor(String toolName, Map<String, dynamic> toolInput, {String? cwd}) async {
+          fake.emitStdout(
+            jsonEncode({
+              'type': 'control_request',
+              'request_id': 'req-$toolName-${fake.capturedStdinJson.length}',
+              'request': {
+                'subtype': 'hook_callback',
+                'input': {'hook_event_name': 'PreToolUse', 'cwd': ?cwd, 'tool_name': toolName, 'tool_input': toolInput},
+              },
+            }),
+          );
+          await pumpEventQueue();
+          final Map<String, dynamic> last = fake.capturedStdinJson.last;
+          return last['response']['response']['hookSpecificOutput']['permissionDecision'] as String?;
+        }
+
+        expect(await decisionFor('Grep', {'pattern': 'PRIVATE KEY', 'path': '$ws/.ssh'}), 'deny');
+        expect(recording.lastContext!.toolName, 'file_read');
+        expect(await decisionFor('Glob', {'pattern': '**/id_*', 'path': ws}), 'allow');
+        expect(await decisionFor('Grep', {'pattern': 'KEY', 'path': '../.ssh'}, cwd: '$ws/proj'), 'deny');
+        expect(recording.lastContext!.toolInput!['cwd'], '$ws/proj');
+        expect(await decisionFor('Grep', {'pattern': 'KEY'}, cwd: '$ws/proj'), 'allow');
+      });
+
       test('malformed hook callbacks deny exactly once and do not poison later valid callbacks', () async {
         final guard = RecordingGuard();
         late CapturingFakeProcess fake;

@@ -37,7 +37,7 @@ channels:
   #   service_account: ${GOOGLE_CHAT_SERVICE_ACCOUNT}
   #   dm_access: allowlist
   #   dm_allowlist:
-  #     - "alice@example.com"
+  #     - "users/12345678901234567890"   # Google Chat user resource name
 
 # Session scoping -- controls how DM conversations are partitioned
 sessions:
@@ -126,6 +126,8 @@ scheduling:
 
 ## Workflow
 
+[![Contact CRM tracker: allowlisted messages become memory entries](diagrams/recipe-05-crm-tracker.svg)](diagrams/recipe-05-crm-tracker.svg)
+
 1. **Contact sends a message** to your DartClaw number or Google Chat bot
 2. **DM allowlist check** -- only messages from listed contacts are processed
 3. **Guard chain** bounds what the agent may do with the message (command, file, network, tool policy)
@@ -142,7 +144,7 @@ scheduling:
 - **Add contact categories**: Extend the category system in SOUL.md (e.g., 'prospects', 'vendors', 'personal')
 - **Weekly digest**: Add a weekly cron job to generate a comprehensive contact activity report
 - **Auto-reminders**: Add a morning cron job that checks for overdue action items and announces them
-- **Manage allowlists via API**: Use `PATCH /api/config` to add/remove contacts without restarting the server (available since 0.6). Or edit allowlists in the web UI at `/settings/channels/<channel_type>`
+- **Manage allowlists via API**: `POST` and `DELETE /api/config/channels/<channel_type>/dm-allowlist` add and remove a contact without a restart, as does the web UI at `/settings/channels/<channel_type>`. Editing `dm_allowlist` in `dartclaw.yaml` or through `PATCH /api/config` needs a restart
 - **Background tasks**: Ask for work in ordinary language. The agent uses `task_create`, with follow-up through the
   listing and review tools. See [Common Patterns](_common-patterns.md#channel-to-task-integration).
 - **Session scoping**: `dm_scope: per-contact` gives each contact a shared session across channels (recommended for CRM). The default, `per-channel-contact`, keeps a separate session per channel when the same person contacts you from multiple channels

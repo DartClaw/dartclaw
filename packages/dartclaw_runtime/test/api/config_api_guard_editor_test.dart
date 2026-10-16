@@ -182,6 +182,18 @@ workspace:
       expect((network['fields'] as Map<String, dynamic>)['extra_allowed_domains'], ['example.com']);
     });
 
+    test('accepts an allow file rule that re-admits a default path', () async {
+      final response = await request(
+        createRouter(),
+        'POST',
+        '/api/config/guards/file/extra_rules',
+        body: {'pattern': '**/.env', 'level': 'allow'},
+      );
+
+      expect(response.statusCode, 201);
+      expect(File(configPath).readAsStringSync(), contains('allow'));
+    });
+
     test('S03 creates a network allowlist extension in YAML', () async {
       final response = await request(
         createRouter(),

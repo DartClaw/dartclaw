@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+  <title id="title">Connected workflow run</title>
+  <desc id="desc">Sequence of a connected workflow run: start request, SSE following with reconnect, exit-code mapping, and Ctrl-C as a cancel request.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .edge.bi { marker-start: url(#arrow); }
+    .edge.plain { marker-end: none; }
+    svg .node:hover .edge.bi { marker-start: url(#arrow-hi); }
+    svg .node:hover .edge.plain { marker-end: none; }
+    .elab { fill: var(--sub); font-size: 10.5px; font-weight: 600; }
+    .badge { fill: var(--accent); }
+    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; }
+    .msg { fill: none; stroke: var(--edge); stroke-width: 1.5; marker-end: url(#arrow); }
+    .msg.ret { stroke-dasharray: 5 4; }
+    .mlabel { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
+    .legend-text { fill: var(--sub); font-size: 11px; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="590"/>
+  <text class="title" x="24" y="34">Connected workflow run</text>
+  <text class="lede" x="24" y="56">workflow run &lt;name&gt; starts a run, follows its SSE stream and maps the final status to an exit code.</text>
+  <line class="life" x1="240" y1="128" x2="240" y2="560"/>
+  <line class="life" x1="680" y1="128" x2="680" y2="560"/>
+  <g class="node k-host"><title>apps/dartclaw_cli: ApiWorkflowConnection.run in commands/workflow/api_workflow_connection.dart</title><rect class="box" x="140" y="76" width="200" height="50" rx="6"/><text class="mono" x="154" y="98">workflow run</text><text class="sub" x="154" y="114">ApiWorkflowConnection</text></g>
+  <g class="node k-host"><title>packages/dartclaw_runtime/lib/src/api/workflow_routes.dart</title><rect class="box" x="560" y="76" width="240" height="50" rx="6"/><text class="mono" x="574" y="98">dartclaw serve</text><text class="sub" x="574" y="114">workflow_routes.dart</text></g>
+  <circle class="badge" cx="212" cy="172" r="9"/><text class="badge-text" x="212" y="176">1</text>
+  <path class="msg" d="M242,172 H678"/>
+  <text class="mlabel" x="460" y="164" text-anchor="middle">POST /api/workflows/run</text>
+  <text class="sub" x="460" y="188" text-anchor="middle">definition, variables, surface: cli, project, approvals, inline</text>
+  <circle class="badge" cx="212" cy="232" r="9"/><text class="badge-text" x="212" y="236">2</text>
+  <path class="msg ret" d="M678,232 H242"/>
+  <text class="mlabel" x="460" y="224" text-anchor="middle">created run + definitionJson</text>
+  <circle class="badge" cx="212" cy="282" r="9"/><text class="badge-text" x="212" y="286">3</text>
+  <path class="msg" d="M242,282 H678"/>
+  <text class="mlabel" x="460" y="274" text-anchor="middle">GET /api/workflows/runs/&lt;id&gt;/events</text>
+  <text class="sub" x="460" y="298" text-anchor="middle">SSE stream</text>
+  <circle class="badge" cx="212" cy="342" r="9"/><text class="badge-text" x="212" y="346">4</text>
+  <path class="msg" d="M678,342 H242"/>
+  <text class="mlabel" x="460" y="334" text-anchor="middle">step frames, then workflow_status_changed</text>
+  <text class="note" x="716" y="338">CLI renders with CliProgressPrinter;</text>
+  <text class="note" x="716" y="352">--json echoes the frames</text>
+  <circle class="badge" cx="212" cy="402" r="9"/><text class="badge-text" x="212" y="406">5</text>
+  <path class="msg ret" d="M242,402 H678"/>
+  <text class="mlabel" x="460" y="394" text-anchor="middle">if the stream drops: GET /api/workflows/runs/&lt;id&gt;</text>
+  <text class="note" x="716" y="398">terminal, paused or awaitingApproval: stop</text>
+  <text class="note" x="716" y="412">otherwise reconnect (max 3 attempts)</text>
+  <circle class="badge" cx="212" cy="462" r="9"/><text class="badge-text" x="212" y="466">6</text>
+  <path class="msg" d="M678,462 H242"/>
+  <text class="mlabel" x="460" y="454" text-anchor="middle">terminal workflow_status_changed</text>
+  <text class="note" x="716" y="458">exit: completed 0, failed 1,</text>
+  <text class="note" x="716" y="472">cancelled/paused/awaitingApproval 2</text>
+  <rect class="group" x="24" y="486" width="952" height="82" rx="8"/>
+  <text class="group-label" x="36" y="504">At any time</text>
+  <circle class="badge" cx="212" cy="536" r="9"/><text class="badge-text" x="212" y="540">7</text>
+  <path class="msg" d="M242,536 H678"/>
+  <text class="mlabel" x="460" y="528" text-anchor="middle">Ctrl-C: POST /api/workflows/runs/&lt;id&gt;/cancel</text>
+  <text class="note" x="716" y="532">keeps waiting for the terminal state;</text>
+  <text class="note" x="716" y="546">a second Ctrl-C exits with 1</text>
+</svg>

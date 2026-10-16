@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 610" width="1000" height="610" role="img" aria-labelledby="title desc">
+  <title id="title">Storage authorities and data directory</title>
+  <desc id="desc">Canonical files under the data directory, the authoritative and derived PostgreSQL tables, and the file-only standalone mode. Search projections are derived from sessions and memory workspaces and are rebuildable.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="610"/>
+  <text class="title" x="24" y="34">Storage authorities and data directory</text>
+  <text class="lede" x="24" y="56">Files hold canonical documents; PostgreSQL holds server records and rebuildable search projections.</text>
+
+  <rect class="group" x="16" y="88" width="430" height="336" rx="8"/>
+  <text class="group-label" x="28" y="106">Files under &lt;data_dir&gt;</text>
+  <rect class="group" x="554" y="88" width="430" height="336" rx="8"/>
+  <text class="group-label" x="566" y="106">PostgreSQL: one database, one pool</text>
+
+  <g class="node k-store">
+    <title>sessions/: meta.json (Session plus nested conversationState), messages.ndjson (append-only transcript, cursor = line number), conversation/{attempts,queues,manifests}, attachments/. Each session message of a chat-facing session is projected into conversation_chunks.</title>
+    <path class="edge" d="M434,146 H566"/>
+    <a href="../data-model.md#sessions-and-messages">
+    <rect class="box" x="28" y="118" width="406" height="56" rx="6"/>
+    <text class="mono" x="44" y="140">sessions/</text>
+    <text class="sub" x="44" y="159">meta.json · messages.ndjson · conversation/ · attachments/</text>
+    </a>
+  </g>
+  <text class="edge-label" x="446" y="140">conversation rows</text>
+
+  <g class="node k-store">
+    <title>Owner workspace (principal owner) and each named agent's workspace (principal agent:id): the canonical memory corpus (MEMORY.md, topics, archive, observations, learnings, errors, audit), wiki pages and behavior files. Only topic, archive, observation and learning entries are projected into memory_chunks.</title>
+    <path class="edge" d="M434,208 H566"/>
+    <a href="../data-model.md#memory-corpus">
+    <rect class="box" x="28" y="186" width="406" height="56" rx="6"/>
+    <text class="mono" x="44" y="208">workspace/ · agents/&lt;id&gt;/workspace/</text>
+    <text class="sub" x="44" y="227">memory corpus, wiki, behavior files, index-health evidence</text>
+    </a>
+  </g>
+  <text class="edge-label" x="466" y="202">memory rows</text>
+
+  <g class="node k-store">
+    <title>Small canonical files. Each is written atomically (temp file plus rename); kv.json and usage.jsonl hold daily token totals and per-session cost; projects.json holds runtime-created projects only.</title>
+    <a href="../data-model.md#instance-local-and-small-stores">
+    <rect class="box" x="28" y="254" width="406" height="76" rx="6"/>
+    <text class="mono" x="44" y="276">other canonical files</text>
+    <text class="sub" x="44" y="295">dartclaw.yaml · credentials/ · projects.json · kv.json</text>
+    <text class="sub" x="44" y="312">usage.jsonl · audit-YYYY-MM-DD.ndjson · tasks/&lt;id&gt;/artifacts/</text>
+    </a>
+  </g>
+
+  <g class="node k-dev">
+    <title>Instance-local and transient. A missing or corrupt file starts empty: turn_state.json quarantines malformed content, webhook markers expire after 7 days, thread bindings reconcile against active tasks and runs at startup.</title>
+    <a href="../data-model.md#instance-local-and-small-stores">
+    <rect class="box" x="28" y="342" width="406" height="68" rx="6"/>
+    <text class="mono" x="44" y="364">instance-local state</text>
+    <text class="sub" x="44" y="383">turn_state.json · webhook_deliveries/ · thread-bindings.json</text>
+    <text class="sub" x="44" y="400">pending-schedule-changes.json</text>
+    </a>
+  </g>
+
+  <g class="node k-host">
+    <title>Derived search projections. memory_chunks and conversation_chunks hold text plus a content_tsv column with a GIN index; the two vector tables use pgvector and exist only in hybrid mode. All four are rebuilt by dartclaw rebuild-index and reconciled at startup.</title>
+    <a href="../data-model.md#derived-search-indexes">
+    <rect class="box" x="566" y="118" width="406" height="124" rx="6"/>
+    <text class="mono" x="582" y="140">derived search projections</text>
+    <text class="sub" x="582" y="157">rebuilt by dartclaw rebuild-index; vectors only in hybrid mode</text>
+    <rect class="chip" x="580" y="168" width="184" height="22" rx="4"/><text class="chip-text" x="588" y="183">conversation_chunks</text>
+    <rect class="chip" x="772" y="168" width="188" height="22" rx="4"/><text class="chip-text" x="780" y="183">conversation_vectors</text>
+    <rect class="chip" x="580" y="198" width="184" height="22" rx="4"/><text class="chip-text" x="588" y="213">memory_chunks</text>
+    <rect class="chip" x="772" y="198" width="188" height="22" rx="4"/><text class="chip-text" x="780" y="213">memory_vectors</text>
+    </a>
+  </g>
+
+  <g class="node k-store">
+    <title>Authoritative relational records: no other copy exists, so restore from pg_dump. The schema gate validates these tables (required-only) before any repository is built; dartclaw_schema holds the epoch marker.</title>
+    <a href="../data-model.md#34-tables">
+    <rect class="box" x="566" y="254" width="406" height="162" rx="6"/>
+    <text class="mono" x="582" y="276">authoritative tables</text>
+    <text class="sub" x="582" y="292">restore from pg_dump</text>
+    <rect class="chip" x="580" y="300" width="184" height="20" rx="4"/><text class="chip-text" x="588" y="314">tasks</text>
+    <rect class="chip" x="772" y="300" width="188" height="20" rx="4"/><text class="chip-text" x="780" y="314">agent_executions</text>
+    <rect class="chip" x="580" y="322" width="184" height="20" rx="4"/><text class="chip-text" x="588" y="336">workflow_step_executions</text>
+    <rect class="chip" x="772" y="322" width="188" height="20" rx="4"/><text class="chip-text" x="780" y="336">task_artifacts</text>
+    <rect class="chip" x="580" y="344" width="184" height="20" rx="4"/><text class="chip-text" x="588" y="358">goals</text>
+    <rect class="chip" x="772" y="344" width="188" height="20" rx="4"/><text class="chip-text" x="780" y="358">task_events</text>
+    <rect class="chip" x="580" y="366" width="184" height="20" rx="4"/><text class="chip-text" x="588" y="380">turns</text>
+    <rect class="chip" x="772" y="366" width="188" height="20" rx="4"/><text class="chip-text" x="780" y="380">workflow_runs</text>
+    <rect class="chip" x="580" y="388" width="184" height="20" rx="4"/><text class="chip-text" x="588" y="402">kg_facts</text>
+    <rect class="chip" x="772" y="388" width="188" height="20" rx="4"/><text class="chip-text" x="780" y="402">dartclaw_schema</text>
+    </a>
+  </g>
+
+  <g class="node k-store">
+    <title>Standalone workflow runs use no database. execution.json is a versioned checkpoint (schemaVersion 1) behind the same repository contracts; execution.json.lock is its sidecar OS lock and execution.owner.lock admits one executing process.</title>
+    <a href="../data-model.md#4-standalone-execution-checkpoint">
+    <rect class="box" x="28" y="440" width="944" height="68" rx="6"/>
+    <text class="mono" x="44" y="462">standalone/</text>
+    <text class="sub" x="44" y="481">execution.json: tasks, agentExecutions, workflowSteps, workflowRuns, artifacts, goals, events, traces · execution.json.lock · execution.owner.lock</text>
+    <text class="sub" x="44" y="498">sessions/ · kv.json · turn_state.json: isolated copies of the server-side stores. No knowledge graph and no search service.</text>
+    </a>
+  </g>
+
+  <!-- Legend -->
+  <rect x="24" y="532" width="34" height="18" rx="4" fill="none" stroke="var(--store)" stroke-width="1.4"/>
+  <text class="note" x="66" y="545">canonical or authoritative: back up</text>
+  <rect x="308" y="532" width="34" height="18" rx="4" fill="none" stroke="var(--host)" stroke-width="1.4"/>
+  <text class="note" x="350" y="545">derived: rebuildable</text>
+  <rect x="514" y="532" width="34" height="18" rx="4" fill="none" stroke="var(--dev)" stroke-dasharray="5 4"/>
+  <text class="note" x="556" y="545">instance-local: starts empty</text>
+  <path class="edge" d="M24,574 L64,574"/>
+  <text class="note" x="74" y="578">derived from (canonical source to projection)</text>
+  <text class="note" x="24" y="598">Opened directly in a browser, hovering a store shows its role; clicking opens the explaining section.</text>
+</svg>

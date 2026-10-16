@@ -1,351 +1,219 @@
 # DartClaw CLI & API Architecture
 
-Reference for DartClaw's operational command-line surface and the server APIs that back it: CLI runner, connected-vs-standalone execution, the shared API client, workflow control, and how command groups map onto server routes.
+The operational command-line surface and the HTTP API behind it: the two CLI binaries, connected vs standalone
+execution, the shared API client, the server route families, and the workflow trigger surfaces. Workflow semantics are in
+[workflow-architecture.md](workflow-architecture.md); config loading and hot reload in
+[configuration-architecture.md](configuration-architecture.md); SSE streaming, health and audit mechanics in
+[observability-operations-architecture.md](observability-operations-architecture.md); package topology and the
+composition root in [system-architecture.md](system-architecture.md).
 
-**Current through**: 0.27.1 standalone file persistence, PostgreSQL server readiness/maintenance, hybrid search inspection, connected search
-commands, HTMX 4 preparation, and selected-corpus Memory administration
+**Current through**: 0.28.0
 
 ---
 
 ## 1. Design Goal
 
-The CLI is an operational surface for a running DartClaw instance, not just a lifecycle wrapper around `serve`, `service`, and token management:
+The CLI is an operational surface for a running instance, not only a wrapper around `serve`: it inspects and controls
+live runtime state, triggers workflows against the server-owned execution model, and keeps local-only commands explicit
+instead of silently mixing local and server state. The CLI is not a privileged side channel; it uses the same routes as
+the web UI and integrations ([ADR-030](../adrs/030-connected-by-default-workflow-execution.md)).
 
-- inspect and control live runtime state
-- trigger workflows against the server-owned execution model
-- query sessions, traces, jobs, runners, tasks, and projects
-- keep local-only commands explicit rather than silently mixing local and server state
-
-The design preserves a clean split:
-
-| Concern | CLI | Server API |
+| Concern | CLI | Server |
 |---|---|---|
-| Argument parsing and UX | Yes | No |
-| Auth resolution and base-URL resolution | Yes | No |
-| Persistent state mutation | No | Yes |
-| Runtime orchestration | No | Yes |
-| Workflow execution ownership in connected mode | No | Yes |
-| Local maintenance / validation commands | Yes | No |
+| Argument parsing, UX, server-address and token resolution | Yes | No |
+| Persistent state mutation, runtime orchestration | No | Yes |
+| Workflow execution in connected mode | No | Yes |
+| Local maintenance, setup and validation | Yes | No |
 
-This keeps operational authority in the Dart host while letting terminal users access the same system that the web UI uses.
+`dartclaw_cli` owns command UX, transport use and process-local helpers; `dartclaw_runtime` owns routing, auth and
+state transitions; `dartclaw_workflow` owns execution semantics used by both the server and standalone runs.
 
-## 2. Boundary Overview
+## 2. CLI Structure
 
-At a high level, the CLI/API stack looks like this:
+Two binaries share one runner class (`apps/dartclaw_cli/lib/src/runner.dart`):
 
-```
-┌──────────────────────────────────────────────┐
-│ dartclaw CLI                                │
-│ - DartclawRunner                            │
-│ - command groups                            │
-│ - DartclawApiClient                         │
-│ - local-only helpers                        │
-└──────────────────┬───────────────────────────┘
-                   │ HTTP + SSE
-                   ▼
-┌──────────────────────────────────────────────┐
-│ dartclaw_runtime                             │
-│ - shelf routers                             │
-│ - auth middleware                           │
-│ - workflow/task/project/session services    │
-│ - SSE endpoints                             │
-└──────────────────┬───────────────────────────┘
-                   │ service calls
-                   ▼
-┌──────────────────────────────────────────────┐
-│ core / workflow packages                    │
-│ - runtime orchestration                     │
-│ - typed config                              │
-│ - PostgreSQL repositories                   │
-│ - workflow engine                           │
-└──────────────────────────────────────────────┘
-```
-
-The key package boundary is:
-
-- `dartclaw_cli` owns command UX, transport, and process-local helpers.
-- `dartclaw_runtime` owns HTTP routing, auth, and operational state transitions.
-- `dartclaw_workflow` owns workflow execution semantics used by both server and standalone CLI execution.
-
-## 3. CLI Runtime Structure
-
-The CLI entry points are:
-
-- `apps/dartclaw_cli/bin/dartclaw.dart` – full operational CLI
-- `apps/dartclaw_cli/bin/dartclaw_workflow.dart` – standalone workflow CLI
-
-`DartclawRunner` registers the top-level command families. The operational set is:
-
-- `workflow`
-- `tasks`
-- `config`
-- `projects`
-- `sessions`
-- `runners`
-- `traces`
-- `jobs`
-- `search`
-
-Local process/lifecycle command families coexist with them:
-
-- `serve`
-- `status`
-- `init` / `setup`
-- `doctor`
-- `service`
-- `token`
-- `rebuild-index`
-- `google-auth`
-
-The full CLI is mixed-mode: some commands are local process utilities, others are remote operations over the API.
-Both runners mount the same `workflowSubcommands` list. The full tree is `dartclaw workflow <verb>` and includes
-connected-only `runs`; the lean tree is `dartclaw-workflow <verb>` with `run`, `list`, `show`, `validate`, `status`,
-`cancel`, `pause`, `resume`, `retry`, and `cleanup-skills`, plus `init`, `rebuild-index`, and `help`.
-
-The lean builder always selects the existing standalone lane. It accepts and ignores `--standalone`, exposes no
-`--server` or `--token`, and never registers the server or server-status command. Its `status` reports workflow
-runs. Workflow-only `init` uses the existing workflow setup track. The shared commands hold a client-free
-`WorkflowConnection` interface; only the full runner supplies `ApiWorkflowConnection`. A `dart:io` health probe
-preserves the live-server writer guard without retaining the API client. Both binaries share the existing runtime
-composition root; the real build test proves the lean artifact excludes the server, API, web and channel-ingress
-libraries, with the full artifact as positive control.
-
-## 4. Connected vs Standalone
-
-Workflows use an explicit connected-vs-standalone execution split.
-
-### Connected Mode
-
-Connected mode is the default for:
-
-- `workflow run`
-- `workflow status`
-- `workflow runs`
-- `workflow pause`
-- `workflow resume`
-- `workflow cancel`
-- `workflow retry`
-- all `tasks`, `config`, `projects`, `sessions`, `runners`, `traces`, and `jobs` commands
-- `search inspect`
-
-In connected mode:
-
-1. The CLI resolves the server address from `--server`, then config, then loopback defaults.
-2. It resolves auth from config or the persisted gateway token, unless `auth_mode:none`.
-3. It calls the server route.
-4. For long-running workflow commands, it also consumes SSE.
-
-The connected path is the preferred operational surface because it preserves:
-
-- guard-chain enforcement
-- shared observability
-- web/UI visibility
-- a single source of truth for runtime state
-
-### Standalone Mode
-
-Standalone mode is available for workflow commands with meaningful local semantics:
-
-- `workflow run --standalone`
-- `workflow status --standalone`
-- `workflow pause/resume/cancel/retry --standalone`
-
-The standalone path stages the shared composition root headlessly (`DartclawRuntime.stageHeadless`) and drives
-`dartclaw_workflow` through it, without starting the HTTP server. The write commands (`run`, `pause`, `resume`,
-`cancel`, `retry`) probe `/health` first and abort unless `--force` is set when a server is already running, preventing
-accidental concurrent use of shared project/workflow files. Standalone execution uses
-`<data_dir>/standalone/execution.json` through `FileExecutionStore`, and `status --standalone` reads that same
-checkpoint. No PostgreSQL connection or schema gate runs. Sessions, turn recovery and KV are isolated under
-`standalone/`; definitions, credentials and workflow artifacts keep their existing paths. Existing database histories
-remain separate. Workflow-only init neither writes a database reference nor probes database readiness.
-
-Headless composition retains task/session/turn persistence and guarded workflow execution. It omits personal-memory corpus preflight, search storage/backends, knowledge graph, self-improvement, memory MCP callbacks and memory prompt projection/retrieval hints. This boundary follows the existing headless mode; it is not a separate user configuration setting. Provider-native capabilities and project instructions are unaffected.
-
-## 5. Shared API Client
-
-The connected command path uses:
-
-- `packages/dartclaw_client/lib/src/dartclaw_api_client.dart` — the transport, owned by `dartclaw_client`
-- `apps/dartclaw_cli/lib/src/commands/connected_command_support.dart` — CLI-side construction (`resolveServerUri`, `apiClientFromConfig`, `resolveCliApiClient`) and the shared `DartclawApiException` error policy
-
-`DartclawApiClient` is a dependency-free transport layer built on `dart:io`, published as the client tier rather than owned by the CLI:
-
-- applies Bearer auth when a token is supplied
-- normalizes error handling
-- supports JSON GET/POST/PATCH/DELETE helpers
-- opens SSE streams for workflow progress
-
-The transport is intentionally simple:
-
-| Concern | Behavior |
-|---|---|
-| Base URI | `--server` override, then config-derived loopback address |
-| Auth | `gateway.token`, persisted `gateway_token`, or no header when auth is disabled |
-| Errors | Maps connection/auth/version failures to CLI-friendly messages |
-| SSE | Used for `workflow run` progress and reconnect-aware lifecycle tracking |
-
-The client is not a general SDK surface; it exists to support the CLI application layer.
-
-## 6. Server API Surface
-
-The CLI primarily talks to these server route families:
-
-| Domain | Routes | Primary CLI family |
+| Binary | Builder | Surface |
 |---|---|---|
-| Workflow execution | `/api/workflows/*` | `workflow` |
-| Tasks | `/api/tasks*` | `tasks` |
-| Config | `/api/config`, `/api/settings/*`, `/api/scheduling/jobs*` | `config`, `jobs` |
-| Projects | `/api/projects*` | `projects` |
-| Sessions | `/api/sessions*` | `sessions` |
-| Runners | `/api/runners*` | `runners` |
-| Traces | `/api/traces*` | `traces` |
-| Hybrid inspection | `POST /api/search/inspect` | `search inspect --corpus memory\|conversation --query <text> [--limit 1..20]` |
+| `bin/dartclaw.dart` | `buildDartclawRunner()` | Full CLI. Global options `--config`, `--server`, `--token`, `--version` |
+| `bin/dartclaw_workflow.dart` | `buildDartclawWorkflowRunner()` | Lean `dartclaw-workflow`: workflow verbs at the root (`run`, `list`, `show`, `validate`, `status`, `cancel`, `pause`, `resume`, `retry`, `cleanup-skills`) plus `init` and `rebuild-index`. Global options `--config`, `--version` only |
 
-The important design property is that these are the same server APIs used by the web UI and background integrations. The CLI is not a privileged side-channel.
+Registration lives in `runner.dart` so the shipped command set is reachable from tests. Both runners mount the same
+`workflowSubcommands()` list; the full tree also gets connected-only `workflow runs`.
 
-Search inspection is opt-in diagnostic presentation over the runtime's existing corpus query owners. It returns
-bounded result identity and provenance with nullable lexical/vector ranks, fixed weighted-RRF contributions,
-unembedded count and structured degradations. It does not widen normal agent retrieval payloads. Memory inspection
-also authenticates one unchanged canonical-index fingerprint around the query; unavailable or changing state returns
-`503 SEARCH_INSPECTION_UNAVAILABLE` without hits.
+The lean runner always takes the standalone lane: it accepts and ignores `--standalone`, exposes no `--server` or
+`--token`, and registers neither `serve` nor the server `status`. Its commands hold a client-free `WorkflowConnection`
+interface; only the full runner supplies `ApiWorkflowConnection`. A `dart:io` health probe (`server_reachability.dart`)
+keeps the live-server writer guard without the API client. `apps/dartclaw_cli/test/tool/build_tool_test.dart` builds both
+artifacts and asserts that the server, API, web and channel-adapter libraries are absent from the lean one and present in
+the full one.
 
-Owner Memory administration uses `GET /api/memory/corpora` for opaque selectors, then selected `GET /api/memory/entries`
-and `GET /api/memory/entries/:id` reads. `POST /api/memory/entries/:id/revise|remove` requires the selector and expected
-collection and entry revisions. The routes check admin access before resolving a corpus. `MemoryAdminService` maps the
-selector only to already validated configured or retained `StorageWiring` contexts; a missing or forged selector never
-falls back to owner. Canonical reads use that context's `MemoryCorpusService`; search and health use its matching
-principal. Writes go through `MemoryApplyService` and corpus CAS, reporting canonical and derived-index outcomes
-separately. The web Memory page uses the same administration service. Legacy status, file, prune, and polling routes
-remain default-agent only and reject a selector.
+Command families (`apps/dartclaw_cli/lib/src/commands/`):
 
-The `/api/scheduling/jobs*` and `/api/scheduling/tasks*` handlers are likewise not the scheduling-mutation authority. Cron validation, the fresh read of `scheduling.jobs`, the modify-write and the restart-pending marker all live in `ScheduleMutationService` (`dartclaw_runtime/lib/src/scheduling/schedule_mutation.dart`); the routes map its outcome onto their status and error codes, and the `schedule_upsert` agent tool consumes the same seam. Neither surface can drift from the other's cron rule, and neither writes `scheduling.jobs` on its own. A written job takes effect only at the next restart: `ScheduleService` takes its job list at construction, which is why every write records the restart marker and why `schedule_list` reports what the running server actually loaded rather than what config says.
-
-## 7. Workflow Control Path
-
-Workflow operations are the richest example of the CLI/API architecture.
-
-### Connected Workflow Run
-
-`workflow run <name>` in connected mode:
-
-1. sends `POST /api/workflows/run`
-2. receives the created `WorkflowRun`
-3. opens `GET /api/workflows/runs/<id>/events`
-4. renders progress with `CliProgressPrinter`
-5. maps terminal workflow state to exit code
-
-Current connected-mode exit codes:
-
-| Status | Exit code |
+| Kind | Commands |
 |---|---|
-| `completed` | `0` |
-| `failed` | `1` |
-| `paused` | `2` |
-| `cancelled` | `2` |
+| Server-backed (`ConnectedCommand`) | `tasks`, `projects`, `sessions` (list, show, messages, delete, archive), `runners`, `traces`, `jobs`, `config get\|set\|show`, `search inspect`, `status`, `stop`, `workflow runs` |
+| Mixed (connected default, `--standalone` opt-in) | `workflow run\|status\|pause\|resume\|cancel\|retry\|show` |
+| Local only | `serve`, `service`, `init`/`setup`, `doctor`, `token`, `auth`, `secrets`, `google-auth`, `rebuild-index`, `sessions cleanup`, `search download-model`, `config schema`, `workflow list\|validate\|cleanup-skills` |
 
-SIGINT on a connected run becomes a control action, not a local hard abort:
+Local commands stay available when no server runs: they touch the filesystem or data directory, manage the process or
+installation, or (for `workflow list`, `validate`) read definitions from disk. `stop` posts `/api/emergency-stop`.
 
-1. CLI sends `POST /api/workflows/runs/<id>/cancel`
-2. waits for terminal SSE state when possible
-3. exits with the mapped workflow result
+## 3. Connected vs Standalone
 
-### Workflow Lifecycle Commands
+[![CLI paths: connected and standalone](diagrams/cli-api-paths.svg)](diagrams/cli-api-paths.svg)
 
-Server-backed control commands:
+### Connected mode (default)
 
-- `workflow runs`
-- `workflow pause <id>`
-- `workflow resume <id>`
-- `workflow cancel <id>`
-- `workflow retry <id>`
+`ConnectedCommand` (`connected_command_support.dart`) resolves a `DartclawApiClient` per call:
 
-These default to connected mode. `workflow runs` is connected-only. `pause`, `resume`, `cancel`, and `retry` accept an explicit `--standalone` opt-in (guarded by the same `/health` probe + `--force` safety check); they never silently fall back to local DB state.
+1. **Address**: `--server` (bare port, host, or URL), else `http://localhost:<server.port>` from config.
+2. **Token**: `--token`, else `gateway.token`, else the `gateway_token` file in the data directory; none when
+   `gateway.auth_mode` is `none`.
+3. Call the route; long-running workflow commands also consume SSE.
 
-### Standalone Workflow Run
+Connected mode is preferred because it keeps guard-chain enforcement, shared observability, web UI visibility and a
+single source of truth for runtime state. API failures map to exit codes by `connectedExitCode`:
 
-The standalone path still calls the same workflow package, but through local wiring:
+| Failure | Exit |
+|---|---|
+| Transport (`CONNECTION_REFUSED`, `NETWORK_ERROR`, `TLS_HANDSHAKE_FAILED`) | 3 |
+| HTTP 401/403 | 4 |
+| Other 4xx | 5 |
+| 5xx | 6 |
+| Anything else | 1 |
 
-- builds local repositories and task services
-- calls `WorkflowService.start(..., headless: true)`
-- auto-accepts review-mode steps for unattended execution
+### Standalone mode
 
-This keeps behavioral parity where practical, but the authoritative operational model is the connected one.
+`workflow run|status|pause|resume|cancel|retry --standalone` (always on in the lean binary) runs the shared composition
+root headlessly (`DartclawRuntime.stageHeadless`, then `completeForExecution`) and drives `dartclaw_workflow` in-process,
+with no HTTP server.
 
-## 8. Workflow Trigger Surfaces
+- **Writer guard.** The write verbs probe `GET /health` at the resolved server address (200, 401 and 403 count as
+  reachable) and abort when a server is up unless `--force`, preventing concurrent writers to shared project and
+  workflow files.
+- **Storage.** State lives under `<data_dir>/standalone/`: `execution.json` (`FileExecutionStore`, an atomic checkpoint
+  shared by task and workflow repositories), `sessions/`, `turn_state.json` and `kv.json`. `status --standalone` reads
+  the same checkpoint. No PostgreSQL connection or schema gate runs, and workflow-only `init` neither writes a database
+  reference nor probes readiness. Definitions, credentials and workflow artifacts keep their normal paths. Existing
+  database histories stay separate.
+- **What headless composition omits** (the `headless` flag of the assembly in `service_wiring.dart`): the HTTP/web/MCP surface, channels,
+  personal memory, and recovery of incomplete runs; the project registry is wired read-only. Task, session and turn
+  persistence and guarded workflow execution remain. This is the existing headless mode, not a user setting.
+- **Credentials and skills.** `CredentialPreflight` and a referenced-provider auth preflight run before execution;
+  `--no-skill-bootstrap` skips native skill provisioning. `DARTCLAW_WORKFLOWS_PREFER_SOURCE=1` makes source-tree
+  skills and workflow YAML win over embedded built-ins (maintainer profile, standalone path only).
 
-Workflow trigger surfaces, direct and indirect:
+## 4. API Client
+
+`packages/dartclaw_client/lib/src/dartclaw_api_client.dart` is a zero-dependency `dart:io` transport published as the
+client tier (re-exported by the `dartclaw` umbrella; also consumed by the desktop app). It applies Bearer auth, offers
+JSON GET/POST/PATCH/DELETE helpers, surfaces failures as `DartclawApiException` (`code`, `statusCode`, `details`), and
+opens SSE streams with up to three reconnects through an `onDisconnect` callback. It resolves no config and no token;
+`apiClientFromConfig` in the CLI does. It mints no per-endpoint DTOs: types the endpoints carry stay owned by core and
+workflow. Package rules are in `packages/dartclaw_client/AGENTS.md`.
+
+## 5. Server Route Families
+
+Route files live in `packages/dartclaw_runtime/lib/src/api/`. `authMiddleware` guards everything except `/health`,
+`/login`, `/webhook/*` and `/static/*`; webhook routes authenticate per source.
+
+| Family | Routes | File(s) | CLI |
+|---|---|---|---|
+| Workflows | `/api/workflows/definitions*`, `/run`, `/run-form`, `/runs*` (`/cancel`, `/pause`, `/resume`, `/retry`, `/request-changes`, `/events` SSE) | `workflow_routes.dart` | `workflow` |
+| Tasks, goals | `/api/tasks*` (`/start`, `/cancel`, `/review`, `/checkout`, `/artifacts`, `/bindings`), `/api/goals*`, SSE `/api/tasks/events`, `/api/agent-executions/events` | `task_routes.dart`, `goal_routes.dart`, `task_sse_routes.dart` | `tasks` |
+| Sessions, conversation | `/api/sessions*` (messages, send, steer, stream, queue, attempts, context, export, attachments, turn-status), `/api/inbox*`, `/api/attention*`, `/api/conversation-search*`, `/api/command-catalog`, `/api/command-actions` | `session_*_routes.dart`, `conversation_search_command_routes.dart` | `sessions` |
+| Config and settings | `/api/config*` (including guards and channel allowlists), `/api/settings/*`, `/api/scheduling/jobs*`, `/api/scheduling/tasks*`, `/api/system/restart` | `config_api_routes.dart`, `config_routes.dart` | `config`, `jobs` |
+| Projects | `/api/projects*` | `project_routes.dart` | `projects` |
+| Runners, providers | `/api/runners*`, `/api/providers` | `runner_routes.dart`, `provider_routes.dart` | `runners` |
+| Traces | `/api/traces*` | `trace_routes.dart` | `traces` |
+| Memory | `/api/memory/*` | `memory_routes.dart` | none |
+| Search inspection | `POST /api/search/inspect` | `search_inspection_routes.dart` | `search inspect` |
+| Emergency stop | `/api/emergency-stop` | `emergency_stop_routes.dart` | `stop` |
+| Channel pairing | `/api/channels/<type>/dm-pairing*`, `/api/channels/pairing-counts` | `config_api_routes.dart` | none |
+| Webhooks | `/webhook/whatsapp`, plus the configured `webhook_path` of Google Chat, GitHub (default `/webhook/github`) and Slack events | `webhook_routes.dart` | none |
+| Other | `/health`, `/mcp`, global SSE broadcast `/api/events` | `server.dart`, `config_api_routes.dart` | `status` |
+
+### Behaviors worth knowing
+
+- **Search inspection** (`search inspect --corpus memory|conversation --query <text> [--limit 1..20]`) is opt-in
+  diagnostic output over the existing corpus query owners: bounded result identity and provenance, lexical/vector ranks,
+  unembedded count and structured degradations. It does not widen agent retrieval payloads. Missing diagnostics return
+  `503 SEARCH_INSPECTION_UNAVAILABLE` with no hits.
+- **Memory administration** is owner-only (`403` otherwise). `GET /api/memory/corpora` returns opaque selectors;
+  `MemoryAdminService` maps a selector only to an already-validated configured or retained `StorageWiring` context, and
+  a missing or forged selector is `404 CORPUS_UNAVAILABLE`, never a fallback to the owner corpus. Reads use
+  `GET /api/memory/entries[/<id>]`; `POST .../revise|remove` require the selector plus expected collection and entry
+  revisions and write through `MemoryApplyService`. The legacy `status`, `files` and `prune` routes are default-corpus
+  only and reject any query string. The web Memory page uses the same service.
+- **Scheduling mutation** has one authority, `ScheduleMutationService`
+  (`scheduling/schedule_mutation.dart`). The `/api/scheduling/*` handlers, the scheduling page and the `schedule_upsert`
+  tool all consume it, so the cron rule and the write path cannot fork. A write commits and then applies the jobs to the
+  running `ScheduleService`, so it is live before the caller is answered. Under the operator approval mode, a
+  model-originated upsert is parked in a pending store and committed only by an operator approval through the same path.
+
+## 6. Workflow Control Path
+
+### Connected run
+
+`workflow run <name>` is implemented by `ApiWorkflowConnection`:
+
+[![Connected workflow run](diagrams/cli-api-workflow-run.svg)](diagrams/cli-api-workflow-run.svg)
+
+Progress renders through `CliProgressPrinter`, or frames are echoed with `--json`. The final status maps to an exit code
+(`standaloneWorkflowExitCode`, shared by both lanes):
+
+| Status | Exit |
+|---|---|
+| `completed` | 0 |
+| `failed` | 1 |
+| `cancelled`, `paused`, `awaitingApproval` | 2 |
+
+SIGINT on a connected run is a control action, not a local abort: the first sends `POST /api/workflows/runs/<id>/cancel`
+and keeps waiting for the terminal state; a second exits immediately with 1.
+
+### Lifecycle commands
+
+`pause`, `resume`, `cancel` and `retry` POST to `/api/workflows/runs/<id>/<verb>` in connected mode. `workflow runs` is
+connected-only. With `--standalone` they drive the in-process engine under the same `/health` guard and `--force`
+rule; they never silently fall back to local state. Standalone `workflow run` calls `WorkflowService.start(...)` with
+`WorkflowRunOrigin(surface: 'cli')` on the headless runtime.
+
+## 7. Workflow Trigger Surfaces
 
 | Surface | Entry point | Handler |
 |---|---|---|
 | CLI / JSON API | `POST /api/workflows/run` | `workflow_routes.dart` |
 | Web UI form | `POST /api/workflows/run-form` | `workflow_routes.dart` |
-| Agent tool | `workflow_list` and `workflow_run` through the registered MCP surface | `WorkflowListTool` / `WorkflowRunTool` |
-| GitHub PR webhook | `POST /webhook/github` | `GitHubWebhookHandler` |
+| Agent tool | `workflow_list`, `workflow_run` via MCP | `WorkflowListTool` / `WorkflowRunTool` (`mcp/workflow_tools.dart`) |
+| GitHub PR webhook | `POST` to `github.webhook_path` (default `/webhook/github`) | `GitHubWebhookHandler` (`github_webhook.dart`) |
 
-These are all server-owned surfaces. The CLI does not implement separate logic for them; it interoperates with the same workflow runtime through the API.
+All are server-owned; the CLI has no separate trigger logic. The two launch routes share one request shaping behind two
+encodings: both read through the capped readers in `api_helpers.dart` and share definition resolution, `PROJECT`
+injection and required-variable validation. The JSON route reads a `variables` object, accepts `approvals` and `inline`,
+and answers `errorResponse` envelopes. The form route reads `var_`-prefixed fields and answers an HTMX-swappable HTTP
+200 fragment on validation failure, because the layout suppresses 4xx/5xx swaps in HTMX 4 and reserves those statuses
+for auth and route refusals; a 4xx validation error would vanish from `/workflows`.
 
-The two launch routes are one request shaping behind two encodings: both read through the shared capped reader in
-`api_helpers.dart`, then share the definition resolution, `PROJECT` injection and required-variable validation. Only the
-field extraction and the rendering differ – the JSON route reads a `variables` object and can set `approvals`/`inline`
-and answers `errorResponse` envelopes; the form route reads `var_`-prefixed fields and answers an HTMX-swappable HTTP
-200 fragment on validation failure. The layout explicitly suppresses 4xx/5xx swaps in HTMX 4, reserving those
-statuses for auth and route refusals; a validation error at 4xx would therefore vanish from `/workflows`.
-Cross-surface fragments travel OOB in the same response, and `HX-Trigger` delivers toast feedback after the swap.
-
-## 9. Local-Only Commands
-
-Not every CLI command is server-backed. Some remain intentionally local:
-
-| Command | Why local |
-|---|---|
-| `workflow list` | Reads workflow definitions from disk without requiring a server |
-| `workflow validate` | Parser/validator preflight for authoring |
-| `sessions cleanup` | Local maintenance against the filesystem/data directory |
-| `token *` | Local gateway token management |
-| `rebuild-index` | Local rebuild of the derived search index |
-| `search download-model` | Download and checksum the one managed local embedding model without requiring a server |
-| `serve` / `service` / `init` | Process and installation lifecycle |
-| `doctor` | Shared setup diagnostics, value-free storage audit, health and container probes; optional directory creation |
-
-This split is important because it keeps low-level maintenance available even when the server is not running.
-
-## 10. Source Map
-
-Primary implementation files:
+## 8. Source Map
 
 ```
-apps/dartclaw_cli/bin/dartclaw.dart
-apps/dartclaw_cli/bin/dartclaw_workflow.dart
+apps/dartclaw_cli/bin/{dartclaw,dartclaw_workflow}.dart
 apps/dartclaw_cli/lib/src/runner.dart
-apps/dartclaw_cli/lib/src/commands/connected_command_support.dart
 apps/dartclaw_cli/lib/src/commands/
-  workflow/
-  tasks/
-  config/
-  projects/
-  sessions/
-  runners/
-  traces/
-  jobs/
-  search_command.dart
-  search_inspect_command.dart
-
-packages/dartclaw_runtime/lib/src/api/
-  workflow_routes.dart
-  task_routes.dart
-  config_api_routes.dart
-  project_routes.dart
-  session_routes.dart
-  trace_routes.dart
-  search_inspection_routes.dart
-  chat_command_handler.dart
-  github_webhook.dart
+  connected_command_support.dart      ConnectedCommand, client/URI/token resolution, exit codes
+  server_reachability.dart            /health probe for the standalone writer guard
+  workflow/                           workflow commands, ApiWorkflowConnection, standalone harness, progress rendering
+  {tasks,projects,sessions,runners,traces,jobs,config,secrets,auth,service,init}/
+  search_command.dart, search_inspect_command.dart
+packages/dartclaw_client/lib/src/dartclaw_api_client.dart
+packages/dartclaw_runtime/lib/src/api/                      route files (section 5)
+packages/dartclaw_runtime/lib/src/runtime/service_wiring.dart   stageHeadless / HeadlessRuntimeStaging
 ```
 
-## 11. Related Documents
+## 9. Related Documents
 
 - [system-architecture.md](system-architecture.md)
 - [workflow-architecture.md](workflow-architecture.md)
 - [configuration-architecture.md](configuration-architecture.md)
 - [observability-operations-architecture.md](observability-operations-architecture.md)
-- [ADR-018](../adrs/018-cli-onboarding-architecture.md)
+- [ADR-018](../adrs/018-cli-onboarding-architecture.md), [ADR-030](../adrs/030-connected-by-default-workflow-execution.md)

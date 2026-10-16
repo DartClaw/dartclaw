@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 628" width="1000" height="628" role="img" aria-labelledby="title desc">
+  <title id="title">Observability signal flow</title>
+  <desc id="desc">Sources feed collectors, which write to stores, channels, SSE endpoints and logs. The EventBus feeds guard audit, alert routing and SSE; TurnRunner feeds usage; ExecutionCoordinator feeds the runner observer; the root logger feeds LogService.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .mono.s { font-size: 12px; }
+    .refuse { fill: var(--sec); }
+    .legend-text { fill: var(--sub); font-size: 11px; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="628"/>
+  <text class="title" x="24" y="34">Observability signal flow</text>
+  <text class="lede" x="24" y="56">Each signal has one collector. Producers that must fail closed bypass the bus and call writeEntry.</text>
+<text class="group-label" x="24" y="84">SOURCES</text>
+<text class="group-label" x="340" y="84">COLLECTORS</text>
+<text class="group-label" x="736" y="84">SINKS</text>
+  <a href="../observability-operations-architecture.md#4-audit-logging">
+  <g class="node k-sec">
+    <title>Producers that must fail closed (outbound MCP and egress, knowledge writes, review and run-approval gates, refusal audits, Slack webhook, database egress) call GuardAuditLogger.writeEntry directly. It is awaited and a write failure propagates.</title>
+    <path class="edge" d="M244,126 H340"/>
+    <rect class="box" x="24" y="98" width="220" height="56" rx="6"/>
+    <text class="mono" x="38" y="119">writeEntry callers</text>
+    <text class="sub" x="38" y="138">egress, approvals, refusals, gates</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#1-overview">
+  <g class="node k-host">
+    <title>dartclaw_core EventBus. Every observability subscriber except usage, logging and capacity reads from it. classifyAlert names every event subtype with no wildcard arm (ADR-057).</title>
+    <path class="edge" d="M244,196 H300 V152 H340"/>
+    <path class="edge" d="M244,222 H340"/>
+    <path class="edge" d="M244,300 H340"/>
+    <rect class="box" x="24" y="176" width="220" height="150" rx="6"/>
+    <text class="mono" x="38" y="197">EventBus</text>
+    <text class="sub" x="38" y="216">sealed DartclawEvent stream</text>
+    <text class="sub" x="38" y="234">GuardBlockEvent</text>
+    <text class="sub" x="38" y="252">ToolPermissionDeniedEvent</text>
+    <text class="sub" x="38" y="270">task, workflow, credential,</text>
+    <text class="sub" x="38" y="288">compaction, loop, stop events</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#4-audit-logging">
+  <g class="node k-host">
+    <title>dartclaw_kernel guard_audit.dart. One serialized _pendingWrite chain; stdout log level follows the verdict.</title>
+    <path class="edge" d="M640,126 H736"/>
+    <rect class="box" x="340" y="98" width="300" height="70" rx="6"/>
+    <text class="mono" x="354" y="119">GuardAuditLogger</text>
+    <text class="sub" x="354" y="138">GuardAuditSubscriber bridges bus events</text>
+    <text class="sub" x="354" y="156">logVerdict unawaited, writeEntry awaited</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#2-alerts">
+  <g class="node k-host">
+    <title>alerts/alert_router.dart. Reconfigurable on alerts.*; disabled by default.</title>
+    <path class="edge" d="M640,221 H736"/>
+    <rect class="box" x="340" y="196" width="300" height="50" rx="6"/>
+    <text class="mono" x="354" y="217">AlertRouter</text>
+    <text class="sub" x="354" y="236">classify, route, throttle, format</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse">
+  <g class="node k-host">
+    <title>api/event_bus_sse_bridge.dart and api/task_sse_routes.dart. Emergency-stop SSE stays with EmergencyStopHandler.</title>
+    <path class="edge" d="M640,304 H736"/>
+    <rect class="box" x="340" y="276" width="300" height="56" rx="6"/>
+    <text class="mono" x="354" y="297">EventBusSseBridge · task_sse_routes</text>
+    <text class="sub" x="354" y="316">bus events to SSE frames</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#5-usage-and-token-accounting">
+  <g class="node k-host">
+    <title>turn_runner_execution_loop.dart records one UsageEvent per turn, unawaited; turn_runner_execution.dart writes session_cost.</title>
+    <path class="edge" d="M244,404 H340"/>
+    <rect class="box" x="24" y="376" width="220" height="56" rx="6"/>
+    <text class="mono" x="38" y="397">TurnRunner</text>
+    <text class="sub" x="38" y="416">after each completed turn</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#5-usage-and-token-accounting">
+  <g class="node k-host">
+    <title>observability/usage_tracker.dart. Also session_cost:&lt;sessionId&gt; KV written by TurnRunner.</title>
+    <path class="edge" d="M640,404 H736"/>
+    <rect class="box" x="340" y="370" width="300" height="68" rx="6"/>
+    <text class="mono" x="354" y="391">UsageTracker</text>
+    <text class="sub" x="354" y="410">record(): append, aggregate,</text>
+    <text class="sub" x="354" y="428">rotate, budget log (each guarded)</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse">
+  <g class="node k-host">
+    <title>execution_coordinator.dart. Single authority for execution allocation after governance admits a turn.</title>
+    <path class="edge" d="M244,490 H340"/>
+    <rect class="box" x="24" y="462" width="220" height="56" rx="6"/>
+    <text class="mono" x="38" y="483">ExecutionCoordinator</text>
+    <text class="sub" x="38" y="502">lease and teardown events</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse">
+  <g class="node k-host">
+    <title>task/runner_observer.dart. Fires RunnerStateChangedEvent back onto the EventBus.</title>
+    <path class="edge" d="M640,490 H736"/>
+    <rect class="box" x="340" y="462" width="300" height="56" rx="6"/>
+    <text class="mono" x="354" y="483">RunnerObserver</text>
+    <text class="sub" x="354" y="502">metrics, capacity, runner_state</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#6-structured-logging">
+  <g class="node k-host">
+    <title>package:logging root logger.</title>
+    <path class="edge" d="M244,569 H340"/>
+    <rect class="box" x="24" y="544" width="220" height="50" rx="6"/>
+    <text class="mono" x="38" y="565">Logger.root</text>
+    <text class="sub" x="38" y="584">LogRecord stream</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#6-structured-logging">
+  <g class="node k-host">
+    <title>logging/log_service.dart, log_formatter.dart, log_redactor.dart.</title>
+    <path class="edge" d="M640,569 H736"/>
+    <rect class="box" x="340" y="544" width="300" height="50" rx="6"/>
+    <text class="mono" x="354" y="565">LogService → LogRedactor</text>
+    <text class="sub" x="354" y="584">formatter, then redaction</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#4-audit-logging">
+  <g class="node k-store">
+    <title>Date-partitioned audit files in the data dir. AuditLogReader reads every retained file per call.</title>
+    <rect class="box" x="736" y="98" width="240" height="56" rx="6"/>
+    <text class="mono s" x="750" y="119">audit-YYYY-MM-DD.ndjson</text>
+    <text class="sub" x="750" y="137">AuditLogReader → /health-dashboard</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#2-alerts">
+  <g class="node k-chan">
+    <title>AlertDeliveryAdapter resolves the target to a Channel and calls sendMessage. Best effort, no retry.</title>
+    <rect class="box" x="736" y="196" width="240" height="50" rx="6"/>
+    <text class="mono" x="750" y="217">Channels</text>
+    <text class="sub" x="750" y="236">any registered channel</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse">
+  <g class="node k-chan">
+    <title>SSE endpoints; see the SSE topology figure.</title>
+    <rect class="box" x="736" y="276" width="240" height="56" rx="6"/>
+    <text class="mono s" x="750" y="297">/api/tasks/events</text>
+    <text class="sub" x="750" y="315">and /api/events; browser EventSource</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#5-usage-and-token-accounting">
+  <g class="node k-store">
+    <title>usage.jsonl rotates at 10 MB; usage_daily aggregates feed /health daily_usage and BudgetEnforcer.</title>
+    <rect class="box" x="736" y="370" width="240" height="68" rx="6"/>
+    <text class="mono s" x="750" y="391">usage.jsonl · usage_daily:*</text>
+    <text class="sub" x="750" y="409">daily aggregate in kv.json</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse">
+  <g class="node k-host">
+    <title>RunnerObserver metrics and ExecutionCapacityMetrics.</title>
+    <rect class="box" x="736" y="462" width="240" height="56" rx="6"/>
+    <text class="mono s" x="750" y="483">/api/runners · capacity</text>
+    <text class="sub" x="750" y="501">plus runner_state SSE</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md#6-structured-logging">
+  <g class="node k-host">
+    <title>LogContext binds sessionId and turnId per zone.</title>
+    <rect class="box" x="736" y="544" width="240" height="50" rx="6"/>
+    <text class="mono" x="750" y="565">stderr · file sink</text>
+    <text class="sub" x="750" y="584">session and turn correlated</text>
+  </g>
+  </a>
+
+</svg>

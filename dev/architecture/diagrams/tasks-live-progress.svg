@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 540" width="1000" height="540" role="img" aria-labelledby="title desc">
+  <title id="title">Live task delivery: events to the UI</title>
+  <desc id="desc">Task status changes, task events and runner state travel over the in-process EventBus; TaskProgressTracker adds a throttled progress snapshot; the SSE route GET /api/tasks/events fans all of them out to the Web UI, while turn traces are read through a separate query route.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 13px; font-weight: 600; }
+    .badge { fill: var(--accent); }
+    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    .k-dev .box.reserved, .reserved .box { stroke-dasharray: 5 4; }
+    .legend-swatch { fill: none; stroke-width: 1.4; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="540"/>
+  <text class="title" x="24" y="34">Live task delivery: events to the UI</text>
+  <text class="lede" x="24" y="56">One stream per client: GET /api/tasks/events. Runner capacity bypasses the EventBus and goes straight to the stream.</text>
+  <g class="node k-host">
+    <title>TaskService.transition awaits the statusChanged task event, then fires TaskStatusChangedEvent. TaskReviewReadyEvent is fired best-effort on entering review.</title>
+    <path class="edge" d="M244,132 L300,132"/>
+    <a href="../task-execution-architecture.md#32-entry-points">
+    <rect class="box " x="24" y="100" width="220" height="64" rx="6"/>
+    <text class="mono" x="36" y="120">TaskService</text>
+    <text class="sub" x="36" y="136">TaskStatusChangedEvent after</text>
+    <text class="sub" x="36" y="150">the write; TaskReviewReadyEvent</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>See the turn-recording figure for what produces task events.</title>
+    <path class="edge" d="M244,232 L300,232"/>
+    <a href="../task-execution-architecture.md#72-persistence-and-recorder">
+    <rect class="box " x="24" y="200" width="220" height="64" rx="6"/>
+    <text class="mono" x="36" y="220">TaskEventRecorder</text>
+    <text class="sub" x="36" y="236">TaskEventCreatedEvent,</text>
+    <text class="sub" x="36" y="250">only after the insert succeeds</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Subscribers here: TaskProgressTracker (TaskEventCreatedEvent) and the SSE route (status, task event, runner state, project, turn wait and workflow status events).</title>
+    <path class="edge" d="M470,132 L560,132"/>
+    <path class="edge" d="M470,252 L560,252"/>
+    <rect class="box " x="300" y="100" width="170" height="200" rx="6"/>
+    <text class="mono" x="312" y="120">EventBus</text>
+    <text class="sub" x="312" y="136">in-process, typed</text>
+    <text class="sub" x="312" y="150">events</text>
+  </g>
+  <g class="node k-host">
+    <title>Per-runner state from coordinator events. Its capacityChanges stream is subscribed directly by the SSE route.</title>
+    <path class="edge" d="M385,340 L385,300"/>
+    <path class="edge" d="M470,372 L560,372"/>
+    <a href="../task-execution-architecture.md#76-runnerobserver">
+    <rect class="box " x="300" y="340" width="170" height="64" rx="6"/>
+    <text class="mono" x="312" y="360">RunnerObserver</text>
+    <text class="sub" x="312" y="376">RunnerStateChangedEvent;</text>
+    <text class="sub" x="312" y="390">capacity changes</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Accumulates tokenUpdate totals and the latest toolCalled activity from TaskEventCreatedEvent while a task is running; emits TaskProgressSnapshot, final one with isComplete.</title>
+    <path class="edge" d="M680,164 L680,230"/>
+    <a href="../task-execution-architecture.md#74-taskprogresstracker">
+    <rect class="box " x="560" y="100" width="240" height="64" rx="6"/>
+    <text class="mono" x="572" y="120">TaskProgressTracker</text>
+    <text class="sub" x="572" y="136">1 s throttle per task;</text>
+    <text class="sub" x="572" y="150">seeded from stored events</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>api/task_sse_routes.dart. The initial connected frame carries review count, active tasks and workflows, runner snapshot and projects.</title>
+    <path class="edge" d="M800,305 L860,305"/>
+    <a href="../task-execution-architecture.md#75-sse">
+    <rect class="box " x="560" y="230" width="240" height="150" rx="6"/>
+    <text class="mono" x="572" y="250">GET /api/tasks/events</text>
+    <text class="sub" x="572" y="266">connected, task_status_changed,</text>
+    <text class="sub" x="572" y="280">task_event, task_progress,</text>
+    <text class="sub" x="572" y="294">runner_state, execution_capacity,</text>
+    <text class="sub" x="572" y="308">project_status, turn_wait_state,</text>
+    <text class="sub" x="572" y="322">workflow_sidebar_update</text>
+    </a>
+  </g>
+  <g class="node k-chan">
+    <title>Consumes the task SSE stream for live status, timeline and progress, and reads trace summaries per request.</title>
+    <rect class="box " x="860" y="230" width="116" height="150" rx="6"/>
+    <text class="name" x="872" y="250">Web UI</text>
+    <text class="sub" x="872" y="266">task pages,</text>
+    <text class="sub" x="872" y="280">dashboard,</text>
+    <text class="sub" x="872" y="294">sidebar</text>
+  </g>
+  <g class="node k-host">
+    <title>api/trace_routes.dart. Also GET /api/traces/&lt;id&gt;. Not part of the SSE stream: the task page reads trace summaries per request.</title>
+    <path class="edge" d="M800,452 L918,452 L918,382"/>
+    <a href="../task-execution-architecture.md#8-turn-traces">
+    <rect class="box " x="560" y="420" width="240" height="64" rx="6"/>
+    <text class="mono" x="572" y="440">GET /api/traces</text>
+    <text class="sub" x="572" y="456">TurnTraceService.query: filters,</text>
+    <text class="sub" x="572" y="470">newest first, limit up to 500</text>
+    </a>
+  </g>
+  <text class="edge-label" x="478" y="126">task events</text>
+  <text class="edge-label" x="486" y="246">events</text>
+  <text class="edge-label" x="392" y="326">state</text>
+  <text class="edge-label" x="476" y="366">capacity</text>
+  <text class="edge-label" x="688" y="202">task_progress</text>
+  <text class="edge-label" x="812" y="298">SSE</text>
+  <text class="note" x="24" y="516">Opened directly in a browser, hovering a node shows its detail and highlights its outgoing arrows.</text>
+</svg>

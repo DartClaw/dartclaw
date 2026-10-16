@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 630" width="1000" height="630" role="img" aria-labelledby="title desc">
+  <title id="title">Security: guard chain and audit</title>
+  <desc id="desc">Provider interception points feed one layered GuardChain. Warn and block verdicts become GuardBlockEvents that the audit subscriber appends to the NDJSON audit log. Content scanning and outbound MCP egress run outside the chain.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 12.5px; font-weight: 700; }
+    .num { fill: var(--accent); font-size: 11px; font-weight: 700; }
+    .legend { fill: var(--sub); font-size: 11px; }
+    a { cursor: pointer; }
+    a:hover .box { stroke-width: 2.6; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="630"/>
+  <text class="title" x="24" y="34">Security: guard chain and audit</text>
+  <text class="lede" x="24" y="56">First block wins. A guard exception or timeout becomes block, or warn when guards.fail_open is set.</text>
+
+  <g class="node k-ext">
+    <title>Claude Code: the registered PreToolUse hook callback evaluates the chain and answers deny on block. A hook exception also denies.</title>
+    <path class="edge" d="M224,128 H270"/>
+    <rect class="box" x="24" y="100" width="200" height="56" rx="6"/>
+    <text class="mono" x="36" y="121">claude</text>
+    <text class="sub" x="36" y="138">PreToolUse hook, no matcher</text>
+  </g>
+  <g class="node k-ext">
+    <title>Codex: command, file-change and MCP approval requests are the only interception point. Under approval never the chain is not consulted at all.</title>
+    <path class="edge" d="M224,198 H270"/>
+    <rect class="box" x="24" y="170" width="200" height="56" rx="6"/>
+    <text class="mono" x="36" y="191">codex app-server</text>
+    <text class="sub" x="36" y="208">approval requests, if emitted</text>
+  </g>
+  <g class="node k-ext">
+    <title>ACP: host-advertised fs reverse calls map to file_read and file_write and are bound to the active turn. Terminal reverse calls are not advertised.</title>
+    <path class="edge" d="M224,268 H270"/>
+    <rect class="box" x="24" y="240" width="200" height="56" rx="6"/>
+    <text class="mono" x="36" y="261">ACP agent</text>
+    <text class="sub" x="36" y="278">fs/* reverse calls</text>
+  </g>
+  <g class="node k-host">
+    <title>Inbound MCP dispatch evaluates the base chain only (no runner, so no TaskToolFilterGuard) and writes one AuditEntry per dispatch.</title>
+    <path class="edge" d="M224,338 H282"/>
+    <rect class="box" x="24" y="310" width="200" height="56" rx="6"/>
+    <text class="mono" x="36" y="331">/mcp tools/call</text>
+    <text class="sub" x="36" y="348">base chain only (no runner)</text>
+  </g>
+  <rect class="group" x="270" y="80" width="320" height="348" rx="8"/>
+  <text class="group-label" x="280" y="95">GuardChain.layered, one per runner</text>
+  <text class="note" x="282" y="112" text-anchor="start">hooks: beforeToolCall, messageReceived, beforeAgentSend</text>
+  <rect class="group" x="282" y="122" width="296" height="236" rx="6"/>
+  <text class="group-label" x="292" y="137" text-anchor="start">base chain (read live)</text>
+  <g class="node k-sec">
+    <title>Blocks destructive, force, fork-bomb, interpreter-escape and blocked pipe-target patterns in canonical shell calls.</title>
+    <path class="edge" d="M430,192 V200"/>
+    <a href="../security-architecture.md#guard-implementations">
+    <rect class="box" x="294" y="148" width="272" height="44" rx="6"/>
+    <text class="mono" x="306" y="169">CommandGuard</text>
+    <text class="sub" x="306" y="186">shell: destructive, force, escapes</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Glob rules with no_access, read_only and no_delete levels over resolved paths; most restrictive rule wins.</title>
+    <path class="edge" d="M430,244 V252"/>
+    <a href="../security-architecture.md#guard-implementations">
+    <rect class="box" x="294" y="200" width="272" height="44" rx="6"/>
+    <text class="mono" x="306" y="221">FileGuard</text>
+    <text class="sub" x="306" y="238">shell paths and file tools: glob levels</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Domain allowlist, blocks literal IP hosts, exfiltration patterns; agent_overrides add domains per logical agent.</title>
+    <path class="edge" d="M430,296 V304"/>
+    <a href="../security-architecture.md#guard-implementations">
+    <rect class="box" x="294" y="252" width="272" height="44" rx="6"/>
+    <text class="mono" x="306" y="273">NetworkGuard</text>
+    <text class="sub" x="306" y="290">shell URLs and web_fetch: allowlist</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>ToolPolicyCascade: global deny binds every agent including main; agent deny and a non-empty agent allow bind logical agents.</title>
+    <path class="edge" d="M430,348 V374"/>
+    <a href="../security-architecture.md#guard-implementations">
+    <rect class="box" x="294" y="304" width="272" height="44" rx="6"/>
+    <text class="mono" x="306" y="325">ToolPolicyGuard</text>
+    <text class="sub" x="306" y="342">global deny, agent deny, agent allow</text>
+    </a>
+  </g>
+  <text class="group-label" x="292" y="369" text-anchor="start">per-runner layer</text>
+  <g class="node k-sec">
+    <title>Rebound each turn from the lease: null allowlist is unrestricted, an empty list closes only under denyEmptyAllowlist; read-only mode admits only allowlisted read-only shell commands.</title>
+    <a href="../security-architecture.md#tasktoolfilterguard">
+    <rect class="box" x="294" y="376" width="272" height="44" rx="6"/>
+    <text class="mono" x="306" y="397">TaskToolFilterGuard</text>
+    <text class="sub" x="306" y="414">per-execution allowlist, read-only mode</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>GuardBlock short-circuits the chain; the provider adapter denies the call.</title>
+    <a href="../security-architecture.md#chain-execution-and-composition">
+    <rect class="box" x="270" y="452" width="152" height="56" rx="6"/>
+    <text class="name" x="282" y="473">block</text>
+    <text class="sub" x="282" y="490">first block returns,</text>
+    <text class="sub" x="282" y="503">call denied</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Pass continues; warn is reported through onVerdict and the first warn is returned if nothing blocks.</title>
+    <rect class="box" x="438" y="452" width="152" height="56" rx="6"/>
+    <text class="name" x="450" y="473">pass or warn</text>
+    <text class="sub" x="450" y="490">tool runs, first warn</text>
+    <text class="sub" x="450" y="503">is reported</text>
+  </g>
+  <path class="edge" d="M346,428 V452"/>
+  <path class="edge" d="M514,428 V452"/>
+  <g class="node k-host">
+    <title>EventBus event carrying guard, hook, canonical tool, raw provider tool name, agent, session and peer. EventBus.fire swallows subscriber exceptions.</title>
+    <path class="edge" d="M813,166 V194"/>
+    <a href="../security-architecture.md#audit-chain">
+    <rect class="box" x="650" y="114" width="326" height="52" rx="6"/>
+    <text class="mono" x="662" y="135">GuardBlockEvent</text>
+    <text class="sub" x="662" y="152">fired by onVerdict, warn and block only</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Bridges the event bus to the audit logger (dartclaw_runtime). Pass verdicts are never recorded by the chain.</title>
+    <path class="edge" d="M813,246 V274"/>
+    <a href="../security-architecture.md#audit-chain">
+    <rect class="box" x="650" y="194" width="326" height="52" rx="6"/>
+    <text class="mono" x="662" y="215">GuardAuditSubscriber</text>
+    <text class="sub" x="662" y="232">also records ToolPermissionDeniedEvent</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>Logs at INFO, WARNING or SEVERE and appends to the day partition through a chained write future, so verdict latency is never affected.</title>
+    <path class="edge" d="M813,326 V354"/>
+    <a href="../security-architecture.md#audit-chain">
+    <rect class="box" x="650" y="274" width="326" height="52" rx="6"/>
+    <text class="mono" x="662" y="295">GuardAuditLogger</text>
+    <text class="sub" x="662" y="312">logVerdict: fire-and-forget, chained writes</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>AuditEntry lines in the data dir; retention default 30 days, 0 keeps all. Entries are not hash-chained or signed.</title>
+    <a href="../security-architecture.md#audit-chain">
+    <rect class="box" x="650" y="354" width="326" height="52" rx="6"/>
+    <text class="mono" x="662" y="375">audit-YYYY-MM-DD.ndjson</text>
+    <text class="sub" x="662" y="392">date partitions, guard_audit.max_retention_days</text>
+    </a>
+  </g>
+  <path class="edge" d="M590,140 H650"/>
+  <text class="edge-label" x="596" y="132" text-anchor="start">onVerdict</text>
+  <text class="note" x="650" y="432" text-anchor="start">Explicit decisions (egress, /mcp dispatch, approval and</text>
+  <text class="note" x="650" y="446" text-anchor="start">review gates, database egress) call writeEntry, awaited so</text>
+  <text class="note" x="650" y="460" text-anchor="start">the caller can fail closed and refuse the action.</text>
+  <text class="group-label" x="24" y="500" text-anchor="start">Call sites outside the chain</text>
+  <g class="node k-sec">
+    <title>callTool: EgressGuard at hookPoint outboundMcpToolsCall, per-server governance, awaited audit write, then ContentScan for network_class public.</title>
+    <a href="../security-architecture.md#outbound-mcp-egress">
+    <rect class="box" x="24" y="512" width="300" height="96" rx="6"/>
+    <text class="mono" x="36" y="533">OutboundMcpPool</text>
+    <text class="sub" x="36" y="550">EgressGuard: allow_tools, default-deny</text>
+    <text class="sub" x="36" y="563">rate_limit and token_budget governance</text>
+    <text class="sub" x="36" y="576">audit write, then dispatch (fail-closed)</text>
+    <text class="sub" x="36" y="589">public servers: result through ContentScan</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>ContentGuard is invoked directly (beforeAgentSend) by LogicalAgentSessionService and the search tools; WebFetchTool and public outbound MCP results use ContentScan directly.</title>
+    <a href="../security-architecture.md#content-classification-and-redaction">
+    <rect class="box" x="350" y="512" width="300" height="96" rx="6"/>
+    <text class="name" x="362" y="533">ContentScan call sites</text>
+    <text class="sub" x="362" y="550">LogicalAgentSessionService: agent result</text>
+    <text class="sub" x="362" y="563">search MCP tools: titles and snippets</text>
+    <text class="sub" x="362" y="576">WebFetchTool: returns the scanned span</text>
+    <text class="sub" x="362" y="589">one fail policy: guards.content.fail_open</text>
+    </a>
+  </g>
+  <g class="node k-sec">
+    <title>TurnGuardEvaluator evaluates the chain at messageReceived and beforeAgentSend. A guard registered with registerGuard is lost on a guards.* reload.</title>
+    <a href="../security-architecture.md#hook-points-and-guardcontext">
+    <rect class="box" x="676" y="512" width="300" height="96" rx="6"/>
+    <text class="mono" x="688" y="533">TurnRunner</text>
+    <text class="sub" x="688" y="550">messageReceived: before a turn starts</text>
+    <text class="sub" x="688" y="563">beforeAgentSend: before a reply is stored</text>
+    <text class="sub" x="688" y="576">same chain; no shipped guard acts on them</text>
+    <text class="sub" x="688" y="589">custom guards: DartclawServer.registerGuard</text>
+    </a>
+  </g>
+</svg>

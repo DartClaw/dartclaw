@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+  <title id="title">CLI paths: connected and standalone</title>
+  <desc id="desc">The full dartclaw CLI reaches a running server through DartclawApiClient over HTTP and SSE. Standalone workflow commands, and the lean dartclaw-workflow binary, probe /health and then run the workflow engine in-process against files under the data directory.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .edge.bi { marker-start: url(#arrow); }
+    .edge.plain { marker-end: none; }
+    svg .node:hover .edge.bi { marker-start: url(#arrow-hi); }
+    svg .node:hover .edge.plain { marker-end: none; }
+    .elab { fill: var(--sub); font-size: 10.5px; font-weight: 600; }
+    .badge { fill: var(--accent); }
+    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; }
+    .msg { fill: none; stroke: var(--edge); stroke-width: 1.5; marker-end: url(#arrow); }
+    .msg.ret { stroke-dasharray: 5 4; }
+    .mlabel { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
+    .legend-text { fill: var(--sub); font-size: 11px; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="590"/>
+  <text class="title" x="24" y="34">CLI paths: connected and standalone</text>
+  <text class="lede" x="24" y="56">Connected is the default: the CLI is an HTTP client of a running server. Standalone runs workflows in-process, guarded by a /health probe.</text>
+  <rect class="group" x="256" y="74" width="728" height="202" rx="8"/>
+  <text class="group-label" x="270" y="92">Connected (default)</text>
+  <rect class="group" x="256" y="290" width="728" height="230" rx="8"/>
+  <text class="group-label" x="270" y="308">Standalone (--standalone; always, in dartclaw-workflow)</text>
+  <g class="node k-host">
+    <title>Full CLI (apps/dartclaw_cli/bin/dartclaw.dart, buildDartclawRunner). Global options: --config, --server, --token. Workflow verbs run connected unless --standalone is given.</title>
+    <path class="edge" d="M224,215 H240 V140 H268"/>
+    <path class="edge" d="M224,240 H236 V365 H268"/>
+    <a href="../cli-api-architecture.md#2-cli-structure">
+      <rect class="box" x="24" y="190" width="200" height="70" rx="6"/>
+      <text class="mono" x="38" y="212">dartclaw</text>
+      <text class="sub" x="38" y="229">full CLI; connected by default</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Lean CLI (bin/dartclaw_workflow.dart, buildDartclawWorkflowRunner). Accepts and ignores --standalone, has no --server or --token, and links neither the server nor the API client.</title>
+    <path class="edge" d="M224,445 H252 V385 H268"/>
+    <a href="../cli-api-architecture.md#2-cli-structure">
+      <rect class="box" x="24" y="410" width="200" height="70" rx="6"/>
+      <text class="mono" x="38" y="432">dartclaw-workflow</text>
+      <text class="sub" x="38" y="449">lean CLI; always standalone</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>dartclaw_client: zero-dependency dart:io transport. ConnectedCommand resolves the address (--server, else http://localhost:&lt;server.port&gt;) and the token (--token, gateway.token, or the gateway_token file). SSE reconnects up to three times.</title>
+    <path class="edge" d="M500,141 H598"/>
+    <a href="../cli-api-architecture.md#4-api-client">
+      <rect class="box" x="270" y="106" width="230" height="70" rx="6"/>
+      <text class="mono" x="284" y="128">DartclawApiClient</text>
+      <text class="sub" x="284" y="145">Bearer auth, JSON helpers, SSE</text>
+    </a>
+  </g>
+  <text class="elab" x="549" y="133" text-anchor="middle">HTTP + SSE</text>
+  <g class="node k-host">
+    <title>dartclaw_runtime: shelf routers behind authMiddleware (public: /health, /login, /webhook/*, /static/*), task, workflow, session and project services, SSE endpoints. The CLI has no privileged route.</title>
+    <path class="edge" d="M800,186 V219"/>
+    <a href="../cli-api-architecture.md#5-server-route-families">
+      <rect class="box" x="600" y="96" width="376" height="90" rx="6"/>
+      <text class="mono" x="614" y="118">dartclaw serve</text>
+      <text class="sub" x="614" y="135">authMiddleware, /api/* routers, SSE</text>
+      <text class="sub" x="614" y="149">task, workflow, session, project services</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>Server-side persistent state. The CLI never mutates it directly in connected mode.</title>
+    <rect class="box" x="720" y="220" width="160" height="46" rx="6"/>
+    <text class="mono" x="734" y="242">PostgreSQL</text>
+  </g>
+  <g class="node k-sec">
+    <title>server_reachability.dart: 200, 401 and 403 count as a running server. Write verbs (run, pause, resume, cancel, retry) abort unless --force, so two writers never share project and workflow files.</title>
+    <path class="edge" d="M500,370 H598"/>
+    <path class="edge dashed" d="M500,335 H570 V206 H650 V188"/>
+    <a href="../cli-api-architecture.md#standalone-mode">
+      <rect class="box" x="270" y="320" width="230" height="70" rx="6"/>
+      <text class="mono" x="284" y="342">GET /health</text>
+      <text class="sub" x="284" y="359">writer guard: abort unless --force</text>
+    </a>
+  </g>
+  <text class="elab" x="578" y="262">probe</text>
+  <text class="elab" x="148" y="310">--standalone</text>
+  <text class="elab" x="549" y="351" text-anchor="middle">no server</text><text class="elab" x="549" y="363" text-anchor="middle">or --force</text>
+  <g class="node k-host">
+    <title>Shared composition root, paused (HeadlessRuntimeStaging), then completeForExecution. Same assembly as serve with headless: true: no HTTP/web/MCP surface, no channels, no personal memory, no recovery of incomplete runs; project registry read-only.</title>
+    <path class="edge" d="M800,416 V450"/>
+    <a href="../cli-api-architecture.md#standalone-mode">
+      <rect class="box" x="600" y="320" width="376" height="96" rx="6"/>
+      <text class="mono" x="614" y="342">DartclawRuntime.stageHeadless</text>
+      <text class="sub" x="614" y="359">workflow engine + task/session services</text>
+      <text class="sub" x="614" y="373">no HTTP server, channels or personal memory</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>FileExecutionStore: one atomic checkpoint shared by task and workflow repositories. No PostgreSQL connection or schema gate runs. Definitions, credentials and workflow artifacts keep their normal paths.</title>
+    <rect class="box" x="620" y="452" width="356" height="56" rx="6"/>
+    <text class="mono" x="634" y="474">&lt;data_dir&gt;/standalone/</text>
+    <text class="sub" x="634" y="491">execution.json, sessions/, turn_state.json, kv.json</text>
+  </g>
+  <path class="edge" d="M24,556 L64,556"/>
+  <text class="legend-text" x="74" y="560">call or data flow</text>
+  <path class="edge dashed" d="M220,556 L260,556"/>
+  <text class="legend-text" x="270" y="560">/health probe, run before a standalone write</text>
+  <text class="legend-text" x="24" y="580">Local-only commands (serve, service, init, doctor, token, secrets, rebuild-index, ...) touch the filesystem or data directory and are not drawn. Hover a node for detail.</text>
+</svg>

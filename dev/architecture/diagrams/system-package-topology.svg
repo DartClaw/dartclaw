@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 660" width="1000" height="660" role="img" aria-labelledby="title desc">
+  <title id="title">Package topology: tier order</title>
+  <desc id="desc">The 16 workspace members in six tiers, T0 kernel at the bottom to T5 dev-only gates at the top. Arrows are direct dependencies after transitive reduction; every arrow points strictly down a tier.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="660"/>
+  <text class="title" x="24" y="34">Package topology: tier order</text>
+  <text class="lede" x="24" y="56">Imports point strictly to a lower tier. Order: dev/package_tiers.txt, enforced by dev/fitness/test/dependency_direction_test.dart.</text>
+
+  <!-- Tier bands -->
+  <rect class="band" x="16" y="80" width="968" height="80" rx="6"/>
+  <rect class="band" x="16" y="248" width="968" height="80" rx="6"/>
+  <rect class="band" x="16" y="436" width="968" height="80" rx="6"/>
+  <text class="tier" x="28" y="118">T5</text><text class="tier-sub" x="28" y="134">never ships</text>
+  <text class="tier" x="28" y="202">T4</text><text class="tier-sub" x="28" y="218">application</text>
+  <text class="tier" x="28" y="286">T3</text><text class="tier-sub" x="28" y="302">runtime</text>
+  <text class="tier" x="28" y="380">T2</text><text class="tier-sub" x="28" y="396">features</text>
+  <text class="tier" x="28" y="474">T1</text><text class="tier-sub" x="28" y="490">primitives</text>
+  <text class="tier" x="28" y="558">T0</text><text class="tier-sub" x="28" y="574">kernel</text>
+
+  <!-- T5 -->
+  <g class="node k-dev">
+    <title>dartclaw_fitness: repo-wide architecture gates. Scans source as text and imports no DartClaw package.</title>
+    <rect class="box" x="300" y="96" width="180" height="50" rx="6"/>
+    <text class="mono" x="316" y="117">dartclaw_fitness</text>
+    <text class="sub" x="316" y="134">architecture gates</text>
+  </g>
+  <g class="node k-dev">
+    <title>dartclaw_testing: shared test doubles. Reached only through dev_dependencies, which are not tier edges.</title>
+    <rect class="box" x="520" y="96" width="180" height="50" rx="6"/>
+    <text class="mono" x="536" y="117">dartclaw_testing</text>
+    <text class="sub" x="536" y="134">shared test doubles</text>
+  </g>
+
+  <!-- T4 -->
+  <g class="node k-host">
+    <title>dartclaw_cli: the only member that composes a runnable binary (serve, service, status, maintenance). Direct dependencies: dartclaw_runtime, dartclaw_acp, dartclaw_client.</title>
+    <path class="edge" d="M420,230 L250,262"/>
+    <path class="edge" d="M520,230 L520,262"/>
+    <path class="edge" d="M400,205 H106 V476 H110"/>
+    <rect class="box" x="400" y="180" width="170" height="50" rx="6"/>
+    <text class="mono" x="416" y="201">dartclaw_cli</text>
+    <text class="sub" x="416" y="218">composition root, AOT binary</text>
+  </g>
+
+  <!-- T3 -->
+  <g class="node k-host">
+    <title>dartclaw_acp: Agent Client Protocol harness for third-party stdio JSON-RPC agents; implements the HarnessRegistrar contract core owns. Direct dependency: dartclaw_core.</title>
+    <path class="edge" d="M290,314 L290,450"/>
+    <rect class="box" x="130" y="264" width="170" height="50" rx="6"/>
+    <text class="mono" x="146" y="285">dartclaw_acp</text>
+    <text class="sub" x="146" y="302">ACP harness adapter</text>
+  </g>
+  <g class="node k-host">
+    <title>dartclaw_runtime: hosted runtime and composition root (DartclawRuntime.build), HTTP API and HTMX web UI, task runtime, container orchestration. Direct dependencies: dartclaw_workflow, the four channel packages, dartclaw_search, dartclaw_bridge.</title>
+    <path class="edge" d="M490,314 L450,346"/>
+    <path class="edge" d="M610,314 L610,346"/>
+    <path class="edge" d="M741,314 L741,450"/>
+    <path class="edge" d="M860,314 L860,450"/>
+    <rect class="box" x="470" y="264" width="400" height="50" rx="6"/>
+    <text class="mono" x="486" y="285">dartclaw_runtime</text>
+    <text class="sub" x="486" y="302">hosted runtime: HTTP API, HTMX web UI, task runtime, containers</text>
+  </g>
+
+  <!-- T2 -->
+  <g class="node k-host">
+    <title>dartclaw: client-tier umbrella. Re-exports dartclaw_client and dartclaw_kernel.</title>
+    <path class="edge" d="M180,418 L180,450"/>
+    <path class="edge" d="M262,418 L262,534"/>
+    <rect class="box" x="112" y="346" width="156" height="72" rx="6"/>
+    <text class="mono" x="128" y="374">dartclaw</text>
+    <text class="sub" x="128" y="392">client-tier umbrella</text>
+  </g>
+  <g class="node k-host">
+    <title>dartclaw_workflow: workflow definitions, parser and validator, registry, execution engine. Direct dependency: dartclaw_core.</title>
+    <path class="edge" d="M385,418 L385,450"/>
+    <rect class="box" x="300" y="346" width="170" height="72" rx="6"/>
+    <text class="mono" x="316" y="374">dartclaw_workflow</text>
+    <text class="sub" x="316" y="392">definitions, executor</text>
+  </g>
+  <g class="node k-chan">
+    <title>Channel packages: dartclaw_google_chat, dartclaw_slack, dartclaw_signal, dartclaw_whatsapp. Same-tier siblings that must not import each other. Direct dependency of each: dartclaw_core.</title>
+    <path class="edge" d="M580,418 L580,450"/>
+    <rect class="box" x="490" y="346" width="230" height="72" rx="6"/>
+    <text class="sub" x="504" y="362">channel packages (dartclaw_…)</text>
+    <rect class="chip" x="502" y="368" width="100" height="20" rx="4"/><text class="chip-text" x="510" y="382">google_chat</text>
+    <rect class="chip" x="610" y="368" width="100" height="20" rx="4"/><text class="chip-text" x="618" y="382">slack</text>
+    <rect class="chip" x="502" y="392" width="100" height="20" rx="4"/><text class="chip-text" x="510" y="406">signal</text>
+    <rect class="chip" x="610" y="392" width="100" height="20" rx="4"/><text class="chip-text" x="618" y="406">whatsapp</text>
+  </g>
+
+  <!-- T1 -->
+  <g class="node k-host">
+    <title>dartclaw_client: HTTP/SSE client and transport DTOs. Depends on no workspace package; a client to core edge would be a forbidden same-tier edge.</title>
+    <rect class="box" x="112" y="452" width="140" height="50" rx="6"/>
+    <text class="mono" x="124" y="473">dartclaw_client</text>
+    <text class="sub" x="124" y="490">HTTP/SSE client</text>
+  </g>
+  <g class="node k-host">
+    <title>dartclaw_core: runtime primitives: harness contracts and orchestration, channels, events, governance, tasks, memory and storage. Direct dependency: dartclaw_kernel.</title>
+    <path class="edge" d="M455,502 L455,534"/>
+    <rect class="box" x="274" y="452" width="366" height="50" rx="6"/>
+    <text class="mono" x="290" y="473">dartclaw_core</text>
+    <text class="sub" x="290" y="490">harnesses, channels, events, governance, tasks, memory, storage</text>
+  </g>
+  <g class="node k-host">
+    <title>dartclaw_search: hybrid search composition and embedding providers. Direct dependency: dartclaw_kernel.</title>
+    <path class="edge" d="M741,502 L741,534"/>
+    <rect class="box" x="668" y="452" width="146" height="50" rx="6"/>
+    <text class="mono" x="682" y="473">dartclaw_search</text>
+    <text class="sub" x="682" y="490">hybrid search</text>
+  </g>
+  <g class="node k-host">
+    <title>dartclaw_bridge: framed stdio bridge protocol and the in-container loopback bridge executable. Dependency-free.</title>
+    <rect class="box" x="830" y="452" width="146" height="50" rx="6"/>
+    <text class="mono" x="844" y="473">dartclaw_bridge</text>
+    <text class="sub" x="844" y="490">container bridge</text>
+  </g>
+
+  <!-- T0 -->
+  <g class="node k-host">
+    <title>dartclaw_kernel: models, typed configuration, guards, audit and redaction primitives, shared utilities. Depends on nothing.</title>
+    <rect class="box" x="112" y="536" width="864" height="50" rx="6"/>
+    <text class="mono" x="128" y="557">dartclaw_kernel</text>
+    <text class="sub" x="128" y="574">models, typed configuration, guards, audit and redaction primitives; depends on nothing</text>
+  </g>
+
+  <!-- Legend -->
+  <path class="edge" d="M24,624 L64,624"/>
+  <text class="note" x="74" y="628">direct dependency; edges implied by a longer path are omitted (full list: each pubspec.yaml)</text>
+  <rect x="640" y="614" width="34" height="20" rx="4" fill="none" stroke="var(--dev)" stroke-dasharray="5 4"/>
+  <text class="note" x="684" y="628">dev only; never a production dependency</text>
+  <text class="note" x="24" y="650">Opened directly in a browser, hovering a package shows its role and highlights its dependencies.</text>
+</svg>

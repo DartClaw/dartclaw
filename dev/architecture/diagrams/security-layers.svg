@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 610" width="1000" height="610" role="img" aria-labelledby="title desc">
+  <title id="title">Security: defense-in-depth layers</title>
+  <desc id="desc">Six independent layers from the OS and container boundary at the bottom to audit at the top. Layers 1 and 2 exist only when container isolation is in force; the guards become the only boundary without them.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 12.5px; font-weight: 700; }
+    .num { fill: var(--accent); font-size: 11px; font-weight: 700; }
+    .legend { fill: var(--sub); font-size: 11px; }
+    a { cursor: pointer; }
+    a:hover .box { stroke-width: 2.6; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="610"/>
+  <text class="title" x="24" y="34">Security: defense-in-depth layers</text>
+  <text class="lede" x="24" y="56">Each layer holds if another is bypassed. Guards judge single tool calls, governance works per session and deployment.</text>
+
+  <rect class="band" x="16" y="80" width="968" height="70" rx="6"/>
+  <g class="node k-store">
+    <title>Layer 6 audit: warn and block verdicts reach audit-YYYY-MM-DD.ndjson through the EventBus (fire-and-forget); explicit decisions use the awaited writeEntry so callers can fail closed.</title>
+    <a href="../security-architecture.md#audit-chain">
+    <text class="tier" x="28" y="108">L6</text>
+    <text class="name" x="62" y="107">Audit</text>
+    <text class="tier-sub" x="28" y="128">record and signal</text>
+    <rect class="box" x="236" y="90" width="180" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="105">GuardAuditLogger (NDJSON)</text>
+    <rect class="box" x="424" y="90" width="141" height="22" rx="4"/>
+    <text class="chip-text" x="433" y="105">GuardBlockEvent bus</text>
+    <rect class="box" x="573" y="90" width="148" height="22" rx="4"/>
+    <text class="chip-text" x="582" y="105">GuardAuditSubscriber</text>
+    <rect class="box" x="729" y="90" width="226" height="22" rx="4"/>
+    <text class="chip-text" x="738" y="105">writeEntry (fail-closed callers)</text>
+    </a>
+  </g>
+  <rect class="band" x="16" y="158" width="968" height="70" rx="6"/>
+  <g class="node k-host">
+    <title>Layer 5 runtime governance: deployment-wide limits built once and shared by every runner; admission runs in TurnRunner.admitTurn before any provider process starts.</title>
+    <a href="../security-architecture.md#runtime-governance">
+    <text class="tier" x="28" y="186">L5</text>
+    <text class="name" x="62" y="185">Governance</text>
+    <text class="tier-sub" x="28" y="206">cost, rate, loops</text>
+    <rect class="box" x="236" y="168" width="154" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="183">per-sender rate limit</text>
+    <rect class="box" x="398" y="168" width="161" height="22" rx="4"/>
+    <text class="chip-text" x="407" y="183">global turn rate limit</text>
+    <rect class="box" x="567" y="168" width="135" height="22" rx="4"/>
+    <text class="chip-text" x="576" y="183">daily token budget</text>
+    <rect class="box" x="710" y="168" width="109" height="22" rx="4"/>
+    <text class="chip-text" x="719" y="183">loop detection</text>
+    <rect class="box" x="827" y="168" width="89" height="22" rx="4"/>
+    <text class="chip-text" x="836" y="183">turn limits</text>
+    <rect class="box" x="236" y="196" width="148" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="211">/stop /pause /resume</text>
+    </a>
+  </g>
+  <rect class="band" x="16" y="236" width="968" height="70" rx="6"/>
+  <g class="node k-sec">
+    <title>Layer 4 content: one ContentScan decides classification and fail policy for ContentGuard, web_fetch and public outbound MCP results; MessageRedactor masks secrets in outbound text.</title>
+    <a href="../security-architecture.md#content-classification-and-redaction">
+    <text class="tier" x="28" y="264">L4</text>
+    <text class="name" x="62" y="263">Content</text>
+    <text class="tier-sub" x="28" y="284">classify and redact</text>
+    <rect class="box" x="236" y="246" width="89" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="261">ContentScan</text>
+    <rect class="box" x="333" y="246" width="96" height="22" rx="4"/>
+    <text class="chip-text" x="342" y="261">ContentGuard</text>
+    <rect class="box" x="437" y="246" width="141" height="22" rx="4"/>
+    <text class="chip-text" x="446" y="261">output_schema check</text>
+    <rect class="box" x="586" y="246" width="115" height="22" rx="4"/>
+    <text class="chip-text" x="595" y="261">MessageRedactor</text>
+    </a>
+  </g>
+  <rect class="band" x="16" y="314" width="968" height="70" rx="6"/>
+  <g class="node k-sec">
+    <title>Layer 3 guards: base GuardChain [Command, File, Network, ToolPolicy] plus the per-runner TaskToolFilterGuard; EgressGuard sits on the outbound MCP pool, the SSRF policy inside WebFetchTool.</title>
+    <a href="../security-architecture.md#guard-pipeline">
+    <text class="tier" x="28" y="342">L3</text>
+    <text class="name" x="62" y="341">Guards</text>
+    <text class="tier-sub" x="28" y="362">per tool call</text>
+    <rect class="box" x="236" y="324" width="96" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="339">CommandGuard</text>
+    <rect class="box" x="340" y="324" width="76" height="22" rx="4"/>
+    <text class="chip-text" x="349" y="339">FileGuard</text>
+    <rect class="box" x="424" y="324" width="96" height="22" rx="4"/>
+    <text class="chip-text" x="433" y="339">NetworkGuard</text>
+    <rect class="box" x="528" y="324" width="115" height="22" rx="4"/>
+    <text class="chip-text" x="537" y="339">ToolPolicyGuard</text>
+    <rect class="box" x="651" y="324" width="141" height="22" rx="4"/>
+    <text class="chip-text" x="660" y="339">TaskToolFilterGuard</text>
+    <rect class="box" x="800" y="324" width="89" height="22" rx="4"/>
+    <text class="chip-text" x="809" y="339">EgressGuard</text>
+    <rect class="box" x="236" y="352" width="154" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="367">web_fetch SSRF policy</text>
+    </a>
+  </g>
+  <rect class="band" x="16" y="406" width="968" height="70" rx="6"/>
+  <g class="node k-sec">
+    <title>Layer 2: the container has no network; its only path off is a per-authority framed pipe served by HostGateway, which injects the credential host-side.</title>
+    <a href="../security-architecture.md#host-owned-provider-mediation">
+    <text class="tier" x="28" y="434">L2</text>
+    <text class="name" x="62" y="433">Network</text>
+    <text class="tier-sub" x="28" y="454">credentials stay on host</text>
+    <rect class="box" x="236" y="416" width="109" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="431">--network none</text>
+    <rect class="box" x="353" y="416" width="89" height="22" rx="4"/>
+    <text class="chip-text" x="362" y="431">HostGateway</text>
+    <rect class="box" x="450" y="416" width="206" height="22" rx="4"/>
+    <text class="chip-text" x="459" y="431">framed stdio (docker exec -i)</text>
+    <rect class="box" x="664" y="416" width="226" height="22" rx="4"/>
+    <text class="chip-text" x="673" y="431">provider credential held by host</text>
+    </a>
+  </g>
+  <rect class="band" x="16" y="484" width="968" height="70" rx="6"/>
+  <g class="node k-ext">
+    <title>Layer 1: hardened container flags from ContainerManager.start; each execution authority gets its own container, so owners never share PID, /tmp or generated-home namespaces.</title>
+    <a href="../security-architecture.md#container-isolation">
+    <text class="tier" x="28" y="512">L1</text>
+    <text class="name" x="62" y="511">OS / container</text>
+    <text class="tier-sub" x="28" y="532">one container per authority</text>
+    <rect class="box" x="236" y="494" width="232" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="509">container per execution authority</text>
+    <rect class="box" x="476" y="494" width="109" height="22" rx="4"/>
+    <text class="chip-text" x="485" y="509">--cap-drop ALL</text>
+    <rect class="box" x="593" y="494" width="89" height="22" rx="4"/>
+    <text class="chip-text" x="602" y="509">--read-only</text>
+    <rect class="box" x="690" y="494" width="128" height="22" rx="4"/>
+    <text class="chip-text" x="699" y="509">no-new-privileges</text>
+    <rect class="box" x="826" y="494" width="70" height="22" rx="4"/>
+    <text class="chip-text" x="835" y="509">uid 1000</text>
+    <rect class="box" x="236" y="522" width="128" height="22" rx="4"/>
+    <text class="chip-text" x="245" y="537">tmpfs /tmp noexec</text>
+    </a>
+  </g>
+  <rect class="group" x="10" y="390" width="980" height="172" rx="8"/>
+  <text class="group-label" x="20" y="402">absent when container isolation is not in force (advisory mode)</text>
+  <text class="legend" x="24" y="590" text-anchor="start">Colour: red = guard or security boundary, blue = runtime control, teal = audit store, orange = container runtime. Click a layer for its section.</text>
+</svg>

@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+  <title id="title">Config mutation paths</title>
+  <desc id="desc">How a change from the API or settings form is validated, persisted and applied by mutability, and how the ephemeral toggles bypass the file entirely.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .step-no { fill: var(--accent); }
+    .step-no-t { fill: var(--bg); font-size: 11px; font-weight: 700; }
+    .fatal { fill: var(--sec); font-size: 11px; }
+    .warn { fill: var(--sub); font-size: 11px; }
+    .legend-box { fill: var(--box); stroke: var(--line); }
+    .group-label { text-transform: none; letter-spacing: 0; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="590"/>
+  <text class="title" x="24" y="34">Config mutation paths</text>
+  <text class="lede" x="24" y="56">One apply authority for PATCH and the settings form. Every validated field is written; mutability only decides how it is applied.</text>
+  <rect class="group" x="262" y="70" width="290" height="350" rx="8"/>
+  <text class="group-label" x="272" y="86">ConfigApplyService.apply</text>
+  <g class="node k-host">
+    <title>config_api_routes.dart. 403 without admin access; scheduling.jobs is refused (use the job endpoints). Parses a body and calls apply.</title>
+    <path class="edge" d="M214,125 L280,125"/>
+    <rect class="box" x="24" y="100" width="190" height="50" rx="6"/>
+    <text class="mono" x="38" y="119">PATCH /api/config</text>
+    <text class="sub" x="38" y="135">admin-only, 128 KB cap</text>
+  </g>
+  <g class="node k-host">
+    <title>web/settings/settings_surface.dart. Coerces the form through FieldMeta.type, diffs against current values, then calls apply. Re-renders the section either way.</title>
+    <path class="edge" d="M214,195 H250 V125 H280"/>
+    <rect class="box" x="24" y="170" width="190" height="50" rx="6"/>
+    <text class="mono" x="38" y="189">POST /settings</text>
+    <text class="sub" x="38" y="205">settings form, admin-only</text>
+  </g>
+  <g class="node k-host">
+    <title>Both callers run normalizeConfigPatch (blank-to-null fold, provider/model shorthand, task-trigger spelling) before apply. freshConfig loads the file as it stands and carries the container posture in force.</title>
+    <path class="edge" d="M407,150 L407,180"/>
+    <a href="../configuration-architecture.md#configapplyservice">
+    <rect class="box" x="280" y="100" width="254" height="50" rx="6"/>
+    <text class="mono" x="294" y="119">freshConfig()</text>
+    <text class="sub" x="294" y="135">re-read the file (callers normalize first)</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>config_validator.dart. Known field, then writable, then FieldConstraints, then declared entry shape, then cross-field rules. Any error means nothing is written.</title>
+    <path class="edge" d="M407,230 L407,260"/>
+    <a href="../configuration-architecture.md#fieldconstraints-and-configvalidator">
+    <rect class="box" x="280" y="180" width="254" height="50" rx="6"/>
+    <text class="mono" x="294" y="199">ConfigValidator.validate</text>
+    <text class="sub" x="294" y="215">unknown, readonly, bad value: 400</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>ConfigMutability per field. readonly never gets here: the validator refused it.</title>
+    <path class="edge" d="M407,310 L407,340"/>
+    <rect class="box" x="280" y="260" width="254" height="50" rx="6"/>
+    <text class="mono" x="294" y="279">partition by mutability</text>
+    <text class="sub" x="294" y="295">live | reloadable | restart</text>
+  </g>
+  <g class="node k-host">
+    <title>Serialized write queue, fresh read, comment-preserving yaml_edit, backup first (abort if it fails), then tmp file renamed over the resolved target.</title>
+    <path class="edge" d="M407,390 L407,438"/>
+    <path class="edge" d="M534,365 H590 V130 H620"/>
+    <path class="edge" d="M534,365 H590 V220 H620"/>
+    <path class="edge" d="M534,365 H590 V310 H620"/>
+    <a href="../configuration-architecture.md#configwriter">
+    <rect class="box" x="280" y="340" width="254" height="50" rx="6"/>
+    <text class="mono" x="294" y="359">ConfigWriter.updateFields</text>
+    <text class="sub" x="294" y="375">all tiers: .bak, then atomic rename</text>
+    </a>
+  </g>
+  <g class="node k-store">
+    <title>The operator file, authoritative. The only persistent store of configuration.</title>
+    <rect class="box" x="280" y="438" width="254" height="44" rx="6"/>
+    <text class="mono" x="294" y="457">dartclaw.yaml</text>
+    <text class="sub" x="294" y="473">plus dartclaw.yaml.bak</text>
+  </g>
+  <g class="node k-host">
+    <title>Reads loadDartclawConfig(file) and applies section deltas; see the hot-reload figure.</title>
+    <path class="edge" d="M700,160 L700,190"/>
+    <a href="../configuration-architecture.md#6-hot-reload">
+    <rect class="box" x="620" y="100" width="356" height="60" rx="6"/>
+    <text class="mono" x="634" y="119">ConfigNotifier.reload</text>
+    <text class="sub" x="634" y="135">reloadable: re-read file, notify Reconfigurable services</text>
+    <text class="sub" x="634" y="149">a throw falls back to pending restart</text>
+    </a>
+  </g>
+  <text class="edge-label" x="710" y="179">reload failed, or no notifier</text>
+  <g class="node k-host">
+    <title>restart_service.dart. {timestamp, fields}, merged and atomically replaced. Pages read it to show the banner; RestartService consumes it after a restart.</title>
+    <a href="../configuration-architecture.md#restart-pending-marker">
+    <rect class="box" x="620" y="190" width="356" height="60" rx="6"/>
+    <text class="mono" x="634" y="209">writeRestartPending</text>
+    <text class="sub" x="634" y="225">restart: merged into restart.pending</text>
+    <text class="sub" x="634" y="239">the banner shows on every page until a restart</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>Fired on the EventBus for live keys only. ConfigChangeSubscriber handles four exact keys; ScopeReconciler handles sessions.dm_scope and group_scope.</title>
+    <path class="edge" d="M798,340 L798,500"/>
+    <a href="../configuration-architecture.md#live-field-side-effects">
+    <rect class="box" x="620" y="280" width="356" height="60" rx="6"/>
+    <text class="mono" x="634" y="299">ConfigChangedEvent</text>
+    <text class="sub" x="634" y="315">live: ConfigChangeSubscriber, ScopeReconciler</text>
+    <text class="sub" x="634" y="329">exact dotted keys, not section wildcards</text>
+    </a>
+  </g>
+  <text class="edge-label" x="808" y="424">heartbeat / git-sync keys</text>
+  <g class="node k-host">
+    <title>config/runtime_toggle_applier.dart. The only writer of WorkspaceGitSync.pushEnabled and the matching RuntimeConfig fields. Runtime state only; persistence belongs to the caller.</title>
+    <a href="../configuration-architecture.md#live-field-side-effects">
+    <rect class="box" x="620" y="500" width="356" height="60" rx="6"/>
+    <text class="mono" x="634" y="519">RuntimeToggleApplier</text>
+    <text class="sub" x="634" y="535">RuntimeConfig + pause/resume heartbeat, git-sync jobs</text>
+    <text class="sub" x="634" y="549">+ WorkspaceGitSync.pushEnabled</text>
+    </a>
+  </g>
+  <g class="node k-host">
+    <title>config_routes.dart: /api/settings/heartbeat/toggle, /api/settings/git-sync/toggle, /api/scheduling/jobs/&lt;name&gt;/toggle. Nothing is written; state resets on restart.</title>
+    <path class="edge" d="M214,530 L620,530"/>
+    <rect class="box" x="24" y="500" width="190" height="60" rx="6"/>
+    <text class="mono" x="38" y="519">toggle routes</text>
+    <text class="sub" x="38" y="535">POST .../toggle</text>
+    <text class="sub" x="38" y="549">ephemeral, no file write</text>
+  </g>
+  <text class="edge-label" x="250" y="522">no file write; state resets on restart</text>
+</svg>

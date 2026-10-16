@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+  <title id="title">Entities and reference enforcement</title>
+  <desc id="desc">Tasks, goals, executions, workflow step executions, runs, artifacts, events and traces in PostgreSQL, with projects and sessions as files. Four references are enforced foreign keys; every other reference is a string id.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="590"/>
+  <text class="title" x="24" y="34">Entities and reference enforcement</text>
+  <text class="lede" x="24" y="56">Arrows point from the referencing row to the row it names. Only four references are foreign keys; the rest are string ids.</text>
+
+  <g class="node k-host">
+    <title>projects.json: runtime-created projects only, an object keyed by project id (atomicWriteJson). Config-defined projects come from the config and the implicit _local project is the runtime working directory; neither is persisted. A database-to-file reference cannot be a foreign key.</title>
+    <rect class="box" x="40" y="84" width="200" height="50" rx="6"/>
+    <text class="mono" x="54" y="106">projects.json</text>
+    <text class="sub" x="54" y="123">runtime-created projects</text>
+  </g>
+
+  <g class="node k-store">
+    <title>goals: parent_goal_id is a soft reference to goals.id; GoalService allows two levels. Deleting a goal leaves the tasks that name it.</title>
+    <rect class="box" x="760" y="84" width="200" height="50" rx="6"/>
+    <text class="mono" x="774" y="106">goals</text>
+    <text class="sub" x="774" y="123">parent_goal_id: soft, two levels</text>
+  </g>
+
+  <g class="node k-store">
+    <title>tasks: lifecycle record. version increments on every update and updates match on (id, version); updateIfStatus also matches the expected status. agent_execution_id is the only enforced reference (ON DELETE RESTRICT). A task reaches its session only through its AgentExecution.</title>
+    <path class="edge dashed" d="M380,190 H140 V136"/>
+    <path class="edge dashed" d="M620,190 H860 V136"/>
+    <path class="edge" d="M500,270 V328"/>
+    <rect class="box" x="380" y="170" width="240" height="100" rx="6"/>
+    <text class="mono" x="396" y="192">tasks</text>
+    <text class="sub" x="396" y="211">status · version (compare-and-set)</text>
+    <text class="sub" x="396" y="228">config_json · worktree_json · retries</text>
+    <text class="sub" x="396" y="245">workflow_run_id · step_index (soft ids)</text>
+  </g>
+  <text class="edge-label" x="150" y="184">project_id (soft)</text>
+  <text class="edge-label" x="660" y="184">goal_id (soft)</text>
+  <text class="edge-label" x="510" y="306">agent_execution_id (FK, RESTRICT)</text>
+
+  <g class="node k-store">
+    <title>task_artifacts: artifact record. kind is diff, document, data, branch or pr; path is an absolute file under tasks/&lt;taskId&gt;/artifacts/ or a URL or branch name. Rows cascade with the task; the files do not.</title>
+    <path class="edge" d="M240,240 H378"/>
+    <rect class="box" x="40" y="215" width="200" height="50" rx="6"/>
+    <text class="mono" x="54" y="237">task_artifacts</text>
+    <text class="sub" x="54" y="254">diff, document, data, branch, pr</text>
+  </g>
+  <text class="edge-label" x="262" y="234">task_id</text>
+  <text class="edge-label" x="262" y="254">FK, CASCADE</text>
+
+  <g class="node k-store">
+    <title>workflow_step_executions: workflow-only metadata of a step task, one row per task (primary key task_id). Two foreign keys; workflow_run_id is soft.</title>
+    <path class="edge" d="M740,240 H622"/>
+    <path class="edge" d="M800,265 V355 H622"/>
+    <path class="edge dashed" d="M900,265 V418"/>
+    <rect class="box" x="740" y="215" width="220" height="50" rx="6"/>
+    <text class="mono" x="754" y="237">workflow_step_executions</text>
+    <text class="sub" x="754" y="254">step_id · structured output · git_json</text>
+  </g>
+  <text class="edge-label" x="648" y="234">task_id</text>
+  <text class="edge-label" x="636" y="254">FK, CASCADE</text>
+  <text class="edge-label" x="642" y="349">agent_execution_id (FK)</text>
+  <text class="edge-label" x="894" y="396" text-anchor="end">workflow_run_id (soft)</text>
+
+  <g class="node k-store">
+    <title>agent_executions: the runtime primitive under both tasks and workflow steps (provider, model, workspace_dir, container_json, budget_tokens). session_id is a soft reference to a session directory, so it can dangle after the session is deleted.</title>
+    <path class="edge dashed" d="M500,380 V438"/>
+    <rect class="box" x="380" y="330" width="240" height="50" rx="6"/>
+    <text class="mono" x="396" y="352">agent_executions</text>
+    <text class="sub" x="396" y="369">provider · model · container_json</text>
+  </g>
+  <text class="edge-label" x="510" y="414">session_id (soft)</text>
+
+  <g class="node k-host">
+    <title>sessions/&lt;uuid&gt;/: the session record, its nested conversationState and the NDJSON transcript. Appending a message requires the directory to exist, a reference checked in code at append time.</title>
+    <rect class="box" x="380" y="440" width="240" height="60" rx="6"/>
+    <text class="mono" x="396" y="462">sessions/&lt;uuid&gt;/</text>
+    <text class="sub" x="396" y="481">meta.json · messages.ndjson</text>
+  </g>
+
+  <g class="node k-store">
+    <title>task_events (append-only timeline, awaited insert) and turns (one trace per task turn, fire-and-forget insert). Neither has foreign keys, so rows survive deletion of the task or session.</title>
+    <path class="edge dashed" d="M140,330 V300 H430 V272"/>
+    <path class="edge dashed" d="M240,470 H378"/>
+    <rect class="box" x="40" y="330" width="200" height="150" rx="6"/>
+    <text class="mono" x="54" y="352">no foreign keys</text>
+    <rect class="chip" x="54" y="368" width="172" height="26" rx="4"/><text class="chip-text" x="64" y="385">task_events</text>
+    <rect class="chip" x="54" y="402" width="172" height="26" rx="4"/><text class="chip-text" x="64" y="419">turns</text>
+    <text class="sub" x="54" y="448">rows survive task or</text>
+    <text class="sub" x="54" y="464">session deletion</text>
+  </g>
+  <text class="edge-label" x="150" y="294">task_id (soft)</text>
+  <text class="edge-label" x="250" y="464">turns.session_id (soft)</text>
+
+  <g class="node k-store">
+    <title>workflow_runs: definition_json is the definition snapshot taken at start; context_json is the status and context snapshot (the full WorkflowContext is also written to workflows/runs/&lt;runId&gt;/context.json); origin_json is written once at insert.</title>
+    <rect class="box" x="780" y="420" width="180" height="60" rx="6"/>
+    <text class="mono" x="794" y="442">workflow_runs</text>
+    <text class="sub" x="794" y="459">definition_json snapshot</text>
+    <text class="sub" x="794" y="473">origin_json (write once)</text>
+  </g>
+
+  <!-- Legend -->
+  <path class="edge" d="M24,528 L64,528"/>
+  <text class="note" x="74" y="532">foreign key (enforced by PostgreSQL)</text>
+  <path class="edge dashed" d="M330,528 L370,528"/>
+  <text class="note" x="380" y="532">string id, no constraint</text>
+  <rect x="560" y="518" width="34" height="18" rx="4" fill="none" stroke="var(--store)" stroke-width="1.4"/>
+  <text class="note" x="602" y="532">PostgreSQL table</text>
+  <rect x="740" y="518" width="34" height="18" rx="4" fill="none" stroke="var(--host)" stroke-width="1.4"/>
+  <text class="note" x="782" y="532">file store</text>
+  <text class="note" x="24" y="560">Thread bindings, memory and conversation search rows, and knowledge-graph facts are omitted; see the cross-store reference table below.</text>
+</svg>

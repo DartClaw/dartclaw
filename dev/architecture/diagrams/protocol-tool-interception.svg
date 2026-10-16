@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 470" width="1000" height="470" role="img" aria-labelledby="title desc">
+  <title id="title">Tool interception per provider</title>
+  <desc id="desc">Each provider&#x27;s tool request is translated to a canonical tool name and sent to the same GuardChain.evaluateBeforeToolCall; the verdict is returned in the provider&#x27;s own reply shape. A block, or an exception in a guard, denies.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+
+    .mono-sm { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--sub); }
+    .step { font-size: 12.5px; font-weight: 700; }
+    .num { fill: var(--host); font-weight: 700; font-size: 12px; }
+    .legend-text { fill: var(--sub); font-size: 11px; }
+    .edge.guard { stroke: var(--sec); stroke-dasharray: 5 4; }
+    .edge.fail { stroke: var(--sec); stroke-dasharray: 5 4; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="470"/>
+  <text class="title" x="24" y="34">Tool interception per provider</text>
+  <text class="lede" x="24" y="56">Claude hook callbacks, Codex approval requests and ACP filesystem reverse-calls all converge on one guard chain.</text>
+  <g class="node k-ext">
+    <title>claude: provider process that asks the host before running a tool.</title>
+    <path class="edge" d="M144,138 L184,138"/>
+    <rect class="box" x="24" y="100" width="120" height="76" rx="6"/>
+    <text class="mono" x="36" y="121">claude</text>
+    <text class="sub" x="36" y="138">process</text>
+  </g>
+  <a href="../control-protocol.md#3-claude-code-protocol">
+  <g class="node k-host">
+    <title>Claude PreToolUse hook: fires even with --dangerously-skip-permissions. The reply is hookSpecificOutput.permissionDecision, or updatedInput when ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN had to be removed from tool_input.env.</title>
+    <path class="edge" d="M354,138 L394,138"/>
+    <rect class="box" x="184" y="100" width="170" height="76" rx="6"/>
+    <text class="mono" x="196" y="121">hook_callback</text>
+    <text class="sub" x="196" y="138">PreToolUse, always fires</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#3-claude-code-protocol">
+  <g class="node k-host">
+    <title>Translate the provider&#x27;s tool name and input into the canonical form the guards understand.</title>
+    <path class="edge" d="M584,138 L624,138"/>
+    <rect class="box" x="394" y="100" width="190" height="76" rx="6"/>
+    <text class="step" x="406" y="121">Map tool name</text>
+    <text class="sub" x="406" y="138">CanonicalTool.stableName</text>
+    <text class="sub" x="406" y="153">else claude:&lt;name&gt;</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#3-claude-code-protocol">
+  <g class="node k-host">
+    <title>The reply in the provider&#x27;s own shape. A guard block or exception always denies.</title>
+    <rect class="box" x="764" y="100" width="220" height="76" rx="6"/>
+    <text class="step" x="776" y="121">control_response</text>
+    <text class="sub" x="776" y="138">allow | deny</text>
+    <text class="sub" x="776" y="153">or updatedInput (env keys stripped)</text>
+  </g>
+  </a>
+  <g class="node k-ext">
+    <title>codex: provider process that asks the host before running a tool.</title>
+    <path class="edge" d="M144,258 L184,258"/>
+    <rect class="box" x="24" y="220" width="120" height="76" rx="6"/>
+    <text class="mono" x="36" y="241">codex</text>
+    <text class="sub" x="36" y="258">app-server</text>
+  </g>
+  <a href="../control-protocol.md#44-approvals">
+  <g class="node k-host">
+    <title>Codex approval requests: item/commandExecution, item/fileChange and MCP elicitation approvals. Unsupported or failed evaluations get a terminal fail-closed reply. On a web turn with approval: on-request an allow waits up to 5 minutes for the operator.</title>
+    <path class="edge" d="M354,258 L394,258"/>
+    <rect class="box" x="184" y="220" width="170" height="76" rx="6"/>
+    <text class="mono" x="196" y="241">requestApproval</text>
+    <text class="sub" x="196" y="258">command, file, MCP call</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#44-approvals">
+  <g class="node k-host">
+    <title>Translate the provider&#x27;s tool name and input into the canonical form the guards understand.</title>
+    <path class="edge" d="M584,258 L624,258"/>
+    <rect class="box" x="394" y="220" width="190" height="76" rx="6"/>
+    <text class="step" x="406" y="241">Normalize input</text>
+    <text class="sub" x="406" y="258">strip OPENAI/CODEX keys</text>
+    <text class="sub" x="406" y="273">canonical tool name</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#44-approvals">
+  <g class="node k-host">
+    <title>The reply in the provider&#x27;s own shape. A guard block or exception always denies.</title>
+    <rect class="box" x="764" y="220" width="220" height="76" rx="6"/>
+    <text class="step" x="776" y="241">JSON-RPC result</text>
+    <text class="sub" x="776" y="258">accept | decline | cancel</text>
+    <text class="sub" x="776" y="273">or operator decision (5 min)</text>
+  </g>
+  </a>
+  <g class="node k-ext">
+    <title>ACP agent: provider process that asks the host before running a tool.</title>
+    <path class="edge" d="M144,378 L184,378"/>
+    <rect class="box" x="24" y="340" width="120" height="76" rx="6"/>
+    <text class="mono" x="36" y="361">ACP agent</text>
+    <text class="sub" x="36" y="378">process</text>
+  </g>
+  <a href="../control-protocol.md#5-acp">
+  <g class="node k-host">
+    <title>ACP reverse-calls from the agent, host execution only. Calls outside an active turn are rejected. terminal/* methods are refused outright.</title>
+    <path class="edge" d="M354,378 L394,378"/>
+    <rect class="box" x="184" y="340" width="170" height="76" rx="6"/>
+    <text class="step" x="196" y="361">fs/read_text_file</text>
+    <text class="sub" x="196" y="378">fs/write_text_file</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#5-acp">
+  <g class="node k-host">
+    <title>Translate the provider&#x27;s tool name and input into the canonical form the guards understand.</title>
+    <path class="edge" d="M584,378 L624,378"/>
+    <rect class="box" x="394" y="340" width="190" height="76" rx="6"/>
+    <text class="step" x="406" y="361">Resolve path</text>
+    <text class="sub" x="406" y="378">inside workspace root</text>
+    <text class="sub" x="406" y="393">file_read | file_write</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#5-acp">
+  <g class="node k-host">
+    <title>The reply in the provider&#x27;s own shape. A guard block or exception always denies.</title>
+    <rect class="box" x="764" y="340" width="220" height="76" rx="6"/>
+    <text class="step" x="776" y="361">JSON-RPC result</text>
+    <text class="sub" x="776" y="378">file content | error</text>
+    <text class="sub" x="776" y="393">bound to active turn</text>
+  </g>
+  </a>
+  <g class="node k-sec">
+    <title>GuardChain.evaluateBeforeToolCall(toolName, toolInput, sessionId, agentId, rawProviderToolName). Each guard has a 5 s budget by default; the first block wins; an exception blocks, and a timeout blocks unless the guard defines its own timeout policy.</title>
+    <path class="edge" d="M724,138 L764,138"/>
+    <path class="edge" d="M724,258 L764,258"/>
+    <path class="edge" d="M724,378 L764,378"/>
+    <rect class="box" x="624" y="100" width="100" height="316" rx="6"/>
+    <text class="mono" x="636" y="121">GuardChain</text>
+    <text class="sub" x="636" y="138"></text>
+    <text class="sub" x="636" y="153">evaluate</text>
+    <text class="sub" x="636" y="168">BeforeToolCall</text>
+    <text class="sub" x="636" y="183"></text>
+    <text class="sub" x="636" y="198">pass, warn,</text>
+    <text class="sub" x="636" y="213">block</text>
+    <text class="sub" x="636" y="228"></text>
+    <text class="sub" x="636" y="243">guard error:</text>
+    <text class="sub" x="636" y="258">block (default)</text>
+  </g>
+  <text class="note" x="24" y="440">Not shown: Claude can_use_tool (only with --permission-prompt-tool stdio) and PostToolUse, PermissionDenied, PreCompact observer hooks.</text>
+  <text class="note" x="24" y="458">ACP terminal/* reverse-calls are refused on every host.</text>
+</svg>

@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 566" width="1000" height="566" role="img" aria-labelledby="title desc">
+  <title id="title">Work admission: from entry point to provider turn</title>
+  <desc id="desc">Every entry point reaches a provider turn through one allocator: admission checks, then a lane and capacity grant from ExecutionCoordinator, then TurnRunner.</desc>
+  <style>
+    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+    }
+    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .bg { fill: var(--bg); }
+    .band { fill: var(--band); }
+    .title { font-size: 18px; font-weight: 600; }
+    .lede, .sub, .note { fill: var(--sub); }
+    .sub { font-size: 11px; }
+    .note { font-size: 11.5px; }
+    .tier { font-size: 15px; font-weight: 700; }
+    .tier-sub { fill: var(--sub); font-size: 10.5px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
+    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
+    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
+    .chip { fill: var(--box); stroke: var(--line); }
+    .k-host { --k: var(--host); }
+    .k-chan { --k: var(--chan); }
+    .k-ext { --k: var(--ext); }
+    .k-store { --k: var(--store); }
+    .k-sec { --k: var(--sec); }
+    .k-dev { --k: var(--dev); }
+    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
+    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
+    .edge.dashed { stroke-dasharray: 5 4; }
+    .edge-label { fill: var(--sub); font-size: 10.5px; }
+    .arrowhead { fill: var(--edge); }
+    .arrowhead-hi { fill: var(--accent); }
+    .node { cursor: default; }
+    .node:hover .box { stroke-width: 2.6; }
+    svg:has(.node:hover) .edge { opacity: 0.2; }
+    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .name { font-size: 13.5px; font-weight: 700; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="566"/>
+  <text class="title" x="24" y="34">Work admission: from entry point to provider turn</text>
+  <text class="lede" x="24" y="56">Six entry points, one allocator. Hover a box for the detail.</text>
+  <a href="../system-architecture.md#main-flows">
+  <g class="node k-host">
+    <title>ConversationService.submit admits the message (revision-checked; a busy session queues it), then the turn is reserved on TurnManager. The browser streams it from GET /api/sessions/&lt;id&gt;/stream?turn=&lt;turnId&gt;.</title>
+    <path class="edge" d="M240,122 L272,122"/>
+    <rect class="box" x="16" y="96" width="224" height="52" rx="6"/>
+    <text class="name" x="30" y="117">Web chat</text>
+    <text class="sub" x="30" y="134">POST /api/sessions/&lt;id&gt;/send</text>
+  </g>
+  </a>
+  <a href="../channel-messaging-architecture.md">
+  <g class="node k-chan">
+    <title>handleInboundMessage resolves the channel, session key and thread binding, parks the message while paused, lets ChannelTaskBridge consume commands and bound-thread traffic, then MessageQueue debounces (1000 ms) and starts the turn.</title>
+    <path class="edge" d="M240,186 L272,186"/>
+    <rect class="box" x="16" y="160" width="224" height="52" rx="6"/>
+    <text class="name" x="30" y="181">Channel message</text>
+    <text class="sub" x="30" y="198">ChannelManager → MessageQueue</text>
+  </g>
+  </a>
+  <a href="../observability-operations-architecture.md">
+  <g class="node k-host">
+    <title>A prompt job starts a turn through TurnManager.startTurn with TurnProvenance.cron().</title>
+    <path class="edge" d="M240,250 L272,250"/>
+    <rect class="box" x="16" y="224" width="224" height="52" rx="6"/>
+    <text class="name" x="30" y="245">Scheduled prompt</text>
+    <text class="sub" x="30" y="262">ScheduleService, cron provenance</text>
+  </g>
+  </a>
+  <a href="../session-state-architecture.md">
+  <g class="node k-host">
+    <title>MCP tools create or continue a configured logical-agent session. Admission is fail-fast so a nested call never waits on capacity its caller holds.</title>
+    <path class="edge" d="M240,314 L272,314"/>
+    <rect class="box" x="16" y="288" width="224" height="52" rx="6"/>
+    <text class="name" x="30" y="309">Logical agent</text>
+    <text class="sub" x="30" y="326">sessions_spawn / sessions_send</text>
+  </g>
+  </a>
+  <a href="../task-execution-architecture.md">
+  <g class="node k-host">
+    <title>TaskExecutor polls queued tasks FIFO and requests a worker lease for the task provider and security profile.</title>
+    <path class="edge" d="M240,378 L272,378"/>
+    <rect class="box" x="16" y="352" width="224" height="52" rx="6"/>
+    <text class="name" x="30" y="373">Task</text>
+    <text class="sub" x="30" y="390">TaskService queue, polled every 2 s</text>
+  </g>
+  </a>
+  <a href="../workflow-architecture.md">
+  <g class="node k-host">
+    <title>An agent step runs as a workflow-owned task whose whole prompt chain uses one leased worker. Bash and approval steps never reach the allocator.</title>
+    <path class="edge" d="M240,442 L272,442"/>
+    <rect class="box" x="16" y="416" width="224" height="52" rx="6"/>
+    <text class="name" x="30" y="437">Workflow step</text>
+    <text class="sub" x="30" y="454">WorkflowExecutor → owned task</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md">
+  <g class="node k-host">
+    <title>Entry for conversation turns. Resolves the execution surface, then asks ExecutionCoordinator for a lease and reserves the turn on the leased runner.</title>
+    <path class="edge" d="M456,218 L496,218"/>
+    <rect class="box" x="272" y="96" width="184" height="244" rx="6"/>
+    <text class="name" x="286" y="117">TurnManager</text>
+    <text class="chip-text" x="286" y="134">reserveTurn</text>
+    <text class="chip-text" x="286" y="149">startTurn</text>
+    <text class="sub" x="286" y="164">resolves provider, policy,</text>
+    <text class="sub" x="286" y="179">workspace and provenance;</text>
+    <text class="sub" x="286" y="194">orders same-session</text>
+    <text class="sub" x="286" y="209">reservations</text>
+  </g>
+  </a>
+  <a href="../task-execution-architecture.md">
+  <g class="node k-host">
+    <title>A polled fail-fast task or workflow request takes its capacity permit before admission, so an attempt the lane cannot run leaves no loop or rate-limit record.</title>
+    <path class="edge" d="M456,410 L496,410"/>
+    <rect class="box" x="272" y="352" width="184" height="116" rx="6"/>
+    <text class="name" x="286" y="373">TaskExecutor</text>
+    <text class="sub" x="286" y="390">polls queued tasks FIFO,</text>
+    <text class="sub" x="286" y="405">checks project and budget,</text>
+    <text class="sub" x="286" y="420">requests a worker lease</text>
+    <text class="sub" x="286" y="435">itself</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md#62-execution-allocation">
+  <g class="node k-host">
+    <title>ExecutionCoordinator is the sole execution allocator. It runs admission, grants one lane permit, then returns a lease whose release gives the capacity back.</title>
+    <path class="edge" d="M760,218 L800,218"/>
+    <rect class="box" x="496" y="96" width="264" height="372" rx="6"/>
+    <text class="name" x="510" y="117">ExecutionCoordinator</text>
+    <rect class="chip" x="508" y="130" width="240" height="92" rx="5"/>
+    <text class="name" x="518" y="149" style="font-size:12px">1. Admission</text>
+    <text class="chip-text" x="518" y="165">TurnRunner.admitTurn</text>
+    <text class="sub" x="518" y="180">daily token budget (read-only check)</text>
+    <text class="sub" x="518" y="195">session lock; loop-chain check</text>
+    <text class="sub" x="518" y="210">global turn rate window</text>
+    <rect class="chip" x="508" y="232" width="240" height="128" rx="5"/>
+    <text class="name" x="518" y="251" style="font-size:12px">2. Lane and capacity permit</text>
+    <text class="sub" x="518" y="267">primary lane, capacity 1: web chat,</text>
+    <text class="sub" x="518" y="282">channel messages (fixed, serialized)</text>
+    <text class="sub" x="518" y="297">worker lane, providers.&lt;id&gt;.pool_size:</text>
+    <text class="sub" x="518" y="312">tasks, workflow steps, logical agents,</text>
+    <text class="sub" x="518" y="327">scheduled jobs</text>
+    <rect class="chip" x="508" y="370" width="240" height="88" rx="5"/>
+    <text class="name" x="518" y="389" style="font-size:12px">3. Lease</text>
+    <text class="sub" x="518" y="405">reuse a healthy cached worker with the</text>
+    <text class="sub" x="518" y="420">same provider and policy, else build one;</text>
+    <text class="sub" x="518" y="435">release returns the capacity</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md">
+  <g class="node k-host">
+    <title>Runs the turn on the leased worker: evaluates guards on hook callbacks, persists messages, streams BridgeEvents, applies stall and wall-clock limits.</title>
+    <path class="edge" d="M892,340 L892,372"/>
+    <rect class="box" x="800" y="96" width="184" height="244" rx="6"/>
+    <text class="name" x="814" y="117">TurnRunner</text>
+    <text class="chip-text" x="814" y="134">reserveAdmittedTurn</text>
+    <text class="chip-text" x="814" y="149">executeTurn</text>
+    <text class="sub" x="814" y="164">guard evaluation, message</text>
+    <text class="sub" x="814" y="179">persistence, SSE events,</text>
+    <text class="sub" x="814" y="194">stall and turn limits,</text>
+    <text class="sub" x="814" y="209">cost tracking</text>
+  </g>
+  </a>
+  <a href="../control-protocol.md">
+  <g class="node k-ext">
+    <title>The harness owned by the leased worker spawns and drives the provider binary.</title>
+    <rect class="box" x="800" y="372" width="184" height="96" rx="6"/>
+    <text class="name" x="814" y="393">Provider binary</text>
+    <text class="sub" x="814" y="410">claude, codex or ACP agent</text>
+    <text class="sub" x="814" y="425">container or host</text>
+    <text class="sub" x="814" y="440">(ACP agents: host only)</text>
+  </g>
+  </a>
+  <text class="note" x="24" y="498">A turn that fails admission (budget block, loop abort, busy lane) never reaches a provider.</text>
+  <text class="note" x="24" y="518">Web chat takes the primary lane when its provider and policy match the primary harness, otherwise a worker.</text>
+  <text class="note" x="24" y="538">Tasks and scheduled jobs use the primary lane only in the single-harness SDK composition. Container count never changes pool_size.</text>
+</svg>

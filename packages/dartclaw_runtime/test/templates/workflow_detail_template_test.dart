@@ -290,7 +290,10 @@ void main() {
     test('why-paused banner: awaitingApproval names the pending step and its request', () {
       final run = makeRun(status: 'awaitingApproval');
       run['pendingApprovalStepId'] = 'plan-approval';
-      run['contextJson'] = {'plan-approval.approval.message': 'Review the plan before build.'};
+      run['contextJson'] = {
+        '_approval.pending.stepId': 'plan-approval',
+        'plan-approval.approval.message': 'Review the plan before build.',
+      };
       final steps = [
         {
           'index': 0,
@@ -317,6 +320,34 @@ void main() {
       expect(html, contains('Awaiting approval'));
       expect(html, contains('<strong>Approval request</strong>:'));
       expect(html, contains('Plan Approval'));
+      expect(html, contains('Review the plan before build. Use Approve or Reject above.'));
+    });
+
+    test('why-paused banner: reads the request from the context data map', () {
+      final run = makeRun(status: 'awaitingApproval');
+      run['pendingApprovalStepId'] = 'plan-approval';
+      run['contextJson'] = {
+        '_approval.pending.stepId': 'plan-approval',
+        'data': {'plan-approval.approval.message': 'Review the plan before build.'},
+      };
+
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: const [
+          {
+            'index': 0,
+            'id': 'plan-approval',
+            'name': 'Plan Approval',
+            'status': 'awaiting_approval',
+            'type': 'approval',
+          },
+        ],
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
       expect(html, contains('Review the plan before build.'));
     });
 
@@ -370,6 +401,7 @@ void main() {
         expect(html, contains('Approve'));
         expect(html, contains('Reject'));
         expect(html, contains('Revision 1 of 3'));
+        expect(html, contains('Use Approve, Reject, or Request changes above.'));
       });
 
       test('a gate at its bound shows the limit note and no control', () {
@@ -380,6 +412,7 @@ void main() {
         expect(html, contains('Revision limit reached (2 of 2)'));
         expect(html, contains('Approve'));
         expect(html, contains('Reject'));
+        expect(html, contains('Use Approve or Reject above.'));
       });
 
       test('a gate that names no revise step shows neither the control nor a note', () {
@@ -450,7 +483,7 @@ void main() {
       );
 
       expect(html, contains('workflow-pause-banner'));
-      expect(html, contains('Paused by operator.'));
+      expect(html, contains('Paused by operator. Use Resume above to continue.'));
     });
 
     test('why-paused banner: absent for a running run', () {

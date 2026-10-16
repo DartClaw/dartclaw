@@ -11,6 +11,7 @@ import 'package:dartclaw_runtime/src/web/pages/workflows_page.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        OutputConfig,
         WorkflowDefinition,
         WorkflowDefinitionSource,
         WorkflowRun,
@@ -537,6 +538,53 @@ void main() {
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final skipped = await page.handler(_get('/workflows/run-skipped-accounting/steps/0'), context);
       expect(await skipped.readAsString(), contains('Tokens: <span class="workflow-step-metric-value">0</span>'));
+    });
+
+    test('shows step context inputs and outputs persisted under the context data map', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      const definition = WorkflowDefinition(
+        name: 'build-and-review',
+        description: 'test',
+        variables: {},
+        steps: [
+          WorkflowStep(
+            id: 'build',
+            name: 'Build',
+            taskType: WorkflowTaskType.bash,
+            prompts: ['make build'],
+            outputs: {'build_log': OutputConfig()},
+          ),
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review {{context.build_log}}'],
+            outputs: {'verdict': OutputConfig()},
+          ),
+        ],
+      );
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-data-outputs',
+          definitionName: definition.name,
+          status: WorkflowRunStatus.completed,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 2,
+          definitionJson: definition.toJson(),
+          contextJson: const {
+            'data': {'build_log': 'bash-output-value', 'verdict': 'agent-output-value'},
+          },
+        ),
+      );
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final bash = await (await page.handler(_get('/workflows/run-data-outputs/steps/0'), context)).readAsString();
+      final agent = await (await page.handler(_get('/workflows/run-data-outputs/steps/1'), context)).readAsString();
+
+      expect(bash, contains('bash-output-value'));
+      expect(bash, isNot(contains('(not yet set)')));
+      expect(agent, contains('bash-output-value'), reason: 'context input read from the data map');
+      expect(agent, contains('agent-output-value'));
+      expect(agent, isNot(contains('(not yet set)')));
     });
 
     test('returns 400 for invalid step index', () async {

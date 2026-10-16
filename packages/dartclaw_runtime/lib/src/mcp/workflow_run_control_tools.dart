@@ -1,7 +1,7 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show WorkflowRunStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowService, workflowRevisionState;
+    show WorkflowDefinition, WorkflowRun, WorkflowService, workflowContextValue, workflowRevisionState;
 
 import '../task/workflow_run_control.dart';
 import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
@@ -171,8 +171,8 @@ class WorkflowStatusTool implements McpTool {
           ? null
           : {
               'step': pendingStep,
-              'message': _truncate(run.contextJson['$pendingStep.approval.message']),
-              'requested_at': run.contextJson['$pendingStep.approval.requested_at'],
+              'message': _truncate(workflowContextValue(run, '$pendingStep.approval.message')),
+              'requested_at': workflowContextValue(run, '$pendingStep.approval.requested_at'),
               if (revision != null) ...{'revision': revision.count, 'max_revisions': revision.max},
             },
       // A held run's message only names the approval, which `pending_approval` already carries.

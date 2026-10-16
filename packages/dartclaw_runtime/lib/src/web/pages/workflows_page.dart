@@ -378,7 +378,7 @@ class WorkflowsPage extends DashboardPage {
       final step = definition.steps[stepIndex];
       // Extract context references from the step prompt (keys accessed via {{context.key}}).
       for (final key in _extractContextKeys(step.prompt ?? '')) {
-        final value = run.contextJson[key];
+        final value = workflowContextValue(run, key);
         if (value != null) {
           final str = value.toString();
           inputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
@@ -386,7 +386,7 @@ class WorkflowsPage extends DashboardPage {
       }
       // Context outputs: keys written by this step (from step.outputKeys).
       for (final key in step.outputKeys) {
-        final value = run.contextJson[key];
+        final value = workflowContextValue(run, key);
         outputKeys.add({
           'key': key,
           'value': value != null

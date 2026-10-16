@@ -1,7 +1,14 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show humanizeSpan;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowRevisionState, WorkflowRun, workflowCanApprove, workflowCanReject, workflowCanResume, workflowCanRetry;
+    show
+        WorkflowRevisionState,
+        WorkflowRun,
+        workflowCanApprove,
+        workflowCanReject,
+        workflowCanResume,
+        workflowCanRetry,
+        workflowContextValue;
 
 import 'components.dart';
 import 'helpers.dart';
@@ -168,7 +175,12 @@ String workflowDetailPageTemplate({
 
   // Why-paused banner: reuses fields the run already carries (approval-pause
   // metadata or the generic pause reason) — no new API surface.
-  final pauseBanner = _pauseBanner(statusName, run, annotatedSteps);
+  final pauseBanner = _pauseBanner(
+    workflowRun,
+    run,
+    annotatedSteps,
+    decisionControls: [if (canApprove) 'Approve', if (canReject) 'Reject', if (canRequestChanges) 'Request changes'],
+  );
 
   // Compute duration.
   final startedAt = run['startedAt'];
@@ -365,10 +377,16 @@ class _PauseBanner {
 
 /// Derives the why-paused banner from fields the run already carries: approval
 /// (and needsInput) holds surface the pending step name (+ its request/needs-input
-/// message, read from the flat context key `<stepId>.approval.message` the model
-/// writes for both); a generic `paused` run surfaces its pause reason
-/// (`errorMessage`) or a resume hint.
-_PauseBanner? _pauseBanner(String statusName, Map<String, dynamic> run, List<Map<String, dynamic>> steps) {
+/// message, the context value `<stepId>.approval.message`) and the
+/// [decisionControls] rendered above the banner; a generic `paused` run surfaces
+/// its pause reason (`errorMessage`) or a resume hint.
+_PauseBanner? _pauseBanner(
+  WorkflowRun workflowRun,
+  Map<String, dynamic> run,
+  List<Map<String, dynamic>> steps, {
+  required List<String> decisionControls,
+}) {
+  final statusName = workflowRun.status.name;
   if (statusName == 'awaitingApproval') {
     final pendingStepId = run['pendingApprovalStepId']?.toString();
     if (pendingStepId == null || pendingStepId.isEmpty) return null;
@@ -379,22 +397,28 @@ _PauseBanner? _pauseBanner(String statusName, Map<String, dynamic> run, List<Map
     final stepLabel = (pendingStep['name']?.toString().isNotEmpty ?? false)
         ? pendingStep['name'].toString()
         : pendingStepId;
-    final contextJson = (run['contextJson'] as Map?) ?? const {};
-    final message = contextJson['$pendingStepId.approval.message']?.toString() ?? '';
+    final message = workflowContextValue(workflowRun, '$pendingStepId.approval.message')?.toString() ?? '';
+    final hint = decisionControls.isEmpty ? '' : ' Use ${_orList(decisionControls)} above.';
     final text = message.isNotEmpty
-        ? 'Step "$stepLabel" needs a decision: $message Use Approve or Reject below.'
-        : 'Step "$stepLabel" needs a decision. Use Approve or Reject below.';
+        ? 'Step "$stepLabel" needs a decision: $message$hint'
+        : 'Step "$stepLabel" needs a decision.$hint';
     return _PauseBanner(cssClass: 'banner-warning', label: 'Approval request', text: text);
   }
   if (statusName == 'paused') {
     final reason = run['errorMessage']?.toString();
     final text = (reason != null && reason.isNotEmpty)
-        ? '$reason Use Resume below to continue.'
-        : 'This run is paused. Use Resume below to continue.';
+        ? '$reason Use Resume above to continue.'
+        : 'This run is paused. Use Resume above to continue.';
     return _PauseBanner(cssClass: 'banner-info', label: 'Paused', text: text);
   }
   return null;
 }
+
+String _orList(List<String> items) => switch (items) {
+  [final only] => only,
+  [final a, final b] => '$a or $b',
+  _ => '${items.sublist(0, items.length - 1).join(', ')}, or ${items.last}',
+};
 
 String _formatTimeAgo(Object? value) {
   if (value == null) return '';

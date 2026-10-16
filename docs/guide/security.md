@@ -38,6 +38,68 @@ User ──→ HTTP Auth ──→ Dart Host ──→ Guards ──→ Provider
                                               ACP: host execution only
 ```
 
+## Who Protects What
+
+An agent reaches a secret through a file tool (Read, Grep, Glob), a shell command, or a search that lists what a
+directory holds. Three layers split that work, and each one covers what the others cannot:
+
+| Layer | Owns | Enforced by |
+|---|---|---|
+| Harness-native rules and the OS sandbox | Workspace and home secrets (`.env`, `~/.ssh`, cloud and tool credentials, browser profiles) and what a search enumerates | The harness, for every tool call and every shell command and its child processes |
+| [FileGuard](#built-in-guards) | DartClaw's own secrets (`dartclaw.yaml`, `gateway_token` and `credentials/` in the data directory), and agents whose harness has no native rules DartClaw can rely on, such as ACP agents | DartClaw's guard chain, harness-neutral, every block audited |
+| [Containers](#container-isolation) | Everything outside the mounts | The container runtime: an unmounted path does not exist for the agent |
+
+**Harness-native rules.** Configure them in the harness itself, where they bind the harness's own tools and shell:
+
+- **Claude Code**: `permissions.deny` rules such as `Read(**/.env)` and `Read(~/.ssh/**)` stop the Read tool and,
+  best-effort, Grep and Glob, which Claude checks against the directory they search. With `sandbox.enabled: true`,
+  Claude merges those rules into its OS sandbox, so shell commands cannot read the paths either.
+  `sandbox.filesystem.denyRead` adds paths for shell commands only.
+- **Codex**: a permission profile (beta, Codex 0.138 and later). `default_permissions = "<name>"` selects it, and
+  `[permissions.<name>.filesystem]` entries set to `"deny"` hide paths, with `":workspace_roots"` globs such as
+  `"**/.env" = "deny"` for every workspace. Codex's OS sandbox enforces the profile for every command.
+
+**FileGuard** is the floor under those rules, not a replacement for them. It protects what no harness setting knows
+about, covers agents whose harness has no native rules DartClaw can rely on, and records every refusal in the audit
+log. On Codex it sees only what Codex submits for approval (see [Guard System](#guard-system)): a command the sandbox
+lets run is never submitted, and under `providers.codex.approval: never` nothing is, so the profile and the sandbox
+carry Codex's file protection.
+
+**Containers** are the hard boundary. Inside one, Codex runs `danger-full-access`, because its own sandbox cannot
+start under the container hardening. No Codex profile applies there, and Codex runs shell commands without asking for
+approval, so FileGuard does not see them either: the mount allowlist decides what the agent can read, and a `.env`
+inside a mounted workspace is readable.
+
+### Settings that switch native protection off
+
+- `providers.claude.inherit_user_settings: false` loads project settings only, so deny rules and sandbox settings in
+  `~/.claude/settings.json` do not reach DartClaw's Claude turns. Keep them in the project's `.claude/settings.json`,
+  or pass them through the provider's `permissions` and `sandbox` options.
+- `providers.claude.sandbox: danger-full-access` passes `sandbox.enabled: false` to every Claude turn, which turns off
+  the sandbox your own settings enable. The deny rules still bind the Read tool, but shell commands can read the paths
+  again.
+- `providers.codex.sandbox`, at any value, sends that sandbox mode on every thread DartClaw opens, and Codex then
+  replaces the permission profile, denies included, for that thread. Leave it unset to keep the profile. A
+  `sandbox_mode` key in a loaded Codex config, or `--sandbox`, does the same; remove `sandbox_mode` and
+  `[sandbox_workspace_write]` from your config when you use a profile.
+- Which Codex home DartClaw starts Codex with decides whether your profile loads at all:
+
+  | Codex credential and home | Your permission profile |
+  |---|---|
+  | API key, default `use_system_codex_home` | Applies: Codex reads your own `CODEX_HOME` (or `~/.codex`) |
+  | Stored ChatGPT subscription (DartClaw's home under `<data_dir>/credentials/codex`) | Applies: DartClaw copies your `default_permissions` line and `[permissions.*]` tables into that home on every start. Edit the profile in your own config; edits made in DartClaw's home are replaced |
+  | `providers.codex.use_system_codex_home: false` | Does not apply: the temporary home carries no profile |
+  | Container | Does not apply: the container is the boundary |
+
+### A worked baseline
+
+The AndThen plugin repository ships example files under `permissions/` that set these rules for both harnesses:
+`claude/settings.json` and `codex/config.toml` are personal baselines that deny `.env` files at any depth, `~/.ssh`,
+cloud and cluster credentials, tool tokens and browser profiles, with the sandbox on and the network off.
+`claude/managed-settings.json` and `codex/requirements.toml` are organization-enforced variants. Merge the personal files
+into `~/.claude/settings.json` and `~/.codex/config.toml`. DartClaw's Claude turns load the first by default; its Codex
+turns load the second with an API key or a stored subscription, as long as `providers.codex.sandbox` stays unset.
+
 ## Guard System
 
 Guards evaluate tool calls, messages, and agent responses. First block wins. Exceptions = block (fail-closed).

@@ -22,15 +22,29 @@ class CodexPluginTable {
   int get hashCode => Object.hash(header, text);
 }
 
-/// A Codex `config.toml` split into its `[plugins.*]` tables and everything else.
+/// A Codex `config.toml` split into its `[plugins.*]` tables, its permission
+/// profile, and everything else.
 class CodexTomlSplit {
-  const new({required this.pluginTables, required this.remainder});
+  const new({
+    required this.pluginTables,
+    required this.remainder,
+    this.defaultPermissions,
+    this.permissionTables = const <String>[],
+  });
 
   /// The `[plugins.*]` tables in document order.
   final List<CodexPluginTable> pluginTables;
 
-  /// The document with every `[plugins.*]` table removed and trailing blank
-  /// lines dropped.
+  /// The top-level `default_permissions = …` line, verbatim, or `null` when
+  /// the document selects no permission profile.
+  final String? defaultPermissions;
+
+  /// The `[permissions]` and `[permissions.*]` tables in document order, each
+  /// verbatim with its header and without trailing blank lines.
+  final List<String> permissionTables;
+
+  /// The document with the plugin tables and the permission profile removed
+  /// and trailing blank lines dropped.
   final String remainder;
 }
 
@@ -38,13 +52,15 @@ class CodexTomlSplit {
 class CodexConfigGenerator {
   static const String defaultMcpBearerTokenEnvVar = 'DARTCLAW_MCP_TOKEN';
 
-  /// Splits [configToml] into its `[plugins.*]` tables and the rest, or returns
-  /// `null` when the document uses a construct outside the supported subset.
+  /// Splits [configToml] into its `[plugins.*]` tables, its permission profile
+  /// (the `default_permissions` selector and the `[permissions.*]` tables) and
+  /// the rest, or returns `null` when the document uses a construct outside the
+  /// supported subset.
   ///
-  /// A plugin is enabled by a table in the home's own `config.toml`, so a
-  /// generated home enables nothing unless those tables are carried into it.
-  /// Table bodies are copied verbatim: this decides which tables to keep, never
-  /// what their values mean.
+  /// A plugin is enabled, and a permission profile selected, by the home's own
+  /// `config.toml`, so a generated home has neither unless they are carried
+  /// into it. Table bodies are copied verbatim: this decides which tables to
+  /// keep, never what their values mean.
   ///
   /// ## Supported subset
   ///
@@ -65,12 +81,17 @@ class CodexConfigGenerator {
   /// - a `[[plugins…]]` array of tables;
   /// - a top-level `plugins = { … }` inline table or a `plugins.<…> = …` dotted
   ///   key, which configure plugins without a table header;
+  /// - the same three shapes for `permissions`, and a `default_permissions`
+  ///   value that spans lines;
   /// - an unterminated string or array, on a line or at end of document.
   static CodexTomlSplit? splitPluginTables(String configToml) {
     final tables = <CodexPluginTable>[];
+    final permissionTables = <String>[];
     final remainder = <String>[];
     var current = <String>[];
     String? currentHeader;
+    var currentIsPermissions = false;
+    String? defaultPermissions;
     var atTopLevel = true;
     var arrayDepth = 0;
     String? openDelimiter;
@@ -81,7 +102,8 @@ class CodexConfigGenerator {
       while (current.isNotEmpty && current.last.trim().isEmpty) {
         current.removeLast();
       }
-      tables.add(CodexPluginTable(header: header, text: current.join('\n')));
+      final text = current.join('\n');
+      currentIsPermissions ? permissionTables.add(text) : tables.add(CodexPluginTable(header: header, text: text));
       current = <String>[];
       currentHeader = null;
     }
@@ -102,9 +124,14 @@ class CodexConfigGenerator {
       }
 
       if (code.startsWith('[')) {
-        if (_barePluginsTable.hasMatch(code) || _pluginsArrayOfTables.hasMatch(code)) return null;
+        if (_barePluginsTable.hasMatch(code) ||
+            _pluginsArrayOfTables.hasMatch(code) ||
+            _permissionsArrayOfTables.hasMatch(code)) {
+          return null;
+        }
         closeTable();
-        if (_pluginTable.hasMatch(code)) {
+        currentIsPermissions = _permissionsTable.hasMatch(code);
+        if (currentIsPermissions || _pluginTable.hasMatch(code)) {
           currentHeader = line.trim();
           current.add(line.trimRight());
         } else {
@@ -114,7 +141,12 @@ class CodexConfigGenerator {
         continue;
       }
 
-      if (atTopLevel && _topLevelPluginsKey.hasMatch(code)) return null;
+      if (atTopLevel && (_topLevelPluginsKey.hasMatch(code) || _topLevelPermissionsKey.hasMatch(code))) return null;
+      if (atTopLevel && _defaultPermissionsKey.hasMatch(code)) {
+        if (openDelimiter != null) return null;
+        defaultPermissions = line.trimRight();
+        continue;
+      }
       emit(line);
       arrayDepth += _bracketDelta(scan.code);
       if (arrayDepth < 0) return null;
@@ -126,14 +158,23 @@ class CodexConfigGenerator {
     while (remainder.isNotEmpty && remainder.last.trim().isEmpty) {
       remainder.removeLast();
     }
-    return CodexTomlSplit(pluginTables: tables, remainder: remainder.join('\n'));
+    return CodexTomlSplit(
+      pluginTables: tables,
+      remainder: remainder.join('\n'),
+      defaultPermissions: defaultPermissions,
+      permissionTables: permissionTables,
+    );
   }
 
   /// Composes [base] with [tables] — the one way a `config.toml` carrying
-  /// plugin tables is assembled, so every writer produces byte-identical output
-  /// for the same inputs.
-  static String withPluginTables(String base, Iterable<String> tables) {
-    final trimmedBase = base.trimRight();
+  /// plugin or permission tables is assembled, so every writer produces
+  /// byte-identical output for the same inputs.
+  ///
+  /// [defaultPermissions] is a top-level `default_permissions = …` line. It
+  /// leads the document: after the first table header it would belong to that
+  /// table.
+  static String withPluginTables(String base, Iterable<String> tables, {String? defaultPermissions}) {
+    final trimmedBase = (defaultPermissions == null ? base : '$defaultPermissions\n${base.trimLeft()}').trimRight();
     final body = tables.map((table) => table.trim()).where((table) => table.isNotEmpty).join('\n\n');
     if (body.isEmpty) return trimmedBase.isEmpty ? '' : '$trimmedBase\n';
     if (trimmedBase.isEmpty) return '$body\n';
@@ -144,6 +185,10 @@ class CodexConfigGenerator {
   static final RegExp _barePluginsTable = RegExp(r'^\[\s*plugins\s*\]');
   static final RegExp _pluginsArrayOfTables = RegExp(r'^\[\[\s*plugins[.\]\s]');
   static final RegExp _topLevelPluginsKey = RegExp(r'^plugins\s*[.=]');
+  static final RegExp _permissionsTable = RegExp(r'^\[\s*permissions\s*[.\]]');
+  static final RegExp _permissionsArrayOfTables = RegExp(r'^\[\[\s*permissions[.\]\s]');
+  static final RegExp _topLevelPermissionsKey = RegExp(r'^permissions\s*[.=]');
+  static final RegExp _defaultPermissionsKey = RegExp(r'^default_permissions\s*=');
 
   static int _bracketDelta(String code) => '['.allMatches(code).length - ']'.allMatches(code).length;
 

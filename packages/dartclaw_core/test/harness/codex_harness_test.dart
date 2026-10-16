@@ -798,6 +798,39 @@ void main() {
         await turnFuture;
       });
 
+      test('a configured sandbox travels on the thread, not as a spawn override Codex does not know', () async {
+        // codex-cli 0.162.1 `--strict-config` rejects `sandbox_permissions` as an
+        // unknown field; without it the override is silently dropped.
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        late List<String> args;
+        final harness = _buildHarness(
+          process: fake,
+          providerOptions: const {'sandbox': 'workspace-write'},
+          processFactory: (exe, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            args = List<String>.from(arguments);
+            return fake;
+          },
+        );
+        addTearDown(harness.dispose);
+        await startHarness(harness, fake);
+
+        expect(args, ['app-server', '-c', 'tools.experimental_request_user_input.enabled=false']);
+
+        final turnFuture = harness.turn(
+          sessionId: 'sess-sandbox',
+          messages: const [
+            {'role': 'user', 'content': 'ask'},
+          ],
+          systemPrompt: 'test',
+        );
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
+        final threadStart = fake.sentMessages.singleWhere((message) => message['method'] == 'thread/start');
+        expect((threadStart['params'] as Map<String, dynamic>)['sandbox'], 'workspace-write');
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
+        await turnFuture;
+      });
+
       test('falls back to harnessConfig.model when per-turn model is null', () async {
         final (:harness, :fake) = await _startedHarness(
           harnessConfig: const HarnessLaunchOptions(model: 'gpt-5-default'),

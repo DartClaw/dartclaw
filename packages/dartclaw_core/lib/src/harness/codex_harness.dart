@@ -52,12 +52,6 @@ Never _throwMissingCodexExecutable(String executable) => throw UnsupportedCapabi
   remediation: 'Install "$executable" and ensure it is available on PATH.',
 );
 
-String? _sandboxPermissions(String sandboxValue) => switch (sandboxValue.trim()) {
-  'danger-full-access' => '["disk-full-read-write-access", "network-full-access"]',
-  'workspace-write' => '["disk-full-read-access", "disk-write-platform-user-caches", "disk-write-cwd"]',
-  _ => null,
-};
-
 /// Thin subprocess lifecycle manager for `codex app-server`.
 class CodexHarness extends BaseHarness
     implements
@@ -252,6 +246,17 @@ class CodexHarness extends BaseHarness
   @override
   bool get supportsNativeSkillInvocation => true;
 
+  /// The sandbox mode sent on `thread/start` and `turn/start`, or `null` to send
+  /// none. The `thread/start` mode replaces the operator's Codex permission
+  /// profile and its read denies for that thread (verified codex-cli 0.162.1),
+  /// so an unset `sandbox` option sends nothing and the profile stays in force.
+  ///
+  /// Containerized spawns always run danger-full-access: the container is the
+  /// isolation boundary, and Codex's own sandbox tooling can neither ship in
+  /// the image nor start under the hardening – honoring a stricter configured
+  /// value would fail every tool call while the turn still reports success
+  /// (security-architecture.md § Provider Sandbox Interaction). Host
+  /// approvals/guards stay active either way.
   String? get _effectiveSandbox => containerManager == null ? _stringProviderOption('sandbox') : 'danger-full-access';
 
   @override
@@ -611,26 +616,10 @@ class CodexHarness extends BaseHarness
   }
 
   Future<void> _spawnProcess() async {
-    // Build app-server args with sandbox permissions from provider options.
-    // The per-turn `sandbox` JSON-RPC parameter is ignored in app-server mode;
-    // sandbox must be configured at process startup via `-c sandbox_permissions`.
+    // The sandbox is not a spawn argument: `thread/start.sandbox` is what
+    // Codex applies (see [_effectiveSandbox]).
     final args = ['app-server', '-c', 'tools.experimental_request_user_input.enabled=false'];
     final container = containerManager;
-    // Containerized spawns always run danger-full-access: the container is the
-    // isolation boundary, and Codex's own sandbox tooling can neither ship in
-    // the image nor start under the hardening – honoring a stricter configured
-    // value would fail every tool call while the turn still reports success
-    // (security-architecture.md § Multi-Provider Sandbox Interaction). Host
-    // approvals/guards stay active either way.
-    final sandboxOption = _effectiveSandbox;
-    if (sandboxOption != null) {
-      final permissions = _sandboxPermissions(sandboxOption);
-      if (permissions != null) {
-        args.addAll(['-c', 'sandbox_permissions=$permissions']);
-        _log.info('Codex sandbox permissions: $permissions (from "$sandboxOption")');
-      }
-    }
-
     final workingDirectory = _resolveDefaultWorkingDirectory();
     final Process process;
     if (container == null) {
@@ -654,7 +643,6 @@ class CodexHarness extends BaseHarness
     attachProcess(process, dropEmptyStdoutLines: true);
   }
 
-  /// Maps DartClaw sandbox config values to Codex `sandbox_permissions` TOML arrays.
   Future<void> _restartAfterCrash() async {
     await cancelTrackedSubscriptions();
     _threads.clear();

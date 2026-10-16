@@ -438,9 +438,16 @@ class CodexEnvironment {
 /// (`CODEX_HOME=<home> codex …`), and those tables and directories are the
 /// home's own, never the mirror's to remove.
 ///
-/// Nothing outside `[plugins.*]`, `plugins/cache/` and `skills/` is read from
-/// the operator's selected home; `auth.json` in particular is never a mirror
-/// source, so the operator's own login cannot reach this store.
+/// The operator's Codex permission profile – its `default_permissions`
+/// selector and `[permissions.*]` tables – travels too, so the read denies the
+/// operator set for Codex hold in this home. It is the operator's alone: every
+/// call replaces the home's profile with theirs, and it is kept as is only when
+/// their state cannot be read.
+///
+/// Nothing outside `[plugins.*]`, the permission profile, `plugins/cache/` and
+/// `skills/` is read from the operator's selected home; `auth.json` in
+/// particular is never a mirror source, so the operator's own login cannot
+/// reach this store.
 void completeDedicatedCodexHome(
   String homePath, {
   String? generatedConfig,
@@ -471,7 +478,7 @@ void completeDedicatedCodexHome(
     }
   }
 
-  final wrote = _writeDedicatedConfig(homePath, generatedConfig, operatorState?.pluginTables, manifest);
+  final wrote = _writeDedicatedConfig(homePath, generatedConfig, operatorState, manifest);
   if (operatorState != null && wrote) manifest.write(homePath);
 
   if (agentsMd != null) {
@@ -495,15 +502,17 @@ const _mirrorManifestFileName = '.dartclaw-mirror.json';
 const _mirrorStagingDirectoryName = '.dartclaw-mirror-staging';
 
 /// Rewrites the dedicated home's `config.toml`, returning whether the plugin
-/// tables it now carries are the ones [operatorTables] describes.
+/// tables and permission profile it now carries are the ones [operatorState]
+/// describes.
 ///
-/// [operatorTables] `null` means the operator's state could not be read, so the
-/// home's existing tables are carried over untouched — an unreadable source is
-/// no reason to disable the operator's plugins.
+/// [operatorState] `null` means the operator's state could not be read, so the
+/// home's existing tables and profile are carried over untouched — an
+/// unreadable source is no reason to disable the operator's plugins or drop
+/// their denies.
 bool _writeDedicatedConfig(
   String homePath,
   String? generatedConfig,
-  List<CodexPluginTable>? operatorTables,
+  _OperatorCodexState? operatorState,
   _MirrorManifest manifest,
 ) {
   final config = File(p.join(homePath, 'config.toml'));
@@ -516,20 +525,23 @@ bool _writeDedicatedConfig(
   }
 
   var existingTables = const <CodexPluginTable>[];
+  _PermissionProfile? existingProfile;
   var base = generatedConfig ?? '';
   if (existing != null) {
     final split = CodexConfigGenerator.splitPluginTables(existing);
     if (split == null) {
       _log.warning(
         'Refusing to rewrite ${config.path}: it uses TOML constructs outside the supported subset, so its '
-        '[plugins.*] tables cannot be told apart from the rest.',
+        '[plugins.*] and [permissions.*] tables cannot be told apart from the rest.',
       );
       return false;
     }
     existingTables = split.pluginTables;
+    existingProfile = _permissionProfileOf(split);
     base = generatedConfig ?? split.remainder;
   }
 
+  final operatorTables = operatorState?.pluginTables;
   final List<CodexPluginTable> tables;
   if (operatorTables == null) {
     tables = existingTables;
@@ -545,7 +557,11 @@ bool _writeDedicatedConfig(
     manifest.pluginTables = mirrored.toList(growable: false);
   }
 
-  final content = CodexConfigGenerator.withPluginTables(base, tables.map((table) => table.text));
+  final profile = operatorState == null ? existingProfile : operatorState.permissionProfile;
+  final content = CodexConfigGenerator.withPluginTables(base, [
+    ...?profile?.tables,
+    ...tables.map((table) => table.text),
+  ], defaultPermissions: profile?.selector);
   if (existing == null && content.isEmpty) return true;
   if (existing == content) return true;
   try {
@@ -825,12 +841,26 @@ class _MirrorSession {
       name.isNotEmpty && name != '.' && name != '..' && !name.contains('/') && !name.contains(r'\');
 }
 
-/// The operator's own Codex home and the `[plugins.*]` tables it enables.
+/// The operator's own Codex home, the `[plugins.*]` tables it enables and the
+/// permission profile it selects.
 class _OperatorCodexState {
-  const new(this.home, this.pluginTables);
+  const new(this.home, this.pluginTables, [this.permissionProfile]);
 
   final Directory home;
   final List<CodexPluginTable> pluginTables;
+  final _PermissionProfile? permissionProfile;
+}
+
+/// A selected Codex permission profile: the `default_permissions` line and the
+/// `[permissions.*]` tables, verbatim.
+typedef _PermissionProfile = ({String selector, List<String> tables});
+
+/// The profile [split] selects, or `null` when it selects none. Tables without
+/// a selector are not a profile: Codex refuses to load a config that defines
+/// `[permissions]` profiles but sets no `default_permissions`.
+_PermissionProfile? _permissionProfileOf(CodexTomlSplit split) {
+  final selector = split.defaultPermissions;
+  return selector == null ? null : (selector: selector, tables: split.permissionTables);
 }
 
 /// Reads the operator's current Codex state, or `null` when there is none to
@@ -860,9 +890,9 @@ _OperatorCodexState? _readOperatorCodexState(PlatformCapabilities? platformCapab
   if (split == null) {
     _log.warning(
       'Refusing to mirror operator Codex state: ${config.path} uses TOML constructs outside the supported '
-      'subset, so its [plugins.*] tables cannot be told apart from the rest.',
+      'subset, so its [plugins.*] and [permissions.*] tables cannot be told apart from the rest.',
     );
     return null;
   }
-  return _OperatorCodexState(directory, split.pluginTables);
+  return _OperatorCodexState(directory, split.pluginTables, _permissionProfileOf(split));
 }

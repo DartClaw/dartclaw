@@ -1,203 +1,247 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" width="1000" height="560" role="img" aria-labelledby="title desc">
-  <title id="title">Security: HTTP request pipeline and authentication</title>
-  <desc id="desc">Every request passes six shelf stages in order. authMiddleware accepts public paths, a session cookie, a Bearer gateway token or a one-time ?token= bootstrap; /mcp, webhooks and source links authenticate themselves.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 716" width="1000" height="716" role="img" aria-labelledby="title desc">
+  <title id="title">HTTP request pipeline and authentication</title>
+  <desc id="desc">A request passes logRequests, securityHeadersMiddleware, the CORS middleware, authMiddleware, originHostGuardMiddleware and the router. authMiddleware passes public paths, then accepts a session cookie, a Bearer gateway token or a bootstrap ?token=, and otherwise counts a failed attempt on AuthRateLimiter. /mcp, webhooks and /knowledge/source authenticate themselves.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .name { font-size: 12.5px; font-weight: 700; }
-    .num { fill: var(--accent); font-size: 11px; font-weight: 700; }
-    .legend { fill: var(--sub); font-size: 11px; }
-    a { cursor: pointer; }
-    a:hover .box { stroke-width: 2.6; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--sec) 6%, var(--bg)); }
+    svg:has(#log:hover) .edges :is(.f-log,.t-log) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#hdr:hover) .edges :is(.f-hdr,.t-hdr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cors:hover) .edges :is(.f-cors,.t-cors) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#auth:hover) .edges :is(.f-auth,.t-auth) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#origin:hover) .edges :is(.f-origin,.t-origin) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#router:hover) .edges :is(.f-router,.t-router) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pub:hover) .edges :is(.f-pub,.t-pub) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cookie:hover) .edges :is(.f-cookie,.t-cookie) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bearer:hover) .edges :is(.f-bearer,.t-bearer) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#qtoken:hover) .edges :is(.f-qtoken,.t-qtoken) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#other:hover) .edges :is(.f-other,.t-other) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#hooks:hover) .edges :is(.f-hooks,.t-hooks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#src:hover) .edges :is(.f-src,.t-src) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#limiter:hover) .edges :is(.f-limiter,.t-limiter) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="560"/>
-  <text class="title" x="24" y="34">Security: HTTP request pipeline and authentication</text>
-  <text class="lede" x="24" y="56">Browser writes are additionally bound to the request origin. A failed attempt fires FailedAuthEvent and counts on AuthRateLimiter (5 per minute per remote key).</text>
+  <rect class="bg" width="1000" height="716"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="620" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="644">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="668">Hover a box for its role; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="688">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
 
-  <g class="node k-host">
-    <title>Request logging through a sanitized logger.</title>
-    <path class="edge" d="M159,140 V154"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="24" y="84" width="270" height="56" rx="6"/>
-    <text class="mono" x="36" y="105">logRequests</text>
-    <text class="sub" x="36" y="122">shelf request log; ?secret= redacted</text>
-    <text class="num" x="284" y="102" text-anchor="end">1</text>
-    </a>
+  <text class="kick" x="24" y="32">PIPELINE · Server._buildPipeline</text>
+  <text class="title" x="24" y="58">HTTP request pipeline and authentication</text>
+  <text class="lede" x="24" y="80">Six middlewares in order; authMiddleware checks four credentials, and failed attempts count against one shared limiter.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="96" width="286" height="480" rx="14"/><text class="kick" x="32" y="118">REQUEST PIPELINE · IN ORDER</text></g>
+  <g class="k-sec"><rect class="band" x="314" y="96" width="354" height="480" rx="14"/><text class="kick" x="330" y="118">authMiddleware · CHECK ORDER</text></g>
+  <g class="k-chan"><rect class="band" x="684" y="96" width="300" height="480" rx="14"/><text class="kick" x="700" y="118">AUTHENTICATE THEMSELVES</text></g>
+
+  <g class="edges">
+    <g class="e main f-log t-hdr"><path d="M159,176 V194"/></g>
+    <g class="e main f-hdr t-cors"><path d="M159,248 V266"/></g>
+    <g class="e main f-cors t-auth"><path d="M159,320 V338"/></g>
+    <g class="e main f-auth t-origin"><path d="M159,404 V422"/></g>
+    <g class="e main f-origin t-router"><path d="M159,488 V506"/></g>
+    <g class="e main f-pub t-cookie"><path d="M491,208 V232"/><text class="el" x="499" y="225" text-anchor="start">not public</text></g>
+    <g class="e main f-cookie t-bearer"><path d="M491,286 V310"/><text class="el" x="499" y="303" text-anchor="start">no valid cookie</text></g>
+    <g class="e main f-bearer t-qtoken"><path d="M491,364 V388"/><text class="el" x="499" y="381" text-anchor="start">no valid Bearer</text></g>
+    <g class="e main f-qtoken t-other"><path d="M491,458 V482"/><text class="el" x="499" y="475" text-anchor="start">no valid ?token=</text></g>
+    <g class="e  f-auth t-pub"><path d="M290,372 H308 V166 H324"/></g>
+    <g class="e dash f-pub t-mcp t-hooks t-src"><path d="M656,166 H694"/><text class="el" x="660" y="159" text-anchor="start">exempt</text></g>
+    <g class="e bad f-other t-limiter"><path d="M656,518 H694"/><text class="el" x="659" y="511" text-anchor="start">failure</text></g>
   </g>
-  <g class="node k-sec">
-    <title>Outermost response middleware: CSP with a hash for the one inline theme script, Referrer-Policy same-origin, X-Frame-Options DENY, Cache-Control no-store unless set, Vary HX-Request, HSTS when gateway.hsts is on.</title>
-    <path class="edge" d="M159,210 V224"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="24" y="154" width="270" height="56" rx="6"/>
-    <text class="mono" x="36" y="175">securityHeadersMiddleware</text>
-    <text class="sub" x="36" y="192">CSP, nosniff, framing denied, no-store</text>
-    <text class="num" x="284" y="172" text-anchor="end">2</text>
-    </a>
+
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-host" id="log">
+    <rect class="box" x="28" y="124" width="262" height="52" rx="9"/>
+    <g class="step"><circle cx="48" cy="150.0" r="10"/><text x="48" y="154.0">1</text></g>
+    <text class="name mono-name" x="66" y="143">logRequests</text>
+    <text class="sub" x="66" y="159">request log, sanitized logger</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">logRequests</tspan> · shelf request log through a sanitized logger</text><text class="p2" x="36" y="688">Only a secret= query value (the WhatsApp webhook secret) is redacted; a ?token= bootstrap URL is logged as sent. server_deps.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-sec" id="hdr">
+    <rect class="box" x="28" y="196" width="262" height="52" rx="9"/>
+    <g class="step"><circle cx="48" cy="222.0" r="10"/><text x="48" y="226.0">2</text></g>
+    <text class="name mono-name" x="66" y="215">securityHeadersMiddleware</text>
+    <text class="sub" x="66" y="231">CSP, nosniff, no framing, no-store</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">securityHeadersMiddleware</tspan> · directly inside logRequests, so it sets headers on every response, including auth refusals</text><text class="p2" x="36" y="688">CSP hashes the one inline theme script; Cache-Control no-store unless already set; HSTS when gateway.hsts is on. auth/security_headers.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-host" id="cors">
+    <rect class="box" x="28" y="268" width="262" height="52" rx="9"/>
+    <g class="step"><circle cx="48" cy="294.0" r="10"/><text x="48" y="298.0">3</text></g>
+    <text class="name mono-name" x="66" y="287">_corsMiddleware</text>
+    <text class="sub" x="66" y="303">http://localhost, 127.0.0.1 only</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">_corsMiddleware</tspan> · only http://localhost and http://127.0.0.1 origins are answered; any other origin gets Allow-Origin http://localhost</text><text class="p2" x="36" y="688">OPTIONS is answered directly, before authentication. server.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n solid k-sec" id="auth">
+    <rect class="box" x="28" y="340" width="262" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="362" r="10"/><text x="48" y="366">4</text></g>
+    <text class="name mono-name" x="66" y="363">authMiddleware</text>
+    <text class="sub" x="66" y="381">auth_mode: none installs</text>
+    <text class="sub" x="66" y="397">localAdminMiddleware instead</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">authMiddleware</tspan> · stateless: cookies are HMAC-signed with the gateway token, so dartclaw token rotate invalidates every one</text><text class="p2" x="36" y="688">With auth_mode: none every request gets local-admin context and originHostGuardMiddleware then needs a loopback server.host and Host.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-sec" id="origin">
+    <rect class="box" x="28" y="424" width="262" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="446" r="10"/><text x="48" y="450">5</text></g>
+    <text class="name mono-name" x="66" y="447">originHostGuardMiddleware</text>
+    <text class="sub" x="66" y="465">cookie-authed writes: Origin</text>
+    <text class="sub" x="66" y="481">(else Referer) must equal Host</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">originHostGuardMiddleware</tspan> · cookie-authenticated POST, PUT, PATCH and DELETE get 403 on a mismatch or when both headers are absent</text><text class="p2" x="36" y="688">Safe methods and Bearer requests are exempt; no-auth writes also need a loopback server.host and Host. origin_host_guard.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-host" id="router">
+    <rect class="box" x="28" y="508" width="262" height="52" rx="9"/>
+    <g class="step"><circle cx="48" cy="534.0" r="10"/><text x="48" y="538.0">6</text></g>
+    <text class="name mono-name" x="66" y="527">router</text>
+    <text class="sub" x="66" y="543">shelf_router, then styled 404</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">router</tspan> · routes mount under the pipeline; unmatched requests fall through a Cascade to the 404 page</text><text class="p2" x="36" y="688">Auth-exempt routes (/health, /login, /static, webhooks, /mcp) are decided by authMiddleware, not by the router.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-host" id="pub">
+    <rect class="box" x="326" y="124" width="330" height="84" rx="9"/>
+    <g class="step"><circle cx="346" cy="146" r="10"/><text x="346" y="150">a</text></g>
+    <text class="name" x="364" y="147">public path</text>
+    <text class="sub" x="364" y="165">/health /login /favicon.ico /static/*</text>
+    <text class="sub" x="364" y="181">/knowledge/source, /webhook/*</text>
+    <text class="sub" x="364" y="197">plus /mcp and webhook paths when mounted</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">public path</tspan> · the first check: a public path goes straight to the handler with no auth context</text><text class="p2" x="36" y="688">Slack, Google Chat and GitHub webhook paths are public only when their handler exists. server.dart _buildPipeline.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-host" id="cookie">
+    <rect class="box" x="326" y="234" width="330" height="52" rx="9"/>
+    <g class="step"><circle cx="346" cy="260.0" r="10"/><text x="346" y="264.0">b</text></g>
+    <text class="name" x="364" y="253">session cookie</text>
+    <text class="sub" x="364" y="269">dart_session: HMAC valid, 30-day TTL</text>
+    <g class="chip k-host"><rect x="533" y="241" width="113" height="16" rx="8"/><text x="540" y="253">→ cookie context</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">session cookie</tspan> · a valid cookie resets the remote key on AuthRateLimiter and passes with cookie context</text><text class="p2" x="36" y="688">base64url({iat}).base64url(HMAC-SHA256(payload, gateway token)); no server-side state. auth/session_token.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-host" id="bearer">
+    <rect class="box" x="326" y="312" width="330" height="52" rx="9"/>
+    <g class="step"><circle cx="346" cy="338.0" r="10"/><text x="346" y="342.0">c</text></g>
+    <text class="name" x="364" y="331">Authorization: Bearer</text>
+    <text class="sub" x="364" y="347">gateway token, constant-time compare</text>
+    <g class="chip k-host"><rect x="539" y="319" width="107" height="16" rx="8"/><text x="546" y="331">→ admin context</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">Authorization: Bearer</tspan> · the gateway token as a Bearer passes with admin context and resets the failure window</text><text class="p2" x="36" y="688">32 Random.secure() bytes as 64 hex characters in &lt;data_dir&gt;/gateway_token, chmod 600; a blank token is rejected. auth/token_service.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-host" id="qtoken">
+    <rect class="box" x="326" y="390" width="330" height="68" rx="9"/>
+    <g class="step"><circle cx="346" cy="412" r="10"/><text x="346" y="416">d</text></g>
+    <text class="name" x="364" y="413">GET ?token=</text>
+    <text class="sub" x="364" y="431">valid gateway token: Set-Cookie,</text>
+    <text class="sub" x="364" y="447">redirect to the URL without the token</text>
+    <g class="chip k-host"><rect x="545" y="401" width="101" height="16" rx="8"/><text x="552" y="413">→ 302 + cookie</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">GET ?token=</tspan> · the bootstrap: any GET with a valid ?token= sets the session cookie and redirects with the token stripped</text><text class="p2" x="36" y="688">The token appears in the URL once; the serve banner prints it when stderr is a terminal, so rotate after sharing one. ADR-006.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n tint k-sec" id="other">
+    <rect class="box" x="326" y="484" width="330" height="68" rx="9"/>
+    <g class="step"><circle cx="346" cy="506" r="10"/><text x="346" y="510">e</text></g>
+    <text class="name" x="364" y="507">otherwise</text>
+    <text class="sub" x="364" y="525">browser: redirect to /login; API: 401 JSON</text>
+    <text class="sub" x="364" y="541">past 5 failures per minute: 429</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">otherwise</tspan> · recordFailedAuth fires FailedAuthEvent and counts a failure for the remote key; a request over budget is not counted again</text><text class="p2" x="36" y="688">The credential checks run first, so a valid credential still passes while the key is over budget. auth_middleware.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#inbound-mcp-authentication"><g class="n tint k-sec" id="mcp">
+    <rect class="box" x="696" y="124" width="276" height="108" rx="9"/>
+    <text class="name mono-name" x="708" y="147">/mcp</text>
+    <text class="sub" x="708" y="165">mcpRoute resolves a gateway token,</text>
+    <text class="sub" x="708" y="181">a gateway.mcp_clients token or a</text>
+    <text class="sub" x="708" y="197">host harness bearer</text>
+    <g class="chip k-sec"><rect x="708" y="208" width="119" height="16" rx="8"/><text x="715" y="220">→ AuthRateLimiter</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">/mcp</tspan> · resolved without short-circuiting, in constant time; the body is capped at 1 MiB</text><text class="p2" x="36" y="688">Only a gateway-token success resets the shared failure window, so the least-trusted credential cannot disable the limiter. mcp/mcp_router.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#webhooks"><g class="n tint k-sec" id="hooks">
+    <rect class="box" x="696" y="244" width="276" height="108" rx="9"/>
+    <text class="name mono-name" x="708" y="267">webhooks</text>
+    <text class="sub" x="708" y="285">WhatsApp query secret, Google Chat</text>
+    <text class="sub" x="708" y="301">JWT, GitHub and Slack HMAC;</text>
+    <text class="sub" x="708" y="317">1 MiB body cap</text>
+    <g class="chip k-neu"><rect x="708" y="328" width="138" height="16" rx="8"/><text x="715" y="340">FailedAuthEvent only</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">webhooks</tspan> · each route verifies itself, so a new route under /webhook/ must bring its own check</text><text class="p2" x="36" y="688">Slack also checks a 300 s replay window and audits refusals; a failed verification fires FailedAuthEvent but no throttle applies.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#source-links"><g class="n tint k-sec" id="src">
+    <rect class="box" x="696" y="364" width="276" height="88" rx="9"/>
+    <text class="name mono-name" x="708" y="387">/knowledge/source</text>
+    <text class="sub" x="708" y="405">signed link token, verified before</text>
+    <text class="sub" x="708" y="421">any file or database read</text>
+    <g class="chip k-sec"><rect x="708" y="428" width="119" height="16" rx="8"/><text x="715" y="440">→ AuthRateLimiter</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">/knowledge/source</tspan> · GET /knowledge/source?t=&lt;token&gt;: an exact auth-exempt path serving wiki pages and graph facts only</text><text class="p2" x="36" y="688">Every refusal is the wiki view's single 404; a missing or invalid token is a failed auth, and a valid link never counts or resets.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#http-authentication"><g class="n solid k-sec" id="limiter">
+    <rect class="box" x="696" y="484" width="276" height="68" rx="9"/>
+    <text class="name mono-name" x="708" y="507">AuthRateLimiter</text>
+    <text class="sub" x="708" y="525">5 failures per minute per remote key</text>
+    <text class="sub" x="708" y="541">auth.trusted_proxies: X-Forwarded-For</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">AuthRateLimiter</tspan> · one instance in Server shared by the gateway, /mcp and /knowledge/source; success on the gateway resets the key</text><text class="p2" x="36" y="688">recordFailure appends a timestamp; shouldLimit prunes the window first, then answers 429. auth/auth_rate_limiter.dart.</text></g>
+  </g></a>
+  <g transform="translate(24,596)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">middleware or check</text>
+    <g class="tint k-sec"><rect class="box" x="161.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="183.8" y="10">security boundary</text>
+    <g class="solid k-sec"><rect class="box" x="311.20000000000005" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="333.20000000000005" y="10">decides and counts</text>
+    <g class="e main"><path d="M466.80000000000007,6 H498.80000000000007"/></g><text class="lg" x="506.80000000000007" y="10">next, in order</text>
+    <g class="e bad"><path d="M615.6000000000001,6 H647.6000000000001"/></g><text class="lg" x="655.6000000000001" y="10">failed attempt</text>
+    <g class="e dash"><path d="M764.4000000000001,6 H796.4000000000001"/></g><text class="lg" x="804.4000000000001" y="10">exempt</text>
   </g>
-  <g class="node k-host">
-    <title>Any other origin is answered with Access-Control-Allow-Origin http://localhost. OPTIONS is answered directly.</title>
-    <path class="edge" d="M159,280 V294"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="24" y="224" width="270" height="56" rx="6"/>
-    <text class="mono" x="36" y="245">_corsMiddleware</text>
-    <text class="sub" x="36" y="262">only http://localhost and 127.0.0.1 origins</text>
-    <text class="num" x="284" y="242" text-anchor="end">3</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>Skipped only for auth_mode none, where every request gets local-admin context. Stateless: cookies are HMAC-signed with the gateway token, so token rotate invalidates all of them.</title>
-    <path class="edge" d="M159,350 V364"/>
-    <path class="edge" d="M294,322 H330"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="24" y="294" width="270" height="56" rx="6"/>
-    <text class="mono" x="36" y="315">authMiddleware</text>
-    <text class="sub" x="36" y="332">auth_mode: none installs</text>
-    <text class="sub" x="36" y="345">localAdminMiddleware instead</text>
-    <text class="num" x="284" y="312" text-anchor="end">4</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>403 on mismatch or when both headers are missing. No-auth local-admin writes also need a literal loopback server.host and Host. Safe methods and Bearer requests are exempt.</title>
-    <path class="edge" d="M159,420 V434"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="24" y="364" width="270" height="56" rx="6"/>
-    <text class="mono" x="36" y="385">originHostGuardMiddleware</text>
-    <text class="sub" x="36" y="402">POST/PUT/PATCH/DELETE with cookie auth:</text>
-    <text class="sub" x="36" y="415">Origin (else Referer) must equal Host</text>
-    <text class="num" x="284" y="382" text-anchor="end">5</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>Routes are mounted under the pipeline; unmatched requests fall through a Cascade to the 404 page.</title>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="24" y="434" width="270" height="56" rx="6"/>
-    <text class="mono" x="36" y="455">router</text>
-    <text class="sub" x="36" y="472">shelf_router, then styled 404</text>
-    <text class="num" x="284" y="452" text-anchor="end">6</text>
-    </a>
-  </g>
-  <rect class="group" x="330" y="84" width="350" height="376" rx="8"/>
-  <text class="group-label" x="340" y="99">authMiddleware check order</text>
-  <g class="node k-host">
-    <title>authMiddleware checks in this order: pass, no auth context</title>
-    <path class="edge" d="M505,180 V196"/>
-    <path class="edge" d="M664,142 H700"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="346" y="112" width="318" height="68" rx="6"/>
-    <text class="name" x="358" y="133">public path</text>
-    <text class="sub" x="358" y="150">/health /login /favicon.ico</text>
-    <text class="sub" x="358" y="163">/knowledge/source, /webhook/*, /static/*</text>
-    <text class="sub" x="358" y="176">+ /mcp and webhook paths when mounted</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>authMiddleware checks in this order: pass, cookie context</title>
-    <path class="edge" d="M505,240 V256"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="346" y="196" width="318" height="44" rx="6"/>
-    <text class="name" x="358" y="217">session cookie</text>
-    <text class="sub" x="358" y="234">dart_session: HMAC valid, 30-day TTL</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>authMiddleware checks in this order: pass, admin context</title>
-    <path class="edge" d="M505,300 V316"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="346" y="256" width="318" height="44" rx="6"/>
-    <text class="name" x="358" y="277">Authorization: Bearer</text>
-    <text class="sub" x="358" y="294">gateway token, constant-time compare</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>authMiddleware checks in this order: 302 with cookie</title>
-    <path class="edge" d="M505,372 V388"/>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="346" y="316" width="318" height="56" rx="6"/>
-    <text class="name" x="358" y="337">GET ?token=</text>
-    <text class="sub" x="358" y="354">valid gateway token: Set-Cookie,</text>
-    <text class="sub" x="358" y="367">redirect to the URL without the token</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>authMiddleware checks in this order: refused</title>
-    <a href="../security-architecture.md#http-authentication">
-    <rect class="box" x="346" y="388" width="318" height="56" rx="6"/>
-    <text class="name" x="358" y="409">otherwise</text>
-    <text class="sub" x="358" y="426">browser: redirect /login, API: 401 JSON</text>
-    <text class="sub" x="358" y="439">over 5 failures per minute: 429</text>
-    </a>
-  </g>
-  <rect class="group" x="700" y="84" width="276" height="376" rx="8"/>
-  <text class="group-label" x="710" y="99">authenticate themselves</text>
-  <g class="node k-sec">
-    <title>Resolved without short-circuiting, in constant time. Only a gateway-token success resets the shared failure window.</title>
-    <a href="../security-architecture.md#inbound-mcp-authentication">
-    <rect class="box" x="712" y="112" width="252" height="88" rx="6"/>
-    <text class="mono" x="724" y="133">/mcp</text>
-    <text class="sub" x="724" y="150">mcpRoute: gateway token, a</text>
-    <text class="sub" x="724" y="163">gateway.mcp_clients token or a</text>
-    <text class="sub" x="724" y="176">host harness bearer; shared</text>
-    <text class="sub" x="724" y="189">AuthRateLimiter, 1 MiB body</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>Each route verifies itself; Slack also checks a 300 s replay window and audits refusals.</title>
-    <a href="../security-architecture.md#webhooks">
-    <rect class="box" x="712" y="214" width="252" height="88" rx="6"/>
-    <text class="mono" x="724" y="235">webhooks</text>
-    <text class="sub" x="724" y="252">WhatsApp query secret,</text>
-    <text class="sub" x="724" y="265">Google Chat JWT,</text>
-    <text class="sub" x="724" y="278">GitHub and Slack HMAC;</text>
-    <text class="sub" x="724" y="291">1 MiB body cap</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>Exact auth-exempt path; token verified before any file or database read.</title>
-    <a href="../security-architecture.md#source-links">
-    <rect class="box" x="712" y="316" width="252" height="64" rx="6"/>
-    <text class="mono" x="724" y="337">/knowledge/source</text>
-    <text class="sub" x="724" y="354">signed link token; failures</text>
-    <text class="sub" x="724" y="367">count on AuthRateLimiter</text>
-    </a>
-  </g>
-  <text class="note" x="24" y="516" text-anchor="start">Gateway token: 32 random bytes as 64 hex chars in &lt;data_dir&gt;/gateway_token (chmod 600); dartclaw token rotate invalidates every cookie and source link.</text>
-  <text class="note" x="24" y="536" text-anchor="start">Session cookie: HttpOnly, SameSite=Strict, Path=/, Max-Age 30 days, Secure when auth.cookie_secure is set.</text>
 </svg>

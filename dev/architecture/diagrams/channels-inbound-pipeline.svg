@@ -1,177 +1,242 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 872" width="1000" height="872" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 984" width="1000" height="984" role="img" aria-labelledby="title desc">
   <title id="title">Inbound pipeline</title>
-  <desc id="desc">Platform events pass an access gate and dedup, then ChannelManager derives the session key and checks pause, ChannelTaskBridge consumes reserved commands, rate-limited senders and bound threads, and everything else is queued and dispatched as a turn.</desc>
+  <desc id="desc">A platform event is parsed by one of five adapter paths into a ChannelMessage. It passes the pure ChannelInboundGate, the message deduplicator (Google Chat only; Slack Events deduplicates its envelopes before the gate), ChannelManager (owner, session key, thread binding, pause check) and ChannelTaskBridge (reserved command, rate limit, bound thread) before MessageQueue and dispatchChannelTurn start the agent turn. Refused, duplicate and unowned messages are dropped; a paused message is held and replayed straight onto the queue on resume.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .halo { paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
-    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; fill: none; }
-    .num { font-size: 11px; font-weight: 700; fill: var(--accent); }
-    .badge { fill: var(--accent); }
-    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    a:hover text { text-decoration: underline; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#wa:hover) .edges :is(.f-wa,.t-wa) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sg:hover) .edges :is(.f-sg,.t-sg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gw:hover) .edges :is(.f-gw,.t-gw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gp:hover) .edges :is(.f-gp,.t-gp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sl:hover) .edges :is(.f-sl,.t-sl) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gate:hover) .edges :is(.f-gate,.t-gate) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dedup:hover) .edges :is(.f-dedup,.t-dedup) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mgr:hover) .edges :is(.f-mgr,.t-mgr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bridge:hover) .edges :is(.f-bridge,.t-bridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#queue:hover) .edges :is(.f-queue,.t-queue) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#disp:hover) .edges :is(.f-disp,.t-disp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dropped:hover) .edges :is(.f-dropped,.t-dropped) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#consumed:hover) .edges :is(.f-consumed,.t-consumed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pause:hover) .edges :is(.f-pause,.t-pause) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="872"/>
-  <text class="title" x="24" y="34">Inbound pipeline</text>
-  <text class="lede" x="24" y="56">From a platform event to an agent turn: gate, dedup, pause check, bridge, queue. Doc: channel-messaging-architecture.md section 3.</text>
-  <g class="node k-chan">
-    <title>One adapter per platform parses its payload, drops bot and own messages and normalizes to ChannelMessage. WhatsApp: GOWA webhook (WhatsAppChannel.handleWebhook). Signal: signal-cli SSE (SignalChannel). Google Chat: signed webhook and Pub/Sub pull. Slack: Socket Mode envelope or signed Events API POST.</title>
-    <path class="edge" d="M500,168 L500,204"/>
-    <a href="../channel-messaging-architecture.md#3-inbound-pipeline">
-      <rect class="box" x="60" y="80" width="880" height="88" rx="6"/>
-      <text class="mono" x="76" y="101">Channel adapters</text>
-      <text class="sub" x="230" y="101">parse, drop bot and own messages, normalize to ChannelMessage</text>
-      <rect class="chip" x="74" y="116" width="162" height="34" rx="4"/>
-      <text class="chip-text" x="84" y="137">WhatsApp webhook</text>
-      <rect class="chip" x="246" y="116" width="162" height="34" rx="4"/>
-      <text class="chip-text" x="256" y="137">Signal SSE</text>
-      <rect class="chip" x="418" y="116" width="162" height="34" rx="4"/>
-      <text class="chip-text" x="428" y="137">Chat webhook</text>
-      <rect class="chip" x="590" y="116" width="162" height="34" rx="4"/>
-      <text class="chip-text" x="600" y="137">Chat Pub/Sub pull</text>
-      <rect class="chip" x="762" y="116" width="162" height="34" rx="4"/>
-      <text class="chip-text" x="772" y="137">Slack Socket / Events</text>
-    </a>
+  <rect class="bg" width="1000" height="984"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="888" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="912">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="936">Hover a box for its invariant or source file; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="956">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · ChannelManager.handleInboundMessage</text>
+  <text class="title" x="24" y="58">Inbound pipeline</text>
+  <text class="lede" x="24" y="80">Every platform ends in one ChannelMessage, then passes one gate, a dedup check, a pause check and the bridge before the queue.</text>
+
+  <g class="k-chan"><rect class="band" x="24" y="100" width="952" height="104" rx="14"/><text class="kick" x="40" y="122">PLATFORM ADAPTERS · EACH NORMALIZES ITS PAYLOAD TO ChannelMessage</text></g>
+
+  <g class="edges">
+    <g class="e join f-wa t-gate"><path d="M126,192 V226"/></g>
+    <g class="e join f-sg t-gate"><path d="M310,192 V226"/></g>
+    <g class="e join f-gw t-gate"><path d="M494,192 V226"/></g>
+    <g class="e join f-gp t-gate"><path d="M678,192 V226"/></g>
+    <g class="e join f-sl t-gate"><path d="M862,192 V226"/></g>
+    <g class="e join f-wa f-sg f-gw f-gp f-sl t-gate"><path d="M126,226 H862"/></g>
+    <g class="e main f-wa f-sg f-gw f-gp f-sl t-gate"><path d="M480,226 V246"/><text class="el" x="488" y="241" text-anchor="start">ChannelMessage</text></g>
+    <g class="e main f-gate t-dedup"><path d="M480,320 V344"/><text class="el" x="488" y="337" text-anchor="start">admitted</text></g>
+    <g class="e main f-dedup t-mgr"><path d="M480,402 V426"/><text class="el" x="488" y="419" text-anchor="start">first seen</text></g>
+    <g class="e main f-mgr t-bridge"><path d="M480,532 V556"/><text class="el" x="488" y="549" text-anchor="start">not paused</text></g>
+    <g class="e main f-bridge t-queue"><path d="M480,646 V670"/><text class="el" x="488" y="663" text-anchor="start">not consumed</text></g>
+    <g class="e main f-queue t-disp"><path d="M480,744 V768"/><text class="el" x="488" y="761" text-anchor="start">dispatcher</text></g>
+    <g class="e bad f-gate t-dropped"><path d="M670,284 H738"/><text class="el" x="678" y="277" text-anchor="start">refused</text></g>
+    <g class="e  f-dedup t-dropped"><path d="M670,374 H706 V360 H738"/><text class="el" x="678" y="392" text-anchor="start">duplicate</text></g>
+    <g class="e bad f-mgr t-dropped"><path d="M670,480 H800 V404"/><text class="el" x="808" y="440" text-anchor="start">no owning channel</text></g>
+    <g class="e  f-mgr t-pause"><path d="M290,480 H236"/><text class="el" x="242" y="473" text-anchor="start">paused</text></g>
+    <g class="e  f-bridge t-consumed"><path d="M670,602 H738"/><text class="el" x="678" y="595" text-anchor="start">handled</text></g>
+    <g class="e  f-pause t-queue"><path d="M129,532 V708 H288"/><text class="el" x="138" y="604" text-anchor="start">on /resume:</text><text class="el" x="138" y="618">grouped replay,</text><text class="el" x="138" y="632">bridge skipped</text></g>
+    <g class="e  f-bridge t-queue"><path d="M620,646 V670"/><text class="el" x="628" y="663" text-anchor="start">bound: binding.sessionKey</text></g>
   </g>
-  <g class="node k-sec">
-    <title>inbound_gate.dart. Returns a ChannelInboundDecision (admitted, dmDenied, dmPairingRequired, groupAccessDisabled, groupNotAllowlisted, mentionRequired). Absent DmAccessController or MentionGating admits at that stage. Space Events Pub/Sub runs it with mention gating off; slash commands skip mention gating.</title>
-    <path class="edge" d="M500,268 L500,304"/>
-    <path class="edge" d="M700,236 L740,236"/>
-    <a href="../channel-messaging-architecture.md#3-inbound-pipeline">
-      <rect class="box" x="300" y="204" width="400" height="64" rx="6"/>
-      <text class="mono" x="314" y="225">ChannelInboundGate.evaluate</text>
-      <text class="sub" x="314" y="243">DM access, then group access, then mention gating</text>
-      <text class="sub" x="314" y="258">pure decision; each adapter applies the effect</text>
-    </a>
+
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-chan" id="wa">
+    <rect class="box" x="40" y="134" width="172" height="58" rx="9"/>
+    <text class="name" x="52" y="153">WhatsApp</text>
+    <g class="badge"><rect x="162" y="141" width="40" height="16" rx="8"/><text x="182" y="153">HTTP</text></g>
+    <text class="sub" x="52" y="169">GOWA webhook</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">WhatsApp</tspan> · WhatsAppChannel.handleWebhook parses the GOWA webhook, drops own messages and normalizes</text><text class="p2" x="36" y="956">GOWA runs as a subprocess (outpost pattern). Group gating depends on mention_patterns: nothing lands in mentionedJids.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-chan" id="sg">
+    <rect class="box" x="224" y="134" width="172" height="58" rx="9"/>
+    <text class="name" x="236" y="153">Signal</text>
+    <g class="badge"><rect x="353" y="141" width="33" height="16" rx="8"/><text x="370" y="153">SSE</text></g>
+    <text class="sub" x="236" y="169">signal-cli daemon</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">Signal</tspan> · SignalChannel reads the signal-cli SSE stream (_handleEvent), drops own messages and normalizes</text><text class="p2" x="36" y="956">A recipient that is not an E.164 number or UUIDv4 is treated as a group ID, so a group message is matched through its sender.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-chan" id="gw">
+    <rect class="box" x="408" y="134" width="172" height="58" rx="9"/>
+    <text class="name" x="420" y="153">Google Chat</text>
+    <g class="badge"><rect x="530" y="141" width="40" height="16" rx="8"/><text x="550" y="153">HTTP</text></g>
+    <text class="sub" x="420" y="169">signed webhook</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">Google Chat</tspan> · GoogleChatWebhookHandler verifies the JWT, then gates, deduplicates and hands off</text><text class="p2" x="36" y="956">Reply is delivered later through the REST client, not in the webhook response. See the Google Chat ingest figure.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-chan" id="gp">
+    <rect class="box" x="592" y="134" width="172" height="58" rx="9"/>
+    <text class="name" x="604" y="153">Google Chat</text>
+    <g class="badge"><rect x="714" y="141" width="40" height="16" rx="8"/><text x="734" y="153">PULL</text></g>
+    <text class="sub" x="604" y="169">Workspace Events pull</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">Google Chat</tspan> · GoogleChatSpaceEventsWiring.processMessage handles CloudEvents pulled from Pub/Sub</text><text class="p2" x="36" y="956">Carries un-mentioned space traffic, so its gate runs with mention gating off and a refused message is acked, never nacked.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#131-transports-and-envelope-dispatch"><g class="n tint k-chan" id="sl">
+    <rect class="box" x="776" y="134" width="172" height="58" rx="9"/>
+    <text class="name" x="788" y="153">Slack</text>
+    <g class="badge"><rect x="863" y="141" width="75" height="16" rx="8"/><text x="900" y="153">WS · HTTP</text></g>
+    <text class="sub" x="788" y="169">Socket Mode, Events API</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">Slack</tspan> · SlackChannel dispatches Socket Mode envelopes or signed Events API POSTs</text><text class="p2" x="36" y="956">The one adapter that stamps threadId and fills attachments (files it already downloaded).</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-sec" id="gate">
+    <rect class="box" x="290" y="248" width="380" height="72" rx="9"/>
+    <g class="step"><circle cx="310" cy="270" r="10"/><text x="310" y="274">1</text></g>
+    <text class="name mono-name" x="328" y="271">ChannelInboundGate</text>
+    <text class="sub" x="328" y="289">DM access, then group access, then mention gating</text>
+    <text class="sub" x="328" y="305">pure: returns a ChannelInboundDecision</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">ChannelInboundGate</tspan> · returns admitted or the stage that dropped the message; it logs nothing and performs no I/O</text><text class="p2" x="36" y="956">A missing DmAccessController or MentionGating admits at that stage. Pairing: 3 pending, 8-character codes, 1 hour expiry.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-host" id="dedup">
+    <rect class="box" x="290" y="346" width="380" height="56" rx="9"/>
+    <g class="step"><circle cx="310" cy="374.0" r="10"/><text x="310" y="378.0">2</text></g>
+    <text class="name mono-name" x="328" y="365">MessageDeduplicator</text>
+    <text class="sub" x="328" y="381">Google Chat paths; Slack Events: before the gate</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">MessageDeduplicator</tspan> · bounded insertion-ordered set, capacity 1000, keyed on the Chat message resource name; first seen wins</text><text class="p2" x="36" y="956">One instance serves the Chat webhook and Pub/Sub paths. Slack Events checks its own event_id ledger per envelope, before the gate.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#24-channelmanager"><g class="n solid k-host" id="mgr">
+    <rect class="box" x="290" y="428" width="380" height="104" rx="9"/>
+    <g class="step"><circle cx="310" cy="450" r="10"/><text x="310" y="454">3</text></g>
+    <text class="name mono-name" x="328" y="451">ChannelManager.handleInboundMessage</text>
+    <text class="sub" x="328" y="469">find the owning channel (ownsJid)</text>
+    <text class="sub" x="328" y="485">deriveSessionKey</text>
+    <text class="sub" x="328" y="501">lookupThreadBinding: task bindings only</text>
+    <text class="sub" x="328" y="517">paused and not a reserved command? hold it</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">ChannelManager.handleInboundMessage</tspan> · the binding lookup runs before the pause check, so a held message keeps the route it would have had</text><text class="p2" x="36" y="956">Reserved commands skip the pause check. A message no channel owns is dropped with a warning.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#4-channel-task-bridge"><g class="n tint k-host" id="bridge">
+    <rect class="box" x="290" y="558" width="380" height="88" rx="9"/>
+    <g class="step"><circle cx="310" cy="580" r="10"/><text x="310" y="584">4</text></g>
+    <text class="name mono-name" x="328" y="581">ChannelTaskBridge.tryHandle</text>
+    <text class="sub" x="328" y="599">0  reserved command</text>
+    <text class="sub" x="328" y="615">1  per-sender rate limit, admins exempt</text>
+    <text class="sub" x="328" y="631">2  bound-thread routing</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">ChannelTaskBridge.tryHandle</tspan> · channel_task_bridge.dart; stateless coordinator over injected callbacks, so core stays free of runtime types</text><text class="p2" x="36" y="956">Rate limiting precedes bound-thread routing so a limited sender cannot bypass the limit by posting in a bound thread.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#71-messagequeue"><g class="n tint k-host" id="queue">
+    <rect class="box" x="290" y="672" width="380" height="72" rx="9"/>
+    <g class="step"><circle cx="310" cy="694" r="10"/><text x="310" y="698">5</text></g>
+    <text class="name mono-name" x="328" y="695">MessageQueue</text>
+    <text class="sub" x="328" y="713">debounce 1 s per (session, sender)</text>
+    <text class="sub" x="328" y="729">per-session FIFO, global turn cap</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">MessageQueue</tspan> · message_queue.dart; debounce 1 s per (sessionKey, senderJid), global cap from concurrency.max_parallel_turns</text><text class="p2" x="36" y="956">A turn is dispatched once and never re-run; only reply delivery retries. Without a bridge (tests) ChannelManager enqueues here directly.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#72-dispatchchannelturn"><g class="n tint k-host" id="disp">
+    <rect class="box" x="290" y="770" width="380" height="72" rx="9"/>
+    <g class="step"><circle cx="310" cy="792" r="10"/><text x="310" y="796">6</text></g>
+    <text class="name mono-name" x="328" y="793">dispatchChannelTurn</text>
+    <text class="sub" x="328" y="811">session, attachments, persist the message</text>
+    <text class="sub" x="328" y="827">TurnManager.startTurn, source: channel</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">dispatchChannelTurn</tspan> · runtime/channel_wiring.dart; gets or creates the session, stages attachments, persists the message</text><text class="p2" x="36" y="956">A global-cap refusal waits for capacity and retries only the start, because the inbound message is already persisted.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-neu" id="dropped">
+    <rect class="box" x="740" y="248" width="236" height="154" rx="9"/>
+    <text class="name" x="752" y="271">dropped</text>
+    <text class="sub" x="752" y="289">gate refusal: logged; a new DM</text>
+    <text class="sub" x="752" y="305">sender may get a pairing code</text>
+    <text class="sub" x="752" y="321">duplicate: skipped, logged</text>
+    <text class="sub" x="752" y="337">no owning channel: warning</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">dropped</tspan> · gate refusals, duplicates and messages no channel owns stop here</text><text class="p2" x="36" y="956">Google Chat and Slack post the pairing code into the conversation; WhatsApp and Signal only record it for confirmation in settings.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#41-routing-precedence"><g class="n tint k-neu" id="consumed">
+    <rect class="box" x="740" y="558" width="236" height="88" rx="9"/>
+    <text class="name" x="752" y="581">consumed</text>
+    <text class="sub" x="752" y="599">reserved command run or refused</text>
+    <text class="sub" x="752" y="615">rate-limit reply sent</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">consumed</tspan> · tryHandle returned true: the message never reaches the queue</text><text class="p2" x="36" y="956">A non-admin reserved command is refused and audited (guard ReservedCommand, hook channel_command).</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#93-pause-and-resume"><g class="n tint k-sec" id="pause">
+    <rect class="box" x="24" y="428" width="210" height="104" rx="9"/>
+    <text class="name mono-name" x="36" y="451">PauseController</text>
+    <text class="sub" x="36" y="469">in-memory, resets on restart</text>
+    <text class="sub" x="36" y="485">queues non-reserved traffic</text>
+    <text class="sub" x="36" y="501">cap 200; sender told it is held</text>
+    <g class="d"><text class="p1" x="36" y="936"><tspan class="b">PauseController</tspan> · governance/pause_controller.dart; /resume drains the queue and unpauses atomically</text><text class="p2" x="36" y="956">Replay: one collapsed message per (session key, channel, conversation), enqueued on MessageQueue with the session key captured before the pause.</text></g>
+  </g></a>
+  <g transform="translate(24,862)">
+    <g class="tint k-chan"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">platform adapter</text>
+    <g class="tint k-sec"><rect class="box" x="143.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="165.2" y="10">access control</text>
+    <g class="tint k-host"><rect class="box" x="274.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="296.0" y="10">DartClaw component</text>
+    <g class="tint k-neu"><rect class="box" x="429.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="451.6" y="10">message stops</text>
+    <g class="e main"><path d="M554.2,6 H586.2"/></g><text class="lg" x="594.2" y="10">message continues</text>
+    <g class="e bad"><path d="M721.6,6 H753.6"/></g><text class="lg" x="761.6" y="10">refused</text>
+    <g class="e "><path d="M827.0,6 H859.0"/></g><text class="lg" x="867.0" y="10">other route</text>
   </g>
-  <g class="node k-host">
-    <title>Refused messages stop here. Google Chat and Slack post the pairing code into the conversation; WhatsApp and Signal only record the pending pairing (3 pending, 8-character code, 1 hour).</title>
-    <rect class="box" x="740" y="204" width="220" height="64" rx="6"/>
-    <text class="mono" x="754" y="225">dropped</text>
-    <text class="sub" x="754" y="243">logged; new DM sender may</text>
-    <text class="sub" x="754" y="258">get a pairing code</text>
-  </g>
-  <g class="node k-host">
-    <title>message_deduplicator.dart. Bounded insertion-ordered set, capacity 1000. One instance is shared by the Google Chat webhook and Pub/Sub paths (created only when space events are configured). Slack Events API requests use their own ledger, checked before dispatch.</title>
-    <path class="edge" d="M500,360 L500,396"/>
-    <path class="edge" d="M700,332 L740,332"/>
-    <a href="../channel-messaging-architecture.md#3-inbound-pipeline">
-      <rect class="box" x="300" y="304" width="400" height="56" rx="6"/>
-      <text class="mono" x="314" y="325">MessageDeduplicator</text>
-      <text class="sub" x="314" y="343">Chat webhook and Pub/Sub, keyed on message resource name</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>A message that arrives on both the webhook and Pub/Sub is processed once.</title>
-    <rect class="box" x="740" y="304" width="220" height="56" rx="6"/>
-    <text class="mono" x="754" y="325">duplicate skipped</text>
-    <text class="sub" x="754" y="343">same message via two paths</text>
-  </g>
-  <g class="node k-host">
-    <title>channel_manager.dart. The binding lookup runs before the pause check so a paused message keeps the route it would have had. Reserved commands skip the pause check. A message no channel owns is dropped with a warning.</title>
-    <path class="edge" d="M500,496 L500,540"/>
-    <path class="edge" d="M300,446 L260,446"/>
-    <a href="../channel-messaging-architecture.md#24-channelmanager">
-      <rect class="box" x="300" y="396" width="400" height="100" rx="6"/>
-      <text class="mono" x="314" y="417">ChannelManager.handleInboundMessage</text>
-      <text class="sub" x="314" y="435">1  find owning channel (ownsJid)</text>
-      <text class="sub" x="314" y="450">2  deriveSessionKey</text>
-      <text class="sub" x="314" y="465">3  lookupThreadBinding (task bindings)</text>
-      <text class="sub" x="314" y="480">4  paused and not a reserved command?</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>governance/pause_controller.dart. /resume drains the queue and unpauses atomically; messages are grouped per conversation into one collapsed message and enqueued straight on MessageQueue with the session key captured before the pause. The bridge is skipped on replay, so the rate limit is not re-applied.</title>
-    <path class="edge" d="M150,496 L150,704 L300,704"/>
-    <a href="../channel-messaging-architecture.md#93-pause-and-resume">
-      <rect class="box" x="40" y="396" width="220" height="100" rx="6"/>
-      <text class="mono" x="54" y="417">PauseController</text>
-      <text class="sub" x="54" y="435">in-memory, resets on restart</text>
-      <text class="sub" x="54" y="450">paused: message queued (cap 200)</text>
-      <text class="sub" x="54" y="465">sender is acknowledged</text>
-    </a>
-  </g>
-  <text class="edge-label halo" x="160" y="600" text-anchor="start">on /resume: replay,</text>
-  <text class="edge-label halo" x="160" y="614" text-anchor="start">bridge skipped</text>
-  <g class="node k-host">
-    <title>channel_task_bridge.dart. Stateless coordinator over injected callbacks. Rate limiting precedes bound-thread routing so a limited sender cannot bypass the limit by posting in a bound thread.</title>
-    <path class="edge" d="M500,630 L500,676"/>
-    <path class="edge" d="M700,566 L740,566"/>
-    <path class="edge" d="M700,610 L880,610 L880,704 L700,704"/>
-    <a href="../channel-messaging-architecture.md#4-channel-task-bridge">
-      <rect class="box" x="300" y="540" width="400" height="90" rx="6"/>
-      <text class="mono" x="314" y="561">ChannelTaskBridge.tryHandle</text>
-      <text class="sub" x="314" y="579">0  reserved command (ReservedCommandHandler)</text>
-      <text class="sub" x="314" y="594">1  per-sender rate limit (admins exempt)</text>
-      <text class="sub" x="314" y="609">2  bound-thread routing</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>tryHandle returns true: the message never reaches the queue. A non-admin reserved command is refused and audited (guard ReservedCommand).</title>
-    <rect class="box" x="740" y="540" width="220" height="62" rx="6"/>
-    <text class="mono" x="754" y="561">consumed</text>
-    <text class="sub" x="754" y="579">command run or refused,</text>
-    <text class="sub" x="754" y="594">rate-limit reply sent</text>
-  </g>
-  <text class="edge-label halo" x="886" y="656" text-anchor="start">bound thread:</text>
-  <text class="edge-label halo" x="886" y="670" text-anchor="start">enqueue on</text>
-  <text class="edge-label halo" x="886" y="684" text-anchor="start">binding.sessionKey</text>
-  <text class="edge-label" x="508" y="662" text-anchor="start">not consumed</text>
-  <g class="node k-host">
-    <title>message_queue.dart. Debounce 1 s per (sessionKey, senderJid), per-session FIFO, global cap from concurrency.max_parallel_turns, reply delivery retried (turns never are).</title>
-    <path class="edge" d="M500,736 L500,776"/>
-    <a href="../channel-messaging-architecture.md#71-messagequeue">
-      <rect class="box" x="300" y="676" width="400" height="60" rx="6"/>
-      <text class="mono" x="314" y="697">MessageQueue</text>
-      <text class="sub" x="314" y="715">debounce, per-session FIFO, global turn cap</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>runtime/channel_wiring.dart. Gets or creates the channel session (pinned to the agent for a bound allowlist row), stages attachments, persists the user message, starts the turn with isHumanInput and waits for the outcome.</title>
-    <a href="../channel-messaging-architecture.md#72-dispatchchannelturn">
-      <rect class="box" x="300" y="776" width="400" height="60" rx="6"/>
-      <text class="mono" x="314" y="797">dispatchChannelTurn</text>
-      <text class="sub" x="314" y="815">persist message, start turn on TurnManager</text>
-    </a>
-  </g>
-  <rect x="24" y="852" width="26" height="14" rx="3" fill="none" stroke="var(--chan)"/><text class="note" x="58" y="863">platform adapters</text>
-  <rect x="170" y="852" width="26" height="14" rx="3" fill="none" stroke="var(--sec)"/><text class="note" x="204" y="863">access control</text>
-  <rect x="300" y="852" width="26" height="14" rx="3" fill="none" stroke="var(--host)"/><text class="note" x="334" y="863">DartClaw code</text>
-  <text class="note" x="480" y="863" text-anchor="start">Hover a box for details; links open the section.</text>
 </svg>

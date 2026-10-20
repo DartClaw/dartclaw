@@ -1,152 +1,218 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 660" width="1000" height="660" role="img" aria-labelledby="title desc">
-  <title id="title">Session resolution: from an inbound message or caller to one session</title>
-  <desc id="desc">An inbound channel message passes six steps (key derivation, thread-binding override, pause, bridge, queue, dispatch) before SessionService resolves its session. Web chat, main, cron, task and logical-agent callers reach SessionService directly with their own keys.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 844" width="1000" height="844" role="img" aria-labelledby="title desc">
+  <title id="title">Session resolution</title>
+  <desc id="desc">An inbound channel message derives a SessionKey from the DM or group scope, the owning agent and the thread, passes the thread-binding, pause and task-bridge checks, is queued, and reaches SessionService.getOrCreateByKey in dispatchChannelTurn. The main session, scheduled jobs, tasks and sessions_spawn build a key from an id; web chat creates an unkeyed user session. Sessions live under sessions/ in the data directory.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .num { fill: var(--k); }
-    .num-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#c1:hover) .edges :is(.f-c1,.t-c1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c2:hover) .edges :is(.f-c2,.t-c2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c3:hover) .edges :is(.f-c3,.t-c3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c4:hover) .edges :is(.f-c4,.t-c4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c5:hover) .edges :is(.f-c5,.t-c5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c6:hover) .edges :is(.f-c6,.t-c6) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#main:hover) .edges :is(.f-main,.t-main) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cron:hover) .edges :is(.f-cron,.t-cron) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#task:hover) .edges :is(.f-task,.t-task) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#spawn:hover) .edges :is(.f-spawn,.t-spawn) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#web:hover) .edges :is(.f-web,.t-web) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ss:hover) .edges :is(.f-ss,.t-ss) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#store:hover) .edges :is(.f-store,.t-store) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="660"/>
-  <text class="title" x="24" y="34">Session resolution</text>
-  <text class="lede" x="24" y="56">Every caller ends at SessionService. Only channel messages derive their key; the other surfaces build theirs from a job, task or agent id.</text>
-  <text class="group-label" x="24" y="84">Channel message (steps 3 to 6 are owned by channel-messaging)</text>
-  <text class="group-label" x="560" y="84">Other surfaces</text>
-  <g class="node k-chan">
-    <title>channel_manager.dart: finds the channel that owns the sender JID.</title>
-    <path class="edge" d="M224,142 L224,158"/>
-    <rect class="box" x="24" y="94" width="400" height="48" rx="6"/>
-    <circle class="num" cx="42" cy="118" r="10"/><text class="num-text" x="42" y="122">1</text>
-    <text class="mono" x="62" y="114">ChannelManager.handleInboundMessage</text>
-    <text class="sub" x="62" y="132">owning channel found; otherwise the message is dropped</text>
+  <rect class="bg" width="1000" height="844"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="748" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="772">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="796">Hover a box for what it does; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="816">A chip inside a box is an exit not drawn as an arrow. Inside a rendered document this image is static; click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">FLOW · SessionService.getOrCreateByKey</text>
+  <text class="title" x="24" y="58">Session resolution</text>
+  <text class="lede" x="24" y="80">Every caller ends at SessionService. Only channel messages derive their key; the other surfaces build theirs from an id.</text>
+
+  <g class="k-chan"><rect class="band" x="16" y="100" width="470" height="420" rx="14"/><text class="kick" x="32" y="122">CHANNEL MESSAGE · KEY DERIVED FROM SCOPE</text></g>
+  <g class="k-chan"><rect class="band inner" x="26" y="244" width="450" height="264" rx="10"/><text class="kick" x="42" y="266">OWNED BY CHANNEL MESSAGING</text></g>
+  <g class="k-host"><rect class="band" x="506" y="100" width="470" height="342" rx="14"/><text class="kick" x="522" y="122">OTHER SURFACES · KEY BUILT FROM AN ID</text></g>
+  <text class="el" x="506" y="506" text-anchor="start">web chat: createSession()</text>
+
+  <g class="edges">
+    <g class="e join f-main t-ss"><path d="M522,157 H496"/></g>
+    <g class="e join f-cron t-ss"><path d="M522,219 H496"/></g>
+    <g class="e join f-task t-ss"><path d="M522,281 H496"/></g>
+    <g class="e join f-spawn t-ss"><path d="M522,343 H496"/></g>
+    <g class="e join f-web t-ss"><path d="M522,405 H496"/></g>
+    <g class="e main f-c1 t-c2"><path d="M251,178 V188"/></g>
+    <g class="e main f-c2 t-c3"><path d="M251,236 V274"/></g>
+    <g class="e main f-c3 t-c4"><path d="M251,322 V332"/></g>
+    <g class="e main f-c4 t-c5"><path d="M251,380 V390"/></g>
+    <g class="e main f-c5 t-c6"><path d="M251,438 V448"/></g>
+    <g class="e main f-c6 t-ss"><path d="M251,496 V554"/><text class="el" x="259" y="542" text-anchor="start">getOrCreateByKey(type: channel)</text></g>
+    <g class="e  f-main f-cron f-task f-spawn f-web t-ss"><path d="M496,157 V554"/><text class="el" x="506" y="490" text-anchor="start">getOrCreateByKey(key)</text></g>
+    <g class="e  f-ss t-store"><path d="M500,624 V644"/><text class="el" x="508" y="639" text-anchor="start">meta.json, key index, transcript</text></g>
   </g>
-  <g class="node k-host">
-    <title>ChannelManager.deriveSessionKey: DmScope/GroupScope pick the SessionKey factory; the row's agent becomes the agentId component; message.threadId appends :thread:&lt;id&gt;.</title>
-    <path class="edge" d="M224,206 L224,222"/>
-    <rect class="box" x="24" y="158" width="400" height="48" rx="6"/>
-    <circle class="num" cx="42" cy="182" r="10"/><text class="num-text" x="42" y="186">2</text>
-    <text class="mono" x="62" y="178">deriveSessionKey</text>
-    <text class="sub" x="62" y="196">scope from LiveScopeConfig, agent from the allowlist row, :thread: suffix</text>
+
+  <a href="../session-state-architecture.md#4-session-resolution"><g class="n tint k-chan" id="c1">
+    <rect class="box" x="32" y="132" width="438" height="46" rx="9"/>
+    <g class="step"><circle cx="52" cy="155.0" r="10"/><text x="52" y="159.0">1</text></g>
+    <text class="name mono-name" x="70" y="151">handleInboundMessage</text>
+    <text class="sub" x="70" y="167">ChannelManager: finds the channel that owns the sender</text>
+    <g class="chip k-neu"><rect x="341" y="139" width="119" height="16" rx="8"/><text x="348" y="151">no owner: dropped</text></g>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">handleInboundMessage</tspan> · channel_manager.dart looks up the channel that owns the sender</text><text class="p2" x="36" y="816">A message with no owning channel is dropped before any session is touched.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#scope-configuration"><g class="n tint k-host" id="c2">
+    <rect class="box" x="32" y="190" width="438" height="46" rx="9"/>
+    <g class="step"><circle cx="52" cy="213.0" r="10"/><text x="52" y="217.0">2</text></g>
+    <text class="name mono-name" x="70" y="209">deriveSessionKey</text>
+    <text class="sub" x="70" y="225">scope from LiveScopeConfig, agent from the allowlist row</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">deriveSessionKey</tspan> · ChannelManager.deriveSessionKey: DmScope or GroupScope pick the SessionKey factory</text><text class="p2" x="36" y="816">The allowlist row's agent becomes the agentId component; message.threadId appends :thread:&lt;id&gt;.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md"><g class="n tint k-chan" id="c3">
+    <rect class="box" x="42" y="276" width="418" height="46" rx="9"/>
+    <g class="step"><circle cx="62" cy="299.0" r="10"/><text x="62" y="303.0">3</text></g>
+    <text class="name" x="80" y="295">thread binding lookup</text>
+    <text class="sub" x="80" y="311">task thread: use the binding's sessionKey</text>
+    <g class="chip k-neu"><rect x="324" y="283" width="126" height="16" rx="8"/><text x="331" y="295">bound: binding key</text></g>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">thread binding lookup</tspan> · ChannelTaskBridge.lookupThreadBinding answers only for task bindings</text><text class="p2" x="36" y="816">A run binding never routes a message to a session.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md"><g class="n tint k-sec" id="c4">
+    <rect class="box" x="42" y="334" width="418" height="46" rx="9"/>
+    <g class="step"><circle cx="62" cy="357.0" r="10"/><text x="62" y="361.0">4</text></g>
+    <text class="name" x="80" y="353">pause check</text>
+    <text class="sub" x="80" y="369">reserved commands exempt</text>
+    <g class="chip k-sec"><rect x="349" y="341" width="101" height="16" rx="8"/><text x="356" y="353">paused: queued</text></g>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">pause check</tspan> · while paused, PauseController queues the message with its resolved route</text><text class="p2" x="36" y="816">Resume drains the queue per session key.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md"><g class="n tint k-chan" id="c5">
+    <rect class="box" x="42" y="392" width="418" height="46" rx="9"/>
+    <g class="step"><circle cx="62" cy="415.0" r="10"/><text x="62" y="419.0">5</text></g>
+    <text class="name mono-name" x="80" y="411">ChannelTaskBridge.tryHandle</text>
+    <text class="sub" x="80" y="427">reserved commands, rate limit, bound thread</text>
+    <g class="chip k-neu"><rect x="349" y="399" width="101" height="16" rx="8"/><text x="356" y="411">handled: stops</text></g>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">ChannelTaskBridge.tryHandle</tspan> · reserved commands, the per-sender rate limit and a bound thread are handled here</text><text class="p2" x="36" y="816">If the bridge handles the message, routing stops: no session turn is dispatched.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md"><g class="n tint k-chan" id="c6">
+    <rect class="box" x="42" y="450" width="418" height="46" rx="9"/>
+    <g class="step"><circle cx="62" cy="473.0" r="10"/><text x="62" y="477.0">6</text></g>
+    <text class="name mono-name" x="80" y="469">MessageQueue, dispatchChannelTurn</text>
+    <text class="sub" x="80" y="485">debounce; persists the user message</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">MessageQueue, dispatchChannelTurn</tspan> · dispatchChannelTurn: getOrCreateByKey(type: channel), insert the user message, then admission</text><text class="p2" x="36" y="816">The message is persisted before admission, so a cap-deferred turn waits and retries inside dispatchChannelTurn.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#4-session-resolution"><g class="n tint k-host" id="main">
+    <rect class="box" x="522" y="132" width="438" height="50" rx="9"/>
+    <text class="name" x="534" y="151">Main session</text>
+    <text class="sub" x="534" y="167">getOrCreateMainSession(): key main</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">Main session</tspan> · created once at storage wiring with the literal key main</text><text class="p2" x="36" y="816">Maintenance never touches it; the daily and idle reset archive it and create a fresh main session.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#4-session-resolution"><g class="n tint k-host" id="cron">
+    <rect class="box" x="522" y="194" width="438" height="50" rx="9"/>
+    <text class="name" x="534" y="213">Scheduled job</text>
+    <text class="sub" x="534" y="229">SessionKey.cronSession(jobId)</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">Scheduled job</tspan> · ScheduleService builds the key from the job id</text><text class="p2" x="36" y="816">A perFireSession job appends a timestamp to the jobId, so each fire is its own session.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#4-session-resolution"><g class="n tint k-host" id="task">
+    <rect class="box" x="522" y="256" width="438" height="50" rx="9"/>
+    <text class="name" x="534" y="275">Task</text>
+    <text class="sub" x="534" y="291">SessionKey.taskSession(taskId)</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">Task</tspan> · TaskExecutor (task_executor_helpers.dart) builds the key from the task id</text><text class="p2" x="36" y="816">Task sessions are protected from maintenance, and the reset timers skip them.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#4-session-resolution"><g class="n tint k-host" id="spawn">
+    <rect class="box" x="522" y="318" width="438" height="50" rx="9"/>
+    <text class="name mono-name" x="534" y="337">sessions_spawn</text>
+    <text class="sub" x="534" y="353">SessionKey.logicalAgentSession(agentId, conversationId)</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">sessions_spawn</tspan> · LogicalAgentSessionService dispatch</text><text class="p2" x="36" y="816">The key string is the handle sessions_send takes.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#4-session-resolution"><g class="n tint k-host" id="web">
+    <rect class="box" x="522" y="380" width="438" height="50" rx="9"/>
+    <text class="name" x="534" y="399">Web chat</text>
+    <text class="sub" x="534" y="415">user session, no key: createSession()</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">Web chat</tspan> · POST /api/sessions creates a type user session with channelKey null</text><text class="p2" x="36" y="816">A temporary conversation is created the same way; neither is ever keyed.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionservice"><g class="n solid k-host" id="ss">
+    <rect class="box" x="24" y="556" width="952" height="68" rx="9"/>
+    <text class="name mono-name" x="36" y="579">SessionService</text>
+    <text class="sub" x="36" y="597">getOrCreateByKey (keyed) or createSession (web chat); dartclaw_core storage</text>
+    <text class="sub" x="36" y="613">RepoLock on .session_keys.json; drops a stale or archived mapping and creates a new session</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">SessionService</tspan> · getOrCreateByKey is serialized by RepoLock on .session_keys.json</text><text class="p2" x="36" y="816">A live session is lazy-migrated (type, channelKey, provider, securityProfile, executionMode) and checked against its pinned AgentWorkspace.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionservice"><g class="n tint k-store" id="store">
+    <rect class="box" x="24" y="646" width="952" height="54" rx="9"/>
+    <text class="name mono-name" x="36" y="665">sessions/</text>
+    <text class="sub" x="36" y="681">.session_keys.json maps key to UUID; &lt;uuid&gt;/meta.json holds the Session and conversationState; messages.ndjson is the transcript</text>
+    <g class="d"><text class="p1" x="36" y="796"><tspan class="b">sessions/</tspan> · the key index, one directory per session, and the append-only transcript</text><text class="p2" x="36" y="816">meta.json nests ConversationState; messages.ndjson is never truncated in normal operation.</text></g>
+  </g></a>
+  <g transform="translate(24,722)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">SessionService</text>
+    <g class="tint k-chan"><rect class="box" x="130.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="152.8" y="10">channel step</text>
+    <g class="tint k-host"><rect class="box" x="249.20000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="271.20000000000005" y="10">session-side step</text>
+    <g class="tint k-sec"><rect class="box" x="398.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="420.6" y="10">pause gate</text>
+    <g class="tint k-store"><rect class="box" x="504.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="526.6" y="10">file store</text>
+    <g class="e main"><path d="M610.6,6 H642.6"/></g><text class="lg" x="650.6" y="10">channel path</text>
+    <g class="e "><path d="M747.0,6 H779.0"/></g><text class="lg" x="787.0" y="10">key handed over</text>
   </g>
-  <g class="node k-chan">
-    <title>ChannelTaskBridge.lookupThreadBinding. Only task bindings answer; a run binding never routes.</title>
-    <path class="edge" d="M224,270 L224,286"/>
-    <rect class="box" x="24" y="222" width="400" height="48" rx="6"/>
-    <circle class="num" cx="42" cy="246" r="10"/><text class="num-text" x="42" y="250">3</text>
-    <text class="mono" x="62" y="242">thread binding lookup</text>
-    <text class="sub" x="62" y="260">bound task thread: use the binding's sessionKey</text>
-  </g>
-  <g class="node k-sec">
-    <title>Paused state queues the message with its resolved route; resume drains it per session key.</title>
-    <path class="edge" d="M224,334 L224,350"/>
-    <rect class="box" x="24" y="286" width="400" height="48" rx="6"/>
-    <circle class="num" cx="42" cy="310" r="10"/><text class="num-text" x="42" y="314">4</text>
-    <text class="mono" x="62" y="306">pause check</text>
-    <text class="sub" x="62" y="324">reserved commands exempt; otherwise queued by PauseController</text>
-  </g>
-  <g class="node k-chan">
-    <title>If the bridge handles the message, routing stops here.</title>
-    <path class="edge" d="M224,398 L224,414"/>
-    <rect class="box" x="24" y="350" width="400" height="48" rx="6"/>
-    <circle class="num" cx="42" cy="374" r="10"/><text class="num-text" x="42" y="378">5</text>
-    <text class="mono" x="62" y="370">ChannelTaskBridge.tryHandle</text>
-    <text class="sub" x="62" y="388">reserved commands, per-sender rate limit, bound thread</text>
-  </g>
-  <g class="node k-chan">
-    <title>dispatchChannelTurn calls getOrCreateByKey(type: channel), inserts the user message, then TurnManager.startTurn/reserveTurn (see turn admission figure).</title>
-    <path class="edge" d="M224,462 L224,484"/>
-    <rect class="box" x="24" y="414" width="400" height="48" rx="6"/>
-    <circle class="num" cx="42" cy="438" r="10"/><text class="num-text" x="42" y="442">6</text>
-    <text class="mono" x="62" y="434">MessageQueue, then dispatchChannelTurn</text>
-    <text class="sub" x="62" y="452">debounce; persists the user message; then admission</text>
-  </g>
-  <g class="node k-host">
-    <title>POST /api/sessions creates a type user session with channelKey null. A temporary conversation (retention process) is created the same way.</title>
-    <path class="edge" d="M560,118 H492 V509 H424"/>
-    <rect class="box" x="560" y="94" width="416" height="48" rx="6"/>
-    <text class="mono" x="574" y="114">Web chat</text>
-    <text class="sub" x="574" y="132">user session, no key: createSession()</text>
-  </g>
-  <g class="node k-host">
-    <title>Created once at storage wiring with the literal key main.</title>
-    <path class="edge" d="M560,182 H492 V509 H424"/>
-    <rect class="box" x="560" y="158" width="416" height="48" rx="6"/>
-    <text class="mono" x="574" y="178">Main session</text>
-    <text class="sub" x="574" y="196">getOrCreateMainSession(): key main</text>
-  </g>
-  <g class="node k-host">
-    <title>ScheduleService; a perFireSession job appends a timestamp to the jobId.</title>
-    <path class="edge" d="M560,246 H492 V509 H424"/>
-    <rect class="box" x="560" y="222" width="416" height="48" rx="6"/>
-    <text class="mono" x="574" y="242">Scheduled job</text>
-    <text class="sub" x="574" y="260">SessionKey.cronSession(jobId)</text>
-  </g>
-  <g class="node k-host">
-    <title>TaskExecutor (task_executor_helpers.dart).</title>
-    <path class="edge" d="M560,310 H492 V509 H424"/>
-    <rect class="box" x="560" y="286" width="416" height="48" rx="6"/>
-    <text class="mono" x="574" y="306">Task</text>
-    <text class="sub" x="574" y="324">SessionKey.taskSession(taskId)</text>
-  </g>
-  <g class="node k-host">
-    <title>LogicalAgentSessionService dispatch; the key string is the handle sessions_send takes.</title>
-    <path class="edge" d="M560,374 H492 V509 H424"/>
-    <rect class="box" x="560" y="350" width="416" height="48" rx="6"/>
-    <text class="mono" x="574" y="370">sessions_spawn</text>
-    <text class="sub" x="574" y="388">SessionKey.logicalAgentSession(agentId, conversationId)</text>
-  </g>
-  <g class="node k-host">
-    <title>SessionService (dartclaw_core storage). getOrCreateByKey is serialized by RepoLock on .session_keys.json; a stale or archived mapping is dropped and a new session created; a live session is lazy-migrated (type, channelKey, provider, securityProfile, executionMode) and checked against its pinned AgentWorkspace.</title>
-    <path class="edge" d="M224,534 L224,564"/>
-    <rect class="box" x="24" y="484" width="400" height="50" rx="6"/>
-    <text class="mono" x="38" y="504">SessionService</text>
-    <text class="sub" x="38" y="522">getOrCreateByKey (keyed) or createSession (web chat)</text>
-  </g>
-  <g class="node k-store">
-    <title>sessions/.session_keys.json maps key to UUID; sessions/&lt;uuid&gt;/meta.json holds the Session and nested conversationState; messages.ndjson is the append-only transcript.</title>
-    <rect class="box" x="24" y="564" width="400" height="50" rx="6"/>
-    <text class="mono" x="38" y="584">sessions/</text>
-    <text class="sub" x="38" y="602">.session_keys.json, &lt;uuid&gt;/meta.json, messages.ndjson</text>
-  </g>
-  <text class="note" x="560" y="434">Web chat and temporary conversations never get a key; the others are</text>
-  <text class="note" x="560" y="450">idempotent per key, so a second call returns the same session.</text>
-  <text class="note" x="24" y="646">Opened directly in a browser, hovering a node shows its detail and highlights its outgoing edge.</text>
 </svg>

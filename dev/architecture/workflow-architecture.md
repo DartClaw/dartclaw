@@ -225,13 +225,15 @@ Shipped built-ins (`lib/src/workflow/definitions/`): `story-and-implement` (spec
 
 `WorkflowRunStatus` (`dartclaw_kernel`): `pending` (inserted, momentary), `running`, `paused`, `awaitingApproval`, `completed`, `failed`, `cancelled`. Only the last three are terminal.
 
-- `paused`: an operator paused the run, or a step with `onError: pause` held at its failed unit.
+- `paused`: an operator paused the run, a step with `onError: pause` held at its failed unit, or a step's task was cancelled while the run was `running` (section 7.5).
 - `awaitingApproval`: blocked on an approval gate, a step-reported `needsInput` outcome, or a step with `onFailure: pause` (all use the `_approval.*` shape, section 8.2).
 - `failed`: a runtime, gate or step failure; eligible for explicit retry.
 
 This keeps dashboards, SSE subscribers and CLI exit codes aligned with operator intent: waiting on a human is not a failure.
 
 [![Run status transitions](diagrams/workflow-run-status.svg)](diagrams/workflow-run-status.svg)
+
+There is no transition table: every move is a conditional repository update on the expected status, and the figure is the set of those call sites. `WorkflowService` performs `pending` to `running` (start), `running` to `paused` (pause), `paused` or `awaitingApproval` to `running` (resume; request changes only from `awaitingApproval`), `failed` to `running` (retry), any non-terminal status to `cancelled` (cancel, or an expired approval timeout), and `running` to `failed` when the executor throws unexpectedly. The executor performs `running` to `paused`, `awaitingApproval`, `failed` and `completed`. A restart leaves `running` runs `running` and re-spawns them from the cursor (section 5.5). `pending` is not terminal, so cancel would accept it, but it exists for one call inside `start`.
 
 ### 5.2 Start and trigger convergence
 

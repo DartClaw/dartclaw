@@ -67,7 +67,7 @@ Defined in `TaskStatus.validTransitions` (`dartclaw_core/lib/src/task/task_statu
 
 [![Task lifecycle: status transitions](diagrams/tasks-lifecycle.svg)](diagrams/tasks-lifecycle.svg)
 
-The figure shows the main path; the table is authoritative (it adds `running → accepted` for `auto-accept`, `review → running/queued/failed`, and `interrupted`).
+The figure and the table carry the same edges; a chip inside a box is an edge drawn without an arrow.
 
 | From | To |
 |---|---|
@@ -102,7 +102,7 @@ The figure shows the main path; the table is authoritative (it adds `running →
 
 [![Task execution pipeline](diagrams/tasks-execution-pipeline.svg)](diagrams/tasks-execution-pipeline.svg)
 
-Steps 1 to 5 are detailed in 3.3 and steps 6 to 7 in 3.4 and 3.5; the lease is released in a `finally` on every path.
+Steps 1 to 5 are one poll (3.3); steps 6 and 7 run unawaited (3.4, 3.5); step 8 releases the lease in a `finally` on every path. A retryable failure re-queues the task, so the next poll starts again at step 1.
 
 ### 3.2 Entry points
 
@@ -254,7 +254,7 @@ Review actions on one task are serialized by a per-task async lock (`_reviewLock
 
 [![Accepting a reviewed task](diagrams/tasks-accept-flow.svg)](diagrams/tasks-accept-flow.svg)
 
-Which path runs is decided by `taskTargetsExternalProject(task)`: `taskProjectId` is non-null and not `_local`.
+Which path runs is decided by `taskTargetsExternalProject(task)`: `taskProjectId` is non-null and not `_local`. A merge conflict returns `ReviewMergeConflict` (HTTP 409 `MERGE_CONFLICT`); no diff, a push or PR failure, missing merge or push infrastructure, or a concurrent modification returns `ReviewActionFailed` (HTTP 500 `INTERNAL_ERROR`). Both leave the task in `review`. The local path cleans the worktree after the transition, the external path before it.
 
 ### 6.3 Push-back
 
@@ -310,6 +310,8 @@ Separately, `tasks.completion_action: accept` installs `onAutoAccept`, which acc
 
 The first figure is the write side, the second the read side. Sections 7.4 to 7.6 describe the tracker, the stream, and the observer.
 
+`EventBus` is a broadcast stream: an event with no subscriber is dropped and a subscriber exception never reaches the producer, so the stream opens with a `connected` snapshot for clients that join late. `TaskReviewReadyEvent` is not on the task stream; `EventBusSseBridge` relays it as `task_review_ready` on the global SSE broadcast.
+
 Events are recorded when the turn completes, not while it streams, so a long single-turn task shows its first progress at turn end. Status changes, compaction events, and runner/capacity state are live.
 
 ### 7.4 TaskProgressTracker
@@ -359,9 +361,9 @@ One engine, two scopes. `BudgetEngine` (`governance/budget_engine.dart`) owns th
 
 ### 10.1 Per-task scope
 
-`TaskBudgetPolicy` (`task/task_budget_policy.dart`) resolves the limit through the five-rung ladder in the figure (`resolveTokenBudget`, first positive value wins).
+`TaskBudgetPolicy` (`task/task_budget_policy.dart`) resolves the limit through the five-rung ladder in the figure (`resolveTokenBudget`, first positive value wins). The figure marks the two rungs the post-turn check does not see as `not post-turn` (see Known divergence below).
 
-`checkBudget` runs before each turn (and before each workflow prompt). It reads cumulative session cost from `KvService` (`session_cost:<sessionId>`):
+`checkBudget` runs before each turn (and before each workflow prompt). It reads cumulative session cost from `KvService` (`session_cost:<sessionId>`, written only for durable sessions; no reading counts as under budget):
 
 - At `tasks.budget.warning_threshold` (default 0.8): returns a system message asking the agent to wrap up, fires `BudgetWarningEvent`, and sets `configJson._tokenBudgetWarningFired`.
 - At 100%: writes a `budget-exceeded` artifact and fails the task non-retryably. A terminal breach does not consume the warn-once cell.
@@ -371,7 +373,7 @@ One engine, two scopes. `BudgetEngine` (`governance/budget_engine.dart`) owns th
 
 ### 10.2 Global daily scope
 
-`BudgetEnforcer` (`governance/budget_enforcer.dart`) reads daily totals from `UsageTracker`, timezone-aware via `BudgetConfig.timezone`, with a fixed 80% warning constant and a warn-once marker (`budget_warning_posted_at`) in the persisted daily aggregate. It has no error handling: a storage failure surfaces rather than admitting an over-budget turn. `TurnGovernanceEnforcer` maps the result: at 100% with `BudgetAction.block` it throws `BudgetExhaustedException` (which the poller turns into a non-retryable task failure); otherwise it broadcasts `budget_warning` and continues. The daily guardrail and the per-task cap are separate controls ([Observability & Operations](observability-operations-architecture.md), Usage Tracking; [Security Architecture](security-architecture.md) for governance).
+`BudgetEnforcer` (`governance/budget_enforcer.dart`) reads daily totals from `UsageTracker`, timezone-aware via `BudgetConfig.timezone`, with a fixed 80% warning constant and a warn-once marker (`budget_warning_posted_at`) in the persisted daily aggregate; the first crossing of either threshold consumes the day's single warning. It has no error handling: a storage failure surfaces rather than admitting an over-budget turn. `TurnGovernanceEnforcer` maps the result: at 100% with `BudgetAction.block` it throws `BudgetExhaustedException` (which the poller turns into a non-retryable task failure); otherwise it broadcasts `budget_warning` and continues. The daily guardrail and the per-task cap are separate controls ([Observability & Operations](observability-operations-architecture.md), Usage Tracking; [Security Architecture](security-architecture.md) for governance).
 
 ---
 

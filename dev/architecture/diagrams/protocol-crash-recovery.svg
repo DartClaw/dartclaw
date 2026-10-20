@@ -1,168 +1,182 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 480" width="1000" height="480" role="img" aria-labelledby="title desc">
-  <title id="title">Crash recovery: worker process and in-flight turn</title>
-  <desc id="desc">A worker process that exits unexpectedly moves to crashed and is restarted with doubling backoff up to five times. A turn that was in flight when the host itself died is found through turn_state.json at the next serve startup.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 570" width="1000" height="570" role="img" aria-labelledby="title desc">
+  <title id="title">Worker crash recovery</title>
+  <desc id="desc">A harness worker is stopped, idle or busy. An exit nobody asked for, or an output stream fault, makes it crashed and fails the pending turn. The next turn() calls recoverFromCrash, which waits base times two to the power of crashCount minus one (5, 10, 20, 40, 80 seconds) and restarts, or throws StateError once crashCount exceeds 5. What a restart restores differs per provider, and an unconfirmed root exit blocks any restart.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
-    @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
-    }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
-    .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
 
-    .mono-sm { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--sub); }
-    .step { font-size: 12.5px; font-weight: 700; }
-    .num { fill: var(--host); font-weight: 700; font-size: 12px; }
-    .legend-text { fill: var(--sub); font-size: 11px; }
-    .edge.guard { stroke: var(--sec); stroke-dasharray: 5 4; }
-    .edge.fail { stroke: var(--sec); stroke-dasharray: 5 4; marker-end: url(#arrow); }
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .e.both path { marker-start: var(--em, url(#ah)); }
+    svg:has(#stopped:hover) .edges :is(.f-stopped,.t-stopped) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#idle:hover) .edges :is(.f-idle,.t-idle) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#busy:hover) .edges :is(.f-busy,.t-busy) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#crashed:hover) .edges :is(.f-crashed,.t-crashed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dead:hover) .edges :is(.f-dead,.t-dead) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#claude:hover) .edges :is(.f-claude,.t-claude) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#codex:hover) .edges :is(.f-codex,.t-codex) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#acp:hover) .edges :is(.f-acp,.t-acp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#unconf:hover) .edges :is(.f-unconf,.t-unconf) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="480"/>
-  <text class="title" x="24" y="34">Crash recovery: worker process and in-flight turn</text>
-  <text class="lede" x="24" y="56">Top: BaseHarness.WorkerState and recoverFromCrash. Bottom: the TurnStateStore record from reservation to recovery notice.</text>
-  <text class="group-label" x="24" y="84">Worker process: WorkerState</text>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>Initial and terminal state. stop() and dispose() end here; start() runs the spawn and the initialize handshake.</title>
-    <path class="edge" d="M174,118 L270,118"/>
-    <rect class="box" x="24" y="100" width="150" height="60" rx="6"/>
-    <text class="mono" x="36" y="121">stopped</text>
-    <text class="sub" x="36" y="138">initial and after stop()</text>
+  <rect class="bg" width="1000" height="570"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="474" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="498">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="522">Hover a box for the rule behind it; its transitions light up. Click a box to open its section.</text><text class="p2" x="36" y="542">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">STATE MACHINE · BaseHarness.WorkerState</text>
+  <text class="title" x="24" y="58">Worker crash recovery</text>
+  <text class="lede" x="24" y="80">A crashed worker is restarted only by the next turn, after a backoff, and the harness gives up at the sixth crash in a row.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="92" width="968" height="178" rx="14"/><text class="kick" x="32" y="114">WORKER PROCESS · BaseHarness</text></g>
+  <g class="k-host"><rect class="band" x="16" y="284" width="676" height="140" rx="14"/><text class="kick" x="32" y="306">PER PROVIDER · WHAT A RESTART RESTORES</text></g>
+
+  <g class="edges">
+    <g class="e  f-stopped t-idle"><path d="M148,172 H214"/><text class="el" x="181" y="166" text-anchor="middle">start()</text></g>
+    <g class="e  f-idle t-stopped"><path d="M216,194 H150"/><text class="el" x="183" y="210" text-anchor="middle">stop()</text></g>
+    <g class="e  f-idle t-busy"><path d="M340,172 H406"/><text class="el" x="373" y="166" text-anchor="middle">turn()</text></g>
+    <g class="e  f-busy t-idle"><path d="M408,194 H342"/><text class="el" x="375" y="210" text-anchor="middle">result</text></g>
+    <g class="e bad f-busy t-crashed"><path d="M546,172 H598"/><text class="el" x="572" y="166" text-anchor="middle">exit</text></g>
+    <g class="e bad f-idle t-crashed"><path d="M278,150 V128 H670 V148"/><text class="el" x="474" y="121" text-anchor="middle">process exit or stream fault, also while idle</text></g>
+    <g class="e bad f-crashed t-dead"><path d="M740,182 H828"/><text class="el" x="784" y="176" text-anchor="middle">crashCount &gt; 5</text></g>
+    <g class="e main f-crashed t-idle"><path d="M670,214 V246 H278 V216"/><text class="el" x="474" y="240" text-anchor="middle">next turn(): recoverFromCrash waits 5 × 2^(n−1) s, restarts</text></g>
+    <g class="e  f-crashed t-claude t-codex t-acp"><path d="M560,246 V282"/><text class="el" x="568" y="268" text-anchor="start">restart</text></g>
+    <g class="e bad f-crashed t-unconf"><path d="M720,214 V314"/><text class="el" x="728" y="268" text-anchor="start">exit unconfirmed</text></g>
   </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>Process is up and handshaken. turn() moves it to busy.</title>
-    <path class="edge" d="M270,142 L174,142"/>
-    <path class="edge" d="M420,118 L516,118"/>
-    <path class="edge" d="M345,100 V88 H837 V100"/>
-    <rect class="box" x="270" y="100" width="150" height="60" rx="6"/>
-    <text class="mono" x="282" y="121">idle</text>
-    <text class="sub" x="282" y="138">ready for a turn</text>
+
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-neu" id="stopped">
+    <rect class="box" x="24" y="150" width="124" height="64" rx="9"/>
+    <text class="name mono-name" x="36" y="173">stopped</text>
+    <text class="sub" x="36" y="191">initial,</text>
+    <text class="sub" x="36" y="207">after stop()</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">stopped</tspan> · initial state and the end of stop(); turn() on a stopped harness starts it first</text><text class="p2" x="36" y="542">start() spawns the binary and runs the initialize handshake, which must be answered within 10 seconds.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-host" id="idle">
+    <rect class="box" x="216" y="150" width="124" height="64" rx="9"/>
+    <text class="name mono-name" x="228" y="173">idle</text>
+    <text class="sub" x="228" y="191">ready for a turn</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">idle</tspan> · process is up and handshaken</text><text class="p2" x="36" y="542">Mutating lifecycle calls (start, stop, restart) serialize through SequentialLock.withLock.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-host" id="busy">
+    <rect class="box" x="408" y="150" width="136" height="64" rx="9"/>
+    <text class="name mono-name" x="420" y="173">busy</text>
+    <text class="sub" x="420" y="191">one turn running</text>
+    <g class="chip k-neu"><rect x="464" y="161" width="70" height="16" rx="8"/><text x="471" y="173">→ stopped</text></g>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">busy</tspan> · a turn is in flight; the 16 MiB per-turn output budget counts from entering busy</text><text class="p2" x="36" y="542">A turn timeout (budget + 60 s backstop) and cancel() stop the process: busy goes to stopped, not crashed.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n solid k-sec" id="crashed">
+    <rect class="box" x="600" y="150" width="140" height="64" rx="9"/>
+    <text class="name mono-name" x="612" y="173">crashed</text>
+    <text class="sub" x="612" y="191">exit not requested</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">crashed</tspan> · handleUnexpectedProcessExit: crashCount++ and the pending turn completes with the error or the recorded stream fault</text><text class="p2" x="36" y="542">The exit watcher is guarded by _spawnGeneration, so a stale handler cannot affect a newer process.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-sec" id="dead">
+    <rect class="box" x="830" y="150" width="146" height="64" rx="9"/>
+    <text class="name mono-name" x="842" y="173">StateError</text>
+    <text class="sub" x="842" y="191">max retries exceeded</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">StateError</tspan> · recoverFromCrash throws "Harness unavailable: max retries exceeded" once crashCount &gt; maxRetries (5)</text><text class="p2" x="36" y="542">A turn that completes resets crashCount to 0. Claude and Codex harnesses default to maxRetries 5, baseBackoff 5 s.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#3-claude-code-protocol"><g class="n tint k-host" id="claude">
+    <rect class="box" x="32" y="316" width="190" height="96" rx="9"/>
+    <text class="name mono-name" x="44" y="339">Claude</text>
+    <text class="sub" x="44" y="357">cold process:</text>
+    <text class="sub" x="44" y="373">bounded history re-injected</text>
+    <text class="sub" x="44" y="389">by the next turn</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">Claude</tspan> · the process was cold: _startWithCleanup restarts it and the turn replays bounded persisted history</text><text class="p2" x="36" y="542">A conversation or spawn-flag change restarts it anyway (section 2.5).</text></g>
+  </g></a>
+  <a href="../control-protocol.md#4-codex-protocol"><g class="n tint k-host" id="codex">
+    <rect class="box" x="234" y="316" width="226" height="96" rx="9"/>
+    <text class="name mono-name" x="246" y="339">Codex</text>
+    <text class="sub" x="246" y="357">cached thread ids cleared,</text>
+    <text class="sub" x="246" y="373">handshake repeated, new thread,</text>
+    <text class="sub" x="246" y="389">history in previousResponseItems</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">Codex</tspan> · thread/start opens a new thread; an explicit durable session uses thread/resume instead</text><text class="p2" x="36" y="542">recoverFromCrash is retried in a loop until the harness is idle or throws StateError.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#5-acp"><g class="n ghost k-host" id="acp">
+    <rect class="box" x="472" y="316" width="204" height="96" rx="9"/>
+    <text class="name mono-name" x="484" y="339">ACP</text>
+    <text class="sub" x="484" y="357">no in-place restart:</text>
+    <text class="sub" x="484" y="373">the worker stays crashed and</text>
+    <text class="sub" x="484" y="389">the coordinator discards it</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">ACP</tspan> · AcpHarness does not extend BaseHarness; a process exit fails the active turn and leaves the worker crashed</text><text class="p2" x="36" y="542">ExecutionCoordinator reuses a worker only when its harness state is idle.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-sec" id="unconf">
+    <rect class="box" x="708" y="316" width="268" height="96" rx="9"/>
+    <text class="name mono-name" x="720" y="339">Root exit unconfirmed</text>
+    <text class="sub" x="720" y="357">no restart, no replacement:</text>
+    <text class="sub" x="720" y="373">the coordinator quarantines the permit,</text>
+    <text class="sub" x="720" y="389">effective capacity falls (ADR-058)</text>
+    <g class="d"><text class="p1" x="36" y="522"><tspan class="b">Root exit unconfirmed</tspan> · recoverFromCrash refuses while the previous process is still owned; the coordinator refuses a replacement too</text><text class="p2" x="36" y="542">Exit is confirmed by SIGTERM then SIGKILL after a 2 s grace on POSIX; other platforms hard-terminate the managed root.</text></g>
+  </g></a>
+  <g transform="translate(24,448)">
+    <g class="solid k-sec"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">crashed</text>
+    <g class="tint k-host"><rect class="box" x="87.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="109.4" y="10">worker state or provider</text>
+    <g class="tint k-sec"><rect class="box" x="280.20000000000005" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="302.20000000000005" y="10">failure</text>
+    <g class="e main"><path d="M367.6,6 H399.6"/></g><text class="lg" x="407.6" y="10">recovery</text>
+    <g class="e bad"><path d="M479.20000000000005,6 H511.20000000000005"/></g><text class="lg" x="519.2" y="10">crash or refusal</text>
   </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>A turn is in flight. The harness timeout and cancel() act here.</title>
-    <path class="edge" d="M516,142 L420,142"/>
-    <path class="edge" d="M666,118 L762,118"/>
-    <rect class="box" x="516" y="100" width="150" height="60" rx="6"/>
-    <text class="mono" x="528" y="121">busy</text>
-    <text class="sub" x="528" y="138">one turn running</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-sec">
-    <title>handleUnexpectedProcessExit: crashCount++, the pending turn completes with the error (or the recorded stream fault).</title>
-    <path class="edge" d="M790,160 V204 H345 V160"/>
-    <path class="edge" d="M880,160 V250"/>
-    <rect class="box" x="762" y="100" width="150" height="60" rx="6"/>
-    <text class="mono" x="774" y="121">crashed</text>
-    <text class="sub" x="774" y="138">exit not requested</text>
-  </g>
-  </a>
-  <text class="edge-label" x="180" y="112" text-anchor="start">start()</text>
-  <text class="edge-label" x="180" y="156" text-anchor="start">stop()</text>
-  <text class="edge-label" x="426" y="112" text-anchor="start">turn()</text>
-  <text class="edge-label" x="426" y="156" text-anchor="start">result</text>
-  <text class="edge-label" x="670" y="112" text-anchor="start">process exit</text>
-  <text class="edge-label" x="360" y="83" text-anchor="start">process exit while idle (any state except stopped crashes the same way)</text>
-  <text class="edge-label" x="360" y="198" text-anchor="start">turn() calls recoverFromCrash: wait base x 2^(n-1) = 5, 10, 20, 40, 80 s, then restart</text>
-  <text class="edge-label" x="888" y="214" text-anchor="start">crashCount &gt; 5</text>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-sec">
-    <title>Harness unavailable: max retries exceeded. A turn that completes resets crashCount to 0.</title>
-    <rect class="box" x="760" y="250" width="220" height="56" rx="6"/>
-    <text class="mono" x="772" y="271">StateError</text>
-    <text class="sub" x="772" y="288">max retries exceeded</text>
-  </g>
-  </a>
-  <text class="note" x="24" y="240">Claude: the cold process gets bounded history re-injected.</text>
-  <text class="note" x="24" y="258">Codex: cached thread ids are cleared, a new thread opens, history is replayed.</text>
-  <text class="note" x="24" y="276">ACP: no in-place restart; the coordinator discards a worker that is not idle.</text>
-  <text class="note" x="24" y="294">An unconfirmed root exit blocks any restart or replacement (permit quarantined).</text>
-  <text class="group-label" x="24" y="348">Host crash: in-flight turn record (turn_state.json)</text>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-store">
-    <title>reserveAdmittedTurn writes the record synchronously (secureWriteFileSync) before the turn runs. Settlement and accepted cancel delete it.</title>
-    <path class="edge" d="M196,388 L221,388"/>
-    <rect class="box" x="24" y="356" width="172" height="64" rx="6"/>
-    <text class="step" x="36" y="377">Reserve</text>
-    <text class="mono-sm" x="36" y="394">TurnStateStore.set</text>
-    <text class="mono-sm" x="36" y="409">sessionId, turnId, time</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>The record outlives the process, so the turn is an orphan at the next start.</title>
-    <path class="edge" d="M393,388 L418,388"/>
-    <rect class="box" x="221" y="356" width="172" height="64" rx="6"/>
-    <text class="step" x="233" y="377">Host dies</text>
-    <text class="mono-sm" x="233" y="394">record stays on disk</text>
-    <text class="mono-sm" x="233" y="409">turn never settled</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>Storage wiring scans before the active-store gate. A failed scan warns and continues. Headless workflows do not scan.</title>
-    <path class="edge" d="M590,388 L615,388"/>
-    <rect class="box" x="418" y="356" width="172" height="64" rx="6"/>
-    <text class="step" x="430" y="377">Startup scan</text>
-    <text class="mono-sm" x="430" y="394">warn per orphan</text>
-    <text class="mono-sm" x="430" y="409">deletes nothing</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>After wire() succeeds, detectAndCleanOrphanedTurns() removes the records and emits one summary.</title>
-    <path class="edge" d="M787,388 L812,388"/>
-    <rect class="box" x="615" y="356" width="172" height="64" rx="6"/>
-    <text class="step" x="627" y="377">Acknowledge</text>
-    <text class="mono-sm" x="627" y="394">records removed,</text>
-    <text class="mono-sm" x="627" y="409">session ids remembered</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>The web UI renders the recovery banner from the first true result for a session.</title>
-    <rect class="box" x="812" y="356" width="172" height="64" rx="6"/>
-    <text class="step" x="824" y="377">Recovery notice</text>
-    <text class="mono-sm" x="824" y="394">consumeRecoveryNotice</text>
-    <text class="mono-sm" x="824" y="409">true once per session</text>
-  </g>
-  </a>
-  <text class="note" x="24" y="448">Opening the store sweeps temp siblings and quarantines malformed content before starting empty.</text>
 </svg>

@@ -1,240 +1,239 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 664" width="1000" height="664" role="img" aria-labelledby="title desc">
-  <title id="title">Security: runtime governance</title>
-  <desc id="desc">An inbound channel message passes pause, reserved-command, thread-binding and per-sender checks, then the queue; every turn on any surface then passes TurnRunner.admitTurn (budget, session lock, loop pre-checks, global rate window) before an execution lane is chosen. Emergency stop cancels turns and tasks.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 730" width="1000" height="730" role="img" aria-labelledby="title desc">
+  <title id="title">Runtime governance</title>
+  <desc id="desc">An inbound channel message passes the pause intercept, admin commands, thread-binding lookup and per-sender limit, then the MessageQueue. Every turn on any surface then passes ExecutionCoordinator.acquire: the daily token budget, the session lock, loop pre-checks and the global rate window, and only then is an execution lane chosen. Tool-fingerprint detection and turn limits run while the provider turn executes.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .name { font-size: 12.5px; font-weight: 700; }
-    .num { fill: var(--accent); font-size: 11px; font-weight: 700; }
-    .legend { fill: var(--sub); font-size: 11px; }
-    a { cursor: pointer; }
-    a:hover .box { stroke-width: 2.6; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#pause:hover) .edges :is(.f-pause,.t-pause) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#admin:hover) .edges :is(.f-admin,.t-admin) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bind:hover) .edges :is(.f-bind,.t-bind) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sender:hover) .edges :is(.f-sender,.t-sender) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#queue:hover) .edges :is(.f-queue,.t-queue) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#budget:hover) .edges :is(.f-budget,.t-budget) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lock:hover) .edges :is(.f-lock,.t-lock) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#loop:hover) .edges :is(.f-loop,.t-loop) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rate:hover) .edges :is(.f-rate,.t-rate) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lane:hover) .edges :is(.f-lane,.t-lane) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fp:hover) .edges :is(.f-fp,.t-fp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tl:hover) .edges :is(.f-tl,.t-tl) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#after:hover) .edges :is(.f-after,.t-after) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="664"/>
-  <text class="title" x="24" y="34">Security: runtime governance</text>
-  <text class="lede" x="24" y="56">Limits are deployment-wide and in-memory except the daily token totals. Admin status exempts only the per-sender controls.</text>
+  <rect class="bg" width="1000" height="730"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="634" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="658">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="682">Hover a step for what it enforces; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="702">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
 
-  <g class="node k-host">
-    <title>Inbound routing: while PauseController is paused, every non-reserved channel message is queued and acknowledged. Web chat, tasks and scheduled jobs are not paused.</title>
-    <path class="edge" d="M194,126 H219"/>
-    <a href="../security-architecture.md#emergency-controls">
-    <rect class="box" x="24" y="84" width="170" height="84" rx="6"/>
-    <text class="mono" x="36" y="105">ChannelManager</text>
-    <text class="sub" x="36" y="122">pause intercept: queues up</text>
-    <text class="sub" x="36" y="135">to 200 messages; reserved</text>
-    <text class="sub" x="36" y="148">commands pass through</text>
-    <text class="num" x="184" y="160" text-anchor="end">1</text>
-    </a>
+  <text class="kick" x="24" y="32">PIPELINE · channel path and TurnRunner.admitTurn</text>
+  <text class="title" x="24" y="58">Runtime governance</text>
+  <text class="lede" x="24" y="80">Every turn on every surface passes one admission point before a provider process can start.</text>
+
+  <g class="k-chan"><rect class="band" x="16" y="96" width="968" height="152" rx="14"/><text class="kick" x="32" y="118">INBOUND CHANNEL MESSAGE · before any turn exists · channel-level limits live here</text></g>
+  <g class="k-host"><rect class="band" x="16" y="284" width="968" height="152" rx="14"/><text class="kick" x="32" y="306">ADMISSION · ExecutionCoordinator.acquire · admitTurn, then the lane · EVERY SURFACE</text></g>
+  <g class="k-host"><rect class="band" x="16" y="472" width="968" height="112" rx="14"/><text class="kick" x="32" y="494">TURN EXECUTION</text></g>
+
+  <g class="edges">
+    <g class="e main f-pause t-admin"><path d="M200,182 H216"/></g>
+    <g class="e main f-admin t-bind"><path d="M394,182 H410"/></g>
+    <g class="e main f-bind t-sender"><path d="M588,182 H604"/></g>
+    <g class="e main f-sender t-queue"><path d="M782,182 H798"/></g>
+    <g class="e main f-queue t-budget"><path d="M888,234 V316"/><text class="el" x="896" y="268" text-anchor="start">channel turn</text></g>
+    <g class="e main f-budget t-lock"><path d="M798,370 H782"/></g>
+    <g class="e main f-lock t-loop"><path d="M604,370 H588"/></g>
+    <g class="e main f-loop t-rate"><path d="M410,370 H394"/></g>
+    <g class="e main f-rate t-lane"><path d="M216,370 H200"/></g>
+    <g class="e main f-lane t-fp"><path d="M174,422 V504"/><text class="el" x="182" y="462" text-anchor="start">provider turn runs</text></g>
   </g>
-  <g class="node k-sec">
-    <title>ReservedCommandHandler runs before rate limiting so emergency commands work during a flood. Non-admin senders get "Only admin senders can use this command." and an audit entry (guard ReservedCommand).</title>
-    <path class="edge" d="M389,126 H414"/>
-    <a href="../security-architecture.md#emergency-controls">
-    <rect class="box" x="219" y="84" width="170" height="84" rx="6"/>
-    <text class="name" x="231" y="105">reserved commands</text>
-    <text class="sub" x="231" y="122">/stop /pause /resume</text>
-    <text class="sub" x="231" y="135">/bind /unbind: admin only</text>
-    <text class="sub" x="231" y="148">refusals are audited</text>
-    <text class="num" x="379" y="160" text-anchor="end">2</text>
-    </a>
+
+  <a href="../security-architecture.md#emergency-controls"><g class="n tint k-chan" id="pause">
+    <rect class="box" x="24" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="44" cy="152" r="10"/><text x="44" y="156">1</text></g>
+    <text class="name" x="62" y="153">pause intercept</text>
+    <text class="sub" x="62" y="171">ChannelManager holds</text>
+    <text class="sub" x="62" y="187">non-reserved messages</text>
+    <text class="sub" x="62" y="203">up to 200 in total</text>
+    <g class="chip k-neu"><rect x="62" y="210" width="107" height="16" rx="8"/><text x="69" y="222">/resume replays</text></g>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">pause intercept</tspan> · while PauseController is paused, every non-reserved channel message is queued and acknowledged</text><text class="p2" x="36" y="702">Web chat, tasks and scheduled jobs are not paused. In-memory, resets on restart; max_pause_queued caps one non-admin sender.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#emergency-controls"><g class="n tint k-sec" id="admin">
+    <rect class="box" x="218" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="238" cy="152" r="10"/><text x="238" y="156">2</text></g>
+    <text class="name" x="256" y="153">admin commands</text>
+    <text class="sub" x="256" y="171">/stop /pause /resume</text>
+    <text class="sub" x="256" y="187">/bind /unbind</text>
+    <text class="sub" x="256" y="203">run before rate limit</text>
+    <g class="chip k-sec"><rect x="256" y="210" width="126" height="16" rx="8"/><text x="263" y="222">→ refused, audited</text></g>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">admin commands</tspan> · ReservedCommandHandler runs before rate limiting so emergency commands work during a flood</text><text class="p2" x="36" y="702">A non-admin sender gets "Only admin senders can use this command." and an audit entry (guard ReservedCommand, hook channel_command).</text></g>
+  </g></a>
+  <a href="../security-architecture.md#thread-binding-and-attribution"><g class="n tint k-host" id="bind">
+    <rect class="box" x="412" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="432" cy="152" r="10"/><text x="432" y="156">3</text></g>
+    <text class="name" x="450" y="153">thread binding</text>
+    <text class="sub" x="450" y="171">ChannelTaskBridge</text>
+    <text class="sub" x="450" y="187">looks up the task</text>
+    <text class="sub" x="450" y="203">thread via router</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">thread binding</tspan> · tryHandle order: reserved command, thread-binding lookup, per-sender rate limit, bound-thread routing</text><text class="p2" x="36" y="702">Only task bindings route; run bindings (workflow.chat_notifications) route nothing, so a bound thread is rate-limited like any other.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#rate-limiting"><g class="n tint k-host" id="sender">
+    <rect class="box" x="606" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="626" cy="152" r="10"/><text x="626" y="156">4</text></g>
+    <text class="name" x="644" y="153">sender limit</text>
+    <text class="sub" x="644" y="171">per-sender window,</text>
+    <text class="sub" x="644" y="187">default 0 = off;</text>
+    <text class="sub" x="644" y="203">admins exempt</text>
+    <g class="chip k-sec"><rect x="644" y="210" width="119" height="16" rx="8"/><text x="651" y="222">→ reply, consumed</text></g>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">sender limit</tspan> · governance.rate_limits.per_sender.messages per window; SlidingWindowRateLimiter, in-memory, lazy eviction</text><text class="p2" x="36" y="702">An empty admin_senders list makes everyone an admin, so the limit never fires; review requests are ordinary turns and are limited.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#rate-limiting"><g class="n tint k-host" id="queue">
+    <rect class="box" x="800" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="820" cy="152" r="10"/><text x="820" y="156">5</text></g>
+    <text class="name" x="838" y="153">MessageQueue</text>
+    <text class="sub" x="838" y="171">debounce; per-session</text>
+    <text class="sub" x="838" y="187">FIFO; max_queued per</text>
+    <text class="sub" x="838" y="203">sender; fifo or fair</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">MessageQueue</tspan> · per-session queue with a global concurrency cap; max_queue_depth and max_queued reject with a queue-full reply</text><text class="p2" x="36" y="702">max_queued is skipped for admins. A budget-exhausted turn gets a polite reply and no retry.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#daily-token-budget"><g class="n tint k-host" id="budget">
+    <rect class="box" x="800" y="318" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="820" cy="340" r="10"/><text x="820" y="344">6</text></g>
+    <text class="name" x="838" y="341">token budget</text>
+    <text class="sub" x="838" y="359">BudgetEnforcer.check:</text>
+    <text class="sub" x="838" y="375">warn once at 80%;</text>
+    <text class="sub" x="838" y="391">blocks at 100% if set</text>
+    <g class="chip k-sec"><rect x="838" y="398" width="126" height="16" rx="8"/><text x="845" y="410">→ block: exception</text></g>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">token budget</tspan> · reads the day total from UsageTracker (usage_daily:YYYY-MM-DD); one warning per day, shared by both thresholds</text><text class="p2" x="36" y="702">Read-only check; BudgetExhaustedException fails a task non-retryably (budgetExceeded). A storage failure surfaces, never silently allows.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#admission-sequence"><g class="n tint k-host" id="lock">
+    <rect class="box" x="606" y="318" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="626" cy="340" r="10"/><text x="626" y="344">7</text></g>
+    <text class="name" x="644" y="341">session lock</text>
+    <text class="sub" x="644" y="359">SessionLockManager;</text>
+    <text class="sub" x="644" y="375">warns after 30 s,</text>
+    <text class="sub" x="644" y="391">stuck at 120 s</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">session lock</tspan> · taken before the state-recording checks, so an attempt the global cap rejects is not counted</text><text class="p2" x="36" y="702">Polled fail-fast requests (tasks, workflow steps) take the worker permit before admission for the same reason.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#loop-detection"><g class="n tint k-host" id="loop">
+    <rect class="box" x="412" y="318" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="432" cy="340" r="10"/><text x="432" y="344">8</text></g>
+    <text class="name" x="450" y="341">loop pre-checks</text>
+    <text class="sub" x="450" y="359">LoopDetector: turn</text>
+    <text class="sub" x="450" y="375">chain depth and token</text>
+    <text class="sub" x="450" y="391">velocity</text>
+    <g class="chip k-sec"><rect x="450" y="398" width="126" height="16" rx="8"/><text x="457" y="410">→ abort: exception</text></g>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">loop pre-checks</tspan> · a human message resets the chain depth; each mechanism is disabled by a 0 threshold</text><text class="p2" x="36" y="702">LoopDetectedException fails a task as loopDetected; the detector returns results and TurnGovernanceEnforcer decides the action.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#rate-limiting"><g class="n tint k-host" id="rate">
+    <rect class="box" x="218" y="318" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="238" cy="340" r="10"/><text x="238" y="344">9</text></g>
+    <text class="name" x="256" y="341">turn rate window</text>
+    <text class="sub" x="256" y="359">awaitRateLimitWindow:</text>
+    <text class="sub" x="256" y="375">defers, polls at 1 s,</text>
+    <text class="sub" x="256" y="391">never rejects</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">turn rate window</tspan> · governance.rate_limits.global.turns per window (default 0 = off); SSE rate_limit_warning at 80%, re-armed below 60%</text><text class="p2" x="36" y="702">Records state, so it runs after the lock. The deployment-wide limiter is built once and shared by every runner.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#execution-capacity"><g class="n solid k-host" id="lane">
+    <rect class="box" x="24" y="318" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="44" cy="340" r="10"/><text x="44" y="344">10</text></g>
+    <text class="name" x="62" y="341">execution lane</text>
+    <text class="sub" x="62" y="359">ExecutionCoordinator:</text>
+    <text class="sub" x="62" y="375">primary lane or a</text>
+    <text class="sub" x="62" y="391">worker lease</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">execution lane</tspan> · the coordinator alone chooses the fixed primary lane or a provider worker lease, after governance admission</text><text class="p2" x="36" y="702">providers.&lt;id&gt;.pool_size is the later hard execution bound, not a substitute for governance.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#loop-detection"><g class="n tint k-host" id="fp">
+    <rect class="box" x="24" y="506" width="304" height="64" rx="9"/>
+    <text class="name" x="36" y="529">tool fingerprint</text>
+    <text class="sub" x="36" y="547">LoopDetector.recordToolCall on every call;</text>
+    <text class="sub" x="36" y="563">at the threshold, abort cancels the turn</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">tool fingerprint</tspan> · consecutive identical tool calls (name plus key-sorted canonical JSON arguments) within one turn</text><text class="p2" x="36" y="702">Under abort the running turn is cancelled (reason automationCancel) and [Loop detected: ...] is recorded as the assistant message.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#turn-limits"><g class="n tint k-host" id="tl">
+    <rect class="box" x="348" y="506" width="304" height="64" rx="9"/>
+    <text class="name" x="360" y="529">turn limits</text>
+    <text class="sub" x="360" y="547">stall_timeout 5m: cancel, warn or ignore</text>
+    <text class="sub" x="360" y="563">turn_timeout 30m wall clock: cancel</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">turn limits</tspan> · governance.turn_limits bounds one provider turn; the only governance controls that are on by default</text><text class="p2" x="36" y="702">A breach cancels through the same path as a user cancel. 0 disables either limit.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#loop-detection"><g class="n line k-host" id="after">
+    <rect class="box" x="672" y="506" width="304" height="64" rx="9"/>
+    <text class="name" x="684" y="529">after the turn</text>
+    <text class="sub" x="684" y="547">usage recorded, token velocity checked;</text>
+    <text class="sub" x="684" y="563">at this point it only warns</text>
+    <g class="d"><text class="p1" x="36" y="682"><tspan class="b">after the turn</tspan> · the tokens are already spent, so the next admitTurn pre-check is what aborts if the window is still over</text><text class="p2" x="36" y="702">Per-turn fingerprint state is cleaned in the turn's finally.</text></g>
+  </g></a>
+  <g transform="translate(24,604)">
+    <g class="tint k-chan"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">channel-level</text>
+    <g class="tint k-sec"><rect class="box" x="124.60000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="146.60000000000002" y="10">admin-gated</text>
+    <g class="tint k-host"><rect class="box" x="236.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="258.8" y="10">governance control</text>
+    <g class="solid k-host"><rect class="box" x="392.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="414.40000000000003" y="10">lane chosen after admission</text>
+    <g class="e main"><path d="M603.8000000000001,6 H635.8000000000001"/></g><text class="lg" x="643.8000000000001" y="10">next step</text>
   </g>
-  <g class="node k-host">
-    <title>tryHandle order: reserved command, thread-binding lookup, per-sender rate limit, bound-thread routing. Run bindings route nothing.</title>
-    <path class="edge" d="M584,126 H609"/>
-    <a href="../security-architecture.md#thread-binding-and-attribution">
-    <rect class="box" x="414" y="84" width="170" height="84" rx="6"/>
-    <text class="mono" x="426" y="105">ChannelTaskBridge</text>
-    <text class="sub" x="426" y="122">task-thread binding lookup</text>
-    <text class="sub" x="426" y="135">via ThreadBindingRouter</text>
-    <text class="num" x="574" y="160" text-anchor="end">3</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>governance.rate_limits.per_sender.messages per window (default 0 = off). Excess messages get a rate-limit reply and are consumed.</title>
-    <path class="edge" d="M779,126 H804"/>
-    <a href="../security-architecture.md#rate-limiting">
-    <rect class="box" x="609" y="84" width="170" height="84" rx="6"/>
-    <text class="name" x="621" y="105">per-sender limit</text>
-    <text class="sub" x="621" y="122">SlidingWindowRateLimiter</text>
-    <text class="sub" x="621" y="135">admins exempt (everyone is</text>
-    <text class="sub" x="621" y="148">an admin if list empty)</text>
-    <text class="num" x="769" y="160" text-anchor="end">4</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>Per-session FIFO with a global concurrency cap. Per-sender max_queued is skipped for admins. A budget-exhausted turn gets a polite reply and no retry.</title>
-    <path class="edge" d="M889,168 V216"/>
-    <a href="../security-architecture.md#rate-limiting">
-    <rect class="box" x="804" y="84" width="170" height="84" rx="6"/>
-    <text class="mono" x="816" y="105">MessageQueue</text>
-    <text class="sub" x="816" y="122">debounce; max_queue_depth</text>
-    <text class="sub" x="816" y="135">max_queued per sender</text>
-    <text class="sub" x="816" y="148">queue_strategy fifo|fair</text>
-    <text class="num" x="964" y="160" text-anchor="end">5</text>
-    </a>
-  </g>
-  <rect class="group" x="16" y="190" width="968" height="130" rx="8"/>
-  <text class="group-label" x="26" y="205">TurnRunner.admitTurn, called inside ExecutionCoordinator.acquire</text>
-  <g class="node k-host">
-    <title>Reads the day total from UsageTracker (usage_daily:YYYY-MM-DD). One warning per day at 80% or 100%.</title>
-    <path class="edge" d="M804,258 H779"/>
-    <a href="../security-architecture.md#daily-token-budget">
-    <rect class="box" x="804" y="216" width="170" height="84" rx="6"/>
-    <text class="mono" x="816" y="237">BudgetEnforcer</text>
-    <text class="sub" x="816" y="254">daily tokens: warn|block</text>
-    <text class="sub" x="816" y="267">BudgetExhaustedException</text>
-    <text class="sub" x="816" y="280">task: budgetExceeded</text>
-    <text class="num" x="964" y="292" text-anchor="end">6</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>The lock is taken before the state-recording checks so an attempt the global cap rejects is not counted.</title>
-    <path class="edge" d="M609,258 H584"/>
-    <a href="../security-architecture.md#admission-sequence">
-    <rect class="box" x="609" y="216" width="170" height="84" rx="6"/>
-    <text class="mono" x="621" y="237">SessionLockManager</text>
-    <text class="sub" x="621" y="254">per-session lock;</text>
-    <text class="sub" x="621" y="267">30 s waiting warning,</text>
-    <text class="sub" x="621" y="280">120 s stuck</text>
-    <text class="num" x="769" y="292" text-anchor="end">7</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>Pre-turn mechanisms. A human message resets the chain depth. Disabled per mechanism by a 0 threshold.</title>
-    <path class="edge" d="M414,258 H389"/>
-    <a href="../security-architecture.md#loop-detection">
-    <rect class="box" x="414" y="216" width="170" height="84" rx="6"/>
-    <text class="mono" x="426" y="237">LoopDetector</text>
-    <text class="sub" x="426" y="254">chain depth and token</text>
-    <text class="sub" x="426" y="267">velocity; abort throws</text>
-    <text class="sub" x="426" y="280">LoopDetectedException</text>
-    <text class="num" x="574" y="292" text-anchor="end">8</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>governance.rate_limits.global.turns per window (default 0 = off). SSE rate_limit_warning at 80%, re-armed below 60%.</title>
-    <path class="edge" d="M219,258 H194"/>
-    <a href="../security-architecture.md#rate-limiting">
-    <rect class="box" x="219" y="216" width="170" height="84" rx="6"/>
-    <text class="name" x="231" y="237">global turn limit</text>
-    <text class="sub" x="231" y="254">awaitRateLimitWindow:</text>
-    <text class="sub" x="231" y="267">defers, polling each 1 s,</text>
-    <text class="sub" x="231" y="280">never rejects</text>
-    <text class="num" x="379" y="292" text-anchor="end">9</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>ExecutionCoordinator picks the fixed primary lane or leases a provider worker. Polled task and workflow requests take the worker permit before admission so a retry does not record loop or rate state.</title>
-    <path class="edge" d="M109,300 V372"/>
-    <a href="../security-architecture.md#execution-capacity">
-    <rect class="box" x="24" y="216" width="170" height="84" rx="6"/>
-    <text class="name" x="36" y="237">execution lane</text>
-    <text class="sub" x="36" y="254">primary lane or worker</text>
-    <text class="sub" x="36" y="267">lease; providers.&lt;id&gt;.</text>
-    <text class="sub" x="36" y="280">pool_size bounds workers</text>
-    </a>
-  </g>
-  <text class="group-label" x="130" y="364" text-anchor="start">while the provider turn runs</text>
-  <g class="node k-host">
-    <title>Consecutive identical tool calls within one turn; at max_consecutive_identical_tool_calls the turn is cancelled under abort.</title>
-    <a href="../security-architecture.md#loop-detection">
-    <rect class="box" x="24" y="372" width="300" height="66" rx="6"/>
-    <text class="name" x="36" y="393">tool fingerprint</text>
-    <text class="sub" x="36" y="410">LoopDetector.recordToolCall on every call</text>
-    <text class="sub" x="36" y="423">abort cancels the running turn</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>governance.turn_limits; defaults are the only governance controls that are on by default.</title>
-    <a href="../security-architecture.md#loop-detection">
-    <rect class="box" x="350" y="372" width="300" height="66" rx="6"/>
-    <text class="name" x="362" y="393">turn limits</text>
-    <text class="sub" x="362" y="410">stall_timeout 5m: cancel, warn or ignore</text>
-    <text class="sub" x="362" y="423">turn_timeout 30m wall clock: cancel</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>Tokens are already spent, so the next admitTurn pre-check is what aborts if the window is still over.</title>
-    <a href="../security-architecture.md#loop-detection">
-    <rect class="box" x="676" y="372" width="300" height="66" rx="6"/>
-    <text class="name" x="688" y="393">after the turn</text>
-    <text class="sub" x="688" y="410">usage recorded, token velocity checked</text>
-    <text class="sub" x="688" y="423">velocity at this point only warns</text>
-    </a>
-  </g>
-  <text class="group-label" x="24" y="478" text-anchor="start">Emergency controls</text>
-  <g class="node k-sec">
-    <title>The channel and slash paths check GovernanceConfig.isAdmin; the HTTP route needs operator or admin access. All four run the same handler, so an install with every channel disabled still has a way out.</title>
-    <path class="edge" d="M324,544 H366"/>
-    <a href="../security-architecture.md#emergency-controls">
-    <rect class="box" x="24" y="494" width="300" height="100" rx="6"/>
-    <text class="name" x="36" y="515">entry points, admin only</text>
-    <text class="sub" x="36" y="532">channel /stop or stop!</text>
-    <text class="sub" x="36" y="545">Google Chat /stop slash command</text>
-    <text class="sub" x="36" y="558">dartclaw stop</text>
-    <text class="sub" x="36" y="571">POST /api/emergency-stop</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>execute(): never halts early. Cancellation keeps each lease until the managed root process has exited or the slot is quarantined.</title>
-    <path class="edge" d="M616,544 H658"/>
-    <a href="../security-architecture.md#emergency-controls">
-    <rect class="box" x="366" y="494" width="250" height="100" rx="6"/>
-    <text class="mono" x="378" y="515">EmergencyStopHandler</text>
-    <text class="sub" x="378" y="532">best-effort, failures logged,</text>
-    <text class="sub" x="378" y="545">not fatal</text>
-    <text class="sub" x="378" y="558">returns turn and task counts</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>Review, draft, accepted and rejected tasks are left for manual resolution. The event raises a critical alert.</title>
-    <a href="../security-architecture.md#emergency-controls">
-    <rect class="box" x="658" y="494" width="318" height="100" rx="6"/>
-    <text class="name" x="670" y="515">effects</text>
-    <text class="sub" x="670" y="532">1 cancel every active turn on every</text>
-    <text class="sub" x="670" y="545">tracked runner (primary, leases, cached)</text>
-    <text class="sub" x="670" y="558">2 running and queued tasks: cancelled</text>
-    <text class="sub" x="670" y="571">3 EmergencyStopEvent, SSE emergency_stop</text>
-    </a>
-  </g>
-  <text class="note" x="24" y="620" text-anchor="start">/pause queues inbound channel messages at step 1; /resume collapses them per conversation and sender and re-enqueues them into MessageQueue, skipping step 4.</text>
-  <text class="legend" x="24" y="640" text-anchor="start">Red outline: admin-gated. The daily token budget and the global turn limit apply to every sender, admins included.</text>
 </svg>

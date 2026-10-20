@@ -1,161 +1,207 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" width="1000" height="560" role="img" aria-labelledby="title desc">
-  <title id="title">Task budgets: limit ladder and evaluation</title>
-  <desc id="desc">The per-task token limit resolves through a five-rung ladder; BudgetEngine compares session consumption with it and returns under, warning or exceeded; the per-task and daily consumers decide what a breach means and differ in error posture.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 622" width="1000" height="622" role="img" aria-labelledby="title desc">
+  <title id="title">Task budgets</title>
+  <desc id="desc">A per-task limit comes from a five-rung ladder where the first positive value wins. BudgetEngine.evaluate compares a scope's consumption with its limit and returns under, warning or exceeded. The per-task scope (TaskBudgetPolicy) fails open on any error; the daily scope (BudgetEnforcer) has no error handling, so a storage failure surfaces.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .name { font-size: 13px; font-weight: 600; }
-    .badge { fill: var(--accent); }
-    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    .k-dev .box.reserved, .reserved .box { stroke-dasharray: 5 4; }
-    .bus { fill: none; stroke: var(--edge); stroke-width: 1.4; }
-    .legend-swatch { fill: none; stroke-width: 1.4; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#r1:hover) .edges :is(.f-r1,.t-r1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r2:hover) .edges :is(.f-r2,.t-r2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r3:hover) .edges :is(.f-r3,.t-r3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r4:hover) .edges :is(.f-r4,.t-r4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r5:hover) .edges :is(.f-r5,.t-r5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#kv:hover) .edges :is(.f-kv,.t-kv) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#engine:hover) .edges :is(.f-engine,.t-engine) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#usage:hover) .edges :is(.f-usage,.t-usage) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#policy:hover) .edges :is(.f-policy,.t-policy) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#enforcer:hover) .edges :is(.f-enforcer,.t-enforcer) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="560"/>
-  <text class="title" x="24" y="34">Task budgets: limit ladder and evaluation</text>
-  <text class="lede" x="24" y="56">One engine, two scopes. The engine does no I/O and catches nothing; each scope keeps its own error handling.</text>
-  <text class="note" x="24" y="88">limit: TaskBudgetPolicy.resolveTokenBudget, first positive value wins</text>
-  <g class="node k-host">
-    <title>Rung 1 of the ladder. If this value is null or not positive the next rung is tried.</title>
-    <path class="edge" d="M160,144 L160,164"/>
-    <a href="../task-execution-architecture.md#101-per-task-scope">
-    <rect class="box " x="24" y="100" width="272" height="44" rx="6"/>
-    <text class="mono" x="36" y="120">Task.maxTokens</text>
-    <text class="sub" x="36" y="136">AgentExecution.budgetTokens</text>
-    </a>
+  <rect class="bg" width="1000" height="622"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="526" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="550">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="574">Hover a box for what it reads or decides; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="594">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">LADDER AND ENGINE · BudgetEngine.evaluate</text>
+  <text class="title" x="24" y="58">Task budgets</text>
+  <text class="lede" x="24" y="80">One engine, two scopes. The engine does no I/O and catches nothing; each scope owns its error posture.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="100" width="300" height="362" rx="14"/><text class="kick" x="32" y="122">LIMIT · FIRST POSITIVE WINS</text></g>
+  <g class="k-host"><rect class="band" x="646" y="100" width="338" height="160" rx="14"/><text class="kick" x="662" y="122">PER-TASK SCOPE · tasks.budget</text></g>
+  <g class="k-sec"><rect class="band" x="646" y="282" width="338" height="160" rx="14"/><text class="kick" x="662" y="304">DAILY SCOPE · budget</text></g>
+
+  <g class="edges">
+    <g class="e  f-r1 t-r2"><path d="M166,180 V198"/><text class="el" x="174" y="194" text-anchor="start">not positive</text></g>
+    <g class="e join f-r1 t-engine"><path d="M300,157 H330"/></g>
+    <g class="e  f-r2 t-r3"><path d="M166,246 V264"/><text class="el" x="174" y="260" text-anchor="start">not positive</text></g>
+    <g class="e join f-r2 t-engine"><path d="M300,223 H330"/></g>
+    <g class="e  f-r3 t-r4"><path d="M166,312 V330"/><text class="el" x="174" y="326" text-anchor="start">not positive</text></g>
+    <g class="e join f-r3 t-engine"><path d="M300,289 H330"/></g>
+    <g class="e  f-r4 t-r5"><path d="M166,378 V396"/><text class="el" x="174" y="392" text-anchor="start">not positive</text></g>
+    <g class="e join f-r4 t-engine"><path d="M300,355 H330"/></g>
+    <g class="e join f-r5 t-engine"><path d="M300,421 H330"/></g>
+    <g class="e join f-r1 f-r2 f-r3 f-r4 f-r5 t-engine"><path d="M330,157 V421"/></g>
+    <g class="e  f-r1 f-r2 f-r3 f-r4 f-r5 t-engine"><path d="M330,291 H370"/><text class="el" x="350" y="283" text-anchor="middle">limit</text></g>
+    <g class="e  f-kv t-engine"><path d="M487,190 V224"/><text class="el" x="495" y="212" text-anchor="start">tokens used</text></g>
+    <g class="e  f-usage t-engine"><path d="M487,410 V378"/><text class="el" x="495" y="398" text-anchor="start">daily tokens</text></g>
+    <g class="e  f-engine t-policy"><path d="M602,236 H656"/><text class="el" x="629" y="229" text-anchor="middle">outcome</text></g>
+    <g class="e  f-engine t-enforcer"><path d="M602,360 H656"/><text class="el" x="629" y="353" text-anchor="middle">outcome</text></g>
   </g>
-  <text class="edge-label" x="167" y="158">null</text>
-  <g class="node k-host">
-    <title>Rung 2 of the ladder. If this value is null or not positive the next rung is tried.</title>
-    <path class="edge" d="M160,208 L160,228"/>
-    <a href="../task-execution-architecture.md#101-per-task-scope">
-    <rect class="box " x="24" y="164" width="272" height="44" rx="6"/>
-    <text class="mono" x="36" y="184">configJson.tokenBudget</text>
-    <text class="sub" x="36" y="200">per-task override</text>
-    </a>
+
+  <a href="../task-execution-architecture.md#101-per-task-scope"><g class="n tint k-host" id="r1">
+    <rect class="box" x="32" y="134" width="268" height="46" rx="9"/>
+    <g class="step"><circle cx="52" cy="157.0" r="10"/><text x="52" y="161.0">1</text></g>
+    <text class="name mono-name" x="70" y="153">Task.maxTokens</text>
+    <text class="sub" x="70" y="169">AgentExecution.budgetTokens</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">Task.maxTokens</tspan> · stored as AgentExecution.budgetTokens; a positive maxTokens in the create body sets it</text><text class="p2" x="36" y="594">TaskConfigView.tokenBudget, which the post-turn overrun check uses, covers rungs 1 to 3 only.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#101-per-task-scope"><g class="n tint k-host" id="r2">
+    <rect class="box" x="32" y="200" width="268" height="46" rx="9"/>
+    <g class="step"><circle cx="52" cy="223.0" r="10"/><text x="52" y="227.0">2</text></g>
+    <text class="name mono-name" x="70" y="219">configJson.tokenBudget</text>
+    <text class="sub" x="70" y="235">per-task override</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">configJson.tokenBudget</tspan> · read when Task.maxTokens is null or not positive</text><text class="p2" x="36" y="594">A value of zero or below falls through to the next rung rather than disabling the budget.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#101-per-task-scope"><g class="n tint k-host" id="r3">
+    <rect class="box" x="32" y="266" width="268" height="46" rx="9"/>
+    <g class="step"><circle cx="52" cy="289.0" r="10"/><text x="52" y="293.0">3</text></g>
+    <text class="name mono-name" x="70" y="285">configJson.budget</text>
+    <text class="sub" x="70" y="301">deprecated alias</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">configJson.budget</tspan> · the legacy key for tokenBudget, still honoured</text><text class="p2" x="36" y="594">TaskConfigView logs a deprecation warning when it reads it.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#101-per-task-scope"><g class="n tint k-host" id="r4">
+    <rect class="box" x="32" y="332" width="268" height="46" rx="9"/>
+    <g class="step"><circle cx="52" cy="355.0" r="10"/><text x="52" y="359.0">4</text></g>
+    <text class="name mono-name" x="70" y="351">Goal.maxTokens</text>
+    <text class="sub" x="70" y="367">inherited from the goal</text>
+    <g class="chip k-neu"><rect x="195" y="339" width="95" height="16" rx="8"/><text x="202" y="351">not post-turn</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">Goal.maxTokens</tspan> · read only by the pre-turn check, which receives the task's Goal</text><text class="p2" x="36" y="594">A task budgeted only here is checked before a turn but never after it: the post-turn check stops at rung 3.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#101-per-task-scope"><g class="n tint k-host" id="r5">
+    <rect class="box" x="32" y="398" width="268" height="46" rx="9"/>
+    <g class="step"><circle cx="52" cy="421.0" r="10"/><text x="52" y="425.0">5</text></g>
+    <text class="name" x="70" y="417">config default</text>
+    <text class="sub" x="70" y="433">tasks.budget.default_max_tokens</text>
+    <g class="chip k-neu"><rect x="195" y="405" width="95" height="16" rx="8"/><text x="202" y="417">not post-turn</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">config default</tspan> · the global default for tasks with no other budget</text><text class="p2" x="36" y="594">Like the goal rung it is seen only by the pre-turn check; null means no limit.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#101-per-task-scope"><g class="n tint k-store" id="kv">
+    <rect class="box" x="372" y="126" width="230" height="64" rx="9"/>
+    <text class="name mono-name" x="384" y="149">KvService</text>
+    <text class="sub" x="384" y="167">session_cost:&lt;sessionId&gt;</text>
+    <text class="sub" x="384" y="183">total_tokens, turn_count</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">KvService</tspan> · cumulative session cost, written by the turn runner as each turn settles (durable sessions only)</text><text class="p2" x="36" y="594">No key yet or a non-durable session means no reading, which evaluates as under, so a first turn is never blocked.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#10-budgets"><g class="n solid k-host" id="engine">
+    <rect class="box" x="372" y="226" width="230" height="150" rx="9"/>
+    <text class="name mono-name" x="384" y="249">BudgetEngine.evaluate</text>
+    <text class="sub" x="384" y="267">no limit or no reading: under</text>
+    <text class="sub" x="384" y="283">ratio &gt;= 1.0: exceeded</text>
+    <text class="sub" x="384" y="299">ratio &gt;= threshold: warning</text>
+    <text class="sub" x="384" y="315">first crossing writes the</text>
+    <text class="sub" x="384" y="331">scope's warn-once marker</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">BudgetEngine.evaluate</tspan> · governance/budget_engine.dart: the only copy of the threshold, percentage and warn-once arithmetic</text><text class="p2" x="36" y="594">Per-task: reaching the limit leaves the marker unwritten, so a retry can still warn. Daily: the first crossing burns the day's warning.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#102-global-daily-scope"><g class="n tint k-store" id="usage">
+    <rect class="box" x="372" y="412" width="230" height="64" rx="9"/>
+    <text class="name mono-name" x="384" y="435">UsageTracker</text>
+    <text class="sub" x="384" y="453">usage_daily:&lt;date&gt;</text>
+    <text class="sub" x="384" y="469">budget_warning_posted_at</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">UsageTracker</tspan> · the persisted daily aggregate; BudgetConfig.timezone decides which date "today" is</text><text class="p2" x="36" y="594">The warn-once marker lives in the same aggregate, so one warning per day survives a restart.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#101-per-task-scope"><g class="n tint k-host" id="policy">
+    <rect class="box" x="658" y="134" width="314" height="110" rx="9"/>
+    <text class="name mono-name" x="670" y="157">TaskBudgetPolicy</text>
+    <g class="badge"><rect x="880" y="145" width="82" height="16" rx="8"/><text x="921" y="157">FAILS OPEN</text></g>
+    <text class="sub" x="670" y="175">checkBudget: before each turn and</text>
+    <text class="sub" x="670" y="191">workflow prompt; reads session_cost</text>
+    <text class="sub" x="670" y="207">any exception: logged, turn proceeds</text>
+    <g class="chip k-host"><rect x="670" y="220" width="144" height="16" rx="8"/><text x="677" y="232">warn: wrap-up message</text></g>
+    <g class="chip k-sec"><rect x="820" y="220" width="107" height="16" rx="8"/><text x="827" y="232">exceeded: fails</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">TaskBudgetPolicy</tspan> · task/task_budget_policy.dart; the fail-open wrapper is here because the daily scope shares the engine and must not</text><text class="p2" x="36" y="594">Exceeded writes a budget-exceeded artifact and fails the task non-retryably. Warning fires BudgetWarningEvent once (_tokenBudgetWarningFired).</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#102-global-daily-scope"><g class="n tint k-sec" id="enforcer">
+    <rect class="box" x="658" y="316" width="314" height="110" rx="9"/>
+    <text class="name mono-name" x="670" y="339">BudgetEnforcer</text>
+    <g class="badge"><rect x="866" y="327" width="96" height="16" rx="8"/><text x="914" y="339">NO FAIL-OPEN</text></g>
+    <text class="sub" x="670" y="357">daily totals, BudgetConfig.timezone</text>
+    <text class="sub" x="670" y="373">fixed 0.8 warning, warn-once marker</text>
+    <text class="sub" x="670" y="389">TurnGovernanceEnforcer maps outcome</text>
+    <g class="chip k-sec"><rect x="670" y="402" width="95" height="16" rx="8"/><text x="677" y="414">block: throws</text></g>
+    <g class="chip k-neu"><rect x="771" y="402" width="138" height="16" rx="8"/><text x="778" y="414">warn: budget_warning</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">BudgetEnforcer</tspan> · governance/budget_enforcer.dart; no error handling, so a storage failure surfaces rather than admitting an over-budget turn</text><text class="p2" x="36" y="594">At the limit with BudgetAction.block it throws BudgetExhaustedException, which the poller turns into a non-retryable task failure.</text></g>
+  </g></a>
+  <g transform="translate(24,500)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">task scope</text>
+    <g class="tint k-store"><rect class="box" x="106.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="128.0" y="10">persisted reading</text>
+    <g class="tint k-sec"><rect class="box" x="255.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="277.4" y="10">daily guardrail</text>
+    <g class="e "><path d="M392.4,6 H424.4"/></g><text class="lg" x="432.4" y="10">data flow</text>
   </g>
-  <text class="edge-label" x="167" y="222">null</text>
-  <g class="node k-host">
-    <title>Rung 3 of the ladder. If this value is null or not positive the next rung is tried.</title>
-    <path class="edge" d="M160,272 L160,292"/>
-    <a href="../task-execution-architecture.md#101-per-task-scope">
-    <rect class="box " x="24" y="228" width="272" height="44" rx="6"/>
-    <text class="mono" x="36" y="248">configJson.budget</text>
-    <text class="sub" x="36" y="264">deprecated key</text>
-    </a>
-  </g>
-  <text class="edge-label" x="167" y="286">null</text>
-  <g class="node k-host">
-    <title>Rung 4 of the ladder. If this value is null or not positive the next rung is tried.</title>
-    <path class="edge" d="M160,336 L160,356"/>
-    <a href="../task-execution-architecture.md#101-per-task-scope">
-    <rect class="box " x="24" y="292" width="272" height="44" rx="6"/>
-    <text class="mono" x="36" y="312">Goal.maxTokens</text>
-    <text class="sub" x="36" y="328">inherited from the goal</text>
-    </a>
-  </g>
-  <text class="edge-label" x="167" y="350">null</text>
-  <g class="node k-host">
-    <title>Rung 5 of the ladder. If this value is null or not positive the next rung is tried.</title>
-    <a href="../task-execution-architecture.md#101-per-task-scope">
-    <rect class="box " x="24" y="356" width="272" height="44" rx="6"/>
-    <text class="mono" x="36" y="376">tasks.budget.default_max_tokens</text>
-    <text class="sub" x="36" y="392">global default</text>
-    </a>
-  </g>
-  <path class="bus" d="M296,122 H316 V378 H296"/>
-  <g class="node k-host">
-    <title>governance/budget_engine.dart: the only copy of the threshold, percentage and warn-once arithmetic. BudgetScope supplies limit, consumption and the warn-once cell.</title>
-    <path class="edge" d="M650,215 L700,215"/>
-    <path class="edge" d="M650,282 L700,282"/>
-    <a href="../task-execution-architecture.md#10-budgets">
-    <rect class="box " x="400" y="190" width="250" height="110" rx="6"/>
-    <text class="mono" x="412" y="210">BudgetEngine.evaluate</text>
-    <text class="sub" x="412" y="226">limit null or 0: under (no read)</text>
-    <text class="sub" x="412" y="240">no consumption reading: under</text>
-    <text class="sub" x="412" y="254">ratio &gt;= 1.0: exceeded</text>
-    <text class="sub" x="412" y="268">ratio &gt;= warning threshold: warning</text>
-    <text class="sub" x="412" y="282">warn-once gating via the scope</text>
-    </a>
-  </g>
-  <path class="edge" d="M316,244 L400,244"/>
-  <g class="node k-store">
-    <title>Cumulative session cost written at turn settlement; the per-task scope reads it before each turn.</title>
-    <path class="edge" d="M525,350 L525,302"/>
-    <rect class="box " x="400" y="350" width="250" height="56" rx="6"/>
-    <text class="mono" x="412" y="370">KvService</text>
-    <text class="sub" x="412" y="386">session_cost:&lt;sessionId&gt;:</text>
-    <text class="sub" x="412" y="400">total_tokens, turn_count</text>
-  </g>
-  <g class="node k-host">
-    <title>task/task_budget_policy.dart. A terminal breach does not consume the warn-once cell. The fail-open wrapper lives here because the daily scope shares the engine and must not fail open.</title>
-    <a href="../task-execution-architecture.md#101-per-task-scope">
-    <rect class="box " x="700" y="100" width="276" height="140" rx="6"/>
-    <text class="mono" x="712" y="120">TaskBudgetPolicy.checkBudget</text>
-    <text class="sub" x="712" y="136">before each turn and workflow prompt</text>
-    <text class="sub" x="712" y="150">warning (tasks.budget.warning_threshold,</text>
-    <text class="sub" x="712" y="164">default 0.8): system message to the agent,</text>
-    <text class="sub" x="712" y="178">BudgetWarningEvent, warn-once flag</text>
-    <text class="sub" x="712" y="192">exceeded: budget-exceeded artifact,</text>
-    <text class="sub" x="712" y="206">non-retryable task failure</text>
-    <text class="sub" x="712" y="220">any exception: proceeds (fails open)</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>governance/budget_enforcer.dart. A BudgetExhaustedException from admission fails a polled task non-retryably.</title>
-    <a href="../task-execution-architecture.md#102-global-daily-scope">
-    <rect class="box " x="700" y="260" width="276" height="120" rx="6"/>
-    <text class="mono" x="712" y="280">BudgetEnforcer</text>
-    <text class="sub" x="712" y="296">daily UsageTracker totals, timezone</text>
-    <text class="sub" x="712" y="310">aware; fixed 80% warning, warn-once</text>
-    <text class="sub" x="712" y="324">marker in the persisted daily aggregate</text>
-    <text class="sub" x="712" y="338">TurnGovernanceEnforcer: block throws</text>
-    <text class="sub" x="712" y="352">BudgetExhaustedException; no fail open</text>
-    </a>
-  </g>
-  <text class="edge-label" x="358" y="238" text-anchor="middle">limit</text>
-  <text class="edge-label" x="532" y="332">per-task tokens used</text>
-  <rect class="group" x="24" y="436" width="952" height="70" rx="6"/>
-  <text class="note" x="36" y="458">Known divergence: the post-turn overrun check in TaskExecutor reads TaskConfigView.tokenBudget, which stops before Goal.maxTokens and the config default,</text>
-  <text class="note" x="36" y="476">and three display readers (TaskProgressTracker, server.dart, tasks_page.dart) read configJson alone. Only the pre-turn check above uses the full ladder.</text>
-  <text class="note" x="36" y="494">So a goal-budgeted task is checked before a turn but not after it.</text>
-  <text class="note" x="24" y="534">Opened directly in a browser, hovering a box shows its detail and highlights its outgoing arrows.</text>
 </svg>

@@ -1,147 +1,193 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 452" width="1000" height="452" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 622" width="1000" height="622" role="img" aria-labelledby="title desc">
   <title id="title">Alert pipeline</title>
-  <desc id="desc">An EventBus event is classified, routed to targets, filtered for channel-originated task failures, then per target formatted, throttled and delivered to a channel. A dashed edge shows the burst summary the throttle emits after a cooldown.</desc>
+  <desc id="desc">AlertRouter subscribes to the EventBus. classifyAlert maps an event to an alert, targets are resolved from alerts.routes, a task-failure filter drops channel-originated failures, and for each target the alert is formatted, throttled and delivered. A burst summary bypasses the throttle.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .mono.s { font-size: 12px; }
-    .refuse { fill: var(--sec); }
-    .legend-text { fill: var(--sub); font-size: 11px; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#bus:hover) .edges :is(.f-bus,.t-bus) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#router:hover) .edges :is(.f-router,.t-router) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#classify:hover) .edges :is(.f-classify,.t-classify) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#resolve:hover) .edges :is(.f-resolve,.t-resolve) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#filter:hover) .edges :is(.f-filter,.t-filter) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#format:hover) .edges :is(.f-format,.t-format) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#throttle:hover) .edges :is(.f-throttle,.t-throttle) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#adapter:hover) .edges :is(.f-adapter,.t-adapter) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#summary:hover) .edges :is(.f-summary,.t-summary) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#chan:hover) .edges :is(.f-chan,.t-chan) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="452"/>
-  <text class="title" x="24" y="34">Alert pipeline</text>
-  <text class="lede" x="24" y="56">Steps 1 to 4 decide whether and where an alert goes; steps 5 to 8 decide how it is rendered and whether it is sent now.</text>
-<text class="group-label" x="24" y="86">EVENT TO CLASSIFIED ALERT</text>
-  <a href="../observability-operations-architecture.md#1-overview">
-  <g class="node k-host">
-    <title>Sealed event stream. CredentialHealthMonitor, ContainerHealthMonitor, ScheduleService, guards, governance and task code all publish here.</title>
-    <path class="edge" d="M250,118 H320"/>
-    <rect class="box" x="60" y="94" width="190" height="48" rx="6"/>
-    <text class="mono" x="74" y="115">EventBus</text>
-    <text class="sub" x="74" y="134">DartclawEvent</text>
-  </g>
-  </a>
-  <a href="../observability-operations-architecture.md#2-alerts">
-  <g class="node k-host">
-    <title>_onEvent: drops everything when alerts.enabled is false or no target is configured. Reconfigurable on alerts.*.</title>
-    <path class="edge" d="M510,118 H580"/>
-    <rect class="box" x="320" y="94" width="190" height="48" rx="6"/>
-    <text class="mono" x="334" y="115">AlertRouter</text>
-    <text class="sub" x="334" y="134">enabled? targets?</text>
-  </g>
-  </a>
-  <a href="../observability-operations-architecture.md#classifyalert">
-  <g class="node k-host">
-    <title>Pure switch over every event subtype, no wildcard arm (ADR-057). null means not alertable and the event is dropped.</title>
-    <path class="edge" d="M770,118 H840"/>
-    <rect class="box" x="580" y="94" width="190" height="48" rx="6"/>
-    <text class="mono s" x="594" y="115">classifyAlert</text>
-    <text class="sub" x="594" y="133">type, severity, body, details</text>
-  </g>
-  </a>
-  <a href="../observability-operations-architecture.md#routing-formatting-throttling">
-  <g class="node k-host">
-    <title>Empty routes: all targets. routes[type] = [*]: all. Indices select targets. No entry for the type: dropped. Bad index: warning, skipped.</title>
-    <path class="edge" d="M908,142 V190 H122 V222"/>
-    <rect class="box" x="840" y="94" width="136" height="48" rx="6"/>
-    <text class="mono s" x="854" y="115">resolve targets</text>
-    <text class="sub" x="854" y="133">AlertsConfig.routes</text>
-  </g>
-  </a>
-  <circle cx="238" cy="94" r="11" fill="var(--accent)"/><text x="238" y="98" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">1</text>
-  <circle cx="498" cy="94" r="11" fill="var(--accent)"/><text x="498" y="98" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">2</text>
-  <circle cx="758" cy="94" r="11" fill="var(--accent)"/><text x="758" y="98" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">3</text>
-  <circle cx="964" cy="94" r="11" fill="var(--accent)"/><text x="964" y="98" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">4</text>
-<text class="group-label" x="140" y="204">STEP 5 ONCE PER EVENT, STEPS 6 TO 8 PER TARGET</text>
-  <a href="../observability-operations-architecture.md#classifyalert">
-  <g class="node k-host">
-    <title>shouldAlertTaskFailure: a failed task whose origin is a DM or group session is suppressed (TaskNotificationSubscriber already told that user). Unknown task: skipped. Malformed session key: delivered.</title>
-    <path class="edge" d="M250,248 H320"/>
-    <rect class="box" x="60" y="224" width="190" height="48" rx="6"/>
-    <text class="mono s" x="74" y="245">task-failure filter</text>
-    <text class="sub" x="74" y="263">TaskStatusChangedEvent only</text>
-  </g>
-  </a>
-  <a href="../observability-operations-architecture.md#routing-formatting-throttling">
-  <g class="node k-host">
-    <title>Stateless. Google Chat gets a Cards v2 card; other channels get [SEVERITY] Title: body. Never switches on event type.</title>
-    <path class="edge" d="M510,248 H580"/>
-    <rect class="box" x="320" y="224" width="190" height="48" rx="6"/>
-    <text class="mono s" x="334" y="245">AlertFormatter</text>
-    <text class="sub" x="334" y="263">text or Cards v2</text>
-  </g>
-  </a>
-  <a href="../observability-operations-architecture.md#routing-formatting-throttling">
-  <g class="node k-host">
-    <title>First alert delivers; later ones inside cooldownSeconds (300) are counted. At window end, suppressed &gt;= burstThreshold (5) delivers one summary.</title>
-    <path class="edge" d="M770,248 H840"/>
-    <rect class="box" x="580" y="224" width="190" height="48" rx="6"/>
-    <text class="mono s" x="594" y="245">AlertThrottle</text>
-    <text class="sub" x="594" y="263">alertType:channel:recipient</text>
-  </g>
-  </a>
-  <a href="../observability-operations-architecture.md#routing-formatting-throttling">
-  <g class="node k-host">
-    <title>Resolves AlertTarget to a Channel and calls sendMessage. Logs unknown channels and send failures; never throws, never retries.</title>
-    <path class="edge" d="M908,272 V316"/>
-    <rect class="box" x="840" y="224" width="136" height="48" rx="6"/>
-    <text class="mono" x="854" y="245">Delivery</text>
-    <text class="sub" x="854" y="264">AlertDeliveryAdapter</text>
-  </g>
-  </a>
-  <circle cx="238" cy="224" r="11" fill="var(--accent)"/><text x="238" y="228" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">5</text>
-  <circle cx="498" cy="224" r="11" fill="var(--accent)"/><text x="498" y="228" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">6</text>
-  <circle cx="758" cy="224" r="11" fill="var(--accent)"/><text x="758" y="228" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">7</text>
-  <circle cx="964" cy="224" r="11" fill="var(--accent)"/><text x="964" y="228" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">8</text>
-  <path class="edge dashed" d="M650,272 V300 H870 V274"/>
-  <text class="edge-label" x="760" y="294" text-anchor="middle">burst summary after cooldown</text>
-  <a href="../observability-operations-architecture.md#routing-formatting-throttling">
-  <g class="node k-chan">
-    <title>Channel implementations (WhatsApp, Signal, Google Chat, Slack) from the channel manager, looked up by target.channel.</title>
-    <rect class="box" x="760" y="316" width="216" height="50" rx="6"/>
-    <text class="mono" x="774" y="337">Channel.sendMessage</text>
-    <text class="sub" x="774" y="356">any channel type</text>
-  </g>
-  </a>
-<text class="note" x="24" y="410">Order in code (alert_router.dart): classify, resolve targets, task-failure filter, then per target format, throttle.shouldDeliver, deliver.</text>
-<text class="note" x="24" y="430">The daily token budget has no EventBus event and is never alerted; per-task and per-workflow budget warnings are.</text>
+  <rect class="bg" width="1000" height="622"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="526" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="550">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="574">Hover a step for what it decides; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="594">A red chip inside a step is where an event or alert stops; a grey chip is a counted or logged outcome.</text></g>
 
+  <text class="kick" x="24" y="32">PIPELINE · AlertRouter._onEvent</text>
+  <text class="title" x="24" y="58">Alert pipeline</text>
+  <text class="lede" x="24" y="80">Steps 1 to 5 decide whether and where an alert goes once; steps 6 to 8 run for each target.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="104" width="968" height="122" rx="14"/><text class="kick" x="32" y="126">CLASSIFY · ONCE PER EVENT</text></g>
+  <g class="k-host"><rect class="band" x="16" y="262" width="968" height="140" rx="14"/><text class="kick" x="32" y="284">FILTER, THEN SEND</text></g>
+  <g class="k-host"><rect class="band inner" x="250" y="274" width="722" height="116" rx="10"/><text class="kick" x="266" y="296">PER TARGET · AlertRouter._deliver</text></g>
+
+  <g class="edges">
+    <g class="e main f-bus t-router"><path d="M212,172 H284"/><text class="el" x="248" y="164" text-anchor="middle">every event</text></g>
+    <g class="e main f-router t-classify"><path d="M462,172 H534"/><text class="el" x="498" y="164" text-anchor="middle">event</text></g>
+    <g class="e main f-classify t-resolve"><path d="M712,172 H784"/><text class="el" x="748" y="164" text-anchor="middle">alert type</text></g>
+    <g class="e main f-resolve t-filter"><path d="M874,210 V244 H190 V308"/><text class="el" x="500" y="239" text-anchor="middle">classified alert and targets</text></g>
+    <g class="e main f-filter t-format"><path d="M228,346 H288"/><text class="el" x="258" y="338" text-anchor="middle">per target</text></g>
+    <g class="e main f-format t-throttle"><path d="M454,346 H506"/><text class="el" x="480" y="338" text-anchor="middle">response</text></g>
+    <g class="e main f-throttle t-adapter"><path d="M698,346 H750"/><text class="el" x="724" y="338" text-anchor="middle">send now</text></g>
+    <g class="e main f-adapter t-chan"><path d="M872,382 V430"/><text class="el" x="880" y="416" text-anchor="start">sendMessage</text></g>
+    <g class="e dash f-throttle t-summary"><path d="M600,382 V430"/><text class="el" x="608" y="416" text-anchor="start">count ≥ burstThreshold</text></g>
+    <g class="e dash f-summary t-adapter"><path d="M720,460 H780 V384"/><text class="el" x="750" y="453" text-anchor="middle">deliver</text></g>
+  </g>
+
+  <a href="../observability-operations-architecture.md#1-overview"><g class="n tint k-host" id="bus">
+    <rect class="box" x="36" y="134" width="176" height="76" rx="9"/>
+    <g class="step"><circle cx="56" cy="156" r="10"/><text x="56" y="160">1</text></g>
+    <text class="name" x="74" y="157">EventBus</text>
+    <text class="sub" x="74" y="175">DartclawEvent</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">EventBus</tspan> · sealed stream; AlertRouter subscribes to every DartclawEvent</text><text class="p2" x="36" y="594">Publishers: guards, governance, tasks, scheduler, credential and container health. classifyAlert names each subtype (ADR-057).</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#2-alerts"><g class="n tint k-host" id="router">
+    <rect class="box" x="286" y="134" width="176" height="76" rx="9"/>
+    <g class="step"><circle cx="306" cy="156" r="10"/><text x="306" y="160">2</text></g>
+    <text class="name" x="324" y="157">AlertRouter</text>
+    <text class="sub" x="324" y="175">alerts.enabled</text>
+    <g class="chip k-sec"><rect x="324" y="186" width="107" height="16" rx="8"/><text x="331" y="198">disabled → drop</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">AlertRouter</tspan> · _onEvent returns at once when alerts.enabled is false (the default)</text><text class="p2" x="36" y="594">Reconfigurable on alerts.*: new values apply to the next event without resubscribing. Targets are checked at step 4.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#classifyalert"><g class="n solid k-host" id="classify">
+    <rect class="box" x="536" y="134" width="176" height="76" rx="9"/>
+    <g class="step"><circle cx="556" cy="156" r="10"/><text x="556" y="160">3</text></g>
+    <text class="name mono-name" x="574" y="157">classifyAlert</text>
+    <text class="sub" x="574" y="175">type, severity, body</text>
+    <g class="chip k-sec"><rect x="574" y="186" width="82" height="16" rx="8"/><text x="581" y="198">null → drop</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">classifyAlert</tspan> · pure switch over every event subtype, no wildcard arm; null means not alertable</text><text class="p2" x="36" y="594">A new subtype fails the build until classified or mapped to null. Type, severity, body and details come only from here.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n tint k-host" id="resolve">
+    <rect class="box" x="786" y="134" width="176" height="76" rx="9"/>
+    <g class="step"><circle cx="806" cy="156" r="10"/><text x="806" y="160">4</text></g>
+    <text class="name mono-name" x="824" y="157">_resolveTargets</text>
+    <text class="sub" x="824" y="175">AlertsConfig.routes</text>
+    <g class="chip k-sec"><rect x="824" y="186" width="107" height="16" rx="8"/><text x="831" y="198">no route → drop</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">_resolveTargets</tspan> · empty routes: all targets; routes[type] = [*]: all; indices select; no entry for the type: dropped</text><text class="p2" x="36" y="594">A bad index logs a warning and is skipped; an empty alerts.targets resolves to nothing, whatever routes says.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#classifyalert"><g class="n tint k-host" id="filter">
+    <rect class="box" x="32" y="310" width="196" height="72" rx="9"/>
+    <g class="step"><circle cx="52" cy="332" r="10"/><text x="52" y="336">5</text></g>
+    <text class="name" x="70" y="333">task-failure filter</text>
+    <text class="sub" x="70" y="351">task failures only</text>
+    <g class="chip k-sec"><rect x="70" y="358" width="144" height="16" rx="8"/><text x="77" y="370">channel origin → drop</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">task-failure filter</tspan> · shouldAlertTaskFailure: a task from a DM or group session is dropped, since TaskNotificationSubscriber told that user</text><text class="p2" x="36" y="594">Other events skip this step. An unknown task is skipped; a malformed session key fails open and delivers.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n tint k-host" id="format">
+    <rect class="box" x="290" y="310" width="164" height="72" rx="9"/>
+    <g class="step"><circle cx="310" cy="332" r="10"/><text x="310" y="336">6</text></g>
+    <text class="name mono-name" x="328" y="333">AlertFormatter</text>
+    <text class="sub" x="328" y="351">text or Cards v2</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">AlertFormatter</tspan> · stateless and event-agnostic: Google Chat gets a Cards v2 card, every other channel [SEVERITY] Title: body</text><text class="p2" x="36" y="594">Owns the alert-type-to-title table and the burst summary text. It runs once per target, before the throttle decision.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n solid k-host" id="throttle">
+    <rect class="box" x="508" y="310" width="190" height="72" rx="9"/>
+    <g class="step"><circle cx="528" cy="332" r="10"/><text x="528" y="336">7</text></g>
+    <text class="name mono-name" x="546" y="333">AlertThrottle</text>
+    <text class="sub" x="546" y="351">cooldown and burst</text>
+    <g class="chip k-neu"><rect x="546" y="358" width="132" height="16" rx="8"/><text x="553" y="370">in cooldown → count</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">AlertThrottle</tspan> · key alertType:channel:recipient; first alert delivers, later ones inside cooldownSeconds (300) are counted</text><text class="p2" x="36" y="594">Reconfigure applies to windows opened afterwards; dispose() drops pending summaries (alerts/alert_throttle.dart).</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n tint k-host" id="adapter">
+    <rect class="box" x="752" y="310" width="212" height="72" rx="9"/>
+    <g class="step"><circle cx="772" cy="332" r="10"/><text x="772" y="336">8</text></g>
+    <text class="name mono-name" x="790" y="333">AlertDeliveryAdapter</text>
+    <text class="sub" x="790" y="351">sendMessage, best effort</text>
+    <g class="chip k-neu"><rect x="790" y="358" width="95" height="16" rx="8"/><text x="797" y="370">failure → log</text></g>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">AlertDeliveryAdapter</tspan> · resolves an AlertTarget to a Channel and calls sendMessage; never throws and never retries</text><text class="p2" x="36" y="594">An unknown channel type logs a warning, a send failure logs an error (alerts/alert_delivery_adapter.dart).</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n line k-host" id="summary">
+    <rect class="box" x="500" y="432" width="220" height="56" rx="9"/>
+    <text class="name mono-name" x="512" y="451">_onSummary</text>
+    <text class="sub" x="512" y="467">formatSummary, then deliver</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">_onSummary</tspan> · timer callback at window end, only when suppressedCount &gt;= burstThreshold (5)</text><text class="p2" x="36" y="594">Bypasses the throttle. The summary takes the first suppressed alert's severity, so it never understates the burst.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n tint k-chan" id="chan">
+    <rect class="box" x="800" y="432" width="144" height="56" rx="9"/>
+    <text class="name" x="812" y="451">Channel</text>
+    <text class="sub" x="812" y="467">by target.channel</text>
+    <g class="d"><text class="p1" x="36" y="574"><tspan class="b">Channel</tspan> · looked up by target.channel from the channel manager</text><text class="p2" x="36" y="594">Alerts travel the same channel infrastructure as user messages, so the operator sees them where they already work.</text></g>
+  </g></a>
+  <g transform="translate(24,500)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">pipeline step</text>
+    <g class="solid k-host"><rect class="box" x="124.60000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="146.60000000000002" y="10">focal step</text>
+    <g class="tint k-chan"><rect class="box" x="230.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="252.60000000000002" y="10">channel</text>
+    <g class="e main"><path d="M318.0,6 H350.0"/></g><text class="lg" x="358.0" y="10">alert path</text>
+    <g class="e dash"><path d="M442.0,6 H474.0"/></g><text class="lg" x="482.0" y="10">burst summary</text>
+  </g>
 </svg>

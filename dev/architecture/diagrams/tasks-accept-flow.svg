@@ -1,162 +1,187 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 714" width="1000" height="714" role="img" aria-labelledby="title desc">
   <title id="title">Accepting a reviewed task</title>
-  <desc id="desc">What TaskReviewService does on accept: tasks without a worktree, and workflow-owned git tasks, just transition; local-project worktrees are merged by MergeExecutor; external-project worktrees are committed, pushed, and optionally opened as a pull request. Failures keep the task in review.</desc>
+  <desc id="desc">The accept action takes a per-task lock and picks a delivery path. With no worktree, or a workflow-owned git task, the status only transitions. A local project merges into the server checkout; an external project commits leftovers, pushes and opens a pull request or records the branch. A merge conflict or a push or PR failure returns a result and leaves the task in review.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .name { font-size: 13px; font-weight: 600; }
-    .badge { fill: var(--accent); }
-    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    .k-dev .box.reserved, .reserved .box { stroke-dasharray: 5 4; }
-    .bus { fill: none; stroke: var(--edge); stroke-width: 1.4; }
-    .legend-swatch { fill: none; stroke-width: 1.4; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#accept:hover) .edges :is(.f-accept,.t-accept) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#decide:hover) .edges :is(.f-decide,.t-decide) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#merge:hover) .edges :is(.f-merge,.t-merge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#conflict:hover) .edges :is(.f-conflict,.t-conflict) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#accepted:hover) .edges :is(.f-accepted,.t-accepted) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#prepare:hover) .edges :is(.f-prepare,.t-prepare) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#push:hover) .edges :is(.f-push,.t-push) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pr:hover) .edges :is(.f-pr,.t-pr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#failed:hover) .edges :is(.f-failed,.t-failed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="590"/>
-  <text class="title" x="24" y="34">Accepting a reviewed task</text>
-  <text class="lede" x="24" y="56">Decision order in TaskReviewService._reviewUnlocked. The transition to accepted happens only after the git delivery succeeded; a failure leaves the task in review.</text>
-  <g class="node k-host">
-    <title>Entered from the Web UI and HTTP API (TaskActionService.review), channel review cards, or the task_review tool. Concurrent actions on one task are serialized.</title>
-    <path class="edge" d="M164,122 L204,122"/>
-    <a href="../task-execution-architecture.md#61-taskreviewservice">
-    <rect class="box " x="24" y="90" width="140" height="64" rx="6"/>
-    <text class="mono" x="36" y="110">accept</text>
-    <text class="sub" x="36" y="126">TaskReviewService</text>
-    <text class="sub" x="36" y="140">.review, per-task lock</text>
-    </a>
+  <rect class="bg" width="1000" height="714"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="618" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="642">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="666">Hover a box for what it does and how it fails; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="686">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">DECISION FLOW · TaskReviewService._reviewUnlocked</text>
+  <text class="title" x="24" y="58">Accepting a reviewed task</text>
+  <text class="lede" x="24" y="80">Git delivery runs before the transition. A failure leaves the task in review, so the operator can retry or push back.</text>
+
+  <g class="k-host"><rect class="band" x="482" y="100" width="494" height="120" rx="14"/><text class="kick" x="498" y="122">LOCAL PROJECT · SERVER CHECKOUT</text></g>
+  <g class="k-host"><rect class="band" x="232" y="346" width="744" height="222" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="830" y="368" text-anchor="end">EXTERNAL PROJECT · PUSH, THEN PR OR BRANCH</text></g>
+  <g class="k-host"><text class="el" x="602" y="252" text-anchor="start">MergeSuccess</text></g>
+
+  <g class="edges">
+    <g class="e  f-accept t-decide"><path d="M184,283 H242"/><text class="el" x="213" y="276" text-anchor="middle">locked</text></g>
+    <g class="e main f-decide t-accepted"><path d="M444,283 H738"/><text class="el" x="452" y="276" text-anchor="start">no worktree</text></g>
+    <g class="e  f-decide t-merge"><path d="M344,248 V169 H492"/><text class="el" x="400" y="162" text-anchor="middle">local</text></g>
+    <g class="e  f-decide t-prepare"><path d="M344,318 V378"/><text class="el" x="352" y="340" text-anchor="start">external</text></g>
+    <g class="e bad f-merge t-conflict"><path d="M684,169 H738"/><text class="el" x="711" y="162" text-anchor="middle">conflict</text></g>
+    <g class="e main join f-merge t-accepted"><path d="M594,204 V283"/></g>
+    <g class="e  f-prepare t-push"><path d="M444,415 H492"/><text class="el" x="468" y="408" text-anchor="middle">diff ok</text></g>
+    <g class="e  f-push t-pr"><path d="M684,415 H738"/><text class="el" x="711" y="408" text-anchor="middle">pushed</text></g>
+    <g class="e main f-pr t-accepted"><path d="M852,378 V325"/><text class="el" x="860" y="340" text-anchor="start">recorded</text></g>
+    <g class="e bad f-prepare t-failed"><path d="M344,450 V488"/><text class="el" x="352" y="474" text-anchor="start">no diff</text></g>
+    <g class="e bad f-push t-failed"><path d="M589,450 V488"/><text class="el" x="597" y="474" text-anchor="start">push failed</text></g>
+    <g class="e bad f-pr t-failed"><path d="M852,450 V488"/><text class="el" x="860" y="474" text-anchor="start">PR failed</text></g>
   </g>
-  <g class="node k-host">
-    <title>task.worktreeJson != null &amp;&amp; !task.isWorkflowOwnedGitTask. Workflow git promotion owns publish and merge for workflow-owned tasks.</title>
-    <path class="edge" d="M299,154 L299,180"/>
-    <path class="edge" d="M394,122 L434,122"/>
-    <rect class="box " x="204" y="90" width="190" height="64" rx="6"/>
-    <text class="name" x="216" y="110">worktree task?</text>
-    <text class="sub" x="216" y="126">declared worktree and not a</text>
-    <text class="sub" x="216" y="140">workflow-owned git task</text>
+
+  <a href="../task-execution-architecture.md#61-taskreviewservice"><g class="n tint k-chan" id="accept">
+    <rect class="box" x="24" y="248" width="160" height="70" rx="9"/>
+    <text class="name mono-name" x="36" y="271">accept</text>
+    <text class="sub" x="36" y="289">TaskReviewService</text>
+    <text class="sub" x="36" y="305">.review, per-task lock</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">accept</tspan> · entered from the Web UI and HTTP API (TaskActionService.review), channel review cards, or the task_review tool</text><text class="p2" x="36" y="686">Actions on one task are serialized by a per-task async lock, so two accepts cannot both merge or push.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#62-accept-flow"><g class="n solid k-host" id="decide">
+    <rect class="box" x="244" y="248" width="200" height="70" rx="9"/>
+    <text class="name" x="256" y="271">which delivery?</text>
+    <text class="sub" x="256" y="289">worktree, not workflow-owned?</text>
+    <text class="sub" x="256" y="305">taskTargetsExternalProject?</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">which delivery?</tspan> · worktreeJson set and not a workflow-owned git task, then taskTargetsExternalProject: project id set and not _local</text><text class="p2" x="36" y="686">Workflow git promotion owns publish and merge for workflow-owned tasks, so those only transition here.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#54-mergeexecutor-local-projects"><g class="n tint k-host" id="merge">
+    <rect class="box" x="494" y="134" width="190" height="70" rx="9"/>
+    <text class="name mono-name" x="506" y="157">MergeExecutor.merge</text>
+    <text class="sub" x="506" y="175">invariants, stash, squash</text>
+    <text class="sub" x="506" y="191">or --no-ff, restore</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">MergeExecutor.merge</tspan> · clean index, no untracked files overlapping the stash, an unmoved target when expectedBaseSha is given</text><text class="p2" x="36" y="686">On conflict a squash resets hard and a merge aborts; the original branch and the stash are always restored.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#54-mergeexecutor-local-projects"><g class="n tint k-sec" id="conflict">
+    <rect class="box" x="740" y="134" width="224" height="70" rx="9"/>
+    <text class="name mono-name" x="752" y="157">ReviewMergeConflict</text>
+    <text class="sub" x="752" y="175">conflict.json artifact;</text>
+    <text class="sub" x="752" y="191">task stays in review</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">ReviewMergeConflict</tspan> · MergeConflict is persisted as a conflict.json data artifact and returned with the conflicting files</text><text class="p2" x="36" y="686">TaskActionService maps it to HTTP 409 MERGE_CONFLICT; the task can be retried after the base moves or pushed back.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#62-accept-flow"><g class="n solid k-store" id="accepted">
+    <rect class="box" x="740" y="243" width="224" height="80" rx="9"/>
+    <text class="name" x="752" y="266">accepted</text>
+    <text class="sub" x="752" y="284">TaskService.transition</text>
+    <text class="sub" x="752" y="300">local: worktree cleaned after;</text>
+    <text class="sub" x="752" y="316">external: cleaned up before</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">accepted</tspan> · the review transition, the last step; a version conflict here returns ReviewActionFailed (concurrent modification)</text><text class="p2" x="36" y="686">The local path cleans the worktree and branch after the transition; the external path already cleaned up after the push.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#55-remotepushservice-and-prcreator-external-projects"><g class="n tint k-host" id="prepare">
+    <rect class="box" x="244" y="380" width="200" height="70" rx="9"/>
+    <text class="name" x="256" y="403">prepare branch</text>
+    <text class="sub" x="256" y="421">commit leftover changes;</text>
+    <text class="sub" x="256" y="437">verify diff against base</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">prepare branch</tspan> · git add -A and commit task(&lt;id&gt;): &lt;title&gt; when the worktree is dirty, then git diff --quiet &lt;base&gt;...HEAD</text><text class="p2" x="36" y="686">No committed difference means there is nothing to publish: push-error.txt is written and the action fails.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#55-remotepushservice-and-prcreator-external-projects"><g class="n tint k-host" id="push">
+    <rect class="box" x="494" y="380" width="190" height="70" rx="9"/>
+    <text class="name mono-name" x="506" y="403">RemotePushService</text>
+    <text class="sub" x="506" y="421">git push origin &lt;branch&gt;</text>
+    <text class="sub" x="506" y="437">in an isolate</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">RemotePushService</tspan> · credentials resolve at push time from credentialsRef; results: PushSuccess, PushAuthFailure, PushRejected, PushError</text><text class="p2" x="36" y="686">Every failure writes push-error.txt and returns ReviewActionFailed; nothing was transitioned.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#55-remotepushservice-and-prcreator-external-projects"><g class="n tint k-host" id="pr">
+    <rect class="box" x="740" y="380" width="224" height="70" rx="9"/>
+    <text class="name" x="752" y="403">PrCreator or branch</text>
+    <text class="sub" x="752" y="421">githubPr: REST pull request;</text>
+    <text class="sub" x="752" y="437">else the branch is recorded</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">PrCreator or branch</tspan> · PrCreated stores a pr artifact with the URL; branch-only strategy stores the branch name</text><text class="p2" x="36" y="686">PrCreationFailed stores an error artifact and fails the review action even though the branch was pushed.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#62-accept-flow"><g class="n tint k-sec" id="failed">
+    <rect class="box" x="244" y="490" width="720" height="60" rx="9"/>
+    <text class="name mono-name" x="256" y="513">ReviewActionFailed</text>
+    <text class="sub" x="256" y="531">error artifact written; task stays in review; HTTP 500 INTERNAL_ERROR</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">ReviewActionFailed</tspan> · no diff, push failure, PR creation failure, missing merge or push infrastructure, or a concurrent modification</text><text class="p2" x="36" y="686">The task is never moved to accepted when git delivery failed.</text></g>
+  </g></a>
+  <g transform="translate(24,592)">
+    <g class="tint k-chan"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">review action</text>
+    <g class="tint k-host"><rect class="box" x="124.60000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="146.60000000000002" y="10">git delivery step</text>
+    <g class="tint k-store"><rect class="box" x="274.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="296.0" y="10">transition</text>
+    <g class="tint k-sec"><rect class="box" x="380.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="402.0" y="10">result: stays in review</text>
+    <g class="e main"><path d="M566.6,6 H598.6"/></g><text class="lg" x="606.6" y="10">to accepted</text>
+    <g class="e "><path d="M696.8,6 H728.8"/></g><text class="lg" x="736.8" y="10">delivery step</text>
+    <g class="e bad"><path d="M839.4,6 H871.4"/></g><text class="lg" x="879.4" y="10">failure</text>
   </g>
-  <g class="node k-host">
-    <title>taskProjectId(task) is Task.projectId, then legacy configJson.projectId. Local means merge into the server checkout; external means push.</title>
-    <path class="edge" d="M529,154 L529,180"/>
-    <path class="edge" d="M624,122 L684,122"/>
-    <a href="../task-execution-architecture.md#9-multi-project">
-    <rect class="box " x="434" y="90" width="190" height="64" rx="6"/>
-    <text class="name" x="446" y="110">external project?</text>
-    <text class="sub" x="446" y="126">taskTargetsExternalProject:</text>
-    <text class="sub" x="446" y="140">project id set and not _local</text>
-    </a>
-  </g>
-  <g class="node k-store">
-    <title>The review transition. For a workflow-owned task the workflow engine promotes the branch separately.</title>
-    <rect class="box " x="204" y="180" width="190" height="64" rx="6"/>
-    <text class="name" x="216" y="200">accepted</text>
-    <text class="sub" x="216" y="216">transition only: no merge,</text>
-    <text class="sub" x="216" y="230">push, or cleanup here</text>
-  </g>
-  <g class="node k-host">
-    <title>Clean index, no untracked-vs-stash overlap, optional expected base SHA. Conflict: squash resets hard, merge aborts; original branch and stash always restored.</title>
-    <path class="edge" d="M529,244 L529,280"/>
-    <path class="edge" d="M624,212 L644,212 L644,412 L624,412"/>
-    <a href="../task-execution-architecture.md#54-mergeexecutor-local-projects">
-    <rect class="box " x="434" y="180" width="190" height="64" rx="6"/>
-    <text class="mono" x="446" y="200">MergeExecutor.merge</text>
-    <text class="sub" x="446" y="216">pre-merge invariants, stash,</text>
-    <text class="sub" x="446" y="230">squash or --no-ff, restore</text>
-    </a>
-  </g>
-  <g class="node k-store">
-    <title>After the transition, cleanupWorktree removes the worktree and branch and deregisters the TaskFileGuard entry.</title>
-    <rect class="box " x="434" y="280" width="190" height="64" rx="6"/>
-    <text class="name" x="446" y="300">accepted</text>
-    <text class="sub" x="446" y="316">MergeSuccess: transition,</text>
-    <text class="sub" x="446" y="330">then worktree cleaned up</text>
-  </g>
-  <g class="node k-sec">
-    <title>MergeConflict is persisted as a data artifact and returned as ReviewMergeConflict; the HTTP layer maps it to 409 MERGE_CONFLICT.</title>
-    <rect class="box " x="434" y="380" width="190" height="64" rx="6"/>
-    <text class="mono" x="446" y="400">ReviewMergeConflict</text>
-    <text class="sub" x="446" y="416">conflict.json artifact;</text>
-    <text class="sub" x="446" y="430">task stays in review</text>
-  </g>
-  <g class="node k-host">
-    <title>_prepareProjectBranchForPush: git add -A and commit task(&lt;id&gt;): &lt;title&gt; if the worktree is dirty, then git diff --quiet base...HEAD. No diff means ReviewActionFailed.</title>
-    <path class="edge" d="M830,154 L830,190"/>
-    <rect class="box " x="684" y="90" width="292" height="64" rx="6"/>
-    <text class="name" x="696" y="110">prepare branch</text>
-    <text class="sub" x="696" y="126">commit leftover worktree changes</text>
-    <text class="sub" x="696" y="140">verify the branch differs from base</text>
-  </g>
-  <g class="node k-host">
-    <title>Credentials resolved at push time from credentialsRef (resolveGitCredentialPlan). Failures write push-error.txt and return ReviewActionFailed.</title>
-    <path class="edge" d="M830,254 L830,290"/>
-    <path class="edge dashed" d="M684,222 L664,222 L664,502 L684,502"/>
-    <a href="../task-execution-architecture.md#55-remotepushservice-and-prcreator-external-projects">
-    <rect class="box " x="684" y="190" width="292" height="64" rx="6"/>
-    <text class="mono" x="696" y="210">RemotePushService.push</text>
-    <text class="sub" x="696" y="226">git push origin &lt;branch&gt; in an isolate;</text>
-    <text class="sub" x="696" y="240">PushSuccess, AuthFailure, Rejected, Error</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>PrCreated stores a pr artifact with the URL; branch-only stores the branch name. PrCreationFailed stores an error artifact and fails the review action.</title>
-    <path class="edge" d="M830,354 L830,390"/>
-    <rect class="box " x="684" y="290" width="292" height="64" rx="6"/>
-    <text class="name" x="696" y="310">PrCreator or branch artifact</text>
-    <text class="sub" x="696" y="326">project.pr.strategy githubPr: REST API PR</text>
-    <text class="sub" x="696" y="340">otherwise record the branch; then cleanup</text>
-  </g>
-  <g class="node k-store">
-    <title>Last step; a version conflict here returns ReviewActionFailed (concurrent modification).</title>
-    <rect class="box " x="684" y="390" width="292" height="64" rx="6"/>
-    <text class="name" x="696" y="410">accepted</text>
-    <text class="sub" x="696" y="426">task transitions to accepted</text>
-  </g>
-  <g class="node k-sec">
-    <title>The task is never moved to accepted when git delivery failed, so the operator can retry or push back.</title>
-    <rect class="box " x="684" y="470" width="292" height="64" rx="6"/>
-    <text class="mono" x="696" y="490">ReviewActionFailed</text>
-    <text class="sub" x="696" y="506">no diff, push failure, or PR creation failed:</text>
-    <text class="sub" x="696" y="520">error artifact; task stays in review</text>
-  </g>
-  <text class="edge-label" x="306" y="172">no</text>
-  <text class="edge-label" x="402" y="114">yes</text>
-  <text class="edge-label" x="536" y="172">local</text>
-  <text class="edge-label" x="630" y="114">external</text>
-  <text class="note" x="24" y="570">Opened directly in a browser, hovering a step shows its detail and highlights its outgoing arrows. Dashed: any failure on the external path.</text>
 </svg>

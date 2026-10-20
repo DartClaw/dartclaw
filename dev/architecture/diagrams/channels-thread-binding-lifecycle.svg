@@ -1,175 +1,213 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 742" width="1000" height="742" role="img" aria-labelledby="title desc">
   <title id="title">Thread binding lifecycle</title>
-  <desc id="desc">Task bindings are created by the first task notification or an explicit bind, routed by ThreadBindingRouter, and removed on a terminal task, an idle sweep or an unbind. Run bindings are created and deleted by the run notification subscriber and never route.</desc>
+  <desc id="desc">Writers create task and run bindings in ThreadBindingStore, which persists them to thread-bindings.json. ThreadBindingLifecycleManager and explicit unbind remove task bindings, the run subscriber removes its run binding, ThreadBindingRouter reads task bindings on every inbound message, and reconcile drops bindings of terminal or unknown targets at startup.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .halo { paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
-    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; fill: none; }
-    .num { font-size: 11px; font-weight: 700; fill: var(--accent); }
-    .badge { fill: var(--accent); }
-    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    a:hover text { text-decoration: underline; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#c_run:hover) .edges :is(.f-c_run,.t-c_run) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c_task:hover) .edges :is(.f-c_task,.t-c_task) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c_bind:hover) .edges :is(.f-c_bind,.t-c_bind) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#run:hover) .edges :is(.f-run,.t-run) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#task:hover) .edges :is(.f-task,.t-task) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r_run:hover) .edges :is(.f-r_run,.t-r_run) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r_term:hover) .edges :is(.f-r_term,.t-r_term) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r_idle:hover) .edges :is(.f-r_idle,.t-r_idle) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r_unbind:hover) .edges :is(.f-r_unbind,.t-r_unbind) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mgr:hover) .edges :is(.f-mgr,.t-mgr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#router:hover) .edges :is(.f-router,.t-router) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#recon:hover) .edges :is(.f-recon,.t-recon) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="600"/>
-  <text class="title" x="24" y="34">Thread binding lifecycle</text>
-  <text class="lede" x="24" y="56">Who creates and removes bindings, and what reads them. Doc: channel-messaging-architecture.md section 5.</text>
-  <text class="group-label" x="40" y="78">Creation</text>
-  <text class="group-label" x="700" y="78">Removal</text>
-  <g class="node k-host">
-    <title>task/task_notification_subscriber.dart. With features.thread_binding.enabled the first notification of a channel-originated task opens a thread keyed task-&lt;id&gt; and writes ThreadBinding.task with the task origin&#x27;s session key.</title>
-    <path class="edge" d="M310,138 L380,138"/>
-    <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle">
-      <rect class="box" x="40" y="96" width="270" height="84" rx="6"/>
-      <text class="mono" x="54" y="117">task notification</text>
-      <text class="sub" x="54" y="135">TaskNotificationSubscriber: first post</text>
-      <text class="sub" x="54" y="150">(queued to running) opens thread</text>
-      <text class="sub" x="54" y="165">task-&lt;id&gt;; needs the flag on</text>
-    </a>
+  <rect class="bg" width="1000" height="742"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="646" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="670">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="694">Hover a box for its trigger, source file or failure mode; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="714">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">LIFECYCLE · ThreadBindingStore</text>
+  <text class="title" x="24" y="58">Thread binding lifecycle</text>
+  <text class="lede" x="24" y="80">A task binding routes a thread to a task session; a run binding only holds a run's thread, so the idle sweep skips it.</text>
+
+  <text class="kick" x="24" y="116" text-anchor="start">CREATE</text>
+  <text class="kick" x="744" y="116" text-anchor="start">REMOVE</text>
+  <g class="k-store"><rect class="band" x="330" y="96" width="340" height="382" rx="14"/><text class="kick" x="346" y="118">ThreadBindingStore · thread-bindings.json</text></g>
+  <g class="k-host"><rect class="band inner" x="728" y="240" width="256" height="156" rx="10"/><text class="kick" x="744" y="262">ThreadBindingLifecycleManager</text></g>
+
+  <g class="edges">
+    <g class="e main f-c_run t-run"><path d="M264,171 H344"/><text class="el" x="272" y="164" text-anchor="start">run-&lt;id&gt;</text></g>
+    <g class="e main f-c_task t-task"><path d="M264,303 H344"/><text class="el" x="272" y="296" text-anchor="start">task-&lt;id&gt;</text></g>
+    <g class="e main f-c_bind t-task"><path d="M264,407 H344"/><text class="el" x="272" y="400" text-anchor="start">explicit</text></g>
+    <g class="e  f-r_run t-run"><path d="M744,163 H656"/><text class="el" x="666" y="156" text-anchor="start">run ends</text></g>
+    <g class="e  f-r_term t-task"><path d="M744,296 H656"/><text class="el" x="666" y="289" text-anchor="start">terminal</text></g>
+    <g class="e  f-r_idle t-task"><path d="M744,358 H656"/><text class="el" x="666" y="351" text-anchor="start">idle</text></g>
+    <g class="e  f-r_unbind t-task"><path d="M744,436 H656"/><text class="el" x="666" y="429" text-anchor="start">unbind</text></g>
+    <g class="e  f-mgr t-router"><path d="M264,554 H344"/><text class="el" x="272" y="547" text-anchor="start">message</text></g>
+    <g class="e  f-router t-task"><path d="M400,516 V458"/><text class="el" x="392" y="492" text-anchor="end">lastActivity</text></g>
+    <g class="e  f-task t-router"><path d="M520,458 V514"/><text class="el" x="528" y="492" text-anchor="start">task binding</text></g>
+    <g class="e dash f-recon t-run t-task"><path d="M744,554 H626 V480"/><text class="el" x="636" y="547" text-anchor="start">at startup</text></g>
   </g>
-  <g class="node k-host">
-    <title>reserved_command_handler.dart, mcp/task_tools.dart, api/task_routes.dart. Each refuses a terminal or unknown task, a thread bound to another task, and a thread held by a run binding.</title>
-    <path class="edge" d="M310,238 L380,238"/>
-    <a href="../channel-messaging-architecture.md#54-writers-and-conflicts">
-      <rect class="box" x="40" y="196" width="270" height="84" rx="6"/>
-      <text class="mono" x="54" y="217">explicit bind (admin)</text>
-      <text class="sub" x="54" y="235">/bind &lt;taskId&gt; in the thread</text>
-      <text class="sub" x="54" y="250">task_bind tool (names the thread)</text>
-      <text class="sub" x="54" y="265">POST /api/tasks/&lt;id&gt;/bindings</text>
-    </a>
+
+  <a href="../channel-messaging-architecture.md#61-delivery"><g class="n tint k-host" id="c_run">
+    <rect class="box" x="24" y="130" width="240" height="82" rx="9"/>
+    <text class="name" x="36" y="153">run notification</text>
+    <text class="sub" x="36" y="171">WorkflowRunNotificationSubscriber</text>
+    <text class="sub" x="36" y="187">first post opens thread run-&lt;id&gt;</text>
+    <text class="sub" x="36" y="203">no features flag needed</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">run notification</tspan> · task/workflow_run_notification_subscriber.dart; writes ThreadBinding.run for a run on chat_notifications</text><text class="p2" x="36" y="714">Not written for a run posted into its origin thread. The store exists when workflow.chat_notifications is configured even with thread_binding off.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle"><g class="n tint k-host" id="c_task">
+    <rect class="box" x="24" y="262" width="240" height="82" rx="9"/>
+    <text class="name" x="36" y="285">task notification</text>
+    <text class="sub" x="36" y="303">TaskNotificationSubscriber</text>
+    <text class="sub" x="36" y="319">first post (queued to running)</text>
+    <text class="sub" x="36" y="335">opens thread task-&lt;id&gt;</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">task notification</tspan> · task/task_notification_subscriber.dart; the flag on, a channel-originated task first post writes the binding</text><text class="p2" x="36" y="714">The binding carries the task origin's session key. Only a channel that declares ThreadedNotifications can hold one.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#54-writers-and-conflicts"><g class="n tint k-host" id="c_bind">
+    <rect class="box" x="24" y="366" width="240" height="82" rx="9"/>
+    <text class="name" x="36" y="389">explicit bind (admin)</text>
+    <text class="sub" x="36" y="407">/bind &lt;taskId&gt; in the thread</text>
+    <text class="sub" x="36" y="423">task_bind tool, names the thread</text>
+    <text class="sub" x="36" y="439">POST /api/tasks/&lt;id&gt;/bindings</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">explicit bind (admin)</tspan> · reserved_command_handler.dart, mcp/task_tools.dart, api/task_routes.dart; one thread key via the capability</text><text class="p2" x="36" y="714">Each refuses a terminal or unknown task, a thread bound to another task, and a thread held by a run binding.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#52-model-and-store"><g class="n tint k-store" id="run">
+    <rect class="box" x="346" y="136" width="308" height="100" rx="9"/>
+    <text class="name mono-name" x="358" y="159">ThreadBinding.run</text>
+    <g class="badge"><rect x="555" y="147" width="89" height="16" rx="8"/><text x="600" y="159">NEVER SWEPT</text></g>
+    <text class="sub" x="358" y="177">holds the thread a run posts into</text>
+    <text class="sub" x="358" y="193">routes nothing: router lookups skip it</text>
+    <text class="sub" x="358" y="209">explicit unbind cannot remove it</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">ThreadBinding.run</tspan> · targetId is the run ID, no sessionKey; exempt from the sweep: a run can wait at an approval longer than the timeout</text><text class="p2" x="36" y="714">Only the run subscriber deletes it (deleteByTarget in _closeRun, after the terminal post and any unresolved-approval edit) or startup reconcile.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#52-model-and-store"><g class="n solid k-store" id="task">
+    <rect class="box" x="346" y="262" width="308" height="194" rx="9"/>
+    <text class="name mono-name" x="358" y="285">ThreadBinding.task</text>
+    <g class="badge"><rect x="555" y="273" width="89" height="16" rx="8"/><text x="600" y="285">IDLE 60 MIN</text></g>
+    <text class="sub" x="358" y="303">routes the thread to a task session</text>
+    <text class="sub" x="358" y="319">sessionKey: the task's session</text>
+    <text class="sub" x="358" y="335">lastActivity: set on every routed message</text>
+    <text class="sub" x="358" y="351">removed by: terminal task, idle sweep,</text>
+    <text class="sub" x="358" y="367">explicit unbind, startup reconcile</text>
+    <text class="mono" x="358" y="383">key: &lt;channelType&gt;::&lt;threadId&gt;</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">ThreadBinding.task</tspan> · immutable record; in-memory map persisted with atomic temp-file-and-rename writes</text><text class="p2" x="36" y="714">Lookups are synchronous, only writes touch disk. load() keeps every well-formed row: it runs before channels register.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#61-delivery"><g class="n tint k-host" id="r_run">
+    <rect class="box" x="744" y="130" width="224" height="66" rx="9"/>
+    <text class="name" x="756" y="153">run finished</text>
+    <text class="sub" x="756" y="171">WorkflowRunNotificationSubscriber</text>
+    <text class="sub" x="756" y="187">deletes it after final post</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">run finished</tspan> · deleteByTarget(ThreadBindingKind.run, runId) once the run ends, after the terminal post and any unresolved-approval edit</text><text class="p2" x="36" y="714">A run that is cancelled by an approval timeout is edited to "No longer pending" first.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle"><g class="n tint k-host" id="r_term">
+    <rect class="box" x="744" y="272" width="224" height="48" rx="9"/>
+    <text class="name" x="756" y="291">terminal task</text>
+    <text class="sub" x="756" y="307">on TaskStatusChangedEvent</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">terminal task</tspan> · deleteByTaskId when the task reaches accepted, rejected, cancelled or failed; cleanup operations are serialized</text><text class="p2" x="36" y="714">A persistence failure is logged and never blocks later cleanup; dispose() cancels new work and drains pending writes.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle"><g class="n tint k-host" id="r_idle">
+    <rect class="box" x="744" y="334" width="224" height="48" rx="9"/>
+    <text class="name" x="756" y="353">idle sweep</text>
+    <text class="sub" x="756" y="369">every 5 min, idle over 60 min</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">idle sweep</tspan> · features.thread_binding.idle_timeout_minutes, default 60, 1 to 1440; removeExpiredBindings skips run bindings</text><text class="p2" x="36" y="714">Removal can lag the timeout by up to one sweep interval.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#54-writers-and-conflicts"><g class="n tint k-host" id="r_unbind">
+    <rect class="box" x="744" y="412" width="224" height="48" rx="9"/>
+    <text class="name" x="756" y="431">explicit unbind</text>
+    <text class="sub" x="756" y="447">/unbind, task_unbind, API DELETE</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">explicit unbind</tspan> · /unbind, task_unbind and DELETE /api/tasks/&lt;id&gt;/bindings/... remove one task binding on request</text><text class="p2" x="36" y="714">A thread held by a run binding answers a conflict naming the run; no writer can remove it.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#24-channelmanager"><g class="n tint k-host" id="mgr">
+    <rect class="box" x="24" y="516" width="240" height="64" rx="9"/>
+    <text class="name mono-name" x="36" y="539">ChannelManager</text>
+    <text class="sub" x="36" y="557">handleInboundMessage</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">ChannelManager</tspan> · asks ThreadBindingRouter for a binding on every inbound message, before the pause check</text><text class="p2" x="36" y="714">The thread comes from the owning channel's ThreadedNotifications.extractThread, so reads and writes agree on the key.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle"><g class="n tint k-host" id="router">
+    <rect class="box" x="346" y="516" width="254" height="76" rx="9"/>
+    <text class="name mono-name" x="358" y="539">ThreadBindingRouter</text>
+    <text class="sub" x="358" y="557">lookupThreadBinding: task only</text>
+    <text class="sub" x="358" y="573">awaits lastActivity, then enqueues</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">ThreadBindingRouter</tspan> · thread_binding_router.dart; returns a binding only if it is a task binding, so a run binding never answers</text><text class="p2" x="36" y="714">The lastActivity write is awaited before the message is enqueued on binding.sessionKey.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle"><g class="n tint k-host" id="recon">
+    <rect class="box" x="744" y="516" width="224" height="76" rx="9"/>
+    <text class="name mono-name" x="756" y="539">reconcileThreadBindings</text>
+    <text class="sub" x="756" y="557">drops bindings of terminal or</text>
+    <text class="sub" x="756" y="573">unknown tasks and runs</text>
+    <g class="d"><text class="p1" x="36" y="694"><tspan class="b">reconcileThreadBindings</tspan> · runtime/service_wiring_notifications.dart; runs before ThreadBindingLifecycleManager.start</text><text class="p2" x="36" y="714">Passes non-terminal task and run IDs to ThreadBindingStore.reconcile; load() cannot tell a stale row from one whose channel is starting.</text></g>
+  </g></a>
+  <g transform="translate(24,620)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">writer, remover or reader</text>
+    <g class="tint k-store"><rect class="box" x="199.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="221.0" y="10">binding record</text>
+    <g class="e main"><path d="M329.8,6 H361.8"/></g><text class="lg" x="369.8" y="10">creates a binding</text>
+    <g class="e "><path d="M497.20000000000005,6 H529.2"/></g><text class="lg" x="537.2" y="10">removes or reads</text>
+    <g class="e dash"><path d="M658.4000000000001,6 H690.4000000000001"/></g><text class="lg" x="698.4000000000001" y="10">startup reconcile</text>
   </g>
-  <g class="node k-host">
-    <title>task/workflow_run_notification_subscriber.dart. Writes ThreadBinding.run for runs posted to the configured channel (not for a run posted into its origin thread). Also written without features.thread_binding.enabled.</title>
-    <path class="edge" d="M310,338 L380,338"/>
-    <a href="../channel-messaging-architecture.md#61-delivery">
-      <rect class="box" x="40" y="296" width="270" height="84" rx="6"/>
-      <text class="mono" x="54" y="317">run notification</text>
-      <text class="sub" x="54" y="335">WorkflowRunNotificationSubscriber:</text>
-      <text class="sub" x="54" y="350">first post of a run on workflow.</text>
-      <text class="sub" x="54" y="365">chat_notifications opens run-&lt;id&gt;</text>
-    </a>
-  </g>
-  <g class="node k-store">
-    <title>ThreadBindingStore (thread_binding.dart): in-memory map keyed channelType::threadId, persisted to thread-bindings.json with atomic writes. The store exists when features.thread_binding.enabled is on or workflow.chat_notifications is configured. Lookups are synchronous; only writes touch disk.</title>
-    <a href="../channel-messaging-architecture.md#52-model-and-store">
-      <rect class="box" x="380" y="84" width="240" height="316" rx="6"/>
-      <text class="mono" x="394" y="106">ThreadBindingStore</text>
-      <text class="sub" x="394" y="124">thread-bindings.json</text>
-      <rect class="chip" x="394" y="140" width="212" height="104" rx="4"/>
-      <text class="chip-text" x="404" y="160">ThreadBinding.task</text>
-      <text class="sub" x="404" y="178">routes the thread to a task</text>
-      <text class="sub" x="404" y="193">session (sessionKey)</text>
-      <text class="sub" x="404" y="212">idle sweep and terminal task</text>
-      <text class="sub" x="404" y="227">remove it</text>
-      <rect class="chip" x="394" y="258" width="212" height="124" rx="4"/>
-      <text class="chip-text" x="404" y="278">ThreadBinding.run</text>
-      <text class="sub" x="404" y="296">holds the thread a run posts</text>
-      <text class="sub" x="404" y="311">into; routes nothing</text>
-      <text class="sub" x="404" y="330">exempt from the idle sweep</text>
-      <text class="sub" x="404" y="345">(a run may wait at an</text>
-      <text class="sub" x="404" y="360">approval for hours)</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>thread_binding_lifecycle_manager.dart. deleteByTaskId when the task reaches a terminal state. Cleanup operations are serialized.</title>
-    <path class="edge" d="M700,117 L620,117"/>
-    <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle">
-      <rect class="box" x="700" y="84" width="260" height="66" rx="6"/>
-      <text class="mono" x="714" y="105">terminal task</text>
-      <text class="sub" x="714" y="123">ThreadBindingLifecycleManager on</text>
-      <text class="sub" x="714" y="138">TaskStatusChangedEvent</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>ThreadBindingLifecycleManager periodic timer. features.thread_binding.idle_timeout_minutes, default 60, 1 to 1440. Removal can lag by up to one sweep interval.</title>
-    <path class="edge" d="M700,197 L620,197"/>
-    <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle">
-      <rect class="box" x="700" y="164" width="260" height="66" rx="6"/>
-      <text class="mono" x="714" y="185">idle sweep</text>
-      <text class="sub" x="714" y="203">every 5 min; task bindings idle</text>
-      <text class="sub" x="714" y="218">over idle_timeout_minutes (60)</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>Task bindings only. A thread held by a run binding cannot be unbound by any writer.</title>
-    <path class="edge" d="M700,277 L620,277"/>
-    <a href="../channel-messaging-architecture.md#54-writers-and-conflicts">
-      <rect class="box" x="700" y="244" width="260" height="66" rx="6"/>
-      <text class="mono" x="714" y="265">explicit unbind</text>
-      <text class="sub" x="714" y="283">/unbind, task_unbind,</text>
-      <text class="sub" x="714" y="298">DELETE /api/tasks/&lt;id&gt;/bindings/...</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>deleteByTarget(ThreadBindingKind.run, runId) in _closeRun, after the terminal post and any unresolved-approval edit.</title>
-    <path class="edge" d="M700,357 L620,357"/>
-    <a href="../channel-messaging-architecture.md#61-delivery">
-      <rect class="box" x="700" y="324" width="260" height="66" rx="6"/>
-      <text class="mono" x="714" y="345">run finished</text>
-      <text class="sub" x="714" y="363">WorkflowRunNotificationSubscriber</text>
-      <text class="sub" x="714" y="378">deletes it after the terminal post</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>thread_binding_router.dart. lookupThreadBinding returns only task bindings (run bindings never answer). routeBoundMessage awaits updateLastActivity, then enqueues on binding.sessionKey. See the inbound pipeline figure.</title>
-    <path class="edge" d="M440,450 L440,400"/>
-    <path class="edge" d="M560,400 L560,450"/>
-    <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle">
-      <rect class="box" x="380" y="450" width="240" height="76" rx="6"/>
-      <text class="mono" x="394" y="471">active routing</text>
-      <text class="sub" x="394" y="489">ThreadBindingRouter: task binding</text>
-      <text class="sub" x="394" y="504">answers; lastActivity persisted</text>
-      <text class="sub" x="394" y="519">before enqueue</text>
-    </a>
-  </g>
-  <text class="edge-label halo" x="432" y="430" text-anchor="end">lastActivity</text>
-  <text class="edge-label halo" x="568" y="430" text-anchor="start">lookup</text>
-  <g class="node k-host">
-    <title>runtime/service_wiring_notifications.dart, called from ServiceWiring._wireThreadBinding before ThreadBindingLifecycleManager.start. load() keeps every well-formed row because channels have not registered yet.</title>
-    <path class="edge" d="M830,450 L830,420 L600,420 L600,400"/>
-    <a href="../channel-messaging-architecture.md#53-routing-and-lifecycle">
-      <rect class="box" x="700" y="450" width="260" height="76" rx="6"/>
-      <text class="mono" x="714" y="471">startup reconcile</text>
-      <text class="sub" x="714" y="489">reconcileThreadBindings drops</text>
-      <text class="sub" x="714" y="504">bindings of terminal or unknown</text>
-      <text class="sub" x="714" y="519">tasks and runs, then sweep starts</text>
-    </a>
-  </g>
-  <text class="note" x="24" y="570">Opened directly in a browser, hovering a box shows its detail and highlights its arrows; arrows into the store add or remove a binding.</text>
 </svg>

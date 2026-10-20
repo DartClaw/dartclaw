@@ -1,157 +1,205 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 786" width="1000" height="786" role="img" aria-labelledby="title desc">
   <title id="title">Container isolation topology</title>
-  <desc id="desc">A container has no network and no credential. Its provider binary reaches one upstream and the MCP endpoint only through two host-opened bridge pipes served by HostGateway.</desc>
+  <desc id="desc">A container started with network none holds the provider binary and up to two loopback bridges. Each bridge frames its traffic over a docker exec -i pipe to HostGateway, which pins one upstream, injects the host-held credential and enforces the authority's MCP tool allowlist before the host MCP handler runs.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .name { font-size: 13.5px; font-weight: 700; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#bin:hover) .edges :is(.f-bin,.t-bin) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pbridge:hover) .edges :is(.f-pbridge,.t-pbridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mbridge:hover) .edges :is(.f-mbridge,.t-mbridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mounts:hover) .edges :is(.f-mounts,.t-mounts) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#hard:hover) .edges :is(.f-hard,.t-hard) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gw:hover) .edges :is(.f-gw,.t-gw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cred:hover) .edges :is(.f-cred,.t-cred) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cm:hover) .edges :is(.f-cm,.t-cm) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#engine:hover) .edges :is(.f-engine,.t-engine) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#api:hover) .edges :is(.f-api,.t-api) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="590"/>
-  <text class="title" x="24" y="34">Container isolation topology</text>
-  <text class="lede" x="24" y="56">One container per Container Authority. All outside access goes through host-opened bridge pipes.</text>
-  <rect class="group" x="16" y="76" width="300" height="426" rx="8"/>
-  <text class="group-label" x="28" y="92">Container (one per authority)</text>
-  <rect class="group" x="368" y="76" width="296" height="426" rx="8"/>
-  <text class="group-label" x="380" y="92">Dart host</text>
-  <a href="../control-protocol.md">
-  <g class="node k-ext">
-    <title>The provider binary from the configured image. ANTHROPIC_BASE_URL points at the loopback provider bridge (127.0.0.1); MCP goes to the loopback MCP bridge. ACP agents never run here.</title>
-    <path class="edge" d="M97,176 L97,218"/>
-    <path class="edge" d="M235,176 L235,218"/>
-    <rect class="box" x="32" y="112" width="268" height="64" rx="6"/>
-    <text class="name" x="46" y="133">claude or codex</text>
-    <text class="sub" x="46" y="150">provider binary from the image</text>
-    <text class="sub" x="46" y="165">talks only to the loopback bridges</text>
+  <rect class="bg" width="1000" height="786"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="690" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="714">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="738">Hover a box for its role and the fact that bounds it; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="758">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">DEPLOYMENT · one container per Container Authority</text>
+  <text class="title" x="24" y="58">Container isolation topology</text>
+  <text class="lede" x="24" y="80">The container has no network and no credential. Provider traffic and MCP calls leave it only through host-opened pipes.</text>
+
+  <g class="k-sec"><rect class="band" x="16" y="104" width="376" height="410" rx="14"/><text class="kick" x="32" y="126">CONTAINER · NETWORK NONE</text></g>
+  <g class="k-host"><rect class="band" x="416" y="104" width="342" height="532" rx="14"/><text class="kick" x="432" y="126">DART HOST PROCESS · dartclaw serve</text></g>
+  <g class="k-ext"><text class="kick" x="786" y="122" text-anchor="start">UPSTREAM</text></g>
+
+  <g class="edges">
+    <g class="e main f-bin t-pbridge"><path d="M176,166 H226"/><text class="el" x="201" y="158" text-anchor="middle">loopback</text></g>
+    <g class="e dash f-bin t-mbridge"><path d="M176,246 H226"/><text class="el" x="201" y="238" text-anchor="middle">loopback</text></g>
+    <g class="e main f-pbridge t-gw"><path d="M380,166 H430"/><text class="el" x="405" y="158" text-anchor="middle">frames</text></g>
+    <g class="e dash f-mbridge t-gw"><path d="M380,246 H430"/><text class="el" x="405" y="238" text-anchor="middle">frames</text></g>
+    <g class="e main f-gw t-api"><path d="M742,206 H784"/><text class="el" x="764" y="198" text-anchor="middle">HTTPS</text></g>
+    <g class="e  f-cred t-gw"><path d="M520,306 V280"/><text class="el" x="528" y="298" text-anchor="start">per request</text></g>
+    <g class="e  f-gw t-mcp"><path d="M716,280 V400"/><text class="el" x="708" y="345" text-anchor="end">tools/call</text></g>
+    <g class="e  f-cm t-engine"><path d="M430,588 H378"/><text class="el" x="404" y="580" text-anchor="middle">drives</text></g>
+    <g class="e  f-engine t-hard t-mounts t-bin t-pbridge t-mbridge"><path d="M200,554 V516"/><text class="el" x="208" y="540" text-anchor="start">runs</text></g>
   </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-sec">
-    <title>dartclaw-bridge (BridgeSurface.provider), mounted read-only at /opt/dartclaw/dartclaw-bridge. Chooses no destination and holds no credential; frames provider traffic to the host over the docker exec -i pipe.</title>
-    <path class="edge" d="M97,274 V304 H384"/>
-    <rect class="box" x="32" y="218" width="130" height="56" rx="6"/>
-    <text class="name" x="46" y="239">bridge: provider</text>
-    <text class="chip-text" x="46" y="256">dartclaw-bridge</text>
+
+  <a href="../system-architecture.md#deployment-model"><g class="n tint k-ext" id="bin">
+    <rect class="box" x="28" y="134" width="148" height="144" rx="9"/>
+    <text class="name" x="40" y="157">claude or codex</text>
+    <text class="sub" x="40" y="175">from the image</text>
+    <text class="sub" x="40" y="191">no network, no key</text>
+    <text class="sub" x="40" y="207">talks to 127.0.0.1</text>
+    <text class="sub" x="40" y="223">never an ACP agent</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">claude or codex</tspan> · provider binary from the configured image; Claude and Codex only</text><text class="p2" x="36" y="758">ANTHROPIC_BASE_URL (Claude) or the generated Codex config points at the loopback bridge; the container has no socket and no network.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#deployment-model"><g class="n tint k-host" id="pbridge">
+    <rect class="box" x="228" y="134" width="152" height="64" rx="9"/>
+    <text class="name" x="240" y="157">provider bridge</text>
+    <text class="sub" x="240" y="175">127.0.0.1:8080</text>
+    <text class="sub" x="240" y="191">docker exec -i pipe</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">provider bridge</tspan> · dartclaw-bridge --surface=provider --port=8080, started by the host with docker exec -i</text><text class="p2" x="36" y="758">Holds no credential and chooses no destination; it only frames traffic over its stdio. The executable is mounted read-only (dartclaw_bridge).</text></g>
+  </g></a>
+  <a href="../system-architecture.md#deployment-model"><g class="n ghost k-host" id="mbridge">
+    <rect class="box" x="228" y="214" width="152" height="64" rx="9"/>
+    <text class="name" x="240" y="237">mcp bridge</text>
+    <text class="sub" x="240" y="255">127.0.0.1:8081/mcp</text>
+    <text class="sub" x="240" y="271">only with MCP tools</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">mcp bridge</tspan> · dartclaw-bridge --surface=mcp --port=8081; started only when the authority was granted MCP tools</text><text class="p2" x="36" y="758">With no allowlisted tools the surface does not exist, so the container has no route to /mcp at all (ContainerManager.hasMcpBridge).</text></g>
+  </g></a>
+  <a href="../security-architecture.md#lifecycle-and-flags"><g class="n line k-neu" id="mounts">
+    <rect class="box" x="28" y="304" width="352" height="90" rx="9"/>
+    <text class="name" x="40" y="327">Mounts</text>
+    <text class="mono" x="40" y="345">/workspace:rw · /project:ro · /projects:ro</text>
+    <text class="mono" x="40" y="361">dartclaw-bridge :ro at /opt/dartclaw/</text>
+    <text class="sub" x="40" y="377">restricted profile: no workspace mounts, no host home</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Mounts</tspan> · SecurityProfile mounts plus the read-only bridge executable and per-authority generated client state</text><text class="p2" x="36" y="758">No host home is ever mounted, so provider login state stays outside the boundary; generated state is removed with the container.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#lifecycle-and-flags"><g class="n tint k-sec" id="hard">
+    <rect class="box" x="28" y="408" width="352" height="90" rx="9"/>
+    <text class="name" x="40" y="431">Hardening</text>
+    <text class="mono" x="40" y="449">--network none · --cap-drop ALL</text>
+    <text class="mono" x="40" y="465">--read-only · no-new-privileges</text>
+    <text class="sub" x="40" y="481">/tmp: 100 MB noexec tmpfs · owner label</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Hardening</tspan> · flags ContainerManager sets at create time</text><text class="p2" x="36" y="758">The owner label dartclaw.data-dir=&lt;dataDir&gt; lets a restart reclaim stray containers; a container never outlives its authority.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n solid k-sec" id="gw">
+    <rect class="box" x="432" y="134" width="310" height="144" rx="9"/>
+    <text class="name mono-name" x="444" y="157">HostGateway</text>
+    <text class="sub" x="444" y="175">principal comes from the pipe, never a frame</text>
+    <text class="sub" x="444" y="191">provider adapter strips client credentials</text>
+    <text class="sub" x="444" y="207">and injects the host-held one</text>
+    <text class="sub" x="444" y="223">revocation on release is permanent</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">HostGateway</tspan> · registers a GatewayAuthority per container; the pipe a request arrives on fixes its principal, upstream, credential, tools</text><text class="p2" x="36" y="758">A bridge process that exits or is killed revokes its surface for good, so a captured pipe or request id cannot be revived by a later execution.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#credential-security"><g class="n tint k-store" id="cred">
+    <rect class="box" x="432" y="308" width="200" height="64" rx="9"/>
+    <text class="name" x="444" y="331">Host-held credentials</text>
+    <text class="sub" x="444" y="349">subscription store, API keys</text>
+    <text class="sub" x="444" y="365">never in a container</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Host-held credentials</tspan> · SubscriptionCredentialStore and the named credential store, read per request through the provider adapter</text><text class="p2" x="36" y="758">A credential that turns unusable mid-turn raises one operator alert and releases the authority, which destroys its container.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#inbound-mcp-dispatch"><g class="n tint k-host" id="mcp">
+    <rect class="box" x="432" y="402" width="310" height="64" rx="9"/>
+    <text class="name mono-name" x="444" y="425">McpProtocolHandler</text>
+    <text class="sub" x="444" y="443">/mcp tool dispatch, scoped to the authority</text>
+    <text class="sub" x="444" y="459">allowlist, guards and audit run before the tool</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">McpProtocolHandler</tspan> · the /mcp handler scoped to one authority: deny-by-default canonical tool allowlist, POST only, 1 MiB request cap</text><text class="p2" x="36" y="758">Caller policy, guard evaluation and audit run before the tool, as for any /mcp caller.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#lifecycle-and-flags"><g class="n tint k-host" id="cm">
+    <rect class="box" x="432" y="556" width="310" height="64" rx="9"/>
+    <text class="name mono-name" x="444" y="579">ContainerManager</text>
+    <text class="sub" x="444" y="597">creates, starts and destroys the container</text>
+    <text class="sub" x="444" y="613">reclaims strays by data-dir label at startup</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">ContainerManager</tspan> · one per authority: docker create (or run), start, exec, stop and rm, on docker or podman</text><text class="p2" x="36" y="758">Single-use: a lost container is never recreated; the execution acquires a new authority. Name: dartclaw-&lt;fnv1a32(dataDir)&gt;-&lt;profile&gt;-&lt;authority&gt;.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#deployment-model"><g class="n tint k-ext" id="engine">
+    <rect class="box" x="28" y="556" width="348" height="64" rx="9"/>
+    <text class="name" x="40" y="579">docker or podman</text>
+    <text class="sub" x="40" y="597">container runtime CLI and engine</text>
+    <text class="sub" x="40" y="613">create, start, exec -i, stop, rm</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">docker or podman</tspan> · the host container runtime, detected at startup; its engine architecture decides which bridge variant runs</text><text class="p2" x="36" y="758">Container isolation is unavailable on native Windows; container.enabled: true there is startup-fatal.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-ext" id="api">
+    <rect class="box" x="786" y="174" width="198" height="64" rx="9"/>
+    <text class="name" x="798" y="197">Provider API</text>
+    <g class="badge"><rect x="920" y="185" width="54" height="16" rx="8"/><text x="947" y="197">PINNED</text></g>
+    <text class="sub" x="798" y="215">api.anthropic.com (claude)</text>
+    <text class="sub" x="798" y="231">api.openai.com (codex)</text>
+    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Provider API</tspan> · exactly one upstream pinned per adapter when it is built (AnthropicMessagesAdapter, OpenAiResponsesAdapter)</text><text class="p2" x="36" y="758">A request to any other origin is refused with 403. Codex subscription mode pins chatgpt.com/backend-api/codex instead of api.openai.com.</text></g>
+  </g></a>
+  <g transform="translate(24,664)">
+    <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">external</text>
+    <g class="tint k-host"><rect class="box" x="93.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="115.6" y="10">DartClaw component</text>
+    <g class="tint k-sec"><rect class="box" x="249.20000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="271.20000000000005" y="10">enforcement</text>
+    <g class="tint k-store"><rect class="box" x="361.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="383.40000000000003" y="10">credentials</text>
+    <g class="e main"><path d="M473.6,6 H505.6"/></g><text class="lg" x="513.6" y="10">provider traffic</text>
+    <g class="e dash"><path d="M634.8,6 H666.8"/></g><text class="lg" x="674.8" y="10">MCP tools only</text>
+    <g class="e "><path d="M783.5999999999999,6 H815.5999999999999"/></g><text class="lg" x="823.5999999999999" y="10">call or command</text>
   </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-sec">
-    <title>dartclaw-bridge (BridgeSurface.mcp). Frames MCP requests for the host /mcp endpoint over its own docker exec -i pipe.</title>
-    <path class="edge" d="M300,246 H384"/>
-    <rect class="box" x="170" y="218" width="130" height="56" rx="6"/>
-    <text class="name" x="184" y="239">bridge: mcp</text>
-    <text class="chip-text" x="184" y="256">dartclaw-bridge</text>
-  </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-sec">
-    <title>Security profile mounts. A per-authority generated-state mount holds client configuration and is removed with the container. No host home is ever mounted, so provider login state stays outside the boundary.</title>
-    <rect class="box" x="32" y="326" width="268" height="78" rx="6"/>
-    <text class="name" x="46" y="347">Mounts</text>
-    <text class="chip-text" x="46" y="364">/workspace:rw · /project:ro</text>
-    <text class="chip-text" x="46" y="379">/projects:ro (workspace profile)</text>
-    <text class="sub" x="46" y="394">restricted profile: no workspace mounts</text>
-  </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-sec">
-    <title>Flags set by ContainerManager at create time.</title>
-    <rect class="box" x="32" y="412" width="268" height="78" rx="6"/>
-    <text class="name" x="46" y="433">Hardening</text>
-    <text class="chip-text" x="46" y="450">--network none · --cap-drop ALL</text>
-    <text class="chip-text" x="46" y="465">--read-only · no-new-privileges</text>
-    <text class="sub" x="46" y="480">/tmp: size-limited noexec tmpfs</text>
-  </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-host">
-    <title>dartclaw-&lt;fnv1a32(dataDir)&gt;-&lt;profile&gt;-&lt;authority&gt;. Container ownership is labelled with the data directory so a restart reclaims strays.</title>
-    <path class="edge dashed" d="M384,144 L316,144"/>
-    <text class="edge-label" x="342" y="137" text-anchor="middle">creates</text>
-    <rect class="box" x="384" y="112" width="264" height="64" rx="6"/>
-    <text class="name" x="398" y="133">ContainerManager</text>
-    <text class="sub" x="398" y="150">docker or podman: create, start, reclaim</text>
-    <text class="sub" x="398" y="165">destroys the container with its authority</text>
-  </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-sec">
-    <title>Registers each live authority before its bridges start, serves the framed pipes, pins the upstream and refuses on credential trouble. Nothing re-registers a revoked authority.</title>
-    <path class="edge" d="M648,230 L704,230"/>
-    <path class="edge" d="M648,322 L704,322"/>
-    <rect class="box" x="384" y="200" width="264" height="150" rx="6"/>
-    <text class="name" x="398" y="221">HostGateway</text>
-    <text class="chip-text" x="398" y="238">GatewayAuthority per container</text>
-    <text class="sub" x="398" y="253">provider adapter strips any client-supplied</text>
-    <text class="sub" x="398" y="268">credential and injects the host-held one</text>
-    <text class="sub" x="398" y="283">McpBridgeSurface enforces the authority</text>
-    <text class="sub" x="398" y="298">tool allowlist; revoked for good on release</text>
-  </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-sec">
-    <title>SubscriptionCredentialStore and the named credential store. HostGateway reads them per request through the provider adapter.</title>
-    <path class="edge" d="M516,380 L516,350"/>
-    <rect class="box" x="384" y="380" width="264" height="70" rx="6"/>
-    <text class="name" x="398" y="401">Host-held credentials</text>
-    <text class="sub" x="398" y="418">subscription stores, named API keys</text>
-    <text class="sub" x="398" y="433">never in the container environment</text>
-  </g>
-  </a>
-  <a href="../security-architecture.md">
-  <g class="node k-ext">
-    <title>The authority reaches its provider through the gateway only. The container has no network.</title>
-    <rect class="box" x="704" y="200" width="280" height="60" rx="6"/>
-    <text class="name" x="718" y="221">Provider API</text>
-    <text class="sub" x="718" y="238">exactly one pinned upstream per authority</text>
-  </g>
-  </a>
-  <a href="../system-architecture.md#mcp-server">
-  <g class="node k-host">
-    <title>The ordinary /mcp handler scoped to the authority principal: caller policy, guard evaluation and audit run before the tool.</title>
-    <rect class="box" x="704" y="292" width="280" height="60" rx="6"/>
-    <text class="name" x="718" y="313">McpProtocolHandler (/mcp)</text>
-    <text class="sub" x="718" y="330">host MCP server, same tool dispatch</text>
-  </g>
-  </a>
-  <text class="note" x="24" y="526">Pipes are opened by the host with docker exec -i; killing the process pair revokes the surface. The container holds no socket and no network.</text>
-  <text class="note" x="24" y="546">The same boundary applies to claude and codex. ACP agents have no verified adapter, so they never run in a container.</text>
-  <text class="note" x="24" y="566">With the posture disabled (container.enabled: false) the provider runs as a host subprocess; guards still evaluate, but there is no OS boundary.</text>
 </svg>

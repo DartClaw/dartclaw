@@ -1,0 +1,229 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 790" width="1000" height="790" role="img" aria-labelledby="title desc">
+  <title id="title">DartClaw in its surroundings</title>
+  <desc id="desc">C4 context view. DartClaw is one system. Around it: the operator and MCP clients who call its HTTP server, channel users who reach it through messaging platforms and their sidecars, the provider binaries it spawns and the model APIs behind them, PostgreSQL, the container runtime, git remotes, web and search services, embedding sources and outbound MCP servers.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .e.both path { marker-start: var(--em, url(#ah)); }
+    svg:has(#users:hover) .edges :is(.f-users,.t-users) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#operator:hover) .edges :is(.f-operator,.t-operator) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcpc:hover) .edges :is(.f-mcpc,.t-mcpc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dc:hover) .edges :is(.f-dc,.t-dc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#plat:hover) .edges :is(.f-plat,.t-plat) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#side:hover) .edges :is(.f-side,.t-side) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#docker:hover) .edges :is(.f-docker,.t-docker) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pg:hover) .edges :is(.f-pg,.t-pg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#embed:hover) .edges :is(.f-embed,.t-embed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#prov:hover) .edges :is(.f-prov,.t-prov) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#apis:hover) .edges :is(.f-apis,.t-apis) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#git:hover) .edges :is(.f-git,.t-git) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#web:hover) .edges :is(.f-web,.t-web) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#omcp:hover) .edges :is(.f-omcp,.t-omcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="790"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="694" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="718">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="742">Hover a box for what it is and how it connects; its edges light up. Click it to open its section.</text><text class="p2" x="36" y="762">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">C4 · LEVEL 1 · SYSTEM CONTEXT</text>
+  <text class="title" x="24" y="58">DartClaw in its surroundings</text>
+  <text class="lede" x="24" y="80">One host process serves people over HTTP and chat, and drives provider binaries and sidecars as child processes.</text>
+
+
+
+  <g class="edges">
+    <g class="e  f-operator t-dc"><path d="M415,168 V198"/><text class="el" x="423" y="188" text-anchor="start">HTTP + SSE</text></g>
+    <g class="e  f-mcpc t-dc"><path d="M585,168 V198"/><text class="el" x="593" y="188" text-anchor="start">POST /mcp</text></g>
+    <g class="e  f-users t-plat"><path d="M120,168 V210"/><text class="el" x="128" y="194" text-anchor="start">chat</text></g>
+    <g class="e both f-plat t-side"><path d="M120,276 V300"/><text class="el" x="128" y="293" text-anchor="start">WhatsApp, Signal</text></g>
+    <g class="e  f-prov t-apis"><path d="M880,276 V300"/><text class="el" x="888" y="293" text-anchor="start">own credential</text></g>
+    <g class="e both f-plat t-dc"><path d="M212,244 H328"/><text class="el" x="270" y="225" text-anchor="middle">webhook, Pub/Sub,</text><text class="el" x="270" y="238" text-anchor="middle">Socket Mode, REST</text></g>
+    <g class="e both f-side t-dc"><path d="M212,334 H328"/><text class="el" x="270" y="315" text-anchor="middle">webhook, SSE in;</text><text class="el" x="270" y="328" text-anchor="middle">REST, JSON-RPC out</text></g>
+    <g class="e  f-dc t-docker"><path d="M328,424 H212"/><text class="el" x="270" y="405" text-anchor="middle">CLI: create,</text><text class="el" x="270" y="418" text-anchor="middle">exec -i, rm</text></g>
+    <g class="e both f-dc t-pg"><path d="M328,514 H212"/><text class="el" x="270" y="502" text-anchor="middle">PostgreSQL</text><text class="el" x="270" y="515" text-anchor="middle">wire protocol</text></g>
+    <g class="e dash f-dc t-embed"><path d="M328,604 H212"/><text class="el" x="270" y="585" text-anchor="middle">HTTPS: model</text><text class="el" x="270" y="598" text-anchor="middle">download, embed</text></g>
+    <g class="e  f-dc t-prov"><path d="M672,228 H788"/><text class="el" x="730" y="204" text-anchor="middle">stdio: JSONL,</text><text class="el" x="730" y="217" text-anchor="middle">JSON-RPC</text></g>
+    <g class="e  f-prov t-dc"><path d="M788,260 H672"/><text class="el" x="730" y="277" text-anchor="middle">MCP calls to /mcp</text></g>
+    <g class="e  f-dc t-apis"><path d="M672,334 H788"/><text class="el" x="730" y="315" text-anchor="middle">HTTPS: container</text><text class="el" x="730" y="328" text-anchor="middle">gateway, classifier</text></g>
+    <g class="e  f-dc t-git"><path d="M672,424 H788"/><text class="el" x="730" y="405" text-anchor="middle">git CLI,</text><text class="el" x="730" y="418" text-anchor="middle">GitHub REST</text></g>
+    <g class="e  f-dc t-web"><path d="M672,514 H788"/><text class="el" x="730" y="495" text-anchor="middle">HTTPS: fetch,</text><text class="el" x="730" y="508" text-anchor="middle">search, webhook</text></g>
+    <g class="e dash f-dc t-omcp"><path d="M672,604 H788"/><text class="el" x="730" y="598" text-anchor="middle">stdio or HTTP</text></g>
+  </g>
+
+  <a href="../channel-messaging-architecture.md#1-overview"><g class="n tint k-chan" id="users">
+    <rect class="box" x="30" y="112" width="180" height="64" rx="9"/>
+    <text class="name" x="42" y="135">Channel users</text>
+    <text class="sub" x="42" y="153">chat with the agent</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Channel users</tspan> · people chatting with the agent on WhatsApp, Signal, Google Chat or Slack</text><text class="p2" x="36" y="762">They reach DartClaw only through the platform and its adapter; allowlists and governance apply per channel.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#web-ui"><g class="n tint k-chan" id="operator">
+    <rect class="box" x="340" y="112" width="150" height="64" rx="9"/>
+    <text class="name" x="352" y="135">Operator</text>
+    <text class="sub" x="352" y="153">web UI and CLI</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Operator</tspan> · the one administrator per instance, in a browser or at the CLI</text><text class="p2" x="36" y="762">Connected CLI commands use the same HTTP API; a standalone workflow run needs no server.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#mcp-server"><g class="n tint k-chan" id="mcpc">
+    <rect class="box" x="510" y="112" width="150" height="64" rx="9"/>
+    <text class="name" x="522" y="135">MCP clients</text>
+    <text class="sub" x="522" y="153">named, over /mcp</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">MCP clients</tspan> · named MCP clients, such as context-engine clients, calling /mcp with a bearer token</text><text class="p2" x="36" y="762">A named client's profile is exactly context_research, kg_query and kg_timeline; guards and audit run on every dispatch.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#component-map"><g class="n solid k-host" id="dc">
+    <rect class="box" x="330" y="200" width="340" height="448" rx="9"/>
+    <text class="name" x="342" y="223">DartClaw</text>
+    <g class="badge"><rect x="550" y="211" width="110" height="16" rx="8"/><text x="605" y="223">dartclaw serve</text></g>
+    <text class="sub" x="342" y="241">one Dart host process, AOT-compiled</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">DartClaw</tspan> · one Dart host process: the control plane, fully trusted</text><text class="p2" x="36" y="762">It owns state, policy and orchestration; the provider binaries and sidecars are its child processes.</text></g>
+    <text class="kick" x="350" y="296">SURFACES</text>
+    <text class="sub" x="350" y="314">web UI, REST API, /mcp, four channel adapters</text>
+    <text class="kick" x="350" y="362">EXECUTION</text>
+    <text class="sub" x="350" y="380">turns, tasks, workflows, cron, worktrees</text>
+    <text class="kick" x="350" y="428">POLICY</text>
+    <text class="sub" x="350" y="446">guard chain, governance, container posture, audit</text>
+    <text class="kick" x="350" y="494">STATE</text>
+    <text class="sub" x="350" y="512">sessions, memory, search, knowledge graph</text>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#1-overview"><g class="n tint k-chan" id="plat">
+    <rect class="box" x="30" y="212" width="180" height="64" rx="9"/>
+    <text class="name" x="42" y="235">Messaging platforms</text>
+    <text class="sub" x="42" y="253">WhatsApp · Signal</text>
+    <text class="sub" x="42" y="269">Google Chat · Slack</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Messaging platforms</tspan> · WhatsApp, Signal, Google Chat and Slack</text><text class="p2" x="36" y="762">Each adapter normalizes its payload into one ChannelMessage at ingress; Google Chat and Slack need no sidecar.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#1-overview"><g class="n tint k-ext" id="side">
+    <rect class="box" x="30" y="302" width="180" height="64" rx="9"/>
+    <text class="name" x="42" y="325">Channel sidecars</text>
+    <text class="sub" x="42" y="343">GOWA (Go) · signal-cli</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Channel sidecars</tspan> · GOWA (WhatsApp) and signal-cli (Signal), spawned and restarted by the host</text><text class="p2" x="36" y="762">GOWA posts webhooks and takes REST calls; signal-cli runs an HTTP daemon, SSE in and JSON-RPC out. Restarts back off, at most 5 attempts.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#deployment-model"><g class="n tint k-ext" id="docker">
+    <rect class="box" x="30" y="392" width="180" height="64" rx="9"/>
+    <text class="name" x="42" y="415">docker or podman</text>
+    <text class="sub" x="42" y="433">container runtime CLI</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">docker or podman</tspan> · the container runtime CLI that ContainerManager drives</text><text class="p2" x="36" y="762">Optional: an unset container.enabled isolates only if a runtime is detected; native Windows has no container isolation.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#storage"><g class="n tint k-store" id="pg">
+    <rect class="box" x="30" y="482" width="180" height="64" rx="9"/>
+    <text class="name" x="42" y="505">PostgreSQL 14+</text>
+    <text class="sub" x="42" y="523">server database</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">PostgreSQL 14+</tspan> · tasks, runs, traces, events, knowledge-graph facts and search projections; native or managed</text><text class="p2" x="36" y="762">pgvector is needed only for hybrid search; a standalone workflow run needs no database.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#memory-search-and-context-research"><g class="n ghost k-chan" id="embed">
+    <rect class="box" x="30" y="572" width="180" height="64" rx="9"/>
+    <text class="name" x="42" y="595">Embedding sources</text>
+    <text class="sub" x="42" y="613">Hugging Face model or</text>
+    <text class="sub" x="42" y="629">OpenAI-compatible endpoint</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Embedding sources</tspan> · a local EmbeddingGemma model downloaded from Hugging Face, or an explicitly configured endpoint</text><text class="p2" x="36" y="762">Optional: a provider failure leaves the lexical search projection current and reports a structured degradation.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#1-overview"><g class="n tint k-ext" id="prov">
+    <rect class="box" x="790" y="212" width="180" height="64" rx="9"/>
+    <text class="name" x="802" y="235">Provider binaries</text>
+    <text class="sub" x="802" y="253">claude · codex</text>
+    <text class="sub" x="802" y="269">ACP agents</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Provider binaries</tspan> · claude, codex and configured ACP agents, spawned as child processes by the host</text><text class="p2" x="36" y="762">Container or host for claude and codex, host only for ACP; the wire formats are in Control Protocol.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-chan" id="apis">
+    <rect class="box" x="790" y="302" width="180" height="64" rx="9"/>
+    <text class="name" x="802" y="325">Provider APIs</text>
+    <text class="sub" x="802" y="343">Anthropic · OpenAI</text>
+    <text class="sub" x="802" y="359">and ACP agents' own</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Provider APIs</tspan> · the model services behind the provider binaries</text><text class="p2" x="36" y="762">Host executions reach them with a provider-scoped credential; container executions reach one pinned upstream through HostGateway.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#5-worktrees-and-git-delivery"><g class="n line k-chan" id="git">
+    <rect class="box" x="790" y="392" width="180" height="64" rx="9"/>
+    <text class="name" x="802" y="415">Git remotes</text>
+    <text class="sub" x="802" y="433">GitHub and others</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Git remotes</tspan> · remotes of external projects: the git CLI clones, fetches and pushes, the GitHub REST API opens pull requests</text><text class="p2" x="36" y="762">Used only for external projects; git credentials are host-held (Security Architecture).</text></g>
+  </g></a>
+  <a href="../system-architecture.md#mcp-server"><g class="n line k-chan" id="web">
+    <rect class="box" x="790" y="482" width="180" height="64" rx="9"/>
+    <text class="name" x="802" y="505">Web and webhooks</text>
+    <text class="sub" x="802" y="523">web_fetch, Brave, Tavily</text>
+    <text class="sub" x="802" y="539">scheduled-job webhooks</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Web and webhooks</tspan> · pages fetched by web_fetch, the Brave and Tavily search APIs, and the URL a scheduled job posts its result to</text><text class="p2" x="36" y="762">NetworkGuard evaluates web_fetch; a job webhook is a JSON POST with a 10 s timeout.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#mcp-server"><g class="n ghost k-ext" id="omcp">
+    <rect class="box" x="790" y="572" width="180" height="64" rx="9"/>
+    <text class="name" x="802" y="595">Outbound MCP</text>
+    <text class="sub" x="802" y="613">configured servers,</text>
+    <text class="sub" x="802" y="629">stdio or HTTP</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">Outbound MCP</tspan> · external MCP servers configured under mcp_servers</text><text class="p2" x="36" y="762">OutboundMcpPool pools connections; every call passes the egress guard and is audited before the server is contacted.</text></g>
+  </g></a>
+  <g transform="translate(24,668)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">the system</text>
+    <g class="tint k-chan"><rect class="box" x="106.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="128.0" y="10">person or outside service</text>
+    <g class="tint k-ext"><rect class="box" x="305.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="327.0" y="10">process DartClaw drives</text>
+    <g class="tint k-store"><rect class="box" x="491.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="513.6" y="10">database</text>
+    <g class="ghost k-neu"><rect class="box" x="585.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="607.2" y="10">optional</text>
+    <g class="e "><path d="M678.8000000000001,6 H710.8000000000001"/></g><text class="lg" x="718.8000000000001" y="10">initiator to target</text>
+    <g class="e both"><path d="M858.6000000000001,6 H890.6000000000001"/></g><text class="lg" x="898.6000000000001" y="10">two-way</text>
+  </g>
+</svg>

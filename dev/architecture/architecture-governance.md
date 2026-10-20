@@ -21,9 +21,11 @@ locally and in CI.
 
 [![Governance layers](diagrams/governance-layers.svg)](diagrams/governance-layers.svg)
 
-Layers 1 to 3 run in the CI Check job. `run_all.sh` includes the schema and config-reference drift checks, version
-lockstep (`dev/tools/check_versions.sh`) and the Dart fitness tests (`bash dev/tools/run-fitness.sh`, i.e.
-`dart test dev/fitness/test/`). Layer 4 explains why a boundary exists and when it may change.
+Layers 1 to 3 run in that order in the CI Check job (format check first, workspace tests between layers 1 and 2), and
+the same commands run locally; a failing layer fails the build. `run_all.sh` stops at the first failing gate. It
+includes the schema and config-reference drift checks, version lockstep (`dev/tools/check_versions.sh`) and the Dart
+fitness tests (`bash dev/tools/run-fitness.sh`, i.e. `dart test dev/fitness/test/`). Layer 4 explains why a boundary
+exists and when it may change.
 
 The scripts complement the analyzer and tests; they do not replace them.
 

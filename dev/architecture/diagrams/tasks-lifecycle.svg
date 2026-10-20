@@ -1,151 +1,181 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 590" width="1000" height="590" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 636" width="1000" height="636" role="img" aria-labelledby="title desc">
   <title id="title">Task lifecycle: status transitions</title>
-  <desc id="desc">The nine TaskStatus values and the transitions TaskStatus.validTransitions allows. The main path is draft, queued, running, review, then accepted or rejected; failed loops back to queued for retry, and cancelled is reachable from every non-terminal state before review.</desc>
+  <desc id="desc">The nine TaskStatus values and every transition TaskStatus.validTransitions allows. The main path is draft, queued, running, review, accepted; failure and cancellation drain into two terminal states, and failed re-queues on retry. Chips inside a box name valid transitions not drawn as arrows.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .name { font-size: 13px; font-weight: 600; }
-    .badge { fill: var(--accent); }
-    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    .k-dev .box.reserved, .reserved .box { stroke-dasharray: 5 4; }
-    .legend-swatch { fill: none; stroke-width: 1.4; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; }
+    svg:has(#draft:hover) .edges :is(.f-draft,.t-draft) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#queued:hover) .edges :is(.f-queued,.t-queued) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#running:hover) .edges :is(.f-running,.t-running) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#review:hover) .edges :is(.f-review,.t-review) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#interrupted:hover) .edges :is(.f-interrupted,.t-interrupted) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#accepted:hover) .edges :is(.f-accepted,.t-accepted) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rejected:hover) .edges :is(.f-rejected,.t-rejected) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#failed:hover) .edges :is(.f-failed,.t-failed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cancelled:hover) .edges :is(.f-cancelled,.t-cancelled) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="590"/>
-  <text class="title" x="24" y="34">Task lifecycle: status transitions</text>
-  <text class="lede" x="24" y="56">Source of truth: TaskStatus.validTransitions in dartclaw_core. Every change is a compare-and-set on status and version (TaskService.transition).</text>
-  <g class="node k-host">
-    <title>draft: task row exists but is not queued. TaskService.create(autoStart: true) goes straight to queued.</title>
-    <path class="edge" d="M150,192 L200,192"/>
-    <path class="edge" d="M70,214 L70,440"/>
-    <a href="../task-execution-architecture.md#24-state-machine">
-    <rect class="box " x="30" y="170" width="120" height="44" rx="6"/>
-    <text class="mono" x="42" y="190">draft</text>
-    <text class="sub" x="42" y="206">created, not queued</text>
-    </a>
+  <rect class="bg" width="1000" height="636"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="538" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="562">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="586">Hover a status for what it means; its transitions light up. Click it to open its section.</text><text class="p2" x="36" y="606">A chip inside a box (→ failed) is a valid transition that is not drawn as an arrow.</text></g>
+
+  <text class="kick" x="24" y="32">STATE MACHINE · TaskStatus.validTransitions</text>
+  <text class="title" x="24" y="58">Task lifecycle</text>
+  <text class="lede" x="24" y="80">Every transition is a compare-and-set on status and version (TaskService.transition).</text>
+
+  <g class="edges">
+    <g class="e main f-draft t-queued"><path d="M170,286 H218"/><text class="el" x="194" y="278" text-anchor="middle">start</text></g>
+    <g class="e main f-queued t-running"><path d="M370,286 H438"/><text class="el" x="404" y="278" text-anchor="middle">checkout</text></g>
+    <g class="e main f-running t-review"><path d="M610,286 H678"/><text class="el" x="644" y="278" text-anchor="middle">turn done</text></g>
+    <g class="e main f-review t-accepted"><path d="M820,264 L858,204"/><text class="el" x="840" y="246">accept</text></g>
+    <g class="e f-review t-rejected"><path d="M820,306 L858,330"/><text class="el" x="826" y="348">reject</text></g>
+    <g class="e f-running t-accepted"><path d="M540,250 V100 H920 V148"/><text class="el" x="730" y="94" text-anchor="middle">reviewMode: auto-accept</text></g>
+    <g class="e f-review t-running"><path d="M750,250 V218 H580 V248"/><text class="el" x="665" y="212" text-anchor="middle">push-back</text></g>
+    <g class="e dash f-running t-interrupted"><path d="M470,250 V152 H392"/></g>
+    <g class="e dash f-interrupted t-queued"><path d="M310,188 V248"/></g>
+    <g class="e bad f-draft t-cancelled"><path d="M110,322 V418"/><text class="el" x="118" y="376">cancel</text></g>
+    <g class="e bad f-queued t-cancelled"><path d="M290,322 V418"/><text class="el" x="298" y="376">cancel</text></g>
+    <g class="e bad f-running t-cancelled"><path d="M450,322 V418"/><text class="el" x="458" y="376">cancel</text></g>
+    <g class="e bad f-running t-failed"><path d="M590,322 V418"/><text class="el" x="598" y="376">fail</text></g>
+    <g class="e bad f-review t-failed"><path d="M760,322 V418"/><text class="el" x="768" y="376">fail</text></g>
+    <g class="e dash bad f-cancelled t-failed"><path d="M460,452 H538"/><text class="el" x="499" y="444" text-anchor="middle">correction</text></g>
   </g>
-  <g class="node k-host">
-    <title>queued: picked up by the TaskExecutor poll (2 s), oldest first. A full provider lane or a cloning project leaves the task here.</title>
-    <path class="edge" d="M340,192 L410,192"/>
-    <path class="edge" d="M225,214 L225,440"/>
-    <path class="edge" d="M285,214 L285,340"/>
-    <a href="../task-execution-architecture.md#33-taskexecutor">
-    <rect class="box " x="200" y="170" width="140" height="44" rx="6"/>
-    <text class="mono" x="212" y="190">queued</text>
-    <text class="sub" x="212" y="206">waiting for dispatch</text>
-    </a>
+
+  <a href="../task-execution-architecture.md#24-state-machine"><g class="n tint k-neu" id="draft">
+    <rect class="box" x="40" y="250" width="130" height="72" rx="10"/>
+    <text class="name mono-name" x="54" y="273">draft</text>
+    <text class="sub" x="54" y="291">created, not queued</text>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">draft</tspan> · the task row exists but is not queued</text><text class="p2" x="36" y="606">TaskService.create(autoStart: true) skips it and goes straight to queued.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#33-taskexecutor"><g class="n tint k-host" id="queued">
+    <rect class="box" x="220" y="250" width="150" height="72" rx="10"/>
+    <text class="name mono-name" x="234" y="273">queued</text>
+    <text class="sub" x="234" y="291">waits for a worker</text>
+    <g class="chip k-sec"><rect x="234" y="297" width="64" height="16" rx="8"/><text x="241" y="309">→ failed</text></g>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">queued</tspan> · waits for the TaskExecutor poll (every 2 s), oldest first</text><text class="p2" x="36" y="606">A full provider lane or a project that is still cloning leaves the task here; a dispatch error moves it to failed.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#34-execution-core"><g class="n solid k-host" id="running">
+    <rect class="box" x="440" y="250" width="170" height="72" rx="10"/>
+    <text class="name mono-name" x="454" y="273">running</text>
+    <g class="badge"><rect x="549" y="261" width="49" height="16" rx="8"/><text x="573.5" y="273">LEASE</text></g>
+    <text class="sub" x="454" y="291">holds an execution lease</text>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">running</tspan> · set by checkout once the execution lease is acquired; startedAt is stamped here</text><text class="p2" x="36" y="606">A finished turn goes to review, or straight to accepted when reviewMode is auto-accept.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#6-review"><g class="n tint k-ext" id="review">
+    <rect class="box" x="680" y="250" width="140" height="72" rx="10"/>
+    <text class="name mono-name" x="694" y="273">review</text>
+    <text class="sub" x="694" y="291">waits on a human</text>
+    <g class="chip k-neu"><rect x="694" y="297" width="64" height="16" rx="8"/><text x="701" y="309">→ queued</text></g>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">review</tspan> · TaskReviewService applies accept, reject or push_back</text><text class="p2" x="36" y="606">push_back returns the task to running with the reviewer's feedback. review → queued is also valid.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#24-state-machine"><g class="n ghost k-neu" id="interrupted">
+    <rect class="box" x="220" y="116" width="170" height="72" rx="10"/>
+    <text class="name mono-name" x="234" y="139">interrupted</text>
+    <text class="sub" x="234" y="157">never entered today</text>
+    <g class="chip k-sec"><rect x="234" y="163" width="82" height="16" rx="8"/><text x="241" y="175">→ cancelled</text></g>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">interrupted</tspan> · valid edges exist, but no production code moves a task here</text><text class="p2" x="36" y="606">Reserved: running → interrupted, then queued or cancelled.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#62-accept-flow"><g class="n solid k-store" id="accepted">
+    <rect class="box" x="860" y="150" width="120" height="72" rx="10"/>
+    <text class="name mono-name" x="874" y="173">accepted</text>
+    <text class="sub" x="874" y="191">terminal</text>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">accepted</tspan> · terminal</text><text class="p2" x="36" y="606">Worktree tasks are merged (local project) or pushed (external project) before the status changes.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#6-review"><g class="n tint k-sec" id="rejected">
+    <rect class="box" x="860" y="300" width="120" height="72" rx="10"/>
+    <text class="name mono-name" x="874" y="323">rejected</text>
+    <text class="sub" x="874" y="341">terminal</text>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">rejected</tspan> · terminal</text><text class="p2" x="36" y="606">The worktree is cleaned up without merging.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#36-cancellation-and-crashes"><g class="n tint k-sec" id="cancelled">
+    <rect class="box" x="40" y="420" width="420" height="60" rx="10"/>
+    <text class="name mono-name" x="54" y="443">cancelled</text>
+    <text class="sub" x="54" y="461">terminal · TaskCancellationSubscriber stops the active turn</text>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">cancelled</tspan> · terminal; reachable from draft, queued, running and interrupted</text><text class="p2" x="36" y="606">Its only way out is the one-shot correction to failed, used when a dispose-cancel raced a real provider failure.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#35-failure-and-retry"><g class="n tint k-sec" id="failed">
+    <rect class="box" x="540" y="420" width="280" height="60" rx="10"/>
+    <text class="name mono-name" x="554" y="443">failed</text>
+    <text class="sub" x="554" y="461">terminal, but retryable</text>
+    <g class="chip k-host"><rect x="695" y="431" width="113" height="16" rx="8"/><text x="702" y="443">→ queued · retry</text></g>
+    <g class="d"><text class="p1" x="36" y="586"><tspan class="b">failed</tspan> · TaskStatus.terminal is true, but failed → queued is the retry and manual-restart edge</text><text class="p2" x="36" y="606">markFailedOrRetry writes the retry bookkeeping while still running, then moves running → failed → queued.</text></g>
+  </g></a>
+
+  <!-- Legend -->
+  <g transform="translate(24,512)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">active</text>
+    <g class="tint k-ext"><rect class="box" x="76" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="98" y="10">waits on a human</text>
+    <g class="solid k-store"><rect class="box" x="210" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="232" y="10">success</text>
+    <g class="tint k-sec"><rect class="box" x="296" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="318" y="10">ended without success</text>
+    <g class="ghost k-neu"><rect class="box" x="458" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="480" y="10">reserved</text>
+    <g class="e main"><path d="M556,6 H588"/></g><text class="lg" x="596" y="10">main path</text>
+    <g class="e"><path d="M676,6 H708"/></g><text class="lg" x="716" y="10">transition</text>
+    <g class="e bad"><path d="M790,6 H822"/></g><text class="lg" x="830" y="10">failure or cancel</text>
   </g>
-  <g class="node k-host">
-    <title>running: set by checkout after the execution lease is acquired. startedAt is stamped here.</title>
-    <path class="edge" d="M530,192 L620,192"/>
-    <path class="edge" d="M500,170 L500,104 L900,104 L900,130"/>
-    <path class="edge" d="M430,170 L430,106 L390,106"/>
-    <path class="edge" d="M420,214 L420,340"/>
-    <path class="edge" d="M470,214 L470,440"/>
-    <a href="../task-execution-architecture.md#34-execution-core">
-    <rect class="box " x="410" y="170" width="120" height="44" rx="6"/>
-    <text class="mono" x="422" y="190">running</text>
-    <text class="sub" x="422" y="206">holds a lease</text>
-    </a>
-  </g>
-  <g class="node k-host">
-    <title>review: reached after a completed turn unless reviewMode is auto-accept. TaskReviewService applies accept, reject, or push_back.</title>
-    <path class="edge" d="M740,184 L840,162"/>
-    <path class="edge" d="M740,200 L840,232"/>
-    <path class="edge" d="M690,214 L690,265 L525,265 L525,216"/>
-    <a href="../task-execution-architecture.md#6-review">
-    <rect class="box " x="620" y="170" width="120" height="44" rx="6"/>
-    <text class="mono" x="632" y="190">review</text>
-    <text class="sub" x="632" y="206">awaiting a decision</text>
-    </a>
-  </g>
-  <g class="node k-store">
-    <title>accepted: terminal. Worktree tasks have been merged (local project) or pushed (external project) first.</title>
-    <rect class="box " x="840" y="130" width="120" height="44" rx="6"/>
-    <text class="mono" x="852" y="150">accepted</text>
-    <text class="sub" x="852" y="166">terminal</text>
-  </g>
-  <g class="node k-sec">
-    <title>rejected: terminal. The worktree is cleaned up without merging.</title>
-    <rect class="box " x="840" y="210" width="120" height="44" rx="6"/>
-    <text class="mono" x="852" y="230">rejected</text>
-    <text class="sub" x="852" y="246">terminal</text>
-  </g>
-  <g class="node k-dev">
-    <title>interrupted: valid edges exist (running to interrupted, then queued or cancelled) but no production code transitions a task into it today.</title>
-    <path class="edge dashed" d="M300,128 L300,170"/>
-    <rect class="box reserved" x="250" y="84" width="140" height="44" rx="6"/>
-    <text class="mono" x="262" y="104">interrupted</text>
-    <text class="sub" x="262" y="120">reserved, never entered</text>
-  </g>
-  <g class="node k-sec">
-    <title>failed: TaskStatus.terminal is true, but failed to queued is the retry and manual-restart edge. markFailedOrRetry writes the retry bookkeeping while the task is still running, then goes running to failed to queued.</title>
-    <path class="edge" d="M330,340 L330,216"/>
-    <a href="../task-execution-architecture.md#35-failure-and-retry">
-    <rect class="box " x="240" y="340" width="180" height="44" rx="6"/>
-    <text class="mono" x="252" y="360">failed</text>
-    <text class="sub" x="252" y="376">terminal, or retried</text>
-    </a>
-  </g>
-  <g class="node k-sec">
-    <title>cancelled: terminal. TaskCancellationSubscriber cancels the active turn on running to cancelled. The only outgoing edge is the one-shot correction to failed.</title>
-    <path class="edge dashed" d="M330,440 L330,386"/>
-    <rect class="box " x="30" y="440" width="540" height="44" rx="6"/>
-    <text class="mono" x="42" y="460">cancelled</text>
-    <text class="sub" x="42" y="476">terminal; reached from draft, queued, interrupted, running</text>
-  </g>
-  <text class="edge-label" x="156" y="184">start</text>
-  <text class="edge-label" x="346" y="184">checkout</text>
-  <text class="edge-label" x="552" y="184">turn done</text>
-  <text class="edge-label" x="760" y="154">accept</text>
-  <text class="edge-label" x="760" y="232">reject</text>
-  <text class="edge-label" x="560" y="258">push-back</text>
-  <text class="edge-label" x="520" y="98">reviewMode: auto-accept</text>
-  <text class="edge-label" x="338" y="282">retry</text>
-  <text class="edge-label" x="338" y="420">correction</text>
-  <path class="edge" d="M24,525 L64,525"/>
-  <text class="note" x="74" y="529">transition</text>
-  <path class="edge dashed" d="M170,525 L210,525"/>
-  <text class="note" x="220" y="529">reserved or exceptional edge</text>
-  <rect class="legend-swatch" x="440" y="517" width="22" height="16" rx="4" style="stroke:var(--store)"/>  <text class="note" x="470" y="529">accepted</text>
-  <rect class="legend-swatch" x="540" y="517" width="22" height="16" rx="4" style="stroke:var(--sec)"/>  <text class="note" x="570" y="529">rejected, failed, cancelled (TaskStatus.terminal)</text>
-  <text class="note" x="24" y="552">Valid but not drawn: review to queued, review to failed, interrupted to cancelled. Full table: section 2.4.</text>
-  <text class="note" x="24" y="572">Opened directly in a browser, hovering a status shows its meaning and highlights its outgoing transitions.</text>
 </svg>

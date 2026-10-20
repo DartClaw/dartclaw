@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 856" width="1000" height="856" role="img" aria-labelledby="title desc">
+  <title id="title">Where DartClaw conforms and where it translates</title>
+  <desc id="desc">Five external upstreams and the pattern on each. Provider CLIs are a Conformist wire format and an Anticorruption Layer for their models; messaging APIs get an Anticorruption Layer; external MCP servers and Docker are Conformist; AndThen is Separate Ways from the workflow engine and Conformist for the built-in definitions.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#cli:hover) .edges :is(.f-cli,.t-cli) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#msg:hover) .edges :is(.f-msg,.t-msg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#docker:hover) .edges :is(.f-docker,.t-docker) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#andthen:hover) .edges :is(.f-andthen,.t-andthen) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pm:hover) .edges :is(.f-pm,.t-pm) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ci:hover) .edges :is(.f-ci,.t-ci) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ts:hover) .edges :is(.f-ts,.t-ts) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ei:hover) .edges :is(.f-ei,.t-ei) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#engine:hover) .edges :is(.f-engine,.t-engine) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#defs:hover) .edges :is(.f-defs,.t-defs) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="856"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="760" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="784">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="808">Hover a box for what it is and why the pattern holds; its edges light up. Click it to open the table.</text><text class="p2" x="36" y="828">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">CONTEXT MAP · EXTERNAL UPSTREAMS</text>
+  <text class="title" x="24" y="58">Where DartClaw conforms and where it translates</text>
+  <text class="lede" x="24" y="80">Vendors set the terms. Provider and messaging adapters translate them; MCP, Docker and AndThen are taken as given or kept apart.</text>
+
+  <g class="k-host"><rect class="band" x="640" y="498" width="336" height="168" rx="14"/><text class="kick" x="656" y="520">workflow-orchestration</text></g>
+  <text class="lg" x="24" y="702" text-anchor="start">Weight</text>
+  <text class="lg" x="24" y="728" text-anchor="start">Colour</text>
+  <text class="lg" x="24" y="752" text-anchor="start">ACL Anticorruption Layer, on the downstream context · Conformist: the downstream takes the upstream model as given · Separate Ways: deliberately no link.</text>
+
+  <g class="edges">
+    <g class="e  f-cli t-pm"><path d="M326,148 H658"/><text class="el" x="492" y="140" text-anchor="middle">Conformist · wire formats as specified</text></g>
+    <g class="e  f-cli t-pm"><path d="M326,184 H658"/><text class="el" x="492" y="176" text-anchor="middle">ACL · ProtocolAdapter</text></g>
+    <g class="e  f-msg t-ci"><path d="M326,265 H658"/><text class="el" x="492" y="257" text-anchor="middle">ACL · adapter to ChannelMessage</text></g>
+    <g class="e  f-mcp t-ts"><path d="M326,353 H658"/><text class="el" x="492" y="345" text-anchor="middle">Conformist · only surface_tools</text></g>
+    <g class="e  f-docker t-ei"><path d="M326,441 H658"/><text class="el" x="492" y="433" text-anchor="middle">Conformist</text></g>
+    <g class="e dash join f-andthen t-engine"><path d="M326,556 H658"/><text class="el" x="492" y="548" text-anchor="middle">Separate Ways · fitness-enforced</text></g>
+    <g class="e  f-andthen t-defs"><path d="M326,624 H658"/><text class="el" x="492" y="616" text-anchor="middle">Conformist · skills named in YAML</text></g>
+  </g>
+
+  <a href="../context-map.md#external"><g class="n tint k-ext" id="cli">
+    <rect class="box" x="24" y="122" width="300" height="88" rx="9"/>
+    <text class="name" x="36" y="145">provider CLIs</text>
+    <text class="sub" x="36" y="163">claude, codex, any ACP agent</text>
+    <text class="sub" x="36" y="179">JSONL and JSON-RPC over stdio</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">provider CLIs</tspan> · claude (JSONL), codex (JSON-RPC) and ACP agents (JSON-RPC) are vendor-owned binaries and formats</text><text class="p2" x="36" y="828">DartClaw spawns them directly and implements each protocol as specified, so nothing in the chain is negotiable or npm-based.</text></g>
+  </g></a>
+  <a href="../context-map.md#external"><g class="n tint k-chan" id="msg">
+    <rect class="box" x="24" y="232" width="300" height="66" rx="9"/>
+    <text class="name" x="36" y="255">messaging platform APIs</text>
+    <text class="sub" x="36" y="273">WhatsApp (GOWA), Signal (signal-cli)</text>
+    <text class="sub" x="36" y="289">Google Chat, Slack</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">messaging platform APIs</tspan> · WhatsApp via the GOWA sidecar, Signal via signal-cli, Google Chat webhooks, Slack Socket Mode or Events API</text><text class="p2" x="36" y="828">Each platform keeps its own identity, thread and payload model; none of it is renegotiated by DartClaw.</text></g>
+  </g></a>
+  <a href="../context-map.md#external"><g class="n tint k-ext" id="mcp">
+    <rect class="box" x="24" y="320" width="300" height="66" rx="9"/>
+    <text class="name" x="36" y="343">external MCP servers</text>
+    <text class="sub" x="36" y="361">tool schemas taken as given</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">external MCP servers</tspan> · MCP servers the operator configures under mcp_servers; their tool schemas are not DartClaw's to change</text><text class="p2" x="36" y="828">Only tools named in a server's surface_tools are surfaced; an unknown name there is a config error.</text></g>
+  </g></a>
+  <a href="../context-map.md#external"><g class="n tint k-ext" id="docker">
+    <rect class="box" x="24" y="408" width="300" height="66" rx="9"/>
+    <text class="name" x="36" y="431">Docker / OS platform</text>
+    <text class="sub" x="36" y="449">container runtime semantics</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">Docker / OS platform</tspan> · Docker and OS capabilities decide what isolation is possible; DartClaw takes their semantics as given</text><text class="p2" x="36" y="828">An explicit container.enabled on native Windows exits rather than degrading; run on POSIX or inside WSL.</text></g>
+  </g></a>
+  <a href="../context-map.md#external"><g class="n ghost k-ext" id="andthen">
+    <rect class="box" x="24" y="528" width="300" height="124" rx="9"/>
+    <text class="name" x="36" y="551">AndThen framework</text>
+    <text class="sub" x="36" y="569">skills the workflow YAML names</text>
+    <text class="sub" x="36" y="585">not a dependency of the engine</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">AndThen framework</tspan> · the skill framework the shipped workflow definitions are written against</text><text class="p2" x="36" y="828">The engine stays framework-agnostic (ADR-041); check_no_framework_coupling.sh fails on any andthen literal outside definition YAML.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-ext" id="pm">
+    <rect class="box" x="660" y="122" width="316" height="88" rx="9"/>
+    <text class="name mono-name" x="672" y="145">provider-mediation</text>
+    <g class="badge"><rect x="933" y="133" width="33" height="16" rx="8"/><text x="950" y="145">ACL</text></g>
+    <text class="sub" x="672" y="163">core · AgentHarness, adapters</text>
+    <text class="sub" x="672" y="179">ProtocolAdapter → BridgeEvent</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">provider-mediation</tspan> · translates three vendor models into BridgeEvent and the canonical tool taxonomy</text><text class="p2" x="36" y="828">The ACL is ProtocolAdapter: provider drift stops at the adapter, while the wire format itself is taken as specified.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-chan" id="ci">
+    <rect class="box" x="660" y="232" width="316" height="66" rx="9"/>
+    <text class="name mono-name" x="672" y="255">channel-integration</text>
+    <g class="badge"><rect x="933" y="243" width="33" height="16" rx="8"/><text x="950" y="255">ACL</text></g>
+    <text class="sub" x="672" y="273">supporting · ChannelMessage</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">channel-integration</tspan> · per-platform adapters normalize every inbound message to ChannelMessage before routing</text><text class="p2" x="36" y="828">Vendor quirks stay inside the adapter, so a new platform adds an adapter rather than context surface.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n ghost k-ext" id="ts">
+    <rect class="box" x="660" y="320" width="316" height="66" rx="9"/>
+    <text class="name mono-name" x="672" y="343">tool-surface</text>
+    <text class="sub" x="672" y="361">shared · outbound MCP client</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">tool-surface</tspan> · consumes external MCP servers under guard and publishes host-owned tools to providers</text><text class="p2" x="36" y="828">The egress guard mediates every outbound MCP call before dispatch (ADR-039).</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-sec" id="ei">
+    <rect class="box" x="660" y="408" width="316" height="66" rx="9"/>
+    <text class="name mono-name" x="672" y="431">execution-isolation</text>
+    <text class="sub" x="672" y="449">core · principal, authority</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">execution-isolation</tspan> · binds each execution to one trust principal and mediates provider traffic host-side</text><text class="p2" x="36" y="828">Docker semantics are taken as given, so container behavior is whatever the runtime provides.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-host" id="engine">
+    <rect class="box" x="660" y="528" width="300" height="56" rx="9"/>
+    <text class="name mono-name" x="672" y="547">engine</text>
+    <text class="sub" x="672" y="563">declared schema only</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">engine</tspan> · the workflow engine validates declared schema only</text><text class="p2" x="36" y="828">Framework semantics live in definitions and skills, never in dartclaw_workflow/lib/src code.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-host" id="defs">
+    <rect class="box" x="660" y="596" width="300" height="56" rx="9"/>
+    <text class="name mono-name" x="672" y="615">built-in definitions</text>
+    <text class="sub" x="672" y="631">YAML names AndThen skills</text>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">built-in definitions</tspan> · code-review, plan-and-implement and story-and-implement name AndThen skills directly</text><text class="p2" x="36" y="828">The one sanctioned home for framework semantics, which is why the edge is Conformist and the engine edge is not.</text></g>
+  </g></a>
+  <g transform="translate(80,692)">
+    <g class="tint k-neu"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">external peer or core context</text>
+    <g class="line k-neu"><rect class="box" x="223.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="245.8" y="10">supporting or secondary</text>
+    <g class="ghost k-neu"><rect class="box" x="410.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="432.4" y="10">optional or shared</text>
+    <g class="e "><path d="M566.0,6 H598.0"/></g><text class="lg" x="606.0" y="10">upstream to downstream</text>
+    <g class="e dash"><path d="M764.4,6 H796.4"/></g><text class="lg" x="804.4" y="10">no integration</text>
+  </g>
+  <g transform="translate(80,718)">
+    <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">vendor, provider and tool side</text>
+    <g class="tint k-chan"><rect class="box" x="230.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="252.0" y="10">messaging</text>
+    <g class="tint k-sec"><rect class="box" x="329.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="351.8" y="10">isolation</text>
+    <g class="tint k-host"><rect class="box" x="429.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="451.6" y="10">workflow engine side</text>
+  </g>
+</svg>

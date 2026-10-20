@@ -210,7 +210,7 @@ The schema is a function of registry content: key-sorted and timestamp-free, so 
 
 [![Config mutation paths: validate, partition by mutability, write, apply](diagrams/config-mutation-paths.svg)](diagrams/config-mutation-paths.svg)
 
-The result has `applied` (live and reloaded fields), `pendingRestart`, and `errors`; `errors` non-empty means nothing was written.
+The sequence is fixed: validate, partition by `ConfigMutability`, write every validated field, fire `ConfigChangedEvent` for the live ones, `ConfigNotifier.reload` for the reloadable ones (a throw, or no notifier wired, moves them to pending restart), then record `restart.pending`. The result has `applied` (live and reloaded fields), `pendingRestart`, and `errors`; `errors` non-empty means nothing was written.
 
 ### Restart-pending marker
 
@@ -252,6 +252,8 @@ The heartbeat and git-sync effects go through one `RuntimeToggleApplier` (`confi
 4. Carries the running values forward for what a reload must not change: `server.port/host/data_dir`, and `container` (the posture is settled by a startup probe a reload cannot rerun, and an unset section re-parses as disabled).
 5. Returns `null` when nothing reloadable changed; otherwise builds a `ConfigDelta(previous, current, changedKeys)` and calls `reconfigure` on each registered service whose `watchKeys` match, logging and continuing if one throws.
 
+[![Config hot reload: triggers, ConfigNotifier.reload steps and outcomes](diagrams/config-hot-reload.svg)](diagrams/config-hot-reload.svg)
+
 Tier keys are the `DartclawConfig` field names, not YAML keys: YAML `guards:` parses into `security`, YAML `concurrency:` into `server`, so a `guards.*` watcher sits dead where a `security.*` one fires. `register()` therefore throws `ArgumentError` for a watch key whose section is restart-tier or undeclared. A section added to `DartclawConfig` without a tier fails `dev/fitness/test/config_section_tier_coverage_test.dart`; that gap once left `AlertRouter` dead. `extensions` is outside the table because a `Map<String, Object?>` has no value equality, so every parse would differ.
 
 A section is `reloadable` only while a registered service genuinely applies its change. Field `mutability` is independent: every `reloadable` field currently sits under a reloadable-tier section, but nothing enforces it, since the two are keyed in different namespaces. `guards.content.*` stays `restart` although `SecurityWiring` rebuilds the chain on any `security` change, which over-reports in the safe direction.
@@ -261,6 +263,8 @@ A section is `reloadable` only while a registered service genuinely applies its 
 ### Reconfigurable services
 
 `Reconfigurable` (`reconfigurable.dart`) is `Set<String> get watchKeys` plus a synchronous `void reconfigure(ConfigDelta)` that must not throw. Registered today:
+
+[![Reconfigurable services: nine services under seven reloadable sections](diagrams/config-reconfigurable.svg)](diagrams/config-reconfigurable.svg)
 
 | Service | Watch keys | Applies |
 |---------|-----------|---------|
@@ -289,8 +293,6 @@ A service that only logged "needs a restart" must not register: the requirement 
 The watch is on the **parent directory**, matching create, modify and move events by basename: an atomic temp+rename save surfaces as create/modify on macOS kqueue but as a move on Linux inotify. A watch failure falls back to SIGUSR1 only, or to no reload on Windows.
 
 A cycle runs `loadCliConfig` (so extension parsers, the credential provider and every channel parse run), logs advisories, calls `notifier.reload`, then logs the changed sections and, if `restartRequiredSections` is non-empty, the sections now persisted but awaiting restart. Without that line a restart-tier-only edit reads as "no reloadable changes". Any exception, including a fatal parse or a refused admission, keeps the existing config. The reload loader passes no CLI overrides (`loadCliConfig(configPath:)` only), so a value the process was started with via a flag is re-read from YAML.
-
-[![Config hot reload: triggers, ConfigNotifier.reload outcomes, Reconfigurable services](diagrams/config-hot-reload.svg)](diagrams/config-hot-reload.svg)
 
 ### Field-level view
 

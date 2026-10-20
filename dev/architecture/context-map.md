@@ -85,9 +85,15 @@ across contexts. Its zero-workspace-dependency position is enforced by the tier 
 
 Every ordered pair that exchanges data, with its named pattern.
 
-[![Bounded contexts and integration patterns](diagrams/context-map-contexts.svg)](diagrams/context-map-contexts.svg)
+[![Bounded contexts around turn-orchestration](diagrams/context-map-contexts.svg)](diagrams/context-map-contexts.svg)
 
-The figure shows the point-to-point integrations between contexts; the tables carry every pair, with notes.
+[![Bounded contexts around tasks, workflows and the operator](diagrams/context-map-surfaces.svg)](diagrams/context-map-surfaces.svg)
+
+The two figures split the 15 contexts by region: the execution core around `turn-orchestration`, and work, delivery
+and the cross-cutting contexts. Arrows run from upstream to downstream, and `conversation-session` appears in both
+because it joins them. The `all contexts` rows of the table below are drawn as chips inside the cross-cutting boxes, and
+the `execution-isolation` to in-container bridge Published Language is in the table only. The tables carry every pair,
+with notes.
 
 ### Internal
 
@@ -120,6 +126,10 @@ The figure shows the point-to-point integrations between contexts; the tables ca
 | `tool-surface` | `execution-isolation` | **Customer/Supplier** | Container executions reach `/mcp` only through the per-authority framed bridge |
 
 ### External
+
+[![External upstreams and the pattern on each](diagrams/context-map-external.svg)](diagrams/context-map-external.svg)
+
+The figure draws each external upstream once; the provider CLIs carry two patterns, one per row below.
 
 | Upstream | Downstream | Pattern | Notes |
 |---|---|---|---|

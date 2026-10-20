@@ -161,7 +161,7 @@ The channel path, from the session side (steps 3 to 6 belong to [Channel Messagi
 
 [![Session resolution: channel steps and other surfaces into SessionService](diagrams/sessions-resolution.svg)](diagrams/sessions-resolution.svg)
 
-The user message is persisted before admission, so a cap-deferred channel turn must wait and retry inside `dispatchChannelTurn` rather than be retried by its caller.
+Web chat and temporary conversations never get a key; every keyed surface is idempotent per key, so a second call returns the same session. The user message is persisted before admission, so a cap-deferred channel turn must wait and retry inside `dispatchChannelTurn` rather than be retried by its caller.
 
 ---
 
@@ -315,19 +315,21 @@ DM access control and pairing are in [Channel Messaging](channel-messaging-archi
 
 ## 10. Session Reset and Maintenance
 
-[![Session maintenance and reset](diagrams/sessions-maintenance.svg)](diagrams/sessions-maintenance.svg)
-
 ### SessionResetService
 
-`packages/dartclaw_runtime/lib/src/session/session_reset_service.dart`. The daily and idle timers act on `main`, `channel` and `cron` sessions only; `POST /api/sessions/<id>/reset` can target any other non-archive, non-task session.
+`packages/dartclaw_runtime/lib/src/session/session_reset_service.dart`. The daily and idle timers act on `main`, `channel` and `cron` sessions only; `POST /api/sessions/<id>/reset` can target any other non-archive, non-task session (a turn in progress answers `409 SESSION_BUSY`). `sessions.reset_hour` and `sessions.idle_timeout_minutes` reload live: the service is `Reconfigurable` on `sessions.*`.
+
+[![Session reset: three triggers, continuity first, then archive or clear](diagrams/sessions-reset.svg)](diagrams/sessions-reset.svg)
 
 - **Idle timeout**: `touchActivity(sessionId)` restarts a per-session timer. `TurnRunner` calls it when a turn is reserved and on forward-progress events, so long tool runs keep the session alive.
 - **Order inside `resetSession(id)`**: provider continuity is reset first through `TurnManager.resetSessionContinuity`, which throws `BusyTurnException` while a turn is active (the daily reset logs the failure and moves on, so that session waits for the next trigger). Only then is the session archived or cleared, so a failed reset never archives a session whose provider state is still live.
-- An archived mapping is treated as stale by `getOrCreateByKey`, which is why an empty keyed session is archived without a replacement: the next message creates it.
+- A keyed session is archived (an empty one without a title) and `getOrCreateByKey` then creates its replacement under the same key and type at once; it treats the archived mapping as stale. An unkeyed session is cleared in place: its messages and its attachments directory are removed and no archive is created.
 
 ### SessionMaintenanceService
 
-`packages/dartclaw_runtime/lib/src/maintenance/session_maintenance_service.dart`. Stages run in the figure's order. Stage 3 flips a cron session's type to `user` before deleting it so the protected-type guard in `deleteSession` passes.
+[![Session maintenance: six stages and the sessions they never touch](diagrams/sessions-maintenance.svg)](diagrams/sessions-maintenance.svg)
+
+`packages/dartclaw_runtime/lib/src/maintenance/session_maintenance_service.dart`. Stages run in the figure's order, and a limit of `0` disables its stage. `mode: warn` (the default) plans and reports without applying; `enforce` applies. Stage 3 flips a cron session's type to `user` before deleting it so the protected-type guard in `deleteSession` passes.
 
 | Stage | Action | Setting (default) |
 |---|---|---|

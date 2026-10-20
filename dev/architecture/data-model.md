@@ -38,6 +38,9 @@ copied into or out of a standalone checkpoint. Leftover SQLite files from releas
 
 [![Storage authorities and data directory](diagrams/data-storage-layout.svg)](diagrams/data-storage-layout.svg)
 
+Each badge in the figure names the recovery path from the table above: restore from a file backup, workspace Git or
+`pg_dump`, rebuild, re-create, or start empty.
+
 ---
 
 ## 2. Data Directory Layout
@@ -268,8 +271,9 @@ The canonical memory of one workspace is a closed set of Markdown documents mana
 (`dartclaw_core/lib/src/memory/`). A *principal* ties a directory to its derived rows: the owner workspace is principal
 `owner`; a named agent's `agents/<id>/workspace` is `agent:<id>`. Only an agent whose tool policy grants personal-memory
 access gets corpus services, and a project working directory never changes the pairing. The role of a path is fixed
-(`MemoryRole`): `index`, `topic`, `archive`, `observation`, `learning`, `error`, `audit`, `wiki`, `kg`. Only `topic` is
-index-eligible (`isIndexEligible`). Every canonical record carries a `MemorySourceRef` (origin kind, source locator, source
+(`MemoryRole`): `index`, `topic`, `archive`, `observation`, `learning`, `error`, `audit`, `wiki`, `kg`. Only `topic`,
+`archive`, `observation` and `learning` entries are projected into the search index (see
+[Derived search indexes](#derived-search-indexes)). Every canonical record carries a `MemorySourceRef` (origin kind, source locator, source
 event, caller, session ref); the origin kind is one of `turn`, `journal`, `inbox`, `curation`, `migration`. Deduplication and
 deletion authorization compare refs with `isExactReplayOf`, which requires source event, caller and session ref to be present
 on both sides and equal.
@@ -278,8 +282,13 @@ on both sides and equal.
   journal `.dartclaw-memory-transaction.json` atomically, replaces each target with `MEMORY.md` last, records the manifest,
   then cleans up. `MEMORY.md` carries the collection revision, so it is the commit marker. Recovery after a crash rolls the
   journal forward if `MEMORY.md` shows the target revision and rolls back from the backups otherwise; an inconsistent state
-  raises `MemoryCorpusRecoveryRequired` and the corpus stays unavailable.
+  raises `MemoryCorpusRecoveryRequired` and the corpus stays unavailable. A crash before the journal exists leaves only
+  the staging directory, which the next write deletes. An exception inside a commit runs the same recovery in-process
+  and then rethrows. The marker is the `Collection-Revision:` line in the first 256 bytes of `MEMORY.md`. Source:
+  `packages/dartclaw_core/lib/src/memory/memory_corpus_authority.dart`.
+
 [![Memory corpus commit and crash recovery](diagrams/data-memory-commit.svg)](diagrams/data-memory-commit.svg)
+
 
 - **Manifest.** `.dartclaw-memory-corpus.json` records each member's role, length, digest and record ids so ordinary reads and
   sparse writes open only the relevant documents. It is coordination state: a missing manifest is rebuilt from the Markdown, a
@@ -307,6 +316,9 @@ on both sides and equal.
 | Knowledge graph | `kg_facts` (authoritative, not derived) | None; `PostgresFactSearch` builds a query-time vector with `database.fts_language` | n/a |
 
 [![Derived search projections](diagrams/data-search-projections.svg)](diagrams/data-search-projections.svg)
+
+Principals are separate corpora in every table: the owner (`user_id` `owner`) and each named agent with personal memory
+(`agent:<id>`).
 
 `database.fts_language` drives memory, conversation and fact search. After changing it, restart and run
 `dartclaw rebuild-index`; stored projections keep the previous language until then.
@@ -358,7 +370,9 @@ persist, in `kv.json`. See [Security Architecture](security-architecture.md) § 
 
 [![Entities and reference enforcement](diagrams/data-entities.svg)](diagrams/data-entities.svg)
 
-Thread bindings, search rows and knowledge-graph facts are left out of the figure; the table below lists every reference.
+Arrows run from the referencing row to the row it names; `N:1` reads many rows to one and `0..1` marks a nullable
+column. Thread bindings, search rows and knowledge-graph facts are left out of the figure; the table below lists every
+reference.
 
 ### Cross-store references
 

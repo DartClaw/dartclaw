@@ -1,192 +1,235 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 830" width="1000" height="830" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 960" width="1000" height="960" role="img" aria-labelledby="title desc">
   <title id="title">Turn admission and locking, session side</title>
-  <desc id="desc">A turn request passes the per-session arrival-order chain, ExecutionCoordinator.acquire and admitTurn (budget, session lock plus global cap, loop pre-check, rate-limit wait) before a turn id is reserved and turn_state.json records it. Settlement releases the lock; a surviving record is recovered at the next serving start.</desc>
+  <desc id="desc">A request for one session runs through TurnManager.reserveTurn inside a per-session arrival-order chain: ExecutionCoordinator.acquire runs TurnRunner.admitTurn (budget check, session lock and global cap, loop check, rate-limit wait), then takes a lane permit. Only then does reserveAdmittedTurn write the turn id to turn_state.json; settlement deletes it and releases the lock. TaskExecutor enters at acquire, outside the chain.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .num { fill: var(--k); }
-    .num-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    .state .box { rx: 14px; }
-    .edge.hot { stroke: var(--sec); }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .solid .step circle { fill: var(--on); } .solid .step text { fill: var(--kd); }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#callers:hover) .edges :is(.f-callers,.t-callers) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#task:hover) .edges :is(.f-task,.t-task) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s1:hover) .edges :is(.f-s1,.t-s1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s2:hover) .edges :is(.f-s2,.t-s2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#a:hover) .edges :is(.f-a,.t-a) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#b:hover) .edges :is(.f-b,.t-b) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#c:hover) .edges :is(.f-c,.t-c) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#d:hover) .edges :is(.f-d,.t-d) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s3:hover) .edges :is(.f-s3,.t-s3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lock:hover) .edges :is(.f-lock,.t-lock) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s4:hover) .edges :is(.f-s4,.t-s4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s5:hover) .edges :is(.f-s5,.t-s5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s6:hover) .edges :is(.f-s6,.t-s6) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#store:hover) .edges :is(.f-store,.t-store) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="830"/>
-  <text class="title" x="24" y="34">Turn admission and locking, session side</text>
-  <text class="lede" x="24" y="56">What happens to one session's turn before and after the harness runs it. The harness half is in control-protocol.md.</text>
-  <g class="node k-host">
-    <title>Every surface reaches TurnManager.startTurn or reserveTurn. TaskExecutor skips the per-session chain and calls ExecutionCoordinator.acquire plus reserveAdmittedTurn directly.</title>
-    <path class="edge" d="M242,128 L242,140"/>
-    <rect class="box" x="24" y="84" width="436" height="44" rx="6"/>
-    <text class="mono" x="38" y="104">callers</text>
-    <text class="sub" x="38" y="122">web chat, channel, cron, logical agent; task and workflow enter at 2</text>
+  <rect class="bg" width="1000" height="960"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="864" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="888">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="912">Hover a box for what it does; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="932">A red chip is the exception that refuses the turn at that step. The harness half is in control-protocol.md.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · TurnManager.reserveTurn</text>
+  <text class="title" x="24" y="58">Turn admission and locking, session side</text>
+  <text class="lede" x="24" y="80">A turn is admitted in a fixed order, and its crash marker is written only after every gate has passed.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="160" width="568" height="490" rx="14"/><text class="kick" x="32" y="182">SessionMutationCoordinator · ONE CHAIN PER SESSION</text></g>
+  <g class="k-sec"><rect class="band inner" x="26" y="330" width="548" height="244" rx="10"/><text class="kick" x="42" y="352">TurnRunner.admitTurn</text></g>
+
+  <g class="edges">
+    <g class="e  f-callers t-s1"><path d="M530,148 V190"/><text class="el" x="538" y="178" text-anchor="start">reserveTurn</text></g>
+    <g class="e  f-task t-s2"><path d="M798,156 V288 H554"/><text class="el" x="740" y="280" text-anchor="middle">acquire</text></g>
+    <g class="e main f-s1 t-s2"><path d="M292,254 V264"/></g>
+    <g class="e main f-s2 t-a"><path d="M292,310 V360"/><text class="el" x="300" y="324" text-anchor="start">admitExecution hook</text></g>
+    <g class="e main f-a t-b"><path d="M292,406 V412"/></g>
+    <g class="e main f-b t-c"><path d="M292,458 V464"/></g>
+    <g class="e main f-c t-d"><path d="M292,510 V516"/></g>
+    <g class="e main f-d t-s3"><path d="M292,562 V592"/><text class="el" x="300" y="586" text-anchor="start">lock held</text></g>
+    <g class="e dash f-b t-lock"><path d="M562,436 H618"/><text class="el" x="590" y="428" text-anchor="middle">acquire</text></g>
+    <g class="e main f-s3 t-s4"><path d="M552,616 H618"/><text class="el" x="585" y="608" text-anchor="middle">granted</text></g>
+    <g class="e main f-s4 t-s5"><path d="M798,656 V668"/><text class="el" x="806" y="666" text-anchor="start">turnId</text></g>
+    <g class="e main f-s5 t-s6"><path d="M798,714 V732"/><text class="el" x="806" y="727" text-anchor="start">outcome</text></g>
+    <g class="e  f-s4 t-store"><path d="M620,640 H602 V748 H562"/><text class="el" x="596" y="700" text-anchor="end">set</text></g>
+    <g class="e  f-s6 t-store"><path d="M620,776 H562"/><text class="el" x="591" y="768" text-anchor="middle">delete</text></g>
   </g>
-  <g class="node k-host">
-    <title>turn_manager.dart. _sessionReservations is a SessionMutationCoordinator, so a later request for the same session cannot overtake an earlier one during the session read, governance checks, lock or permit.</title>
-    <path class="edge" d="M242,196 L242,208"/>
-    <path class="edge" d="M460,168 L520,168"/>
-    <rect class="box" x="24" y="140" width="436" height="56" rx="6"/>
-    <circle class="num" cx="42" cy="158" r="10"/><text class="num-text" x="42" y="162">1</text>
-    <text class="mono" x="62" y="160">TurnManager.reserveTurn</text>
-    <text class="sub" x="62" y="178">same-session reservations run through the chain,</text>
-    <text class="sub" x="62" y="194">then the session is read: provider, policy, surface</text>
+
+  <a href="../session-state-architecture.md#7-turn-admission-and-locking"><g class="n line k-host" id="callers">
+    <rect class="box" x="24" y="104" width="536" height="44" rx="9"/>
+    <text class="name" x="36" y="123">callers</text>
+    <text class="sub" x="36" y="139">web chat, channel, cron, logical agent; task and workflow enter at 2</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">callers</tspan> · every surface reaches TurnManager.startTurn or reserveTurn</text><text class="p2" x="36" y="932">TaskExecutor skips the per-session chain and calls ExecutionCoordinator.acquire plus reserveAdmittedTurn directly.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#arrival-order-sessionmutationcoordinator"><g class="n line k-host" id="task">
+    <rect class="box" x="620" y="104" width="356" height="52" rx="9"/>
+    <text class="name mono-name" x="632" y="123">TaskExecutor</text>
+    <text class="sub" x="632" y="139">tasks and workflow steps: outside the chain</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">TaskExecutor</tspan> · calls ExecutionCoordinator.acquire and reserveAdmittedTurn directly</text><text class="p2" x="36" y="932">A task request is fail-fast: it takes its lane permit before admission, so one that finds no permit runs none of the checks.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#arrival-order-sessionmutationcoordinator"><g class="n solid k-host" id="s1">
+    <rect class="box" x="32" y="192" width="520" height="62" rx="9"/>
+    <g class="step"><circle cx="52" cy="214" r="10"/><text x="52" y="218">1</text></g>
+    <text class="name mono-name" x="70" y="215">TurnManager.reserveTurn</text>
+    <text class="sub" x="70" y="233">same-session reservations run through the chain,</text>
+    <text class="sub" x="70" y="249">then the session is read: provider, policy, surface</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">TurnManager.reserveTurn</tspan> · turn_manager.dart: _sessionReservations is a SessionMutationCoordinator</text><text class="p2" x="36" y="932">A later request for the same session cannot overtake an earlier one during the session read, governance checks, lock or permit.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#admission-order"><g class="n tint k-host" id="s2">
+    <rect class="box" x="32" y="266" width="520" height="44" rx="9"/>
+    <g class="step"><circle cx="52" cy="288.0" r="10"/><text x="52" y="292.0">2</text></g>
+    <text class="name mono-name" x="70" y="285">ExecutionCoordinator.acquire</text>
+    <text class="sub" x="70" y="301">lane: primary or provider worker; runs admission</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">ExecutionCoordinator.acquire</tspan> · execution_coordinator.dart passes TurnRunner.admitTurn as the shared admitExecution hook</text><text class="p2" x="36" y="932">Fail-fast task and workflow requests take their lane permit before admission; every other request is admitted first, then takes its permit.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#admission-order"><g class="n tint k-sec" id="a">
+    <rect class="box" x="42" y="362" width="520" height="44" rx="9"/>
+    <g class="step"><circle cx="62" cy="384.0" r="10"/><text x="62" y="388.0">a</text></g>
+    <text class="name mono-name" x="80" y="381">checkBudget</text>
+    <text class="sub" x="80" y="397">read-only daily budget, before the lock</text>
+    <g class="chip k-sec"><rect x="377" y="369" width="175" height="16" rx="8"/><text x="384" y="381">✕ BudgetExhaustedException</text></g>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">checkBudget</tspan> · TurnGovernanceEnforcer.checkBudget throws under action block</text><text class="p2" x="36" y="932">It reads usage only and records nothing, so it may run before the lock.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionlockmanager"><g class="n tint k-host" id="b">
+    <rect class="box" x="42" y="414" width="520" height="44" rx="9"/>
+    <g class="step"><circle cx="62" cy="436.0" r="10"/><text x="62" y="440.0">b</text></g>
+    <text class="name mono-name" x="80" y="433">SessionLockManager.acquire</text>
+    <text class="sub" x="80" y="449">session lock, then global cap</text>
+    <g class="chip k-sec"><rect x="420" y="421" width="132" height="16" rx="8"/><text x="427" y="433">✕ BusyTurnException</text></g>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">SessionLockManager.acquire</tspan> · waits while the session is locked, then throws BusyTurnException(isSameSession: false) at the cap</text><text class="p2" x="36" y="932">A cap rejection has recorded nothing yet, because the checks that record state run after it.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#admission-order"><g class="n tint k-sec" id="c">
+    <rect class="box" x="42" y="466" width="520" height="44" rx="9"/>
+    <g class="step"><circle cx="62" cy="488.0" r="10"/><text x="62" y="492.0">c</text></g>
+    <text class="name mono-name" x="80" y="485">checkLoopPreTurn</text>
+    <text class="sub" x="80" y="501">chain depth, token velocity; records the start</text>
+    <g class="chip k-sec"><rect x="395" y="473" width="157" height="16" rx="8"/><text x="402" y="485">✕ LoopDetectedException</text></g>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">checkLoopPreTurn</tspan> · records state, so it runs only after the cap admitted the attempt</text><text class="p2" x="36" y="932">LoopAction.abort throws LoopDetectedException; a throw here releases the lock taken in b.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#admission-order"><g class="n tint k-sec" id="d">
+    <rect class="box" x="42" y="518" width="520" height="44" rx="9"/>
+    <g class="step"><circle cx="62" cy="540.0" r="10"/><text x="62" y="544.0">d</text></g>
+    <text class="name mono-name" x="80" y="537">awaitRateLimitWindow</text>
+    <text class="sub" x="80" y="553">defers while the global turn rate is reached</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">awaitRateLimitWindow</tspan> · polls once a second while holding the cap slot</text><text class="p2" x="36" y="932">A throw from c or d releases the session lock; a wait here keeps its lane position.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#admission-order"><g class="n tint k-host" id="s3">
+    <rect class="box" x="32" y="594" width="520" height="44" rx="9"/>
+    <g class="step"><circle cx="52" cy="616.0" r="10"/><text x="52" y="620.0">3</text></g>
+    <text class="name" x="70" y="613">lane permit and lease</text>
+    <text class="sub" x="70" y="629">WorkerCapacityGate permit; fail-fast requests take it before admission</text>
+    <g class="chip k-sec"><rect x="410" y="601" width="132" height="16" rx="8"/><text x="417" y="613">✕ BusyTurnException</text></g>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">lane permit and lease</tspan> · worker_capacity_gate.dart via ExecutionCoordinator._acquirePrimary and _acquireWorker</text><text class="p2" x="36" y="932">No permit means BusyTurnException for provider capacity, and the admission is released.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionlockmanager"><g class="n tint k-host" id="lock">
+    <rect class="box" x="620" y="386" width="356" height="100" rx="9"/>
+    <text class="name mono-name" x="632" y="409">SessionLockManager</text>
+    <text class="sub" x="632" y="427">one lock per session, activeCount &lt;= maxParallel</text>
+    <text class="sub" x="632" y="443">maxParallel = concurrency.max_parallel_turns (3)</text>
+    <text class="sub" x="632" y="459">waiters resume in arrival order</text>
+    <text class="sub" x="632" y="475">30 s warn, 120 s stuck</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">SessionLockManager</tspan> · concurrency/session_lock_manager.dart; one instance is shared by every runner</text><text class="p2" x="36" y="932">Reconfigurable on server.*; a raise wakes callers parked in whenCapacityAvailable(), which reserves nothing.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#session-side-turn-lifecycle"><g class="n tint k-host" id="s4">
+    <rect class="box" x="620" y="594" width="356" height="62" rx="9"/>
+    <g class="step"><circle cx="640" cy="616" r="10"/><text x="640" y="620">4</text></g>
+    <text class="name mono-name" x="658" y="617">TurnRunner.reserveAdmittedTurn</text>
+    <text class="sub" x="658" y="635">new turnId, then TurnStateStore.set</text>
+    <text class="sub" x="658" y="651">crash marker durable before execution</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">TurnRunner.reserveAdmittedTurn</tspan> · turn_runner.dart _reserveTurnState</text><text class="p2" x="36" y="932">The set call is synchronous (secureWriteFileSync) although the call site is unawaited, so a rejected request leaves no marker.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#6-turn-lifecycle"><g class="n line k-ext" id="s5">
+    <rect class="box" x="620" y="670" width="356" height="44" rx="9"/>
+    <g class="step"><circle cx="640" cy="692.0" r="10"/><text x="640" y="696.0">5</text></g>
+    <text class="name mono-name" x="658" y="689">executeTurn</text>
+    <text class="sub" x="658" y="705">owned by control-protocol.md</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">executeTurn</tspan> · TurnRunner.executeTurn launches the harness turn</text><text class="p2" x="36" y="932">The harness half of the lifecycle is Control Protocol section 6.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#session-side-turn-lifecycle"><g class="n tint k-host" id="s6">
+    <rect class="box" x="620" y="734" width="356" height="84" rx="9"/>
+    <g class="step"><circle cx="640" cy="756" r="10"/><text x="640" y="760">6</text></g>
+    <text class="name" x="658" y="757">settlement</text>
+    <text class="sub" x="658" y="775">outcome cached, TurnStateStore.delete</text>
+    <text class="sub" x="658" y="791">SessionLockManager.release, lease released</text>
+    <text class="sub" x="658" y="807">queue releases its next item if completed</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">settlement</tspan> · turn_runner_execution_loop.dart finally block and ConversationService._observeOutcome</text><text class="p2" x="36" y="932">A failed or cancelled turn holds the remaining conversation queue instead of releasing it.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#11-crash-recovery"><g class="n tint k-store" id="store">
+    <rect class="box" x="24" y="730" width="536" height="60" rx="9"/>
+    <text class="name mono-name" x="36" y="753">turn_state.json</text>
+    <text class="sub" x="36" y="771">{ sessionId: { turnId, startedAt } }, one record per active turn</text>
+    <g class="d"><text class="p1" x="36" y="912"><tspan class="b">turn_state.json</tspan> · TurnStateStore in dartclaw_core storage; mutations are synchronous atomic writes and open quarantines malformed JSON</text><text class="p2" x="36" y="932">A record that survives a crash is removed by detectAndCleanOrphanedTurns at the next serving start, which flags the session.</text></g>
+  </g></a>
+  <g transform="translate(24,838)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">entry</text>
+    <g class="tint k-host"><rect class="box" x="75.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="97.0" y="10">step</text>
+    <g class="tint k-sec"><rect class="box" x="143.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="165.8" y="10">governance check</text>
+    <g class="tint k-store"><rect class="box" x="287.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="309.0" y="10">file</text>
+    <g class="e main"><path d="M355.8,6 H387.8"/></g><text class="lg" x="395.8" y="10">turn proceeds</text>
+    <g class="e "><path d="M498.40000000000003,6 H530.4000000000001"/></g><text class="lg" x="538.4000000000001" y="10">call or write</text>
+    <g class="e dash"><path d="M641.0,6 H673.0"/></g><text class="lg" x="681.0" y="10">lock and cap</text>
   </g>
-  <g class="node k-host">
-    <title>execution_coordinator.dart. Fail-fast task and workflow requests take their lane permit before admission; every other request is admitted first and then takes its permit.</title>
-    <path class="edge" d="M242,252 L242,286"/>
-    <rect class="box" x="24" y="208" width="436" height="44" rx="6"/>
-    <circle class="num" cx="42" cy="226" r="10"/><text class="num-text" x="42" y="230">2</text>
-    <text class="mono" x="62" y="228">ExecutionCoordinator.acquire</text>
-    <text class="sub" x="62" y="246">lane: primary or provider worker; runs admission</text>
-  </g>
-  <rect class="group" x="24" y="262" width="436" height="226" rx="8"/>
-  <text class="group-label" x="36" y="278">TurnRunner.admitTurn</text>
-  <g class="node k-sec">
-    <title>TurnGovernanceEnforcer.checkBudget: BudgetExhaustedException under action block. Reads usage only, so it records nothing.</title>
-    <path class="edge" d="M242,328 L242,336"/>
-    <rect class="box" x="36" y="288" width="412" height="40" rx="6"/>
-    <circle class="num" cx="54" cy="306" r="10"/><text class="num-text" x="54" y="310">a</text>
-    <text class="mono" x="74" y="308">checkBudget</text>
-    <text class="sub" x="74" y="326">read-only daily budget, before the lock</text>
-  </g>
-  <g class="node k-host">
-    <title>Waits while the session is locked, then throws BusyTurnException(isSameSession: false) if activeCount &gt;= maxParallel. A cap rejection has recorded nothing yet.</title>
-    <path class="edge" d="M242,376 L242,384"/>
-    <path class="edge" d="M448,356 L520,356"/>
-    <rect class="box" x="36" y="336" width="412" height="40" rx="6"/>
-    <circle class="num" cx="54" cy="354" r="10"/><text class="num-text" x="54" y="358">b</text>
-    <text class="mono" x="74" y="356">SessionLockManager.acquire</text>
-    <text class="sub" x="74" y="374">session lock, then global cap</text>
-  </g>
-  <g class="node k-sec">
-    <title>Records state, so it runs only after the cap admitted the attempt. LoopAction.abort throws LoopDetectedException.</title>
-    <path class="edge" d="M242,424 L242,432"/>
-    <rect class="box" x="36" y="384" width="412" height="40" rx="6"/>
-    <circle class="num" cx="54" cy="402" r="10"/><text class="num-text" x="54" y="406">c</text>
-    <text class="mono" x="74" y="404">checkLoopPreTurn</text>
-    <text class="sub" x="74" y="422">chain depth, token velocity; records the start</text>
-  </g>
-  <g class="node k-sec">
-    <title>Polls once a second while holding the cap slot. A throw from this step or the previous one releases the lock.</title>
-    <path class="edge" d="M242,472 L242,500"/>
-    <rect class="box" x="36" y="432" width="412" height="40" rx="6"/>
-    <circle class="num" cx="54" cy="450" r="10"/><text class="num-text" x="54" y="454">d</text>
-    <text class="mono" x="74" y="452">awaitRateLimitWindow</text>
-    <text class="sub" x="74" y="470">defers while the global turn rate is reached</text>
-  </g>
-  <g class="node k-host">
-    <title>worker_capacity_gate.dart, ExecutionCoordinator._acquirePrimary/_acquireWorker. No permit means BusyTurnException (provider capacity) and the admission is released.</title>
-    <path class="edge" d="M242,550 L242,564"/>
-    <rect class="box" x="24" y="510" width="436" height="40" rx="6"/>
-    <circle class="num" cx="42" cy="528" r="10"/><text class="num-text" x="42" y="532">3</text>
-    <text class="mono" x="62" y="530">lane permit and lease</text>
-    <text class="sub" x="62" y="548">WorkerCapacityGate permit (fail-fast task, workflow: before a)</text>
-  </g>
-  <g class="node k-host">
-    <title>turn_runner.dart _reserveTurnState. The set call is synchronous (secureWriteFileSync) although the call site is unawaited.</title>
-    <path class="edge" d="M242,620 L242,634"/>
-    <path class="edge" d="M460,592 L500,592 L500,692 L520,692"/>
-    <rect class="box" x="24" y="564" width="436" height="56" rx="6"/>
-    <circle class="num" cx="42" cy="582" r="10"/><text class="num-text" x="42" y="586">4</text>
-    <text class="mono" x="62" y="584">TurnRunner.reserveAdmittedTurn</text>
-    <text class="sub" x="62" y="602">new turnId; TurnStateStore.set(session, turnId, startedAt)</text>
-    <text class="sub" x="62" y="618">the crash marker is durable before execution starts</text>
-  </g>
-  <g class="node k-ext">
-    <title>TurnRunner.executeTurn launches the turn; see control-protocol.md section 6 for the harness half.</title>
-    <path class="edge" d="M242,674 L242,688"/>
-    <rect class="box" x="24" y="634" width="436" height="40" rx="6"/>
-    <circle class="num" cx="42" cy="652" r="10"/><text class="num-text" x="42" y="656">5</text>
-    <text class="mono" x="62" y="654">executeTurn, harness turn</text>
-    <text class="sub" x="62" y="672">owned by control-protocol.md</text>
-  </g>
-  <g class="node k-host">
-    <title>turn_runner_execution_loop.dart finally block and ConversationService._observeOutcome. A failed or cancelled turn holds the remaining queue instead.</title>
-    <path class="edge" d="M460,724 L500,724 L500,706 L520,706"/>
-    <rect class="box" x="24" y="688" width="436" height="72" rx="6"/>
-    <circle class="num" cx="42" cy="706" r="10"/><text class="num-text" x="42" y="710">6</text>
-    <text class="mono" x="62" y="708">settlement</text>
-    <text class="sub" x="62" y="726">outcome cached; TurnStateStore.delete; SessionLockManager.release;</text>
-    <text class="sub" x="62" y="742">lease released; the conversation queue releases its next</text>
-    <text class="sub" x="62" y="758">queued item if the turn completed</text>
-  </g>
-  <g class="node k-host">
-    <title>concurrency/session_mutation_coordinator.dart. One instance is one chain; nesting on the same instance and session deadlocks. The task executor is outside this chain.</title>
-    <rect class="box" x="520" y="140" width="456" height="62" rx="6"/>
-    <text class="mono" x="534" y="160">SessionMutationCoordinator</text>
-    <text class="sub" x="534" y="178">per-session promise chain, arrival order</text>
-    <text class="sub" x="534" y="194">spans session read, governance, lock and permit</text>
-  </g>
-  <g class="node k-host">
-    <title>concurrency/session_lock_manager.dart. One instance shared by every runner. Reconfigurable on server.*; a raise wakes callers parked in whenCapacityAvailable().</title>
-    <path class="edge" d="M748,392 L748,408"/>
-    <rect class="box" x="520" y="300" width="456" height="92" rx="6"/>
-    <text class="mono" x="534" y="320">SessionLockManager</text>
-    <text class="sub" x="534" y="338">one lock per session; activeCount &lt;= maxParallel</text>
-    <text class="sub" x="534" y="354">maxParallel = concurrency.max_parallel_turns (default 3)</text>
-    <text class="sub" x="534" y="370">waiters resume in arrival order; 30 s warn, 120 s stuck</text>
-  </g>
-  <g class="node k-sec">
-    <title>What each surface does when admission is refused for global capacity. Capacity wakeups reserve nothing; the retry may lose the race and wait again.</title>
-    <rect class="box" x="520" y="408" width="456" height="118" rx="6"/>
-    <text class="mono" x="534" y="428">global cap reached: BusyTurnException</text>
-    <text class="sub" x="534" y="446">web chat: submission returns to queued, redispatched on capacity</text>
-    <text class="sub" x="534" y="462">channel: _untilAdmitted waits for capacity, then retries</text>
-    <text class="sub" x="534" y="478">task, workflow: fail-fast, retried on the next poll</text>
-    <text class="sub" x="534" y="494">direct send: 409 AGENT_BUSY_PROVIDER</text>
-    <text class="sub" x="534" y="510">same session busy: waits at the lock, not an error</text>
-  </g>
-  <g class="node k-store">
-    <title>TurnStateStore in dartclaw_core storage. Mutations are synchronous atomic writes; open quarantines malformed JSON.</title>
-    <path class="edge" d="M748,720 L748,734"/>
-    <rect class="box" x="520" y="670" width="456" height="50" rx="6"/>
-    <text class="mono" x="534" y="690">turn_state.json</text>
-    <text class="sub" x="534" y="708">{ sessionId: { turnId, startedAt } }, one record per active turn</text>
-  </g>
-  <g class="node k-host">
-    <title>service_wiring.dart calls it after wiring when not headless; web_routes.dart renders the banner.</title>
-    <rect class="box" x="520" y="734" width="456" height="58" rx="6"/>
-    <text class="mono" x="534" y="754">next serving start</text>
-    <text class="sub" x="534" y="772">detectAndCleanOrphanedTurns removes records, flags sessions</text>
-    <text class="sub" x="534" y="788">consumeRecoveryNotice: web page shows the banner once</text>
-  </g>
-  <text class="edge-label" x="466" y="640">set</text>
-  <text class="edge-label" x="466" y="738">delete</text>
-  <text class="note" x="24" y="816">Opened directly in a browser, hovering a node shows its detail and highlights its outgoing edges.</text>
 </svg>

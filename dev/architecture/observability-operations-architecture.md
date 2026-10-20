@@ -29,13 +29,17 @@ Design rules that hold across the stack:
 
 [![Observability signal flow: sources, collectors, sinks](diagrams/observability-signal-flow.svg)](diagrams/observability-signal-flow.svg)
 
+Usage, runner capacity and log records reach their sinks without a bus subscriber:
+
+[![Observability direct signals: usage, capacity and logs](diagrams/observability-direct-signals.svg)](diagrams/observability-direct-signals.svg)
+
 ---
 
 ## 2. Alerts
 
 `AlertRouter` maps `DartclawEvent`s to operator notifications. Disabled by default (`alerts.enabled: false`) and needs at least one target.
 
-[![Alert pipeline: classify, route, throttle, deliver](diagrams/observability-alert-pipeline.svg)](diagrams/observability-alert-pipeline.svg)
+[![Alert pipeline: classify, resolve targets, filter, format, throttle, deliver](diagrams/observability-alert-pipeline.svg)](diagrams/observability-alert-pipeline.svg)
 
 ### classifyAlert
 
@@ -272,6 +276,8 @@ Soft-trims oversized tool results to head + `...[trimmed N bytes]...` + tail, ea
 
 [![Compaction lifecycle: Claude and Codex sources, subscribers](diagrams/observability-compaction-lifecycle.svg)](diagrams/observability-compaction-lifecycle.svg)
 
+Claude registers a `PreCompact` hook. Its handler captures the tail of the session (last 12 messages, redacted, capped at 32 KiB) as a memory observation, then fires `CompactionStartingEvent` in a `finally`, so a failed capture still announces the compaction. The host answers the hook with allow only after that, so compaction waits for it. Codex compaction is mapped to the same two events by `TurnRunner` while a turn runs, with trigger `auto`; ACP agents produce no compaction events, so for Codex and ACP the post-turn flush heuristic applies instead.
+
 `CompactionCompletedEvent.preTokens` is null for Codex and when the wire format omits it; `summary` is reserved and always null. Compact instructions (`context.compact_instructions`, with identifier-preservation text per `context.identifier_preservation`: `strict` default, `off`, `custom`) are composed into the system prompt by `BehaviorFileService` so UUIDs, session keys, task IDs, paths and URLs survive compaction.
 
 | Key | Default |
@@ -330,11 +336,11 @@ Enforcement lives in [Security Architecture](security-architecture.md) § Runtim
 
 ### Admission order
 
-`TurnRunner.admitTurn` calls `TurnGovernanceEnforcer` in this order:
+`TurnRunner.admitTurn` runs four checks in this order, three through `TurnGovernanceEnforcer` and the lock through `SessionLockManager`:
 
 [![Turn admission order and governance signals](diagrams/observability-governance-admission.svg)](diagrams/observability-governance-admission.svg)
 
-Steps 3 and 4 record state, which is why the lock precedes them: an attempt the cap rejects never counts. After admission, execution allocation passes to `ExecutionCoordinator` (§7). Per tool call, `recordToolCall` feeds fingerprint detection; after each turn `recordTokensAndCheckVelocity` runs velocity detection (it fires even in `abort` mode because the tokens are already spent; the next pre-turn check aborts).
+Steps 3 and 4 record state, which is why the lock precedes them: an attempt the cap rejects never counts. Step 2 first waits for any lock held on the same session (`TurnWaitStateChangedEvent` at 30 s waiting and 120 s stuck), then rejects at the global cap with `BusyTurnException` at once; the cap never queues. After admission, execution allocation passes to `ExecutionCoordinator` (§7). Per tool call, `recordToolCall` feeds fingerprint detection; after each turn `recordTokensAndCheckVelocity` runs velocity detection (it fires even in `abort` mode because the tokens are already spent; the next pre-turn check aborts).
 
 ### Signals by control
 

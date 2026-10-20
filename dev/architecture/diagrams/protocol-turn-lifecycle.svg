@@ -1,223 +1,219 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 460" width="1000" height="460" role="img" aria-labelledby="title desc">
-  <title id="title">Turn lifecycle: reserve, execute, settle</title>
-  <desc id="desc">A turn is reserved through the coordinator (admission, lease, turn id), executed by TurnRunner as a guarded provider call followed by persistence, and settled in a finally block that frees the session lock, the lease and the crash-recovery record.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 874" width="1000" height="874" role="img" aria-labelledby="title desc">
+  <title id="title">Turn lifecycle</title>
+  <desc id="desc">A caller reserves a turn through TurnManager, which asks ExecutionCoordinator for an ExecutionLease and the primary runner for admission. TurnRunner then runs the pre-turn guard, composes the system prompt, starts limit timers and cost accounting, calls AgentHarness.turn, normalizes usage, runs the post-turn guard, persists the reply and frees the turn state. The coordinator releases the lease and the caller reads the TurnOutcome.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
-    @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
-    }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
-    .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
 
-    .mono-sm { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; fill: var(--sub); }
-    .step { font-size: 12.5px; font-weight: 700; }
-    .num { fill: var(--host); font-weight: 700; font-size: 12px; }
-    .legend-text { fill: var(--sub); font-size: 11px; }
-    .edge.guard { stroke: var(--sec); stroke-dasharray: 5 4; }
-    .edge.fail { stroke: var(--sec); stroke-dasharray: 5 4; marker-end: url(#arrow); }
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .life { stroke: var(--rule); stroke-width: 1.3; stroke-dasharray: 3 4; }
+    .ml { font-size: 11.5px; font-weight: 600; fill: var(--ink); }
+    .ms { font-size: 10.5px; font-weight: 400; fill: var(--ink3); }
+    .edges .ml, .edges .ms { paint-order: stroke; stroke: var(--halo); stroke-width: 6px; stroke-linejoin: round; --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .note { font-size: 11px; fill: var(--ink3); }
+    svg:has(#caller:hover) .edges :is(.f-caller,.t-caller) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tm:hover) .edges :is(.f-tm,.t-tm) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ec:hover) .edges :is(.f-ec,.t-ec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tr:hover) .edges :is(.f-tr,.t-tr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#st:hover) .edges :is(.f-st,.t-st) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gc:hover) .edges :is(.f-gc,.t-gc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ah:hover) .edges :is(.f-ah,.t-ah) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="460"/>
-  <text class="title" x="24" y="34">Turn lifecycle: reserve, execute, settle</text>
-  <text class="lede" x="24" y="56">Numbers match the steps in section 6.3. Read each row left to right, then continue on the next row.</text>
-  <text class="group-label" x="24" y="84">Reserve (caller)</text>
-  <a href="../control-protocol.md#62-execution-allocation">
-  <g class="node k-host">
-    <title>TurnManager.reserveTurn: same-session reservations run one at a time in arrival order (SessionMutationCoordinator); the session&#x27;s provider and execution policy are resolved here.</title>
-    <path class="edge" d="M196,128 L221,128"/>
-    <rect class="box" x="24" y="96" width="172" height="64" rx="6"/>
-    <text class="num" x="36" y="117">1</text>
-    <text class="step" x="58" y="117">reserveTurn</text>
-    <text class="mono-sm" x="36" y="134">per-session ordering</text>
+  <rect class="bg" width="1000" height="874"/>
+
+  <text class="kick" x="24" y="32">SEQUENCE · TurnManager.reserveTurn → TurnRunner.executeTurn</text>
+  <text class="title" x="24" y="58">Turn lifecycle</text>
+  <text class="lede" x="24" y="80">One turn is 15 steps: admission and a lease before any provider work, one active turn per runner, and a settle phase that always runs.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="160" width="968" height="192" rx="14"/><text class="kick" x="32" y="182">RESERVE</text></g>
+  <text class="note" x="112" y="182" text-anchor="start">caller side: admission, a lane permit, a lease, a turn id</text>
+  <g class="k-host"><rect class="band" x="16" y="364" width="968" height="260" rx="14"/><text class="kick" x="32" y="386">EXECUTE</text></g>
+  <text class="note" x="112" y="386" text-anchor="start">TurnRunner, after executeTurn: deltas, tool use and results feed the buffer, SSE, loop detection and liveness</text>
+  <g class="k-host"><rect class="band" x="16" y="636" width="968" height="162" rx="14"/><text class="kick" x="32" y="658">SETTLE</text></g>
+  <text class="note" x="112" y="658" text-anchor="start">finally: a guard block, provider error, timeout or cancel jumps here</text>
+  <line class="life" x1="96" y1="148" x2="96" y2="160"/>
+  <line class="life" x1="96" y1="194" x2="96" y2="352"/>
+  <line class="life" x1="96" y1="352" x2="96" y2="364"/>
+  <line class="life" x1="96" y1="398" x2="96" y2="624"/>
+  <line class="life" x1="96" y1="624" x2="96" y2="636"/>
+  <line class="life" x1="96" y1="670" x2="96" y2="798"/>
+  <line class="life" x1="96" y1="798" x2="96" y2="812"/>
+  <line class="life" x1="224" y1="148" x2="224" y2="160"/>
+  <line class="life" x1="224" y1="194" x2="224" y2="352"/>
+  <line class="life" x1="224" y1="352" x2="224" y2="364"/>
+  <line class="life" x1="224" y1="398" x2="224" y2="624"/>
+  <line class="life" x1="224" y1="624" x2="224" y2="636"/>
+  <line class="life" x1="224" y1="670" x2="224" y2="798"/>
+  <line class="life" x1="224" y1="798" x2="224" y2="812"/>
+  <line class="life" x1="384" y1="148" x2="384" y2="160"/>
+  <line class="life" x1="384" y1="194" x2="384" y2="352"/>
+  <line class="life" x1="384" y1="352" x2="384" y2="364"/>
+  <line class="life" x1="384" y1="398" x2="384" y2="624"/>
+  <line class="life" x1="384" y1="624" x2="384" y2="636"/>
+  <line class="life" x1="384" y1="670" x2="384" y2="798"/>
+  <line class="life" x1="384" y1="798" x2="384" y2="812"/>
+  <line class="life" x1="534" y1="148" x2="534" y2="160"/>
+  <line class="life" x1="534" y1="194" x2="534" y2="352"/>
+  <line class="life" x1="534" y1="352" x2="534" y2="364"/>
+  <line class="life" x1="534" y1="398" x2="534" y2="624"/>
+  <line class="life" x1="534" y1="624" x2="534" y2="636"/>
+  <line class="life" x1="534" y1="670" x2="534" y2="798"/>
+  <line class="life" x1="534" y1="798" x2="534" y2="812"/>
+  <line class="life" x1="662" y1="148" x2="662" y2="160"/>
+  <line class="life" x1="662" y1="194" x2="662" y2="352"/>
+  <line class="life" x1="662" y1="352" x2="662" y2="364"/>
+  <line class="life" x1="662" y1="398" x2="662" y2="624"/>
+  <line class="life" x1="662" y1="624" x2="662" y2="636"/>
+  <line class="life" x1="662" y1="670" x2="662" y2="798"/>
+  <line class="life" x1="662" y1="798" x2="662" y2="812"/>
+  <line class="life" x1="780" y1="148" x2="780" y2="160"/>
+  <line class="life" x1="780" y1="194" x2="780" y2="352"/>
+  <line class="life" x1="780" y1="352" x2="780" y2="364"/>
+  <line class="life" x1="780" y1="398" x2="780" y2="624"/>
+  <line class="life" x1="780" y1="624" x2="780" y2="636"/>
+  <line class="life" x1="780" y1="670" x2="780" y2="798"/>
+  <line class="life" x1="780" y1="798" x2="780" y2="812"/>
+  <line class="life" x1="910" y1="148" x2="910" y2="160"/>
+  <line class="life" x1="910" y1="194" x2="910" y2="352"/>
+  <line class="life" x1="910" y1="352" x2="910" y2="364"/>
+  <line class="life" x1="910" y1="398" x2="910" y2="624"/>
+  <line class="life" x1="910" y1="624" x2="910" y2="636"/>
+  <line class="life" x1="910" y1="670" x2="910" y2="798"/>
+  <line class="life" x1="910" y1="798" x2="910" y2="812"/>
+  <text class="lg" x="24" y="860" text-anchor="start">Step circle colour is the callee: green component, teal store, red guard.</text>
+
+  <g class="edges">
+    <g class="e f-caller t-tm"><title>Same-session reservations run one at a time in arrival order (SessionMutationCoordinator); the session's provider and execution policy are resolved here.</title><path d="M96,212 H222"/><g class="step k-host"><circle cx="113" cy="200" r="9.5"/><text x="113" y="204">1</text></g><text class="ml" x="128" y="205">reserveTurn<tspan class="ms" dx="9">per-session order; provider, policy resolved</tspan></text></g>
+    <g class="e f-tm t-ec"><title>Lane choice, primary or worker. A fail-fast task or workflow request takes its permit before governance and skips governance when none is free.</title><path d="M224,242 H382"/><g class="step k-host"><circle cx="241" cy="230" r="9.5"/><text x="241" y="234">2</text></g><text class="ml" x="256" y="235">acquire<tspan class="ms" dx="9">ExecutionRequest: surface, provider, policy</tspan></text></g>
+    <g class="e f-ec t-tr"><title>Run on the primary runner for global governance. Order: read-only budget check, session lock (warn after 30 s, stuck after 120 s), then the two checks that record state; the lock is released if either fails.</title><path d="M384,272 H532"/><g class="step k-host"><circle cx="401" cy="260" r="9.5"/><text x="401" y="264">3</text></g><text class="ml" x="416" y="265">admitTurn<tspan class="ms" dx="9">budget, session lock, loop check, rate window</tspan></text></g>
+    <g class="e dash f-ec t-tm"><title>Permit from the primary or provider gate, then a cached compatible worker or a fresh one from provider wiring. The lease is released exactly once.</title><path d="M384,302 H226"/><g class="step k-host"><circle cx="241" cy="290" r="9.5"/><text x="241" y="294">4</text></g><text class="ml" x="256" y="295">ExecutionLease<tspan class="ms" dx="9">permit, then a cached or new worker</tspan></text></g>
+    <g class="e f-tm t-tr"><title>On the leased runner. One active turn per runner, else BusyTurnException. The turn_state.json record is written synchronously.</title><path d="M224,332 H532"/><g class="step k-host"><circle cx="241" cy="320" r="9.5"/><text x="241" y="324">5</text></g><text class="ml" x="256" y="325">reserveAdmittedTurn<tspan class="ms" dx="9">UUID turnId, TurnContext, TurnStateStore.set</tspan></text></g>
+    <g class="e f-tr t-gc"><title>GuardChain on the user message.</title><path d="M534,416 H778"/><g class="step k-sec"><circle cx="551" cy="404" r="9.5"/><text x="551" y="408">6</text></g><text class="ml" x="566" y="409">evaluateMessageReceived<tspan class="ms" dx="9">block: [Blocked by guard: ...], failed turn</tspan></text></g>
+    <g class="e f-tr t-tr"><title>A non-empty per-turn override wins; otherwise the service composes the prompt for the turn's PromptScope.</title><path d="M534,446 H562 V460 H536"/><g class="step k-host"><circle cx="579" cy="443" r="9.5"/><text x="579" y="447">7</text></g><text class="ml" x="594" y="447">compose system prompt<tspan class="ms" dx="9">BehaviorFileService, PromptScope</tspan></text></g>
+    <g class="e f-tr t-st"><title>The liveness tracker and wall-clock timer start; pending_accounting_turn_id is written before dispatch, and a failed write fails the turn with AccountingPersistenceException.</title><path d="M534,484 H660"/><g class="step k-store"><circle cx="551" cy="472" r="9.5"/><text x="551" y="476">8</text></g><text class="ml" x="566" y="477">start limits and cost<tspan class="ms" dx="9">stall + wall timers; session_cost pending</tspan></text></g>
+    <g class="e main f-tr t-ah"><title>AgentHarness.turn. The harness's own timeout is the turn budget + 60 s, a crash backstop behind TurnRunner's timer.</title><path d="M534,514 H908"/><g class="step k-host"><circle cx="551" cy="502" r="9.5"/><text x="551" y="506">9</text></g><text class="ml" x="566" y="507">turn(sessionId, messages, ...)<tspan class="ms" dx="9">harness timeout: budget + 60 s</tspan></text></g>
+    <g class="e dash f-ah t-tr"><title>Events arrive while the call runs.</title><path d="M910,544 H536"/><text class="ml" x="544" y="537">DeltaEvent, ToolUseEvent, ToolResultEvent, then TurnResult</text></g>
+    <g class="e f-tr t-st"><title>Usage is normalized (Claude cumulative snapshot minus the session baseline), persisted in session_cost:&lt;id&gt;, and a one-shot context_warning fires at the threshold.</title><path d="M534,574 H660"/><g class="step k-store"><circle cx="551" cy="562" r="9.5"/><text x="551" y="566">10</text></g><text class="ml" x="566" y="567">usage and context<tspan class="ms" dx="9">delta vs baseline; session_cost; ContextMonitor</tspan></text></g>
+    <g class="e f-tr t-gc"><title>GuardChain on the reply, evaluated unredacted, after usage was persisted.</title><path d="M534,604 H778"/><g class="step k-sec"><circle cx="551" cy="592" r="9.5"/><text x="551" y="596">11</text></g><text class="ml" x="566" y="597">evaluateBeforeAgentSend<tspan class="ms" dx="9">block: [Response blocked by guard: ...]</tspan></text></g>
+    <g class="e f-tr t-st"><title>Redaction applies when the reply is persisted. A failed or cancelled turn stores the partial buffer redacted, or [Turn cancelled] / [Turn failed]. Harnesses without a PreCompact hook get the heuristic pre-compaction flush.</title><path d="M534,688 H660"/><g class="step k-store"><circle cx="551" cy="676" r="9.5"/><text x="551" y="680">12</text></g><text class="ml" x="566" y="681">persist reply<tspan class="ms" dx="9">MessageRedactor, insert; daily log if tools</tspan></text></g>
+    <g class="e f-tr t-st"><title>Also clears the tool policy and timers, removes the active turn and releases the session lock; completes the outcome completer.</title><path d="M534,718 H660"/><g class="step k-store"><circle cx="551" cy="706" r="9.5"/><text x="551" y="710">13</text></g><text class="ml" x="566" y="711">free turn state<tspan class="ms" dx="9">delete turn_state record; TurnOutcome cached 30 s</tspan></text></g>
+    <g class="e f-tm t-ec"><title>The coordinator caches an idle healthy host worker, disposes task and workflow containers, and quarantines the permit when root-process exit is unconfirmed.</title><path d="M224,748 H382"/><g class="step k-host"><circle cx="241" cy="736" r="9.5"/><text x="241" y="740">14</text></g><text class="ml" x="256" y="741">lease.release<tspan class="ms" dx="9">after waitForExecutionSettled</tspan></text></g>
+    <g class="e dash f-tm t-caller"><title>Returned from the retention cache when the turn already settled.</title><path d="M224,778 H98"/><g class="step k-host"><circle cx="113" cy="766" r="9.5"/><text x="113" y="770">15</text></g><text class="ml" x="128" y="771">TurnOutcome<tspan class="ms" dx="9">waitForOutcome; SSE: done, turn_error, turn_cancelled</tspan></text></g>
   </g>
-  </a>
-  <a href="../control-protocol.md#62-execution-allocation">
-  <g class="node k-host">
-    <title>ExecutionCoordinator.acquire: lane choice (primary or worker); a fail-fast task or workflow request takes its permit before governance and skips governance when none is free.</title>
-    <path class="edge" d="M393,128 L418,128"/>
-    <rect class="box" x="221" y="96" width="172" height="64" rx="6"/>
-    <text class="num" x="233" y="117">2</text>
-    <text class="step" x="255" y="117">acquire</text>
-    <text class="mono-sm" x="233" y="134">lane, permit, lease</text>
+
+  <a href="../control-protocol.md#61-entry-points"><g class="n line k-neu" id="caller">
+    <title>Caller. A web request, a channel, cron or a knowledge-inbox job. Tasks and workflow steps call ExecutionCoordinator.acquire directly.</title>
+    <rect class="box" x="48" y="100" width="96" height="48" rx="9"/>
+    <text class="name" x="60" y="119">Caller</text>
+    <text class="sub" x="60" y="135">any surface</text>
+  </g></a>
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n tint k-host" id="tm">
+    <title>TurnManager. Reserve, execute, cancel and outcome lookup across runners.</title>
+    <rect class="box" x="162" y="100" width="124" height="48" rx="9"/>
+    <text class="name" x="174" y="119">TurnManager</text>
+    <text class="sub" x="174" y="135">facade</text>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="ec">
+    <title>ExecutionCoordinator. Sole post-governance allocator.</title>
+    <rect class="box" x="294" y="100" width="180" height="48" rx="9"/>
+    <text class="name" x="306" y="119">ExecutionCoordinator</text>
+    <text class="sub" x="306" y="135">lane, permit, worker</text>
+  </g></a>
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n solid k-host" id="tr">
+    <title>TurnRunner. One harness's turn engine: guards, prompt, event stream, usage, persistence, limits, cancel.</title>
+    <rect class="box" x="478" y="100" width="112" height="48" rx="9"/>
+    <text class="name" x="490" y="119">TurnRunner</text>
+    <text class="sub" x="490" y="135">the turn engine</text>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-store" id="st">
+    <title>Stores. session_cost:&lt;id&gt; in the KV store, session messages, and turn_state.json (TurnStateStore).</title>
+    <rect class="box" x="608" y="100" width="108" height="48" rx="9"/>
+    <text class="name" x="620" y="119">Stores</text>
+    <text class="sub" x="620" y="135">KV, messages</text>
+  </g></a>
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n tint k-sec" id="gc">
+    <title>GuardChain. evaluateMessageReceived before the turn and evaluateBeforeAgentSend on the reply.</title>
+    <rect class="box" x="728" y="100" width="104" height="48" rx="9"/>
+    <text class="name" x="740" y="119">GuardChain</text>
+    <text class="sub" x="740" y="135">pre and post</text>
+  </g></a>
+  <a href="../control-protocol.md#3-claude-code-protocol"><g class="n tint k-host" id="ah">
+    <title>AgentHarness. turn() on the leased runner's harness; events stream back while it runs.</title>
+    <rect class="box" x="848" y="100" width="124" height="48" rx="9"/>
+    <text class="name" x="860" y="119">AgentHarness</text>
+    <text class="sub" x="860" y="135">provider process</text>
+  </g></a>
+  <g transform="translate(24,830)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">turn engine</text>
+    <g class="tint k-host"><rect class="box" x="112.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="134.2" y="10">DartClaw component</text>
+    <g class="tint k-store"><rect class="box" x="267.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="289.8" y="10">persistence</text>
+    <g class="tint k-sec"><rect class="box" x="380.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="402.0" y="10">guard</text>
+    <g class="e "><path d="M455.0,6 H487.0"/></g><text class="lg" x="495.0" y="10">call</text>
+    <g class="e dash"><path d="M541.8,6 H573.8"/></g><text class="lg" x="581.8" y="10">return or event stream</text>
   </g>
-  </a>
-  <a href="../control-protocol.md#63-reserve-execute-settle">
-  <g class="node k-host">
-    <title>TurnRunner.admitTurn on the primary runner: budget check, session lock (warn after 30 s, stuck after 120 s), loop pre-turn check, global rate-limit window. The lock is released if the last two fail.</title>
-    <path class="edge" d="M590,128 L615,128"/>
-    <rect class="box" x="418" y="96" width="172" height="64" rx="6"/>
-    <text class="num" x="430" y="117">3</text>
-    <text class="step" x="452" y="117">admitTurn</text>
-    <text class="mono-sm" x="430" y="134">budget, lock, rate</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#62-execution-allocation">
-  <g class="node k-host">
-    <title>Permit from the primary or provider gate, then a cached compatible worker or a fresh one from provider wiring. ExecutionLease is released exactly once.</title>
-    <path class="edge" d="M787,128 L812,128"/>
-    <rect class="box" x="615" y="96" width="172" height="64" rx="6"/>
-    <text class="num" x="627" y="117">4</text>
-    <text class="step" x="649" y="117">Worker lease</text>
-    <text class="mono-sm" x="627" y="134">cached or new worker</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>On the leased runner: UUID v4 turn id, TurnContext, outcome completer, TurnStateStore.set. One active turn per runner, else BusyTurnException.</title>
-    <path class="edge" d="M898,160 V182 H90 V226"/>
-    <rect class="box" x="812" y="96" width="172" height="64" rx="6"/>
-    <text class="num" x="824" y="117">5</text>
-    <text class="step" x="846" y="117">reserveAdmittedTurn</text>
-    <text class="mono-sm" x="824" y="134">turnId, turn_state.json</text>
-  </g>
-  </a>
-  <text class="group-label" x="24" y="214">Execute (TurnRunner, after executeTurn)</text>
-  <a href="../control-protocol.md#63-reserve-execute-settle">
-  <g class="node k-host">
-    <title>GuardChain.evaluateMessageReceived on the user message. A block stores [Blocked by guard: ...] and ends with a failed outcome.</title>
-    <path class="edge" d="M164,258 L180,258"/>
-    <rect class="box" x="16" y="226" width="148" height="64" rx="6"/>
-    <text class="num" x="28" y="247">6</text>
-    <text class="step" x="50" y="247">Pre-turn guard</text>
-    <text class="mono-sm" x="28" y="264">GuardChain</text>
-    <text class="mono-sm" x="28" y="279">block: failed turn</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#66-system-prompt-composition">
-  <g class="node k-host">
-    <title>A non-empty per-turn override wins; otherwise BehaviorFileService composes the prompt for the turn&#x27;s PromptScope.</title>
-    <path class="edge" d="M328,258 L344,258"/>
-    <rect class="box" x="180" y="226" width="148" height="64" rx="6"/>
-    <text class="num" x="192" y="247">7</text>
-    <text class="step" x="214" y="247">System prompt</text>
-    <text class="mono-sm" x="192" y="264">BehaviorFileService</text>
-    <text class="mono-sm" x="192" y="279">override or scope</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#65-liveness-limits-and-cancellation">
-  <g class="node k-host">
-    <title>Liveness tracker and wall-clock timer start; pending_accounting_turn_id is written before dispatch.</title>
-    <path class="edge" d="M492,258 L508,258"/>
-    <rect class="box" x="344" y="226" width="148" height="64" rx="6"/>
-    <text class="num" x="356" y="247">8</text>
-    <text class="step" x="378" y="247">Limits + cost</text>
-    <text class="mono-sm" x="356" y="264">stall + wall timers</text>
-    <text class="mono-sm" x="356" y="279">session_cost pending</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#3-claude-code-protocol">
-  <g class="node k-host">
-    <title>AgentHarness.turn(). Deltas, tool use and results feed the buffer, SSE, loop detection and liveness while it runs. The harness&#x27;s own timeout is the turn budget + 60 s.</title>
-    <path class="edge" d="M656,258 L672,258"/>
-    <rect class="box" x="508" y="226" width="148" height="64" rx="6"/>
-    <text class="num" x="520" y="247">9</text>
-    <text class="step" x="542" y="247">Provider call</text>
-    <text class="mono-sm" x="520" y="264">AgentHarness.turn()</text>
-    <text class="mono-sm" x="520" y="279">events stream live</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#64-tool-calls-usage-and-outcome-fields">
-  <g class="node k-host">
-    <title>Normalize usage (Claude cumulative snapshot minus baseline), persist session_cost:&lt;id&gt;, update ContextMonitor, one-shot context_warning at the threshold.</title>
-    <path class="edge" d="M820,258 L836,258"/>
-    <rect class="box" x="672" y="226" width="148" height="64" rx="6"/>
-    <text class="num" x="684" y="247">10</text>
-    <text class="step" x="706" y="247">Usage, context</text>
-    <text class="mono-sm" x="684" y="264">usage delta, KV</text>
-    <text class="mono-sm" x="684" y="279">ContextMonitor</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#63-reserve-execute-settle">
-  <g class="node k-host">
-    <title>GuardChain.evaluateBeforeAgentSend on the reply. A block stores [Response blocked by guard: ...] and ends with a failed outcome.</title>
-    <path class="edge" d="M910,290 V312 H110 V356"/>
-    <rect class="box" x="836" y="226" width="148" height="64" rx="6"/>
-    <text class="num" x="848" y="247">11</text>
-    <text class="step" x="870" y="247">Post-turn guard</text>
-    <text class="mono-sm" x="848" y="264">GuardChain</text>
-    <text class="mono-sm" x="848" y="279">block: failed turn</text>
-  </g>
-  </a>
-  <text class="group-label" x="24" y="344">Settle (finally)</text>
-  <a href="../control-protocol.md#63-reserve-execute-settle">
-  <g class="node k-host">
-    <title>MessageRedactor, assistant message insert, session touch; main, user and channel turns that used tools append a daily-log entry; heuristic pre-compaction flush for harnesses without a PreCompact hook.</title>
-    <path class="edge" d="M196,388 L221,388"/>
-    <rect class="box" x="24" y="356" width="172" height="64" rx="6"/>
-    <text class="num" x="36" y="377">12</text>
-    <text class="step" x="58" y="377">Persist reply</text>
-    <text class="mono-sm" x="36" y="394">redact + insert</text>
-    <text class="mono-sm" x="36" y="409">daily log if tools</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#7-crash-recovery-and-errors">
-  <g class="node k-host">
-    <title>Clear tool policy, cancel timers, remove the active turn, release the session lock, delete the TurnStateStore record, cache the TurnOutcome for 30 s, complete the outcome completer.</title>
-    <path class="edge" d="M393,388 L418,388"/>
-    <rect class="box" x="221" y="356" width="172" height="64" rx="6"/>
-    <text class="num" x="233" y="377">13</text>
-    <text class="step" x="255" y="377">Free turn state</text>
-    <text class="mono-sm" x="233" y="394">lock, turn_state record</text>
-    <text class="mono-sm" x="233" y="409">TurnOutcome cached 30 s</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#62-execution-allocation">
-  <g class="node k-host">
-    <title>The coordinator caches an idle healthy host worker, disposes task and workflow containers, and quarantines the permit when root-process exit is unconfirmed.</title>
-    <path class="edge" d="M590,388 L615,388"/>
-    <rect class="box" x="418" y="356" width="172" height="64" rx="6"/>
-    <text class="num" x="430" y="377">14</text>
-    <text class="step" x="452" y="377">Release lease</text>
-    <text class="mono-sm" x="430" y="394">cache, dispose or</text>
-    <text class="mono-sm" x="430" y="409">quarantine worker</text>
-  </g>
-  </a>
-  <a href="../control-protocol.md#61-entry-points">
-  <g class="node k-host">
-    <title>waitForOutcome returns the TurnOutcome (from the retention cache when already settled); the SSE stream ends with done, turn_error or turn_cancelled.</title>
-    <rect class="box" x="615" y="356" width="172" height="64" rx="6"/>
-    <text class="num" x="627" y="377">15</text>
-    <text class="step" x="649" y="377">Caller outcome</text>
-    <text class="mono-sm" x="627" y="394">waitForOutcome</text>
-    <text class="mono-sm" x="627" y="409">SSE terminal frame</text>
-  </g>
-  </a>
-  <text class="note" x="810" y="376">A guard block, provider error,</text>
-  <text class="note" x="810" y="392">timeout or cancel jumps to</text>
-  <text class="note" x="810" y="408">Settle: steps 13 to 15 always</text>
-  <text class="note" x="810" y="424">run, with a failed or</text>
-  <text class="note" x="810" y="440">cancelled outcome.</text>
 </svg>

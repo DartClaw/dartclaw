@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" role="img" aria-labelledby="title desc">
+  <title id="title">Container authority lifecycle</title>
+  <desc id="desc">A container execution acquires an authority in four steps: register with HostGateway, create and start the container, start and handshake the bridges, run turns. Release runs in the reverse isolation order: unwatch, revoke the pipes while the container still exists, destroy the container.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#reg:hover) .edges :is(.f-reg,.t-reg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#start:hover) .edges :is(.f-start,.t-start) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bridges:hover) .edges :is(.f-bridges,.t-bridges) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#run:hover) .edges :is(.f-run,.t-run) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#unwatch:hover) .edges :is(.f-unwatch,.t-unwatch) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#revoke:hover) .edges :is(.f-revoke,.t-revoke) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#destroy:hover) .edges :is(.f-destroy,.t-destroy) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#stopped:hover) .edges :is(.f-stopped,.t-stopped) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="580"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="484" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="508">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="532">Hover a step for what it guarantees; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="552">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · SecurityWiring.acquireContainerAuthority</text>
+  <text class="title" x="24" y="58">Container authority lifecycle</text>
+  <text class="lede" x="24" y="80">Register before any container exists; on release stop watching, revoke the pipes, then destroy the container.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="96" width="968" height="156" rx="14"/><text class="kick" x="32" y="118">ACQUIRE · SecurityWiring.acquireContainerAuthority</text></g>
+  <g class="k-sec"><rect class="band" x="16" y="284" width="968" height="156" rx="14"/><text class="kick" x="32" y="306">RELEASE · lease.release, identical on success, failure, cancellation and quarantine</text></g>
+
+  <g class="edges">
+    <g class="e main f-reg t-start"><path d="M214,182 H276"/><text class="el" x="246" y="174" text-anchor="middle">authority</text></g>
+    <g class="e main f-start t-bridges"><path d="M468,182 H530"/><text class="el" x="500" y="174" text-anchor="middle">started</text></g>
+    <g class="e main f-bridges t-run"><path d="M722,182 H784"/><text class="el" x="754" y="174" text-anchor="middle">ready</text></g>
+    <g class="e main f-run t-unwatch"><path d="M876,234 V316"/><text class="el" x="884" y="270" text-anchor="start">lease.release</text></g>
+    <g class="e  f-unwatch t-revoke"><path d="M786,370 H724"/><text class="el" x="754" y="362" text-anchor="middle">unwatched</text></g>
+    <g class="e  f-revoke t-destroy"><path d="M532,370 H470"/><text class="el" x="500" y="362" text-anchor="middle">revoked</text></g>
+    <g class="e  f-destroy t-stopped"><path d="M278,370 H216"/><text class="el" x="246" y="362" text-anchor="middle">removed</text></g>
+  </g>
+
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-host" id="reg">
+    <rect class="box" x="24" y="130" width="190" height="104" rx="9"/>
+    <g class="step"><circle cx="44" cy="152" r="10"/><text x="44" y="156">1</text></g>
+    <text class="name" x="62" y="153">register</text>
+    <text class="sub" x="62" y="171">gateway.register: the</text>
+    <text class="sub" x="62" y="187">provider needs a host</text>
+    <text class="sub" x="62" y="203">adapter and credential</text>
+    <g class="chip k-sec"><rect x="62" y="210" width="101" height="16" rx="8"/><text x="69" y="222">→ no container</text></g>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">register</tspan> · refused before any container exists when the provider has no host mediation adapter or its credential is unusable</text><text class="p2" x="36" y="552">GatewayAuthority holds principal, required surfaces (provider, plus mcp with host tools) and allowed MCP tools. host_gateway.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-host" id="start">
+    <rect class="box" x="278" y="130" width="190" height="104" rx="9"/>
+    <g class="step"><circle cx="298" cy="152" r="10"/><text x="298" y="156">2</text></g>
+    <text class="name" x="316" y="153">create, start</text>
+    <text class="sub" x="316" y="171">ContainerManager.start:</text>
+    <text class="sub" x="316" y="187">network none, hardened</text>
+    <text class="sub" x="316" y="203">flags, health watch</text>
+    <g class="chip k-neu"><rect x="316" y="210" width="76" height="16" rx="8"/><text x="323" y="222">single-use</text></g>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">create, start</tspan> · start() is single-use: a lost container is never recreated, its bridges died with it</text><text class="p2" x="36" y="552">The execution must acquire a new authority (ContainerAuthorityLostException). container_manager.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-host" id="bridges">
+    <rect class="box" x="532" y="130" width="190" height="104" rx="9"/>
+    <g class="step"><circle cx="552" cy="152" r="10"/><text x="552" y="156">3</text></g>
+    <text class="name" x="570" y="153">start bridges</text>
+    <text class="sub" x="570" y="171">one bridge per surface,</text>
+    <text class="sub" x="570" y="187">attach, handshake, then</text>
+    <text class="sub" x="570" y="203">authority.ready</text>
+    <g class="chip k-sec"><rect x="570" y="210" width="101" height="16" rx="8"/><text x="577" y="222">30 s → release</text></g>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">start bridges</tspan> · authority.ready must complete within 30 s of the bridges starting, else the authority is abandoned</text><text class="p2" x="36" y="552">Startup is local process work, not model work; a turn never starts on a partial boundary. security_wiring.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n solid k-host" id="run">
+    <rect class="box" x="786" y="130" width="190" height="104" rx="9"/>
+    <g class="step"><circle cx="806" cy="152" r="10"/><text x="806" y="156">4</text></g>
+    <text class="name" x="824" y="153">turns run</text>
+    <text class="sub" x="824" y="171">adapter drops client</text>
+    <text class="sub" x="824" y="187">auth, injects the</text>
+    <text class="sub" x="824" y="203">credential per request</text>
+    <g class="chip k-sec"><rect x="824" y="210" width="119" height="16" rx="8"/><text x="831" y="222">refused → release</text></g>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">turns run</tspan> · a credential the upstream refuses mid-turn is terminal: the operator is told once and the authority is released</text><text class="p2" x="36" y="552">GatewayCredentialUnusable goes through the credential-health producer, which dedups per state change. host_gateway.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-sec" id="unwatch">
+    <rect class="box" x="786" y="318" width="190" height="104" rx="9"/>
+    <g class="step"><circle cx="806" cy="340" r="10"/><text x="806" y="344">5</text></g>
+    <text class="name" x="824" y="341">unwatch</text>
+    <text class="sub" x="824" y="359">ContainerHealthMonitor:</text>
+    <text class="sub" x="824" y="375">stops watching first,</text>
+    <text class="sub" x="824" y="391">so release is no crash</text>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">unwatch</tspan> · unwatch runs before teardown so releasing an authority never fires ContainerCrashedEvent</text><text class="p2" x="36" y="552">An authority is unwatched, revoked and destroyed in that order. container_health_monitor.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n solid k-sec" id="revoke">
+    <rect class="box" x="532" y="318" width="190" height="104" rx="9"/>
+    <g class="step"><circle cx="552" cy="340" r="10"/><text x="552" y="344">6</text></g>
+    <text class="name" x="570" y="341">revoke pipes</text>
+    <text class="sub" x="570" y="359">permanent, not revived;</text>
+    <text class="sub" x="570" y="375">the container still</text>
+    <text class="sub" x="570" y="391">exists at this point</text>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">revoke pipes</tspan> · revocation is permanent, so a captured pipe or request id cannot be revived by a later execution</text><text class="p2" x="36" y="552">A failed revoke is logged and destroy still runs; the revoke is idempotent and safe on a half-attached authority.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-sec" id="destroy">
+    <rect class="box" x="278" y="318" width="190" height="104" rx="9"/>
+    <g class="step"><circle cx="298" cy="340" r="10"/><text x="298" y="344">7</text></g>
+    <text class="name" x="316" y="341">destroy</text>
+    <text class="sub" x="316" y="359">manager.stop: removes</text>
+    <text class="sub" x="316" y="375">the container, state,</text>
+    <text class="sub" x="316" y="391">confirms removal</text>
+    <g class="chip k-sec"><rect x="316" y="398" width="126" height="16" rx="8"/><text x="323" y="410">throws → retryable</text></g>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">destroy</tspan> · stop() throws when removal cannot be confirmed, so release stays retryable</text><text class="p2" x="36" y="552">Destruction confirms root-process termination, revokes authority-scoped resources, then removes the container. container_manager.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n line k-host" id="stopped">
+    <rect class="box" x="24" y="318" width="190" height="104" rx="9"/>
+    <text class="name" x="36" y="341">ContainerStoppedEvent</text>
+    <text class="sub" x="36" y="359">fired only once the</text>
+    <text class="sub" x="36" y="375">container is gone</text>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">ContainerStoppedEvent</tspan> · the stopped event is reached only after manager.stop() confirmed removal</text><text class="p2" x="36" y="552">A failed destruction rethrows instead, so no stopped event is emitted for a container that may still exist.</text></g>
+  </g></a>
+  <g transform="translate(24,462)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">acquire step</text>
+    <g class="tint k-sec"><rect class="box" x="118.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="140.4" y="10">release step</text>
+    <g class="solid k-neu"><rect class="box" x="236.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="258.8" y="10">serving turns (4), permanent revoke (6)</text>
+    <g class="e main"><path d="M522.6,6 H554.6"/></g><text class="lg" x="562.6" y="10">acquire order</text>
+    <g class="e "><path d="M665.2,6 H697.2"/></g><text class="lg" x="705.2" y="10">release order</text>
+  </g>
+</svg>

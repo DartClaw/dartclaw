@@ -1,212 +1,249 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 664" width="1000" height="664" role="img" aria-labelledby="title desc">
-  <title id="title">Personal assistant: a day of scheduled turns over one memory</title>
-  <desc id="desc">Five cron jobs and the heartbeat start agent turns in isolated sessions. The turns read the behavior files, use a search agent for the web, and read and write one canonical memory. Only delivery: announce reaches web clients and DM sessions. A separate git-sync job commits the workspace.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 800" width="1000" height="800" role="img" aria-labelledby="title desc">
+  <title id="title">A day of scheduled turns over one memory</title>
+  <desc id="desc">Five cron jobs and the heartbeat each start one agent turn in their own session. The turn reads the behavior files, reads and writes canonical memory through the memory tools, and hands web lookups to the search agent. Jobs set to delivery: announce reach web clients and DM sessions; git sync commits the workspace on its own schedule.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .step { font-size: 12px; font-weight: 700; fill: var(--accent); }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .chip-sec { fill: var(--box); stroke: var(--sec); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.both { marker-start: url(#arrow); }
-    .edge.plain { marker-end: none; }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    svg .node:hover .edge.both { marker-start: url(#arrow-hi); }
-    svg .node:hover .edge.plain { marker-end: none; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .e.bi path { marker-start: var(--em, url(#ah)); }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#nightly:hover) .edges :is(.f-nightly,.t-nightly) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#briefing:hover) .edges :is(.f-briefing,.t-briefing) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#weekly:hover) .edges :is(.f-weekly,.t-weekly) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#inbox:hover) .edges :is(.f-inbox,.t-inbox) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#journal:hover) .edges :is(.f-journal,.t-journal) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#turn:hover) .edges :is(.f-turn,.t-turn) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#files:hover) .edges :is(.f-files,.t-files) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#memory:hover) .edges :is(.f-memory,.t-memory) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#search:hover) .edges :is(.f-search,.t-search) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#web:hover) .edges :is(.f-web,.t-web) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#heartbeat:hover) .edges :is(.f-heartbeat,.t-heartbeat) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#announce:hover) .edges :is(.f-announce,.t-announce) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gitsync:hover) .edges :is(.f-gitsync,.t-gitsync) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#origin:hover) .edges :is(.f-origin,.t-origin) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="664"/>
+  <rect class="bg" width="1000" height="800"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="704" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="728">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="752">Hover a box for what it does; its connections light up. Click it to open the recipe section.</text><text class="p2" x="36" y="772">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
 
-  <text class="title" x="24" y="34">Personal assistant: a day of scheduled turns over one memory</text>
-  <text class="lede" x="24" y="56">Every fire gets its own session. Only delivery: announce reaches your phone. Cron times are server-local.</text>
-  <rect class="band" x="16" y="72" width="968" height="144" rx="6"/>
-  <text class="group-label" x="28" y="90">Cron jobs in scheduling.jobs</text>
-  <a href="../00-personal-assistant.md#configuration">
-  <g class="node k-host">
-    <title>Reads errors.md and canonical learnings, searches earlier reflections, saves 3-5 insights with memory_apply. Skips when there is nothing to review.</title>
-    <path class="edge" d="M113,196 V218 H501 V240"/>
-    <rect class="box" x="28" y="100" width="170" height="96" rx="6"/>
-    <text class="sub" x="38" y="117">03:00 daily</text>
-    <text class="mono" x="38" y="137">nightly-reflection</text>
-    <text class="sub" x="38" y="154">errors.md + learnings become</text>
-    <text class="sub" x="38" y="170">insights (topic reflection)</text>
-    <text class="sub" x="38" y="187">delivery: none</text>
+  <text class="kick" x="24" y="32">SCHEDULE · A DAY OF THE PERSONAL ASSISTANT</text>
+  <text class="title" x="24" y="58">A day of scheduled turns over one memory</text>
+  <text class="lede" x="24" y="80">Every job fire gets its own session and one agent turn. Only delivery: announce reaches your phone. Cron times are server-local.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="94" width="968" height="148" rx="14"/><text class="kick" x="32" y="116">SCHEDULING.JOBS · CRON, SERVER-LOCAL TIME</text></g>
+  <g class="k-store"><rect class="band" x="16" y="272" width="252" height="294" rx="14"/><text class="kick" x="32" y="294">WORKSPACE · GIT-SYNCED</text></g>
+
+  <g class="edges">
+    <g class="e join f-nightly t-turn"><path d="M114,226 V262"/></g>
+    <g class="e join f-briefing t-turn"><path d="M307,226 V262"/></g>
+    <g class="e join f-weekly t-turn"><path d="M500,226 V262"/></g>
+    <g class="e join f-inbox t-turn"><path d="M693,226 V262"/></g>
+    <g class="e join f-journal t-turn"><path d="M886,226 V262"/></g>
+    <g class="e join f-nightly f-briefing f-weekly f-inbox f-journal t-turn"><path d="M114,262 H886"/></g>
+    <g class="e main f-nightly f-briefing f-weekly f-inbox f-journal t-turn"><path d="M488,262 V298"/><text class="el" x="498" y="285" text-anchor="start">one turn per fire</text></g>
+    <g class="e  f-files t-turn"><path d="M262,356 H324"/><text class="el" x="293" y="348" text-anchor="middle">every turn</text></g>
+    <g class="e bi f-turn t-memory"><path d="M324,410 H290 V470 H262"/><text class="el" x="298" y="452" text-anchor="start">memory tools</text></g>
+    <g class="e  f-turn t-search"><path d="M652,342 H726"/><text class="el" x="689" y="334" text-anchor="middle">web lookups</text></g>
+    <g class="e  f-search t-web"><path d="M852,384 V408"/><text class="el" x="860" y="401" text-anchor="start">WebSearch, WebFetch</text></g>
+    <g class="e main f-heartbeat t-turn"><path d="M420,480 V434"/><text class="el" x="428" y="462" text-anchor="start">every 60 min</text></g>
+    <g class="e dash f-turn t-announce"><path d="M600,432 V516 H726"/><text class="el" x="614" y="509" text-anchor="start">delivery: announce</text></g>
+    <g class="e  f-gitsync t-memory"><path d="M142,588 V554"/><text class="el" x="150" y="576" text-anchor="start">commit</text></g>
+    <g class="e dash f-gitsync t-origin"><path d="M262,623 H324"/><text class="el" x="293" y="615" text-anchor="middle">push</text></g>
   </g>
-  </a>
-  <a href="../00-personal-assistant.md#configuration">
-  <g class="node k-host">
-    <title>Reads USER.md and SOUL.md, searches memory for reminders, searches the web, and announces a mobile-sized briefing.</title>
-    <path class="edge" d="M307,196 V218 H501 V240"/>
-    <rect class="box" x="222" y="100" width="170" height="96" rx="6"/>
-    <text class="sub" x="232" y="117">07:00 daily</text>
-    <text class="mono" x="232" y="137">morning-briefing</text>
-    <text class="sub" x="232" y="154">weather, news, reminders,</text>
-    <text class="sub" x="232" y="170">pending items</text>
-    <text class="sub" x="232" y="187">delivery: announce</text>
+
+  <a href="../00-personal-assistant.md#configuration"><g class="n tint k-host" id="nightly">
+    <rect class="box" x="24" y="122" width="180" height="104" rx="9"/>
+    <text class="name mono-name" x="36" y="145">nightly-reflection</text>
+    <text class="sub" x="36" y="163">03:00 daily</text>
+    <text class="sub" x="36" y="179">errors.md and learnings</text>
+    <text class="sub" x="36" y="195">become 3-5 insights</text>
+    <g class="chip k-neu"><rect x="36" y="202" width="101" height="16" rx="8"/><text x="43" y="214">delivery: none</text></g>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">nightly-reflection</tspan> · reads errors.md and the canonical learnings, checks earlier reflections, saves 3-5 insights with memory_apply</text><text class="p2" x="36" y="772">Skips when errors.md is empty and nothing relevant turns up. A per-job model: or effort: override is available.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#configuration"><g class="n tint k-host" id="briefing">
+    <rect class="box" x="217" y="122" width="180" height="104" rx="9"/>
+    <text class="name mono-name" x="229" y="145">morning-briefing</text>
+    <text class="sub" x="229" y="163">07:00 daily</text>
+    <text class="sub" x="229" y="179">weather, news, reminders,</text>
+    <text class="sub" x="229" y="195">pending items</text>
+    <g class="chip k-chan"><rect x="229" y="202" width="76" height="16" rx="8"/><text x="236" y="214">→ announce</text></g>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">morning-briefing</tspan> · reads USER.md and SOUL.md, searches memory for reminders, searches the web, and announces a mobile-sized briefing</text><text class="p2" x="36" y="772">The announce goes to your phone through an active DM session, and to the web UI.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#configuration"><g class="n ghost k-host" id="weekly">
+    <rect class="box" x="410" y="122" width="180" height="104" rx="9"/>
+    <text class="name mono-name" x="422" y="145">weekly-review</text>
+    <text class="sub" x="422" y="163">Mon 10:00, optional</text>
+    <text class="sub" x="422" y="179">summary of the week from</text>
+    <text class="sub" x="422" y="195">observations</text>
+    <g class="chip k-chan"><rect x="422" y="202" width="76" height="16" rx="8"/><text x="429" y="214">→ announce</text></g>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">weekly-review</tspan> · optional entry in the config: summarizes the week from canonical observations and reflections under topic weekly-review</text><text class="p2" x="36" y="772">Comment it out if you do not want it; each pillar is independent.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#configuration"><g class="n tint k-host" id="inbox">
+    <rect class="box" x="603" y="122" width="180" height="104" rx="9"/>
+    <text class="name mono-name" x="615" y="145">knowledge-inbox</text>
+    <text class="sub" x="615" y="163">12:00 daily</text>
+    <text class="sub" x="615" y="179">web search on SOUL.md</text>
+    <text class="sub" x="615" y="195">topics, saves new findings</text>
+    <g class="chip k-neu"><rect x="615" y="202" width="101" height="16" rx="8"/><text x="622" y="214">delivery: none</text></g>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">knowledge-inbox</tspan> · searches the web for each Topics to Track entry, checks memory for duplicates, saves new findings with memory_observe</text><text class="p2" x="36" y="772">Large pages come back content-guarded, so the job should note when a source was truncated.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#configuration"><g class="n tint k-host" id="journal">
+    <rect class="box" x="796" y="122" width="180" height="104" rx="9"/>
+    <text class="name mono-name" x="808" y="145">daily-journal</text>
+    <text class="sub" x="808" y="163">22:00 daily</text>
+    <text class="sub" x="808" y="179">selected observations</text>
+    <text class="sub" x="808" y="195">of the day</text>
+    <g class="chip k-neu"><rect x="808" y="202" width="101" height="16" rx="8"/><text x="815" y="214">delivery: none</text></g>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">daily-journal</tspan> · records notable observations with memory_observe; it cannot read your main chat session</text><text class="p2" x="36" y="772">It works from the behavior files and memory. Curation is opt-in: only the memory-curation job revises or removes entries.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#a-day-in-the-life"><g class="n solid k-host" id="turn">
+    <rect class="box" x="326" y="300" width="324" height="132" rx="9"/>
+    <text class="name mono-name" x="338" y="323">agent turn</text>
+    <text class="sub" x="338" y="341">one turn per job fire, own session</text>
+    <text class="sub" x="338" y="357">model: agent.model, or the job's own</text>
+    <text class="sub" x="338" y="373">memory_search, memory_read,</text>
+    <text class="sub" x="338" y="389">memory_observe, memory_apply</text>
+    <text class="sub" x="338" y="405">guards stay on: command, file, network</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">agent turn</tspan> · one agent turn per job fire, in an isolated session; guards check its tool calls as in any turn</text><text class="p2" x="36" y="772">Jobs share no session state: what a job wants to keep it saves to memory, and the next job finds it with memory_search.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#behavior-files"><g class="n line k-store" id="files">
+    <rect class="box" x="24" y="308" width="236" height="96" rx="9"/>
+    <text class="name mono-name" x="36" y="331">behavior files</text>
+    <text class="sub" x="36" y="349">workspace/, read every turn</text>
+    <g class="chip k-store"><rect x="36" y="380" width="57" height="16" rx="8"/><text x="43" y="392">SOUL.md</text></g>
+    <g class="chip k-store"><rect x="99" y="380" width="57" height="16" rx="8"/><text x="106" y="392">USER.md</text></g>
+    <g class="chip k-store"><rect x="163" y="380" width="70" height="16" rx="8"/><text x="170" y="392">AGENTS.md</text></g>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">behavior files</tspan> · SOUL.md holds identity and Topics to Track, USER.md your timezone and goals, AGENTS.md safety and retrieval rules</text><text class="p2" x="36" y="772">AGENTS.md makes the agent search memory before the web. HEARTBEAT.md is the heartbeat job's checklist.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#a-day-in-the-life"><g class="n tint k-store" id="memory">
+    <rect class="box" x="24" y="424" width="236" height="128" rx="9"/>
+    <text class="name mono-name" x="36" y="447">canonical memory</text>
+    <text class="sub" x="36" y="465">memory_observe: observations</text>
+    <text class="sub" x="36" y="481">and learnings</text>
+    <text class="sub" x="36" y="497">memory_apply: curated topics</text>
+    <text class="sub" x="36" y="513">memory_search, memory_read: reads</text>
+    <text class="sub" x="36" y="529">errors.md: written by the host</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">canonical memory</tspan> · MEMORY.md index, memory/topics, daily observation files, learnings.md and errors.md in the workspace</text><text class="p2" x="36" y="772">Search uses the PostgreSQL lexical index by default; hybrid search is opt-in. The agent cannot write errors.md.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#configuration"><g class="n tint k-host" id="search">
+    <rect class="box" x="728" y="300" width="248" height="84" rx="9"/>
+    <text class="name mono-name" x="740" y="323">search agent</text>
+    <text class="sub" x="740" y="341">model: haiku, tools: WebSearch,</text>
+    <text class="sub" x="740" y="357">WebFetch; result content-guarded</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">search agent</tspan> · the agents.search entry in the config: a cheap model with only WebSearch and WebFetch</text><text class="p2" x="36" y="772">Its result passes content-guard before it returns to the turn, so large pages may arrive truncated.</text></g>
+  </g></a>
+  <g class="n line k-ext" id="web">
+    <rect class="box" x="728" y="410" width="248" height="52" rx="9"/>
+    <text class="name" x="740" y="429">the open web</text>
+    <text class="sub" x="740" y="445">search results and pages</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">the open web</tspan> · everything the search agent fetches</text><text class="p2" x="36" y="772">AGENTS.md tells it to prefer authoritative sources and not follow file downloads or executables.</text></g>
   </g>
-  </a>
-  <a href="../00-personal-assistant.md#configuration">
-  <g class="node k-host">
-    <title>Optional entry in the config. Summarizes the week from canonical observations and reflections.</title>
-    <path class="edge" d="M501,196 V240"/>
-    <rect class="box" x="416" y="100" width="170" height="96" rx="6" stroke-dasharray="5 4"/>
-    <text class="sub" x="426" y="117">Mon 10:00, optional</text>
-    <text class="mono" x="426" y="137">weekly-review</text>
-    <text class="sub" x="426" y="154">week summary from the</text>
-    <text class="sub" x="426" y="170">observations (weekly-review)</text>
-    <text class="sub" x="426" y="187">delivery: announce</text>
+  <a href="../00-personal-assistant.md#a-day-in-the-life"><g class="n tint k-host" id="heartbeat">
+    <rect class="box" x="326" y="480" width="234" height="70" rx="9"/>
+    <text class="name mono-name" x="338" y="503">heartbeat</text>
+    <text class="sub" x="338" y="521">every 60 min here (default 30)</text>
+    <text class="sub" x="338" y="537">HEARTBEAT.md; skipped if empty</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">heartbeat</tspan> · built-in job: reads the HEARTBEAT.md checklist and runs it as one turn; a missing or empty file skips the fire</text><text class="p2" x="36" y="772">Results are logged, not saved to a chat session. It does not run git sync.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#gotchas--limitations"><g class="n tint k-chan" id="announce">
+    <rect class="box" x="728" y="480" width="248" height="108" rx="9"/>
+    <text class="name mono-name" x="740" y="503">announce targets</text>
+    <text class="sub" x="740" y="521">web UI clients (SSE)</text>
+    <text class="sub" x="740" y="537">DM sessions: WhatsApp, Signal,</text>
+    <text class="sub" x="740" y="553">Google Chat, Slack</text>
+    <text class="sub" x="740" y="569">groups skipped</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">announce targets</tspan> · delivery: announce goes to connected web clients and to the active DM sessions of registered channels</text><text class="p2" x="36" y="772">It does not reach contacts with no active session, and group sessions are skipped. Use delivery: webhook to push to an endpoint.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#getting-started"><g class="n line k-host" id="gitsync">
+    <rect class="box" x="24" y="588" width="236" height="70" rx="9"/>
+    <text class="name mono-name" x="36" y="611">git-sync</text>
+    <text class="sub" x="36" y="629">every 30 min (default)</text>
+    <text class="sub" x="36" y="645">no agent turn</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">git-sync</tspan> · built-in job: commits workspace changes on workspace.git_sync.interval_minutes, default 30</text><text class="p2" x="36" y="772">It runs whether or not the heartbeat is on, and pushes when push_enabled is set and an origin exists.</text></g>
+  </g></a>
+  <a href="../00-personal-assistant.md#getting-started"><g class="n ghost k-chan" id="origin">
+    <rect class="box" x="326" y="588" width="234" height="70" rx="9"/>
+    <text class="name mono-name" x="338" y="611">git remote origin</text>
+    <text class="sub" x="338" y="629">push_enabled: true</text>
+    <text class="sub" x="338" y="645">local commits without one</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">git remote origin</tspan> · the remote you add with git remote add origin; optional</text><text class="p2" x="36" y="772">Without it the workspace stays a local repository and git sync only commits.</text></g>
+  </g></a>
+  <g transform="translate(24,678)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">agent turn</text>
+    <g class="tint k-host"><rect class="box" x="106.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="128.0" y="10">job or agent</text>
+    <g class="ghost k-host"><rect class="box" x="224.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="246.4" y="10">optional</text>
+    <g class="tint k-store"><rect class="box" x="318.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="340.0" y="10">files</text>
+    <g class="tint k-chan"><rect class="box" x="393.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="415.0" y="10">delivery</text>
+    <g class="e main"><path d="M486.6,6 H518.6"/></g><text class="lg" x="526.6" y="10">starts a turn</text>
+    <g class="e "><path d="M629.2,6 H661.2"/></g><text class="lg" x="669.2" y="10">data or call</text>
+    <g class="e dash"><path d="M765.6,6 H797.6"/></g><text class="lg" x="805.6" y="10">delivery, push</text>
   </g>
-  </a>
-  <a href="../00-personal-assistant.md#configuration">
-  <g class="node k-host">
-    <title>Searches the web for each topic under "Topics to Track", checks memory for duplicates, saves new findings with memory_observe.</title>
-    <path class="edge" d="M695,196 V218 H501 V240"/>
-    <rect class="box" x="610" y="100" width="170" height="96" rx="6"/>
-    <text class="sub" x="620" y="117">12:00 daily</text>
-    <text class="mono" x="620" y="137">knowledge-inbox</text>
-    <text class="sub" x="620" y="154">searches SOUL.md topics,</text>
-    <text class="sub" x="620" y="170">saves only new findings</text>
-    <text class="sub" x="620" y="187">delivery: none</text>
-  </g>
-  </a>
-  <a href="../00-personal-assistant.md#configuration">
-  <g class="node k-host">
-    <title>Records notable observations. It cannot read your main chat session; it works from behavior files and memory.</title>
-    <path class="edge" d="M889,196 V218 H501 V240"/>
-    <rect class="box" x="804" y="100" width="170" height="96" rx="6"/>
-    <text class="sub" x="814" y="117">22:00 daily</text>
-    <text class="mono" x="814" y="137">daily-journal</text>
-    <text class="sub" x="814" y="154">selected observations of</text>
-    <text class="sub" x="814" y="170">the day (memory_observe)</text>
-    <text class="sub" x="814" y="187">delivery: none</text>
-  </g>
-  </a>
-  <a href="../00-personal-assistant.md#behavior-files">
-  <g class="node k-host">
-    <title>Behavior files in the workspace directory. SOUL.md holds identity and "Topics to Track", USER.md holds timezone, location and goals, AGENTS.md holds safety and retrieval-precedence rules, TOOLS.md holds environment notes. Replace-mode and fresh-composition providers re-read them every turn.</title>
-    <path class="edge" d="M250,288 H301"/>
-    <rect class="box" x="24" y="240" width="226" height="96" rx="6"/>
-    <text class="mono" x="36" y="260">behavior files</text>
-    <text class="sub" x="36" y="276">workspace/, read every turn</text>
-    <rect class="chip" x="36" y="286" width="96" height="20" rx="4"/><text class="chip-text" x="44" y="300">SOUL.md</text>
-    <rect class="chip" x="142" y="286" width="96" height="20" rx="4"/><text class="chip-text" x="150" y="300">USER.md</text>
-    <rect class="chip" x="36" y="308" width="96" height="20" rx="4"/><text class="chip-text" x="44" y="322">AGENTS.md</text>
-    <rect class="chip" x="142" y="308" width="96" height="20" rx="4"/><text class="chip-text" x="150" y="322">TOOLS.md</text>
-  </g>
-  </a>
-  <a href="../00-personal-assistant.md#a-day-in-the-life">
-  <g class="node k-host">
-    <title>One agent turn per job fire, in an isolated cron session. The model is agent.model unless the job sets model: or effort:. Guards stay active, so tool calls are checked as in any turn.</title>
-    <path class="edge" d="M701,288 H750"/>
-    <path class="edge both" d="M331,336 V358 H164 V380"/>
-    <path class="edge" d="M671,336 V358 H836 V380"/>
-    <rect class="box" x="301" y="240" width="400" height="96" rx="6"/>
-    <text class="mono" x="313" y="260">agent turn</text>
-    <text class="sub" x="313" y="278">own session per fire; per-job model: and effort: override</text>
-    <text class="sub" x="313" y="296">memory_search, memory_read, memory_observe, memory_apply</text>
-    <text class="sub" x="313" y="314">guards: command, file, network, content</text>
-  </g>
-  </a>
-<text class="edge-label" x="180" y="352" text-anchor="start">memory tools</text>
-<text class="edge-label" x="700" y="352" text-anchor="start">delivery: announce</text>
-  <a href="../00-personal-assistant.md#configuration">
-  <g class="node k-host">
-    <title>Built-in logical agent. The main turn starts it with sessions_spawn; its tools are web_search and web_fetch, it runs in a hidden session, and its result is content-guard scanned before it returns.</title>
-    <rect class="box" x="750" y="240" width="226" height="96" rx="6"/>
-    <text class="mono" x="762" y="260">search agent</text>
-    <text class="sub" x="762" y="278">logical agent, via sessions_spawn</text>
-    <text class="sub" x="762" y="294">web_search, web_fetch; model: haiku</text>
-    <text class="sub" x="762" y="310">result content-guarded</text>
-    <text class="sub" x="762" y="326">reads the open web</text>
-  </g>
-  </a>
-  <a href="../00-personal-assistant.md#a-day-in-the-life">
-  <g class="node k-store">
-    <title>Canonical memory in the workspace: MEMORY.md index, memory/topics/*.md, memory/YYYY-MM-DD.md observations, learnings.md, errors.md (host-written, the agent cannot write it). Searched through the PostgreSQL lexical index; hybrid search is opt-in.</title>
-    <rect class="box" x="24" y="380" width="280" height="98" rx="6"/>
-    <text class="mono" x="36" y="400">canonical memory</text>
-    <text class="sub" x="36" y="418">memory_observe: observations, learnings</text>
-    <text class="sub" x="36" y="434">memory_apply: curated topic entries</text>
-    <text class="sub" x="36" y="450">memory_search, memory_read: reads</text>
-    <text class="sub" x="36" y="466">errors.md is written by the host only</text>
-  </g>
-  </a>
-  <a href="../00-personal-assistant.md#a-day-in-the-life">
-  <g class="node k-host">
-    <title>Built-in job. Reads HEARTBEAT.md and runs the whole checklist as one turn; a missing or empty file skips the fire. Results are logged, not saved to a chat session. It does not run git sync.</title>
-    <path class="edge" d="M501,380 V336"/>
-    <rect class="box" x="351" y="380" width="300" height="66" rx="6"/>
-    <text class="mono" x="363" y="400">heartbeat</text>
-    <text class="sub" x="363" y="418">every 60 min here (default 30)</text>
-    <text class="sub" x="363" y="434">HEARTBEAT.md checklist; skipped when empty</text>
-  </g>
-  </a>
-  <a href="../00-personal-assistant.md#gotchas--limitations">
-  <g class="node k-chan">
-    <title>announce: the result goes to connected web clients over SSE and to every DM session's peer on a registered channel, and is recorded in each DM session. Group sessions and thread sessions are skipped. Use delivery: webhook to push to an external endpoint.</title>
-    <rect class="box" x="696" y="380" width="280" height="98" rx="6"/>
-    <text class="mono" x="708" y="400">announce targets</text>
-    <text class="sub" x="708" y="418">web UI clients (SSE)</text>
-    <text class="sub" x="708" y="434">DM sessions: WhatsApp, Signal,</text>
-    <text class="sub" x="708" y="450">Google Chat, Slack; groups skipped</text>
-    <text class="sub" x="708" y="466">also recorded in each DM session</text>
-  </g>
-  </a>
-  <a href="../00-personal-assistant.md#getting-started">
-  <g class="node k-host">
-    <title>Built-in callback job, no agent turn. Commits workspace changes (behavior files, memory/) on workspace.git_sync.interval_minutes, default 30, and pushes when an origin is configured. Independent of the heartbeat.</title>
-    <path class="edge" d="M164,520 V478"/>
-    <path class="edge" d="M304,555 H351"/>
-    <rect class="box" x="24" y="520" width="280" height="70" rx="6"/>
-    <text class="mono" x="36" y="540">git-sync</text>
-    <text class="sub" x="36" y="558">every 30 min (default), no agent turn</text>
-    <text class="sub" x="36" y="574">commits the workspace</text>
-  </g>
-  </a>
-<text class="edge-label" x="172" y="504" text-anchor="start">commit</text>
-  <a href="../00-personal-assistant.md#getting-started">
-  <g class="node k-chan">
-    <title>The remote you add with git remote add origin. Without it the workspace stays a local repository.</title>
-    <rect class="box" x="351" y="520" width="300" height="70" rx="6"/>
-    <text class="mono" x="363" y="540">git remote origin</text>
-    <text class="sub" x="363" y="558">push_enabled: true, once the remote exists</text>
-    <text class="sub" x="363" y="574">local commits only without an origin</text>
-  </g>
-  </a>
-  <path class="edge" d="M24,624 L64,624"/>
-  <text class="note" x="74" y="628">data or control flow</text>
-  <rect x="230" y="614" width="34" height="20" rx="4" fill="none" stroke="var(--host)" stroke-dasharray="5 4"/>
-  <text class="note" x="274" y="628">optional job</text>
-  <text class="note" x="24" y="652">Opened directly in a browser, hovering a box highlights its outgoing arrows and shows its detail.</text>
 </svg>

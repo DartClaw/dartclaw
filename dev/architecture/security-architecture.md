@@ -114,6 +114,10 @@ Caveat: `replaceGuards` replaces the whole base list, so guards added by `regist
 | `EgressGuard` | `outboundMcpToolsCall` | `OutboundMcpPool` | external MCP `tools/call` |
 | `ContentGuard` | `beforeAgentSend` | `LogicalAgentSessionService`, search MCP tools | logical-agent results, search results |
 
+[![Security: guard and content-scan call sites](diagrams/security-call-sites.svg)](diagrams/security-call-sites.svg)
+
+Three seams run outside the chain. `OutboundMcpPool` evaluates `EgressGuard`, then per-server governance, then an awaited audit write, and only then dispatches ([Outbound MCP Egress](#outbound-mcp-egress)). `ContentGuard`, `WebFetchTool`, and a `public` outbound MCP result each call the one `ContentScan` ([Content Classification and Redaction](#content-classification-and-redaction)). `TurnRunner` evaluates the runner's chain at `messageReceived` and `beforeAgentSend` through `TurnGuardEvaluator`; a block fails the turn and stores a `[Blocked by guard: ...]` or `[Response blocked by guard: ...]` assistant note, and with no chain both hooks are skipped. `beforeAgentSend` also runs on the provider's error text when a turn fails.
+
 ---
 
 ## Canonical Tool Taxonomy
@@ -344,6 +348,10 @@ The agent needs provider API access but must never hold the credential. The host
 - Host-side refusals fire a `GuardBlockEvent` (`guard: host-gateway`, `hook: bridge`) into the normal audit trail. A container execution whose adapter has no host credential is refused at registration, before any container exists; a credential that turns unusable mid-turn tears the authority down.
 - Provider-side network tools (web search/fetch, remote MCP connectors) are refused host-side for every containerized execution, because they run at the provider where `network:none` cannot contain them. Each adapter counts them in its protocol shape; an undecodable request body is refused ([ADR-052](../adrs/052-native-provider-web-tools-denied-all-container-profiles.md)).
 
+[![Security: container authority lifecycle](diagrams/security-authority-lifecycle.svg)](diagrams/security-authority-lifecycle.svg)
+
+Acquisition is `SecurityWiring.acquireContainerAuthority`: `authority.ready` must complete within 30 s of the bridges starting or the authority is released, since startup is local process work and a turn never runs on a partial boundary. Release runs identically on success, failure, cancellation, and quarantine: a failed revoke is logged and destroy still runs, and a destroy whose removal cannot be confirmed rethrows so release stays retryable. `ContainerStoppedEvent` fires only after removal is confirmed.
+
 The boundary is POSIX-only; there is no weaker native-Windows credential transport.
 
 **Source**: `packages/dartclaw_runtime/lib/src/container/gateway/` (`host_gateway.dart`, `provider_adapter.dart`), [ADR-051](../adrs/051-container-bridge-binary-packaging.md)
@@ -511,7 +519,7 @@ Webhook routes sit outside the gateway middleware (exact public paths plus the `
 
 **`ContentScan`** is the one place a classification and its fail policy are decided, for every scanning site: `ContentGuard`, `web_fetch`, and `public` outbound MCP results. `SecurityWiring` builds it once from `guards.content.*` and injects it at all three; null means classification is not configured, never an implicit block. It truncates to `guards.content.max_bytes` (50 KiB, UTF-8 safe) and classifies exactly that span, times out at 15 s, passes empty input without a classifier call, and returns a verdict as data (blocked, label, failure reason, scanned span) so each site formats its own message. `guards.content.fail_open` is the only fail-policy input (constructor default fail-closed); `exceedsCap` answers the over-cap question without a classifier call.
 
-**`ContentGuard`** adds only the `beforeAgentSend` gate and its `enabled` check. It is called directly (not via the chain) by `LogicalAgentSessionService` on a logical agent's result before it returns to the main agent, and by the search MCP tools on concatenated result titles and snippets. At the handoff it prefix-scans `max_bytes` and passes the whole result: that content is an agent's own output, the opposite of the two third-party paths (`web_fetch` returns only the scanned span; an over-cap `public` MCP result is denied). Every verdict is logged through the audit logger; a block returns an error and discards a failed spawn.
+**`ContentGuard`** adds only the `beforeAgentSend` gate and its `enabled` check. It is called directly (not via the chain) by `LogicalAgentSessionService` on a logical agent's result before it returns to the main agent, and by the search MCP tools on concatenated result titles and snippets. At the handoff it prefix-scans `max_bytes` and passes the whole result: that content is an agent's own output, the opposite of the two third-party paths (`web_fetch` returns only the scanned span; an over-cap `public` MCP result is denied). `LogicalAgentSessionService` logs every verdict through the audit logger; the search tools return the block error and write no audit entry. A block at the logical-agent site also discards a failed spawn. The call sites are drawn in the [call sites figure](#guard-summary).
 
 **Output schema validation** is a second, independent check at the same boundary for agents declaring `agent.agents.<id>.output_schema`: the result must be exactly one JSON value conforming to a deep-closed schema (`additionalProperties: false` at every object level). `ContentGuard` classifies text up to its cap; the schema bounds its shape; neither substitutes for the other. Order in `LogicalAgentSessionService._run`: guard, schema validation, then the size decision; a schema-bound result over `max_response_bytes` fails rather than truncates, since a truncated value is not the declared contract. A schema failure is not a guard verdict and writes no audit entry.
 
@@ -640,6 +648,8 @@ The warn-once marker (`budget_warning_posted_at` in the daily summary) is persis
 ### Emergency Controls
 
 Admin-only controls for immediate intervention. They bypass rate limiting and pause queueing so they work during a flood.
+
+[![Security: emergency controls](diagrams/security-emergency-controls.svg)](diagrams/security-emergency-controls.svg)
 
 **Stop.** `/stop` (or `stop!`) as a channel message, a Google Chat slash command, `dartclaw stop`, and `POST /api/emergency-stop` (operator/admin access, so an install with every channel disabled still has a way out; the audited caller is derived from how the request authenticated) all run `EmergencyStopHandler.execute`, best-effort and non-halting:
 

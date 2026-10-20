@@ -1,160 +1,199 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 724" width="1000" height="724" role="img" aria-labelledby="title desc">
   <title id="title">Crowd coding: from a request to a task or workflow run</title>
-  <desc id="desc">The shared-session agent turns an ordinary-language request into a task_create or workflow_run tool call. Task and run state changes post into the Space thread, an optional thread binding routes thread replies to the task session, and review and approval decisions from chat need an admin sender.</desc>
+  <desc id="desc">The shared-session agent turns an ordinary-language request into a task_create or workflow_run tool call. A task runs, waits for review unless completion_action is accept, then is accepted or rejected; a workflow run may stop at an approval step with Approve and Reject buttons. Both post their state changes into the Space thread.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .step { font-size: 12px; font-weight: 700; fill: var(--accent); }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .chip-sec { fill: var(--box); stroke: var(--sec); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.both { marker-start: url(#arrow); }
-    .edge.plain { marker-end: none; }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    svg .node:hover .edge.both { marker-start: url(#arrow-hi); }
-    svg .node:hover .edge.plain { marker-end: none; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#turn:hover) .edges :is(.f-turn,.t-turn) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#create:hover) .edges :is(.f-create,.t-create) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#review:hover) .edges :is(.f-review,.t-review) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#done:hover) .edges :is(.f-done,.t-done) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#notify:hover) .edges :is(.f-notify,.t-notify) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#run:hover) .edges :is(.f-run,.t-run) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#approval:hover) .edges :is(.f-approval,.t-approval) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#outcome:hover) .edges :is(.f-outcome,.t-outcome) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="580"/>
+  <rect class="bg" width="1000" height="724"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="628" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="652">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="676">Hover a box for what happens there; its connections light up. Click it to open the recipe section.</text><text class="p2" x="36" y="696">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
 
-  <text class="title" x="24" y="34">Crowd coding: from a request to a task or workflow run</text>
-  <text class="lede" x="24" y="56">The agent chooses the tool. Review and approval decisions made from chat need a sender in governance.admin_senders.</text>
-  <a href="../08-crowd-coding.md#running-the-session">
-  <g class="node k-host">
-    <title>The shared group session turn. It has no chat grammar to parse: it decides from the conversation which registered tool to call, and SOUL.md tells it never to claim success before the tool result confirms it.</title>
-    <path class="edge" d="M244,250 H266 V142 H290"/>
-    <path class="edge" d="M244,326 H266 V442 H290"/>
-    <rect class="box" x="24" y="223" width="220" height="130" rx="6"/>
-    <text class="mono" x="36" y="243">group session turn</text>
-    <text class="sub" x="36" y="261">participants ask in ordinary</text>
-    <text class="sub" x="36" y="277">language; the agent picks</text>
-    <text class="sub" x="36" y="293">the tool and reports what</text>
-    <text class="sub" x="36" y="309">the tool result confirms</text>
+  <text class="kick" x="24" y="32">FLOW · FROM A REQUEST TO A TASK OR A WORKFLOW RUN</text>
+  <text class="title" x="24" y="58">Crowd coding: from a request to a task or workflow run</text>
+  <text class="lede" x="24" y="80">The agent chooses the tool. Review and approval decisions made from chat need a sender in governance.admin_senders.</text>
+
+  <g class="k-host"><rect class="band" x="238" y="94" width="746" height="146" rx="14"/><text class="kick" x="254" y="116">A TASK · task_create</text></g>
+  <g class="k-host"><rect class="band" x="238" y="424" width="746" height="146" rx="14"/><text class="kick" x="254" y="446">A WORKFLOW RUN</text></g>
+  <text class="el" x="228" y="258" text-anchor="end">task request</text>
+  <text class="el" x="228" y="424" text-anchor="end">workflow request</text>
+
+  <g class="edges">
+    <g class="e  f-turn t-create"><path d="M216,310 H232 V174 H250"/></g>
+    <g class="e  f-turn t-run"><path d="M216,352 H232 V504 H250"/></g>
+    <g class="e main f-create t-review"><path d="M452,174 H512"/><text class="el" x="483" y="166" text-anchor="middle">work done</text></g>
+    <g class="e main f-review t-done"><path d="M714,174 H774"/><text class="el" x="745" y="166" text-anchor="middle">decision</text></g>
+    <g class="e main f-run t-approval"><path d="M452,504 H512"/><text class="el" x="483" y="496" text-anchor="middle">at a gate</text></g>
+    <g class="e main f-approval t-outcome"><path d="M714,504 H774"/><text class="el" x="745" y="496" text-anchor="middle">a click</text></g>
+    <g class="e dash f-create t-notify"><path d="M352,226 V284"/><text class="el" x="360" y="262" text-anchor="start">queued, running</text></g>
+    <g class="e dash f-review t-notify"><path d="M614,226 V284"/><text class="el" x="622" y="262" text-anchor="start">ready for review</text></g>
+    <g class="e dash f-done t-notify"><path d="M876,226 V284"/><text class="el" x="884" y="262" text-anchor="start">accepted, rejected</text></g>
+    <g class="e dash f-run t-notify"><path d="M376,452 V378"/><text class="el" x="384" y="420" text-anchor="start">started</text></g>
+    <g class="e dash f-approval t-notify"><path d="M614,452 V378"/><text class="el" x="622" y="420" text-anchor="start">awaiting approval</text></g>
+    <g class="e dash f-outcome t-notify"><path d="M876,452 V378"/><text class="el" x="868" y="420" text-anchor="end">finished, cancelled, failed</text></g>
   </g>
-  </a>
-  <a href="../08-crowd-coding.md#running-the-session">
-  <g class="node k-host">
-    <title>task_create records the creating message as the task origin (channel, conversation, sender), so status posts return to that conversation. The task queues, then runs on a provider worker lease (providers.&lt;id&gt;.pool_size is shared with workflows and scheduled work). A worktree is used only when the request asks for one (configJson.needsWorktree).</title>
-    <path class="edge" d="M500,142 H530"/>
-    <path class="edge" d="M395,200 V244"/>
-    <rect class="box" x="290" y="84" width="210" height="116" rx="6"/>
-    <text class="mono" x="302" y="104">task_create</text>
-    <text class="sub" x="302" y="122">origin = this conversation</text>
-    <text class="sub" x="302" y="138">queued, then running on a</text>
-    <text class="sub" x="302" y="154">worker lease (pool_size)</text>
-    <text class="sub" x="302" y="170">worktree only when requested</text>
+
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n solid k-host" id="turn">
+    <rect class="box" x="24" y="290" width="190" height="82" rx="9"/>
+    <text class="name" x="36" y="313">group session turn</text>
+    <text class="sub" x="36" y="331">participants ask in plain</text>
+    <text class="sub" x="36" y="347">language; the agent picks</text>
+    <text class="sub" x="36" y="363">the tool</text>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">group session turn</tspan> · the shared group session turn: it decides from the conversation which registered tool to call</text><text class="p2" x="36" y="696">SOUL.md tells it never to claim a task, review or run succeeded until the tool result confirms it.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n tint k-host" id="create">
+    <rect class="box" x="252" y="122" width="200" height="104" rx="9"/>
+    <g class="step"><circle cx="272" cy="144" r="10"/><text x="272" y="148">1</text></g>
+    <text class="name mono-name" x="290" y="145">task_create</text>
+    <text class="sub" x="290" y="163">origin: this conversation</text>
+    <text class="sub" x="290" y="179">queued, then runs when</text>
+    <text class="sub" x="290" y="195">provider capacity frees</text>
+    <text class="sub" x="290" y="211">worktree only if asked</text>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">task_create</tspan> · records the creating message as the task origin (channel, conversation, sender), so status posts return to that conversation</text><text class="p2" x="36" y="696">The task waits for provider capacity (pool_size, shared with workflows); a worktree is used only when the request asks for one.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n tint k-ext" id="review">
+    <rect class="box" x="514" y="122" width="200" height="104" rx="9"/>
+    <g class="step"><circle cx="534" cy="144" r="10"/><text x="534" y="148">2</text></g>
+    <text class="name mono-name" x="552" y="145">task_review</text>
+    <text class="sub" x="552" y="163">accept, reject, push_back</text>
+    <text class="sub" x="552" y="179">completion_action: accept</text>
+    <text class="sub" x="552" y="195">skips this pause</text>
+    <g class="chip k-sec"><rect x="552" y="202" width="119" height="16" rx="8"/><text x="559" y="214">admin sender only</text></g>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">task_review</tspan> · task_list and review_list return full task IDs; task_review takes accept, reject or push_back for a full ID</text><text class="p2" x="36" y="696">From a chat message the caller must be an admin sender and every attempt is audited. completion_action: accept lands the task with no pause.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#scenario-b-external-repository"><g class="n tint k-store" id="done">
+    <rect class="box" x="776" y="122" width="200" height="104" rx="9"/>
+    <g class="step"><circle cx="796" cy="144" r="10"/><text x="796" y="148">3</text></g>
+    <text class="name" x="814" y="145">accepted / rejected</text>
+    <text class="sub" x="814" y="163">accept: work merged, or</text>
+    <text class="sub" x="814" y="179">branch pushed; draft PR</text>
+    <text class="sub" x="814" y="195">with github-pr strategy</text>
+    <text class="sub" x="814" y="211">reject: changes discarded</text>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">accepted / rejected</tspan> · accept finalizes the task: the worktree is merged, or the branch is pushed and a PR opened (pr.strategy: github-pr)</text><text class="p2" x="36" y="696">Reject closes the task without merging. A shared session alone gives no rollback; use a worktree-backed task for isolation.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#thread-binding"><g class="n tint k-chan" id="notify">
+    <rect class="box" x="252" y="286" width="724" height="90" rx="9"/>
+    <text class="name" x="264" y="309">notifications in the Space thread</text>
+    <text class="sub" x="264" y="327">task and run posts return to the conversation that asked</text>
+    <text class="sub" x="264" y="343">thread binding on: replies in a task's thread go to that task's session</text>
+    <g class="chip k-sec"><rect x="264" y="352" width="219" height="16" rx="8"/><text x="271" y="364">/bind, /unbind: admin sender only</text></g>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">notifications in the Space thread</tspan> · posts go back to the asking conversation; with thread_binding enabled the first task post opens a thread</text><text class="p2" x="36" y="696">A binding ends when the task is terminal or idles 60 min. A run posts in the request's thread or a run thread; /unbind cannot remove a run binding.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n tint k-host" id="run">
+    <rect class="box" x="252" y="452" width="200" height="104" rx="9"/>
+    <g class="step"><circle cx="272" cy="474" r="10"/><text x="272" y="478">1</text></g>
+    <text class="name mono-name" x="290" y="475">workflow_run</text>
+    <text class="sub" x="290" y="493">workflow_list names the</text>
+    <text class="sub" x="290" y="509">definitions; workflow_run</text>
+    <text class="sub" x="290" y="525">starts one with variables</text>
+    <text class="sub" x="290" y="541">run posts to the thread</text>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">workflow_run</tspan> · workflow_list shows the loaded definitions; workflow_run starts one with its variables</text><text class="p2" x="36" y="696">The web launch forms at /workflows and the standalone CLI stay available for deterministic starts.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n tint k-ext" id="approval">
+    <rect class="box" x="514" y="452" width="200" height="104" rx="9"/>
+    <g class="step"><circle cx="534" cy="474" r="10"/><text x="534" y="478">2</text></g>
+    <text class="name" x="552" y="475">approval step</text>
+    <text class="sub" x="552" y="493">post has Approve and</text>
+    <text class="sub" x="552" y="509">Reject buttons; Request</text>
+    <text class="sub" x="552" y="525">changes on a revise gate</text>
+    <g class="chip k-sec"><rect x="552" y="532" width="119" height="16" rx="8"/><text x="559" y="544">admin sender only</text></g>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">approval step</tspan> · at an approval step the run's post carries Approve and Reject, plus Request changes when the gate names a revise step</text><text class="p2" x="36" y="696">Anyone else is refused and the buttons stay; an empty admin_senders list lets every member of the room approve.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n tint k-store" id="outcome">
+    <rect class="box" x="776" y="452" width="200" height="104" rx="9"/>
+    <g class="step"><circle cx="796" cy="474" r="10"/><text x="796" y="478">3</text></g>
+    <text class="name" x="814" y="475">run outcome</text>
+    <text class="sub" x="814" y="493">Approve: the run resumes</text>
+    <text class="sub" x="814" y="509">Reject: the run is</text>
+    <text class="sub" x="814" y="525">cancelled; the post says</text>
+    <text class="sub" x="814" y="541">who resolved it, when</text>
+    <g class="d"><text class="p1" x="36" y="676"><tspan class="b">run outcome</tspan> · Approve resumes the run; Reject cancels it without feedback, and the post is edited to say who resolved it and when</text><text class="p2" x="36" y="696">The run page, the API and the workflow_resume and workflow_cancel tools resolve the same gate; those tools are granted through allowedTools.</text></g>
+  </g></a>
+  <g transform="translate(24,602)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">the agent turn</text>
+    <g class="tint k-ext"><rect class="box" x="130.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="152.8" y="10">waits on a human</text>
+    <g class="tint k-store"><rect class="box" x="274.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="296.0" y="10">outcome</text>
+    <g class="tint k-chan"><rect class="box" x="361.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="383.4" y="10">the Space thread</text>
+    <g class="e main"><path d="M504.59999999999997,6 H536.5999999999999"/></g><text class="lg" x="544.5999999999999" y="10">progress</text>
+    <g class="e "><path d="M616.1999999999999,6 H648.1999999999999"/></g><text class="lg" x="656.1999999999999" y="10">tool call</text>
+    <g class="e dash"><path d="M734.0,6 H766.0"/></g><text class="lg" x="774.0" y="10">status post</text>
   </g>
-  </a>
-  <a href="../08-crowd-coding.md#running-the-session">
-  <g class="node k-host">
-    <title>task_list and review_list return full task IDs; task_review takes accept, reject or push_back for a full ID. From a chat message the caller must be an admin sender and every attempt is audited. With tasks.completion_action: accept the finished task is accepted without waiting here.</title>
-    <path class="edge" d="M740,142 H770"/>
-    <path class="edge" d="M635,200 V244"/>
-    <rect class="box" x="530" y="84" width="210" height="116" rx="6"/>
-    <text class="mono" x="542" y="104">review</text>
-    <text class="sub" x="542" y="122">task_review: accept, reject,</text>
-    <text class="sub" x="542" y="138">push_back (full task ID)</text>
-    <text class="sub" x="542" y="154">completion_action: accept</text>
-    <text class="sub" x="542" y="170">skips this pause</text>
-  </g>
-  </a>
-  <a href="../08-crowd-coding.md#scenario-b-external-repository">
-  <g class="node k-host">
-    <title>Accept finalizes the task: a worktree is merged into the base ref (_local project) or the branch is pushed and a pull request opened when projects.&lt;id&gt;.pr.strategy is github-pr. Reject closes the task without merging.</title>
-    <path class="edge" d="M873,200 V244"/>
-    <rect class="box" x="770" y="84" width="206" height="116" rx="6"/>
-    <text class="mono" x="782" y="104">accepted / rejected</text>
-    <text class="sub" x="782" y="122">accept: worktree merged,</text>
-    <text class="sub" x="782" y="138">or branch pushed (draft PR</text>
-    <text class="sub" x="782" y="154">with pr.strategy: github-pr)</text>
-    <text class="sub" x="782" y="170">reject: changes discarded</text>
-  </g>
-  </a>
-  <a href="../08-crowd-coding.md#thread-binding">
-  <g class="node k-chan">
-    <title>TaskNotificationSubscriber and WorkflowRunNotificationSubscriber post into the origin conversation. With features.thread_binding.enabled the first task post opens a thread named task-&lt;id&gt; and writes a binding in thread-bindings.json; a message in a bound thread is enqueued on the task session instead of the shared session. Run posts go into the thread the request came from, or a run-&lt;id&gt; thread, and a run binding cannot be removed by /unbind.</title>
-    <rect class="box" x="290" y="244" width="686" height="96" rx="6"/>
-    <text class="mono" x="302" y="264">notifications into the Space thread</text>
-    <text class="sub" x="302" y="282">task posts: queued to running, running to review, review to accepted or rejected, running to failed</text>
-    <text class="sub" x="302" y="298">run posts: started, awaiting approval, finished or cancelled, failed</text>
-    <text class="sub" x="302" y="314">thread_binding.enabled: the first task post opens a task-&lt;id&gt; thread; replies there go to the task session</text>
-    <text class="sub" x="302" y="330">a binding ends when the task is terminal or idle 60 min; /bind and /unbind (admin) adjust it</text>
-  </g>
-  </a>
-  <a href="../08-crowd-coding.md#running-the-session">
-  <g class="node k-host">
-    <title>workflow_list shows the loaded definitions; workflow_run starts one with its variables. The web launch forms at /workflows and the standalone CLI remain available for deterministic starts.</title>
-    <path class="edge" d="M500,442 H530"/>
-    <path class="edge" d="M395,384 V340"/>
-    <rect class="box" x="290" y="384" width="210" height="116" rx="6"/>
-    <text class="mono" x="302" y="404">workflow_run</text>
-    <text class="sub" x="302" y="422">workflow_list names the</text>
-    <text class="sub" x="302" y="438">definitions; workflow_run</text>
-    <text class="sub" x="302" y="454">starts one with variables</text>
-    <text class="sub" x="302" y="470">run posts to the thread</text>
-  </g>
-  </a>
-  <a href="../08-crowd-coding.md#running-the-session">
-  <g class="node k-host">
-    <title>At an approval step the run's post carries Approve and Reject buttons, plus Request changes when the gate names a revise step. Only a sender in governance.admin_senders can use them; anyone else is refused and the buttons stay. An empty admin_senders list lets every member of the room approve.</title>
-    <path class="edge" d="M740,442 H770"/>
-    <path class="edge" d="M635,384 V340"/>
-    <rect class="box" x="530" y="384" width="210" height="116" rx="6"/>
-    <text class="mono" x="542" y="404">approval step</text>
-    <text class="sub" x="542" y="422">post has Approve and</text>
-    <text class="sub" x="542" y="438">Reject buttons</text>
-    <text class="sub" x="542" y="454">(Request changes on a</text>
-    <text class="sub" x="542" y="470">revise gate)</text>
-  </g>
-  </a>
-  <a href="../08-crowd-coding.md#running-the-session">
-  <g class="node k-host">
-    <title>Approve resumes the run; Reject cancels it without feedback. The post is then edited to say who resolved it and when. The same resolution is available from the run page, the API, and the workflow_resume and workflow_cancel tools, which are granted only through an agent's allowedTools.</title>
-    <path class="edge" d="M873,384 V340"/>
-    <rect class="box" x="770" y="384" width="206" height="116" rx="6"/>
-    <text class="mono" x="782" y="404">run outcome</text>
-    <text class="sub" x="782" y="422">Approve: the run resumes</text>
-    <text class="sub" x="782" y="438">Reject: the run is cancelled</text>
-    <text class="sub" x="782" y="454">post edited with who and</text>
-    <text class="sub" x="782" y="470">when</text>
-  </g>
-  </a>
-    <rect class="chip-sec" x="542" y="176" width="150" height="20" rx="4"/><text class="chip-text" x="550" y="190">admin sender only</text>
-    <rect class="chip-sec" x="542" y="476" width="150" height="20" rx="4"/><text class="chip-text" x="550" y="490">admin sender only</text>
-  <path class="edge" d="M24,540 L64,540"/>
-  <text class="note" x="74" y="544">data or control flow</text>
-  <rect x="230" y="530" width="34" height="20" rx="4" fill="none" stroke="var(--sec)"/>
-  <text class="note" x="274" y="544">needs a sender listed in governance.admin_senders when it comes from chat</text>
-  <text class="note" x="24" y="568">Opened directly in a browser, hovering a box highlights its outgoing arrows and shows its detail.</text>
 </svg>

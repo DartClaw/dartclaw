@@ -1,108 +1,238 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 790" width="1000" height="790" role="img" aria-labelledby="title desc">
   <title id="title">Governance layers</title>
-  <desc id="desc">Four layers from the analyzer to ADR review. arch_check.dart holds LOC targets, the package-count ceiling and two shape rules; run_all.sh holds the scripts, drift checks and Dart fitness tests, including the tier-order gate.</desc>
+  <desc id="desc">Four layers guard the architecture. dart analyze, arch_check.dart and run_all.sh run in order in the CI Check job and locally; a failure in any of them fails the build. ADRs and architecture docs are the review-time layer that decides what the gates encode.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .edge.bi { marker-start: url(#arrow); }
-    .edge.plain { marker-end: none; }
-    svg .node:hover .edge.bi { marker-start: url(#arrow-hi); }
-    svg .node:hover .edge.plain { marker-end: none; }
-    .elab { fill: var(--sub); font-size: 10.5px; font-weight: 600; }
-    .badge { fill: var(--accent); }
-    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; }
-    .msg { fill: none; stroke: var(--edge); stroke-width: 1.5; marker-end: url(#arrow); }
-    .msg.ret { stroke-dasharray: 5 4; }
-    .mlabel { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
-    .legend-text { fill: var(--sub); font-size: 11px; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#l1:hover) .edges :is(.f-l1,.t-l1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l2:hover) .edges :is(.f-l2,.t-l2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l3:hover) .edges :is(.f-l3,.t-l3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l4:hover) .edges :is(.f-l4,.t-l4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#a1:hover) .edges :is(.f-a1,.t-a1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#a2:hover) .edges :is(.f-a2,.t-a2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#a3:hover) .edges :is(.f-a3,.t-a3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#a4:hover) .edges :is(.f-a4,.t-a4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#t1:hover) .edges :is(.f-t1,.t-t1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#t2:hover) .edges :is(.f-t2,.t-t2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#t3:hover) .edges :is(.f-t3,.t-t3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s1:hover) .edges :is(.f-s1,.t-s1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s2:hover) .edges :is(.f-s2,.t-s2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s3:hover) .edges :is(.f-s3,.t-s3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#d1:hover) .edges :is(.f-d1,.t-d1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#d2:hover) .edges :is(.f-d2,.t-d2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#d3:hover) .edges :is(.f-d3,.t-d3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="600"/>
-  <text class="title" x="24" y="34">Governance layers</text>
-  <text class="lede" x="24" y="56">Each layer is broader and slower than the one above; layers 1 to 3 run in the CI Check job and locally. Layer 4 is review.</text>
-  <rect class="group" x="14" y="74" width="972" height="378" rx="8"/>
-  <text class="group-label" x="26" y="92">Runs in CI (job Check) and locally</text>
-  <g class="node k-host">
-    <title>Unresolved imports, stale re-exports, type errors. CI runs it with --fatal-infos.</title>
-    <path class="edge" d="M169,162 V182"/>
-    <rect class="box" x="24" y="102" width="290" height="60" rx="6"/>
-    <text class="mono" x="38" y="124">1  dart analyze</text>
-    <text class="sub" x="38" y="141">--fatal-infos</text>
+  <rect class="bg" width="1000" height="790"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="694" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="718">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="742">Hover a gate for what it enforces; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="762">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">LAYERED GATES · EXECUTABLE ARCHITECTURE CHECKS</text>
+  <text class="title" x="24" y="58">Governance layers</text>
+  <text class="lede" x="24" y="80">Layers 1 to 3 fail the CI Check job, each seeing what the one before cannot. Layer 4 decides what they enforce.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="96" width="968" height="478" rx="14"/><text class="kick" x="32" y="118">CI JOB · CHECK · THE SAME GATES RUN LOCALLY</text></g>
+  <g class="k-host"><rect class="band inner" x="268" y="204" width="700" height="146" rx="10"/><text class="kick" x="284" y="226">arch_check.dart · FOUR STRUCTURAL RULES</text></g>
+  <g class="k-host"><rect class="band inner" x="268" y="364" width="250" height="194" rx="10"/><text class="kick" x="284" y="386">dev/fitness/test/ · DART GATES</text></g>
+  <g class="k-host"><rect class="band inner" x="526" y="364" width="230" height="194" rx="10"/><text class="kick" x="542" y="386">dev/tools/fitness/ · SCRIPTS</text></g>
+  <g class="k-host"><rect class="band inner" x="764" y="364" width="204" height="194" rx="10"/><text class="kick" x="780" y="386">DRIFT · GENERATED FILES</text></g>
+  <text class="sub" x="272" y="165" text-anchor="start">unresolved imports, stale re-exports, type mismatches: what the analyzer sees</text>
+  <text class="sub" x="272" y="612" text-anchor="start">ADR-033 gate mechanism</text>
+  <text class="sub" x="272" y="628" text-anchor="start">ADR-034 dependency direction · ADR-056 package topology · ADR-054 one authority per concern</text>
+
+  <g class="edges">
+    <g class="e main f-l1 t-l2"><path d="M142,190 V202"/><text class="el" x="150" y="200" text-anchor="start">then</text></g>
+    <g class="e main f-l2 t-l3"><path d="M142,350 V362"/><text class="el" x="150" y="360" text-anchor="start">then</text></g>
+    <g class="e dash f-l4 t-l3"><path d="M142,590 V560"/><text class="el" x="150" y="580" text-anchor="start">decides what layers 1 to 3 enforce</text></g>
   </g>
-  <rect class="chip" x="340" y="121" width="640" height="22" rx="4"/><text class="chip-text" x="348" y="136">unresolved imports, stale re-exports, type mismatches</text>
-  <g class="node k-host">
-    <title>dart run dev/tools/arch_check.dart. Per-package LOC targets (fail at 110%), package-count ceiling, core barrel shape, Claude provider option ownership.</title>
-    <path class="edge" d="M169,266 V286"/>
-    <rect class="box" x="24" y="182" width="290" height="84" rx="6"/>
-    <text class="mono" x="38" y="204">2  arch_check.dart</text>
-    <text class="sub" x="38" y="221">dart run dev/tools/arch_check.dart</text>
-    <text class="sub" x="38" y="235">structural rules the analyzer cannot see</text>
+
+  <a href="../architecture-governance.md#governance-layers"><g class="n tint k-ext" id="l1">
+    <rect class="box" x="32" y="130" width="220" height="60" rx="9"/>
+    <g class="step"><circle cx="52" cy="160.0" r="10"/><text x="52" y="164.0">1</text></g>
+    <text class="name mono-name" x="70" y="153">dart analyze</text>
+    <g class="badge"><rect x="216" y="141" width="26" height="16" rx="8"/><text x="229" y="153">CI</text></g>
+    <text class="sub" x="70" y="171">--fatal-infos</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">dart analyze</tspan> · the Dart analyzer; CI runs the format check before it and the workspace tests after it</text><text class="p2" x="36" y="762">An info-level diagnostic fails the job, so lints cannot accumulate as informational noise.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#arch_checkdart"><g class="n tint k-host" id="l2">
+    <rect class="box" x="32" y="204" width="220" height="146" rx="9"/>
+    <g class="step"><circle cx="52" cy="226" r="10"/><text x="52" y="230">2</text></g>
+    <text class="name mono-name" x="70" y="227">arch_check.dart</text>
+    <text class="sub" x="70" y="245">dev/tools/</text>
+    <text class="sub" x="70" y="261">rules the analyzer</text>
+    <text class="sub" x="70" y="277">cannot see</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">arch_check.dart</tspan> · one script, one line per check and a summary; exits non-zero on any failure</text><text class="p2" x="36" y="762">Counts lines and matches patterns over source text with dart:io alone, so it runs without package resolution.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#fitness-suite-gates"><g class="n solid k-host" id="l3">
+    <rect class="box" x="32" y="364" width="220" height="194" rx="9"/>
+    <g class="step"><circle cx="52" cy="386" r="10"/><text x="52" y="390">3</text></g>
+    <text class="name mono-name" x="70" y="387">run_all.sh</text>
+    <text class="sub" x="70" y="405">dev/tools/fitness/</text>
+    <text class="sub" x="70" y="421">scripts, drift checks,</text>
+    <text class="sub" x="70" y="437">version lockstep and</text>
+    <text class="sub" x="70" y="453">the Dart fitness tests</text>
+    <text class="sub" x="70" y="469">stops at the first failure</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">run_all.sh</tspan> · the broad gate: six scripts, two schema checks, config-reference drift, version lockstep, then run-fitness.sh</text><text class="p2" x="36" y="762">The Dart suite runs last because it holds the gates that read an allowlist; run a gate file whole, never name-filtered.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#why-this-exists"><g class="n line k-neu" id="l4">
+    <rect class="box" x="32" y="590" width="220" height="60" rx="9"/>
+    <g class="step"><circle cx="52" cy="620.0" r="10"/><text x="52" y="624.0">4</text></g>
+    <text class="name mono-name" x="70" y="613">ADRs and docs</text>
+    <text class="sub" x="70" y="631">review, not CI</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">ADRs and docs</tspan> · why a boundary exists and when it may change</text><text class="p2" x="36" y="762">A check changes in the same change as this document and any affected ADR; a threshold is never loosened silently.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#arch_checkdart"><g class="n line k-host" id="a1">
+    <rect class="box" x="280" y="238" width="330" height="46" rx="9"/>
+    <text class="name mono-name" x="292" y="257">core barrel</text>
+    <text class="sub" x="292" y="273">no whole-kernel re-export</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">core barrel</tspan> · dartclaw_core.dart must not re-export the whole kernel barrel</text><text class="p2" x="36" y="762">Targeted show re-exports stay allowed, so core cannot launder the kernel surface to its consumers.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#arch_checkdart"><g class="n line k-host" id="a2">
+    <rect class="box" x="618" y="238" width="330" height="46" rx="9"/>
+    <text class="name mono-name" x="630" y="257">provider options</text>
+    <text class="sub" x="630" y="273">inherit_user_settings lookups: kernel only</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">provider options</tspan> · raw ['inherit_user_settings'] lookups appear only in dartclaw_kernel</text><text class="p2" x="36" y="762">The allowed files are claude_provider_options.dart and config_parser.dart; a raw lookup elsewhere is the violation.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#thresholds"><g class="n line k-host" id="a3">
+    <rect class="box" x="280" y="292" width="330" height="46" rx="9"/>
+    <text class="name mono-name" x="292" y="311">lib/ LOC target</text>
+    <text class="sub" x="292" y="327">fails at 110% of the recorded target</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">lib/ LOC target</tspan> · one target per member with a lib/, _libLocCeilings; a member without a target fails</text><text class="p2" x="36" y="762">lib/src/generated/ is not counted, and shrinkage never fails, so only growth needs a recorded decision.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#thresholds"><g class="n line k-host" id="a4">
+    <rect class="box" x="618" y="292" width="330" height="46" rx="9"/>
+    <text class="name mono-name" x="630" y="311">package count</text>
+    <text class="sub" x="630" y="327">at most 14 under packages/</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">package count</tspan> · _workspacePackageCeiling; apps/dartclaw_cli and dev/fitness sit in the root workspace outside the count</text><text class="p2" x="36" y="762">The ceiling is a number in code, so a fifteenth package is a deliberate, reviewed edit.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#dependency-direction"><g class="n solid k-host" id="t1">
+    <rect class="box" x="280" y="398" width="226" height="46" rx="9"/>
+    <text class="name mono-name" x="292" y="417">dependency_direction</text>
+    <text class="sub" x="292" y="433">tier order, no exceptions</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">dependency_direction</tspan> · an import points only at a strictly lower tier in dev/package_tiers.txt; same-tier edges fail</text><text class="p2" x="36" y="762">It also reconciles pubspec dependencies with real imports and fails a workspace member that has no tier.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#fitness-suite-gates"><g class="n line k-host" id="t2">
+    <rect class="box" x="280" y="450" width="226" height="46" rx="9"/>
+    <text class="name mono-name" x="292" y="469">no_second_implementation</text>
+    <text class="sub" x="292" y="485">one owner per public type</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">no_second_implementation</tspan> · a public production type name is declared in one workspace member only (ADR-054)</text><text class="p2" x="36" y="762">The allowlist is a ratchet that may shrink and not grow; it holds TurnManager and TurnRunner, ports with adapters.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#thresholds"><g class="n line k-host" id="t3">
+    <rect class="box" x="280" y="502" width="226" height="46" rx="9"/>
+    <text class="name mono-name" x="292" y="521">size limits</text>
+    <text class="sub" x="292" y="537">file, test and parameter caps</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">size limits</tspan> · max_file_loc_test, max_test_file_loc_test and constructor_param_count_test</text><text class="p2" x="36" y="762">An allowlisted file may not reach 110% of its recorded baseline; an entry for a file that shrank or vanished fails.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#fitness-suite-gates"><g class="n line k-host" id="s1">
+    <rect class="box" x="538" y="398" width="206" height="46" rx="9"/>
+    <text class="name mono-name" x="550" y="417">no_framework_coupling</text>
+    <text class="sub" x="550" y="433">no andthen in the engine</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">no_framework_coupling</tspan> · zero andthen literals in dartclaw_workflow/lib/src outside built-in definition YAML (ADR-041)</text><text class="p2" x="36" y="762">The engine validates declared schema only; framework semantics live in definitions and skills.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#fitness-suite-gates"><g class="n line k-host" id="s2">
+    <rect class="box" x="538" y="450" width="206" height="46" rx="9"/>
+    <text class="name mono-name" x="550" y="469">no_prose_parsing</text>
+    <text class="sub" x="550" y="485">retired parsers stay deleted</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">no_prose_parsing</tspan> · asks whether a named retired construct is back, not whether code is a prose parser (ADR-054)</text><text class="p2" x="36" y="762">No allowlist: each pattern was measured at zero first, so a match is a finding against the change that reintroduced it.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#fitness-suite-gates"><g class="n line k-host" id="s3">
+    <rect class="box" x="538" y="502" width="206" height="46" rx="9"/>
+    <text class="name mono-name" x="550" y="521">no_external_origins</text>
+    <text class="sub" x="550" y="537">UI loads nothing external</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">no_external_origins</tspan> · served templates, CSS and the CSP load no subresource from an external origin</text><text class="p2" x="36" y="762">The same script family holds check_css_comment_state, check_no_workflow_private_config and the task_executor reference check.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#fitness-suite-gates"><g class="n line k-host" id="d1">
+    <rect class="box" x="776" y="398" width="180" height="46" rx="9"/>
+    <text class="name mono-name" x="788" y="417">schema drift</text>
+    <text class="sub" x="788" y="433">config + workflow JSON</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">schema drift</tspan> · generate_config_schema.dart --check and generate_workflow_schema.dart --check</text><text class="p2" x="36" y="762">The committed JSON schemas must equal what the generators produce from the typed code.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#fitness-suite-gates"><g class="n line k-host" id="d2">
+    <rect class="box" x="776" y="450" width="180" height="46" rx="9"/>
+    <text class="name mono-name" x="788" y="469">config reference</text>
+    <text class="sub" x="788" y="485">guide matches renderer</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">config reference</tspan> · check_config_reference_drift.sh compares the guide's config reference with the renderer output</text><text class="p2" x="36" y="762">test_render_config_reference.sh checks the renderer itself first.</text></g>
+  </g></a>
+  <a href="../architecture-governance.md#ci"><g class="n line k-host" id="d3">
+    <rect class="box" x="776" y="502" width="180" height="46" rx="9"/>
+    <text class="name mono-name" x="788" y="521">check_versions.sh</text>
+    <text class="sub" x="788" y="537">version lockstep</text>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">check_versions.sh</tspan> · every published package, apps/dartclaw_cli and each packaging artifact that pins a version match version.dart</text><text class="p2" x="36" y="762">A mismatch fails the job, so a release cannot ship half-bumped.</text></g>
+  </g></a>
+  <g transform="translate(24,668)">
+    <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">SDK tool</text>
+    <g class="tint k-host"><rect class="box" x="93.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="115.6" y="10">DartClaw gate</text>
+    <g class="solid k-host"><rect class="box" x="218.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="240.2" y="10">broad gate, tier order</text>
+    <g class="line k-neu"><rect class="box" x="398.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="420.6" y="10">review layer</text>
+    <g class="e main"><path d="M517.0,6 H549.0"/></g><text class="lg" x="557.0" y="10">CI step order</text>
+    <g class="e dash"><path d="M659.6,6 H691.6"/></g><text class="lg" x="699.6" y="10">decides</text>
   </g>
-  <rect class="chip" x="340" y="192" width="310" height="22" rx="4"/><text class="chip-text" x="348" y="207">core barrel does not launder the kernel</text>
-  <rect class="chip" x="670" y="192" width="310" height="22" rx="4"/><text class="chip-text" x="678" y="207">Claude provider options owned by kernel</text>
-  <rect class="chip" x="340" y="222" width="310" height="22" rx="4"/><text class="chip-text" x="348" y="237">lib/ LOC target, fails at 110%</text>
-  <rect class="chip" x="670" y="222" width="310" height="22" rx="4"/><text class="chip-text" x="678" y="237">package count &lt;= 14 under packages/</text>
-  <g class="node k-host">
-    <title>bash dev/tools/fitness/run_all.sh. The broad CI fitness suite: shell and Dart scripts under dev/tools/fitness/, schema and config-reference drift, version lockstep, and dart test dev/fitness/test/.</title>
-    <rect class="box" x="24" y="286" width="290" height="158" rx="6"/>
-    <text class="mono" x="38" y="308">3  run_all.sh</text>
-    <text class="sub" x="38" y="325">bash dev/tools/fitness/run_all.sh</text>
-    <text class="sub" x="38" y="339">scripts, drift checks, version lockstep,</text>
-    <text class="sub" x="38" y="353">and the Dart fitness tests</text>
-  </g>
-  <rect class="chip" x="340" y="298" width="310" height="22" rx="4"/><text class="chip-text" x="348" y="313">check_no_framework_coupling</text>
-  <rect class="chip" x="670" y="298" width="310" height="22" rx="4"/><text class="chip-text" x="678" y="313">check_no_workflow_private_config</text>
-  <rect class="chip" x="340" y="326" width="310" height="22" rx="4"/><text class="chip-text" x="348" y="341">check_no_prose_parsing</text>
-  <rect class="chip" x="670" y="326" width="310" height="22" rx="4"/><text class="chip-text" x="678" y="341">check_task_executor_workflow_refs</text>
-  <rect class="chip" x="340" y="354" width="310" height="22" rx="4"/><text class="chip-text" x="348" y="369">check_no_external_origins</text>
-  <rect class="chip" x="670" y="354" width="310" height="22" rx="4"/><text class="chip-text" x="678" y="369">check_css_comment_state</text>
-  <rect class="chip" x="340" y="382" width="310" height="22" rx="4"/><text class="chip-text" x="348" y="397">config + workflow schema drift</text>
-  <rect class="chip" x="670" y="382" width="310" height="22" rx="4"/><text class="chip-text" x="678" y="397">config-reference and version lockstep</text>
-  <rect class="chip" x="340" y="410" width="640" height="22" rx="4"/><text class="chip-text" x="348" y="425">dart test dev/fitness/test: tier order, cycles, src imports, barrels, file LOC, ...</text>
-  <g class="node k-dev">
-    <title>Review-time layer: why a boundary exists and when it may change. ADR-033 (mechanism), ADR-034 (direction), ADR-054 (one authority per concern).</title>
-    <rect class="box" x="24" y="478" width="290" height="70" rx="6"/>
-    <text class="mono" x="38" y="500">4  ADRs and architecture docs</text>
-    <text class="sub" x="38" y="517">why a boundary exists, when to change it</text>
-  </g>
-  <rect class="chip" x="340" y="502" width="640" height="22" rx="4"/><text class="chip-text" x="348" y="517">ADR-033 fitness functions, ADR-034 dependency direction, ADR-054 one authority per concern</text>
-  <text class="legend-text" x="24" y="580">Dependency direction itself is enforced in layer 3 by dependency_direction_test.dart against dev/package_tiers.txt. Hover a layer for detail.</text>
 </svg>

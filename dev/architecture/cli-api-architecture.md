@@ -90,7 +90,9 @@ with no HTTP server.
 
 - **Writer guard.** The write verbs probe `GET /health` at the resolved server address (200, 401 and 403 count as
   reachable) and abort when a server is up unless `--force`, preventing concurrent writers to shared project and
-  workflow files.
+  workflow files. The probe gives up after 5 s and then counts as no server. A separate exclusive file lock,
+  `standalone/execution.owner.lock` (`StandaloneExecutionLease`), refuses a second standalone execution on one data
+  directory even under `--force`.
 - **Storage.** State lives under `<data_dir>/standalone/`: `execution.json` (`FileExecutionStore`, an atomic checkpoint
   shared by task and workflow repositories), `sessions/`, `turn_state.json` and `kv.json`. `status --standalone` reads
   the same checkpoint. No PostgreSQL connection or schema gate runs, and workflow-only `init` neither writes a database
@@ -158,6 +160,11 @@ Route files live in `packages/dartclaw_runtime/lib/src/api/`. `authMiddleware` g
 `workflow run <name>` is implemented by `ApiWorkflowConnection`:
 
 [![Connected workflow run](diagrams/cli-api-workflow-run.svg)](diagrams/cli-api-workflow-run.svg)
+
+A launch the server refuses (400 `INVALID_INPUT`, 404 `DEFINITION_NOT_FOUND`, 409 `WORKFLOW_PRECONDITION_FAILED`) creates
+no run; the CLI prints the message and exits 5. The per-run stream opens with a `connected` frame holding the run status
+and one status per step. When it drops, the client re-fetches the run and reconnects up to three times, waiting 1, 2
+and 4 s, unless the run is already terminal, paused or awaiting approval.
 
 Progress renders through `CliProgressPrinter`, or frames are echoed with `--json`. The final status maps to an exit code
 (`standaloneWorkflowExitCode`, shared by both lanes):

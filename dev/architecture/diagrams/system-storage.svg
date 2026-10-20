@@ -1,232 +1,214 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" width="1000" height="640" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 736" width="1000" height="736" role="img" aria-labelledby="title desc">
   <title id="title">Storage at a glance</title>
-  <desc id="desc">Three storage zones: authoritative files under the data directory, PostgreSQL with authoritative rows and derived search projections, and instance-local recovery files, plus the serving startup order.</desc>
+  <desc id="desc">Three storage zones: authoritative files under the data directory, PostgreSQL with authoritative rows and derived search projections, and instance-local recovery files. Headless workflow runs replace the PostgreSQL rows with a file checkpoint under data_dir/standalone/.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .name { font-size: 13.5px; font-weight: 700; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--store) 6%, var(--bg)); }
+    svg:has(#sessions:hover) .edges :is(.f-sessions,.t-sessions) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#workspace:hover) .edges :is(.f-workspace,.t-workspace) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#config:hover) .edges :is(.f-config,.t-config) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#audit:hover) .edges :is(.f-audit,.t-audit) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#atomic:hover) .edges :is(.f-atomic,.t-atomic) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#conv:hover) .edges :is(.f-conv,.t-conv) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mem:hover) .edges :is(.f-mem,.t-mem) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rows:hover) .edges :is(.f-rows,.t-rows) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#backend:hover) .edges :is(.f-backend,.t-backend) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#turn:hover) .edges :is(.f-turn,.t-turn) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#webhook:hover) .edges :is(.f-webhook,.t-webhook) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#standalone:hover) .edges :is(.f-standalone,.t-standalone) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="640"/>
-  <text class="title" x="24" y="34">Storage at a glance</text>
-  <text class="lede" x="24" y="56">Files and PostgreSQL are the two authorities. Search rows are derived and rebuilt from files.</text>
-  <rect class="group" x="16" y="76" width="360" height="410" rx="8"/>
-  <text class="group-label" x="28" y="92">Files under data_dir</text>
-  <rect class="group" x="416" y="76" width="360" height="410" rx="8"/>
-  <text class="group-label" x="428" y="92">PostgreSQL 14+</text>
-  <rect class="group" x="816" y="76" width="168" height="410" rx="8"/>
-  <text class="group-label" x="828" y="92">Local recovery</text>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>One directory per session: metadata and the append-only transcript. .session_keys.json indexes deterministic session keys.</title>
-    <path class="edge dashed" d="M364,143 L428,143"/>
-    <rect class="box" x="28" y="112" width="336" height="62" rx="6"/>
-    <text class="name" x="42" y="133">sessions/&lt;uuid&gt;/</text>
-    <text class="chip-text" x="42" y="150">meta.json · messages.ndjson</text>
-    <text class="sub" x="42" y="165">SessionService, MessageService (write queue)</text>
+  <rect class="bg" width="1000" height="736"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="640" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="664">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="688">Hover a store for what it holds and how it is written; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="708">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">STORAGE · AUTHORITY AND DERIVATION</text>
+  <text class="title" x="24" y="58">Storage at a glance</text>
+  <text class="lede" x="24" y="80">Files and PostgreSQL are the two authorities. Search rows are derived from files and rebuilt, never the reverse.</text>
+
+  <g class="k-store"><rect class="band" x="16" y="104" width="336" height="490" rx="14"/><text class="kick" x="32" y="126">FILES UNDER data_dir · AUTHORITATIVE</text></g>
+  <g class="k-store"><rect class="band" x="392" y="104" width="324" height="490" rx="14"/><text class="kick" x="408" y="126">POSTGRESQL 14+ · ROWS AND PROJECTIONS</text></g>
+  <g class="k-neu"><rect class="band" x="744" y="104" width="240" height="236" rx="14"/><text class="kick" x="760" y="126">LOCAL · NOT REPLICATED</text></g>
+  <g class="k-neu"><rect class="band" x="744" y="360" width="240" height="234" rx="14"/><text class="kick" x="760" y="382">STANDALONE · HEADLESS RUNS</text></g>
+
+  <g class="edges">
+    <g class="e dash f-sessions t-conv"><path d="M340,172 H402"/><text class="el" x="371" y="164" text-anchor="middle">derives</text></g>
+    <g class="e dash f-workspace t-mem"><path d="M340,260 H402"/><text class="el" x="371" y="252" text-anchor="middle">derives</text></g>
+    <g class="e  f-backend t-rows"><path d="M554,464 V440"/><text class="el" x="562" y="456" text-anchor="start">repositories</text></g>
+    <g class="e dash f-standalone t-rows"><path d="M754,412 H706"/><text class="el" x="730" y="404" text-anchor="middle">replaces</text></g>
   </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>MemoryCorpusService owns the canonical files per principal (owner, agent:&lt;id&gt;). A manifest is non-authoritative coordination state rebuilt from the Markdown.</title>
-    <path class="edge dashed" d="M364,215 L428,215"/>
-    <rect class="box" x="28" y="184" width="336" height="62" rx="6"/>
-    <text class="name" x="42" y="205">workspace/ and agents/&lt;id&gt;/workspace/</text>
-    <text class="sub" x="42" y="222">canonical memory Markdown</text>
-    <text class="chip-text" x="42" y="237">MEMORY.md · memory/topics/ · learnings.md</text>
+
+  <a href="../data-model.md#sessions-and-messages"><g class="n tint k-store" id="sessions">
+    <rect class="box" x="28" y="134" width="312" height="76" rx="9"/>
+    <text class="name mono-name" x="40" y="157">sessions/&lt;uuid&gt;/</text>
+    <g class="badge"><rect x="276" y="145" width="54" height="16" rx="8"/><text x="303" y="157">NDJSON</text></g>
+    <text class="mono" x="40" y="175">meta.json · messages.ndjson</text>
+    <text class="sub" x="40" y="191">SessionService, MessageService (write queue)</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">sessions/&lt;uuid&gt;/</tspan> · one directory per session: metadata and the append-only transcript; .session_keys.json indexes deterministic session keys</text><text class="p2" x="36" y="708">MessageService writes through a queue, so a transcript has one writer. The conversation search rows are rebuilt from these NDJSON files.</text></g>
+  </g></a>
+  <a href="../data-model.md#memory-corpus"><g class="n tint k-store" id="workspace">
+    <rect class="box" x="28" y="222" width="312" height="76" rx="9"/>
+    <text class="name mono-name" x="40" y="245">workspace/ · agents/&lt;id&gt;/</text>
+    <text class="mono" x="40" y="263">MEMORY.md · memory/topics/ · learnings.md</text>
+    <text class="sub" x="40" y="279">canonical memory Markdown per principal</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">workspace/ · agents/&lt;id&gt;/</tspan> · MemoryCorpusService owns the canonical Markdown per principal (owner, agent:&lt;id&gt;); its manifest is rebuilt</text><text class="p2" x="36" y="708">Search rows for these corpora are derived and rebuilt from the Markdown (dartclaw rebuild-index); the files never depend on PostgreSQL.</text></g>
+  </g></a>
+  <a href="../data-model.md#2-data-directory-layout"><g class="n tint k-store" id="config">
+    <rect class="box" x="28" y="310" width="312" height="76" rx="9"/>
+    <text class="name mono-name" x="40" y="333">dartclaw.yaml · kv.json</text>
+    <text class="sub" x="40" y="351">ConfigWriter: temp file, rename, backup</text>
+    <text class="sub" x="40" y="367">KvService: small global state</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">dartclaw.yaml · kv.json</tspan> · operator configuration and the global key-value store</text><text class="p2" x="36" y="708">kv.json also holds daily usage summaries. Standalone runs keep their own kv.json under data_dir/standalone/.</text></g>
+  </g></a>
+  <a href="../data-model.md#2-data-directory-layout"><g class="n tint k-store" id="audit">
+    <rect class="box" x="28" y="398" width="312" height="76" rx="9"/>
+    <text class="name mono-name" x="40" y="421">audit-YYYY-MM-DD.ndjson</text>
+    <g class="badge"><rect x="241" y="409" width="89" height="16" rx="8"/><text x="286" y="421">APPEND-ONLY</text></g>
+    <text class="sub" x="40" y="439">usage.jsonl: UsageTracker, rotates by size</text>
+    <text class="sub" x="40" y="455">GuardAuditLogger; audit retention cleanup</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">audit-YYYY-MM-DD.ndjson</tspan> · guard audit is date-partitioned (guard_audit.max_retention_days, default 30, 0 keeps all) and append-only</text><text class="p2" x="36" y="708">Entries are not hash-chained or signed. usage.jsonl rotates by size instead of by date.</text></g>
+  </g></a>
+  <a href="../data-model.md#2-data-directory-layout"><g class="n tint k-store" id="atomic">
+    <rect class="box" x="28" y="486" width="312" height="88" rx="9"/>
+    <text class="name" x="40" y="509">Small atomic documents</text>
+    <text class="mono" x="40" y="527">thread-bindings.json · projects.json</text>
+    <text class="mono" x="40" y="543">pending-schedule-changes.json</text>
+    <text class="sub" x="40" y="559">each written as temp file + rename</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">Small atomic documents</tspan> · channel thread bindings, the runtime project registry and parked schedule changes</text><text class="p2" x="36" y="708">A crash leaves either the old or the new document, never a torn one.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n line k-store" id="conv">
+    <rect class="box" x="404" y="134" width="300" height="76" rx="9"/>
+    <text class="name mono-name" x="416" y="157">conversation_chunks</text>
+    <g class="badge"><rect x="633" y="145" width="61" height="16" rx="8"/><text x="664" y="157">DERIVED</text></g>
+    <text class="sub" x="416" y="175">+ conversation_vectors (optional)</text>
+    <text class="sub" x="416" y="191">lexical; vectors need pgvector</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">conversation_chunks</tspan> · lexical projection of chat-facing messages, rebuilt from the session NDJSON</text><text class="p2" x="36" y="708">Results are re-authenticated against current content before publication. Vector rows exist only in hybrid search mode.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n line k-store" id="mem">
+    <rect class="box" x="404" y="222" width="300" height="76" rx="9"/>
+    <text class="name mono-name" x="416" y="245">memory_chunks</text>
+    <g class="badge"><rect x="633" y="233" width="61" height="16" rx="8"/><text x="664" y="245">DERIVED</text></g>
+    <text class="sub" x="416" y="263">+ memory_vectors (optional)</text>
+    <text class="sub" x="416" y="279">one owner-scoped corpus per principal</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">memory_chunks</tspan> · lexical projection of canonical memory, one corpus per principal</text><text class="p2" x="36" y="708">Reconciled at startup by CanonicalIndexReconciler; a failed reconcile is logged and canonical memory stays available.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n solid k-store" id="rows">
+    <rect class="box" x="404" y="310" width="300" height="128" rx="9"/>
+    <text class="name" x="416" y="333">Authoritative rows</text>
+    <text class="mono" x="416" y="351">tasks · task_artifacts · task_events</text>
+    <text class="mono" x="416" y="367">goals · agent_executions · turns</text>
+    <text class="mono" x="416" y="383">workflow_runs</text>
+    <text class="mono" x="416" y="399">workflow_step_executions · kg_facts</text>
+    <text class="sub" x="416" y="415">tasks, executions, runs, traces, facts</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">Authoritative rows</tspan> · the relational record: tasks, goals, executions, workflow runs, traces, task events, knowledge-graph facts</text><text class="p2" x="36" y="708">turns is written fire-and-forget by TurnTraceService; task_events is awaited by TaskEventService before the bus event is emitted.</text></g>
+  </g></a>
+  <a href="../data-model.md#31-backend"><g class="n tint k-host" id="backend">
+    <rect class="box" x="404" y="466" width="300" height="76" rx="9"/>
+    <text class="name mono-name" x="416" y="489">PostgresBackend</text>
+    <text class="sub" x="416" y="507">one pool (database.pool_size, default 5)</text>
+    <text class="sub" x="416" y="523">PostgresSchemaGate, dartclaw_schema marker</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">PostgresBackend</tspan> · prepared statements and asynchronous transactions behind the DatabaseBackend port, shared by every repository and index</text><text class="p2" x="36" y="708">The schema gate admits an empty database, the exact current schema or one released transition; every other shape is refused without mutation.</text></g>
+  </g></a>
+  <a href="../data-model.md#instance-local-and-small-stores"><g class="n tint k-neu" id="turn">
+    <rect class="box" x="756" y="134" width="216" height="86" rx="9"/>
+    <text class="name mono-name" x="768" y="157">turn_state.json</text>
+    <text class="sub" x="768" y="175">TurnStateStore: in-flight turns,</text>
+    <text class="sub" x="768" y="191">atomic synchronous document;</text>
+    <text class="sub" x="768" y="207">read at startup for orphans</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">turn_state.json</tspan> · records of active turns, read before PostgreSQL opens so orphaned turns are found</text><text class="p2" x="36" y="708">Transient and instance-local: a lost file starts empty. Serving runners acknowledge the orphan records after storage wiring returns.</text></g>
+  </g></a>
+  <a href="../data-model.md#instance-local-and-small-stores"><g class="n tint k-neu" id="webhook">
+    <rect class="box" x="756" y="232" width="216" height="86" rx="9"/>
+    <text class="name mono-name" x="768" y="255">webhook_deliveries/</text>
+    <text class="sub" x="768" y="273">WebhookDeliveryStore: one marker</text>
+    <text class="sub" x="768" y="289">per delivery id, claimed</text>
+    <text class="sub" x="768" y="305">exclusively; TTL purge</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">webhook_deliveries/</tspan> · one marker file per inbound webhook delivery id, claimed exclusively so a redelivery is dropped</text><text class="p2" x="36" y="708">Instance-local and purged by TTL; a lost directory starts empty.</text></g>
+  </g></a>
+  <a href="../data-model.md#4-standalone-execution-checkpoint"><g class="n ghost k-store" id="standalone">
+    <rect class="box" x="756" y="392" width="216" height="140" rx="9"/>
+    <text class="name mono-name" x="768" y="415">standalone/</text>
+    <text class="sub" x="768" y="433">execution.json: file store</text>
+    <text class="sub" x="768" y="449">sessions, kv.json, turn state</text>
+    <text class="sub" x="768" y="465">StandaloneExecutionLease guard</text>
+    <text class="sub" x="768" y="481">no PostgreSQL connection</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">standalone/</tspan> · headless workflow runs keep tasks, runs, traces and sessions in files under standalone/, behind the same repository contracts</text><text class="p2" x="36" y="708">One execution process owns the directory through StandaloneExecutionLease; a malformed checkpoint refuses to load and is never reset.</text></g>
+  </g></a>
+  <g transform="translate(24,614)">
+    <g class="tint k-store"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">authoritative file</text>
+    <g class="solid k-store"><rect class="box" x="155.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="177.60000000000002" y="10">authoritative rows</text>
+    <g class="line k-store"><rect class="box" x="311.20000000000005" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="333.20000000000005" y="10">derived projection</text>
+    <g class="tint k-neu"><rect class="box" x="466.80000000000007" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="488.80000000000007" y="10">instance-local</text>
+    <g class="tint k-host"><rect class="box" x="597.6000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="619.6000000000001" y="10">DartClaw code</text>
+    <g class="e dash"><path d="M722.2000000000002,6 H754.2000000000002"/></g><text class="lg" x="762.2000000000002" y="10">derived or alternative</text>
   </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>Config is written with temp file plus rename and a backup. kv.json holds daily usage summaries and other small global state.</title>
-    <rect class="box" x="28" y="256" width="336" height="62" rx="6"/>
-    <text class="name" x="42" y="277">dartclaw.yaml · kv.json</text>
-    <text class="sub" x="42" y="294">config (ConfigWriter, atomic write)</text>
-    <text class="sub" x="42" y="309">global key-value store (KvService)</text>
-  </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>Guard audit is date-partitioned with retention cleanup. usage.jsonl rotates by size.</title>
-    <rect class="box" x="28" y="328" width="336" height="62" rx="6"/>
-    <text class="name" x="42" y="349">audit-YYYY-MM-DD.ndjson · usage.jsonl</text>
-    <text class="sub" x="42" y="366">append-only logs (GuardAuditLogger,</text>
-    <text class="sub" x="42" y="381">UsageTracker); audit has retention cleanup</text>
-  </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>Channel thread bindings, the runtime project registry and parked schedule changes.</title>
-    <rect class="box" x="28" y="400" width="336" height="76" rx="6"/>
-    <text class="name" x="42" y="421">small atomic documents</text>
-    <text class="chip-text" x="42" y="438">thread-bindings.json · projects.json</text>
-    <text class="chip-text" x="42" y="453">pending-schedule-changes.json</text>
-    <text class="sub" x="42" y="468">temp file + rename</text>
-  </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>Derived projection of chat-facing messages. Rebuilt from session NDJSON; authenticated against current content before results are published.</title>
-    <rect class="box" x="428" y="112" width="336" height="62" rx="6"/>
-    <text class="name" x="442" y="133">conversation_chunks</text>
-    <text class="sub" x="442" y="150">+ conversation_vectors (optional)</text>
-    <text class="sub" x="442" y="165">derived: lexical, optional pgvector</text>
-  </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>Derived projection of canonical memory, one owner-scoped corpus per principal. Hybrid search needs administrator-provisioned pgvector.</title>
-    <rect class="box" x="428" y="184" width="336" height="62" rx="6"/>
-    <text class="name" x="442" y="205">memory_chunks</text>
-    <text class="sub" x="442" y="222">+ memory_vectors (optional)</text>
-    <text class="sub" x="442" y="237">derived: lexical, optional pgvector</text>
-  </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-store">
-    <title>Relational authority. turns is written fire-and-forget by TurnTraceService; task_events is awaited by TaskEventService before the bus event is emitted.</title>
-    <rect class="box" x="428" y="256" width="336" height="134" rx="6"/>
-    <text class="name" x="442" y="277">Authoritative rows</text>
-    <text class="chip-text" x="442" y="294">tasks · task_artifacts · task_events</text>
-    <text class="chip-text" x="442" y="309">goals · agent_executions</text>
-    <text class="chip-text" x="442" y="324">workflow_runs · workflow_step_executions</text>
-    <text class="chip-text" x="442" y="339">turns · kg_facts</text>
-    <text class="sub" x="442" y="354">Tasks, executions, runs, traces, KG facts</text>
-  </g>
-  </a>
-  <a href="../data-model.md">
-  <g class="node k-host">
-    <title>Prepared statements and asynchronous transactions behind the DatabaseBackend port. The schema gate refuses an incompatible schema before any repository is built.</title>
-    <rect class="box" x="428" y="400" width="336" height="72" rx="6"/>
-    <text class="name" x="442" y="421">PostgresBackend + PostgresSchemaGate</text>
-    <text class="sub" x="442" y="438">one pool (database.pool_size, default 5)</text>
-    <text class="sub" x="442" y="453">serving interlock; schema gate before repositories</text>
-  </g>
-  </a>
-  <a href="../session-state-architecture.md">
-  <g class="node k-store">
-    <title>TurnStateStore: synchronous atomic document of in-flight turns. Transient; never replicated.</title>
-    <rect class="box" x="828" y="112" width="144" height="80" rx="6"/>
-    <text class="name" x="842" y="133">turn_state.json</text>
-    <text class="sub" x="842" y="150">active-turn records</text>
-    <text class="sub" x="842" y="165">read at startup to</text>
-    <text class="sub" x="842" y="180">recover orphaned turns</text>
-  </g>
-  </a>
-  <a href="../channel-messaging-architecture.md">
-  <g class="node k-store">
-    <title>WebhookDeliveryStore: one marker per delivery id with a TTL purge. Instance-local.</title>
-    <rect class="box" x="828" y="204" width="144" height="80" rx="6"/>
-    <text class="name" x="838" y="225" style="font-size:12px">webhook_deliveries/</text>
-    <text class="sub" x="842" y="242">exclusive claim</text>
-    <text class="sub" x="842" y="257">markers for inbound</text>
-    <text class="sub" x="842" y="272">webhook dedup</text>
-  </g>
-  </a>
-  <a href="../system-architecture.md#service-wiring">
-  <g class="node k-host">
-    <title>DartclawRuntime.build(headless: true) uses FileExecutionStore and standalone session, KV and turn-state files under &lt;data_dir&gt;/standalone/, held by a StandaloneExecutionLease.</title>
-    <rect class="box" x="828" y="296" width="144" height="176" rx="6"/>
-    <text class="name" x="842" y="317">Standalone mode</text>
-    <text class="sub" x="842" y="334">Headless workflow runs</text>
-    <text class="sub" x="842" y="349">open no PostgreSQL</text>
-    <text class="sub" x="842" y="364">connection. Tasks, runs,</text>
-    <text class="sub" x="842" y="379">traces and sessions live</text>
-    <text class="sub" x="842" y="394">in files under</text>
-    <text class="chip-text" x="838" y="409">data_dir/standalone/</text>
-    <text class="sub" x="842" y="424">guarded by a lease.</text>
-  </g>
-  </a>
-  <text class="group-label" x="16" y="516">Serving startup order</text>
-  <g class="node k-host">
-    <title>memory preflight</title>
-    <path class="edge" d="M144,553 L163,553"/>
-    <rect class="box" x="26" y="528" width="118" height="50" rx="6"/>
-    <text class="name" x="36" y="546">1</text>
-    <text class="sub" x="50" y="546">memory preflight</text>
-  </g>
-  <g class="node k-host">
-    <title>turn_state.json + orphan scan</title>
-    <path class="edge" d="M281,553 L300,553"/>
-    <rect class="box" x="163" y="528" width="118" height="50" rx="6"/>
-    <text class="name" x="173" y="546">2</text>
-    <text class="sub" x="187" y="546">turn_state.json</text>
-    <text class="sub" x="187" y="561">+ orphan scan</text>
-  </g>
-  <g class="node k-host">
-    <title>PostgreSQL pool</title>
-    <path class="edge" d="M418,553 L437,553"/>
-    <rect class="box" x="300" y="528" width="118" height="50" rx="6"/>
-    <text class="name" x="310" y="546">3</text>
-    <text class="sub" x="324" y="546">PostgreSQL pool</text>
-  </g>
-  <g class="node k-host">
-    <title>serving interlock</title>
-    <path class="edge" d="M555,553 L574,553"/>
-    <rect class="box" x="437" y="528" width="118" height="50" rx="6"/>
-    <text class="name" x="447" y="546">4</text>
-    <text class="sub" x="461" y="546">serving</text>
-    <text class="sub" x="461" y="561">interlock</text>
-  </g>
-  <g class="node k-host">
-    <title>schema gate</title>
-    <path class="edge" d="M692,553 L711,553"/>
-    <rect class="box" x="574" y="528" width="118" height="50" rx="6"/>
-    <text class="name" x="584" y="546">5</text>
-    <text class="sub" x="598" y="546">schema gate</text>
-  </g>
-  <g class="node k-host">
-    <title>language check, index reconcile</title>
-    <path class="edge" d="M829,553 L848,553"/>
-    <rect class="box" x="711" y="528" width="118" height="50" rx="6"/>
-    <text class="name" x="721" y="546">6</text>
-    <text class="sub" x="735" y="546">language check,</text>
-    <text class="sub" x="735" y="561">index reconcile</text>
-  </g>
-  <g class="node k-host">
-    <title>orphan turns acknowledged</title>
-    <rect class="box" x="848" y="528" width="118" height="50" rx="6"/>
-    <text class="name" x="858" y="546">7</text>
-    <text class="sub" x="872" y="546">orphan turns</text>
-    <text class="sub" x="872" y="561">acknowledged</text>
-  </g>
-  <text class="note" x="24" y="606">Local state is scanned before PostgreSQL opens; the interlock precedes the schema gate; headless and one-shot clients skip the orphan scan, the interlock and step 7.</text>
-  <text class="note" x="24" y="626">Dashed arrows: derived rows are rebuilt from the files, never the other way round (dartclaw rebuild-index).</text>
 </svg>

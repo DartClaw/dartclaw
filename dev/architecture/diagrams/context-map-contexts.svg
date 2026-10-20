@@ -1,203 +1,178 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 874" width="1000" height="874" role="img" aria-labelledby="title desc">
-  <title id="title">Bounded contexts and integration patterns</title>
-  <desc id="desc">Twelve contexts with the named pattern on each point-to-point integration, plus three cross-cutting contexts and the shared kernel. Core subdomains are blue, supporting purple; turn-orchestration is the hub that execution, guarding, governance, conversation and knowledge contexts feed.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 816" width="1000" height="816" role="img" aria-labelledby="title desc">
+  <title id="title">Bounded contexts around turn-orchestration</title>
+  <desc id="desc">Eight bounded contexts and the named pattern on each integration. turn-orchestration is the hub: provider-mediation, guarding-audit, knowledge-memory and conversation-session publish into it, runtime-governance gates it, and execution-isolation is its partner. guarding-audit and execution-isolation are deliberately separate ways.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .edge.bi { marker-start: url(#arrow); }
-    .edge.plain { marker-end: none; }
-    svg .node:hover .edge.bi { marker-start: url(#arrow-hi); }
-    svg .node:hover .edge.plain { marker-end: none; }
-    .elab { fill: var(--sub); font-size: 10.5px; font-weight: 600; }
-    .badge { fill: var(--accent); }
-    .badge-text { fill: var(--bg); font-size: 11px; font-weight: 700; text-anchor: middle; }
-    .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 4; }
-    .msg { fill: none; stroke: var(--edge); stroke-width: 1.5; marker-end: url(#arrow); }
-    .msg.ret { stroke-dasharray: 5 4; }
-    .mlabel { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
-    .legend-text { fill: var(--sub); font-size: 11px; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .e.bi path { marker-start: var(--em, url(#ah)); }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#turn:hover) .edges :is(.f-turn,.t-turn) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#provider:hover) .edges :is(.f-provider,.t-provider) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gov:hover) .edges :is(.f-gov,.t-gov) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#exec:hover) .edges :is(.f-exec,.t-exec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#guard:hover) .edges :is(.f-guard,.t-guard) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tools:hover) .edges :is(.f-tools,.t-tools) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#know:hover) .edges :is(.f-know,.t-know) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#conv:hover) .edges :is(.f-conv,.t-conv) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="874"/>
-  <text class="title" x="24" y="34">Bounded contexts and integration patterns</text>
-  <text class="lede" x="24" y="56">Arrows run from upstream (supplier) to downstream (consumer). Cross-cutting contexts and the shared kernel are at the bottom.</text>
-  <g class="node k-chan">
-    <title>Project &amp; source control. dartclaw_runtime/lib/src/project/, Project and ProjectConfig in dartclaw_kernel. Shared upstream of task-review and workflow-orchestration.</title>
-    <path class="edge" d="M230,126 H298"/>
-    <path class="edge" d="M135,100 V82 H635 V98"/>
-    <rect class="box" x="40" y="100" width="190" height="52" rx="6"/>
-    <text class="mono" x="54" y="122">project-registry</text>
-    <text class="sub" x="54" y="139">git checkouts</text>
+  <rect class="bg" width="1000" height="816"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="720" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="744">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="768">Hover a context for its purpose and invariant; its integrations light up. Click it to open the table.</text><text class="p2" x="36" y="788">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">CONTEXT MAP · THE EXECUTION CORE</text>
+  <text class="title" x="24" y="58">Bounded contexts around turn-orchestration</text>
+  <text class="lede" x="24" y="80">Arrows run from upstream to downstream. Six contexts meet at the turn hub; guarding-audit and execution-isolation compose only there.</text>
+
+  <g class="k-sec"><rect class="band" x="52" y="276" width="224" height="262" rx="14"/><text class="kick" x="68" y="298">DEFENSE LAYERS 3 + 5</text></g>
+  <text class="lg" x="24" y="662" text-anchor="start">Weight</text>
+  <text class="lg" x="24" y="688" text-anchor="start">Colour</text>
+  <text class="lg" x="24" y="712" text-anchor="start">OHS Open Host Service · C/S Customer/Supplier · P Partnership · SW Separate Ways.</text>
+
+  <g class="edges">
+    <g class="e  f-provider t-turn"><path d="M410,202 V298"/><text class="el" x="418" y="254" text-anchor="start">OHS</text></g>
+    <g class="e  f-gov t-turn"><path d="M620,202 V298"/><text class="el" x="628" y="254" text-anchor="start">C/S</text></g>
+    <g class="e bi f-exec t-turn"><path d="M266,342 H318"/><text class="el" x="292" y="334" text-anchor="middle">P</text></g>
+    <g class="e bi f-exec f-provider t-provider t-exec"><path d="M310,171 H236 V309"/><text class="el" x="272" y="163" text-anchor="start">P</text></g>
+    <g class="e  f-guard t-turn"><path d="M266,462 H350 V386"/><text class="el" x="358" y="430" text-anchor="start">OHS</text></g>
+    <g class="e dash join f-guard t-exec"><path d="M164,450 V375"/><text class="el" x="172" y="418" text-anchor="start">SW</text></g>
+    <g class="e  f-guard t-tools"><path d="M164,512 V568"/><text class="el" x="172" y="546" text-anchor="start">OHS</text></g>
+    <g class="e  f-tools t-exec"><path d="M64,601 H34 V342 H62"/><text class="el" x="34" y="472" text-anchor="middle">C/S</text></g>
+    <g class="e  f-know t-turn"><path d="M470,450 V386"/><text class="el" x="478" y="424" text-anchor="start">C/S</text></g>
+    <g class="e  f-know t-tools"><path d="M370,496 H316 V601 H268"/><text class="el" x="324" y="560" text-anchor="start">OHS</text></g>
+    <g class="e  f-know t-conv"><path d="M570,481 H878 V375"/><text class="el" x="730" y="473" text-anchor="middle">OHS</text></g>
+    <g class="e  f-conv t-turn"><path d="M778,342 H722"/><text class="el" x="750" y="334" text-anchor="middle">C/S</text></g>
   </g>
-  <text class="elab" x="262" y="120" text-anchor="middle">OHS</text>
-  <text class="elab" x="385" y="78" text-anchor="middle">OHS</text>
-  <g class="node k-host">
-    <title>Deterministic multi-step pipelines with git branch topology. dartclaw_workflow plus glue in dartclaw_runtime. Contested core (H-1).</title>
-    <rect class="box" x="300" y="100" width="190" height="52" rx="6"/>
-    <text class="mono" x="314" y="122">workflow-orchestration</text>
-    <text class="sub" x="314" y="139">pipelines, branches</text>
+
+  <a href="../context-map.md#bounded-contexts"><g class="n solid k-host" id="turn">
+    <rect class="box" x="320" y="300" width="400" height="84" rx="9"/>
+    <text class="name mono-name" x="332" y="323">turn-orchestration</text>
+    <text class="sub" x="332" y="341">core · admit, run and observe one unit of agent work</text>
+    <text class="sub" x="332" y="357">serialized primary lane, hard per-provider leases</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">turn-orchestration</tspan> · admits, runs and observes one unit of agent work: one serialized primary lane, per-provider worker leases</text><text class="p2" x="36" y="788">Capacity is lease-based and reuse is only an optimization. Lives in dartclaw_runtime turn_*.dart and execution_coordinator*.dart.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-ext" id="provider">
+    <rect class="box" x="310" y="140" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="322" y="163">provider-mediation</text>
+    <text class="sub" x="322" y="181">core · AgentHarness, adapters</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">provider-mediation</tspan> · Claude JSONL, Codex JSON-RPC and ACP normalized to one host-owned execution contract</text><text class="p2" x="36" y="788">Provider branching stays inside adapters (AgentHarness + ProtocolAdapter); BridgeEvent is its published language.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-sec" id="gov">
+    <rect class="box" x="530" y="140" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="542" y="163">runtime-governance</text>
+    <text class="sub" x="542" y="181">supporting · admission limits</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">runtime-governance</tspan> · cost, rate and runaway-autonomy limits, enforced before a turn starts</text><text class="p2" x="36" y="788">Governance is pre-execution and the coordinator is post-governance; every control is default-disabled.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-sec" id="exec">
+    <rect class="box" x="64" y="311" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="76" y="334">execution-isolation</text>
+    <text class="sub" x="76" y="352">core · principal, authority</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">execution-isolation</tspan> · binds each execution to one trust principal and mediates its provider traffic host-side</text><text class="p2" x="36" y="788">A container never crosses principals; credentials never enter a container environment. Its bridge frame format is a Published Language.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-sec" id="guard">
+    <rect class="box" x="64" y="450" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="76" y="473">guarding-audit</text>
+    <text class="sub" x="76" y="491">core · guards, verdicts</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">guarding-audit</tspan> · evaluates every tool call, inbound message and egress against policy and records the verdict</text><text class="p2" x="36" y="788">EventBus-free by design so guards run standalone; verdicts leave through GuardVerdictCallback. Fail-closed by default.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n ghost k-ext" id="tools">
+    <rect class="box" x="64" y="570" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="76" y="593">tool-surface</text>
+    <text class="sub" x="76" y="611">shared · host + outbound MCP</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">tool-surface</tspan> · publishes host-owned tools to provider binaries and consumes external MCP servers under guard</text><text class="p2" x="36" y="788">No subdomain of its own (it shares guarding and knowledge). Container executions reach /mcp only through the per-authority bridge.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-store" id="know">
+    <rect class="box" x="370" y="450" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="382" y="473">knowledge-memory</text>
+    <text class="sub" x="382" y="491">core · memory, search, graph</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">knowledge-memory</tspan> · retains, curates and synthesizes durable knowledge; serves citation-backed context to agents</text><text class="p2" x="36" y="788">The search index is a rebuildable projection; authoritative knowledge-graph facts live in durable storage.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-host" id="conv">
+    <rect class="box" x="780" y="311" width="196" height="62" rx="9"/>
+    <text class="name mono-name" x="792" y="334">conversation-session</text>
+    <text class="sub" x="792" y="352">supporting · sessions</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">conversation-session</tspan> · conversation identity, retention, submissions, attempts, effective context and inbox state</text><text class="p2" x="36" y="788">The session key is deterministic, which decouples scoping from session discovery.</text></g>
+  </g></a>
+  <g transform="translate(80,652)">
+    <g class="solid k-neu"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">hub</text>
+    <g class="tint k-neu"><rect class="box" x="62.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="84.6" y="10">core subdomain</text>
+    <g class="line k-neu"><rect class="box" x="193.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="215.4" y="10">supporting</text>
+    <g class="ghost k-neu"><rect class="box" x="299.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="321.4" y="10">shared, no subdomain of its own</text>
+    <g class="e "><path d="M535.6,6 H567.6"/></g><text class="lg" x="575.6" y="10">upstream to downstream</text>
+    <g class="e bi"><path d="M734.0,6 H766.0"/></g><text class="lg" x="774.0" y="10">mutual</text>
   </g>
-  <g class="node k-chan">
-    <title>Task and review lifecycle plus scheduling. dartclaw_runtime/lib/src/{task,scheduling}/, dartclaw_core/lib/src/task/.</title>
-    <path class="edge" d="M540,126 H492"/>
-    <path class="edge" d="M730,126 H865 V158"/>
-    <rect class="box" x="540" y="100" width="190" height="52" rx="6"/>
-    <text class="mono" x="554" y="122">task-review</text>
-    <text class="sub" x="554" y="139">reviewable work</text>
+  <g transform="translate(80,678)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">turn flow and sessions</text>
+    <g class="tint k-ext"><rect class="box" x="180.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="202.4" y="10">faces a provider or MCP peer</text>
+    <g class="tint k-sec"><rect class="box" x="398.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="420.0" y="10">isolates or limits</text>
+    <g class="tint k-store"><rect class="box" x="553.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="575.6" y="10">durable knowledge</text>
   </g>
-  <text class="elab" x="516" y="120" text-anchor="middle">C/S</text>
-  <text class="elab" x="780" y="120" text-anchor="middle">C/S</text>
-  <g class="node k-chan">
-    <title>Normalizes WhatsApp, Signal, Google Chat and Slack into one inbound/outbound contract. dartclaw_core/lib/src/channel/ plus four adapter packages.</title>
-    <rect class="box" x="770" y="160" width="190" height="52" rx="6"/>
-    <text class="mono" x="784" y="182">channel-integration</text>
-    <text class="sub" x="784" y="199">ChannelMessage in/out</text>
-  </g>
-  <g class="node k-host">
-    <title>Claude JSONL, Codex JSON-RPC and ACP normalized to one host-owned contract. dartclaw_core/lib/src/{harness,bridge,worker}/, dartclaw_acp.</title>
-    <path class="edge" d="M230,226 H300 V312 H398"/>
-    <rect class="box" x="40" y="200" width="190" height="52" rx="6"/>
-    <text class="mono" x="54" y="222">provider-mediation</text>
-    <text class="sub" x="54" y="239">AgentHarness, adapters</text>
-  </g>
-  <text class="elab" x="306" y="268">OHS</text>
-  <g class="node k-chan">
-    <title>Budgets, rate limits, loop detection, emergency stop. Governance is pre-execution; the coordinator is post-governance.</title>
-    <path class="edge" d="M470,252 V298"/>
-    <rect class="box" x="400" y="200" width="190" height="52" rx="6"/>
-    <text class="mono" x="414" y="222">runtime-governance</text>
-    <text class="sub" x="414" y="239">pre-execution limits</text>
-  </g>
-  <text class="elab" x="476" y="282">C/S</text>
-  <g class="node k-host">
-    <title>Binds each execution to one trust principal and mediates provider traffic host-side. dartclaw_runtime/lib/src/container/, dartclaw_bridge.</title>
-    <path class="edge bi" d="M135,330 V254"/>
-    <path class="edge bi" d="M230,346 H398"/>
-    <rect class="box" x="40" y="330" width="190" height="52" rx="6"/>
-    <text class="mono" x="54" y="352">execution-isolation</text>
-    <text class="sub" x="54" y="369">principal, authority, gateway</text>
-  </g>
-  <text class="elab" x="142" y="296">P</text>
-  <text class="elab" x="312" y="340">P</text>
-  <g class="node k-host">
-    <title>Admits, runs and observes one unit of agent work: serialized primary lane, hard per-provider lease capacity, worker reuse.</title>
-    <rect class="box" x="400" y="300" width="220" height="52" rx="6"/>
-    <text class="mono" x="414" y="322">turn-orchestration</text>
-    <text class="sub" x="414" y="339">lanes, leases, coordinator</text>
-  </g>
-  <g class="node k-chan">
-    <title>Conversation identity, retention, submissions, attempts, effective context, inbox state.</title>
-    <path class="edge" d="M770,326 H622"/>
-    <path class="edge" d="M865,300 V214"/>
-    <rect class="box" x="770" y="300" width="190" height="52" rx="6"/>
-    <text class="mono" x="784" y="322">conversation-session</text>
-    <text class="sub" x="784" y="339">sessions, attempts</text>
-  </g>
-  <text class="elab" x="692" y="320" text-anchor="middle">C/S</text>
-  <text class="elab" x="871" y="262">C/S</text>
-  <g class="node k-dev">
-    <title>Publishes host-owned tools to provider binaries and consumes external MCP servers under the egress guard. dartclaw_runtime/lib/src/mcp/.</title>
-    <path class="edge" d="M135,460 V384"/>
-    <rect class="box" x="40" y="460" width="190" height="52" rx="6"/>
-    <text class="mono" x="54" y="482">tool-surface</text>
-    <text class="sub" x="54" y="499">host MCP + outbound MCP</text>
-  </g>
-  <text class="elab" x="142" y="428">C/S</text>
-  <g class="node k-host">
-    <title>Evaluates tool calls, inbound messages and egress, and records the verdict. EventBus-free by design.</title>
-    <path class="edge" d="M450,460 V354"/>
-    <path class="edge" d="M330,486 H232"/>
-    <path class="edge plain dashed" d="M345,460 L215,382"/>
-    <rect class="box" x="330" y="460" width="190" height="52" rx="6"/>
-    <text class="mono" x="344" y="482">guarding-audit</text>
-    <text class="sub" x="344" y="499">guards, verdicts</text>
-  </g>
-  <text class="elab" x="456" y="420">OHS</text>
-  <text class="elab" x="262" y="480" text-anchor="middle">OHS</text>
-  <text class="elab" x="292" y="448">SW</text>
-  <g class="node k-host">
-    <title>Durable knowledge: canonical memory, search index, knowledge graph, citation synthesis. dartclaw_core/lib/src/{memory,search,knowledge,storage}/, dartclaw_search.</title>
-    <path class="edge" d="M600,460 V354"/>
-    <path class="edge" d="M760,486 H865 V354"/>
-    <path class="edge" d="M660,512 V560 H135 V514"/>
-    <rect class="box" x="560" y="460" width="200" height="52" rx="6"/>
-    <text class="mono" x="574" y="482">knowledge-memory</text>
-    <text class="sub" x="574" y="499">memory, search, KG</text>
-  </g>
-  <text class="elab" x="606" y="420">C/S</text>
-  <text class="elab" x="802" y="480" text-anchor="middle">OHS</text>
-  <text class="elab" x="400" y="553" text-anchor="middle">OHS</text>
-  <rect class="group" x="24" y="596" width="952" height="104" rx="8"/>
-  <text class="group-label" x="36" y="614">Cross-cutting contexts</text>
-  <g class="node k-chan">
-    <title>Routes, templates, auth, web UI and CLI. Conformist to every context it renders (accepted drift D-1); Published Language from conversation-session; Open Host Service from workflow-orchestration.</title>
-    <rect class="box" x="40" y="626" width="290" height="62" rx="6"/>
-    <text class="mono" x="54" y="648">operator-interface</text>
-    <text class="sub" x="54" y="665">Conformist to every context it renders;</text>
-    <text class="sub" x="54" y="679">PL from conversation-session, OHS from workflow</text>
-  </g>
-  <g class="node k-chan">
-    <title>Consumes the sealed DartclawEvent hierarchy; subscribers never reach into domains (ADR-011).</title>
-    <rect class="box" x="355" y="626" width="290" height="62" rx="6"/>
-    <text class="mono" x="369" y="648">observability-alerting</text>
-    <text class="sub" x="369" y="665">Published Language: sealed DartclawEvent</text>
-    <text class="sub" x="369" y="679">from all contexts</text>
-  </g>
-  <g class="node k-chan">
-    <title>Typed sections are an Open Host Service for all contexts; ConfigDelta + Reconfigurable.watchKeys is the Published Language for hot reload.</title>
-    <rect class="box" x="670" y="626" width="290" height="62" rx="6"/>
-    <text class="mono" x="684" y="648">configuration-platform</text>
-    <text class="sub" x="684" y="665">OHS: typed sections for all contexts;</text>
-    <text class="sub" x="684" y="679">PL: ConfigDelta for hot reload</text>
-  </g>
-  <g class="node k-store">
-    <title>Shared Kernel (not a context): dependency-free values, storage ports, typed configuration, guard contracts and utilities shared verbatim.</title>
-    <rect class="box" x="24" y="712" width="952" height="40" rx="6"/>
-    <text class="mono" x="38" y="738">dartclaw_kernel</text><text class="sub" x="188" y="738">Shared Kernel to all contexts (not itself a context): values, storage ports, typed config, guard contracts, utilities</text>
-  </g>
-  <path class="edge" d="M24,782 L64,782"/><text class="legend-text" x="72" y="786">upstream to downstream</text>
-  <path class="edge bi" d="M232,782 L272,782"/><text class="legend-text" x="280" y="786">Partnership (P)</text>
-  <path class="edge plain dashed" d="M402,782 L442,782"/><text class="legend-text" x="450" y="786">Separate Ways (SW)</text>
-  <rect x="24" y="798" width="20" height="12" rx="3" fill="none" stroke="var(--host)"/><text class="legend-text" x="52" y="808">core subdomain</text>
-  <rect x="168" y="798" width="20" height="12" rx="3" fill="none" stroke="var(--chan)"/><text class="legend-text" x="196" y="808">supporting subdomain</text>
-  <rect x="340" y="798" width="20" height="12" rx="3" fill="none" stroke="var(--dev)" stroke-dasharray="5 4"/><text class="legend-text" x="368" y="808">no subdomain of its own (shared)</text>
-  <text class="legend-text" x="24" y="832">OHS Open Host Service · C/S Customer/Supplier · PL Published Language</text>
-  <text class="legend-text" x="24" y="854">External upstreams (provider CLIs, messaging APIs, MCP servers, Docker) are in the Integration Patterns tables.</text>
 </svg>

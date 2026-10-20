@@ -71,6 +71,10 @@ policy only. Callers keep subprocess I/O, lookup and their own remediation text.
 
 ## Component Map
 
+[![DartClaw system context](diagrams/system-context.svg)](diagrams/system-context.svg)
+
+DartClaw is one host process: the operator and MCP clients call its HTTP server, channel users reach it through messaging platforms (WhatsApp and Signal via the GOWA and `signal-cli` sidecars), and it drives provider binaries, PostgreSQL, the container runtime, git remotes and web services.
+
 [![System architecture overview](diagrams/system-overview.svg)](diagrams/system-overview.svg)
 
 Arrows show the main request path. Every subsystem persists through storage and publishes on the `EventBus`; the
@@ -116,7 +120,13 @@ Bounded contexts and the relationships between them: [Context Map](context-map.m
 Admission is separate from capacity. `TurnRunner.admitTurn` applies the daily token budget (a read-only check), takes the
 session lock, then applies the loop-chain check and the global rate window. The lock comes first because the last two
 record state, and an attempt the lock rejects must not count. A polled fail-fast task or workflow request takes its capacity permit
-first, so an attempt the lane cannot run leaves no record.
+first, so an attempt the lane cannot run leaves no record. A turn refused at admission, or for lack of a permit, never reaches
+a provider.
+
+Lane choice is per surface. Web chat takes the primary lane when its provider and policy match the primary harness, otherwise a
+worker. Channel messages take the primary lane, unless the session is bound to a logical agent, which takes a worker. Workflow
+steps and logical agents always take a worker. Tasks and cron jobs take a worker, or the primary lane only in the single-harness
+SDK composition.
 
 ### Cross-Cutting Invariants
 
@@ -140,8 +150,12 @@ for crash recovery and `webhook_deliveries/` for dedup. Headless workflow runs r
 
 Startup order matters. Local orphan-turn state is scanned before PostgreSQL opens, the serving interlock is acquired
 before the schema gate, and serving runners acknowledge orphan records only after storage wiring returns. Headless and
-one-shot clients skip the interlock and the scan. Entities, write safety, retention and recovery are in
-[Data Model](data-model.md).
+one-shot clients skip the interlock and the scan. The interlock is a PostgreSQL session advisory lock on a dedicated
+connection, so a second serving instance on the same database is refused. The schema gate creates an empty schema, accepts
+the exact current one, applies the one admitted transition from the released 0.27 shape, and refuses every other shape
+without mutating it. Entities, write safety, retention and recovery are in [Data Model](data-model.md).
+
+[![Serving startup order](diagrams/system-storage-startup.svg)](diagrams/system-storage-startup.svg)
 
 ---
 
@@ -262,9 +276,11 @@ the gates are in [Architecture Governance](architecture-governance.md)).
 
 [![Package topology: tier order](diagrams/system-package-topology.svg)](diagrams/system-package-topology.svg)
 
-The figure omits edges implied by a longer path. The CLI also depends directly on `core`, `kernel`, `workflow`,
-`search`, `google_chat` and `slack`, the runtime on `core` and `kernel`, and every other package above T0 except
-`client`, `bridge` and `fitness` on `kernel`. Each `pubspec.yaml` lists the full set.
+The figure shows production dependencies and omits edges implied by a longer path. The CLI also depends directly on
+`core`, `kernel`, `workflow`, `search`, `google_chat` and `slack`, the runtime on `core` and `kernel`, and every other
+package above T0 except `client`, `bridge` and `fitness` on `kernel`. Each `pubspec.yaml` lists the full set.
+`dartclaw_testing` and `dartclaw_fitness` sit at T5 so that no shipping package may depend on them. A `dev_dependencies`
+entry is not a tier edge, which is how every package reaches `dartclaw_testing`.
 
 | Package | Owns | Key constraint |
 |---------|------|----------------|
@@ -300,10 +316,12 @@ Runtime prerequisites:
 
 [![Container isolation topology](diagrams/system-containers.svg)](diagrams/system-containers.svg)
 
-The container name is `dartclaw-<fnv1a32(dataDir) as 8 hex digits>-<profile>-<authority>`, so installs sharing a host
-do not collide. API keys live on the host and never enter a container environment. A container reaches exactly one
-upstream, through the framed pipes `HostGateway` serves for its authority, and the provider adapter strips any
-client-supplied credential before injecting the host's. Claude and Codex have a verified adapter and run on either
+The container name is `dartclaw-<fnv1a32(dataDir) as 8 hex digits>-<profile>-<authority>` (the authority is a startup
+epoch plus a counter), so installs sharing a host do not collide. API keys live on the host and never enter a container
+environment. A container reaches exactly one upstream, through the framed pipes `HostGateway` serves for its authority, and
+the provider adapter strips any client-supplied credential before injecting the host's. The host opens each pipe with
+`docker exec -i`, and killing that process pair revokes the surface. Revocation is permanent: nothing re-registers a
+revoked authority. The MCP pipe exists only when the authority was granted MCP tools. Claude and Codex have a verified adapter and run on either
 boundary. ACP registrations have none, so they never run in a container; the computed compatibility rule is in
 [Control Protocol](control-protocol.md).
 

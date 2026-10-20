@@ -1,153 +1,213 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 630" width="1000" height="630" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 830" width="1000" height="830" role="img" aria-labelledby="title desc">
   <title id="title">Workflow engine: components and ownership</title>
-  <desc id="desc">Trigger surfaces call WorkflowService.start with a definition from the registry; the executor walks the definition and delegates to host-side runners, the task layer and the host git bridge, persisting after every step.</desc>
+  <desc id="desc">Trigger surfaces call WorkflowService.start with a definition from the registry; the executor walks the definition and delegates to host-side runners, context and gate evaluation, the workflow git lifecycle and the task layer, persisting after every step. Git and turn dispatch reach the server only through WorkflowTurnAdapter callbacks.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#surfaces:hover) .edges :is(.f-surfaces,.t-surfaces) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#registry:hover) .edges :is(.f-registry,.t-registry) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#service:hover) .edges :is(.f-service,.t-service) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#executor:hover) .edges :is(.f-executor,.t-executor) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#repo:hover) .edges :is(.f-repo,.t-repo) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#runners:hover) .edges :is(.f-runners,.t-runners) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#context:hover) .edges :is(.f-context,.t-context) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#git:hover) .edges :is(.f-git,.t-git) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#oneshot:hover) .edges :is(.f-oneshot,.t-oneshot) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tasks:hover) .edges :is(.f-tasks,.t-tasks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#adapter:hover) .edges :is(.f-adapter,.t-adapter) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#provider:hover) .edges :is(.f-provider,.t-provider) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#checkout:hover) .edges :is(.f-checkout,.t-checkout) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="630"/>
-  <text class="title" x="24" y="34">Workflow engine: components and ownership</text>
-  <text class="lede" x="24" y="56">Surfaces start runs; the executor persists after every step and reaches git and providers only through injected ports and the task layer.</text>
-  <g class="node k-host">
-    <title>All server-managed surfaces resolve a WorkflowDefinition and call WorkflowService.start. The connected CLI is an API client; the standalone CLI calls the same method on a headless runtime. Surfaces and commands: cli-api-architecture.md.</title>
-    <path class="edge" d="M350,140 V176"/>
-    <rect class="box" x="24" y="84" width="540" height="56" rx="6"/>
-    <text class="mono" x="38" y="105">Trigger surfaces</text>
-    <text class="sub" x="38" y="122">JSON API · run form · GitHub webhook · workflow_run MCP tool · CLI (connected or standalone)</text>
+  <rect class="bg" width="1000" height="830"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="734" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="758">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="782">Hover a component for its role and code; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="802">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">C4 · LEVEL 3 · dartclaw_workflow + ITS PORTS</text>
+  <text class="title" x="24" y="58">Workflow engine: components and ownership</text>
+  <text class="lede" x="24" y="80">Surfaces start runs; the executor persists after every step and reaches git and providers only through injected ports and the task layer.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="164" width="968" height="318" rx="14"/><text class="kick" x="32" y="186">PACKAGE · dartclaw_workflow</text></g>
+  <g class="k-host"><rect class="band" x="16" y="498" width="968" height="108" rx="14"/><text class="kick" x="32" y="520">dartclaw_runtime · INJECTED AT COMPOSITION</text></g>
+
+  <g class="edges">
+    <g class="e  f-registry t-surfaces"><path d="M800,198 V124 H586"/><text class="el" x="640" y="116" text-anchor="start">definitions</text></g>
+    <g class="e  f-surfaces t-service"><path d="M300,150 V196"/><text class="el" x="308" y="178" text-anchor="start">start(definition, variables, origin)</text></g>
+    <g class="e  f-service t-executor"><path d="M190,254 V282"/><text class="el" x="198" y="273" text-anchor="start">spawn from definitionJson snapshot</text></g>
+    <g class="e  f-executor t-repo"><path d="M145,348 V390"/><text class="el" x="153" y="374" text-anchor="start">persist each step</text></g>
+    <g class="e  f-executor t-runners"><path d="M375,348 V390"/><text class="el" x="383" y="374" text-anchor="start">host steps</text></g>
+    <g class="e  f-executor t-context"><path d="M625,348 V390"/><text class="el" x="633" y="374" text-anchor="start">resolve, gate</text></g>
+    <g class="e  f-executor t-git"><path d="M855,348 V390"/><text class="el" x="863" y="374" text-anchor="start">branch, promote</text></g>
+    <g class="e  f-executor t-tasks"><path d="M500,348 V528"/><text class="el" x="508" y="520" text-anchor="start">create task triple, wait</text></g>
+    <g class="e dash f-git t-adapter"><path d="M855,458 V528"/><text class="el" x="863" y="520" text-anchor="start">callbacks</text></g>
+    <g class="e  f-tasks t-oneshot"><path d="M380,562 H302"/><text class="el" x="341" y="554" text-anchor="middle">runs task</text></g>
+    <g class="e  f-oneshot t-provider"><path d="M170,594 V634"/><text class="el" x="178" y="622" text-anchor="start">leased worker</text></g>
+    <g class="e dash f-adapter t-checkout"><path d="M855,594 V634"/><text class="el" x="863" y="622" text-anchor="start">git operations</text></g>
   </g>
-  <a href="../workflow-architecture.md#4-registry-and-built-in-definitions">
-  <g class="node k-host">
-    <title>workflow/workflow_registry.dart. Materialized built-ins from &lt;dataDir&gt;/workflows/built-in/, custom from workflows/custom/. Invalid files are recorded in exclusions; an invalid edit keeps the previous definition.</title>
-    <path class="edge" d="M640,112 H564"/>
-    <rect class="box" x="640" y="84" width="336" height="56" rx="6"/>
-    <text class="mono" x="654" y="105">WorkflowRegistry</text>
-    <text class="sub" x="654" y="122">parse, validate, built-in + custom sources</text>
+
+  <a href="../workflow-architecture.md#52-start-and-trigger-convergence"><g class="n tint k-host" id="surfaces">
+    <rect class="box" x="24" y="98" width="560" height="52" rx="9"/>
+    <text class="name" x="36" y="117">Trigger surfaces</text>
+    <g class="badge"><rect x="471" y="105" width="103" height="16" rx="8"/><text x="522" y="117">runtime · cli</text></g>
+    <text class="sub" x="36" y="133">JSON API · run form · GitHub webhook · workflow_run MCP tool · CLI</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">Trigger surfaces</tspan> · every server-managed surface resolves a WorkflowDefinition and calls WorkflowService.start</text><text class="p2" x="36" y="802">The connected CLI is an API client; the standalone CLI calls the same method on a headless runtime (DartclawRuntime.stageHeadless).</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#4-registry-and-built-in-definitions"><g class="n tint k-host" id="registry">
+    <rect class="box" x="640" y="198" width="320" height="56" rx="9"/>
+    <text class="name mono-name" x="652" y="217">WorkflowRegistry</text>
+    <text class="sub" x="652" y="233">parse, validate; built-in + custom</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">WorkflowRegistry</tspan> · built-ins from &lt;dataDir&gt;/workflows/built-in/, custom from workflows/custom/</text><text class="p2" x="36" y="802">Invalid files are recorded in exclusions, and a materialized name wins a clash with a custom one.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#5-run-lifecycle"><g class="n tint k-host" id="service">
+    <rect class="box" x="40" y="198" width="300" height="56" rx="9"/>
+    <text class="name mono-name" x="52" y="217">WorkflowService</text>
+    <text class="sub" x="52" y="233">start · pause · resume · retry · cancel</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">WorkflowService</tspan> · start validates variables, snapshots the definition into definitionJson, inserts the run, spawns the executor</text><text class="p2" x="36" y="802">One in-process section per run serializes resume, cancel, request changes, approval and timeout; it does not reach other processes.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#53-executor-preflight-and-traversal"><g class="n solid k-host" id="executor">
+    <rect class="box" x="40" y="284" width="920" height="64" rx="9"/>
+    <text class="name mono-name" x="52" y="307">WorkflowExecutor</text>
+    <g class="badge"><rect x="861" y="295" width="89" height="16" rx="8"/><text x="906" y="307">ONE PER RUN</text></g>
+    <text class="sub" x="52" y="325">authored-order traversal of definition.nodes; step, loop, foreach and parallel-group runners are part files</text>
+    <text class="sub" x="52" y="341">writes are conditional (updateOwned): WorkflowRunOwnershipLost stops it if the run was paused or cancelled</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">WorkflowExecutor</tspan> · workflow_executor*.dart: starts from a step index or a persisted WorkflowExecutionCursor</text><text class="p2" x="36" y="802">Resume and retry rebuild it from the stored definitionJson snapshot, never the registry, so editing a YAML file cannot change an in-flight run.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#12-persistence"><g class="n tint k-store" id="repo">
+    <rect class="box" x="40" y="392" width="210" height="66" rx="9"/>
+    <text class="name mono-name" x="52" y="415">WorkflowRunRepository</text>
+    <text class="sub" x="52" y="433">PostgreSQL, or file store</text>
+    <text class="sub" x="52" y="449">when standalone</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">WorkflowRunRepository</tspan> · storage/database_workflow_run_repository.dart (server) or file_workflow_run_repository.dart (standalone)</text><text class="p2" x="36" y="802">The run row holds currentStepIndex, executionCursor, contextJson and totals; context.json under the run directory holds the full WorkflowContext.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#8-host-side-steps"><g class="n tint k-host" id="runners">
+    <rect class="box" x="270" y="392" width="210" height="66" rx="9"/>
+    <text class="name" x="282" y="415">Host-side runners</text>
+    <text class="sub" x="282" y="433">bash · approval · aggregate</text>
+    <text class="sub" x="282" y="449">no task, zero tokens</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">Host-side runners</tspan> · bash_step_runner.dart, approval_step_runner.dart, aggregate_step_runner.dart</text><text class="p2" x="36" y="802">An approval step holds the run in awaitingApproval; a bash failure is an execution error governed by onError.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#9-context-flow"><g class="n tint k-host" id="context">
+    <rect class="box" x="520" y="392" width="210" height="66" rx="9"/>
+    <text class="name" x="532" y="415">Context and gates</text>
+    <text class="sub" x="532" y="433">WorkflowContext, templates,</text>
+    <text class="sub" x="532" y="449">gate evaluator, extraction</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">Context and gates</tspan> · workflow_context.dart, workflow_template_engine.dart, gate_evaluator.dart, context_extractor.dart</text><text class="p2" x="36" y="802">A step sees only the context keys it names; entry and exit gates are evaluated here and outputs are merged after every step.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#10-workflow-owned-git"><g class="n tint k-host" id="git">
+    <rect class="box" x="750" y="392" width="210" height="66" rx="9"/>
+    <text class="name" x="762" y="415">Git lifecycle</text>
+    <text class="sub" x="762" y="433">integration branch, promotion,</text>
+    <text class="sub" x="762" y="449">publish, cleanup</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">Git lifecycle</tspan> · workflow_git_lifecycle.dart, promotion_coordinator.dart, merge_resolve_coordinator.dart, workflow_artifact_committer.dart</text><text class="p2" x="36" y="802">The package holds the orchestration; every branch, worktree and push operation is a callback on WorkflowTurnAdapter.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#73-one-shot-execution-and-the-finalizer-envelope"><g class="n tint k-host" id="oneshot">
+    <rect class="box" x="40" y="530" width="260" height="64" rx="9"/>
+    <text class="name mono-name" x="52" y="553">WorkflowOneShotRunner</text>
+    <text class="sub" x="52" y="571">prompt chain and finalizer</text>
+    <text class="sub" x="52" y="587">on one leased worker</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">WorkflowOneShotRunner</tspan> · task/workflow_one_shot_runner.dart: the whole prompt chain and finalizer turn on one provider worker lease</text><text class="p2" x="36" y="802">The transcript is recorded in the task session; read-only behaviour comes from the effective allowedTools.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#13-relationship-to-task-execution"><g class="n tint k-host" id="tasks">
+    <rect class="box" x="380" y="530" width="240" height="64" rx="9"/>
+    <text class="name" x="392" y="553">Task layer</text>
+    <text class="sub" x="392" y="571">task triple, TaskExecutor,</text>
+    <text class="sub" x="392" y="587">review and artifact lifecycle</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">Task layer</tspan> · workflow_task_factory.dart writes AgentExecution, Task and WorkflowStepExecution in one transaction</text><text class="p2" x="36" y="802">The TaskExecutor claims the task; the engine waits on TaskStatusChangedEvent. Task.maxRetries is 0, so only workflow retry applies.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#1-control-plane-and-components"><g class="n tint k-host" id="adapter">
+    <rect class="box" x="750" y="530" width="210" height="64" rx="9"/>
+    <text class="name mono-name" x="762" y="553">WorkflowTurnAdapter</text>
+    <text class="sub" x="762" y="571">git, publish, runner capacity</text>
+    <text class="sub" x="762" y="587">wired at composition</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">WorkflowTurnAdapter</tspan> · workflow_turn_adapter.dart, wired in dartclaw_runtime/lib/src/runtime/service_wiring_workflow.dart</text><text class="p2" x="36" y="802">Callbacks for start resolution, git init, promotion, publish, cleanup and availableRunnerCount keep server git code out of the package.</text></g>
+  </g></a>
+  <a href="../control-protocol.md"><g class="n tint k-ext" id="provider">
+    <rect class="box" x="40" y="636" width="260" height="56" rx="9"/>
+    <text class="name" x="52" y="655">Provider CLI worker</text>
+    <text class="sub" x="52" y="671">claude or codex process</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">Provider CLI worker</tspan> · reasoning and tool execution happen here only for agent steps</text><text class="p2" x="36" y="802">Harness protocols: control-protocol.md.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md"><g class="n tint k-ext" id="checkout">
+    <rect class="box" x="750" y="636" width="210" height="56" rx="9"/>
+    <text class="name" x="762" y="655">Project checkout</text>
+    <text class="sub" x="762" y="671">git, remote, PR creation</text>
+    <g class="d"><text class="p1" x="36" y="782"><tspan class="b">Project checkout</tspan> · integration branch, task worktrees, promotion and publish</text><text class="p2" x="36" y="802">Worktree mechanics: task-execution-architecture.md. Git cleanup runs when a run completes, fails or is cancelled.</text></g>
+  </g></a>
+  <g transform="translate(24,708)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">engine core</text>
+    <g class="tint k-host"><rect class="box" x="112.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="134.2" y="10">DartClaw code</text>
+    <g class="tint k-store"><rect class="box" x="236.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="258.8" y="10">persistent store</text>
+    <g class="tint k-ext"><rect class="box" x="380.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="402.0" y="10">external process</text>
+    <g class="e "><path d="M523.2,6 H555.2"/></g><text class="lg" x="563.2" y="10">call</text>
+    <g class="e dash"><path d="M610.0,6 H642.0"/></g><text class="lg" x="650.0" y="10">injected callback</text>
   </g>
-  </a>
-  <text class="edge-label" x="602" y="104" text-anchor="middle">definitions</text>
-  <text class="edge-label" x="360" y="163" text-anchor="start">start(definition, variables, origin)</text>
-  <a href="../workflow-architecture.md#5-run-lifecycle">
-  <g class="node k-host">
-    <title>workflow/workflow_service.dart. Validates variables, snapshots the definition into definitionJson, inserts the run, spawns the executor. Serializes resolutions of one run in a per-run section.</title>
-    <path class="edge" d="M350,226 V272"/>
-    <rect class="box" x="190" y="176" width="320" height="50" rx="6"/>
-    <text class="mono" x="204" y="197">WorkflowService</text>
-    <text class="sub" x="204" y="214">start · pause · resume · retry · cancel · recovery</text>
-  </g>
-  </a>
-  <text class="edge-label" x="360" y="254" text-anchor="start">spawn from definitionJson snapshot</text>
-  <a href="../workflow-architecture.md#53-executor-preflight-and-traversal">
-  <g class="node k-host">
-    <title>workflow/workflow_executor.dart plus part files. One executor per run; resumes from a start index or a persisted WorkflowExecutionCursor.</title>
-    <path class="edge" d="M138,338 V392"/>
-    <path class="edge" d="M379,338 V392"/>
-    <path class="edge" d="M620,338 V392"/>
-    <path class="edge" d="M861,338 V392"/>
-    <rect class="box" x="24" y="272" width="952" height="66" rx="6"/>
-    <text class="mono" x="38" y="293">WorkflowExecutor</text>
-    <text class="sub" x="38" y="310">authored-order traversal over definition.nodes; step dispatcher, loop, foreach and parallel-group runners</text>
-    <text class="sub" x="38" y="324">writes are conditional (updateOwned): the executor stops with WorkflowRunOwnershipLost if the run was paused or cancelled externally</text>
-  </g>
-  </a>
-  <text class="edge-label" x="146" y="372" text-anchor="start">persist after every step</text>
-  <text class="edge-label" x="387" y="372" text-anchor="start">dispatch host steps</text>
-  <text class="edge-label" x="628" y="372" text-anchor="start">create task triple, wait</text>
-  <text class="edge-label" x="869" y="372" text-anchor="start">host callbacks</text>
-  <a href="../workflow-architecture.md#12-persistence">
-  <g class="node k-store">
-    <title>storage/database_workflow_run_repository.dart, storage/file_workflow_run_repository.dart. The run row holds currentStepIndex, executionCursor and contextJson; context.json under the run directory holds the full WorkflowContext.</title>
-    <rect class="box" x="24" y="392" width="229" height="70" rx="6"/>
-    <text class="mono" x="38" y="413">WorkflowRunRepository</text>
-    <text class="sub" x="38" y="430">PostgreSQL (server) or file</text>
-    <text class="sub" x="38" y="444">store (standalone); context.json</text>
-  </g>
-  </a>
-  <a href="../workflow-architecture.md#8-host-side-steps">
-  <g class="node k-host">
-    <title>bash_step_runner.dart, approval_step_runner.dart, aggregate_step_runner.dart.</title>
-    <rect class="box" x="265" y="392" width="229" height="70" rx="6"/>
-    <text class="mono" x="279" y="413">Host-side runners</text>
-    <text class="sub" x="279" y="430">bash · approval · aggregate-reviews</text>
-    <text class="sub" x="279" y="444">no task, zero tokens</text>
-  </g>
-  </a>
-  <a href="../workflow-architecture.md#7-agent-step-execution">
-  <g class="node k-host">
-    <title>AgentExecution + Task + WorkflowStepExecution written in one transaction (workflow_task_factory.dart); dartclaw_runtime/lib/src/task/workflow_one_shot_runner.dart runs the prompt chain and finalizer on a leased worker.</title>
-    <path class="edge" d="M620,462 V506"/>
-    <rect class="box" x="506" y="392" width="229" height="70" rx="6"/>
-    <text class="mono" x="520" y="413">Task layer</text>
-    <text class="sub" x="520" y="430">task triple, TaskExecutor,</text>
-    <text class="sub" x="520" y="444">WorkflowOneShotRunner</text>
-  </g>
-  </a>
-  <text class="edge-label" x="628" y="486" text-anchor="start">leased worker</text>
-  <a href="../workflow-architecture.md#10-workflow-owned-git">
-  <g class="node k-host">
-    <title>workflow/workflow_turn_adapter.dart: callbacks wired in dartclaw_runtime/lib/src/runtime/service_wiring_workflow.dart so the workflow package stays free of server git code.</title>
-    <path class="edge" d="M861,462 V506"/>
-    <rect class="box" x="747" y="392" width="229" height="70" rx="6"/>
-    <text class="mono" x="761" y="413">WorkflowTurnAdapter</text>
-    <text class="sub" x="761" y="430">git init, promotion, publish,</text>
-    <text class="sub" x="761" y="444">cleanup, runner capacity</text>
-  </g>
-  </a>
-  <text class="edge-label" x="869" y="486" text-anchor="start">server wiring</text>
-  <g class="node k-ext">
-    <title>Reasoning and tool execution. Harness protocols: control-protocol.md.</title>
-    <rect class="box" x="506" y="506" width="229" height="56" rx="6"/>
-    <text class="mono" x="520" y="527">Provider CLI worker</text>
-    <text class="sub" x="520" y="544">claude or codex process</text>
-  </g>
-  <g class="node k-ext">
-    <title>Integration branch, worktrees, promotion, publish. Worktree mechanics: task-execution-architecture.md.</title>
-    <rect class="box" x="747" y="506" width="229" height="56" rx="6"/>
-    <text class="mono" x="761" y="527">Project checkout</text>
-    <text class="sub" x="761" y="544">git, remote, PR creation</text>
-  </g>
-  <rect x="24" y="598" width="26" height="16" rx="3" fill="none" stroke="var(--host)" stroke-width="1.4"/>
-  <text class="note" x="58" y="610">DartClaw code</text>
-  <rect x="168" y="598" width="26" height="16" rx="3" fill="none" stroke="var(--store)" stroke-width="1.4"/>
-  <text class="note" x="202" y="610">persistent store</text>
-  <rect x="320" y="598" width="26" height="16" rx="3" fill="none" stroke="var(--ext)" stroke-width="1.4"/>
-  <text class="note" x="354" y="610">external process or service</text>
-  <text class="note" x="600" y="610">Hover a component (direct view) for its role.</text>
 </svg>

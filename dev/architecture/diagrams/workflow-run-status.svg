@@ -1,130 +1,165 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 490" width="1000" height="490" role="img" aria-labelledby="title desc">
-  <title id="title">Run status transitions</title>
-  <desc id="desc">WorkflowRunStatus: pending moves to running at start. Running ends in completed, failed or cancelled, or is held as paused or awaitingApproval; holds resume to running and failed can be retried.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 670" width="1000" height="670" role="img" aria-labelledby="title desc">
+  <title id="title">Workflow run status</title>
+  <desc id="desc">The seven WorkflowRunStatus values and every transition the service and executor perform. A run starts pending, runs, and ends completed, failed or cancelled. Paused and awaitingApproval are holds that resume into running or are cancelled; failed re-enters running only through an explicit retry.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#pending:hover) .edges :is(.f-pending,.t-pending) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#running:hover) .edges :is(.f-running,.t-running) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#completed:hover) .edges :is(.f-completed,.t-completed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#failed:hover) .edges :is(.f-failed,.t-failed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#paused:hover) .edges :is(.f-paused,.t-paused) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#awaiting:hover) .edges :is(.f-awaiting,.t-awaiting) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cancelled:hover) .edges :is(.f-cancelled,.t-cancelled) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="490"/>
-  <text class="title" x="24" y="34">Run status transitions</text>
-  <text class="lede" x="24" y="56">Waiting on a human (awaitingApproval, paused) is a hold, not a failure. Only completed, failed and cancelled are terminal.</text>
-  <g class="node k-host">
-    <title>start() inserts the run as pending and updates it to running before the executor is spawned.</title>
-    <path class="edge" d="M164,200 H300"/>
-    <rect class="box" x="24" y="170" width="140" height="60" rx="6"/>
-    <text class="mono" x="38" y="191">pending</text>
-    <text class="sub" x="38" y="208">inserted, momentary</text>
+  <rect class="bg" width="1000" height="670"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="574" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="598">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="622">Hover a status for what it means; its transitions light up. Click it to open its section.</text><text class="p2" x="36" y="642">A chip inside a box (→ cancelled) is a valid transition that is not drawn as an arrow.</text></g>
+
+  <text class="kick" x="24" y="32">STATE MACHINE · WorkflowRunStatus</text>
+  <text class="title" x="24" y="58">Workflow run status</text>
+  <text class="lede" x="24" y="80">No transition table: each move is a conditional update on the expected status. Waiting on a human is a hold, not a failure.</text>
+
+
+
+  <g class="edges">
+    <g class="e main f-pending t-running"><path d="M190,252 H268"/><text class="el" x="229" y="244" text-anchor="middle">start</text></g>
+    <g class="e main f-running t-completed"><path d="M540,228 H640 V140 H778"/><text class="el" x="646" y="132" text-anchor="start">all nodes done</text></g>
+    <g class="e bad f-running t-failed"><path d="M540,258 H778"/><text class="el" x="548" y="250" text-anchor="start">step, gate or budget failure</text></g>
+    <g class="e  f-failed t-running"><path d="M778,278 H542"/><text class="el" x="660" y="292" text-anchor="middle">retry</text></g>
+    <g class="e  f-running t-paused"><path d="M290,288 V358"/><text class="el" x="284" y="330" text-anchor="end">pause</text></g>
+    <g class="e  f-paused t-running"><path d="M330,360 V290"/><text class="el" x="338" y="330" text-anchor="start">resume</text></g>
+    <g class="e  f-running t-awaiting"><path d="M500,288 V358"/><text class="el" x="494" y="350" text-anchor="end">hold</text></g>
+    <g class="e  f-awaiting t-running"><path d="M520,360 V290"/><text class="el" x="528" y="330" text-anchor="start">approve, request changes</text></g>
+    <g class="e  f-running t-cancelled"><path d="M420,288 V466"/><text class="el" x="428" y="314" text-anchor="start">cancel</text></g>
+    <g class="e  f-paused t-cancelled"><path d="M230,432 V466"/><text class="el" x="238" y="454" text-anchor="start">cancel</text></g>
+    <g class="e  f-awaiting t-cancelled"><path d="M620,432 V466"/><text class="el" x="628" y="454" text-anchor="start">reject, cancel, timeout</text></g>
   </g>
-  <text class="edge-label" x="232" y="192" text-anchor="middle">start</text>
-  <a href="../workflow-architecture.md#51-status-model">
-  <g class="node k-host">
-    <title>The executor stops with WorkflowRunOwnershipLost when the status changed externally. A server restart re-spawns running runs from the persisted cursor.</title>
-    <path class="edge" d="M560,170 H640 V120 H780"/>
-    <path class="edge" d="M560,200 H780"/>
-    <path class="edge" d="M560,244 H700 V320 H780"/>
-    <path class="edge" d="M330,250 V340"/>
-    <path class="edge" d="M510,250 V340"/>
-    <rect class="box" x="300" y="150" width="260" height="100" rx="6"/>
-    <text class="mono" x="314" y="171">running</text>
-    <text class="sub" x="314" y="188">executor active; updateOwned</text>
-    <text class="sub" x="314" y="202">writes only while running</text>
+
+  <a href="../workflow-architecture.md#52-start-and-trigger-convergence"><g class="n line k-neu" id="pending">
+    <rect class="box" x="24" y="216" width="166" height="72" rx="9"/>
+    <text class="name mono-name" x="36" y="239">pending</text>
+    <text class="sub" x="36" y="257">momentary, in start()</text>
+    <g class="chip k-neu"><rect x="36" y="264" width="82" height="16" rx="8"/><text x="43" y="276">→ cancelled</text></g>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">pending</tspan> · start() inserts the run, then updates it to running (expected status pending) before spawning the executor</text><text class="p2" x="36" y="642">Not terminal, so cancel would accept it; the window is one call, hence a chip and no arrow.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#53-executor-preflight-and-traversal"><g class="n solid k-host" id="running">
+    <rect class="box" x="270" y="216" width="270" height="72" rx="9"/>
+    <text class="name mono-name" x="282" y="239">running</text>
+    <g class="badge"><rect x="441" y="227" width="89" height="16" rx="8"/><text x="486" y="239">updateOwned</text></g>
+    <text class="sub" x="282" y="257">executor active; it writes only</text>
+    <text class="sub" x="282" y="273">while the status is still running</text>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">running</tspan> · every executor write is a conditional update on running (updateOwned)</text><text class="p2" x="36" y="642">A changed status throws WorkflowRunOwnershipLost and stops it. A restart re-spawns running runs at the cursor, status unchanged.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#53-executor-preflight-and-traversal"><g class="n solid k-store" id="completed">
+    <rect class="box" x="780" y="104" width="180" height="72" rx="9"/>
+    <text class="name mono-name" x="792" y="127">completed</text>
+    <text class="sub" x="792" y="145">terminal, success</text>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">completed</tspan> · all nodes done; the publish hook ran if gitStrategy.publish is enabled</text><text class="p2" x="36" y="642">The cursor is cleared, completedAt set and git cleanup invoked. A publish error fails the run instead.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#54-pause-resume-retry-cancel"><g class="n tint k-sec" id="failed">
+    <rect class="box" x="780" y="216" width="180" height="72" rx="9"/>
+    <text class="name mono-name" x="792" y="239">failed</text>
+    <text class="sub" x="792" y="257">terminal, retryable</text>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">failed</tspan> · step, gate, budget or accounting failure, preflight or publish error, or an unexpected executor exception</text><text class="p2" x="36" y="642">Only failed accepts retry: it clears the failed step's status, error and outcome keys, then re-enters running at the cursor.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#54-pause-resume-retry-cancel"><g class="n tint k-ext" id="paused">
+    <rect class="box" x="130" y="360" width="220" height="72" rx="9"/>
+    <text class="name mono-name" x="142" y="383">paused</text>
+    <text class="sub" x="142" y="401">operator pause, or</text>
+    <text class="sub" x="142" y="417">onError: pause hold</text>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">paused</tspan> · operator pause, an onError: pause hold, or a step whose task was cancelled while the run was running</text><text class="p2" x="36" y="642">Pause sets the cancel flag and aborts the executor's wait; in-flight tasks keep running. Resume re-enters running at the cursor.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#82-approval"><g class="n tint k-ext" id="awaiting">
+    <rect class="box" x="480" y="360" width="260" height="72" rx="9"/>
+    <text class="name mono-name" x="492" y="383">awaitingApproval</text>
+    <text class="sub" x="492" y="401">approval gate, needsInput,</text>
+    <text class="sub" x="492" y="417">onFailure: pause</text>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">awaitingApproval</tspan> · approval gate, step needsInput outcome or onFailure: pause; all use the _approval.* hold shape</text><text class="p2" x="36" y="642">Approve (resume) continues at the next step; request changes re-enters running at the revise step; reject, cancel or timeout cancels.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#54-pause-resume-retry-cancel"><g class="n tint k-neu" id="cancelled">
+    <rect class="box" x="130" y="468" width="630" height="60" rx="9"/>
+    <text class="name mono-name" x="142" y="491">cancelled</text>
+    <text class="sub" x="142" y="509">terminal · cancel, reject or approval timeout</text>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">cancelled</tspan> · cancel records a pending approval as rejected, cancels queued and running child tasks and invokes git cleanup</text><text class="p2" x="36" y="642">Reachable from pending, running, paused and awaitingApproval. An approval timeout also lands here, with approval status timed_out.</text></g>
+  </g></a>
+  <g transform="translate(24,548)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">active</text>
+    <g class="tint k-ext"><rect class="box" x="81.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="103.2" y="10">human hold</text>
+    <g class="solid k-store"><rect class="box" x="187.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="209.2" y="10">success</text>
+    <g class="tint k-sec"><rect class="box" x="274.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="296.6" y="10">failure</text>
+    <g class="tint k-neu"><rect class="box" x="362.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="384.0" y="10">operator-ended</text>
+    <g class="e main"><path d="M492.8,6 H524.8"/></g><text class="lg" x="532.8" y="10">main path</text>
+    <g class="e bad"><path d="M610.6,6 H642.6"/></g><text class="lg" x="650.6" y="10">failure</text>
+    <g class="e "><path d="M716.0,6 H748.0"/></g><text class="lg" x="756.0" y="10">transition</text>
   </g>
-  </a>
-  <g class="node k-store">
-    <title>Publish hook ran if enabled; cursor cleared; git cleanup invoked.</title>
-    <rect class="box" x="780" y="90" width="196" height="60" rx="6"/>
-    <text class="mono" x="794" y="111">completed</text>
-    <text class="sub" x="794" y="128">publish, cleanup, cursor cleared</text>
-  </g>
-  <g class="node k-sec">
-    <title>Eligible for explicit retry from the stored cursor; the failed step status and outcome keys are cleared first.</title>
-    <path class="edge" d="M780,222 H562"/>
-    <rect class="box" x="780" y="170" width="196" height="60" rx="6"/>
-    <text class="mono" x="794" y="191">failed</text>
-    <text class="sub" x="794" y="208">retry resumes at the cursor</text>
-  </g>
-  <g class="node k-dev">
-    <title>Cancel records a pending approval as rejected, cancels child tasks and invokes git cleanup.</title>
-    <rect class="box" x="780" y="290" width="196" height="60" rx="6"/>
-    <text class="mono" x="794" y="311">cancelled</text>
-    <text class="sub" x="794" y="328">cancel, reject, timeout</text>
-  </g>
-  <text class="edge-label" x="650" y="112" text-anchor="start">all nodes done</text>
-  <text class="edge-label" x="588" y="194" text-anchor="start">step, gate or budget failure</text>
-  <text class="edge-label" x="640" y="216" text-anchor="middle">retry</text>
-  <text class="edge-label" x="708" y="290" text-anchor="start">cancel</text>
-  <a href="../workflow-architecture.md#54-pause-resume-retry-cancel">
-  <g class="node k-chan">
-    <title>Pause sets the cancellation flag and aborts the executor wait; in-flight tasks are not cancelled. onError: pause holds the run at its failed unit. Resume continues from the cursor.</title>
-    <path class="edge" d="M420,340 V252"/>
-    <path class="edge" d="M375,400 V432 H880 V352"/>
-    <rect class="box" x="290" y="340" width="170" height="60" rx="6"/>
-    <text class="mono" x="304" y="361">paused</text>
-    <text class="sub" x="304" y="378">operator pause, or</text>
-    <text class="sub" x="304" y="392">onError: pause hold</text>
-  </g>
-  </a>
-  <a href="../workflow-architecture.md#82-approval">
-  <g class="node k-chan">
-    <title>Approve (resume) continues at the next step; request changes re-runs from the revise step; reject, cancel or timeout cancels. Uses the _approval.* context keys.</title>
-    <path class="edge" d="M540,340 V252"/>
-    <path class="edge" d="M730,370 H840 V352"/>
-    <rect class="box" x="500" y="340" width="230" height="60" rx="6"/>
-    <text class="mono" x="514" y="361">awaitingApproval</text>
-    <text class="sub" x="514" y="378">approval gate, needsInput,</text>
-    <text class="sub" x="514" y="392">onFailure: pause</text>
-  </g>
-  </a>
-  <text class="edge-label" x="336" y="300" text-anchor="start">pause</text>
-  <text class="edge-label" x="426" y="300" text-anchor="start">resume</text>
-  <text class="edge-label" x="504" y="300" text-anchor="end">hold</text>
-  <text class="edge-label" x="546" y="300" text-anchor="start">approve, request changes</text>
-  <text class="edge-label" x="740" y="364" text-anchor="start">reject / timeout</text>
-  <text class="edge-label" x="470" y="426" text-anchor="start">cancel</text>
-  <rect x="24" y="456" width="26" height="14" rx="3" fill="none" stroke="var(--store)" stroke-width="1.4"/>
-  <text class="note" x="58" y="467">terminal, success</text>
-  <rect x="190" y="456" width="26" height="14" rx="3" fill="none" stroke="var(--sec)" stroke-width="1.4"/>
-  <text class="note" x="224" y="467">terminal, failure (retryable)</text>
-  <rect x="410" y="456" width="26" height="14" rx="3" fill="none" stroke="var(--chan)" stroke-width="1.4"/>
-  <text class="note" x="444" y="467">operator or approval hold</text>
-  <rect x="610" y="456" width="26" height="14" rx="3" fill="none" stroke="var(--dev)" stroke-width="1.4" stroke-dasharray="5 4"/>
-  <text class="note" x="644" y="467">terminal, cancelled</text>
 </svg>

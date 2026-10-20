@@ -1,145 +1,219 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 440" width="1000" height="440" role="img" aria-labelledby="title desc">
-  <title id="title">Turn admission order and governance signals</title>
-  <desc id="desc">TurnRunner.admitTurn runs the daily budget check, takes the session lock, then runs loop and rate-limit checks. Each step lists what it refuses and what it emits. Loop and rate checks record state, so they run after the lock.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 698" width="1000" height="698" role="img" aria-labelledby="title desc">
+  <title id="title">Turn admission and governance signals</title>
+  <desc id="desc">TurnRunner.admitTurn runs four governance steps in order: a read-only daily budget check, the session lock with the global cap, loop detection, and the global rate window. Each step can refuse the turn or emit an operator-visible signal. Only the budget check precedes the lock.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
-    .mono.s { font-size: 12px; }
-    .refuse { fill: var(--sec); }
-    .legend-text { fill: var(--sub); font-size: 11px; }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#s1:hover) .edges :is(.f-s1,.t-s1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s2:hover) .edges :is(.f-s2,.t-s2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s3:hover) .edges :is(.f-s3,.t-s3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s4:hover) .edges :is(.f-s4,.t-s4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e1:hover) .edges :is(.f-e1,.t-e1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e2:hover) .edges :is(.f-e2,.t-e2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e3:hover) .edges :is(.f-e3,.t-e3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e4:hover) .edges :is(.f-e4,.t-e4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r1:hover) .edges :is(.f-r1,.t-r1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r2:hover) .edges :is(.f-r2,.t-r2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r3:hover) .edges :is(.f-r3,.t-r3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r4:hover) .edges :is(.f-r4,.t-r4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#after:hover) .edges :is(.f-after,.t-after) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="440"/>
-  <text class="title" x="24" y="34">Turn admission order and governance signals</text>
-  <text class="lede" x="24" y="56">The lock precedes steps 3 and 4: an attempt the global cap rejects must not count. Only the read-only budget check precedes it.</text>
-  <a href="../observability-operations-architecture.md#daily-budget-outcomes">
-  <g class="node k-host">
-    <title>checkBudget(sessionId): read-only, before the lock</title>
-    <path class="edge" d="M240,150 H270"/>
-    <rect class="box" x="24" y="98" width="216" height="214" rx="6"/>
-    <text class="mono s" x="38" y="120">checkBudget(sessionId)</text>
-    <text class="sub" x="38" y="138">read-only, before the lock</text>
-    <line x1="34" y1="150" x2="230" y2="150" stroke="var(--line)"/>
-    <text class="sub" x="38" y="168">refuses</text>
-    <text class="sub refuse" x="38" y="186">BudgetExhaustedException</text>
-    <text class="sub refuse" x="38" y="202">(block action, &gt;= 100 %)</text>
-    <line x1="34" y1="228" x2="230" y2="228" stroke="var(--line)"/>
-    <text class="sub" x="38" y="246">emits</text>
-    <text class="sub" x="38" y="264">SSE budget_warning</text>
-    <text class="sub" x="38" y="280">channel BudgetWarningNotifier</text>
-    <text class="sub" x="38" y="296">(once per day, then silent)</text>
-  </g>
-  </a>
-  <circle cx="226" cy="98" r="11" fill="var(--accent)"/><text x="226" y="102" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">1</text>
-  <a href="../observability-operations-architecture.md#admission-order">
-  <g class="node k-host">
-    <title>SessionLockManager.acquire: session lock + global cap</title>
-    <path class="edge" d="M486,150 H516"/>
-    <rect class="box" x="270" y="98" width="216" height="214" rx="6"/>
-    <text class="mono s" x="284" y="120">SessionLockManager.acquire</text>
-    <text class="sub" x="284" y="138">session lock + global cap</text>
-    <line x1="280" y1="150" x2="476" y2="150" stroke="var(--line)"/>
-    <text class="sub" x="284" y="168">refuses</text>
-    <text class="sub refuse" x="284" y="186">BusyTurnException at the cap</text>
-    <text class="sub refuse" x="284" y="202">(before anything is recorded)</text>
-    <line x1="280" y1="228" x2="476" y2="228" stroke="var(--line)"/>
-    <text class="sub" x="284" y="246">emits</text>
-    <text class="sub" x="284" y="264">TurnWaitStateChangedEvent</text>
-    <text class="sub" x="284" y="280">waiting after 30 s,</text>
-    <text class="sub" x="284" y="296">stuck after 120 s</text>
-  </g>
-  </a>
-  <circle cx="472" cy="98" r="11" fill="var(--accent)"/><text x="472" y="102" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">2</text>
-  <a href="../observability-operations-architecture.md#signals-by-control">
-  <g class="node k-host">
-    <title>checkLoopPreTurn: chain depth, token velocity</title>
-    <path class="edge" d="M732,150 H762"/>
-    <rect class="box" x="516" y="98" width="216" height="214" rx="6"/>
-    <text class="mono s" x="530" y="120">checkLoopPreTurn</text>
-    <text class="sub" x="530" y="138">chain depth, token velocity</text>
-    <line x1="526" y1="150" x2="722" y2="150" stroke="var(--line)"/>
-    <text class="sub" x="530" y="168">refuses</text>
-    <text class="sub refuse" x="530" y="186">LoopDetectedException</text>
-    <text class="sub refuse" x="530" y="202">(action: abort)</text>
-    <line x1="526" y1="228" x2="722" y2="228" stroke="var(--line)"/>
-    <text class="sub" x="530" y="246">emits</text>
-    <text class="sub" x="530" y="264">LoopDetectedEvent (alerted)</text>
-    <text class="sub" x="530" y="280">SSE loop_detected</text>
-    <text class="sub" x="530" y="296">loopDetectionNotifier</text>
-  </g>
-  </a>
-  <circle cx="718" cy="98" r="11" fill="var(--accent)"/><text x="718" y="102" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">3</text>
-  <a href="../observability-operations-architecture.md#signals-by-control">
-  <g class="node k-host">
-    <title>awaitRateLimitWindow: global sliding window</title>
-    <path class="edge" d="M870,312 V346"/>
-    <rect class="box" x="762" y="98" width="216" height="214" rx="6"/>
-    <text class="mono s" x="776" y="120">awaitRateLimitWindow</text>
-    <text class="sub" x="776" y="138">global sliding window</text>
-    <line x1="772" y1="150" x2="968" y2="150" stroke="var(--line)"/>
-    <text class="sub" x="776" y="168">refuses</text>
-    <text class="sub refuse" x="776" y="186">nothing: defers in a</text>
-    <text class="sub refuse" x="776" y="202">1 s loop while full</text>
-    <line x1="772" y1="228" x2="968" y2="228" stroke="var(--line)"/>
-    <text class="sub" x="776" y="246">emits</text>
-    <text class="sub" x="776" y="264">SSE rate_limit_warning at 80 %</text>
-    <text class="sub" x="776" y="280">(re-armed below 60 %)</text>
-  </g>
-  </a>
-  <circle cx="964" cy="98" r="11" fill="var(--accent)"/><text x="964" y="102" text-anchor="middle" style="fill:var(--bg);font-weight:700;font-size:12px">4</text>
-  <a href="../observability-operations-architecture.md#runner-and-capacity-observability">
-  <g class="node k-host">
-    <title>Single authority for execution allocation once governance admits the turn.</title>
-    <rect class="box" x="762" y="346" width="216" height="56" rx="6"/>
-    <text class="mono s" x="776" y="367">ExecutionCoordinator</text>
-    <text class="sub" x="776" y="385">allocation after admission</text>
-  </g>
-  </a>
-  <a href="../observability-operations-architecture.md#admission-order">
-  <g class="node k-host">
-    <title>TurnGuardEvaluator calls recordToolCall; TurnRunner calls recordTokensAndCheckVelocity after the usage record.</title>
-    <rect class="box" x="24" y="346" width="700" height="76" rx="6"/>
-    <text class="mono s" x="38" y="367">After admission, inside the turn</text>
-    <text class="sub" x="38" y="385">recordToolCall per tool call (fingerprint); recordTokensAndCheckVelocity after each turn fires</text>
-    <text class="sub" x="38" y="403">LoopDetectedEvent even in abort mode, because the tokens are already spent; the next pre-turn check aborts.</text>
-  </g>
-  </a>
+  <rect class="bg" width="1000" height="698"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="602" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="626">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="650">Hover a step for what it checks; its signals and refusals light up. Click it to open its section.</text><text class="p2" x="36" y="670">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
 
+  <text class="kick" x="24" y="32">PIPELINE · TurnRunner.admitTurn</text>
+  <text class="title" x="24" y="58">Turn admission and governance signals</text>
+  <text class="lede" x="24" y="80">The lock comes before steps 3 and 4 because both record state: an attempt the global cap rejects must not count.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="234" width="968" height="132" rx="14"/><text class="kick" x="32" y="256">ADMISSION ORDER</text></g>
+  <g class="k-neu"><text class="kick" x="26" y="114" text-anchor="start">EMITS</text></g>
+  <g class="k-sec"><text class="kick" x="26" y="404" text-anchor="start">REFUSES</text></g>
+
+  <g class="edges">
+    <g class="e main f-s1 t-s2"><path d="M218,310 H276"/><text class="el" x="248" y="304" text-anchor="middle">budget ok</text></g>
+    <g class="e main f-s2 t-s3"><path d="M470,310 H528"/><text class="el" x="500" y="304" text-anchor="middle">lock held</text></g>
+    <g class="e main f-s3 t-s4"><path d="M722,310 H780"/><text class="el" x="752" y="304" text-anchor="middle">chain ok</text></g>
+    <g class="e  f-s1 t-e1"><path d="M126,264 V188"/><text class="el" x="134" y="214" text-anchor="start">first at 80 %</text></g>
+    <g class="e  f-s2 t-e2"><path d="M318,264 V188"/><text class="el" x="326" y="214" text-anchor="start">wait 30 s</text></g>
+    <g class="e  f-s3 t-e3"><path d="M630,264 V188"/><text class="el" x="638" y="214" text-anchor="start">detection</text></g>
+    <g class="e  f-s4 t-e4"><path d="M882,264 V188"/><text class="el" x="890" y="214" text-anchor="start">at 80 % usage</text></g>
+    <g class="e bad f-s1 t-r1"><path d="M126,354 V410"/><text class="el" x="134" y="386" text-anchor="start">block action</text></g>
+    <g class="e bad f-s2 t-r2"><path d="M318,354 V410"/><text class="el" x="326" y="386" text-anchor="start">cap is full</text></g>
+    <g class="e bad f-s3 t-r3"><path d="M630,354 V410"/><text class="el" x="638" y="386" text-anchor="start">action: abort</text></g>
+    <g class="e dash bad f-s4 t-r4"><path d="M882,354 V410"/><text class="el" x="890" y="386" text-anchor="start">window is full</text></g>
+  </g>
+
+  <a href="../observability-operations-architecture.md#daily-budget-outcomes"><g class="n tint k-host" id="s1">
+    <rect class="box" x="26" y="266" width="192" height="88" rx="9"/>
+    <g class="step"><circle cx="46" cy="288" r="10"/><text x="46" y="292">1</text></g>
+    <text class="name" x="64" y="289">Daily budget</text>
+    <text class="mono" x="64" y="307">checkBudget</text>
+    <text class="sub" x="64" y="323">read-only, pre-lock</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">Daily budget</tspan> · checkBudget only reads: it never records, which is why it may precede the lock</text><text class="p2" x="36" y="670">The first crossing of 80 % today emits the warning; under action block a turn at 100 % or more is rejected. A storage error propagates.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#admission-order"><g class="n solid k-host" id="s2">
+    <rect class="box" x="278" y="266" width="192" height="88" rx="9"/>
+    <g class="step"><circle cx="298" cy="288" r="10"/><text x="298" y="292">2</text></g>
+    <text class="name" x="316" y="289">Session lock</text>
+    <text class="mono" x="316" y="307">acquire(sessionId)</text>
+    <text class="sub" x="316" y="323">lock plus global slot</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">Session lock</tspan> · SessionLockManager.acquire waits for a same-session lock, then checks the global cap</text><text class="p2" x="36" y="670">A waiting turn emits TurnWaitStateChangedEvent at 30 s and stuck at 120 s. At the cap it throws BusyTurnException at once; nothing queues.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#signals-by-control"><g class="n tint k-host" id="s3">
+    <rect class="box" x="530" y="266" width="192" height="88" rx="9"/>
+    <g class="step"><circle cx="550" cy="288" r="10"/><text x="550" y="292">3</text></g>
+    <text class="name" x="568" y="289">Loop chain</text>
+    <text class="mono" x="568" y="307">checkLoopPreTurn</text>
+    <text class="sub" x="568" y="323">records the turn chain</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">Loop chain</tspan> · turn-chain depth first, then token velocity; a human message resets the chain</text><text class="p2" x="36" y="670">Both mechanisms fire LoopDetectedEvent; under action abort they throw LoopDetectedException and the lock is released.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#signals-by-control"><g class="n tint k-host" id="s4">
+    <rect class="box" x="782" y="266" width="192" height="88" rx="9"/>
+    <g class="step"><circle cx="802" cy="288" r="10"/><text x="802" y="292">4</text></g>
+    <text class="name" x="820" y="289">Rate window</text>
+    <text class="mono" x="820" y="307">awaitRateLimitWindow</text>
+    <text class="sub" x="820" y="323">records the turn</text>
+    <g class="chip k-host"><rect x="820" y="330" width="150" height="16" rx="8"/><text x="827" y="342">→ ExecutionCoordinator</text></g>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">Rate window</tspan> · the global sliding window; a successful check() records the turn</text><text class="p2" x="36" y="670">While the window is full the turn sleeps 1 s and retries. Admission then passes to ExecutionCoordinator (section 7).</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#daily-budget-outcomes"><g class="n line k-neu" id="e1">
+    <rect class="box" x="26" y="122" width="192" height="64" rx="9"/>
+    <text class="name mono-name" x="38" y="145">budget_warning</text>
+    <text class="sub" x="38" y="163">SSE + BudgetWarningNotifier</text>
+    <text class="sub" x="38" y="179">once per day, then silent</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">budget_warning</tspan> · SSE budget_warning (tokens_used, budget, percentage, action) and a message to the originating channel</text><text class="p2" x="36" y="670">The warn-once marker budget_warning_posted_at is in the day's usage_daily aggregate, so it survives a restart.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse"><g class="n line k-neu" id="e2">
+    <rect class="box" x="257" y="122" width="236" height="64" rx="9"/>
+    <text class="name mono-name" x="269" y="145">TurnWaitStateChangedEvent</text>
+    <text class="sub" x="269" y="163">waiting after 30 s,</text>
+    <text class="sub" x="269" y="179">stuck after 120 s</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">TurnWaitStateChangedEvent</tspan> · same-session wait: waiting, then stuck, with a can-cancel flag</text><text class="p2" x="36" y="670">Reaches the task stream as turn_wait_state and the global stream as conversation_changed with work_state.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#signals-by-control"><g class="n line k-neu" id="e3">
+    <rect class="box" x="530" y="122" width="192" height="64" rx="9"/>
+    <text class="name mono-name" x="542" y="145">LoopDetectedEvent</text>
+    <text class="sub" x="542" y="163">alerted, SSE loop_detected</text>
+    <text class="sub" x="542" y="179">plus loopDetectionNotifier</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">LoopDetectedEvent</tspan> · alert type loop_detected (critical) and SSE loop_detected via EventBusSseBridge</text><text class="p2" x="36" y="670">Fires in warn and abort mode alike; the configured action decides whether the turn then proceeds.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#signals-by-control"><g class="n line k-neu" id="e4">
+    <rect class="box" x="782" y="122" width="192" height="64" rx="9"/>
+    <text class="name mono-name" x="794" y="145">rate_limit_warning</text>
+    <text class="sub" x="794" y="163">SSE at 80 % usage</text>
+    <text class="sub" x="794" y="179">re-armed below 60 %</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">rate_limit_warning</tspan> · SSE rate_limit_warning once per approach, with the usage ratio</text><text class="p2" x="36" y="670">The global limit is the only governance limit that defers a turn instead of refusing it.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#daily-budget-outcomes"><g class="n tint k-sec" id="r1">
+    <rect class="box" x="26" y="412" width="226" height="56" rx="9"/>
+    <text class="name mono-name" x="38" y="431">BudgetExhaustedException</text>
+    <text class="sub" x="38" y="447">turn rejected, every attempt</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">BudgetExhaustedException</tspan> · thrown by checkBudget under the block action at 100 % or more</text><text class="p2" x="36" y="670">A task that meets it fails non-retryable. Under the warn action the turn proceeds instead.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#admission-order"><g class="n tint k-sec" id="r2">
+    <rect class="box" x="278" y="412" width="192" height="56" rx="9"/>
+    <text class="name mono-name" x="290" y="431">BusyTurnException</text>
+    <text class="sub" x="290" y="447">global cap, fails fast</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">BusyTurnException</tspan> · thrown by acquire when the global concurrency limit is reached</text><text class="p2" x="36" y="670">Callers wait on whenCapacityAvailable and re-attempt; a queued task stays queued. Never answered with a timer retry.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#signals-by-control"><g class="n tint k-sec" id="r3">
+    <rect class="box" x="530" y="412" width="206" height="56" rx="9"/>
+    <text class="name mono-name" x="542" y="431">LoopDetectedException</text>
+    <text class="sub" x="542" y="447">action: abort</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">LoopDetectedException</tspan> · thrown by checkLoopPreTurn when the action is abort</text><text class="p2" x="36" y="670">The session lock is released before the exception propagates; a task fails non-retryable.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#signals-by-control"><g class="n ghost k-neu" id="r4">
+    <rect class="box" x="782" y="412" width="192" height="56" rx="9"/>
+    <text class="name" x="794" y="431">never refuses</text>
+    <text class="sub" x="794" y="447">defers in a 1 s loop</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">never refuses</tspan> · awaitRateLimitWindow has no refusal path</text><text class="p2" x="36" y="670">It polls until the window has room, so a burst of turns is delayed, not dropped.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#admission-order"><g class="n line k-neu" id="after">
+    <rect class="box" x="26" y="494" width="948" height="64" rx="9"/>
+    <text class="name" x="38" y="517">After admission, inside the turn</text>
+    <g class="badge"><rect x="896" y="505" width="68" height="16" rx="8"/><text x="930" y="517">PER TURN</text></g>
+    <text class="sub" x="38" y="535">recordToolCall per tool call feeds fingerprint detection; recordTokensAndCheckVelocity runs after each turn.</text>
+    <text class="sub" x="38" y="551">Velocity fires LoopDetectedEvent even in abort mode: the tokens are already spent, so the next pre-turn check aborts.</text>
+    <g class="d"><text class="p1" x="36" y="650"><tspan class="b">After admission, inside the turn</tspan> · TurnGuardEvaluator calls recordToolCall; TurnRunner calls recordTokensAndCheckVelocity</text><text class="p2" x="36" y="670">Mechanisms: turnChainDepth, tokenVelocity, toolFingerprint (dartclaw_kernel loop_detection.dart).</text></g>
+  </g></a>
+  <g transform="translate(24,574)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">admission step</text>
+    <g class="line k-neu"><rect class="box" x="130.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="152.8" y="10">signal or later check</text>
+    <g class="tint k-sec"><rect class="box" x="305.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="327.0" y="10">refusal</text>
+    <g class="ghost k-neu"><rect class="box" x="392.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="414.4" y="10">no refusal</text>
+    <g class="e main"><path d="M498.4,6 H530.4"/></g><text class="lg" x="538.4" y="10">next step</text>
+    <g class="e "><path d="M616.2,6 H648.2"/></g><text class="lg" x="656.2" y="10">emits</text>
+    <g class="e bad"><path d="M709.2,6 H741.2"/></g><text class="lg" x="749.2" y="10">refuses</text>
+  </g>
 </svg>

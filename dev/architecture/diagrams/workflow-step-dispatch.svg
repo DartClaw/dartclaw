@@ -1,160 +1,245 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 612" width="1000" height="612" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 784" width="1000" height="784" role="img" aria-labelledby="title desc">
   <title id="title">Step dispatch paths and outcome protocol</title>
-  <desc id="desc">_executeStep branches by step type. Agent steps create a task triple, run the prompt chain and a finalizer turn on a leased worker, extract outputs, resolve a semantic outcome and map it through onFailure and onError.</desc>
+  <desc id="desc">_executeStep branches by step type. Bash, approval, aggregate-reviews and foreach-nested loop steps run on the host without a task. An agent step writes the task triple, runs its work turns and an optional finalizer turn on one leased worker, extracts and validates outputs, then resolves a semantic outcome that the failure policies turn into a run effect.</desc>
   <style>
-    svg { --bg:#eff1f5; --band:#e6e9ef; --box:#ffffff; --line:#9ca0b0; --fg:#4c4f69; --sub:#6c6f85; --edge:#8c8fa1; --accent:#1e66f5; --host:#1e66f5; --ext:#fe640b; --store:#179299; --sec:#d20f39; --chan:#8839ef; --dev:#7c7f93; }
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg:#1e1e2e; --band:#181825; --box:#313244; --line:#6c7086; --fg:#cdd6f4; --sub:#a6adc8; --edge:#7f849c; --accent:#89b4fa; --host:#89b4fa; --ext:#fab387; --store:#94e2d5; --sec:#f38ba8; --chan:#cba6f7; --dev:#9399b2; }
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
     }
-    text { fill: var(--fg); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
     .bg { fill: var(--bg); }
-    .band { fill: var(--band); }
-    .title { font-size: 18px; font-weight: 600; }
-    .lede, .sub, .note { fill: var(--sub); }
-    .sub { font-size: 11px; }
-    .note { font-size: 11.5px; }
-    .tier { font-size: 15px; font-weight: 700; }
-    .tier-sub { fill: var(--sub); font-size: 10.5px; }
-    .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; }
-    .chip-text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; }
-    .box { fill: color-mix(in srgb, var(--k) 10%, var(--box)); stroke: var(--k); stroke-width: 1.4; }
-    .chip { fill: var(--box); stroke: var(--line); }
-    .k-host { --k: var(--host); }
-    .k-chan { --k: var(--chan); }
-    .k-ext { --k: var(--ext); }
-    .k-store { --k: var(--store); }
-    .k-sec { --k: var(--sec); }
-    .k-dev { --k: var(--dev); }
-    .group { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .group-label { fill: var(--sub); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-    .k-dev .box { stroke-dasharray: 5 4; fill: var(--box); }
-    .edge { fill: none; stroke: var(--edge); stroke-width: 1.4; marker-end: url(#arrow); }
-    .edge.dashed { stroke-dasharray: 5 4; }
-    .edge-label { fill: var(--sub); font-size: 10.5px; }
-    .arrowhead { fill: var(--edge); }
-    .arrowhead-hi { fill: var(--accent); }
-    .node { cursor: default; }
-    .node:hover .box { stroke-width: 2.6; }
-    svg:has(.node:hover) .edge { opacity: 0.2; }
-    svg .node:hover .edge { opacity: 1; stroke: var(--accent); stroke-width: 2.2; marker-end: url(#arrow-hi); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#exec:hover) .edges :is(.f-exec,.t-exec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bash:hover) .edges :is(.f-bash,.t-bash) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#approval:hover) .edges :is(.f-approval,.t-approval) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#aggregate:hover) .edges :is(.f-aggregate,.t-aggregate) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#nested:hover) .edges :is(.f-nested,.t-nested) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#st1:hover) .edges :is(.f-st1,.t-st1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#st2:hover) .edges :is(.f-st2,.t-st2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#st3:hover) .edges :is(.f-st3,.t-st3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#st4:hover) .edges :is(.f-st4,.t-st4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#st5:hover) .edges :is(.f-st5,.t-st5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ex:hover) .edges :is(.f-ex,.t-ex) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ok:hover) .edges :is(.f-ok,.t-ok) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fail:hover) .edges :is(.f-fail,.t-fail) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#input:hover) .edges :is(.f-input,.t-input) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cancel:hover) .edges :is(.f-cancel,.t-cancel) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
-    <marker id="arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrowhead-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="612"/>
-  <text class="title" x="24" y="34">Step dispatch paths and outcome protocol</text>
-  <text class="lede" x="24" y="56">Only agent steps create tasks. Every path ends in a StepOutcome that the node loop merges, holds or fails on.</text>
-  <a href="../workflow-architecture.md#71-dispatch-paths">
-  <g class="node k-host">
-    <title>Clears a stale failed status first, then dispatches by WorkflowTaskType. Agent steps run inside runWithWorkflowRetry.</title>
-    <path class="edge" d="M24,106 H12 V204 H24"/>
-    <path class="edge" d="M24,106 H12 V274 H24"/>
-    <path class="edge" d="M24,106 H12 V344 H24"/>
-    <path class="edge" d="M24,106 H12 V414 H24"/>
-    <path class="edge" d="M324,106 H520 V150"/>
-    <rect class="box" x="24" y="80" width="300" height="52" rx="6"/>
-    <text class="mono" x="38" y="101">_executeStep</text>
-    <text class="sub" x="38" y="118">workflow/step_dispatcher.dart, branch by type</text>
+  <rect class="bg" width="1000" height="784"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="688" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="712">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="736">Hover a box for its invariants and file; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="756">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">DISPATCH · _executeStep</text>
+  <text class="title" x="24" y="58">Step dispatch paths and outcome protocol</text>
+  <text class="lede" x="24" y="80">Only agent steps create tasks. Every path ends in a StepOutcome that the node loop merges, holds on or fails on.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="176" width="296" height="466" rx="14"/><text class="kick" x="32" y="198">NO TASK OF THEIR OWN</text></g>
+  <g class="k-host"><rect class="band" x="336" y="176" width="344" height="466" rx="14"/><text class="kick" x="352" y="198">AGENT STEP · runWithWorkflowRetry</text></g>
+  <g class="k-neu"><rect class="band" x="736" y="176" width="248" height="466" rx="14"/><text class="kick" x="752" y="198">OUTCOME → RUN EFFECT</text></g>
+
+  <g class="edges">
+    <g class="e join f-exec t-bash t-approval t-aggregate t-nested"><path d="M26,154 V457"/></g>
+    <g class="e  f-exec t-bash"><path d="M26,241 H42"/></g>
+    <g class="e  f-exec t-approval"><path d="M26,313 H42"/></g>
+    <g class="e  f-exec t-aggregate"><path d="M26,385 H42"/></g>
+    <g class="e  f-exec t-nested"><path d="M26,457 H42"/></g>
+    <g class="e  f-exec t-st1"><path d="M324,126 H650 V208"/><text class="el" x="332" y="118" text-anchor="start">agent step</text></g>
+    <g class="e main f-st1 t-st2"><path d="M508,278 V294"/></g>
+    <g class="e main f-st2 t-st3"><path d="M508,364 V380"/></g>
+    <g class="e main f-st3 t-st4"><path d="M508,450 V466"/></g>
+    <g class="e main f-st4 t-st5"><path d="M508,536 V552"/></g>
+    <g class="e bad f-st1 f-st2 t-ex"><path d="M664,244 H750"/><text class="el" x="708" y="236" text-anchor="middle">error</text></g>
+    <g class="e join f-st5 t-ok t-fail t-input"><path d="M664,588 H708 V330"/></g>
+    <g class="e main f-st5 t-ok"><path d="M708,330 H750"/></g>
+    <g class="e bad f-st5 t-fail"><path d="M708,416 H750"/></g>
+    <g class="e  f-st5 t-input"><path d="M708,502 H750"/></g>
+    <g class="e dash f-st5 t-cancel"><path d="M664,588 H750"/></g>
   </g>
-  </a>
-  <g class="node k-host">
-    <title>Errors are execution errors governed by onError.</title>
-    <rect class="box" x="24" y="180" width="276" height="52" rx="6"/>
-    <text class="mono" x="38" y="201">bash</text>
-    <text class="sub" x="38" y="218">SafeProcess, no task; exit code, stdout</text>
+
+  <a href="../workflow-architecture.md#71-dispatch-paths"><g class="n solid k-host" id="exec">
+    <rect class="box" x="24" y="98" width="300" height="56" rx="9"/>
+    <text class="name mono-name" x="36" y="117">_executeStep</text>
+    <text class="sub" x="36" y="133">step_dispatcher.dart, by step type</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">_executeStep</tspan> · step_dispatcher.dart branches on the step type: bash, approval, aggregate-reviews, loop, otherwise agent</text><text class="p2" x="36" y="756">Every path returns a StepOutcome that the node loop merges, holds on or fails on.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#81-bash"><g class="n tint k-host" id="bash">
+    <rect class="box" x="44" y="210" width="252" height="62" rx="9"/>
+    <text class="name mono-name" x="56" y="233">bash</text>
+    <text class="sub" x="56" y="251">SafeProcess; exit code, stdout</text>
+    <g class="chip k-neu"><rect x="216" y="221" width="70" height="16" rx="8"/><text x="223" y="233">→ outcome</text></g>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">bash</tspan> · bash_step_runner.dart: /bin/sh -c with a sanitized environment; stdout and stderr each capped at 64 KB</text><text class="p2" x="36" y="756">A non-zero or unstartable exit is an execution error governed by onError, never an empty success.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#82-approval"><g class="n tint k-host" id="approval">
+    <rect class="box" x="44" y="282" width="252" height="62" rx="9"/>
+    <text class="name mono-name" x="56" y="305">approval</text>
+    <text class="sub" x="56" y="323">holds the run: awaitingApproval</text>
+    <g class="chip k-neu"><rect x="216" y="293" width="70" height="16" rx="8"/><text x="223" y="305">→ outcome</text></g>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">approval</tspan> · approval_step_runner.dart persists the hold, then fires WorkflowApprovalRequestedEvent; resume starts at the next step</text><text class="p2" x="36" y="756">Under approvals auto the gate approves itself with no pending state.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#83-aggregate-reviews"><g class="n tint k-host" id="aggregate">
+    <rect class="box" x="44" y="354" width="252" height="62" rx="9"/>
+    <text class="name mono-name" x="56" y="377">aggregate-reviews</text>
+    <text class="sub" x="56" y="395">merges reports, sums counts</text>
+    <g class="chip k-neu"><rect x="216" y="365" width="70" height="16" rx="8"/><text x="223" y="377">→ outcome</text></g>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">aggregate-reviews</tspan> · aggregate_step_runner.dart merges review reports and sums counts from context values</text><text class="p2" x="36" y="756">No task and no tokens; the result source is context values.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#64-loops"><g class="n tint k-host" id="nested">
+    <rect class="box" x="44" y="426" width="252" height="62" rx="9"/>
+    <text class="name mono-name" x="56" y="449">loop</text>
+    <text class="sub" x="56" y="467">foreach-nested: _executeNestedLoopStep</text>
+    <g class="chip k-neu"><rect x="216" y="437" width="70" height="16" rx="8"/><text x="223" y="449">→ outcome</text></g>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">loop</tspan> · a loop-type step is reachable only as a foreach child; the loop runs against the per-iteration context</text><text class="p2" x="36" y="756">Dispatched without a nested-loop scope, it fails the run.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#execution-rows"><g class="n tint k-host" id="st1">
+    <rect class="box" x="352" y="210" width="312" height="68" rx="9"/>
+    <g class="step"><circle cx="372" cy="232" r="10"/><text x="372" y="236">1</text></g>
+    <text class="name" x="390" y="233">Task triple</text>
+    <g class="badge"><rect x="593" y="221" width="61" height="16" rx="8"/><text x="624" y="233">ONE TXN</text></g>
+    <text class="sub" x="390" y="251">AgentExecution, Task, WorkflowStepExecution</text>
+    <text class="sub" x="390" y="267">one transaction; reviewMode auto-accept</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">Task triple</tspan> · workflow_task_factory.dart writes the three rows in one transaction; Task.maxRetries is 0</text><text class="p2" x="36" y="756">Only onFailure: retry with maxRetries N (N+1 attempts) retries a workflow task, so it cannot multiply with the task runtime's retry.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#74-multi-prompt-steps-and-session-continuity"><g class="n tint k-host" id="st2">
+    <rect class="box" x="352" y="296" width="312" height="68" rx="9"/>
+    <g class="step"><circle cx="372" cy="318" r="10"/><text x="372" y="322">2</text></g>
+    <text class="name" x="390" y="319">Work turn(s)</text>
+    <g class="badge"><rect x="572" y="307" width="82" height="16" rx="8"/><text x="613" y="319">ONE WORKER</text></g>
+    <text class="sub" x="390" y="337">prompt chain on one leased worker;</text>
+    <text class="sub" x="390" y="353">--resume between prompts, budget each</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">Work turn(s)</tspan> · WorkflowOneShotRunner holds one worker lease for the whole prompt chain; the step budget is checked before each prompt</text><text class="p2" x="36" y="756">Each turn's token reading is written to the step receipt before the next prompt; a failed receipt write stops the chain.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#73-one-shot-execution-and-the-finalizer-envelope"><g class="n tint k-host" id="st3">
+    <rect class="box" x="352" y="382" width="312" height="68" rx="9"/>
+    <g class="step"><circle cx="372" cy="404" r="10"/><text x="372" y="408">3</text></g>
+    <text class="name" x="390" y="405">Finalizer turn</text>
+    <g class="badge"><rect x="572" y="393" width="82" height="16" rx="8"/><text x="613" y="405">IF OUTPUTS</text></g>
+    <text class="sub" x="390" y="423">no work tools, at most 4 turns, one re-ask;</text>
+    <text class="sub" x="390" y="439">envelope {outputs, step_outcome}</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">Finalizer turn</tspan> · runs when the step has model-derived outputs or a format: path claim; the prompt carries the full persisted JSON schema</text><text class="p2" x="36" y="756">A missing or malformed envelope gets one re-ask, then fails validation and enters the retry path.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#93-output-declaration-and-extraction"><g class="n tint k-host" id="st4">
+    <rect class="box" x="352" y="468" width="312" height="68" rx="9"/>
+    <g class="step"><circle cx="372" cy="490" r="10"/><text x="372" y="494">4</text></g>
+    <text class="name" x="390" y="491">Extract + validate</text>
+    <text class="sub" x="390" y="509">ContextExtractor: source, path, inline;</text>
+    <text class="sub" x="390" y="525">schema, story_specs, path claims</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">Extract + validate</tspan> · context_extractor.dart: host-owned source:, path and inline resolvers; the envelope is the only model-derived source</text><text class="p2" x="36" y="756">Path validation runs after finalization: a claimed succeeded cannot bypass a missing required artifact.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#75-step-outcome-protocol-failure-policies-and-retry"><g class="n solid k-host" id="st5">
+    <rect class="box" x="352" y="554" width="312" height="68" rx="9"/>
+    <g class="step"><circle cx="372" cy="576" r="10"/><text x="372" y="580">5</text></g>
+    <text class="name" x="390" y="577">Resolve outcome</text>
+    <text class="sub" x="390" y="595">envelope step_outcome, else &lt;step-outcome&gt;</text>
+    <text class="sub" x="390" y="611">tag (emitsOwnOutcome), else task status</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">Resolve outcome</tspan> · envelope step_outcome first; then the &lt;step-outcome&gt; tag, parsed only for emitsOwnOutcome steps; then task status</text><text class="p2" x="36" y="756">Terminal failed or rejected forces failed, cancelled forces cancelled; an accepted task with no outcome resolves to succeeded with a warning.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#75-step-outcome-protocol-failure-policies-and-retry"><g class="n tint k-sec" id="ex">
+    <rect class="box" x="752" y="210" width="216" height="68" rx="9"/>
+    <text class="name mono-name" x="764" y="233">execution error</text>
+    <text class="sub" x="764" y="251">no outcome yet; onError:</text>
+    <text class="sub" x="764" y="267">fail (default), pause, continue</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">execution error</tspan> · task creation or wait failure, non-zero or unstartable bash, or a hard failure before any outcome</text><text class="p2" x="36" y="756">fail ends the run, pause holds it at the failed unit (paused), continue advances with a failed step record.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#71-dispatch-paths"><g class="n tint k-host" id="ok">
+    <rect class="box" x="752" y="296" width="216" height="68" rx="9"/>
+    <text class="name mono-name" x="764" y="319">succeeded</text>
+    <text class="sub" x="764" y="337">merge outputs, continue;</text>
+    <text class="sub" x="764" y="353">promote if last branch step</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">succeeded</tspan> · outputs merge into context and the walk continues</text><text class="p2" x="36" y="756">The step's work is promoted when it is the last branch-touching step in scope.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#75-step-outcome-protocol-failure-policies-and-retry"><g class="n tint k-sec" id="fail">
+    <rect class="box" x="752" y="382" width="216" height="68" rx="9"/>
+    <text class="name mono-name" x="764" y="405">failed</text>
+    <text class="sub" x="764" y="423">onFailure: fail (default),</text>
+    <text class="sub" x="764" y="439">continue, retry or pause</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">failed</tspan> · a failed outcome, validation failures included: fail ends the run, continue records it and advances</text><text class="p2" x="36" y="756">retry allows N+1 attempts and stops early on two equal failures; pause moves the run to awaitingApproval at the step.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#75-step-outcome-protocol-failure-policies-and-retry"><g class="n tint k-ext" id="input">
+    <rect class="box" x="752" y="468" width="216" height="68" rx="9"/>
+    <text class="name mono-name" x="764" y="491">needsInput</text>
+    <text class="sub" x="764" y="509">awaitingApproval; auto-approved</text>
+    <text class="sub" x="764" y="525">under auto-on-stall or auto</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">needsInput</tspan> · by default the run moves to awaitingApproval; onFailure: continue records the reason and advances</text><text class="p2" x="36" y="756">Approvals auto-on-stall or auto approve it, record _approval.auto_resolved.&lt;stepId&gt; and fire WorkflowApprovalResolvedEvent.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#75-step-outcome-protocol-failure-policies-and-retry"><g class="n line k-neu" id="cancel">
+    <rect class="box" x="752" y="554" width="216" height="68" rx="9"/>
+    <text class="name mono-name" x="764" y="577">cancelled</text>
+    <text class="sub" x="764" y="595">task cancelled while running:</text>
+    <text class="sub" x="764" y="611">run pauses, resume re-runs step</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">cancelled</tspan> · a task cancelled while the run is running is an interruption, not a failure; only the engine assigns cancelled</text><text class="p2" x="36" y="756">The run pauses without advancing currentStepIndex, resume re-runs the step, and no git cleanup runs.</text></g>
+  </g></a>
+  <g transform="translate(24,662)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">focal</text>
+    <g class="tint k-host"><rect class="box" x="75.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="97.0" y="10">executor path</text>
+    <g class="tint k-ext"><rect class="box" x="199.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="221.60000000000002" y="10">waits on a human</text>
+    <g class="tint k-sec"><rect class="box" x="342.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="364.8" y="10">failure policy</text>
+    <g class="e main"><path d="M473.6,6 H505.6"/></g><text class="lg" x="513.6" y="10">main path</text>
+    <g class="e bad"><path d="M591.4000000000001,6 H623.4000000000001"/></g><text class="lg" x="631.4000000000001" y="10">failure</text>
+    <g class="e dash"><path d="M696.8000000000001,6 H728.8000000000001"/></g><text class="lg" x="736.8000000000001" y="10">interruption</text>
   </g>
-  <g class="node k-host">
-    <title>Persist hold, fire WorkflowApprovalRequestedEvent; auto-resolved under approvals auto.</title>
-    <rect class="box" x="24" y="250" width="276" height="52" rx="6"/>
-    <text class="mono" x="38" y="271">approval</text>
-    <text class="sub" x="38" y="288">hold run: awaitingApproval</text>
-  </g>
-  <g class="node k-host">
-    <title>Host-side; publishes bare review_report_path, findings_count, gating_findings_count.</title>
-    <rect class="box" x="24" y="320" width="276" height="52" rx="6"/>
-    <text class="mono" x="38" y="341">aggregate-reviews</text>
-    <text class="sub" x="38" y="358">merge reports, sum counts</text>
-  </g>
-  <g class="node k-host">
-    <title>A loop inside a foreach body converges independently per item.</title>
-    <rect class="box" x="24" y="390" width="276" height="52" rx="6"/>
-    <text class="mono" x="38" y="411">loop (foreach-nested)</text>
-    <text class="sub" x="38" y="428">_executeNestedLoopStep</text>
-  </g>
-  <text class="edge-label" x="30" y="172" text-anchor="start">host-side, no task</text>
-  <g class="node k-host">
-    <title>workflow_task_factory.dart. Task.maxRetries is 0 so workflow retry is the only retry authority.</title>
-    <path class="edge" d="M520,206 V232"/>
-    <path class="edge" d="M660,178 H700"/>
-    <rect class="box" x="370" y="150" width="290" height="56" rx="6"/>
-    <text class="mono" x="384" y="171">1  Task triple</text>
-    <text class="sub" x="384" y="188">AgentExecution + Task + WorkflowStepExecution,</text>
-    <text class="sub" x="384" y="202">one transaction; reviewMode auto-accept</text>
-  </g>
-  <g class="node k-host">
-    <title>WorkflowOneShotRunner. Skill activation line applies to the first prompt only.</title>
-    <path class="edge" d="M520,288 V314"/>
-    <rect class="box" x="370" y="232" width="290" height="56" rx="6"/>
-    <text class="mono" x="384" y="253">2  Work turn(s)</text>
-    <text class="sub" x="384" y="270">prompt chain on one leased worker;</text>
-    <text class="sub" x="384" y="284">--resume between prompts, budget check each</text>
-  </g>
-  <g class="node k-host">
-    <title>Only for steps with model-derived outputs. Failure reasons: control-protocol.md section 2.3.</title>
-    <path class="edge" d="M520,370 V396"/>
-    <rect class="box" x="370" y="314" width="290" height="56" rx="6"/>
-    <text class="mono" x="384" y="335">3  Finalizer turn</text>
-    <text class="sub" x="384" y="352">no work tools, at most 4 turns; envelope</text>
-    <text class="sub" x="384" y="366">{outputs, step_outcome}; one re-ask</text>
-  </g>
-  <g class="node k-host">
-    <title>Missing artifacts or schema violations become a validation failure eligible for retry.</title>
-    <path class="edge" d="M520,452 V478"/>
-    <rect class="box" x="370" y="396" width="290" height="56" rx="6"/>
-    <text class="mono" x="384" y="417">4  Extract + validate</text>
-    <text class="sub" x="384" y="434">ContextExtractor: source, path and inline</text>
-    <text class="sub" x="384" y="448">resolvers, schema, story_specs paths</text>
-  </g>
-  <g class="node k-host">
-    <title>Terminal failed or rejected forces failed; cancelled forces cancelled.</title>
-    <path class="edge" d="M660,506 H680 V260 H700"/>
-    <path class="edge" d="M660,506 H680 V342 H700"/>
-    <path class="edge" d="M660,506 H680 V424 H700"/>
-    <rect class="box" x="370" y="478" width="290" height="56" rx="6"/>
-    <text class="mono" x="384" y="499">5  Resolve outcome</text>
-    <text class="sub" x="384" y="516">envelope step_outcome, or &lt;step-outcome&gt; tag</text>
-    <text class="sub" x="384" y="530">(emitsOwnOutcome), else task status</text>
-  </g>
-  <text class="edge-label" x="380" y="142" text-anchor="start">agent step</text>
-  <g class="node k-sec">
-    <title>Raised while dispatching, before any outcome exists: task creation or wait failure, unstartable or non-zero bash. pause gives status paused.</title>
-    <rect class="box" x="700" y="150" width="276" height="56" rx="6"/>
-    <text class="mono" x="714" y="171">execution error</text>
-    <text class="sub" x="714" y="188">task create or wait, bash exit; no outcome yet</text>
-    <text class="sub" x="714" y="202">onError: fail | pause | continue</text>
-  </g>
-  <g class="node k-host">
-    <title>Outputs merged into WorkflowContext; the last branch-touching step in scope promotes.</title>
-    <rect class="box" x="700" y="232" width="276" height="56" rx="6"/>
-    <text class="mono" x="714" y="253">succeeded</text>
-    <text class="sub" x="714" y="270">merge outputs, continue</text>
-  </g>
-  <g class="node k-sec">
-    <title>retry: at most maxRetries+1 attempts; stops early on two equal consecutive failures. pause moves the run to awaitingApproval.</title>
-    <rect class="box" x="700" y="314" width="276" height="56" rx="6"/>
-    <text class="mono" x="714" y="335">failed</text>
-    <text class="sub" x="714" y="352">onFailure: fail | continue | retry | pause</text>
-  </g>
-  <g class="node k-host">
-    <title>onFailure: continue records the reason and advances; approvals auto-on-stall and auto resolve it.</title>
-    <rect class="box" x="700" y="396" width="276" height="56" rx="6"/>
-    <text class="mono" x="714" y="417">needsInput</text>
-    <text class="sub" x="714" y="434">awaitingApproval (or auto-approved)</text>
-  </g>
-  <text class="note" x="24" y="574">Cancellation, budget or security stops and unavailable token accounting take precedence over onFailure and onError.</text>
-  <rect x="24" y="586" width="26" height="14" rx="3" fill="none" stroke="var(--sec)" stroke-width="1.4"/>
-  <text class="note" x="58" y="597">failure policy</text>
-  <text class="note" x="200" y="597">Hover (direct view) for details.</text>
 </svg>

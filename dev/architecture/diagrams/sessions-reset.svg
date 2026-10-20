@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 688" width="1000" height="688" role="img" aria-labelledby="title desc">
+  <title id="title">Session reset</title>
+  <desc id="desc">Three triggers, the daily timer, the idle timer and the reset endpoint, call SessionResetService.resetSession. It first resets provider continuity, which throws BusyTurnException while a turn is active, and only then archives a keyed session (an empty one untitled) and creates a fresh one under the same key, or clears an unkeyed session in place.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#daily:hover) .edges :is(.f-daily,.t-daily) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#idle:hover) .edges :is(.f-idle,.t-idle) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#api:hover) .edges :is(.f-api,.t-api) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#reset:hover) .edges :is(.f-reset,.t-reset) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cont:hover) .edges :is(.f-cont,.t-cont) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#busy:hover) .edges :is(.f-busy,.t-busy) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#arch:hover) .edges :is(.f-arch,.t-arch) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#empty:hover) .edges :is(.f-empty,.t-empty) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#clear:hover) .edges :is(.f-clear,.t-clear) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="688"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="592" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="616">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="640">Hover a box for what it does; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="660">LIVE: reset hour and idle timeout reload without a restart (Reconfigurable on sessions.*). Inside a rendered document this image is static.</text></g>
+
+  <text class="kick" x="24" y="32">FLOW · SessionResetService.resetSession</text>
+  <text class="title" x="24" y="58">Session reset</text>
+  <text class="lede" x="24" y="80">Provider continuity resets first; the session is archived or cleared only after that succeeds.</text>
+
+  <g class="k-store"><rect class="band" x="24" y="412" width="952" height="134" rx="14"/><text class="kick" x="40" y="434">BY SESSION SHAPE</text></g>
+
+  <g class="edges">
+    <g class="e  f-daily t-reset"><path d="M169,174 V212"/><text class="el" x="177" y="198" text-anchor="start">timer</text></g>
+    <g class="e  f-idle t-reset"><path d="M499,174 V212"/><text class="el" x="507" y="198" text-anchor="start">idle elapsed</text></g>
+    <g class="e  f-api t-reset"><path d="M830,174 V212"/><text class="el" x="838" y="198" text-anchor="start">request</text></g>
+    <g class="e main f-reset t-cont"><path d="M234,284 V310"/></g>
+    <g class="e bad f-cont t-busy"><path d="M444,347 H518"/><text class="el" x="481" y="339" text-anchor="middle">turn active</text></g>
+    <g class="e join f-cont t-arch t-empty t-clear"><path d="M234,382 V398 H186 M234,398 H814"/><text class="el" x="242" y="394" text-anchor="start">succeeded</text></g>
+    <g class="e main f-cont t-arch"><path d="M186,398 V444"/></g>
+    <g class="e main f-cont t-empty"><path d="M500,398 V444"/></g>
+    <g class="e main f-cont t-clear"><path d="M814,398 V444"/></g>
+  </g>
+
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-host" id="daily">
+    <rect class="box" x="24" y="104" width="290" height="70" rx="9"/>
+    <text class="name" x="36" y="127">daily reset</text>
+    <g class="badge"><rect x="264" y="115" width="40" height="16" rx="8"/><text x="284" y="127">LIVE</text></g>
+    <text class="sub" x="36" y="145">sessions.reset_hour, default 4, local time</text>
+    <text class="sub" x="36" y="161">main, channel and cron sessions</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">daily reset</tspan> · a negative sessions.reset_hour disables the daily timer; the timer reschedules itself each day</text><text class="p2" x="36" y="660">It acts on main, channel and cron sessions only. A BusyTurnException is logged and that session waits for the next trigger.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-host" id="idle">
+    <rect class="box" x="354" y="104" width="290" height="70" rx="9"/>
+    <text class="name" x="366" y="127">idle timeout</text>
+    <g class="badge"><rect x="594" y="115" width="40" height="16" rx="8"/><text x="614" y="127">LIVE</text></g>
+    <text class="sub" x="366" y="145">sessions.idle_timeout_minutes, default 0</text>
+    <text class="sub" x="366" y="161">main, channel and cron sessions</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">idle timeout</tspan> · touchActivity(sessionId) restarts a per-session timer</text><text class="p2" x="36" y="660">TurnRunner calls it when a turn is reserved and on forward-progress events, so a long tool run keeps the session alive. 0 turns the timer off.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-host" id="api">
+    <rect class="box" x="684" y="104" width="292" height="70" rx="9"/>
+    <text class="name mono-name" x="696" y="127">POST /api/sessions/&lt;id&gt;/reset</text>
+    <text class="sub" x="696" y="145">any non-archive, non-task session</text>
+    <text class="sub" x="696" y="161">409 SESSION_BUSY while a turn is active</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">POST /api/sessions/&lt;id&gt;/reset</tspan> · the only trigger that reaches sessions other than main, channel and cron</text><text class="p2" x="36" y="660">Archived and task sessions get 403. The route resets continuity itself, in the session mutation chain, then calls resetSession.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n solid k-host" id="reset">
+    <rect class="box" x="24" y="214" width="952" height="70" rx="9"/>
+    <text class="name mono-name" x="36" y="237">resetSession(id)</text>
+    <text class="sub" x="36" y="255">session_reset_service.dart</text>
+    <text class="sub" x="36" y="271">bound to TurnManager.resetSessionContinuity in server_composition.dart</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">resetSession(id)</tspan> · the order inside it is the invariant: provider continuity first, session archive or clear second</text><text class="p2" x="36" y="660">A failed reset therefore never archives a session whose provider state is still live.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-host" id="cont">
+    <rect class="box" x="24" y="312" width="420" height="70" rx="9"/>
+    <g class="step"><circle cx="44" cy="334" r="10"/><text x="44" y="338">1</text></g>
+    <text class="name mono-name" x="62" y="335">TurnManager.resetSessionContinuity</text>
+    <text class="sub" x="62" y="353">resets provider continuity</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">TurnManager.resetSessionContinuity</tspan> · resets the provider-side continuity of the session</text><text class="p2" x="36" y="660">Throws BusyTurnException while a turn is active, so a running conversation is never reset underneath its turn.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-sec" id="busy">
+    <rect class="box" x="520" y="312" width="456" height="70" rx="9"/>
+    <text class="name mono-name" x="532" y="335">BusyTurnException</text>
+    <text class="sub" x="532" y="353">a turn is active: nothing is archived or cleared</text>
+    <text class="sub" x="532" y="369">the timers log it and move on; the endpoint answers 409</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">BusyTurnException</tspan> · the reset is abandoned before it touches the session</text><text class="p2" x="36" y="660">A timer-driven reset logs a warning and the session waits for the next daily or idle trigger.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-store" id="arch">
+    <rect class="box" x="40" y="446" width="292" height="84" rx="9"/>
+    <g class="step"><circle cx="60" cy="468" r="10"/><text x="60" y="472">2</text></g>
+    <text class="name" x="78" y="469">keyed, with messages</text>
+    <text class="sub" x="78" y="487">archive, then a fresh session</text>
+    <text class="sub" x="78" y="503">same key and type</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">keyed, with messages</tspan> · the old session becomes type archive, titled from its title or its creation date</text><text class="p2" x="36" y="660">getOrCreateByKey then creates the replacement with the same key and type at once.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-store" id="empty">
+    <rect class="box" x="354" y="446" width="292" height="84" rx="9"/>
+    <g class="step"><circle cx="374" cy="468" r="10"/><text x="374" y="472">2</text></g>
+    <text class="name" x="392" y="469">keyed, empty</text>
+    <text class="sub" x="392" y="487">marked archive, no title written</text>
+    <text class="sub" x="392" y="503">then a fresh session, same key</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">keyed, empty</tspan> · an archived mapping is stale to the key index, so the empty session is archived rather than reused</text><text class="p2" x="36" y="660">getOrCreateByKey then creates the replacement at once, as for a session with messages.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-store" id="clear">
+    <rect class="box" x="668" y="446" width="292" height="84" rx="9"/>
+    <g class="step"><circle cx="688" cy="468" r="10"/><text x="688" y="472">2</text></g>
+    <text class="name" x="706" y="469">unkeyed</text>
+    <text class="sub" x="706" y="487">messages and attachments cleared</text>
+    <text class="sub" x="706" y="503">in place, no archive is created</text>
+    <g class="d"><text class="p1" x="36" y="640"><tspan class="b">unkeyed</tspan> · user sessions without a channel key are cleared in place</text><text class="p2" x="36" y="660">clearMessages, then the attachments directory is deleted; the session keeps its id.</text></g>
+  </g></a>
+  <g transform="translate(24,566)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">reset entry</text>
+    <g class="tint k-host"><rect class="box" x="112.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="134.2" y="10">trigger or step</text>
+    <g class="tint k-store"><rect class="box" x="249.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="271.2" y="10">resulting session state</text>
+    <g class="tint k-sec"><rect class="box" x="435.79999999999995" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="457.79999999999995" y="10">refused</text>
+    <g class="e main"><path d="M523.1999999999999,6 H555.1999999999999"/></g><text class="lg" x="563.1999999999999" y="10">reset proceeds</text>
+    <g class="e bad"><path d="M672.0,6 H704.0"/></g><text class="lg" x="712.0" y="10">refused</text>
+  </g>
+</svg>

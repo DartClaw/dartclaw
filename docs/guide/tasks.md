@@ -36,6 +36,8 @@ Open `/tasks` and use **New Task**. The form supports:
 
 `autoStart: true` queues the task immediately. Otherwise it remains in `draft` until started manually.
 
+A finished `story-and-implement`, `plan-and-implement` or `code-review` workflow run that left review findings below the gating severity also creates one `draft` task listing them. The run page and the "finished" chat post link to it as "N follow-ups"; open it from there and start it like any draft, or leave it. It is not attached to the run's review or merge flow. See [Follow-Up Draft from Review Findings](workflows.md#follow-up-draft-from-review-findings).
+
 ### API
 
 ```http

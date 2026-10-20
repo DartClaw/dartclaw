@@ -153,6 +153,7 @@ export 'src/workflow/workflow_output_contract.dart'
         stepOutcomeTag,
         parseStepOutcomePayload,
         stepOutcomeRegExp;
+export 'src/workflow/follow_up_draft.dart' show WorkflowFollowUp, WorkflowFollowUpLabel, workflowFollowUp;
 export 'src/workflow/workflow_registry.dart' show WorkflowExclusion, WorkflowRegistry, WorkflowSource;
 export 'src/workflow/bash_process_owner.dart' show BashProcessOwner;
 export 'src/workflow/workflow_failure.dart'

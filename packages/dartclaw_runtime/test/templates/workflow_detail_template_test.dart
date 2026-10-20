@@ -169,8 +169,10 @@ void main() {
     String definitionName = 'story-and-implement',
     String status = 'running',
     String? errorMessage,
+    Map<String, dynamic>? contextJson,
   }) {
     return {
+      'contextJson': ?contextJson,
       'id': id,
       'definitionName': definitionName,
       'status': status,
@@ -219,6 +221,33 @@ void main() {
 
       expect(html, contains('data-workflow-run-id'));
       expect(html, contains('>$runId</code>'));
+    });
+
+    test('a run that left a follow-up draft links it from the run identity area', () {
+      String render(Map<String, dynamic> run) => workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: makeSteps(),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      final withDraft = render(
+        makeRun(
+          status: 'completed',
+          contextJson: {
+            '_followUp': {'taskId': 'followup-run-001', 'count': 2},
+          },
+        ),
+      );
+      final identity = RegExp(r'<div class="card workflow-run-identity".*?</div>\s*</div>', dotAll: true);
+      final identityHtml = identity.firstMatch(withDraft)!.group(0)!;
+      expect(identityHtml, contains('<a href="/tasks/followup-run-001">2 follow-ups</a>'));
+
+      final without = render(makeRun(status: 'completed'));
+      expect(without, isNot(contains('follow-up')));
+      expect(without, isNot(contains('/tasks/followup-')));
     });
 
     test('renders exactly the persisted step cards without a null fragment prototype', () {

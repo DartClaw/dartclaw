@@ -31,7 +31,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         missingRequiredWorkflowVariables,
         missingRequiredWorkflowVariablesMessage,
         stepStatusFromTask,
-        workflowContextValue;
+        workflowContextValue,
+        workflowFollowUp;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -551,7 +552,8 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
     ..['steps'] = steps
     ..['childTaskIds'] = childTaskIds
     ..['isApprovalPaused'] = pendingApprovalStepId != null
-    ..['pendingApprovalStepId'] = pendingApprovalStepId;
+    ..['pendingApprovalStepId'] = pendingApprovalStepId
+    ..['followUpTaskId'] = workflowFollowUp(run)?.taskId;
 }
 
 Map<String, dynamic> _summaryToJson(WorkflowSummary s) => {

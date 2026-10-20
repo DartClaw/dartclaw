@@ -2,13 +2,15 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show humanizeSpan;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        WorkflowFollowUpLabel,
         WorkflowRevisionState,
         WorkflowRun,
         workflowCanApprove,
         workflowCanReject,
         workflowCanResume,
         workflowCanRetry,
-        workflowContextValue;
+        workflowContextValue,
+        workflowFollowUp;
 
 import 'components.dart';
 import 'helpers.dart';
@@ -160,6 +162,7 @@ String workflowDetailPageTemplate({
     startedAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
+  final followUp = workflowFollowUp(workflowRun);
   final canPause = statusName == 'running';
   final canResume = workflowCanResume(workflowRun);
   final canRetry = workflowCanRetry(workflowRun);
@@ -211,6 +214,8 @@ String workflowDetailPageTemplate({
     'completedAtDisplay': run['completedAt'] != null ? _formatTimeAgo(run['completedAt']) : null,
     'totalTokens': formatNumber((run['totalTokens'] as num?)?.toInt() ?? 0),
     'durationDisplay': durationDisplay,
+    'followUpHref': followUp == null ? null : '/tasks/${followUp.taskId}',
+    'followUpLabel': followUp?.label,
     'metricsHtml': metricsHtml,
     // A complete pause banner owns the hold reason. Preserve the error fallback
     // for malformed approval records that cannot produce that banner.

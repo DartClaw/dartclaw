@@ -363,7 +363,7 @@ Use these by name in `schema:` or as string shorthand under `outputs:`. Defined 
 
 | Preset | Output Shape | Use For |
 |---|---|---|
-| `verdict` | `{pass, findings_count, findings[], summary}` | Code/doc review or QA evaluation |
+| `verdict` | `{pass, findings_count, findings[], summary}`; `findings` lists every finding, `severity` is one of `critical`, `high`, `medium`, `low` | Code/doc review or QA evaluation; the host lists a completed run's non-gating findings in a [follow-up draft](workflows.md#follow-up-draft-from-review-findings) |
 | `story_specs` | `{items[]}` story records | Story-level foreach pipelines |
 | `non_negative_integer` | Scalar integer `>= 0` | Counts and readiness counters |
 | `narrative_text` | Single string | Generic free-text summaries/results; semantics live in inline `description:` |

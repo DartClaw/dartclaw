@@ -40,6 +40,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - In Slack events mode, a signed event, slash command or interaction that arrives before the bot token is verified now gets `503` so Slack redelivers it, instead of a `200` that lost it.
 - A missing or invalid citation source-link token now counts as a failed authentication (failed-auth event, shared rate limit, `429` past it), and the source page ships no command palette or shell scripts.
 - Every channel post for a task or workflow run is logged at INFO with its ID, event kind, event time and the delay since the event.
+- A `story-and-implement`, `plan-and-implement` or `code-review` run that completes with review findings below the gating severity (`medium`, `low`) creates one `draft` task listing them, with the run's inputs and a link back to the run page. The run page shows "N follow-ups" linking to it, `GET /api/workflows/runs/<id>` returns `followUpTaskId`, and the run's finished chat post carries one "N follow-ups → <task page link>" line. Nothing runs until an admin starts the draft from the task page. Built-in review steps now declare a `verdict` output, and the `verdict` preset's `findings` lists every finding rather than none on a passing review. A custom workflow whose steps declare a `verdict` output gets the same draft.
 
 ### Changed
 

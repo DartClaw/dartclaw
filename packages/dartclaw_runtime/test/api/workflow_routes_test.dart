@@ -1124,6 +1124,21 @@ void main() {
       expect(body['pendingApprovalStepId'], isNull);
     });
 
+    test('GET run detail carries followUpTaskId only for a run that recorded a follow-up draft', () async {
+      workflows.getResult = _makeRun(
+        status: WorkflowRunStatus.completed,
+        contextJson: {
+          '_followUp': {'taskId': 'followup-run-001', 'count': 2},
+        },
+      );
+      var response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+      expect(decodeObject(await response.readAsString())['followUpTaskId'], 'followup-run-001');
+
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.completed);
+      response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+      expect(decodeObject(await response.readAsString())['followUpTaskId'], isNull);
+    });
+
     test('POST cancel with JSON feedback body passes feedback to service', () async {
       workflows.getResult = makeApprovalPausedRun();
 

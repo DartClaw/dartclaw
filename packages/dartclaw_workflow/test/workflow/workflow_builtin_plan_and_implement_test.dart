@@ -7,7 +7,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowPersistencePorts,
         WorkflowRun,
         WorkflowRunOrigin,
-        WorkflowService;
+        WorkflowService,
+        TaskStatus,
+        workflowFollowUp;
 import 'package:test/test.dart';
 
 import 'workflow_builtin_test_support.dart';
@@ -719,6 +721,96 @@ void main() {
       expect(trace.count('re-review'), 1);
     },
   );
+
+  test('S03: story reviews and the plan review merge into one follow-up draft', () async {
+    Map<String, Object?> verdict(String severity, String where) => {
+      'pass': true,
+      'findings_count': 1,
+      'findings': [
+        {'severity': severity, 'location': where, 'description': 'problem at $where'},
+      ],
+      'summary': 's',
+    };
+
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {'FEATURE': 'Follow-ups', 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-plan-state' => StubResponse(
+            outputs: {
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            },
+          ),
+          'prd' => StubResponse(
+            outputs: {'prd': 'docs/specs/demo/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
+          ),
+          'plan' => StubResponse(
+            outputs: {
+              'plan': 'docs/specs/demo/plan.md',
+              'plan_source': 'synthesized',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Story One',
+                    'spec_path': 'docs/specs/demo/fis/s01-story-one.md',
+                    'dependencies': <String>[],
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Story Two',
+                    'spec_path': 'docs/specs/demo/fis/s02-story-two.md',
+                    'dependencies': <String>[],
+                  },
+                ],
+              },
+            },
+          ),
+          // Story 1 reviews clean of gating findings; story 2 needs its remediation loop, whose verdicts stay inside the iteration.
+          'review-story' => StubResponse(
+            outputs: {
+              ...reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 1,
+                gatingFindingsCount: queued.mapIndex == 0 ? 0 : 1,
+              ),
+              'verdict': queued.mapIndex == 0 ? verdict('low', 'story1.dart:1') : verdict('high', 'story2.dart:1'),
+            },
+          ),
+          'plan-review' => StubResponse(
+            outputs: {
+              ...reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 1,
+                gatingFindingsCount: 0,
+              ),
+              'plan-review.verdict': verdict('medium', 'plan.dart:9'),
+            },
+          ),
+          _ => planAndImplementCommonStub(
+            queued,
+            branch: 'story-branch-${queued.mapIndex}',
+            worktreePath: '/tmp/worktrees/story-${queued.mapIndex}',
+          ),
+        };
+      },
+    );
+
+    final run = trace.finalRun!;
+    expect(run.status, WorkflowRunStatus.completed, reason: run.errorMessage);
+    expect(trace.count('remediate-story'), 1);
+    final draft = (await driver.harness.taskService.list(status: TaskStatus.draft)).single;
+    expect(draft.description, contains('story1.dart:1'));
+    expect(draft.description, contains('plan.dart:9'));
+    expect(draft.description, isNot(contains('story2.dart')));
+    expect(workflowFollowUp(run), (taskId: draft.id, count: 2));
+  });
 
   // A6: discovery/reuse/resume fast-path matrix. Each row drives the shipped
   // plan-and-implement graph with a distinct discover-plan-state payload and

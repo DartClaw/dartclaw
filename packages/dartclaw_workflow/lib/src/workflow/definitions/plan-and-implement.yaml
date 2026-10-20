@@ -173,6 +173,7 @@ steps:
           review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
+          verdict: verdict
 
       # Per-story converging review→remediate→re-review loop. Runs against this
       # foreach item's worktree + context only; its review outputs never leak to
@@ -229,6 +230,7 @@ steps:
       plan-review.review_report_path: review_report_path
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
+      plan-review.verdict: verdict
 
   # The aggregator normalizes the prefixed review keys to the bare keys the
   # remediation loop reads and writes the report the remediate step consumes.
@@ -275,3 +277,4 @@ steps:
           review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
+          verdict: verdict

@@ -17,6 +17,10 @@
           <span class="t-label">Run ID</span>
           <code tl:text="${runId}">run-id</code>
         </div>
+        <div tl:if="${followUpHref}">
+          <span class="t-label">Follow-up</span>
+          <a tl:attr="href=${followUpHref}" tl:text="${followUpLabel}">2 follow-ups</a>
+        </div>
       </div>
       <div class="metrics-grid metrics-grid-4" tl:utext="${metricsHtml}"></div>
       <div tl:if="${hasError}" class="workflow-error-message">

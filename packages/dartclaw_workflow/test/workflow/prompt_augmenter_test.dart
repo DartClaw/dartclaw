@@ -69,7 +69,7 @@ void main() {
         expect(countResult, contains('at or above `high`'));
         expect(nonReviewResult, isNot(contains('## Review Finding Scoring')));
         for (final token in forbiddenTokens) {
-          expect(reviewScoringFragment, isNot(contains(token)), reason: token);
+          expect(reviewScoringFragmentFor(defaultGatingSeverity), isNot(contains(token)), reason: token);
         }
       });
 

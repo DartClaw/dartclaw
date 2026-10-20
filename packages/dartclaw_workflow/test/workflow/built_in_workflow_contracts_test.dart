@@ -1280,6 +1280,43 @@ void main() {
     });
   });
 
+  group('Review verdict outputs feed the follow-up draft', () {
+    // Output key is named like the step's own count keys; a prefixed step feeds
+    // review-aggregate, so the prefix rule applies to its verdict too.
+    const verdictOutputs = {
+      'code-review.yaml': {'review-code': 'review-code.verdict', 're-review': 're-review.verdict'},
+      'plan-and-implement.yaml': {
+        'review-story': 'verdict',
+        'plan-review': 'plan-review.verdict',
+        're-review': 'verdict',
+      },
+      'story-and-implement.yaml': {'integrated-review': 'integrated-review.verdict', 're-review': 'verdict'},
+    };
+
+    for (final entry in verdictOutputs.entries) {
+      test('${entry.key} review steps declare the verdict preset beside their counts', () {
+        final def = _load(entry.key);
+        for (final stepOutput in entry.value.entries) {
+          final step = def.steps.singleWhere((step) => step.id == stepOutput.key);
+          expect(step.outputs?[stepOutput.value]?.presetName, 'verdict', reason: '${stepOutput.key} verdict output');
+          expect(step.outputs?[stepOutput.value]?.format, OutputFormat.json);
+          final countKey = stepOutput.value.replaceAll(RegExp(r'verdict$'), 'gating_findings_count');
+          expect(step.outputs?[countKey]?.presetName, 'gating_findings_count', reason: '${stepOutput.key} count');
+        }
+      });
+    }
+
+    test('only those steps declare a verdict', () {
+      for (final entry in verdictOutputs.entries) {
+        final declared = {
+          for (final step in _load(entry.key).steps)
+            if (step.outputs?.values.any((config) => config.presetName == 'verdict') ?? false) step.id,
+        };
+        expect(declared, entry.value.keys.toSet(), reason: entry.key);
+      }
+    });
+  });
+
   group('Review output-key naming convention', () {
     // Locks the cross-workflow naming convention documented in
     // docs/guide/workflows.md § Review Output-Key Convention: the key

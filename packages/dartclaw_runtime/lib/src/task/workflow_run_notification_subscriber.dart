@@ -3,7 +3,14 @@ import 'dart:async';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowApprovalInteraction, WorkflowApprovalPost, WorkflowApprovalSource, WorkflowRun, workflowRevisionState;
+    show
+        WorkflowApprovalInteraction,
+        WorkflowApprovalPost,
+        WorkflowApprovalSource,
+        WorkflowFollowUpLabel,
+        WorkflowRun,
+        workflowFollowUp,
+        workflowRevisionState;
 import 'package:logging/logging.dart';
 
 import 'channel_notification_delivery.dart';
@@ -436,11 +443,16 @@ class WorkflowRunNotificationSubscriber {
             "$label: step '$stepName' (${stepIndex + 1}/$totalSteps) ${outcome ?? (success ? 'succeeded' : 'failed')}.";
       case WorkflowRunStatusChangedEvent(:final newStatus, :final errorMessage):
         error = errorMessage == null ? null : _truncate(errorMessage);
+        final followUp = newStatus == WorkflowRunStatus.completed ? workflowFollowUp(run) : null;
+        if (followUp != null) {
+          final path = '/tasks/${followUp.taskId}';
+          body = '${followUp.label} → ${publicPageUrl(_baseUrl, path) ?? path}';
+        }
         text = switch (newStatus) {
           WorkflowRunStatus.running => '$label started.',
           WorkflowRunStatus.cancelled => '$label was cancelled.',
           WorkflowRunStatus.failed => '$label failed${error == null ? '.' : ': $error'}',
-          _ => '$label finished.',
+          _ => ['$label finished.', ?body].join('\n'),
         };
       default:
         return null;

@@ -246,7 +246,7 @@ Review steps emit several distinct datum types, and the canonical key name encod
 | Review report location | `review_report_path` | Review-report path (`review_report_path` preset) | `andthen:review` steps, and the `aggregate-reviews` step (bare, post-aggregate) |
 | Total findings | `findings_count` | Non-negative integer (`findings_count` preset) | The same review / aggregate steps |
 | Auto-remediable gate value | `gating_findings_count` | Non-negative integer (`gating_findings_count` preset) | The same review / aggregate steps; read by the remediation loop's `entryGate`/`exitGate` |
-| Structured pass/findings object | `verdict` (or `review_verdict`) | `{pass, findings_count, findings[], summary}` (`verdict` preset) | Custom review steps that want the inline object instead of a report path |
+| Structured pass/findings object | `verdict` (or `review_verdict`) | `{pass, findings_count, findings[], summary}` (`verdict` preset) | The built-in review steps, whose non-gating findings feed the [follow-up draft](#follow-up-draft-from-review-findings), and custom review steps that want the inline object instead of a report path |
 
 `review_report_path` resolves like every other `format: path` output. The review step writes its report into `$DARTCLAW_STEP_ARTIFACTS_DIR` (via `--output-dir`); when it emits no usable path, the engine captures the newest matching file from that per-step directory and writes an absolute value to context. When the step *does* emit a path that exists and is inside the workspace, that path is what downstream steps read — a path a step names is honoured, not second-guessed. A path that escapes the workspace is never used, and with nothing in the step's artifacts directory to capture, the step fails naming that path — no unrelated workspace file is substituted for it. A clean review that leaves no report (zero findings) gets a durable diagnostic stub materialized in the same directory, so downstream steps always have a report path; a review that reports findings but leaves no report fails loudly.
 
@@ -255,6 +255,14 @@ The counts a review reports (`findings_count`, `gating_findings_count`) are the 
 Parallel source review steps prefix every key with their step id (`<source-step-id>.review_report_path`, etc.); the `aggregate-reviews` step's own outputs and single-review workflows keep the bare canonical names. Prefixing is **enforced**, not just conventional: a source step feeding an `aggregate-reviews` step that declares a bare (or mis-prefixed) review key fails validation, with a message naming the step and the required `<stepId>.`-prefixed form. The built-in remediation loop gates exclusively on `gating_findings_count` — it never branches on a `verdict` field. This convention is contract-locked in `built_in_workflow_contracts_test.dart`.
 
 > **Migration:** the review-report-path key was previously named `review_findings`. That name is retired — a workflow declaring a `review_findings` output is rejected at parse time, naming `review_report_path` as the replacement. Rename `review_findings` → `review_report_path` (and `<stepId>.review_findings` → `<stepId>.review_report_path`).
+
+#### Follow-Up Draft from Review Findings
+
+Findings below the gating severity (`medium`, `low`) never trigger remediation, so they would otherwise stay in a report file. When a `story-and-implement`, `plan-and-implement` or `code-review` run **completes** with such findings, the host creates one task in `draft` that lists them (severity, location, description), with the run page path and the run's `TARGET` / `FEATURE` / `BRANCH` / `PR_NUMBER` inputs. It is an ordinary task: nothing runs until you start it from its task page, and it is not tied to the run's review or merge flow. The run page shows "N follow-ups" linking to it, `GET /api/workflows/runs/<id>` returns `followUpTaskId`, and the "finished" chat post carries one line, "N follow-ups → <task page link>".
+
+- Only a review's final verdict counts: a review whose own `gating_findings_count` is above 0 was remediated, and the re-review's verdict replaces it. In `plan-and-implement`, a story whose review needed its remediation loop contributes nothing; story reviews and the plan review otherwise merge into the same draft, and a finding both report is listed twice.
+- A run with nothing to list, and a run that fails or is cancelled, creates no draft. If creating the draft fails, the run still completes and the failure is logged with the run id.
+- A custom review step takes part by declaring a `verdict` output next to its `gating_findings_count` (the same step-prefix rule applies), as a top-level step, inside a loop, or as a direct child of a foreach. `critical` and `high` findings gate, the same rule the review prompt states; there is no switch to turn the draft off.
 
 #### Aggregating Parallel Reviews
 
@@ -1018,6 +1026,7 @@ Notable patterns:
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
 - **Bounded remediation**: the batch follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
+- **Follow-up draft**: non-gating findings from the story reviews and the plan review merge into one draft task when the run completes (see [Follow-Up Draft from Review Findings](#follow-up-draft-from-review-findings)).
 
 Role usage:
 - `@workflow`: `discover-plan-state`
@@ -1035,6 +1044,7 @@ Notable patterns:
 - **Role-based model defaults**: built-ins can reference `@workflow`, `@planner`, `@executor`, and `@reviewer` instead of hardcoding provider/model pairs in YAML.
 - **Review routing**: built-ins use `andthen:review` for code and gap review.
 - **Bounded remediation**: the remediation loop stops on success or after `maxIterations: 3`.
+- **Follow-up draft**: the final review's non-gating findings become one draft task, linked from the run page (see [Follow-Up Draft from Review Findings](#follow-up-draft-from-review-findings)).
 
 Role usage:
 - `@reviewer`: `review-code`, `re-review`

@@ -20,6 +20,9 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
+/// The private run-context key the executor records the follow-up draft under.
+const workflowFollowUpContextKey = '_followUp';
+
 /// A fake capability that holds one run's new-thread send until [gate] completes.
 class _GatedThreads extends FakeThreadedNotifications {
   new(this.gatedKey, this.gate);
@@ -277,6 +280,70 @@ void main() {
       expect(notification.text, endsWith('e' * 1000));
       expect(notification.text, isNot(contains('x')));
       expect(notification.status, 'failed');
+    });
+
+    group('the finished post names the follow-up draft', () {
+      WorkflowRun addRunWithFollowUp(String id) {
+        final run = addRun(id, slackOrigin);
+        return runs[id] = run.copyWith(
+          contextJson: {
+            workflowFollowUpContextKey: {'taskId': 'followup-$id', 'count': 2},
+          },
+        );
+      }
+
+      test('with a link on the public base URL and no new action', () async {
+        subscribe([slack], baseUrl: 'https://dartclaw.example/');
+        addRunWithFollowUp('run-1');
+
+        status('run-1', WorkflowRunStatus.running, WorkflowRunStatus.completed);
+        await settle();
+
+        final notification = slackThreads.rendered.single;
+        const line = '2 follow-ups → https://dartclaw.example/tasks/followup-run-1';
+        expect(notification.text, endsWith('\n$line'));
+        expect(notification.body, line);
+        expect(notification.actions, isEmpty);
+      });
+
+      test('with a path when the deployment declares no base_url', () async {
+        subscribe([slack]);
+        addRunWithFollowUp('run-1');
+
+        status('run-1', WorkflowRunStatus.running, WorkflowRunStatus.completed);
+        await settle();
+
+        expect(slackThreads.rendered.single.text, endsWith('\n2 follow-ups → /tasks/followup-run-1'));
+      });
+
+      test('in a plain channel too', () async {
+        subscribe([
+          whatsapp,
+        ], configured: const WorkflowChatNotificationsConfig(channel: ChannelType.whatsapp, recipient: 'R'));
+        addRun('run-1', web);
+        runs['run-1'] = runs['run-1']!.copyWith(
+          contextJson: {
+            workflowFollowUpContextKey: {'taskId': 'followup-run-1', 'count': 1},
+          },
+        );
+
+        status('run-1', WorkflowRunStatus.running, WorkflowRunStatus.completed);
+        await settle();
+
+        expect(whatsapp.sentMessages.single.$2.text, endsWith('\n1 follow-up → /tasks/followup-run-1'));
+      });
+
+      test('and a run without one is posted as before', () async {
+        subscribe([slack], baseUrl: 'https://dartclaw.example/');
+        addRun('run-1', slackOrigin);
+
+        status('run-1', WorkflowRunStatus.running, WorkflowRunStatus.completed);
+        await settle();
+
+        final notification = slackThreads.rendered.single;
+        expect(notification.text, "Workflow 'code-review' (run run-1) finished.");
+        expect(notification.body, isNull);
+      });
     });
 
     test('a cancelled run counts as finished', () async {

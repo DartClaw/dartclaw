@@ -194,7 +194,7 @@ Tasks with `needsWorktree: true` get a git worktree, a structured diff for revie
 
 ### 5.1 WorktreeManager
 
-`task/worktree_manager.dart`. Worktrees are keyed by the task UUID; never derive a path from shared-identity fields. Path: `<workspaceDir>/.dartclaw/worktrees/<taskId>/` (set in `TaskWiring`; the constructor default is `<dataDir>/worktrees`).
+`task/worktree_manager.dart`. Worktrees are keyed by the task UUID, except workflow-owned ones, keyed `wf-<token>` (a hash of the run id, plus `-map-<i>` per map item; `WorkflowWorktreeBinder`). Path: `<workspaceDir>/.dartclaw/worktrees/<taskId>/` (set in `TaskWiring`; the constructor default is `<dataDir>/worktrees`).
 
 - **Project-backed** (`Project` other than `_local`): `git worktree add <path> -b <branch> <ref>` in the project clone, where `<ref>` is `origin/<defaultBranch>` (or the project's local default branch when it has no remote).
 - **Local** (`_local`): `git branch` then `git worktree add` from `tasks.worktree.base_ref` (default `main`).
@@ -379,7 +379,7 @@ One engine, two scopes. `BudgetEngine` (`governance/budget_engine.dart`) owns th
 
 `ScheduledTaskRunner` (`scheduling/scheduled_task_runner.dart`) turns each enabled `ScheduledTaskDefinition` (a `scheduling.jobs` entry with `type: task`) into a callback-backed `ScheduledJob` with id `auto-task-<definitionId>`. When it fires it lists non-terminal tasks whose `configJson.scheduleId` matches and skips if one is open (missed fires are not backfilled); otherwise it calls `TaskService.create` with id `sched-<definitionId>-<ms>-<4hex>`, the definition's title, description, acceptance criteria, `autoStart`, and `model`/`effort`/`tokenBudget` in `configJson`, trigger `system`.
 
-`ScheduleService`, `CronExpression`, and the other job types are covered in [Observability & Operations](observability-operations-architecture.md#10-scheduling-and-heartbeat). Prompt-type jobs run on provider worker leases, never the primary lane.
+`ScheduleService` and the other job types are covered in [Observability & Operations](observability-operations-architecture.md#10-scheduling-and-heartbeat). Prompt-type jobs run on provider worker leases, never the primary lane.
 
 ---
 

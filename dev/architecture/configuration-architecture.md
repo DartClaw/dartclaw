@@ -61,7 +61,7 @@ The filesystem phase is separate: `dartclaw init` and `dartclaw serve` call `Wor
 
 ### Execution capacity
 
-Capacity has one configuration knob, `providers.<id>.pool_size`: the hard per-provider ceiling on concurrent worker executions (`0` means 2, `ProviderEntry.effectivePoolSize`). It excludes the fixed serialized primary-interactive lane. `governance.rate_limits.global.turns` and `concurrency.max_parallel_turns` are earlier admission controls and create no provider capacity. `tasks.max_concurrent` is a tolerated legacy key. Provider-specific `options` are read only by the matching adapter wiring. Lease and lane behavior is in [Task Execution Architecture](task-execution-architecture.md); container lifetime in [Security Architecture](security-architecture.md).
+Capacity has one configuration knob, `providers.<id>.pool_size`: the hard per-provider ceiling on concurrent worker executions (`0` means 2, `ProviderEntry.effectivePoolSize`). It excludes the fixed serialized primary-interactive lane. `governance.rate_limits.global.turns` and `concurrency.max_parallel_turns` are earlier admission controls and create no provider capacity. `tasks.max_concurrent` is a tolerated legacy key. Provider-specific `options` are read only by the matching adapter wiring. Lease and lane behavior is in [Control Protocol](control-protocol.md#62-execution-allocation); container lifetime in [Security Architecture](security-architecture.md).
 
 ---
 
@@ -228,7 +228,7 @@ The result has `applied` (live and reloaded fields), `pendingRestart`, and `erro
 | `/api/config/channels/<type>/{dm,group}-allowlist` | Channel allowlists (`ChannelAccessService`) |
 | `POST /api/settings/{heartbeat,git-sync}/toggle`, `POST /api/scheduling/jobs/<name>/toggle`, `POST .../run`, `GET /api/settings/runtime` | Ephemeral toggles (`config_routes.dart`); nothing is written |
 
-Both routers read bodies through the capped reader in `api_helpers.dart` (`readRequestBody`/`readJsonObject`): an oversized body is `413 REQUEST_TOO_LARGE`, non-UTF-8 is `400 INVALID_INPUT`. Request and response shapes are [CLI & API Architecture](cli-api-architecture.md).
+Both routers read bodies through the capped reader in `api_helpers.dart` (`readRequestBody`/`readJsonObject`): an oversized body is `413 REQUEST_TOO_LARGE`, non-UTF-8 is `400 INVALID_INPUT`. The toggle router caps at 256 KB, the config API at 128 KB. An empty `PATCH /api/config` body is a 400 (`Request body must be valid JSON`); an empty toggle body decodes to an empty map and the route validates its own fields. Request and response shapes are [CLI & API Architecture](cli-api-architecture.md).
 
 **Scheduled jobs are live.** `ScheduleMutationService` is the single owner of every `scheduling.jobs` mutation. Each write commits to the file and then calls `ScheduleService.replaceConfigJobs`, which arms, re-arms or unloads config-declared jobs without a restart, so these routes record no `restart.pending`. The built-in heartbeat and git-sync jobs are fixed at registration, which is why their `interval_minutes` fields are `restart`. A model-originated `schedule_upsert` can be parked for operator approval (`ScheduleMutationApproval.operator`), decided in the composition root, not by the caller.
 
@@ -312,11 +312,11 @@ Execution and control-path durations whose overlap can change whether work compl
 | `governance.turn_limits.stall_timeout` (5m; `0` disables) | `TurnRunner` via `TurnLivenessTracker` | Must be shorter than `turn_timeout` when both are enabled. A tighter agent-step `turn_timeout` makes stall unreachable for that turn; a known approval wait suspends only the stall clock |
 | `governance.turn_limits.turn_timeout` (30m; `0` disables) | `TurnRunner` | Covers every provider turn on every lane. An agent step's `turn_timeout` replaces it for that turn |
 | Harness turn deadline | Provider harness (`harness_wiring.dart`) | Effective turn timeout + 60s; zero stays unbounded. A crash backstop, not a second budget |
-| Turn observation thresholds (30s waiting, 120s stuck) | `TurnLivenessTracker` | Status only; never cancel work |
+| Turn observation thresholds (30s waiting, 120s stuck) | `TurnLivenessTracker` | Status only; never cancel work. Each is capped below the next one up, stuck below `stall_timeout` when that is enabled |
 | Guard evaluation (5s base) | `GuardChain`, one timer per guard | Defers to chain `fail_open` unless the guard supplies `onEvaluationTimeout` |
 | Content classification (15s + 1s) | Classifier for the request, `GuardChain` for the enclosing budget | Enclosing budget strictly above the classifier's; timeout uses `ContentGuard.failOpen` |
 
-Durations that repeat a value in more than one place and are left as separate authorities on purpose: bridge idle/request limits (5m/10m, `BridgeLimits`; request timeout stays below a full turn budget), `RestartService` drain deadline (30s, passed both to `waitForCompletion` and an outer wait), coordinator/runner/manager outcome retention (30s each), `TurnRunner.waitForCompletion` default (10s), Codex credential staleness and warning (8d/48h in `CredentialHealthMonitor`; the warning must stay shorter than the lifetime), knowledge inbox stability window (10s), and the heartbeat interval (its default can coincide with a full turn budget; overlap policy belongs to scheduling).
+Durations that repeat a value in more than one place and are left as separate authorities on purpose: bridge idle/request limits (5m/10m, `BridgeLimits`; request timeout stays below a full turn budget, and changing it alters container transport capacity, so it needs its own operational decision), `RestartService` drain deadline (30s, passed both to `waitForCompletion` and an outer wait; collapsing it must keep per-turn diagnostics), coordinator/runner/manager outcome retention (30s each; pick one owner before changing the public constructors), `TurnRunner.waitForCompletion` default (10s; a shared constant would change a public API contract), Codex credential staleness and warning (8d/48h in `CredentialHealthMonitor`; the warning must stay shorter than the lifetime, and the values model an external credential format), knowledge inbox stability window (10s; needs its own ingestion decision, unrelated to turn liveness), and the heartbeat interval (its default can coincide with a full turn budget; overlap policy belongs to scheduling).
 
 ---
 
@@ -412,5 +412,5 @@ dev/tools/render_config_reference.dart, dev/tools/fitness/, dev/fitness/test/con
 - [Security Architecture](security-architecture.md): guard chain, credential stores and isolation, container posture
 - [Control Protocol](control-protocol.md): harness construction and turn enforcement that consume provider and turn-limit config
 - [Data Model](data-model.md): `dartclaw.yaml` as primary config store, `restart.pending`, `.bak`
-- [Task Execution Architecture](task-execution-architecture.md): worker leases behind `providers.<id>.pool_size`
+- [Control Protocol](control-protocol.md#62-execution-allocation): worker leases behind `providers.<id>.pool_size`
 - [`CHANGELOG.md`](../../CHANGELOG.md): per-release configuration changes

@@ -110,7 +110,7 @@ Producers must call `report()`; firing the event directly would reintroduce dive
 
 ### Container health
 
-`ContainerHealthMonitor` polls each watched container (default every 10 s, 5 s per check) and fires `ContainerCrashedEvent` on a running-to-not-running transition and `ContainerStartedEvent` on recovery. An `unknown` result (daemon blip) holds the last state. An authority is unwatched before its teardown, so a normal release is never reported as a crash. See [Security Architecture](security-architecture.md) § Container Health Monitoring.
+`ContainerHealthMonitor` polls each watched container (default every 10 s, 5 s per check) and fires `ContainerCrashedEvent` on a running-to-not-running transition and `ContainerStartedEvent` on recovery. An `unknown` result (daemon blip) holds the last state. An authority is unwatched before its teardown, so a normal release is never reported as a crash. See [Security Architecture](security-architecture.md#health-and-reclamation).
 
 ---
 

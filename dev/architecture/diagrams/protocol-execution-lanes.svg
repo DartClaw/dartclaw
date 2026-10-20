@@ -118,7 +118,7 @@
   </a>
   <a href="../control-protocol.md#62-execution-allocation">
   <g class="node k-host">
-    <title>Fresh worker from provider wiring; the harness is started and must be idle. Workflow steps with an artifacts directory or spawn environment always get a single-use worker.</title>
+    <title>Fresh worker from provider wiring; the harness is started and must be idle. Workflow-surface requests, and any request with allowedTools, an artifacts directory or spawn environment, always get a single-use worker.</title>
     <path class="edge" d="M860,366 V420"/>
     <rect class="box" x="750" y="300" width="220" height="66" rx="6"/>
     <text class="step" x="762" y="321">New worker</text>

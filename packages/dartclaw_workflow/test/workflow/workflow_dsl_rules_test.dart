@@ -593,7 +593,11 @@ void main() {
       parserResponsibilities,
       contains('Skill existence is checked by\n`workflow_skill_preflight.dart` during execution preflight.'),
     );
-    final semantics = _markdownSection(architecture, '## 19. Validation Semantics', '## 20. Step Defaults');
+    final semantics = _markdownSection(
+      architecture,
+      '### 3.2 Validation semantics',
+      '## 4. Registry and Built-In Definitions',
+    );
     final documentedStages = RegExp(
       r'^\| `(_validate[A-Za-z0-9]+|_warnCodexAllowedToolsPolicy)` \|',
       multiLine: true,

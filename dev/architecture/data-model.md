@@ -185,6 +185,10 @@ All timestamps are ISO 8601 `TEXT`; JSON columns are `TEXT`. Source: `schema_ide
 | `memory_vectors`, `conversation_vectors` | Optional derived vectors | PK `(user_id, document_id, chunk_index)`; `content_hash`, `model_fingerprint`, `dimension`, `embedding public.vector`. Index: `(user_id, model_fingerprint, dimension)` |
 | `dartclaw_schema` | Epoch marker | Single row `id = 1`, `epoch = 1` |
 
+**Tool-record `sourceLocators`.** A successful `memory_search` record in `tool_calls` carries the returned locators in
+first-return order, deduplicated and capped at 50. A failed call, any other tool, or a malformed result leaves `[]`, as
+do legacy records. They ride the existing JSON envelope: no column, no source replay store.
+
 **Optimistic concurrency.** `tasks.version` increments on every update, and `update` matches on `(id, version)`;
 `updateIfStatus` additionally matches the expected `status` and returns `false` on a lost race. `workflow_runs` updates
 take optional `expectedStatus` and `expectedUpdatedAt` compare-and-set guards, and `transitionStatus` is a status CAS.
@@ -335,16 +339,16 @@ on both sides and equal.
 |-------|----------|----------------|
 | `turn_state.json` (`TurnStateStore`) | `{sessionId: {turnId, startedAt}}` | Each mutation reads and replaces the whole document synchronously (`secureWriteFileSync`), so an unawaited `set` is durable on return. Open deletes temp siblings and quarantines malformed content as `turn_state.json.corrupt-<timestamp>` |
 | `webhook_deliveries/<sha256(id)>` (`WebhookDeliveryStore`) | `{state, inserted_at, updated_at}` | Exclusive create reserves `pending`; commit rewrites to `processed`; release deletes a pending claim. A pending claim older than 15 minutes, and any bodyless or malformed marker, is reclaimable. Processed markers are purged after 7 days (first reservation, then at most hourly) |
-| `thread-bindings.json` (`ThreadBindingStore`) | JSON array of bindings keyed in memory by `<channelType>::<threadId>`; task or run `kind`, a row without `kind` reads as a task | In-memory map, atomic file writes, lookups synchronous. A missing or invalid file starts empty. Lifecycle and routing: [Session & State](session-state-architecture.md) §10 |
+| `thread-bindings.json` (`ThreadBindingStore`) | JSON array of bindings keyed in memory by `<channelType>::<threadId>`; task or run `kind`, a row without `kind` reads as a task | In-memory map, atomic file writes, lookups synchronous. A missing or invalid file starts empty. Lifecycle and routing: [Channel Messaging](channel-messaging-architecture.md) §5.3 |
 | `kv.json` (`KvService`) | Entries `{value, updatedAt}`; keys `usage_daily:YYYY-MM-DD` (token totals and `budget_warning_posted_at`), `session_cost:<sessionId>`, `prune_history`, `workflow.outcome.fallback` | Cached map, serialized by a bounded write queue, atomic file replace |
 | `usage.jsonl` | `UsageEvent` lines | Append, then rotate to `usage.jsonl.1` above 10 MiB (one backup, overwritten) |
 | `audit-YYYY-MM-DD.ndjson` | Guard audit entries | Appends serialized on one future chain; a failed append is logged and never delays the guard verdict |
-| `projects.json` | Object keyed by project id, runtime-created projects only; `Project` JSON (`dartclaw_kernel/lib/src/project_runtime.dart`) | `atomicWriteJson` of the full registry. Config-defined projects come from `projects:` in the config, and the implicit `_local` project is the runtime working directory; neither is persisted. Project semantics: [Task Execution](task-execution-architecture.md) §10 |
+| `projects.json` | Object keyed by project id, runtime-created projects only; `Project` JSON (`dartclaw_kernel/lib/src/project_runtime.dart`) | `atomicWriteJson` of the full registry. Config-defined projects come from `projects:` in the config, and the implicit `_local` project is the runtime working directory; neither is persisted. Project semantics: [Task Execution](task-execution-architecture.md) §9 |
 | `pending-schedule-changes.json` | Parked `schedule_upsert` bodies awaiting approval | `PendingScheduleChangeStore`; refuses above 100 records or 1 MiB |
 | Channel state | `signal-sender-map.json`, `google-chat-user-oauth.json` (owner-only), `google-chat-subscriptions.json` | Owned by the channel packages. WhatsApp sidecar state is not a DartClaw store |
 
 Governance counters (rate limits, loop detection, pause queue) are in memory and reset on restart; only daily token totals
-persist, in `kv.json`. See [Security Architecture](security-architecture.md) and [Session & State](session-state-architecture.md) §11.
+persist, in `kv.json`. See [Security Architecture](security-architecture.md) § Runtime Governance.
 
 ---
 
@@ -411,8 +415,8 @@ existing target keeps its POSIX mode; `restrictPermissions` forces `0600`. `Conf
 `BoundedWriteQueue` holds at most 1,000 pending operations, warns at 800, and fails an operation that would overflow it.
 
 **Fire-and-forget.** These must not block or fail their caller: guard audit appends, usage metering (each step of
-`UsageTracker.record` is isolated), `turns` inserts (`unawaited` from `TaskExecutor`), and `lastActivity` updates of
-thread bindings. `task_events` inserts are the awaited exception.
+`UsageTracker.record` is isolated), and `turns` inserts (`unawaited` from `TaskExecutor`). `task_events` inserts are
+awaited, and so is the thread-binding `lastActivity` write: `ThreadBindingRouter` persists it before enqueueing.
 
 ---
 

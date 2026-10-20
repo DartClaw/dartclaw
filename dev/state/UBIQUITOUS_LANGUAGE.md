@@ -69,7 +69,7 @@ Owned by [security-architecture.md](../architecture/security-architecture.md) §
 
 ## Turn Orchestration
 
-Owned by [task-execution-architecture.md](../architecture/task-execution-architecture.md), [session-state-architecture.md](../architecture/session-state-architecture.md) § Turn Admission and Locking (ADR-058).
+Owned by [control-protocol.md](../architecture/control-protocol.md) § Turn Lifecycle, [task-execution-architecture.md](../architecture/task-execution-architecture.md), [session-state-architecture.md](../architecture/session-state-architecture.md) § Turn Admission and Locking (ADR-058).
 
 | Term | Definition | Avoid (synonyms) |
 |------|-----------|-------------------|
@@ -149,7 +149,7 @@ Owned by [task-execution-architecture.md](../architecture/task-execution-archite
 | Task Project ID | Persisted `Task.projectId` naming the project checkout a task runs against, set directly by a standalone task and derived from the workflow's project binding otherwise | task project, project field, repoId |
 | Task Executor | Orchestrates lifecycle: dequeue, acquire worker, execute turn, cleanup, notify | task runner |
 | Task Service | CRUD service with atomic status transitions and optimistic locking | task manager, task repository |
-| Worktree | Isolated git worktree for a task with `needsWorktree: true`, at `<workspaceDir>/.dartclaw/worktrees/<taskId>/` and keyed only by task UUID | sandbox directory, work directory |
+| Worktree | Isolated git worktree for a task with `needsWorktree: true`, at `<workspaceDir>/.dartclaw/worktrees/<taskId>/`, keyed by task UUID (a workflow-owned worktree by `wf-<token>`, a hash of the run id, plus `-map-<i>` per map item) | sandbox directory, work directory |
 | Diff | Computed difference between a worktree and the main branch (`DiffGenerator` → `DiffResult`) | file changes, patch |
 | Merge | Applying worktree changes to the project base branch (`MergeExecutor` → `MergeSuccess` or `MergeConflict`), distinct from workflow Promotion | git merge, integration |
 | Task Review | A lifecycle decision applied through the task UI, HTTP API, or `task_review` tool to a task identified by its full ID | review action, review decision |

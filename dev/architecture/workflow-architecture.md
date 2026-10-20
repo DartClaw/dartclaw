@@ -134,7 +134,20 @@ The persisted run snapshot stores `definitionJson` including `nodes`. A node lis
 
 ## 3. Authoring Contract: Parser, Schema, Validator
 
+### 3.1 Parser and published schema
+
 **Parser.** `WorkflowDefinitionParser` is strict about shape and unknown keys and does not check semantics. It rejects missing or empty `name`, `description`, `steps`, non-string or empty ids and names, bad `prompt` shapes, and any key `WorkflowDslRules` does not declare. It normalizes `prompt: "x"` to `prompts: ["x"]`, omitted `type` to `agent`, `timeout: "30s"` to seconds, and the output shorthand `key: json | lines | <preset>` to an `OutputConfig`. Prompts are optional for bash, approval, controller and skill-only steps. Duplicate YAML keys follow `package:yaml` last-key-wins.
+
+The parser does not do semantic checks such as:
+
+- whether `mapOver` references a prior context key
+- whether `continueSession` targets a valid step
+- whether a gate expression is well formed
+
+Those three checks are validator responsibilities. Skill existence is checked by
+`workflow_skill_preflight.dart` during execution preflight.
+
+The separation matters operationally: parse errors are syntax and shape failures, validation errors are contract failures, and warnings mark loadable but risky definitions. `dartclaw workflow validate`, registry loading and the browser/API diagnostics report that same split.
 
 **Rule authority.** `WorkflowDslRules` declares blocks, key aliases (snake and camel case), value kinds, enum members, required fields, type applicability and mutual exclusions as data. The parser, the validator's grammar-shaped checks and the published JSON Schema all read it, so the three cannot disagree.
 
@@ -142,22 +155,61 @@ The persisted run snapshot stores `definitionJson` including `nodes`. A node lis
 
 **Published schema.** The repo-root `schemas/workflow.schema.json` (draft 2020-12) is generated from `WorkflowDslRules`: the union of step keys once with `additionalProperties: false`, narrowed per `type` by conditional branches. Reference resolution, gate grammar and id uniqueness stay outside it. Regenerate with `dart run packages/dartclaw_workflow/tool/generate_workflow_schema.dart`; `dev/tools/fitness/run_all.sh` runs it with `--check`.
 
-**Validator.** `WorkflowDefinitionValidator.validate` returns a `ValidationReport` of errors and warnings. A definition is loadable when `errors` is empty; the registry still exposes warning-bearing definitions. The rule: ambiguous or unsafe execution is an error, coherent but risky execution is a warning. Stages run in this order (`workflow/validation/` holds the bodies):
+### 3.2 Validation semantics
 
-| Group | Checks |
+`WorkflowDefinitionValidator.validate` returns a `ValidationReport` of errors and warnings, not a boolean. A definition is loadable when `errors` is empty; the registry still exposes warning-bearing definitions instead of dropping them, so authors can iterate past non-fatal risks. Stages run in this order (`workflow/validation/` holds the bodies); the capability stage runs only when provider capabilities are supplied.
+
+| Stage | Result | Checks |
+|---|---|---|
+| `_validateRequiredFields` | error | Required names and prompts; per-type field applicability |
+| `_validateUniqueStepIds` | error | Unique step ids |
+| `_validateUniqueLoopIds` | error | Unique loop ids |
+| `_validateNormalizedNodes` | error | Normalized-node references, shapes and consistency |
+| `_validateProviderAliases` | error | Known provider role aliases |
+| `_validateVariableReferences` | error | Declared `{{VAR}}` and workflow-system variables |
+| `_validateContextKeyConsistency` | error | `inputs` produced earlier or within the same loop |
+| `_validateLoopGateExpressions` | error | Loop gate grammar and referenced keys (an `entryGate` cannot read a key only the body produces) |
+| `_validateLoopReferences` | error | Loop-owned step ids exist |
+| `_validateLoopMaxIterations` | error | Positive `maxIterations` |
+| `_validateLoopStepOverlap` | error | No step in two loops |
+| `_validateLoopMaxIterationsPolicy` | error | `onMaxIterations` valid for its scope |
+| `_validateStepTimeoutFields` | error | Timeout field matches the step type |
+| `_validateStepDefaults` | error/log warning | Default timeouts, provider aliases, unmatched patterns |
+| `_validateGitStrategy` | error/warning | `worktree` and `promotion` values, artifact-commit defaults, `merge_resolve` bounds (section 10) |
+| `_validateStepDefaultsOrdering` | warning | Overlapping defaults whose order changes the effective configuration |
+| `_validateStepEntryGates` | error | `entryGate` grammar |
+| `_validateOutputConfigs` | error/warning | Output keys, formats, schemas, path patterns, descriptions |
+| `_warnCodexAllowedToolsPolicy` | warning | Codex `allowedTools` outside a read-only policy |
+| `_validateMapOverReferences` | error | `mapOver` produced by a prior step |
+| `_validateMapStepConstraints` | error/log warning | Foreach has per-item steps and one output key, not `parallel` |
+| `_validateAggregateReviewsConstraints` | error | Aggregate-reviews sources and output format/preset triple |
+| `_validateAggregateReviewsPlacement` | error | Aggregators outside loops and foreach bodies |
+| `_validateReviewSourcePrefixing` | error | Review output keys prefixed by their source step |
+| `_validateMultiPromptProviders` | error | Multi-prompt provider supports continuity (`@` aliases skipped, re-checked at runtime) |
+| `_validateHybridStepRules` | error/warning | The step-type and session-continuity rules below |
+
+The hybrid-step rules run in this order. Applicability and exclusions come from `WorkflowDslRules`; continuity targets, provider compatibility, loop boundaries and cycles need the definition instance (section 7.4).
+
+| Rule | Severity |
 |---|---|
-| Structure | required fields and per-type applicability; unique step and loop ids; normalized-node references and shapes |
-| References | provider role aliases; `{{VAR}}` and workflow-system variables declared; `inputs` produced earlier (or within the same loop); `mapOver` produced by a prior step |
-| Loops | gate grammar and referenced keys (an `entryGate` cannot read a key only the body produces); loop step ids exist; `maxIterations` positive; no step in two loops; `onMaxIterations` valid for scope |
-| Timeouts, defaults | timeout field per type; `stepDefaults` values and overlap-order warnings |
-| Git | `worktree` and `promotion` values; artifact-commit defaults; `merge_resolve` bounds (section 10) |
-| Entry gates | `entryGate` grammar |
-| Outputs | keys, formats, schemas, path patterns, descriptions; Codex `allowedTools` warning |
-| Foreach, aggregate | foreach has per-item steps and one output key, not `parallel`; aggregate-reviews sources, output triple, placement outside loops and foreach; review output keys prefixed by their source step |
-| Capabilities | multi-prompt provider supports continuity (when capabilities are supplied; `@` aliases skipped and re-checked at runtime) |
-| Hybrid rules | approval inside a loop (warning); approval `revise` target is an earlier top-level non-approval step; approval and bash cannot take a prompt list; approval cannot be `parallel`; `continueSession` rules (section 7.4) |
+| approval step inside a loop | warning |
+| approval revise step cannot be re-entered | error |
+| step type forbids parallel execution | error |
+| step type forbids a prompt list | error |
+| parallel combined with continueSession | error |
+| continueSession uses an unsupported concrete provider | error |
+| continueSession has no resolvable target | error |
+| continueSession references an unknown target | error |
+| continuing step type forbids continueSession | error |
+| continueSession target does not precede the step | error |
+| continueSession target is bash or approval | error |
+| continueSession providers differ | error |
+| continueSession crosses a loop boundary | error |
+| continueSession chain forms a cycle | error |
 
-Skill names are not a load gate. They resolve at run preflight (section 11.1).
+The warning/error boundary is pragmatic: ambiguous or unsafe execution is an error, coherent but operationally risky execution is a warning. That is why approval inside a loop only warns: it can work, but authors must ensure the exit gate eventually ends the loop instead of the run waiting at the approval forever.
+
+Skill names resolve in `workflow_skill_preflight.dart` at execution preflight (section 11.1); they are not a load gate. Unknown step types and unsupported `onError` values fail during parsing.
 
 ## 4. Registry and Built-In Definitions
 
@@ -206,7 +258,7 @@ Every executor write is conditional on the run still being `running` (`updateOwn
 
 ### 5.4 Pause, resume, retry, cancel
 
-`pause` is valid only for `running`. `resume` accepts `paused` or `awaitingApproval`; at a pending approval it records the approval as approved. `retry` accepts `failed` and clears the failed step's `status`, `error` and outcome keys. `cancel` records a pending approval as rejected (optional `feedback`), transitions to `cancelled`, cancels child tasks and invokes git cleanup. Resume and retry rebuild the executor from the stored `definitionJson` snapshot, never from the registry, so editing a YAML file does not change an in-flight run. `WorkflowService` serializes all resolutions of one run (resume, cancel, request changes, approval issue and bind, timeout expiry) in a per-run in-process section.
+`pause` is valid only for `running`. `resume` accepts `paused` or `awaitingApproval`; at a pending approval it records the approval as approved. `retry` accepts `failed` and clears the failed step's `status`, `error` and outcome keys. `cancel` records a pending approval as rejected (optional `feedback`), transitions to `cancelled`, cancels child tasks and invokes git cleanup. Resume and retry rebuild the executor from the stored `definitionJson` snapshot, never from the registry, so editing a YAML file does not change an in-flight run. `WorkflowService` serializes all resolutions of one run (resume, cancel, request changes, approval issue and bind, timeout expiry) in a per-run in-process section. That section does not reach other processes (the standalone CLI's pause and cancel run in their own); the persisted guard is the repository's conditional update on expected status and `updatedAt`, and a lost update leaves the approval record unconsumed.
 
 ### 5.5 Crash recovery
 
@@ -251,9 +303,9 @@ Adjacent `parallel: true` steps run concurrently via `Future.wait` after all pri
 
 `ForeachNode` is the only collection-iteration primitive. The controller's `mapOver` names a context key holding a list (or a single-key object wrapping one, e.g. `story_specs.items`); an empty list succeeds with an empty result. Each item runs the ordered child steps in a per-iteration overlay: a copy of the plan-level context plus `map`, so a child's bare output keys are visible to later siblings and isolated from the plan-level context until the iteration ends. Results aggregate back as one list under the controller's single output key, index-ordered, each item an object keyed by child step id. The controller's tokens are the sum of its children's `<childId>[<i>].tokenCount` entries.
 
-**Concurrency.** `max_parallel` is an integer, `"unlimited"` or a `{{VAR}}` template; omitted means 1. The dispatch engine (`iteration_dispatch_engine.dart`) caps in-flight iterations by `max_parallel` and by the runner capacity the host adapter reports (`availableRunnerCount`, at least 1); the worker lease at dispatch is the authoritative limit if capacity changes. An `inline` worktree forces 1. The engine owns restore, in-flight tracking, a single wake completer pumped from each future's completion, dependency-ready scan and stalled-dispatch cancellation.
+**Concurrency.** `max_parallel` is an integer, `"unlimited"` or a `{{VAR}}` template; omitted means 1. The dispatch engine (`iteration_dispatch_engine.dart`) caps in-flight iterations by `max_parallel` and by the runner capacity the host adapter reports (`availableRunnerCount`, at least 1); the worker lease at dispatch is the authoritative limit if capacity changes. An `inline` worktree forces 1. The engine owns restore, in-flight tracking, a single wake completer pumped from each future's completion, dependency-ready scan and stalled-dispatch cancellation. Each iteration future swallows its own error before it is tracked, so one iteration's exception cannot escape the dispatch loop and leave `inFlightCount` wrong; the wake completer replaces `Future.any` polling, which allocated listeners on every tick.
 
-**Dependencies.** When items carry `id` and `dependencies`, `DependencyGraph` dispatches an item only after its dependencies completed (promoted, in promotion-aware scopes). A cycle is rejected at dispatch time.
+**Dependencies.** When items carry `id` and `dependencies`, `DependencyGraph` dispatches an item only after its dependencies completed (promoted, in promotion-aware scopes). An unknown dependency id or a cycle is rejected at dispatch time.
 
 **Failure.** A failed iteration records `{error: true, kind, message, task_id}` in its slot. `kind` is the persisted discriminator of the typed failure (`workflow_failure.dart`) and resume reads it, so renaming a `kind` breaks resume for runs started earlier; `message` is operator text only. Under the controller's error policy, the first hard failure cancels pending iterations; in-flight ones settle. An exhausted token budget cancels pending iterations the same way. Outcomes: hard iteration, promotion or controller failures fail the run. The foreach cursor (settled indices, result slots, completed child steps) stays on the run for a promotion conflict, an unsettled slot or a pending accounting read, so `retry` resumes those items; otherwise `retry` re-enters the controller. `onFailure: continue` on the controller records `step.<id>.outcome = failed` and advances when no hard stop applies. Items blocked on `needsInput` advance with a digest, or hold the run in `awaitingApproval` when a dependent is waiting or the item carries the escalation marker from a nested loop.
 
@@ -320,7 +372,7 @@ Claude Code restarts its process when the finalizer changes spawn flags. The har
 
 ### 7.4 Multi-prompt steps and session continuity
 
-A `prompt:` list runs its prompts sequentially on the same worker, each resuming the captured provider session (`--resume` / `resume`). Output-format instructions go on the final prompt only. The step budget (`maxTokens`, host-set) is checked before every prompt. Each turn's normalized additive token reading is written to the `WorkflowStepExecution` token receipt before the next prompt; a failed receipt write stops the chain.
+A `prompt:` list runs its prompts sequentially on the same worker, each resuming the captured provider session (`--resume` / `resume`). Output-format instructions go on the final prompt only. The step budget (`maxTokens`, host-set) is checked before every prompt. Each turn's normalized additive token reading is written to the `WorkflowStepExecution` token receipt before the next prompt; a failed receipt write stops the chain. The receipt and the session ledger can disagree: when a turn's settlement `session_cost` write fails, the ledger keeps its pre-dispatch pending marker and the turn counts as incomplete, while the receipt keeps the turn's known increment. A later complete snapshot does not heal that ledger gap (control-protocol.md § 6.4).
 
 `continueSession` reuses an earlier step's agent session. `true` means the immediately preceding step; a step id names a step. Resolution follows the chain to its root and reads `<rootStepId>.sessionId` (and the provider session id) from context. The executor snapshots the session's known token count as a baseline so the step is charged only its own tokens; Claude's native cumulative baseline is scoped to the same logical session, so resuming the native identity under another logical session starts an incomplete lower bound. Validation rejects a continuation that is `parallel`, targets a non-agent step or an unknown or later step, crosses a loop boundary, forms a cycle, or targets a step on a different concrete provider (role aliases are checked at runtime and fall back to the root's provider with a warning). It pays off in refinement chains and same-worktree validation loops; review steps whose inputs arrive through `inputs` should start fresh.
 
@@ -388,7 +440,7 @@ Chat, tool and HTTP callers reach `WorkflowService` through `WorkflowRunControl`
 
 **Request changes.** The gate declares `revise: <stepId>` (an earlier top-level non-approval step) and `maxRevisions` (1 to 10, default 3 when `revise` is set). The service refuses with typed `WorkflowApprovalRefusal` reasons (`changesNotOffered`, `limitReached`, `feedbackRequired`, plus `notPending`, `alreadyResolved`, `invalidNonce`) before writing anything, so no refusal consumes the nonce. `workflowRevisionState` is the one derivation of "is the round open" shared by the service, tools, run page and route. One persisted update records `changes_requested`, the trimmed feedback, the incremented revision and the consumed interaction, sets the run `running` at the revise step and writes `_revision.gateId`. The marker makes the executor run the revise step despite its `entryGate` and append a round lead-in and the feedback in one framed block to the prompt (`SkillPromptBuilder.appendRevisionFeedback`, skipped when the prompt already references `{{context.<gateId>.approval.feedback}}`); the marker is dropped when the gate pauses again. Outputs of steps between the revise step and the gate are overwritten, never cleared. Refused: a `needsInput` hold, a gate inside a loop, foreach or group, or a gate with no `revise`.
 
-**Chat interaction record.** A chat post can resolve a pending approval once, through `_approval.interaction` in the run's context (`workflow_approval_interaction.dart`). `issueApprovalInteraction` stores `{stepId, nonce, issuedAt}` only when the run is pending at that step; the nonce is 128 bits from `Random.secure()` (32 hex characters). `bindApprovalPost` records the sent post (channel type, recipient, message id) and fails if the record was replaced or consumed. `resume`, `cancel` and `requestChanges` accept an `expect` (step, nonce, channel type, message id) and a `resolver` (source `button`, `tool` or `web`, sender id, display name); with `expect`, the run must still be pending at that step, the record unresolved, and every field equal (nonce compared in constant time), else `WorkflowApprovalRefused`. Resolution is written in the same update as the approval status keys and the record then carries `resolution`. A failing update leaves the nonce live. Without `expect`/`resolver` the old behaviour holds (`StateError` for a refused transition). The nonce is readable by an authenticated run-detail caller, who can already resume over HTTP; no tool result, audit entry or log carries it.
+**Chat interaction record.** A chat post can resolve a pending approval once, through `_approval.interaction` in the run's context (`workflow_approval_interaction.dart`). `issueApprovalInteraction` stores `{stepId, nonce, issuedAt}` only when the run is pending at that step; the nonce is 128 bits from `Random.secure()` (32 hex characters). `bindApprovalPost` records the sent post (channel type, recipient, message id) and fails if the record was replaced or consumed. `resume`, `cancel` and `requestChanges` accept an `expect` (step, nonce, channel type, message id) and a `resolver` (source `button`, `tool` or `web`, sender id, display name); with `expect`, the run must still be pending at that step, the record unresolved, and every field equal (nonce compared in constant time), else `WorkflowApprovalRefused`. Resolution is written in the same update as the approval status keys and the record then carries `resolution`. It is kept after resolution, so the notification subscriber can find and edit its post, and ends with the run. A failing update leaves the nonce live. Without `expect`/`resolver` the old behaviour holds (`StateError` for a refused transition). The nonce is readable by an authenticated run-detail caller, who can already resume over HTTP; no tool result, audit entry or log carries it.
 
 ### 8.3 Aggregate reviews
 
@@ -445,6 +497,8 @@ op         ::= == | != | < | > | <= | >=
 
 Examples: `review.verdict == pass`, `plan.status == accepted && plan.tokenCount < 12000`, `plan-review.gating_findings_count > 0 || re-review.gating_findings_count > 0`, `review_report_path isNotEmpty && findings_count < 5`.
 
+The language stays small on purpose: the validator can reason about the keys a gate reads, docs and the UI can explain a gate without ambiguity, and workflows stay auditable configuration rather than embedded code.
+
 Both productions are declared once on `GateEvaluator` (`binaryConditionPattern`, `unaryConditionPattern`, `conditionGroups`) and the validator reads the same declarations, so it cannot accept what the evaluator rejects.
 
 - Keys are bare or dotted (`plan-review.gating_findings_count`), looked up in context, then in workflow variables (so `PLAN_REVIEW == true` works). A stray `context.` prefix is stripped with a warning.
@@ -470,6 +524,8 @@ For project-backed workflows, git state is orchestrated at workflow level, not o
 ### 10.1 Worktree mode resolution
 
 `WorkflowGitStrategy.effectiveWorktreeMode(maxParallel, isMap)` resolves an omitted or `auto` mode per scope: a foreach scope with `max_parallel` greater than 1 or `unlimited` resolves to `per-map-item`; a serial foreach scope resolves to `inline`; a non-foreach scope resolves to `shared` when `integrationBranch: true` (keeping the workflow branch out of the operator's live checkout) else `inline`. Authored values are used as written. The validator treats unresolved `auto` conservatively for artifact-commit checks.
+
+**Shared-worktree binding.** A `shared` worktree is keyed by the run id and a `per-map-item` one by `<runId>:map:<i>`. The on-disk worktree id is `wf-<token>` (`wf-<token>-map-<i>`), where `<token>` is the first 16 hex characters of the SHA-256 of the run id, not a task UUID. Creation is serialized per key: the first task creates the worktree and concurrent tasks for the same key await it, so parallel steps cannot race to create two. The resulting `{key, path, branch, workflowRunId}` binding is persisted on the run and reloaded before resume, retry and recovery, so a restarted run adopts its existing worktree. A binding whose `workflowRunId` differs from the requesting run is refused with a `StateError`.
 
 ### 10.2 Promotion
 

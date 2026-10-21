@@ -28,7 +28,8 @@ extension _ClaudeCodeHarnessControl on ClaudeCodeHarness {
           rawProviderToolName: rawToolName,
         );
         if (verdict.isBlock) {
-          if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false))) {
+          final deny = _adapter.buildHookResponse(requestId, allow: false, reason: verdict.message);
+          if (_tryWriteHookResponse(requestId, deny)) {
             _emitControlEvent(ToolApprovalResolvedEvent(requestId: requestId));
           }
           return;

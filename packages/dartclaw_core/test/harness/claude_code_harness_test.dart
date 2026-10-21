@@ -1043,6 +1043,19 @@ void main() {
             ),
           ),
         );
+        expect(
+          fake.capturedStdinJson,
+          contains(
+            containsPair(
+              'response',
+              containsPair(
+                'response',
+                containsPair('hookSpecificOutput', containsPair('permissionDecisionReason', 'blocked')),
+              ),
+            ),
+          ),
+          reason: 'the guard verdict reason reaches the model, not only a generic block',
+        );
         fake.emitStdout(jsonEncode({'type': 'result', 'result': 'done', 'is_error': false}));
         await turnFuture;
 

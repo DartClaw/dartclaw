@@ -127,8 +127,8 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   }
 
   /// Builds a Claude `hook_callback` success response.
-  Map<String, dynamic> buildHookResponse(String requestId, {required bool allow}) {
-    return tool_policy.buildHookResponse(requestId, allow: allow);
+  Map<String, dynamic> buildHookResponse(String requestId, {required bool allow, String? reason}) {
+    return tool_policy.buildHookResponse(requestId, allow: allow, reason: reason);
   }
 
   /// Builds a Claude success response for unrecognised control subtypes.

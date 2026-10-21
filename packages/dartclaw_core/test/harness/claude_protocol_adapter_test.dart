@@ -357,6 +357,25 @@ void main() {
         },
       });
     });
+
+    test('deny with reason', () {
+      final adapter = ClaudeProtocolAdapter();
+      expect(adapter.buildHookResponse('req-5', allow: false, reason: 'Command blocked: rm -rf'), {
+        'type': 'control_response',
+        'response': {
+          'subtype': 'success',
+          'request_id': 'req-5',
+          'response': {
+            'continue': true,
+            'hookSpecificOutput': {
+              'hookEventName': 'PreToolUse',
+              'permissionDecision': 'deny',
+              'permissionDecisionReason': 'Command blocked: rm -rf',
+            },
+          },
+        },
+      });
+    });
   });
 
   test('mapToolName returns null', () {

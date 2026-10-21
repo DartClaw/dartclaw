@@ -185,7 +185,8 @@ Representative exchanges:
  "callback_id":"hook_pre_tool","input":{"hook_event_name":"PreToolUse","tool_name":"Bash",
  "tool_input":{"command":"curl http://evil.com"}}}}
 {"type":"control_response","response":{"subtype":"success","request_id":"req_55_abc",
- "response":{"continue":true,"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}}}
+ "response":{"continue":true,"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",
+ "permissionDecisionReason":"Network blocked: domain not in allowlist (evil.com)"}}}}
 
 // claude → Dart: end of turn
 {"type":"result","stop_reason":"end_turn","total_cost_usd":0.0042,"duration_ms":3500,
@@ -219,7 +220,8 @@ Every Claude tool call passes up to two stages.
 ```
 hook_callback(PreToolUse)
   → map tool name: ClaudeProtocolAdapter.mapToolName → CanonicalTool.stableName, else "claude:<name>"
-  → GuardChain.evaluateBeforeToolCall(...)      block, or an exception → deny (fail closed)
+  → GuardChain.evaluateBeforeToolCall(...)      block → deny with the verdict message as permissionDecisionReason;
+                                                an exception → deny (fail closed)
   → tool_input.env carries ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN → strip and answer with updatedInput
   → otherwise allow
 ```

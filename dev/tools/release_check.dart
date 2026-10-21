@@ -17,6 +17,12 @@ const _gates = <String, List<List<String>>>{
   'versions': [
     ['bash', 'dev/tools/check_versions.sh'],
   ],
+  'secrets': [
+    ['bash', 'dev/tools/secret_scan.sh'],
+  ],
+  'doc-cuts': [
+    ['bash', 'dev/tools/check_doc_cuts.sh'],
+  ],
   'dependencies': [
     ['git', 'ls-files', '--error-unmatch', 'pubspec.lock'],
     ['git', 'ls-files', '--error-unmatch', 'dev/tools/mascot_favicon/pubspec.lock'],

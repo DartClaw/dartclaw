@@ -5,7 +5,13 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
-const _botToken = 'xoxb-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
+// Split literals: no token-shaped string is committed (push protection, dev/tools/secret_scan.sh).
+const _botToken =
+    'xox'
+    'b-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
+const _appToken =
+    'xa'
+    'pp-1-A0123456789-5555555555-a1b2c3d4e5f6a1b2c3d4e5f6';
 const _fileUrl = 'https://files.slack.com/files-pri/T1-F1/secret-name.png';
 
 http.Response _json(Object body, {int status = 200, Map<String, String> headers = const {}}) =>
@@ -16,7 +22,7 @@ class _Harness {
   new(Future<http.StreamedResponse> Function(http.BaseRequest request) handler) {
     client = SlackWebApiClient(
       botToken: _botToken,
-      appToken: 'xapp-1-A0123456789-5555555555-a1b2c3d4e5f6a1b2c3d4e5f6',
+      appToken: _appToken,
       httpClient: MockClient.streaming((request, _) {
         requests.add(request);
         return handler(request);

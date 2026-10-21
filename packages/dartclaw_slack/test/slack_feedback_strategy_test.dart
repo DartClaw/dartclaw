@@ -9,7 +9,10 @@ import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 const _snapshot = TurnProgressSnapshot(elapsed: Duration.zero, toolCallCount: 0);
-const _token = 'xoxb-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
+// Split literal: no token-shaped string is committed (push protection, dev/tools/secret_scan.sh).
+const _token =
+    'xox'
+    'b-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
 
 /// One turn's strategy over a fake Web API, with a clock that only moves when the strategy sleeps.
 class _Turn {

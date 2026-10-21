@@ -36,6 +36,8 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | Gate ID | Proof | Execution |
 |---|---|---|
 | `cleanup`, `versions` | No exported bundle; all version pins agree | Host |
+| `secrets` | No provider-shaped credential literal in tracked files (`dev/tools/secret_scan.sh`); fixtures assemble fake tokens at runtime | Host |
+| `doc-cuts` | The release range removes at most 1000 net markdown lines (`dev/tools/check_doc_cuts.sh`), else a commit message in it carries `Docs-Cut: <reason>` | Host |
 | `dependencies`, `assets` | Tracked enforced lockfiles; generated embedded assets | Host |
 | `format`, `analyze`, `tests` | Formatting, static analysis, default workspace suites | Host |
 | `postgres` | Plain PostgreSQL, explicit pgvector/hybrid, migration and restore contracts | Disposable live databases |

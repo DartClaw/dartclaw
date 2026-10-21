@@ -127,7 +127,9 @@ void main() {
         const userSecret = 'ZyXwVuTsRqPoNmLkJiHgFeDc';
         const appSecret = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4';
         final result = redactor.redact(
-          'auth failed for xoxb-1111111111-2222222222-$botSecret then xoxp-3333-4444-$userSecret '
+          // Split literals: no token-shaped string is committed (push protection, dev/tools/secret_scan.sh).
+          'auth failed for xox'
+          'b-1111111111-2222222222-$botSecret then xoxp-3333-4444-$userSecret '
           'and xapp-1-A0123456789-5555555555-$appSecret, retrying',
         );
 
@@ -430,7 +432,9 @@ void main() {
     });
 
     test('a value with a secret-shaped prefix keeps none of it', () {
-      const token = 'xoxb-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
+      const token =
+          'xox'
+          'b-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
       redactor.registerLiterals([token]);
 
       expect(redactor.redact('auth $token failed'), 'auth [REDACTED] failed');

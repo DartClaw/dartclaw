@@ -6,8 +6,13 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 
-const _botToken = 'xoxb-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
-const _appToken = 'xapp-1-A0123456789-5555555555-a1b2c3d4e5f6a1b2c3d4e5f6';
+// Split literals: no token-shaped string is committed (push protection, dev/tools/secret_scan.sh).
+const _botToken =
+    'xox'
+    'b-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
+const _appToken =
+    'xa'
+    'pp-1-A0123456789-5555555555-a1b2c3d4e5f6a1b2c3d4e5f6';
 const _ticketUrl = 'wss://wss-primary.slack.com/link/?ticket=secret-ticket-value&app_id=A1';
 
 http.Response _json(Object body, {int status = 200, Map<String, String> headers = const {}}) =>

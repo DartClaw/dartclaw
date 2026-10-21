@@ -8,3 +8,7 @@
 
 # Shell scripts must reach Linux CI and git-bash with LF; CRLF breaks the shebang.
 *.sh text eol=lf
+
+# Parallel stories each add bullets in the same CHANGELOG hunk; keep both sides
+# instead of conflicting. Dedupe or reorder by hand after a merge if needed.
+CHANGELOG.md merge=union

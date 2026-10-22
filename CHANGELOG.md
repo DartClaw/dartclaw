@@ -53,6 +53,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 ### Fixed
 
 - A workflow run on a branch other than the default of a project cloned with the default `shallow` strategy (for example `code-review` with `BRANCH: feat/x`) no longer fails with `invalid reference: origin/<branch>`. The pre-run fetch now writes `origin/<branch>`, which also repairs clones already on disk.
+- The run page's loop steps show the loop's actual iteration ("Iteration 1/3"); they showed "Iteration 0/3" whatever ran, because the count was read from the wrong place in the run's context. `buildLoopInfo` now takes the `WorkflowRun`.
 - A full `concurrency.max_parallel_turns` cap no longer crashes the task poll. The task stays queued and starts on a later poll. A daily-budget block or loop abort at admission now fails the task without retry instead of escaping as an unhandled error.
 - A web chat message deferred on a full turn cap ("Waiting for provider capacity") now starts on its own once a slot frees, without a manual Release. A later message in the same conversation queues behind it instead of overtaking it. A message whose dispatch fails for another reason, such as an exhausted daily budget, is held with the reason instead of blocking every later send until restart.
 - A turn rejected by the full turn cap no longer counts toward loop detection's turn chain or the global rate limit. Loop and rate-limit checks now run after the cap admits the turn, so a rate-limited turn waits while holding its slot.

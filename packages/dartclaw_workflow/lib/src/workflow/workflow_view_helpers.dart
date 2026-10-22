@@ -97,15 +97,14 @@ Map<String, dynamic> _contextData(WorkflowRun run) => switch (run.contextJson['d
 /// Builds loop membership info for all loops in a workflow definition.
 ///
 /// Returns a list of maps, one per loop, with loop ID, step IDs,
-/// max iterations, and current iteration (from context JSON).
-List<Map<String, dynamic>> buildLoopInfo(WorkflowDefinition definition, Map<String, dynamic> contextJson) {
+/// max iterations, and current iteration (from the run's context).
+List<Map<String, dynamic>> buildLoopInfo(WorkflowDefinition definition, WorkflowRun run) {
   return definition.loops.map((loop) {
-    final iterationKey = 'loop.${loop.id}.iteration';
     return <String, dynamic>{
       'loopId': loop.id,
       'stepIds': loop.steps,
       'maxIterations': loop.maxIterations,
-      'currentIteration': (contextJson[iterationKey] as num?)?.toInt() ?? 0,
+      'currentIteration': (workflowContextValue(run, 'loop.${loop.id}.iteration') as num?)?.toInt() ?? 0,
     };
   }).toList();
 }

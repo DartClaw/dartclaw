@@ -291,7 +291,7 @@ class WorkflowsPage extends DashboardPage {
       steps: definition == null
           ? []
           : [for (final (index, step) in definition.steps.indexed) _stepEntry(run, index, step, tasksByStep[index])],
-      loopInfo: definition == null ? [] : buildLoopInfo(definition, run.contextJson),
+      loopInfo: definition == null ? [] : buildLoopInfo(definition, run),
     );
   }
 

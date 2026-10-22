@@ -139,6 +139,24 @@ void main() {
       expect(project.status, equals(ProjectStatus.ready));
     });
 
+    test('a config-defined project whose first clone is in flight stays cloning', () async {
+      final cloneResult = Completer<({int exitCode, String stderr, String stdout})>();
+      final config = ProjectConfig(
+        definitions: {'cfg-project': const ProjectDefinition(id: 'cfg-project', remote: 'git@example.com:u/cfg.git')},
+      );
+
+      final svc = makeService(
+        projectConfig: config,
+        gitRunner: (args, {environment, workingDirectory}) => cloneResult.future,
+      );
+      await svc.initialize();
+
+      final project = await svc.get('cfg-project');
+      expect(project!.status, equals(ProjectStatus.cloning));
+      expect(project.errorMessage, isNull);
+      cloneResult.complete((exitCode: 0, stderr: '', stdout: ''));
+    });
+
     test('seeds config-defined localPath projects without cloning', () async {
       final git = RecordingGitRunner();
       final config = ProjectConfig(

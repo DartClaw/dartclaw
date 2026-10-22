@@ -126,11 +126,12 @@ class ProjectServiceImpl implements ProjectService {
     // 2. Load runtime projects from projects.json.
     await _loadRuntimeProjects();
 
-    // 3. Seed config-defined projects (config wins on collision).
-    await _seedConfigProjects(readOnly: readOnly);
-
-    // 4. Recover any stale cloning states from previous run.
+    // 3. Recover stale cloning states from the previous run. This must precede
+    // seeding, which marks a not-yet-cloned config project `cloning` and starts its clone.
     if (!readOnly) _recoverStaleCloning();
+
+    // 4. Seed config-defined projects (config wins on collision).
+    await _seedConfigProjects(readOnly: readOnly);
 
     final configCount = _projects.values.where((p) => p.configDefined).length;
     final runtimeCount = _projects.values.where((p) => !p.configDefined).length;

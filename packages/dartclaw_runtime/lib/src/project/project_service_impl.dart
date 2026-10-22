@@ -48,6 +48,8 @@ Future<({int exitCode, String stderr, String stdout})> _isolateGitRunner(
   });
 }
 
+final _commitSha = RegExp(r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$');
+
 /// Thrown when a `git fetch` operation exits with a non-zero status.
 class GitFetchException implements Exception {
   final String message;
@@ -371,7 +373,7 @@ class ProjectServiceImpl implements ProjectService {
     final targetRef = _normalizeExternalRef(ref, defaultBranch: project.defaultBranch);
     final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
     final result = await _gitRunner(
-      buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', 'origin', targetRef]),
+      buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', 'origin', _fetchRefspec(targetRef)]),
       environment: plan.environment,
       workingDirectory: project.localPath,
     );
@@ -390,6 +392,14 @@ class ProjectServiceImpl implements ProjectService {
     _projects[project.id] = updated;
     await _persist();
     _log.info('Fetched latest for "${project.name}" (ref: $targetRef)');
+  }
+
+  // A bare `git fetch origin <branch>` only writes FETCH_HEAD in a single-branch
+  // (shallow) clone, so `origin/<branch>` never appears for the worktree base ref.
+  // Fully qualified refs and commit SHAs are not branch names and are fetched as given.
+  String _fetchRefspec(String ref) {
+    if (ref.startsWith('refs/') || _commitSha.hasMatch(ref)) return ref;
+    return '+refs/heads/$ref:refs/remotes/origin/$ref';
   }
 
   String _normalizeExternalRef(String? ref, {required String defaultBranch}) {

@@ -3,8 +3,8 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show HealthService, SseBroadcast;
 import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_runtime/src/concurrency/session_lock_manager.dart';
 import 'package:dartclaw_runtime/src/config/config_load.dart';
 import 'package:dartclaw_runtime/src/execution_policy_resolver.dart';
 import 'package:dartclaw_runtime/src/governance/pause_controller.dart';
@@ -12,163 +12,21 @@ import 'package:dartclaw_runtime/src/runtime/channel_agent_binding.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/feedback_observer_factory.dart';
 import 'package:dartclaw_runtime/src/runtime/reserved_command_handler.dart';
-import 'package:dartclaw_runtime/src/runtime/task_wiring.dart';
+import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart' show StorageWiring;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
+import 'package:dartclaw_google_chat/testing.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
+import 'package:dartclaw_slack/testing.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
 
-import '../execution_coordinator_test_support.dart';
-import '../turn_runner_test_support.dart';
-import 'harness_wiring_fixture.dart';
-
-typedef _StartedTurn = ({
-  String sessionId,
-  String? source,
-  bool isHumanInput,
-  String? model,
-  String? effort,
-  PromptScope? promptScope,
-  TurnOrigin? origin,
-});
-
-typedef _ReservedTurn = ({
-  String sessionId,
-  String agentName,
-  String? model,
-  String? effort,
-  bool isHumanInput,
-  BehaviorFileService? behaviorOverride,
-  PromptScope? promptScope,
-  TurnOrigin? origin,
-  String? systemPromptOverride,
-  ExecutionPolicy? workerPolicy,
-});
-
-typedef _ExecutedTurn = ({String sessionId, String turnId, String? source, String agentName, int messageCount});
-
-/// Records what the channel dispatch asks of the runtime [TurnManager]: the
-/// unbound branch reaches [startTurn], the bound branch [reserveTurn] and
-/// [executeTurn]. Neither runs a harness.
-class _RecordingTurnManager extends TurnManager {
-  new()
-    : super.fromCoordinator(
-        coordinator: coordinatorForRunners([FakeTurnRunner()]),
-        turnLimits: const TurnLimitsConfig.defaults(),
-      );
-
-  final started = <_StartedTurn>[];
-  final reserved = <_ReservedTurn>[];
-  final executed = <_ExecutedTurn>[];
-  Completer<void>? reservation;
-  var _nextTurn = 0;
-
-  @override
-  Future<String> startTurn(
-    String sessionId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    Duration? turnTimeout,
-    bool isHumanInput = false,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    PromptScope? promptScope,
-    TurnOrigin? origin,
-  }) async {
-    started.add((
-      sessionId: sessionId,
-      source: source,
-      isHumanInput: isHumanInput,
-      model: model,
-      effort: effort,
-      promptScope: promptScope,
-      origin: origin,
-    ));
-    return 'turn-${_nextTurn++}';
-  }
-
-  @override
-  Future<String> reserveTurn(
-    String sessionId, {
-    String agentName = 'main',
-    String? directory,
-    String? model,
-    String? effort,
-    String? systemPromptOverride,
-    ExecutionPolicy? workerPolicy,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-    bool outputSchemaWhenSupported = false,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? taskId,
-    Duration? turnTimeout,
-    bool isHumanInput = false,
-    BehaviorFileService? behaviorOverride,
-    PromptScope? promptScope,
-    List<String>? allowedTools,
-    bool readOnly = false,
-    TurnOrigin? origin,
-  }) async {
-    reserved.add((
-      sessionId: sessionId,
-      agentName: agentName,
-      model: model,
-      effort: effort,
-      isHumanInput: isHumanInput,
-      behaviorOverride: behaviorOverride,
-      promptScope: promptScope,
-      origin: origin,
-      systemPromptOverride: systemPromptOverride,
-      workerPolicy: workerPolicy,
-    ));
-    reservation?.complete();
-    return 'turn-${_nextTurn++}';
-  }
-
-  @override
-  void executeTurn(
-    String sessionId,
-    String turnId,
-    List<Map<String, dynamic>> messages, {
-    String? source,
-    String agentName = 'main',
-  }) {
-    executed.add((
-      sessionId: sessionId,
-      turnId: turnId,
-      source: source,
-      agentName: agentName,
-      messageCount: messages.length,
-    ));
-  }
-
-  @override
-  void releaseTurn(String sessionId, String turnId) {}
-
-  @override
-  Future<TurnOutcome> waitForOutcome(String sessionId, String turnId) async => TurnOutcome(
-    turnId: turnId,
-    sessionId: sessionId,
-    status: TurnStatus.completed,
-    responseText: 'reply',
-    completedAt: DateTime.now(),
-  );
-}
+import '../turn_manager_test_support.dart';
+import 'channel_wiring_test_support.dart';
 
 void main() {
   late Directory tempDir;
@@ -182,7 +40,7 @@ void main() {
   });
 
   test('channel dispatch selects the conversational prompt scope', () async {
-    final turns = _RecordingTurnManager();
+    final turns = RecordingChannelTurnManager();
     addTearDown(turns.executions.dispose);
 
     final response = await dispatchChannelTurn(
@@ -194,6 +52,7 @@ void main() {
       channelType: ChannelType.signal,
       senderJid: '+46701234567',
       senderDisplayName: 'Alice',
+      provenance: _signalProvenance,
     );
 
     expect(response, 'reply');
@@ -205,12 +64,124 @@ void main() {
     expect(turn.origin, (channel: 'signal', contact: 'Alice', group: false));
   });
 
+  group('global turn cap', () {
+    const sessionKey = 'agent:main:signal:dm:alice';
+    late SessionService sessions;
+    late MessageService messages;
+
+    setUp(() {
+      sessions = SessionService(baseDir: tempDir.path);
+      messages = MessageService(baseDir: tempDir.path);
+    });
+
+    Future<String> dispatch(TurnManager turns) => dispatchChannelTurn(
+      sessions: sessions,
+      messages: messages,
+      turnManagerGetter: () => turns,
+      sessionKey: sessionKey,
+      message: 'hello',
+      channelType: ChannelType.signal,
+      senderJid: '+46701234567',
+      senderDisplayName: 'Alice',
+      provenance: _signalProvenance,
+    );
+
+    Future<List<String>> userMessages() async {
+      final session = await sessions.getByKey(sessionKey);
+      final history = await messages.getMessages(session!.id);
+      return [
+        for (final message in history)
+          if (message.role == 'user') message.content,
+      ];
+    }
+
+    test('a message deferred on the full cap waits for a slot and persists once', () async {
+      final lockManager = SessionLockManager(maxParallel: 1);
+      final worker = FakeWorkerService();
+      final turns = TurnManager(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        messages: messages,
+        sessions: sessions,
+        worker: worker,
+        behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        lockManager: lockManager,
+      );
+      addTearDown(turns.executions.dispose);
+      await lockManager.acquire('another-session');
+
+      var settled = false;
+      final dispatched = dispatch(turns).then<Object?>((response) => response, onError: (Object error) => error);
+      unawaited(dispatched.whenComplete(() => settled = true));
+      while ((await userMessages().catchError((_) => const <String>[])).isEmpty) {
+        await pumpEventQueue();
+      }
+      await pumpEventQueue(times: 200);
+
+      expect(settled, isFalse, reason: 'a full global cap defers the turn instead of failing the dispatch');
+
+      lockManager.release('another-session');
+      await worker.turnInvoked;
+      worker.emit(DeltaEvent('Pong'));
+      worker.completeSuccess();
+
+      expect(await dispatched, 'Pong');
+      expect(await userMessages(), ['hello']);
+    });
+
+    test('a bound turn deferred on the cap re-reserves once capacity frees', () async {
+      final turns = RecordingChannelTurnManager();
+      addTearDown(turns.executions.dispose);
+      final binding = ChannelAgentBinder(
+        agents: const {
+          'ana': AgentDefinition(id: 'ana', description: 'Ana', prompt: 'You are Ana.', provider: 'claude'),
+        },
+        policyResolver: ExecutionPolicyResolver(
+          config: DartclawConfig.defaults(),
+          availableContainerProfiles: const {},
+        ),
+        defaultProviderId: 'claude',
+        behavior: BehaviorFileService(workspaceDir: tempDir.path),
+      ).bind(const GroupEntry(id: 'alice', agent: 'ana'))!;
+      turns.busyOnReserve.addAll([
+        BusyTurnException('Global concurrency limit reached (1)', isSameSession: false),
+        BusyTurnException('Global concurrency limit reached (1)', isSameSession: false),
+      ]);
+
+      final response = await dispatchChannelTurn(
+        sessions: sessions,
+        messages: messages,
+        turnManagerGetter: () => turns,
+        sessionKey: SessionKey.dmPerChannelContact(agentId: 'ana', channelType: 'signal', peerId: 'alice'),
+        message: 'hello',
+        channelType: ChannelType.signal,
+        senderJid: 'alice',
+        binding: binding,
+        provenance: _signalProvenance,
+      );
+
+      expect(response, 'reply');
+      expect(turns.capacityWaits, 2);
+      expect(turns.reserved, hasLength(1));
+      expect(turns.executed, hasLength(1));
+    });
+
+    test('a same-session busy is not a capacity wait and still propagates', () async {
+      final turns = RecordingChannelTurnManager();
+      addTearDown(turns.executions.dispose);
+      turns.busyOnStart.add(BusyTurnException('Session is busy', isSameSession: true));
+
+      await expectLater(dispatch(turns), throwsA(isA<BusyTurnException>()));
+
+      expect(turns.capacityWaits, 0);
+    });
+  });
+
   group('bound channel turn', () {
     const origin = (channel: 'signal', contact: 'Alice', group: false);
     late SessionService sessions;
     late MessageService messages;
     late BehaviorFileService behavior;
-    late _RecordingTurnManager turns;
+    late RecordingChannelTurnManager turns;
 
     setUp(() {
       sessions = SessionService(baseDir: tempDir.path);
@@ -221,7 +192,7 @@ void main() {
       File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('OWNER TOOLS MARKER');
       File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('OWNER MEMORY MARKER');
       behavior = BehaviorFileService(workspaceDir: ownerWorkspace.path);
-      turns = _RecordingTurnManager();
+      turns = RecordingChannelTurnManager();
       addTearDown(turns.executions.dispose);
     });
 
@@ -251,6 +222,7 @@ void main() {
       model: model,
       effort: effort,
       binding: binding,
+      provenance: _signalProvenance,
     );
 
     test('a reserved owner workspace binding is refused before channel dispatch', () {
@@ -388,6 +360,7 @@ void main() {
         effort: 'low',
         promptScope: PromptScope.primary,
         origin: origin,
+        provenance: _signalProvenance,
       ));
     });
 
@@ -441,6 +414,7 @@ void main() {
         channelType: ChannelType.googlechat,
         senderJid: inbound.senderJid,
         binding: binding,
+        provenance: _signalProvenance,
       );
       await observer(sessionKey, inbound, channel, 'spaces/AAA', Future.value(response));
 
@@ -451,6 +425,76 @@ void main() {
       expect(turns.started, isEmpty);
       expect(turns.reserved.single.agentName, 'ana');
       expect(turns.reserved.single.promptScope, PromptScope.restricted);
+    });
+
+    test('Slack feedback started before the dispatch leaves the bound session to the dispatch', () async {
+      const agent = AgentDefinition(
+        id: 'ana',
+        description: 'Ana',
+        prompt: 'You are Ana.',
+        provider: 'codex',
+        securityProfile: 'restricted',
+        profileIsOperatorConfigured: true,
+        execution: ExecutionMode.container,
+      );
+      final binding = binderFor(agent).bind(const GroupEntry(id: 'C1', agent: 'ana'));
+      final slackApi = FakeSlackWebApi();
+      final channel = SlackChannel(
+        config: const SlackConfig(enabled: true),
+        api: slackApi,
+        dmAccess: DmAccessController(mode: DmAccessMode.open),
+        mentionGating: MentionGating(requireMention: false, mentionPatterns: const [], ownJid: ''),
+        channelManager: ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults()),
+      );
+      final observer = FeedbackObserverFactory.build(
+        googleChatConfig: const GoogleChatConfig(),
+        slackConfig: const SlackConfig(enabled: true),
+        sessions: sessions,
+        turnManagerGetter: () => turns,
+      )!;
+      const sessionKey = 'agent:ana:slack:group:C1:thread:1.1';
+      final inbound = ChannelMessage(
+        id: 'C1:1.1',
+        channelType: ChannelType.slack,
+        senderJid: 'U1',
+        groupJid: 'C1',
+        text: 'hello',
+        metadata: const {'spaceName': 'C1', threadIdMetadataKey: '1.1'},
+      );
+      final response = Completer<String>();
+
+      // The queue starts the observer right after invoking the dispatcher, before the session exists.
+      final observed = observer(sessionKey, inbound, channel, 'C1', response.future);
+      await pumpEventQueue();
+      expect(await sessions.getByKey(sessionKey), isNull, reason: 'feedback must not create the session');
+      response.complete(
+        await dispatchChannelTurn(
+          sessions: sessions,
+          messages: messages,
+          turnManagerGetter: () => turns,
+          sessionKey: sessionKey,
+          message: inbound.text,
+          channelType: ChannelType.slack,
+          senderJid: inbound.senderJid,
+          groupJid: 'C1',
+          binding: binding,
+          provenance: _signalProvenance,
+        ),
+      );
+      await observed;
+
+      final session = await sessions.getByKey(sessionKey);
+      expect(session?.provider, 'codex');
+      expect(session?.securityProfile, 'restricted');
+      expect(session?.executionMode, ExecutionMode.container);
+      expect(
+        await sessions.listSessions(type: SessionType.channel),
+        hasLength(1),
+        reason: 'created once, by the dispatch',
+      );
+      expect(turns.started, isEmpty);
+      expect(turns.reserved.single.agentName, 'ana', reason: 'the turn runs on the logical-agent surface');
+      expect(slackApi.statuses.map((status) => status.status), ['is working...', '']);
     });
 
     test('pause replay does not reconstruct a bound session as a primary turn', () async {
@@ -470,7 +514,17 @@ void main() {
       final queue = MessageQueue(
         debounceWindow: Duration.zero,
         dispatcher:
-            (queuedSessionKey, queuedMessage, {required channelType, senderJid, senderDisplayName, groupJid}) async {
+            (
+              queuedSessionKey,
+              queuedMessage, {
+              required channelType,
+              senderJid,
+              senderDisplayName,
+              groupJid,
+              recipientId,
+              threadId,
+              attachments = const [],
+            }) async {
               try {
                 return await dispatchChannelTurn(
                   sessions: sessions,
@@ -485,6 +539,7 @@ void main() {
                   model: 'row-model',
                   effort: 'high',
                   binding: binding,
+                  provenance: _signalProvenance,
                 );
               } finally {
                 completed.complete();
@@ -553,51 +608,27 @@ agent:
     );
     final eventBus = EventBus();
     addTearDown(eventBus.dispose);
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
-    final task = TaskWiring(
-      config: config,
-      dataDir: config.server.dataDir,
+    final turns = RecordingChannelTurnManager()..reservation = Completer<void>();
+    addTearDown(turns.executions.dispose);
+    final (:channels, :storage) = await wireTestChannels(
+      config,
       runtimeCwd: tempDir.path,
       eventBus: eventBus,
-      storage: storage,
-    );
-    await task.wirePreServer();
-    final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
-    File(p.join(ownerWorkspace.path, 'SOUL.md')).writeAsStringSync('PAUSE OWNER SOUL MARKER');
-    File(p.join(ownerWorkspace.path, 'USER.md')).writeAsStringSync('PAUSE OWNER USER MARKER');
-    File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('PAUSE OWNER TOOLS MARKER');
-    File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('PAUSE OWNER MEMORY MARKER');
-    final behavior = BehaviorFileService(workspaceDir: ownerWorkspace.path);
-    final agent = config.agent.definitions.single;
-    final binder = ChannelAgentBinder(
-      agents: {agent.id: agent},
-      policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
-      defaultProviderId: 'claude',
-      behavior: behavior,
-    );
-    final turns = _RecordingTurnManager()..reservation = Completer<void>();
-    addTearDown(turns.executions.dispose);
-    final channels = ChannelWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      port: 0,
-      eventBus: eventBus,
-      storage: storage,
-      task: task,
-      resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-      agentBinder: binder,
-    );
-    await channels.wire(
-      serverRefGetter: () => throw StateError('the channel queue must use the injected turn manager'),
       turnManagerGetter: () => turns,
-      sseBroadcast: SseBroadcast(),
-      messageRedactor: null,
-      healthService: HealthService(
-        worker: FakeAgentHarness(),
-        searchDbPath: config.searchDbPath,
-        sessionsDir: config.sessionsDir,
-        tasksDir: p.join(config.server.dataDir, 'tasks'),
-      ),
+      buildAgentBinder: () {
+        final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+        File(p.join(ownerWorkspace.path, 'SOUL.md')).writeAsStringSync('PAUSE OWNER SOUL MARKER');
+        File(p.join(ownerWorkspace.path, 'USER.md')).writeAsStringSync('PAUSE OWNER USER MARKER');
+        File(p.join(ownerWorkspace.path, 'TOOLS.md')).writeAsStringSync('PAUSE OWNER TOOLS MARKER');
+        File(p.join(ownerWorkspace.path, 'MEMORY.md')).writeAsStringSync('PAUSE OWNER MEMORY MARKER');
+        final agent = config.agent.definitions.single;
+        return ChannelAgentBinder(
+          agents: {agent.id: agent},
+          policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
+          defaultProviderId: 'claude',
+          behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
+        );
+      },
     );
     final manager = channels.channelManager!;
     expect(channels.signalChannel, isNotNull);
@@ -640,6 +671,176 @@ agent:
     expect(turns.executed.single.source, 'channel');
   });
 
+  group('trusted turn context', () {
+    late ChannelWiring channels;
+    late StorageWiring storage;
+    late RecordingChannelTurnManager turns;
+
+    setUp(() async {
+      final config = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: (path) => path == 'dartclaw.yaml'
+            ? '''
+data_dir: ${tempDir.path}
+container:
+  enabled: true
+channels:
+  debounce_window_ms: 0
+  signal:
+    enabled: true
+    dm_allowlist:
+      - id: "+46700000001"
+        agent: ana
+agent:
+  agents:
+    ana:
+      description: Ana
+      prompt: You are Ana.
+      provider: codex
+      execution: container
+      security_profile: restricted
+'''
+            : null,
+        env: {'HOME': tempDir.path},
+      );
+      final eventBus = EventBus();
+      addTearDown(eventBus.dispose);
+      turns = RecordingChannelTurnManager();
+      addTearDown(turns.executions.dispose);
+      final wired = await wireTestChannels(
+        config,
+        runtimeCwd: tempDir.path,
+        eventBus: eventBus,
+        turnManagerGetter: () => turns,
+        buildAgentBinder: () {
+          final ownerWorkspace = Directory(p.join(tempDir.path, 'workspace'))..createSync();
+          for (final file in ['SOUL.md', 'USER.md', 'TOOLS.md', 'MEMORY.md']) {
+            File(p.join(ownerWorkspace.path, file)).writeAsStringSync(file);
+          }
+          final agent = config.agent.definitions.single;
+          return ChannelAgentBinder(
+            agents: {agent.id: agent},
+            policyResolver: ExecutionPolicyResolver(config: config, availableContainerProfiles: const {'restricted'}),
+            defaultProviderId: 'claude',
+            behavior: BehaviorFileService(workspaceDir: ownerWorkspace.path),
+          );
+        },
+      );
+      channels = wired.channels;
+      storage = wired.storage;
+      addTearDown(channels.channelManager!.queue.dispose);
+    });
+
+    Future<void> untilDispatched() async {
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (turns.started.isEmpty && turns.reserved.isEmpty) {
+        if (DateTime.now().isAfter(deadline)) fail('No turn was dispatched');
+        await pumpEventQueue();
+      }
+    }
+
+    final googleChatThread = ChannelMessage(
+      channelType: ChannelType.googlechat,
+      senderJid: 'users/42',
+      text: 'run the release check',
+      metadata: const {'spaceName': 'spaces/AAA', 'threadName': 'spaces/AAA/threads/T1'},
+    );
+
+    TurnProvenance expectedFor(String sessionKey) => TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: sessionKey,
+      senderId: 'users/42',
+    );
+
+    test('run origin thread: the queue route and the direct route build the same provenance for a Google Chat thread message', () async {
+      final manager = channels.channelManager!;
+      final sessionKey = manager.deriveSessionKey(googleChatThread);
+      manager.registerChannel(
+        GoogleChatChannel(config: const GoogleChatConfig(enabled: true), restClient: FakeGoogleChatRestClient()),
+      );
+
+      manager.handleInboundMessage(googleChatThread);
+      await untilDispatched();
+      final viaQueue = turns.started.single.provenance;
+      turns.started.clear();
+      await ChannelWiring.dispatchInboundChannelMessage(
+        channelManager: manager,
+        sessions: storage.sessions,
+        messages: storage.messages,
+        turnManagerGetter: () => turns,
+        config: DartclawConfig.defaults(),
+        message: googleChatThread,
+      );
+      final viaDirect = turns.started.single.provenance;
+
+      expect(viaQueue, expectedFor(sessionKey));
+      expect(viaDirect, viaQueue);
+    });
+
+    test('run origin thread: a channel declaring no capability yields none, and a bound agent turn keeps its logical-agent reservation', () async {
+      final manager = channels.channelManager!;
+      final inbound = ChannelMessage(
+        channelType: ChannelType.signal,
+        senderJid: '+46700000001',
+        text: 'hello',
+        metadata: const {'threadName': 'threads/T9'},
+      );
+      final sessionKey = manager.deriveSessionKey(inbound);
+
+      manager.handleInboundMessage(inbound);
+      await untilDispatched();
+
+      expect(turns.started, isEmpty);
+      expect(turns.reserved.single.agentName, 'ana');
+      expect(
+        turns.reserved.single.provenance,
+        TurnProvenance.channel(
+          channelType: ChannelType.signal,
+          recipientId: '+46700000001',
+          threadId: null,
+          sessionKey: sessionKey,
+          senderId: '+46700000001',
+        ),
+      );
+    });
+  });
+
+  test('a reloaded max_parallel_turns reaches the channel queue', () async {
+    // The queue copies the cap at construction; without a registration with the
+    // notifier the documented-reloadable key kept the boot value here.
+    DartclawConfig loadWithCap(int cap) => loadDartclawConfig(
+      configPath: 'dartclaw.yaml',
+      fileReader: (path) => path == 'dartclaw.yaml'
+          ? 'data_dir: ${tempDir.path}\n'
+                'concurrency:\n'
+                '  max_parallel_turns: $cap\n'
+                'channels:\n'
+                '  signal:\n'
+                '    enabled: true\n'
+          : null,
+      env: {'HOME': tempDir.path},
+    );
+    final config = loadWithCap(2);
+    final notifier = ConfigNotifier(config);
+    final eventBus = EventBus();
+    addTearDown(eventBus.dispose);
+    final (:channels, storage: _) = await wireTestChannels(
+      config,
+      runtimeCwd: tempDir.path,
+      eventBus: eventBus,
+      configNotifier: notifier,
+    );
+    final queue = channels.channelManager!.queue;
+    addTearDown(queue.dispose);
+    expect(queue.maxConcurrentTurns, 2);
+
+    notifier.reload(loadWithCap(5));
+
+    expect(queue.maxConcurrentTurns, 5);
+  });
+
   test('parses each channel section through the shared channel config resolver', () async {
     // A config built by `DartclawConfig.load` has no channel section primed, so
     // the section warnings reach `config.warnings` only if wiring resolves the
@@ -658,42 +859,16 @@ agent:
     );
     expect(config.warnings, isEmpty);
 
-    final eventBus = EventBus();
-    final storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _neverExit);
-    final task = TaskWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      runtimeCwd: tempDir.path,
-      eventBus: eventBus,
-      storage: storage,
-    );
-    await task.wirePreServer();
-
-    final channels = ChannelWiring(
-      config: config,
-      dataDir: config.server.dataDir,
-      port: 0,
-      eventBus: eventBus,
-      storage: storage,
-      task: task,
-      resolvedConfigPath: p.join(tempDir.path, 'dartclaw.yaml'),
-    );
-    await channels.wire(
-      serverRefGetter: () => throw StateError('no server in this test'),
-      turnManagerGetter: () => throw StateError('no turn manager in this test'),
-      sseBroadcast: SseBroadcast(),
-      messageRedactor: null,
-      healthService: HealthService(
-        worker: FakeAgentHarness(),
-        searchDbPath: config.searchDbPath,
-        sessionsDir: config.sessionsDir,
-        tasksDir: p.join(config.server.dataDir, 'tasks'),
-      ),
-    );
+    await wireTestChannels(config, runtimeCwd: tempDir.path, eventBus: EventBus());
 
     expect(config.warnings.where((w) => w.contains('Invalid type for signal.port')), hasLength(1));
     expect(config.warnings.where((w) => w.contains('Invalid type for whatsapp.gowa_port')), hasLength(1));
   });
 }
 
-Never _neverExit(int code) => throw StateError('exit($code)');
+final _signalProvenance = TurnProvenance.channel(
+  channelType: ChannelType.signal,
+  recipientId: 'alice',
+  sessionKey: 'agent:main:signal:dm:alice',
+  senderId: 'alice',
+);

@@ -187,7 +187,7 @@ paths consults a category label.
 - ADR-023 — Workflow–task architectural boundary
 - TD-065 — Polymorphic `TaskExecutionStrategy` (related follow-up below the boundary)
 - 2026-04-21 design conversation (revert of the paper-cut attempt)
-- `docs/architecture/workflow-architecture.md` §"Step Types", §"Artifact Auto-Commit"
+- `dev/architecture/workflow-architecture.md` §"Step types", §"Publish, artifact auto-commit and cleanup"
 - `packages/dartclaw_workflow/lib/src/workflow/workflow_task_factory.dart` (`needsWorktree` write)
 - `packages/dartclaw_runtime/lib/src/task/task_config_view.dart` (`needsWorktree` read)
 

@@ -822,6 +822,16 @@
                   "required": [
                     "script"
                   ]
+                },
+                {
+                  "required": [
+                    "revise"
+                  ]
+                },
+                {
+                  "required": [
+                    "maxRevisions"
+                  ]
                 }
               ]
             },
@@ -880,6 +890,20 @@
                 ]
               }
             ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "revise"
+                  ]
+                },
+                {
+                  "required": [
+                    "maxRevisions"
+                  ]
+                }
+              ]
+            },
             "properties": {
               "continueSession": {
                 "type": "null"
@@ -1028,6 +1052,16 @@
                   "required": [
                     "script"
                   ]
+                },
+                {
+                  "required": [
+                    "revise"
+                  ]
+                },
+                {
+                  "required": [
+                    "maxRevisions"
+                  ]
                 }
               ]
             },
@@ -1086,6 +1120,16 @@
                   "required": [
                     "script"
                   ]
+                },
+                {
+                  "required": [
+                    "revise"
+                  ]
+                },
+                {
+                  "required": [
+                    "maxRevisions"
+                  ]
                 }
               ]
             },
@@ -1143,6 +1187,16 @@
                 {
                   "required": [
                     "script"
+                  ]
+                },
+                {
+                  "required": [
+                    "revise"
+                  ]
+                },
+                {
+                  "required": [
+                    "maxRevisions"
                   ]
                 }
               ]
@@ -1244,6 +1298,16 @@
                 {
                   "required": [
                     "script"
+                  ]
+                },
+                {
+                  "required": [
+                    "revise"
+                  ]
+                },
+                {
+                  "required": [
+                    "maxRevisions"
                   ]
                 }
               ]
@@ -1654,6 +1718,16 @@
             }
           ]
         },
+        "maxRevisions": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "max_parallel": {
           "oneOf": [
             {
@@ -1804,6 +1878,16 @@
           ]
         },
         "provider": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "revise": {
           "oneOf": [
             {
               "type": "null"

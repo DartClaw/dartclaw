@@ -24,7 +24,7 @@ import 'worktree_manager.dart';
 /// does not roll back the state transition.
 typedef PushBackFeedbackDelivery = Future<void> Function({
   required String taskId,
-  required String sessionKey,
+  required TaskOrigin origin,
   required String feedback,
 });
 
@@ -133,7 +133,8 @@ class TaskReviewService {
 
   /// Builds a channel-facing review handler backed by this service.
   ChannelReviewHandler channelReviewHandler({String trigger = 'channel'}) {
-    return (taskId, action, {String? comment}) => reviewForChannel(taskId, action, comment: comment, trigger: trigger);
+    return (taskId, action, {String? comment, String? channelType, String? senderId}) =>
+        reviewForChannel(taskId, action, comment: comment, trigger: trigger);
   }
 
   /// Executes a review action for [taskId].
@@ -257,10 +258,10 @@ class TaskReviewService {
         await _eventRecorder?.recordPushBack(taskId, comment: trimmedComment);
         final delivery = _pushBackFeedbackDelivery;
         if (delivery != null) {
-          final sessionKey = _extractSessionKey(task);
-          if (sessionKey != null) {
+          final origin = TaskOrigin.fromConfigJson(task.configJson);
+          if (origin != null) {
             try {
-              await delivery(taskId: taskId, sessionKey: sessionKey, feedback: trimmedComment);
+              await delivery(taskId: taskId, origin: origin, feedback: trimmedComment);
             } catch (error, stackTrace) {
               _log.warning('Failed to deliver push-back feedback for task $taskId', error, stackTrace);
             }
@@ -559,13 +560,6 @@ class TaskReviewService {
       return null;
     }
     return _projectService?.get(projectId);
-  }
-
-  /// Extracts the session key from a task's [TaskOrigin] stored in [configJson].
-  String? _extractSessionKey(Task task) {
-    final origin = task.configJson['origin'];
-    if (origin is! Map) return null;
-    return origin['sessionKey'] as String?;
   }
 
   String _shortTaskId(String taskId) {

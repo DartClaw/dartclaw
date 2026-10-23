@@ -120,11 +120,22 @@ void main() {
         WorkflowTaskType.aggregateReviews,
       ]),
     );
-    expect([
-      for (final block in WorkflowDslRules.blocks)
-        for (final field in block.fields)
-          if (field.applicableTypes.isNotEmpty) '${block.name}.${field.names.first}',
-    ], unorderedEquals(['step.script', 'step.timeout', 'step.turn_timeout', 'step.parallel', 'step.continueSession']));
+    expect(
+      [
+        for (final block in WorkflowDslRules.blocks)
+          for (final field in block.fields)
+            if (field.applicableTypes.isNotEmpty) '${block.name}.${field.names.first}',
+      ],
+      unorderedEquals([
+        'step.script',
+        'step.timeout',
+        'step.turn_timeout',
+        'step.parallel',
+        'step.revise',
+        'step.maxRevisions',
+        'step.continueSession',
+      ]),
+    );
     expect([
       for (final block in WorkflowDslRules.blocks)
         for (final field in block.fields)
@@ -329,6 +340,8 @@ void main() {
           'turn_timeout',
           'parallel',
           'entryGate',
+          'revise',
+          'maxRevisions',
           'inputs',
           'outputs',
           'maxRetries',
@@ -580,7 +593,11 @@ void main() {
       parserResponsibilities,
       contains('Skill existence is checked by\n`workflow_skill_preflight.dart` during execution preflight.'),
     );
-    final semantics = _markdownSection(architecture, '## 19. Validation Semantics', '## 20. Step Defaults');
+    final semantics = _markdownSection(
+      architecture,
+      '### 3.2 Validation semantics',
+      '## 4. Registry and Built-In Definitions',
+    );
     final documentedStages = RegExp(
       r'^\| `(_validate[A-Za-z0-9]+|_warnCodexAllowedToolsPolicy)` \|',
       multiLine: true,
@@ -596,6 +613,7 @@ void main() {
         .toList();
     expect(hybridRows, [
       ('approval step inside a loop', 'warning'),
+      ('approval revise step cannot be re-entered', 'error'),
       ('step type forbids parallel execution', 'error'),
       ('step type forbids a prompt list', 'error'),
       ('parallel combined with continueSession', 'error'),

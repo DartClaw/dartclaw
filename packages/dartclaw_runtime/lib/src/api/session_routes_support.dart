@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -98,12 +97,6 @@ Future<({Map<String, dynamic> json, Response? error})> parseJsonObjectBody(
   } on FormatException {
     return (json: const <String, dynamic>{}, error: errorResponse(400, 'INVALID_INPUT', 'Invalid JSON body'));
   }
-}
-
-/// Filesystem root that file-type references are resolved against.
-Future<String> sessionReferenceRoot(ProjectService? projects) async {
-  if (projects == null) return Directory.current.path;
-  return (await projects.defaultProject).localPath;
 }
 
 /// The model catalogue a provider reported, or `null` before or without one.

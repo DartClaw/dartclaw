@@ -143,6 +143,7 @@ void main() {
         directory: root.path,
         promptScope: PromptScope.primary,
         origin: (channel: 'web', contact: null, group: false),
+        provenance: const TurnProvenance.web(),
       );
       turns.executeTurn(session.id, turnId, const [], source: 'web');
       await harness.turnInvoked;

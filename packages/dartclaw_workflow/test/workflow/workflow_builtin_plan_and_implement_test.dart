@@ -1,7 +1,20 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowApprovalRequestedEvent,
+        WorkflowApprovalResolver,
+        WorkflowApprovalSource,
+        WorkflowPersistencePorts,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowService,
+        TaskStatus,
+        workflowFollowUp;
 import 'package:test/test.dart';
 
 import 'workflow_builtin_test_support.dart';
+
+const _web = WorkflowApprovalResolver(source: WorkflowApprovalSource.web);
 
 void main() {
   final driver = BuiltInWorkflowDriver();
@@ -105,6 +118,198 @@ void main() {
     final r1 = storyResults[1] as Map<String, dynamic>;
     expect((r0['implement'] as Map<String, dynamic>)['story_result'], 'STORY_RESULT_ALPHA');
     expect((r1['implement'] as Map<String, dynamic>)['story_result'], 'STORY_RESULT_BETA');
+  });
+
+  group('plan review gate', () {
+    const planPath = 'docs/specs/test/plan.md';
+    const story = {
+      'id': 'S01',
+      'title': 'Story One',
+      'dependencies': <String>[],
+      'spec_path': 'docs/specs/test/fis/s01-story-one.md',
+    };
+
+    Future<StubResponse> respond(QueuedStep queued, {required bool planOnDisk}) async => switch (queued.stepKey) {
+      'discover-plan-state' => StubResponse(
+        outputs: {
+          'framework': 'none',
+          'project_root': '/repo/demo',
+          'document_locations': {'product': null},
+          'state_protocol': {'state_file': null},
+          'prd': 'docs/specs/test/prd.md',
+          'plan': planOnDisk ? planPath : '',
+          'story_specs': {
+            'items': planOnDisk ? [story] : <Map<String, Object?>>[],
+          },
+        },
+      ),
+      'plan' => StubResponse(
+        outputs: {
+          'plan': planPath,
+          'story_specs': {
+            'items': [story],
+          },
+        },
+      ),
+      _ => planAndImplementCommonStub(queued),
+    };
+
+    const reviewVars = {
+      'FEATURE': 'docs/specs/test/prd.md',
+      'PROJECT': 'demo-project',
+      'BRANCH': 'main',
+      'MAX_PARALLEL': '1',
+    };
+
+    Future<void> waitForCompleted(String runId) async {
+      for (var i = 0; i < 1000; i++) {
+        if ((await driver.harness.repository.getById(runId))?.status == WorkflowRunStatus.completed) return;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      fail('Run $runId did not complete');
+    }
+
+    Future<void> waitFor(bool Function() done, String what) async {
+      for (var i = 0; i < 500 && !done(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      final runs = await driver.harness.repository.list();
+      expect(
+        done(),
+        isTrue,
+        reason: '$what; runs: ${runs.map((r) => '${r.id} ${r.status.name} ${r.errorMessage}').toList()}',
+      );
+    }
+
+    WorkflowService serviceOverDriver() {
+      final h = driver.harness;
+      return WorkflowService(
+        repository: h.repository,
+        taskService: h.taskService,
+        messageService: h.messageService,
+        persistencePorts: WorkflowPersistencePorts(
+          taskRepository: h.taskRepository,
+          agentExecutionRepository: h.agentExecutionRepository,
+          workflowStepExecutionRepository: h.workflowStepExecutionRepository,
+          executionRepositoryTransactor: h.executionRepositoryTransactor,
+        ),
+        eventBus: h.eventBus,
+        kvService: h.kvService,
+        dataDir: driver.tempDir.path,
+        turnAdapter: driver.defaultTurnAdapter(),
+      );
+    }
+
+    Future<
+      ({
+        WorkflowService service,
+        BuiltInStubSession stubs,
+        WorkflowRun run,
+        List<WorkflowApprovalRequestedEvent> requested,
+      })
+    >
+    startWithReview({required bool planOnDisk, String planReview = 'true'}) async {
+      final definition = await driver.loadBuiltIn('plan-and-implement.yaml');
+      driver.ensureProject('demo-project');
+      final variables = {...reviewVars, 'PLAN_REVIEW': planReview};
+      final stubs = driver.attachStubs(
+        definition: definition,
+        variables: variables,
+        responseForStep: (queued) => respond(queued, planOnDisk: planOnDisk),
+      );
+      addTearDown(stubs.cancel);
+      final service = serviceOverDriver();
+      addTearDown(service.dispose);
+      final requested = <WorkflowApprovalRequestedEvent>[];
+      final sub = driver.harness.eventBus.on<WorkflowApprovalRequestedEvent>().listen(requested.add);
+      addTearDown(sub.cancel);
+      final run = await service.start(definition, variables, origin: WorkflowRunOrigin.unknown);
+      return (service: service, stubs: stubs, run: run, requested: requested);
+    }
+
+    test('without PLAN_REVIEW the gate is one skipped step and the run is unchanged', () async {
+      final trace = await driver.executeBuiltInWorkflow(
+        workflowFileName: 'plan-and-implement.yaml',
+        variables: reviewVars,
+        responseForStep: (queued) => respond(queued, planOnDisk: false),
+      );
+
+      expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
+      expect(trace.context['step.plan-approval.outcome'], 'skipped');
+      expect(trace.queuedStepOrder.take(3), ['discover-plan-state', 'plan', 'implement']);
+      expect(trace.descriptionsByStep['plan']!.single, isNot(contains('requested changes')));
+    });
+
+    test('PLAN_REVIEW=true pauses after plan with the plan path before any story runs', () async {
+      final started = await startWithReview(planOnDisk: false);
+
+      await waitFor(() => started.requested.isNotEmpty, 'the plan gate pauses the run');
+
+      expect(started.requested.single.stepId, 'plan-approval');
+      expect(started.requested.single.message, contains('docs/specs/test/plan.md'));
+      expect(started.stubs.queuedStepOrder, ['discover-plan-state', 'plan']);
+    });
+
+    for (final planOnDisk in [false, true]) {
+      test('request changes re-plans from the feedback then approve starts the stories '
+          '(${planOnDisk ? 'plan discovered on disk' : 'plan written by the plan step'})', () async {
+        final started = await startWithReview(planOnDisk: planOnDisk);
+        await waitFor(() => started.requested.length == 1, 'first pause');
+        expect(started.stubs.count('plan'), planOnDisk ? 0 : 1, reason: 'a discovered plan skips the plan step');
+
+        await started.service.requestChanges(started.run.id, feedback: 'split story 3', resolver: _web);
+        await waitFor(() => started.requested.length == 2, 'the gate returns after the re-plan');
+
+        final plans = started.stubs.descriptionsByStep['plan']!;
+        expect(plans.last, contains('split story 3'), reason: 'the plan step re-runs with the feedback');
+        expect(started.stubs.count('discover-plan-state'), 1, reason: 'discovery does not re-run');
+        expect(started.stubs.count('implement'), 0, reason: 'no story runs before approval');
+
+        await started.service.resume(started.run.id);
+        await waitForCompleted(started.run.id);
+        expect(started.stubs.count('implement'), 1, reason: 'approve starts story-pipeline');
+        expect(started.stubs.count('plan'), planOnDisk ? 1 : 2);
+      });
+    }
+
+    test('reject at the plan gate cancels the run before any story runs', () async {
+      final started = await startWithReview(planOnDisk: false);
+      await waitFor(() => started.requested.length == 1, 'first pause');
+
+      await started.service.cancel(started.run.id, feedback: 'wrong plan');
+
+      final stored = (await driver.harness.repository.getById(started.run.id))!;
+      expect(stored.status, WorkflowRunStatus.cancelled);
+      expect(started.stubs.count('implement'), 0);
+    });
+
+    test('under the auto approvals policy the gate approves itself and never requests changes', () async {
+      final definition = await driver.loadBuiltIn('plan-and-implement.yaml');
+      driver.ensureProject('demo-project');
+      final variables = {...reviewVars, 'PLAN_REVIEW': 'true'};
+      final stubs = driver.attachStubs(
+        definition: definition,
+        variables: variables,
+        responseForStep: (queued) => respond(queued, planOnDisk: false),
+      );
+      addTearDown(stubs.cancel);
+      final service = serviceOverDriver();
+      addTearDown(service.dispose);
+
+      final run = await service.start(
+        definition,
+        variables,
+        origin: WorkflowRunOrigin.unknown,
+        approvals: WorkflowApprovalPolicy.auto,
+      );
+      await waitForCompleted(run.id);
+
+      final stored = (await driver.harness.repository.getById(run.id))!;
+      final data = stored.contextJson['data'] as Map<String, dynamic>;
+      expect(data['plan-approval.approval.status'], 'approved');
+      expect(data.containsKey('plan-approval.approval.revision'), isFalse, reason: 'no revision is recorded');
+      expect(stored.contextJson.containsKey('_approval.interaction'), isFalse, reason: 'no interaction is issued');
+    });
   });
 
   test('plan-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
@@ -516,6 +721,96 @@ void main() {
       expect(trace.count('re-review'), 1);
     },
   );
+
+  test('S03: story reviews and the plan review merge into one follow-up draft', () async {
+    Map<String, Object?> verdict(String severity, String where) => {
+      'pass': true,
+      'findings_count': 1,
+      'findings': [
+        {'severity': severity, 'location': where, 'description': 'problem at $where'},
+      ],
+      'summary': 's',
+    };
+
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'plan-and-implement.yaml',
+      variables: {'FEATURE': 'Follow-ups', 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'discover-plan-state' => StubResponse(
+            outputs: {
+              'framework': 'none',
+              'project_root': '/repo/demo-project',
+              'document_locations': {'product': null},
+              'state_protocol': {'type': 'none'},
+            },
+          ),
+          'prd' => StubResponse(
+            outputs: {'prd': 'docs/specs/demo/prd.md', 'prd_source': 'synthesized', 'prd_confidence': 9},
+          ),
+          'plan' => StubResponse(
+            outputs: {
+              'plan': 'docs/specs/demo/plan.md',
+              'plan_source': 'synthesized',
+              'story_specs': {
+                'items': [
+                  {
+                    'id': 'S01',
+                    'title': 'Story One',
+                    'spec_path': 'docs/specs/demo/fis/s01-story-one.md',
+                    'dependencies': <String>[],
+                  },
+                  {
+                    'id': 'S02',
+                    'title': 'Story Two',
+                    'spec_path': 'docs/specs/demo/fis/s02-story-two.md',
+                    'dependencies': <String>[],
+                  },
+                ],
+              },
+            },
+          ),
+          // Story 1 reviews clean of gating findings; story 2 needs its remediation loop, whose verdicts stay inside the iteration.
+          'review-story' => StubResponse(
+            outputs: {
+              ...reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 1,
+                gatingFindingsCount: queued.mapIndex == 0 ? 0 : 1,
+              ),
+              'verdict': queued.mapIndex == 0 ? verdict('low', 'story1.dart:1') : verdict('high', 'story2.dart:1'),
+            },
+          ),
+          'plan-review' => StubResponse(
+            outputs: {
+              ...reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 1,
+                gatingFindingsCount: 0,
+              ),
+              'plan-review.verdict': verdict('medium', 'plan.dart:9'),
+            },
+          ),
+          _ => planAndImplementCommonStub(
+            queued,
+            branch: 'story-branch-${queued.mapIndex}',
+            worktreePath: '/tmp/worktrees/story-${queued.mapIndex}',
+          ),
+        };
+      },
+    );
+
+    final run = trace.finalRun!;
+    expect(run.status, WorkflowRunStatus.completed, reason: run.errorMessage);
+    expect(trace.count('remediate-story'), 1);
+    final draft = (await driver.harness.taskService.list(status: TaskStatus.draft)).single;
+    expect(draft.description, contains('story1.dart:1'));
+    expect(draft.description, contains('plan.dart:9'));
+    expect(draft.description, isNot(contains('story2.dart')));
+    expect(workflowFollowUp(run), (taskId: draft.id, count: 2));
+  });
 
   // A6: discovery/reuse/resume fast-path matrix. Each row drives the shipped
   // plan-and-implement graph with a distinct discover-plan-state payload and

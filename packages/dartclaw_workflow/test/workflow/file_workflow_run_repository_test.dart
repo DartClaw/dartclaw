@@ -137,6 +137,74 @@ void main() {
     });
   }
 
+  group('run origin', () {
+    const origin = WorkflowRunOrigin(
+      surface: 'googlechat',
+      channelType: 'googlechat',
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+      senderId: 'users/42',
+    );
+
+    WorkflowRun started(String id) => WorkflowRun(
+      id: id,
+      definitionName: 'test-workflow',
+      status: WorkflowRunStatus.running,
+      startedAt: DateTime.utc(2026, 1, 1),
+      updatedAt: DateTime.utc(2026, 1, 1),
+      origin: origin,
+    );
+
+    test('survives reopen and every update path, ignoring a run object that carries another origin', () async {
+      final original = started('origin-run');
+      await repository.insert(original);
+      final foreign = WorkflowRun(
+        id: original.id,
+        definitionName: original.definitionName,
+        status: WorkflowRunStatus.running,
+        startedAt: original.startedAt,
+        updatedAt: DateTime.utc(2026, 1, 2),
+        origin: const WorkflowRunOrigin(surface: 'api'),
+      );
+
+      expect(await repository.update(foreign), isTrue);
+      expect((await repository.getById(original.id))!.origin, origin);
+
+      final paused = await repository.transitionStatus(
+        original.id,
+        expectedStatus: WorkflowRunStatus.running,
+        status: WorkflowRunStatus.paused,
+      );
+      expect(paused!.origin, origin);
+      final resumed = paused.copyWith(status: WorkflowRunStatus.running, updatedAt: DateTime.utc(2026, 1, 3));
+      expect(
+        await repository.update(resumed, expectedStatus: WorkflowRunStatus.paused, expectedUpdatedAt: paused.updatedAt),
+        isTrue,
+      );
+      await repository.setWorktreeBinding(
+        original.id,
+        const WorkflowWorktreeBinding(key: 'k', path: '/w', branch: 'b', workflowRunId: 'origin-run'),
+      );
+      expect((await repository.list()).single.origin, origin);
+
+      await store.close();
+      store = await FileExecutionStore.open(p.join(directory.path, 'execution.json'));
+      repository = FileWorkflowRunRepository(store);
+      expect((await repository.getById(original.id))!.origin, origin);
+    });
+
+    test('a checkpoint written before origin existed reads as unknown', () async {
+      await repository.insert(started('legacy'));
+      await store.update((state) {
+        final saved = (state['workflowRuns'] as Map<String, dynamic>)['legacy'] as Map<String, dynamic>;
+        saved.remove('origin');
+      });
+
+      expect((await repository.getById('legacy'))!.origin, WorkflowRunOrigin.unknown);
+    });
+  });
+
   test('only one controller may claim a paused run for execution', () async {
     final paused = run('resume-once');
     await repository.insert(paused);

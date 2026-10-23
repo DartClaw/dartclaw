@@ -24,18 +24,21 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionResolver,
         WorkflowDefinitionSource,
         WorkflowRun,
+        WorkflowRunOrigin,
         WorkflowService,
         WorkflowSummary,
         WorkflowTaskType,
         missingRequiredWorkflowVariables,
         missingRequiredWorkflowVariablesMessage,
         stepStatusFromTask,
-        workflowContextValue;
+        workflowContextValue,
+        workflowFollowUp;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
 import '../task/task_service.dart';
+import '../task/workflow_run_control.dart';
 import '../task/workflow_start_precondition_exception.dart';
 import '../workflow_approval_metadata.dart';
 import 'api_helpers.dart';
@@ -49,11 +52,13 @@ const _maxWorkflowFormBodyBytes = 256 * 1024;
 ///
 /// All endpoints require authentication (handled by the server pipeline).
 /// Business logic delegated to [WorkflowService] — routes are thin
-/// request/response translators.
+/// request/response translators. Resume and cancel go through [runControl],
+/// which audits them as web resolutions.
 Router workflowRoutes(
   WorkflowService workflows,
   TaskService tasks,
   WorkflowDefinitionSource definitions, {
+  required WorkflowRunControl runControl,
   EventBus? eventBus,
 }) {
   final router = Router();
@@ -121,19 +126,12 @@ Router workflowRoutes(
 
   // POST /api/workflows/runs/<id>/resume
   router.post('/api/workflows/runs/<id>/resume', (Request request, String id) async {
-    try {
-      final existing = await workflows.get(id);
-      if (existing == null) {
-        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
-      }
-      final run = await workflows.resume(id);
-      return jsonResponse(200, run.toJson());
-    } on StateError catch (e) {
-      return errorResponse(409, 'INVALID_TRANSITION', e.message);
-    } catch (e, st) {
-      _log.severe('Failed to resume workflow run $id', e, st);
-      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume workflow run');
-    }
+    return switch (await runControl.resumeFromWeb(id)) {
+      RunControlResolved(:final run) => jsonResponse(200, run!.toJson()),
+      RunControlNotFound() => errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id'),
+      RunControlRefused(:final message) => errorResponse(409, 'INVALID_TRANSITION', message),
+      RunControlFailed() => errorResponse(500, 'INTERNAL_ERROR', 'Failed to resume workflow run'),
+    };
   });
 
   // POST /api/workflows/runs/<id>/retry
@@ -155,37 +153,41 @@ Router workflowRoutes(
 
   // POST /api/workflows/runs/<id>/cancel
   router.post('/api/workflows/runs/<id>/cancel', (Request request, String id) async {
-    try {
-      final existing = await workflows.get(id);
-      if (existing == null) {
-        return errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id');
-      }
-      if (existing.status.terminal) {
-        return errorResponse(
-          409,
-          'INVALID_TRANSITION',
-          'Workflow run is already in a terminal state: ${existing.status.name}',
-        );
-      }
-      // Optional body: { "feedback": "..." } for approval rejection feedback.
-      String? feedback;
-      final contentType = request.headers['content-type'] ?? '';
-      if (contentType.contains('application/json')) {
-        final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
-        if (body.error != null) return body.error;
-        if (body.value != null) {
-          final feedbackField = body.value!['feedback'];
-          if (feedbackField is String && feedbackField.trim().isNotEmpty) {
-            feedback = feedbackField.trim();
-          }
+    // Optional body: { "feedback": "..." } for approval rejection feedback.
+    String? feedback;
+    final contentType = request.headers['content-type'] ?? '';
+    if (contentType.contains('application/json')) {
+      final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
+      if (body.error != null) return body.error;
+      if (body.value != null) {
+        final feedbackField = body.value!['feedback'];
+        if (feedbackField is String && feedbackField.trim().isNotEmpty) {
+          feedback = feedbackField.trim();
         }
       }
-      await workflows.cancel(id, feedback: feedback);
-      return Response(204);
-    } catch (e, st) {
-      _log.severe('Failed to cancel workflow run $id', e, st);
-      return errorResponse(500, 'INTERNAL_ERROR', 'Failed to cancel workflow run');
     }
+    return switch (await runControl.cancelFromWeb(id, feedback: feedback)) {
+      RunControlResolved() => Response(204),
+      RunControlNotFound() => errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id'),
+      RunControlRefused(:final message) => errorResponse(409, 'INVALID_TRANSITION', message),
+      RunControlFailed() => errorResponse(500, 'INTERNAL_ERROR', 'Failed to cancel workflow run'),
+    };
+  });
+
+  // POST /api/workflows/runs/<id>/request-changes
+  router.post('/api/workflows/runs/<id>/request-changes', (Request request, String id) async {
+    final body = await readJsonObject(request, maxBytes: _maxWorkflowJsonBodyBytes);
+    if (body.error != null) return body.error;
+    final feedback = body.value?['feedback'];
+    return switch (await runControl.requestChangesFromWeb(id, feedback: feedback is String ? feedback : '')) {
+      RunControlResolved(:final run) => jsonResponse(200, run!.toJson()),
+      RunControlNotFound() => errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id'),
+      RunControlRefused(:final reason, :final message) =>
+        reason == RunControlRefusal.feedbackRequired
+            ? errorResponse(400, 'INVALID_INPUT', message)
+            : errorResponse(409, 'INVALID_TRANSITION', message),
+      RunControlFailed() => errorResponse(500, 'INTERNAL_ERROR', 'Failed to request changes at workflow run'),
+    };
   });
 
   // GET /api/workflows/definitions
@@ -253,6 +255,7 @@ typedef _ParsedWorkflowRunRequest = ({
   WorkflowApprovalPolicy? approvals,
   bool allowDirtyLocalPath,
   bool inline,
+  WorkflowRunOrigin? origin,
   Response? error,
 });
 
@@ -263,6 +266,7 @@ _ParsedWorkflowRunRequest _workflowRunRequestError(Response error) => (
   approvals: null,
   allowDirtyLocalPath: false,
   inline: false,
+  origin: null,
   error: error,
 );
 
@@ -293,6 +297,7 @@ _ParsedWorkflowRunRequest _shapeWorkflowRunRequest(
   required WorkflowApprovalPolicy? approvals,
   required bool allowDirtyLocalPath,
   required bool inline,
+  required WorkflowRunOrigin origin,
   required bool htmlResponse,
 }) {
   if (projectId != null && definition.variables.containsKey('PROJECT') && !variables.containsKey('PROJECT')) {
@@ -305,6 +310,7 @@ _ParsedWorkflowRunRequest _shapeWorkflowRunRequest(
     approvals: approvals,
     allowDirtyLocalPath: allowDirtyLocalPath,
     inline: inline,
+    origin: origin,
     error: _validateWorkflowVariables(definition, variables, htmlResponse: htmlResponse),
   );
 }
@@ -340,6 +346,8 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
   final projectField = fields['project'];
   final approvalsResult = _parseApprovalPolicy(fields['approvals']);
   if (approvalsResult.error != null) return _workflowRunRequestError(approvalsResult.error!);
+  final originResult = _parseSurfaceMarker(fields['surface']);
+  if (originResult.error != null) return _workflowRunRequestError(originResult.error!);
 
   return _shapeWorkflowRunRequest(
     resolved.definition!,
@@ -348,6 +356,7 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunJsonRequest(
     approvals: approvalsResult.policy,
     allowDirtyLocalPath: fields['allowDirtyLocalPath'] == true,
     inline: fields['inline'] == true,
+    origin: originResult.origin!,
     htmlResponse: false,
   );
 }
@@ -382,7 +391,22 @@ Future<_ParsedWorkflowRunRequest> _parseWorkflowRunFormRequest(
       _ => false,
     },
     inline: false,
+    origin: const WorkflowRunOrigin(surface: 'web'),
     htmlResponse: true,
+  );
+}
+
+/// The `surface` marker is descriptive provenance for the connected CLI, never an authentication claim, so only
+/// `cli` is claimable. Recipient, thread, session and sender are not request fields at all.
+({WorkflowRunOrigin? origin, Response? error}) _parseSurfaceMarker(Object? raw) {
+  if (raw == null) return (origin: const WorkflowRunOrigin(surface: 'api'), error: null);
+  if (raw == 'cli') return (origin: const WorkflowRunOrigin(surface: 'cli'), error: null);
+  return (
+    origin: null,
+    error: errorResponse(400, 'INVALID_INPUT', 'Field "surface" must be "cli" when present', {
+      'field': 'surface',
+      'allowedValues': ['cli'],
+    }),
   );
 }
 
@@ -440,6 +464,7 @@ Future<Response> _startWorkflowResponse(
       approvals: parsed.approvals,
       allowDirtyLocalPath: parsed.allowDirtyLocalPath,
       inline: parsed.inline,
+      origin: parsed.origin!,
     );
     if (htmlResponse) {
       final location = '/workflows/${run.id}';
@@ -527,7 +552,8 @@ Future<Map<String, dynamic>> _enrichRunDetail(WorkflowRun run, TaskService tasks
     ..['steps'] = steps
     ..['childTaskIds'] = childTaskIds
     ..['isApprovalPaused'] = pendingApprovalStepId != null
-    ..['pendingApprovalStepId'] = pendingApprovalStepId;
+    ..['pendingApprovalStepId'] = pendingApprovalStepId
+    ..['followUpTaskId'] = workflowFollowUp(run)?.taskId;
 }
 
 Map<String, dynamic> _summaryToJson(WorkflowSummary s) => {

@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 706" width="1000" height="706" role="img" aria-labelledby="title desc">
+  <title id="title">Config hot reload</title>
+  <desc id="desc">Three triggers, SIGUSR1, the config file watch and a reloadable PATCH, deliver a freshly loaded config to ConfigNotifier.reload. It primes out-of-package parsers, refuses a config with blocking warnings or unsupported container isolation, compares every section, carries server.port, host, data_dir and container forward, and returns a ConfigDelta for reloadable sections only. A restart-tier change goes to restartRequiredSections and is withheld. Reconfigurable services run when their watch keys changed.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .solid .step circle { fill: var(--on); } .solid .step text { fill: var(--kd); }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#sig:hover) .edges :is(.f-sig,.t-sig) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#watch:hover) .edges :is(.f-watch,.t-watch) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#apply:hover) .edges :is(.f-apply,.t-apply) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#n1:hover) .edges :is(.f-n1,.t-n1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#n2:hover) .edges :is(.f-n2,.t-n2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#n3:hover) .edges :is(.f-n3,.t-n3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#n4:hover) .edges :is(.f-n4,.t-n4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#n5:hover) .edges :is(.f-n5,.t-n5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#refused:hover) .edges :is(.f-refused,.t-refused) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#restart:hover) .edges :is(.f-restart,.t-restart) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#delta:hover) .edges :is(.f-delta,.t-delta) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#svc:hover) .edges :is(.f-svc,.t-svc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="706"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="610" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="634">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="658">Hover a box for what it does; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="678">Reloadable: server, sessions, context, security, logging, workspace, alerts. Every other section is restart-tier.</text></g>
+
+  <text class="kick" x="24" y="32">FLOW · ConfigNotifier.reload</text>
+  <text class="title" x="24" y="58">Config hot reload</text>
+  <text class="lede" x="24" y="80">A bad config is refused whole; a restart-tier change is logged and withheld; only reloadable sections reach services.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="96" width="244" height="178" rx="14"/><text class="kick" x="32" y="118">ReloadTriggerService</text></g>
+  <g class="k-host"><rect class="band" x="312" y="96" width="320" height="374" rx="14"/><text class="kick" x="328" y="118">ConfigNotifier.reload(newConfig)</text></g>
+
+  <g class="edges">
+    <g class="e join f-sig f-watch f-apply t-n1"><path d="M248,152 H272 M248,224 H272 M248,338 H272 M272,152 V338"/></g>
+    <g class="e main f-sig f-watch f-apply t-n1"><path d="M272,165 H326"/><text class="el" x="299" y="158" text-anchor="middle">reload</text></g>
+    <g class="e main f-n1 t-n2"><path d="M472,186 V196"/></g>
+    <g class="e main f-n2 t-n3"><path d="M472,254 V264"/></g>
+    <g class="e main f-n3 t-n4"><path d="M472,322 V332"/></g>
+    <g class="e main f-n4 t-n5"><path d="M472,390 V400"/></g>
+    <g class="e bad f-n2 t-refused"><path d="M616,226 H688"/><text class="el" x="652" y="218" text-anchor="middle">bad config</text></g>
+    <g class="e dash f-n3 t-restart"><path d="M616,300 H688"/><text class="el" x="652" y="292" text-anchor="middle">withheld</text></g>
+    <g class="e main f-n5 t-delta"><path d="M616,430 H688"/><text class="el" x="652" y="422" text-anchor="middle">reloadable</text></g>
+    <g class="e  f-delta t-svc"><path d="M833,463 V496"/><text class="el" x="841" y="484" text-anchor="start">filtered by watchKeys</text></g>
+  </g>
+
+  <a href="../configuration-architecture.md#reload-triggers"><g class="n tint k-host" id="sig">
+    <rect class="box" x="28" y="124" width="220" height="56" rx="9"/>
+    <text class="name mono-name" x="40" y="143">SIGUSR1</text>
+    <text class="sub" x="40" y="159">POSIX; mode signal or auto</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">SIGUSR1</tspan> · registered whenever POSIX signals are available and the mode is not off</text><text class="p2" x="36" y="678">In signal mode on Windows the service only logs that signal reload is POSIX-only.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reload-triggers"><g class="n tint k-host" id="watch">
+    <rect class="box" x="28" y="192" width="220" height="64" rx="9"/>
+    <text class="name" x="40" y="215">config file watch</text>
+    <text class="sub" x="40" y="233">parent directory; mode auto</text>
+    <text class="sub" x="40" y="249">debounce_ms, default 500</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">config file watch</tspan> · watches the parent directory, not the file: an atomic temp+rename save is create or modify on macOS but a move on Linux</text><text class="p2" x="36" y="678">A watch failure falls back to SIGUSR1 only, or to no reload on Windows. Any exception in a cycle logs and keeps the existing config.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#configapplyservice"><g class="n line k-host" id="apply">
+    <rect class="box" x="24" y="310" width="224" height="56" rx="9"/>
+    <text class="name mono-name" x="36" y="329">ConfigApplyService</text>
+    <text class="sub" x="36" y="345">after a reloadable PATCH</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">ConfigApplyService</tspan> · calls notifier.reload(loadDartclawConfig(file)) directly, without ReloadTriggerService</text><text class="p2" x="36" y="678">A throw falls back to restart-pending for those fields.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n tint k-host" id="n1">
+    <rect class="box" x="328" y="130" width="288" height="56" rx="9"/>
+    <g class="step"><circle cx="348" cy="158.0" r="10"/><text x="348" y="162.0">1</text></g>
+    <text class="name" x="366" y="149">prime section parsers</text>
+    <text class="sub" x="366" y="165">out-of-package parsers add warnings</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">prime section parsers</tspan> · sectionPrimers run the parsers of packages outside the kernel, so their warnings are present before admission</text><text class="p2" x="36" y="678">The primers come from the harness registrars (primeConfigSections); the same priming runs in the CLI loader.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n tint k-host" id="n2">
+    <rect class="box" x="328" y="198" width="288" height="56" rx="9"/>
+    <g class="step"><circle cx="348" cy="226.0" r="10"/><text x="348" y="230.0">2</text></g>
+    <text class="name" x="366" y="217">admit or refuse</text>
+    <text class="sub" x="366" y="233">blocking warnings; container isolation</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">admit or refuse</tspan> · FormatException on blocking warnings; UnsupportedCapabilityError if isolation is enabled where unsupported</text><text class="p2" x="36" y="678">A refused reload leaves the running config and restartRequiredSections untouched.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n solid k-host" id="n3">
+    <rect class="box" x="328" y="266" width="288" height="56" rx="9"/>
+    <g class="step"><circle cx="348" cy="294.0" r="10"/><text x="348" y="298.0">3</text></g>
+    <text class="name" x="366" y="285">compare every section</text>
+    <text class="sub" x="366" y="301">each section in sectionTiers, with ==</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">compare every section</tspan> · a changed reloadable section adds &lt;section&gt;.* to changedKeys; a restart section goes to the restart set</text><text class="p2" x="36" y="678">server is special: a change confined to port, host, data_dir is excluded with a warning. Tier keys are DartclawConfig field names, not YAML keys.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n tint k-host" id="n4">
+    <rect class="box" x="328" y="334" width="288" height="56" rx="9"/>
+    <g class="step"><circle cx="348" cy="362.0" r="10"/><text x="348" y="366.0">4</text></g>
+    <text class="name" x="366" y="353">carry forward</text>
+    <text class="sub" x="366" y="369">server.port, host, data_dir; container</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">carry forward</tspan> · a reload must not change these running values</text><text class="p2" x="36" y="678">container is carried forward because a startup probe settled the posture and an unset section re-parses as disabled.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n tint k-host" id="n5">
+    <rect class="box" x="328" y="402" width="288" height="56" rx="9"/>
+    <g class="step"><circle cx="348" cy="430.0" r="10"/><text x="348" y="434.0">5</text></g>
+    <text class="name" x="366" y="421">build the delta</text>
+    <text class="sub" x="366" y="437">null when nothing reloadable changed</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">build the delta</tspan> · returns null when nothing reloadable changed, else ConfigDelta(previous, current, changedKeys)</text><text class="p2" x="36" y="678">It then calls reconfigure on each registered service whose watchKeys match, logging and continuing if one throws.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n tint k-sec" id="refused">
+    <rect class="box" x="690" y="186" width="286" height="70" rx="9"/>
+    <text class="name" x="702" y="209">reload refused</text>
+    <text class="sub" x="702" y="227">blocking warning: FormatException</text>
+    <text class="sub" x="702" y="243">no isolation: UnsupportedCapabilityError</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">reload refused</tspan> · nothing changes and restartRequiredSections is left as it was</text><text class="p2" x="36" y="678">ReloadTriggerService logs the refusal and keeps the running config; doctor reports blocking warnings as failures.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n tint k-ext" id="restart">
+    <rect class="box" x="690" y="272" width="286" height="66" rx="9"/>
+    <text class="name mono-name" x="702" y="295">restartRequiredSections</text>
+    <text class="sub" x="702" y="313">restart-tier section changed:</text>
+    <text class="sub" x="702" y="329">logged, withheld from the delta</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">restartRequiredSections</tspan> · the change is persisted but takes effect only after a restart</text><text class="p2" x="36" y="678">ReloadTriggerService logs the section names. restart.pending is the durable record, not this set.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n solid k-host" id="delta">
+    <rect class="box" x="690" y="397" width="286" height="66" rx="9"/>
+    <text class="name mono-name" x="702" y="420">ConfigDelta</text>
+    <text class="sub" x="702" y="438">reloadable section changed: &lt;section&gt;.*</text>
+    <text class="sub" x="702" y="454">previous, current, changedKeys</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">ConfigDelta</tspan> · changedKeys holds one &lt;section&gt;.* entry per changed reloadable section</text><text class="p2" x="36" y="678">ConfigDelta.hasChanged matches by prefix in both directions: watch key context.reserve_tokens matches changed key context.*.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reconfigurable-services"><g class="n line k-host" id="svc">
+    <rect class="box" x="24" y="498" width="952" height="64" rx="9"/>
+    <text class="name" x="36" y="521">Reconfigurable services</text>
+    <text class="sub" x="36" y="539">called when delta.hasChangedAny(watchKeys); a throw is logged and the rest still run</text>
+    <text class="sub" x="36" y="555">nine services: security, logging, sessions, server, context, workspace, alerts</text>
+    <g class="d"><text class="p1" x="36" y="658"><tspan class="b">Reconfigurable services</tspan> · Reconfigurable is a watchKeys set plus a synchronous reconfigure(ConfigDelta) that must not throw</text><text class="p2" x="36" y="678">register() throws ArgumentError for a watch key naming a restart-tier or undeclared section, so no watcher is ever dead.</text></g>
+  </g></a>
+  <g transform="translate(24,584)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">decision or result</text>
+    <g class="tint k-host"><rect class="box" x="155.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="177.60000000000002" y="10">step</text>
+    <g class="tint k-ext"><rect class="box" x="224.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="246.40000000000003" y="10">waits for restart</text>
+    <g class="tint k-sec"><rect class="box" x="373.80000000000007" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="395.80000000000007" y="10">refusal</text>
+    <g class="e main"><path d="M461.20000000000005,6 H493.20000000000005"/></g><text class="lg" x="501.20000000000005" y="10">reload proceeds</text>
+    <g class="e bad"><path d="M616.2,6 H648.2"/></g><text class="lg" x="656.2" y="10">refused</text>
+    <g class="e dash"><path d="M721.6,6 H753.6"/></g><text class="lg" x="761.6" y="10">withheld</text>
+  </g>
+</svg>

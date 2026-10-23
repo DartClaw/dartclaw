@@ -55,6 +55,7 @@ export 'src/workflow/workflow_definition.dart'
         WorkflowVariable;
 export 'src/workflow/workflow_run.dart'
     show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowWorktreeBinding;
+export 'src/workflow/workflow_run_origin.dart' show WorkflowRunOrigin;
 export 'src/workflow/workflow_asset_source_resolver.dart' show WorkflowAssetSourceResolver;
 export 'src/workflow/workflow_materializer.dart' show WorkflowMaterializer;
 export 'src/workflow/workflow_run_repository.dart' show WorkflowRunRepository, WorkflowRunChangeSource;
@@ -152,6 +153,7 @@ export 'src/workflow/workflow_output_contract.dart'
         stepOutcomeTag,
         parseStepOutcomePayload,
         stepOutcomeRegExp;
+export 'src/workflow/follow_up_draft.dart' show WorkflowFollowUp, WorkflowFollowUpLabel, workflowFollowUp;
 export 'src/workflow/workflow_registry.dart' show WorkflowExclusion, WorkflowRegistry, WorkflowSource;
 export 'src/workflow/bash_process_owner.dart' show BashProcessOwner;
 export 'src/workflow/workflow_failure.dart'
@@ -185,6 +187,18 @@ export 'src/workflow/workflow_runner_types.dart'
         StorySpecOutputValidation,
         isSupportedWorkflowRunnerNode;
 export 'src/workflow/workflow_task_config.dart' show WorkflowTaskConfig;
+export 'src/workflow/workflow_approval_interaction.dart'
+    show
+        WorkflowApprovalExpectation,
+        WorkflowApprovalInteraction,
+        WorkflowApprovalPost,
+        WorkflowApprovalRefusal,
+        WorkflowApprovalRefused,
+        WorkflowApprovalResolution,
+        WorkflowApprovalResolver,
+        WorkflowApprovalSource,
+        workflowApprovalInteractionContextKey,
+        workflowRevisionContextKey;
 export 'src/workflow/workflow_service.dart'
     show WorkflowService, missingRequiredWorkflowVariables, missingRequiredWorkflowVariablesMessage;
 export 'src/workflow/workflow_service_deps.dart'
@@ -214,6 +228,8 @@ export 'src/workflow/workflow_view_helpers.dart'
         workflowCanResume,
         workflowCanRetry,
         workflowContextValue,
+        WorkflowRevisionState,
+        workflowRevisionState,
         workflowStatusBadgeClass,
         workflowStatusLabel;
 

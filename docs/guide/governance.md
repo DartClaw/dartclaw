@@ -14,12 +14,15 @@ governance:
     - "users/123456789012345"   # Google Chat sender ID
 ```
 
-**Default behaviour**: when the list is empty, every sender is treated as an admin. This matches the single-user dev experience. Once you add at least one ID, non-listed senders lose admin powers.
+**Default behaviour**: when the list is empty, every sender is treated as an admin. This matches the single-user dev experience, but in a group channel it makes every member an admin: anyone who can message the bot can then run `/stop`, change the shared wiki and approve or reject workflow runs. List your admins before you add DartClaw to a group channel. Once you add at least one ID, non-listed senders lose admin powers.
 
 **What admin sender status grants**:
 
 - Exemption from `governance.rate_limits.per_sender.*` checks.
 - Permission to invoke reserved commands without rate-limit blocking.
+- Permission to change the shared wiki and knowledge graph from a channel turn (`wiki_write`, `kg_add`, `kg_invalidate`). A turn by any other sender is refused, and every channel-origin attempt is audited with its channel and sender (guard `KnowledgeWriteGate`). A task or workflow step started from a channel message acts as that message's sender, so a non-admin cannot reach these tools by asking the agent to create a task or run a workflow. Web chat, scheduled turns and the gateway token are not gated, and neither are the memory tools. See [Context Engine Mode](context-engine.md#channel-members).
+- Permission to resolve a workflow run's approval from chat: the Approve and Reject buttons on a run's approval post, the Request changes form a gate that names a `revise` step adds, and the `workflow_resume`, `workflow_cancel` and `workflow_request_changes` agent tools. A click or tool call from any other sender is refused, the post keeps its buttons, and every attempt is audited with its channel, sender, run and step (guard `RunApprovalGate`). A task or workflow step is not that sender even when an admin started it: the three tools refuse the turns of delegated work, so an agent cannot resolve a gate on its own. The run page and the HTTP API are not admin-gated, because the caller is already signed in; they are audited too. See [Workflows](workflows.md#approving-from-chat).
+- Permission to accept, reject or push back a task from chat: the Accept and Reject buttons on its Google Chat review card and the agent's `task_review` tool. A click or tool call from any other sender is refused and the task stays in review; every attempt is audited with its channel, sender and task (guard `TaskReviewGate`). Slack posts no review buttons, so there the tool is the only path. The `task_bind` and `task_unbind` tools follow the `/bind` and `/unbind` commands the same way: a chat turn needs an admin sender, and a refusal is audited like the command's (guard `ReservedCommand`). A task or workflow step is refused all three even when an admin started it, and that refusal is audited under the same guard. Web chat, scheduled turns and the gateway token are not gated. See [Google Chat](google-chat.md).
 
 **What it does *not* grant**:
 

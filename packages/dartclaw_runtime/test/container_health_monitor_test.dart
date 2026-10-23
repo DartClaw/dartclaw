@@ -16,6 +16,7 @@ ContainerManager _makeManager({required String profileId, required bool Function
     profileId: profileId,
     workspaceMounts: [],
     generatedStateDir: '/tmp/dartclaw-state-$profileId',
+    buildContextDir: '/tmp/dartclaw-build-context',
     bridgeBinaryPath: '/tmp/dartclaw-bridge',
     runCommand: (executable, arguments) async {
       // Respond to `docker inspect --format {{.State.Running}} <name>`.
@@ -140,6 +141,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: [],
         generatedStateDir: '/tmp/dartclaw-state-workspace-2',
+        buildContextDir: '/tmp/dartclaw-build-context',
         runCommand: (executable, arguments) async => ProcessResult(0, 0, 'true\n', ''),
       );
       final eventBus = EventBus();
@@ -194,6 +196,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: [],
         generatedStateDir: '/tmp/dartclaw-state-daemon-blip',
+        buildContextDir: '/tmp/dartclaw-build-context',
         runCommand: (executable, arguments) async => arguments.contains('inspect')
             ? ProcessResult(0, 1, '', 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.')
             : ProcessResult(0, 0, '', ''),
@@ -222,6 +225,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: [],
         generatedStateDir: '/tmp/dartclaw-state-removed',
+        buildContextDir: '/tmp/dartclaw-build-context',
         runCommand: (executable, arguments) async {
           if (!arguments.contains('inspect')) return ProcessResult(0, 0, '', '');
           return removed
@@ -258,6 +262,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: const [],
         generatedStateDir: '/tmp/dartclaw-state-slow-health',
+        buildContextDir: '/tmp/dartclaw-build-context',
         runCommand: (executable, arguments) async {
           if (!arguments.contains('inspect')) return ProcessResult(0, 0, '', '');
           inspectCalls++;
@@ -294,6 +299,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: const [],
         generatedStateDir: '/tmp/dartclaw-state-$name',
+        buildContextDir: '/tmp/dartclaw-build-context',
         runCommand: (executable, arguments) async {
           if (!arguments.contains('inspect')) return ProcessResult(0, 0, '', '');
           inspectCalls++;

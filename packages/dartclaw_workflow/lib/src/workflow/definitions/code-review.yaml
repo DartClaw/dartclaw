@@ -66,6 +66,7 @@ steps:
       review_report_path: review_report_path
       review-code.findings_count: findings_count
       review-code.gating_findings_count: gating_findings_count
+      review-code.verdict: verdict
 
   # Iterate remediation until both validation and re-review report a clean result or the loop is exhausted.
   - id: remediation-loop
@@ -110,3 +111,4 @@ steps:
           review_report_path: review_report_path
           re-review.findings_count: findings_count
           re-review.gating_findings_count: gating_findings_count
+          re-review.verdict: verdict

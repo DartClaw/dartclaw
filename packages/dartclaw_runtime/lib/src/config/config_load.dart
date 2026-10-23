@@ -2,9 +2,11 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show GroupEntry;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
 import 'channel_config_resolver.dart';
+import 'slack_config_refusal.dart';
 
 /// Loads config and parses every channel section.
 ///
@@ -15,7 +17,9 @@ import 'channel_config_resolver.dart';
 ///
 /// Throws [FormatException] when an allowlist row binds an agent that
 /// `agent.agents` does not declare: a warning would leave that peer silently on
-/// the primary lane, the opposite of what the binding was written for.
+/// the primary lane, the opposite of what the binding was written for. An
+/// enabled Slack section Slack could not run on is refused the same way
+/// (`refuseUnusableSlackConfig`).
 DartclawConfig loadDartclawConfig({
   String? configPath,
   Map<String, String>? cliOverrides,
@@ -34,6 +38,7 @@ DartclawConfig loadDartclawConfig({
     resolveChannelConfig<Object>(config, channelType);
   }
   _refuseUnknownBoundAgents(config);
+  refuseUnusableSlackConfig(config, storedCredentialsResolved: resolveStoredCredentials);
   return config;
 }
 
@@ -43,6 +48,7 @@ void _refuseUnknownBoundAgents(DartclawConfig config) {
     final (configKey, dmRows, groupRows) = switch (resolveChannelConfig<Object>(config, channelType)) {
       GoogleChatConfig(:final dmAllowlist, :final groupAllowlist) => ('google_chat', dmAllowlist, groupAllowlist),
       SignalConfig(:final dmAllowlist, :final groupAllowlist) => ('signal', dmAllowlist, groupAllowlist),
+      SlackConfig(:final dmAllowlist, :final groupAllowlist) => ('slack', dmAllowlist, groupAllowlist),
       WhatsAppConfig(:final dmAllowlist, :final groupAllowlist) => ('whatsapp', dmAllowlist, groupAllowlist),
       final other => throw StateError('Unexpected channel config ${other.runtimeType}'),
     };

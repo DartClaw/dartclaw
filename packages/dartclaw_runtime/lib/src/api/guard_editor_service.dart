@@ -409,4 +409,4 @@ List<Guard> _guardsForTest(GuardChain chain, String guard) {
   return chain.guards.where((candidate) => candidate.name == guard || candidate.category == guard).toList();
 }
 
-const _fileLevels = {'no_access', 'read_only', 'no_delete'};
+const _fileLevels = {'no_access', 'read_only', 'no_delete', 'allow'};

@@ -103,7 +103,10 @@ const Map<String, FieldMeta> _governanceFields = {
     jsonKey: 'governance.adminSenders',
     type: ConfigFieldType.stringList,
     mutability: ConfigMutability.restart,
-    description: 'Sender IDs exempt from rate limits and budget blocks.',
+    description:
+        'Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run '
+        'approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an '
+        'admin, so in a group channel every member.',
     nullable: true,
   ),
   'governance.turn_limits.stall_timeout': FieldMeta(
@@ -284,8 +287,9 @@ const Map<String, FieldMeta> _governanceFields = {
     type: ConfigFieldType.bool_,
     mutability: ConfigMutability.restart,
     description:
-        'Route messages in a bound thread straight to that task session, and post task notifications as new threads. '
-        'Google Chat only — it is the one channel that carries a thread identity to bind.',
+        'Route messages in a bound thread straight to that task session, enable /bind, and post task notifications as new threads. '
+        'Applies on every channel that threads (Google Chat, Slack). '
+        'The one thread per workflow run in the workflow.chat_notifications channel does not depend on it.',
   ),
   'features.thread_binding.idle_timeout_minutes': FieldMeta(
     yamlPath: 'features.thread_binding.idle_timeout_minutes',
@@ -363,8 +367,8 @@ const Map<String, FieldMeta> _governanceFields = {
     type: ConfigFieldType.objectList,
     mutability: ConfigMutability.readonly,
     description:
-        'Path rules added to the built-in protections. Two rules over one pattern with different levels fail the guard '
-        'build.'
+        'Path rules added to the built-in protections. An allow rule exempts matching paths from every other rule, '
+        'built-in ones included. Two rules over one pattern with different levels fail the guard build.'
         'Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects.',
     entry: ObjectEntry(
       fields: {
@@ -374,8 +378,10 @@ const Map<String, FieldMeta> _governanceFields = {
         ),
         'level': EntryFieldMeta(
           type: ConfigFieldType.enum_,
-          description: 'How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete blocks deletes only.',
-          allowedValues: ['no_access', 'read_only', 'no_delete'],
+          description:
+              'How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete '
+              'blocks deletes only, allow lifts every other rule.',
+          allowedValues: ['no_access', 'read_only', 'no_delete', 'allow'],
         ),
       },
     ),

@@ -23,6 +23,9 @@ enum FileAccessLevel {
 
   /// Allow reads and writes but block deletion.
   noDelete,
+
+  /// Exempt the path from every other rule, `noAccess` included.
+  allow,
 }
 
 /// What a command/tool does to a file path.
@@ -92,12 +95,23 @@ class FileGuardConfig {
     return FileGuardConfig(rules: [...defaults.rules, ...extraRules]);
   }
 
-  /// Adds self-protection for the given config file path.
-  FileGuardConfig withSelfProtection(String configPath) {
+  /// Adds `noAccess` rules for the credentials kept in [dataDir]: its
+  /// `dartclaw.yaml`, `gateway_token` and `credentials/` store.
+  ///
+  /// Anchored on the symlink-resolved [dataDir], so same-named files elsewhere
+  /// stay unprotected.
+  FileGuardConfig withDataDirProtection(String dataDir) {
+    final dir = FileGuard._realPath(p.normalize(p.absolute(expandHome(dataDir))));
     return FileGuardConfig(
       rules: [
         ...rules,
-        FileGuardRule(pattern: configPath, level: FileAccessLevel.readOnly),
+        for (final pattern in [
+          p.join(dir, 'dartclaw.yaml'),
+          p.join(dir, 'gateway_token'),
+          p.join(dir, 'credentials'),
+          p.join(dir, 'credentials', '**'),
+        ])
+          FileGuardRule(pattern: pattern, level: FileAccessLevel.noAccess),
       ],
     );
   }
@@ -107,6 +121,7 @@ class FileGuardConfig {
       'no_access' => FileAccessLevel.noAccess,
       'read_only' => FileAccessLevel.readOnly,
       'no_delete' => FileAccessLevel.noDelete,
+      'allow' => FileAccessLevel.allow,
       _ => null,
     };
   }
@@ -119,10 +134,24 @@ class FileGuardConfig {
     FileGuardRule(pattern: '**/.gnupg', level: FileAccessLevel.noAccess),
     FileGuardRule(pattern: '**/.aws/credentials', level: FileAccessLevel.noAccess),
     FileGuardRule(pattern: '**/.netrc', level: FileAccessLevel.noAccess),
+    // Reading these sends the secret to the provider, whatever boundary the
+    // harness runs behind (ADR-061). `*.key` stays read_only: the suffix also
+    // names non-secret data files.
+    FileGuardRule(pattern: '**/.env', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/.env.*', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/*.pem', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/*.p12', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/*.pfx', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/id_rsa*', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/id_dsa*', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/id_ecdsa*', level: FileAccessLevel.noAccess),
+    FileGuardRule(pattern: '**/id_ed25519*', level: FileAccessLevel.noAccess),
+    // allow — templates that carry no secret
+    FileGuardRule(pattern: '**/.env.example', level: FileAccessLevel.allow),
+    FileGuardRule(pattern: '**/.env.sample', level: FileAccessLevel.allow),
+    FileGuardRule(pattern: '**/.env.template', level: FileAccessLevel.allow),
+    FileGuardRule(pattern: '**/.env.dist', level: FileAccessLevel.allow),
     // read_only — block writes and deletes
-    FileGuardRule(pattern: '**/.env', level: FileAccessLevel.readOnly),
-    FileGuardRule(pattern: '**/.env.*', level: FileAccessLevel.readOnly),
-    FileGuardRule(pattern: '**/*.pem', level: FileAccessLevel.readOnly),
     FileGuardRule(pattern: '**/*.key', level: FileAccessLevel.readOnly),
     FileGuardRule(pattern: '**/.kube/config', level: FileAccessLevel.readOnly),
     // no_delete — block deletes only
@@ -140,7 +169,8 @@ class FileGuardConfig {
 /// Glob-based file path protection guard.
 ///
 /// Only evaluates on `beforeToolCall`. Handles canonical `shell`,
-/// `file_read`, `file_write`, and `file_edit` tools.
+/// `file_read`, `file_write`, and `file_edit` tools. A `file_read` from a
+/// search tool (Claude's `Grep` or `Glob`) is checked on its root.
 class FileGuard extends Guard {
   @override
   String get name => 'file';
@@ -164,14 +194,18 @@ class FileGuard extends Guard {
     final toolInput = context.toolInput;
     if (toolName == null || toolInput == null) return GuardVerdict.pass();
 
+    final workingDirectory = _stringValue(toolInput['cwd']);
+    final searchRoot = _nonEmptyString(toolInput['path']) ?? workingDirectory;
     final pathOps = switch (toolName) {
       'shell' => _extractPathsFromBash(toolInput['command'] as String? ?? ''),
+      'file_read' when _searchTools.contains(context.rawProviderToolName) => [
+        if (searchRoot != null) _PathOp(searchRoot, FileOperation.read),
+      ],
       'file_read' => _extractPathsFromTool(toolInput, FileOperation.read),
       'file_write' || 'file_edit' => _extractPathsFromTool(toolInput, FileOperation.write),
       _ => <_PathOp>[],
     };
 
-    final workingDirectory = _stringValue(toolInput['cwd']);
     for (final po in pathOps) {
       final resolved = _resolvePath(po.path, workingDirectory: workingDirectory);
       final verdict = _checkAccess(resolved, po.operation);
@@ -180,6 +214,13 @@ class FileGuard extends Guard {
 
     return GuardVerdict.pass();
   }
+
+  /// Claude Code's search tools, checked on the directory they search.
+  ///
+  /// Like Claude's own Read deny rules, a denied file below an allowed root
+  /// does not refuse the search: harness-native rules and OS sandboxes own
+  /// enumeration (ADR-061).
+  static const _searchTools = {'Grep', 'Glob'};
 
   // -------------------------------------------------------------------------
   // Path extraction
@@ -303,26 +344,41 @@ class FileGuard extends Guard {
     final rooted = workingDirectory != null && workingDirectory.isNotEmpty && !p.isAbsolute(expanded)
         ? p.join(workingDirectory, expanded)
         : expanded;
-    final normalized = p.normalize(rooted);
-    // Resolve all symlinks in the path (including parent dirs like /var -> /private/var)
+    return _realPath(p.normalize(rooted));
+  }
+
+  /// Resolves symlinks through the longest existing prefix of [normalized]
+  /// (parent dirs like /var -> /private/var included), so a path not created
+  /// yet still matches rules anchored on the resolved location.
+  static String _realPath(String normalized) {
+    var existing = normalized;
+    var remainder = '';
     try {
-      final type = FileSystemEntity.typeSync(normalized, followLinks: true);
-      if (type != FileSystemEntityType.notFound) {
-        return File(normalized).resolveSymbolicLinksSync();
+      while (FileSystemEntity.typeSync(existing, followLinks: true) == FileSystemEntityType.notFound) {
+        final parent = p.dirname(existing);
+        if (!p.isAbsolute(normalized) || parent == existing) return normalized;
+        remainder = p.join(p.basename(existing), remainder);
+        existing = parent;
       }
+      final resolved = File(existing).resolveSymbolicLinksSync();
+      return remainder.isEmpty ? resolved : p.join(resolved, remainder);
     } catch (e) {
-      // Non-existent path or permission error — use normalized path as-is
+      // Permission error — use normalized path as-is
       _log.fine('Path resolution failed for "$normalized": $e');
     }
     return normalized;
   }
 
+  bool _isAllowed(String path) =>
+      config.rules.any((rule) => rule.level == FileAccessLevel.allow && _globMatches(rule.pattern, path));
+
+  /// An `allow` match exempts [path]; otherwise the most restrictive match wins.
   GuardVerdict? _checkAccess(String path, FileOperation operation) {
-    // Find most restrictive matching rule
+    if (_isAllowed(path)) return null;
     FileAccessLevel? mostRestrictive;
 
     for (final rule in config.rules) {
-      if (_globMatches(rule.pattern, path)) {
+      if (rule.level != FileAccessLevel.allow && _globMatches(rule.pattern, path)) {
         if (mostRestrictive == null || rule.level.index < mostRestrictive.index) {
           mostRestrictive = rule.level;
         }
@@ -342,6 +398,7 @@ class FileGuard extends Guard {
         FileOperation.read || FileOperation.write => null,
         FileOperation.delete => GuardVerdict.block('File access blocked: no_delete on $path'),
       },
+      FileAccessLevel.allow => null,
     };
   }
 
@@ -350,17 +407,8 @@ class FileGuard extends Guard {
   static bool _globMatches(String pattern, String path) {
     // Handle exact path match (for self-protection of config files)
     if (!pattern.contains('*') && !pattern.contains('?')) {
-      // Resolve the pattern too (handles /var -> /private/var on macOS etc.)
-      var resolved = pattern;
-      try {
-        final type = FileSystemEntity.typeSync(pattern, followLinks: true);
-        if (type != FileSystemEntityType.notFound) {
-          resolved = File(pattern).resolveSymbolicLinksSync();
-        }
-      } catch (e) {
-        // Pattern path resolution failed — use pattern as-is for matching
-        Logger('FileGuard').fine('Pattern path resolution failed for "$pattern": $e');
-      }
+      // Resolve the pattern too, as the path was
+      final resolved = _realPath(pattern);
       return path == resolved || path.endsWith('/$resolved') || path.endsWith(p.separator + resolved);
     }
 
@@ -398,3 +446,5 @@ String? _stringValue(Object? value) {
   }
   return null;
 }
+
+String? _nonEmptyString(Object? value) => value is String && value.isNotEmpty ? value : null;

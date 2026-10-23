@@ -1,70 +1,62 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 
-/// Maximum webhook payload size (1 MiB). Rejects oversized POST bodies
-/// on unauthenticated webhook endpoints to prevent OOM attacks.
-const maxWebhookPayloadBytes = 1024 * 1024;
+import 'auth_rate_limiter.dart';
 
-/// Constant-time string comparison to prevent timing attacks on secrets.
-///
-/// Returns true only if [a] and [b] are equal, but takes the same amount
-/// of time regardless of where (or whether) they differ — preventing
-/// attackers from inferring correct characters via response-time analysis.
-///
-/// An empty [a] or [b] never matches. Every caller compares a secret, and an
-/// unresolvable credential reference — an undefined `${VAR}` that
-/// `envSubstitute` resolves to `''` — must not degrade into a credential that
-/// an equally empty candidate satisfies.
-bool constantTimeEquals(String a, String b) {
-  if (a.isEmpty || b.isEmpty) return false;
-  final aBytes = utf8.encode(a);
-  final bBytes = utf8.encode(b);
-  final maxLength = aBytes.length > bBytes.length ? aBytes.length : bBytes.length;
-  final paddedA = List<int>.filled(maxLength, 0)..setRange(0, aBytes.length, aBytes);
-  final paddedB = List<int>.filled(maxLength, 0)..setRange(0, bBytes.length, bBytes);
+/// Reads a request body up to [limit] bytes exactly as received, returning `null` if exceeded.
+Future<Uint8List?> readBoundedRequestBytes(Request request, int limit) =>
+    readBoundedBytes(request.read(), contentLength: request.contentLength, limit: limit);
 
-  var result = aBytes.length ^ bBytes.length;
-  for (var i = 0; i < maxLength; i++) {
-    result |= paddedA[i] ^ paddedB[i];
-  }
-  return result == 0;
-}
-
-/// Reads a request body up to [limit] bytes, returning `null` if exceeded.
-///
-/// Checks `Content-Length` header first for a fast 413 rejection path,
-/// then caps the stream read for chunked/missing-header cases.
+/// Reads a request body up to [limit] bytes as UTF-8, returning `null` if exceeded.
 Future<String?> readBounded(Request request, int limit) async {
-  final contentLength = request.contentLength;
-  if (contentLength != null && contentLength > limit) return null;
-
-  final bytes = <int>[];
-  await for (final chunk in request.read()) {
-    bytes.addAll(chunk);
-    if (bytes.length > limit) return null;
-  }
-  return utf8.decode(bytes);
+  final bytes = await readBoundedRequestBytes(request, limit);
+  return bytes == null ? null : utf8.decode(bytes);
 }
 
 /// Resolves the remote IP key for [request], honoring trusted-proxy `X-Forwarded-For` chains.
 String? requestRemoteKey(Request request, {List<String> trustedProxies = const []}) {
   final connectionInfo = request.context['shelf.io.connection_info'];
-  if (connectionInfo is HttpConnectionInfo) {
-    final socketAddress = connectionInfo.remoteAddress.address;
-    if (trustedProxies.isNotEmpty && trustedProxies.contains(socketAddress)) {
-      final forwardedFor = request.headers['x-forwarded-for'];
-      final forwardedClient = forwardedFor?.split(',').first.trim();
-      if (forwardedClient != null && forwardedClient.isNotEmpty) {
-        return forwardedClient;
-      }
-    }
-    return socketAddress;
-  }
+  return resolveRemoteKey(
+    peerAddress: connectionInfo is HttpConnectionInfo ? connectionInfo.remoteAddress.address : null,
+    forwardedFor: request.headers['x-forwarded-for'],
+    trustedProxies: trustedProxies,
+  );
+}
 
-  return null;
+/// Counts a failed authentication of [request] against [rateLimiter], publishes the failed-auth event, and
+/// answers the `429` the caller returns once the remote address has spent its budget, else `null`.
+///
+/// A request refused while already over budget is not counted again. [source] and [reason] name the surface and
+/// the failure in the event.
+Response? recordFailedAuth(
+  Request request, {
+  required String source,
+  required String reason,
+  AuthRateLimiter? rateLimiter,
+  EventBus? eventBus,
+  List<String> trustedProxies = const [],
+}) {
+  final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';
+  final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
+  if (!limited) rateLimiter?.recordFailure(remoteKey);
+  fireFailedAuthEvent(
+    eventBus,
+    request,
+    source: source,
+    reason: reason,
+    limited: limited,
+    trustedProxies: trustedProxies,
+  );
+  if (!limited) return null;
+  return Response(
+    429,
+    body: jsonEncode({'error': 'Too Many Requests', 'message': 'Too many failed authentication attempts'}),
+    headers: {'content-type': 'application/json'},
+  );
 }
 
 /// Publishes a `FailedAuthEvent` to [eventBus] describing [reason] and the originating request.
@@ -76,14 +68,12 @@ void fireFailedAuthEvent(
   bool limited = false,
   List<String> trustedProxies = const [],
 }) {
-  eventBus?.fire(
-    FailedAuthEvent(
-      source: source,
-      path: '/${request.url.path}',
-      reason: reason,
-      remoteKey: requestRemoteKey(request, trustedProxies: trustedProxies),
-      limited: limited,
-      timestamp: DateTime.now(),
-    ),
+  publishFailedAuthEvent(
+    eventBus,
+    source: source,
+    path: '/${request.url.path}',
+    reason: reason,
+    remoteKey: requestRemoteKey(request, trustedProxies: trustedProxies),
+    limited: limited,
   );
 }

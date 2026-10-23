@@ -73,6 +73,9 @@ final class AcpHarness extends AgentHarness
   HarnessTurnContext? _activeTurnContext;
 
   @override
+  HarnessTurnContext? get activeTurnContext => _activeTurnContext;
+
+  @override
   void setTurnContext(HarnessTurnContext? context) {
     _activeTurnContext = context;
   }

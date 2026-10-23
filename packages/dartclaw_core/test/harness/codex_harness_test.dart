@@ -260,6 +260,55 @@ void main() {
         expect(initEvent!.contextWindow, 8192);
       });
 
+      Future<Map<String, dynamic>> turnStartFor(List<Map<String, dynamic>> messages) async {
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        final harness = _buildHarness(process: fake);
+        addTearDown(() async => harness.dispose());
+        await startHarnessV118(harness, fake);
+
+        final turnFuture = harness.turn(sessionId: 'sess-1', systemPrompt: '', messages: messages);
+        await respondToLatestThreadStartV118(fake, threadId: 'thread-img');
+        final turnStart = fake.sentMessages.singleWhere((message) => message['method'] == 'turn/start');
+        fake.emitTurnStarted();
+        fake.emitTurnCompleted(inputTokens: 5, outputTokens: 10);
+        await turnFuture;
+        return turnStart;
+      }
+
+      test('the last entry\'s images are sent as data-URL image items after the text item', () async {
+        final turnStart = await turnStartFor([
+          {
+            'role': 'user',
+            'content': 'what is this?',
+            'images': [
+              {'mediaType': 'image/png', 'data': 'UE5H'},
+            ],
+          },
+        ]);
+
+        expect((turnStart['params'] as Map<String, dynamic>)['input'], [
+          {'type': 'text', 'text': 'what is this?'},
+          {'type': 'image', 'url': 'data:image/png;base64,UE5H'},
+        ]);
+      });
+
+      test('an entry without images sends the single text item, malformed images included', () async {
+        final turnStart = await turnStartFor([
+          {
+            'role': 'user',
+            'content': 'hello',
+            'images': [
+              'nope',
+              {'data': 1},
+            ],
+          },
+        ]);
+
+        expect((turnStart['params'] as Map<String, dynamic>)['input'], [
+          {'type': 'text', 'text': 'hello'},
+        ]);
+      });
+
       test('v0.118.0 ClientResponse thread/start response completes turn correctly', () async {
         final fake = FakeCodexProcess(completeExitOnKill: true);
         final harness = _buildHarness(process: fake);
@@ -746,6 +795,39 @@ void main() {
         expect(params['approvalPolicy'], 'on-request');
 
         fake.emitTurnCompleted(inputTokens: 11, outputTokens: 22, cachedInputTokens: 7);
+        await turnFuture;
+      });
+
+      test('a configured sandbox travels on the thread, not as a spawn override Codex does not know', () async {
+        // codex-cli 0.162.1 `--strict-config` rejects `sandbox_permissions` as an
+        // unknown field; without it the override is silently dropped.
+        final fake = FakeCodexProcess(completeExitOnKill: true);
+        late List<String> args;
+        final harness = _buildHarness(
+          process: fake,
+          providerOptions: const {'sandbox': 'workspace-write'},
+          processFactory: (exe, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            args = List<String>.from(arguments);
+            return fake;
+          },
+        );
+        addTearDown(harness.dispose);
+        await startHarness(harness, fake);
+
+        expect(args, ['app-server', '-c', 'tools.experimental_request_user_input.enabled=false']);
+
+        final turnFuture = harness.turn(
+          sessionId: 'sess-sandbox',
+          messages: const [
+            {'role': 'user', 'content': 'ask'},
+          ],
+          systemPrompt: 'test',
+        );
+        await pumpEventLoop();
+        await respondToLatestThreadStart(fake);
+        final threadStart = fake.sentMessages.singleWhere((message) => message['method'] == 'thread/start');
+        expect((threadStart['params'] as Map<String, dynamic>)['sandbox'], 'workspace-write');
+        fake.emitTurnCompleted(inputTokens: 1, outputTokens: 1);
         await turnFuture;
       });
 

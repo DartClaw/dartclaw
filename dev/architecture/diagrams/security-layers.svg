@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 764" width="1000" height="764" role="img" aria-labelledby="title desc">
+  <title id="title">Six independent security layers</title>
+  <desc id="desc">Six layers from the container at the bottom to audit at the top. Layers 1 and 2 exist only when container isolation is in force; without them the guards are the only boundary. Governance and content classification sit between the guards and the audit trail.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#l6:hover) .edges :is(.f-l6,.t-l6) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l5:hover) .edges :is(.f-l5,.t-l5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l4:hover) .edges :is(.f-l4,.t-l4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l3:hover) .edges :is(.f-l3,.t-l3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l2:hover) .edges :is(.f-l2,.t-l2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#l1:hover) .edges :is(.f-l1,.t-l1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="764"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="668" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="692">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="716">Hover a layer for the invariant that makes it independent of the others. Click it to open its section.</text><text class="p2" x="36" y="736">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">LAYERS · defense in depth</text>
+  <text class="title" x="24" y="58">Six independent security layers</text>
+  <text class="lede" x="24" y="80">Each layer holds on its own: bypass a guard and the network is still closed and the credential is still absent.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="96" width="968" height="330" rx="14"/><text class="kick" x="32" y="118">ALWAYS ON</text></g>
+  <g class="k-ext"><rect class="band" x="16" y="438" width="968" height="186" rx="14"/><text class="kick" x="32" y="460">ABSENT IN ADVISORY MODE · container.enabled false, or no runtime answered the probe</text></g>
+
+  <g class="edges">
+
+  </g>
+
+  <a href="../security-architecture.md#audit-chain"><g class="n tint k-store" id="l6">
+    <rect class="box" x="28" y="130" width="944" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="152" r="10"/><text x="48" y="156">6</text></g>
+    <text class="name" x="66" y="153">Audit</text>
+    <g class="badge"><rect x="908" y="141" width="54" height="16" rx="8"/><text x="935" y="153">NDJSON</text></g>
+    <text class="mono" x="66" y="171">GuardAuditLogger · GuardBlockEvent · GuardAuditSubscriber · writeEntry</text>
+    <text class="sub" x="66" y="187">Block and warn verdicts are fire-and-forget; decisions that gate an action are awaited, so the caller can fail closed.</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Audit</tspan> · every guard decision that matters ends up as an AuditEntry in audit-YYYY-MM-DD.ndjson</text><text class="p2" x="36" y="736">Entries are not hash-chained or signed; integrity rests on file permissions and the host-trust assumption. guard_audit.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#runtime-governance"><g class="n tint k-host" id="l5">
+    <rect class="box" x="28" y="202" width="944" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="224" r="10"/><text x="48" y="228">5</text></g>
+    <text class="name" x="66" y="225">Governance</text>
+    <g class="badge"><rect x="845" y="213" width="117" height="16" rx="8"/><text x="904" y="225">DEPLOYMENT-WIDE</text></g>
+    <text class="mono" x="66" y="243">per-sender rate limit · global turn rate · daily token budget · loop detection · turn limits · /stop /pause /resume</text>
+    <text class="sub" x="66" y="259">Bounds cost, flooding and runaway loops for the whole deployment; counters reset on restart except the daily token totals.</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Governance</tspan> · limits are built once in HarnessWiring and shared by every runner</text><text class="p2" x="36" y="736">Off by default except turn limits; admission runs in TurnRunner.admitTurn before any provider process starts.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#content-classification-and-redaction"><g class="n tint k-sec" id="l4">
+    <rect class="box" x="28" y="274" width="944" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="296" r="10"/><text x="48" y="300">4</text></g>
+    <text class="name" x="66" y="297">Content</text>
+    <g class="badge"><rect x="880" y="285" width="82" height="16" rx="8"/><text x="921" y="297">CLASSIFIER</text></g>
+    <text class="mono" x="66" y="315">ContentScan · ContentGuard · output_schema check · MessageRedactor</text>
+    <text class="sub" x="66" y="331">Classifies untrusted text before an agent or caller sees it and masks secrets in outbound text; fail-closed unless fail_open.</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Content</tspan> · one ContentScan decides classification and fail policy for every scanning site</text><text class="p2" x="36" y="736">ContentGuard, web_fetch and public outbound MCP results share it; guards.content.fail_open is the only fail-policy input.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#guard-pipeline"><g class="n solid k-sec" id="l3">
+    <rect class="box" x="28" y="346" width="944" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="368" r="10"/><text x="48" y="372">3</text></g>
+    <text class="name" x="66" y="369">Guards</text>
+    <g class="badge"><rect x="873" y="357" width="89" height="16" rx="8"/><text x="918" y="369">FAIL-CLOSED</text></g>
+    <text class="mono" x="66" y="387">CommandGuard · FileGuard · NetworkGuard · ToolPolicyGuard · TaskToolFilterGuard · EgressGuard</text>
+    <text class="sub" x="66" y="403">Judges each tool call before it runs; a guard that throws or times out blocks, unless guards.fail_open is set.</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Guards</tspan> · base GuardChain plus the per-runner TaskToolFilterGuard; EgressGuard sits on the outbound MCP pool</text><text class="p2" x="36" y="736">CommandGuard is best-effort regex, so variable-expansion bypasses are left to the container layers.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-sec" id="l2">
+    <rect class="box" x="28" y="472" width="944" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="494" r="10"/><text x="48" y="498">2</text></g>
+    <text class="name" x="66" y="495">Network</text>
+    <g class="badge"><rect x="866" y="483" width="96" height="16" rx="8"/><text x="914" y="495">NO ROUTE OUT</text></g>
+    <text class="mono" x="66" y="513">--network none · HostGateway · framed stdio bridge · credential stays on the host</text>
+    <text class="sub" x="66" y="529">The only path off the container is a per-authority pipe; the provider credential never exists inside it.</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Network</tspan> · the pipe, not any frame the container sends, decides principal, upstream and credential</text><text class="p2" x="36" y="736">Provider-side network tools are refused host-side for containerized executions. container/gateway/host_gateway.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#container-isolation"><g class="n solid k-ext" id="l1">
+    <rect class="box" x="28" y="544" width="944" height="64" rx="9"/>
+    <g class="step"><circle cx="48" cy="566" r="10"/><text x="48" y="570">1</text></g>
+    <text class="name" x="66" y="567">OS and container</text>
+    <g class="badge"><rect x="859" y="555" width="103" height="16" rx="8"/><text x="910" y="567">PER AUTHORITY</text></g>
+    <text class="mono" x="66" y="585">--cap-drop ALL · --read-only · no-new-privileges · uid 1000 · tmpfs /tmp noexec</text>
+    <text class="sub" x="66" y="601">One container per execution authority, so concurrent owners never share a PID, /tmp or generated-home namespace.</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">OS and container</tspan> · hardened flags from ContainerManager.start; the workspace profile mounts /workspace rw and /project ro</text><text class="p2" x="36" y="736">start() is single-use: a lost container is never recreated, the execution must acquire a new authority.</text></g>
+  </g></a>
+  <g transform="translate(24,642)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">runtime control</text>
+    <g class="tint k-sec"><rect class="box" x="137.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="159.0" y="10">guard or boundary</text>
+    <g class="tint k-store"><rect class="box" x="286.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="308.4" y="10">audit store</text>
+    <g class="tint k-ext"><rect class="box" x="398.59999999999997" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="420.59999999999997" y="10">container runtime</text>
+    <g class="solid k-neu"><rect class="box" x="548.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="570.0" y="10">bounds each tool call (3) and the whole process (1)</text>
+  </g>
+</svg>

@@ -223,7 +223,7 @@ dart analyze
 >
 > **Reporter**: Use `--reporter=failures-only` for agent-driven test runs — it suppresses passing-test output and only shows failures, reducing noise. This is the default the Dart MCP `run_tests` tool uses internally.
 >
-> **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager(currentDirectory:)`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
+> **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager(projectDir:)`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
 
 Tier rows used by `andthen:exec-plan`; `{file}` and `{test}` are
 substituted from a FIS proof line. Keep them in step with the commands below and with `test_workspace.sh`.

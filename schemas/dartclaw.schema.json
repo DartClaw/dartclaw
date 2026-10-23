@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.27.2/schemas/dartclaw.schema.json",
+  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.28.0/schemas/dartclaw.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -618,7 +618,7 @@
           ]
         },
         "max_queue_depth": {
-          "description": "Messages held per session key while a turn is running. Default 100; beyond it, the oldest are dropped. (restart required)",
+          "description": "Messages held per session key while a turn is running. Default 100; a message beyond it is refused with a busy reply. (restart required)",
           "minimum": 1,
           "type": "integer"
         },
@@ -637,7 +637,7 @@
               "type": "number"
             },
             "max_attempts": {
-              "description": "Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3. (restart required)",
+              "description": "Send attempts for each chunk of a reply before the reply is dead-lettered; a failed turn is never re-run. Google Chat reports no send failure, so its replies are sent once. Default 3. (restart required)",
               "minimum": 1,
               "type": "integer"
             }
@@ -829,6 +829,212 @@
             },
             "response_prefix": {
               "description": "Accepted and discarded — Signal applies no outbound prefix. Registered because the shared channel parser reads the key for every channel, so a config carrying it must still load. (restart required)",
+              "type": "string"
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "slack": {
+          "additionalProperties": false,
+          "properties": {
+            "app_token_credential": {
+              "description": "Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. Required in socket mode. The token itself is never written here. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "bot_token_credential": {
+              "description": "Name of the credentials entry holding the bot token (xoxb-). The token itself is never written here. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "dm_access": {
+              "description": "Who may open a one-to-one Slack conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open",
+                "pairing"
+              ],
+              "type": "string"
+            },
+            "dm_allowlist": {
+              "description": "Approved one-to-one Slack senders by user ID (U… or W…), used while direct access is allowlist-based. Plain IDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "enabled": {
+              "description": "Run the Slack integration. Off leaves its transport unstarted. (restart required)",
+              "type": "boolean"
+            },
+            "group_access": {
+              "description": "Which Slack channels may reach the agent: allowlist checks the listed channels, open accepts any, disabled ignores them. (restart required)",
+              "enum": [
+                "allowlist",
+                "disabled",
+                "open"
+              ],
+              "type": "string"
+            },
+            "group_allowlist": {
+              "description": "Approved Slack channels by channel ID (C… or G…), used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent. (restart required)",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "agent": {
+                        "description": "Optional logical agent bound to this row. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "effort": {
+                        "description": "Optional effort override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "id": {
+                        "description": "Channel-specific peer or group identifier. (restart required)",
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "model": {
+                        "description": "Optional model override for this row. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "name": {
+                        "description": "Optional display name. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "project": {
+                        "description": "Optional project used for task routing. (restart required)",
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    },
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ]
+                  }
+                ]
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "mention_patterns": {
+              "description": "Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "mode": {
+              "description": "How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token, events accepts signed Events API requests at webhook_path. Default socket. (restart required)",
+              "enum": [
+                "events",
+                "socket"
+              ],
+              "type": "string"
+            },
+            "require_mention": {
+              "description": "Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention. (restart required)",
+              "type": "boolean"
+            },
+            "signing_secret_credential": {
+              "description": "Name of the credentials entry holding the app signing secret that Events API requests are verified with. Required in events mode. The secret itself is never written here. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "streaming": {
+              "description": "Stream a reply into its Slack thread or DM as the agent writes it. When false, the reply is posted in chunks once the turn ends. Streaming needs the chat:write scope. (restart required)",
+              "type": "boolean"
+            },
+            "webhook_path": {
+              "description": "HTTP path Slack posts Events API requests to in events mode. Default /integrations/slack. (restart required)",
               "type": "string"
             }
           },
@@ -1205,7 +1411,7 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "description": "Route messages in a bound thread straight to that task session, and post task notifications as new threads. Google Chat only — it is the one channel that carries a thread identity to bind. (restart required)",
+              "description": "Route messages in a bound thread straight to that task session, enable /bind, and post task notifications as new threads. Applies on every channel that threads (Google Chat, Slack). The one thread per workflow run in the workflow.chat_notifications channel does not depend on it. (restart required)",
               "type": "boolean"
             },
             "idle_timeout_minutes": {
@@ -1352,7 +1558,7 @@
       "additionalProperties": false,
       "properties": {
         "admin_senders": {
-          "description": "Sender IDs exempt from rate limits and budget blocks. (restart required)",
+          "description": "Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required)",
           "items": {
             "type": "string"
           },
@@ -1651,13 +1857,14 @@
           "additionalProperties": false,
           "properties": {
             "extra_rules": {
-              "description": "Path rules added to the built-in protections. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
+              "description": "Path rules added to the built-in protections. An allow rule exempts matching paths from every other rule, built-in ones included. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI)",
               "items": {
                 "additionalProperties": false,
                 "properties": {
                   "level": {
-                    "description": "How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete blocks deletes only. (file-only, not settable via API or CLI)",
+                    "description": "How far access is cut: no_access blocks everything, read_only blocks writes and deletes, no_delete blocks deletes only, allow lifts every other rule. (file-only, not settable via API or CLI)",
                     "enum": [
+                      "allow",
                       "no_access",
                       "no_delete",
                       "read_only"
@@ -2979,6 +3186,46 @@
             "manual"
           ],
           "type": "string"
+        },
+        "chat_notifications": {
+          "additionalProperties": false,
+          "properties": {
+            "channel": {
+              "description": "Channel that receives the lifecycle of workflow runs started without a chat origin. Read at startup. A run started from a chat thread posts into that thread instead and never also here. Needs recipient; with neither set, such runs post nothing. (restart required)",
+              "enum": [
+                "googlechat",
+                "signal",
+                "slack",
+                "whatsapp",
+                null
+              ],
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "events": {
+              "description": "Run lifecycle events to post: started, awaiting_approval, finished, failed, step_completed. Defaults to all but step_completed. Any unknown name ignores the whole chat_notifications block. (restart required)",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "recipient": {
+              "description": "Conversation identifier on the notification channel, such as a Slack channel ID. Each run opens one thread here where the channel threads. Needs channel. (restart required)",
+              "type": [
+                "null",
+                "string"
+              ]
+            }
+          },
+          "type": [
+            "null",
+            "object"
+          ]
         },
         "cleanup": {
           "additionalProperties": false,

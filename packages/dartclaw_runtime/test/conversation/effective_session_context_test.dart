@@ -110,6 +110,18 @@ void main() {
     expect((await sessions.getSession(ownerSession.id))?.workspace, isNull);
   });
 
+  test('trusted turn context: a web conversation turn carries surface web, the session key and no sender', () async {
+    final keyed = await sessions.createSession(channelKey: 'agent:main:web:keyed');
+    final unkeyed = await sessions.createSession();
+
+    await _submit(conversation, keyed.id, 'first');
+    expect(turns.provenance, const TurnProvenance.web(sessionKey: 'agent:main:web:keyed'));
+    expect(turns.provenance?.senderId, isNull);
+
+    await _submit(conversation, unkeyed.id, 'second');
+    expect(turns.provenance, const TurnProvenance.web());
+  });
+
   test('general root rejects checkout paths and _local without changing context', () async {
     final owner = Directory('${root.path}/owner')..createSync();
     final nested = Directory('${owner.path}/nested')..createSync();
@@ -152,6 +164,57 @@ void main() {
       );
       expect((await service.snapshot(ownerSession.id)).toJson(), before.toJson());
     }
+  });
+
+  test('no project service yields no implicit _local', () async {
+    final owner = Directory('${root.path}/owner')..createSync();
+    final service = ConversationService(
+      sessions: sessions,
+      messages: messages,
+      turns: turns,
+      mutations: SessionMutationCoordinator(),
+      ownerWorkspaceDir: owner.path,
+    );
+    final nonOwner = await sessions.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'configured-agent', directory: root.path),
+    );
+
+    final initial = await service.snapshot(nonOwner.id);
+    expect(initial.nextContext?.projectId, isNull);
+    expect(initial.nextContext?.directory, owner.resolveSymbolicLinksSync());
+    expect(initial.nextContext?.referenceRoot, owner.resolveSymbolicLinksSync());
+
+    final ownerChat = await sessions.createSession();
+    final before = await service.snapshot(ownerChat.id);
+    await expectLater(
+      service.updateContext(
+        sessionId: ownerChat.id,
+        expectedRevision: before.revision,
+        projectId: '_local',
+        directory: owner.path,
+        provider: 'claude',
+      ),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'PROJECT_FORBIDDEN')),
+    );
+    expect((await service.snapshot(ownerChat.id)).toJson(), before.toJson());
+
+    await sessions.updateConversationState(
+      nonOwner.id,
+      ConversationState(
+        revision: initial.revision,
+        nextContext: EffectiveConversationContext(
+          projectId: '_local',
+          directory: owner.resolveSymbolicLinksSync(),
+          referenceRoot: owner.resolveSymbolicLinksSync(),
+          provider: 'claude',
+        ),
+      ),
+    );
+    await expectLater(
+      _submit(service, nonOwner.id, 'stored-local'),
+      throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'PROJECT_FORBIDDEN')),
+    );
+    expect(turns.reserveCalled, isFalse);
   });
 
   test('a stored general reference root outside owner workspace cannot dispatch', () async {
@@ -596,6 +659,7 @@ final class _ContextTurns extends FakeTurnManager {
   new(super.messages, super.worker);
 
   ({String provider, String directory, String? model, String? effort})? context;
+  TurnProvenance? provenance;
 
   @override
   Future<String> reserveContextTurn(
@@ -606,8 +670,10 @@ final class _ContextTurns extends FakeTurnManager {
     String? effort,
     required PromptScope promptScope,
     required TurnOrigin origin,
+    required TurnProvenance provenance,
   }) {
     context = (provider: provider, directory: directory, model: model, effort: effort);
+    this.provenance = provenance;
     return super.reserveContextTurn(
       sessionId,
       provider: provider,
@@ -616,6 +682,7 @@ final class _ContextTurns extends FakeTurnManager {
       effort: effort,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
   }
 }

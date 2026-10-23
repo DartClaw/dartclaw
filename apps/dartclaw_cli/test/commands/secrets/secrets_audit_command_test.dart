@@ -121,6 +121,27 @@ void main() {
     expect(output(), isNot(contains('is consumed by no')));
   });
 
+  test('the three Slack credential references count as consumers, so a healthy Slack config has no orphans', () async {
+    writeConfig(
+      'credentials:\n'
+      '  slack-bot:\n    api_key: \${SLACK_BOT}\n'
+      '  slack-app:\n    api_key: \${SLACK_APP}\n'
+      '  slack-signing:\n    api_key: \${SLACK_SIGNING}\n'
+      '  unused:\n    api_key: \${UNUSED_VAR}\n'
+      'channels:\n  slack:\n    enabled: true\n    mode: events\n'
+      '    bot_token_credential: slack-bot\n    app_token_credential: slack-app\n'
+      '    signing_secret_credential: slack-signing\n    dm_access: open\n',
+    );
+
+    await runAudit(const {'SLACK_BOT': 'a', 'SLACK_APP': 'b', 'SLACK_SIGNING': 'c', 'UNUSED_VAR': 'd'});
+
+    final rendered = output();
+    expect(rendered, contains('credentials.unused'), reason: 'an unreferenced entry is still an orphan');
+    for (final name in ['slack-bot', 'slack-app', 'slack-signing']) {
+      expect(rendered, isNot(contains('credentials.$name')), reason: '$name is named by channels.slack');
+    }
+  });
+
   test('whitespace-only environment references are unresolvable', () async {
     writeConfig(
       'credentials:\n  brave-search:\n    api_key: \${NAMED_KEY}\n'

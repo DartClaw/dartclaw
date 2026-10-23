@@ -1,4 +1,5 @@
 import 'package:dartclaw_signal/dartclaw_signal.dart' show isValidSignalE164, isValidSignalUuid;
+import 'package:dartclaw_slack/dartclaw_slack.dart' show slackUserIdPattern;
 
 /// Validates an allowlist entry for a given channel type.
 ///
@@ -25,6 +26,9 @@ String? validateAllowlistEntry(String channelType, String entry) {
       if (entry.startsWith('users/')) return null;
       if (_googleChatSpaceUserPattern.hasMatch(entry)) return null;
       return 'Google Chat allowlist entries must use users/<id> or spaces/<space>/users/<id> format';
+    case 'slack':
+      if (slackUserIdPattern.hasMatch(entry)) return null;
+      return 'Slack allowlist entries must be user IDs (e.g. U0123ABCD)';
     default:
       return 'Unknown channel type: $channelType';
   }

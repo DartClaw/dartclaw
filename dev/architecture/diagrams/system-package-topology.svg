@@ -1,0 +1,235 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 828" width="1000" height="828" role="img" aria-labelledby="title desc">
+  <title id="title">Package topology</title>
+  <desc id="desc">The 16 workspace members in six tiers, T0 kernel at the bottom to T5 dev-only gates at the top. Arrows are direct production dependencies after transitive reduction and every arrow points strictly down a tier. Only the CLI depends on the runtime; the ACP adapter sits beside the runtime and the CLI composes both.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#dartclaw_fitness:hover) .edges :is(.f-dartclaw_fitness,.t-dartclaw_fitness) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_testing:hover) .edges :is(.f-dartclaw_testing,.t-dartclaw_testing) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_cli:hover) .edges :is(.f-dartclaw_cli,.t-dartclaw_cli) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_runtime:hover) .edges :is(.f-dartclaw_runtime,.t-dartclaw_runtime) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_acp:hover) .edges :is(.f-dartclaw_acp,.t-dartclaw_acp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw:hover) .edges :is(.f-dartclaw,.t-dartclaw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_workflow:hover) .edges :is(.f-dartclaw_workflow,.t-dartclaw_workflow) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_google_chat:hover) .edges :is(.f-dartclaw_google_chat,.t-dartclaw_google_chat) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_slack:hover) .edges :is(.f-dartclaw_slack,.t-dartclaw_slack) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_signal:hover) .edges :is(.f-dartclaw_signal,.t-dartclaw_signal) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_whatsapp:hover) .edges :is(.f-dartclaw_whatsapp,.t-dartclaw_whatsapp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_client:hover) .edges :is(.f-dartclaw_client,.t-dartclaw_client) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_search:hover) .edges :is(.f-dartclaw_search,.t-dartclaw_search) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_bridge:hover) .edges :is(.f-dartclaw_bridge,.t-dartclaw_bridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_core:hover) .edges :is(.f-dartclaw_core,.t-dartclaw_core) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dartclaw_kernel:hover) .edges :is(.f-dartclaw_kernel,.t-dartclaw_kernel) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="828"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="732" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="756">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="780">Hover a package for what it owns and its direct dependencies; its edges light up. Click it to open its row in the package table.</text><text class="p2" x="36" y="800">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">TIER ORDER · dev/package_tiers.txt</text>
+  <text class="title" x="24" y="58">Package topology</text>
+  <text class="lede" x="24" y="80">An import may only point at a strictly lower tier. Same-tier edges are forbidden, so channels cannot see each other or the runtime.</text>
+
+  <g class="k-host"><rect class="band" x="12" y="606" width="976" height="80" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="36" y="628" text-anchor="start">T0 · KERNEL</text></g>
+  <g class="k-host"><rect class="band" x="12" y="514" width="976" height="80" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="36" y="536" text-anchor="start">T1 · PRIMITIVES</text></g>
+  <g class="k-host"><rect class="band" x="12" y="376" width="976" height="126" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="36" y="398" text-anchor="start">T2 · FEATURES AND CHANNELS</text></g>
+  <g class="k-host"><rect class="band" x="12" y="284" width="976" height="80" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="36" y="306" text-anchor="start">T3 · RUNTIME AND ADAPTERS</text></g>
+  <g class="k-host"><rect class="band" x="12" y="192" width="976" height="80" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="36" y="214" text-anchor="start">T4 · APPLICATION</text></g>
+  <g class="k-neu"><rect class="band" x="12" y="100" width="976" height="80" rx="14"/></g>
+  <g class="k-neu"><text class="kick" x="36" y="122" text-anchor="start">T5 · NEVER SHIPS</text></g>
+  <g class="k-chan"><rect class="band inner" x="650" y="382" width="256" height="114" rx="10"/></g>
+  <g class="k-chan"><text class="kick" x="662" y="398" text-anchor="start">CHANNELS · dartclaw_*</text></g>
+
+  <g class="edges">
+    <g class="e  f-dartclaw_cli t-dartclaw_runtime"><path d="M500,264 V310"/><text class="el" x="508" y="294" text-anchor="start">composes</text></g>
+    <g class="e  f-dartclaw_cli t-dartclaw_acp"><path d="M610,242 H872 V310"/><text class="el" x="744" y="234" text-anchor="middle">AcpHarnessRegistrar</text></g>
+    <g class="e  f-dartclaw_cli t-dartclaw_client"><path d="M380,242 H24 V564 H34"/><text class="el" x="34" y="234" text-anchor="start">DartclawApiClient</text></g>
+    <g class="e  f-dartclaw_runtime t-dartclaw_search"><path d="M270,356 V540"/></g>
+    <g class="e  f-dartclaw_runtime t-dartclaw_bridge"><path d="M440,356 V540"/></g>
+    <g class="e  f-dartclaw_runtime t-dartclaw_workflow"><path d="M547,356 V402"/></g>
+    <g class="e  f-dartclaw_runtime t-dartclaw_google_chat t-dartclaw_slack t-dartclaw_signal t-dartclaw_whatsapp"><path d="M720,356 V380"/></g>
+    <g class="e  f-dartclaw_google_chat f-dartclaw_slack f-dartclaw_signal f-dartclaw_whatsapp t-dartclaw_core"><path d="M778,496 V540"/></g>
+    <g class="e  f-dartclaw_workflow t-dartclaw_core"><path d="M547,448 V540"/></g>
+    <g class="e  f-dartclaw_acp t-dartclaw_core"><path d="M934,356 V540"/></g>
+    <g class="e  f-dartclaw_testing t-dartclaw_core"><path d="M964,150 H976 V564 H954"/></g>
+    <g class="e  f-dartclaw_core t-dartclaw_kernel"><path d="M743,586 V632"/></g>
+    <g class="e  f-dartclaw_search t-dartclaw_kernel"><path d="M277,586 V632"/></g>
+    <g class="e  f-dartclaw t-dartclaw_client"><path d="M168,448 V540"/></g>
+    <g class="e  f-dartclaw t-dartclaw_kernel"><path d="M194,448 V632"/></g>
+  </g>
+
+  <a href="../system-architecture.md#package-architecture"><g class="n ghost k-neu" id="dartclaw_fitness">
+    <rect class="box" x="36" y="128" width="190" height="44" rx="9"/>
+    <text class="name mono-name" x="48" y="147">dartclaw_fitness</text>
+    <text class="sub" x="48" y="163">architecture gates</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_fitness</tspan> · repo-wide architecture gates in dev/fitness/test</text><text class="p2" x="36" y="800">Direct: none. Scans source as text.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n ghost k-neu" id="dartclaw_testing">
+    <rect class="box" x="780" y="128" width="184" height="44" rx="9"/>
+    <text class="name mono-name" x="792" y="147">dartclaw_testing</text>
+    <text class="sub" x="792" y="163">shared test doubles</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_testing</tspan> · FakeAgentHarness, FakeGuard, InMemorySessionService, TestEventBus</text><text class="p2" x="36" y="800">Direct: core, kernel. Reached only via dev_dependencies, not a tier edge. lib LOC ceiling 5026.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n solid k-host" id="dartclaw_cli">
+    <rect class="box" x="380" y="220" width="230" height="44" rx="9"/>
+    <text class="name mono-name" x="392" y="239">dartclaw_cli</text>
+    <g class="badge"><rect x="518" y="227" width="82" height="16" rx="8"/><text x="559" y="239">AOT BINARY</text></g>
+    <text class="sub" x="392" y="255">composition root</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_cli</tspan> · thin command layer: serve, workflow, tasks, config, sessions, maintenance</text><text class="p2" x="36" y="800">Direct: acp, client, core, google_chat, kernel, runtime, search, slack, workflow. Only member that composes a binary. lib LOC ceiling 14480.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-host" id="dartclaw_runtime">
+    <rect class="box" x="36" y="312" width="700" height="44" rx="9"/>
+    <text class="name mono-name" x="48" y="331">dartclaw_runtime</text>
+    <g class="badge"><rect x="672" y="319" width="54" height="16" rx="8"/><text x="699" y="331">SERVER</text></g>
+    <text class="sub" x="48" y="347">DartclawRuntime.build · HTTP API and web UI · task runtime · container orchestration · MCP server</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_runtime</tspan> · the server-only service graph; the one package that reaches the workflow engine, the channels, search and the bridge</text><text class="p2" x="36" y="800">Direct: bridge, core, google_chat, kernel, search, signal, slack, whatsapp, workflow. Only the CLI uses it in production. lib LOC ceiling 79050.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-host" id="dartclaw_acp">
+    <rect class="box" x="780" y="312" width="184" height="44" rx="9"/>
+    <text class="name mono-name" x="792" y="331">dartclaw_acp</text>
+    <text class="sub" x="792" y="347">ACP harness adapter</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_acp</tspan> · ACP client and harness; implements the HarnessRegistrar contract that core owns</text><text class="p2" x="36" y="800">Direct: core, kernel. The runtime never imports it (same tier). lib LOC ceiling 3646.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n line k-host" id="dartclaw">
+    <rect class="box" x="36" y="404" width="176" height="44" rx="9"/>
+    <text class="name mono-name" x="48" y="423">dartclaw</text>
+    <text class="sub" x="48" y="439">client-tier umbrella</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw</tspan> · umbrella re-export of dartclaw_client and a part of dartclaw_kernel</text><text class="p2" x="36" y="800">Direct: client, kernel. Never re-exports runtime packages. lib LOC ceiling 58.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-host" id="dartclaw_workflow">
+    <rect class="box" x="462" y="404" width="170" height="44" rx="9"/>
+    <text class="name mono-name" x="474" y="423">dartclaw_workflow</text>
+    <text class="sub" x="474" y="439">definitions, executor</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_workflow</tspan> · definitions, parser and validator, registry, execution engine</text><text class="p2" x="36" y="800">Direct: core, kernel. Framework-agnostic: the runtime and the standalone CLI both compose it. lib LOC ceiling 26799.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-chan" id="dartclaw_google_chat">
+    <rect class="box" x="662" y="408" width="112" height="34" rx="9"/>
+    <text class="name mono-name" x="674" y="427">google_chat</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">google_chat</tspan> · Google Chat adapter with its sidecar or transport client and config parsing</text><text class="p2" x="36" y="800">Direct: core, kernel. Siblings cannot import each other. lib LOC ceiling 7509.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-chan" id="dartclaw_slack">
+    <rect class="box" x="782" y="408" width="112" height="34" rx="9"/>
+    <text class="name mono-name" x="794" y="427">slack</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">slack</tspan> · Slack adapter (Socket Mode and Events API) with its sidecar or transport client and config parsing</text><text class="p2" x="36" y="800">Direct: core, kernel. Siblings cannot import each other. lib LOC ceiling 3077.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-chan" id="dartclaw_signal">
+    <rect class="box" x="662" y="450" width="112" height="34" rx="9"/>
+    <text class="name mono-name" x="674" y="469">signal</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">signal</tspan> · Signal adapter with its sidecar or transport client and config parsing</text><text class="p2" x="36" y="800">Direct: core, kernel. Siblings cannot import each other. lib LOC ceiling 1796.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-chan" id="dartclaw_whatsapp">
+    <rect class="box" x="782" y="450" width="112" height="34" rx="9"/>
+    <text class="name mono-name" x="794" y="469">whatsapp</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">whatsapp</tspan> · WhatsApp adapter with its sidecar or transport client and config parsing</text><text class="p2" x="36" y="800">Direct: core, kernel. Siblings cannot import each other. lib LOC ceiling 1184.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n line k-host" id="dartclaw_client">
+    <rect class="box" x="36" y="542" width="150" height="44" rx="9"/>
+    <text class="name mono-name" x="48" y="561">dartclaw_client</text>
+    <text class="sub" x="48" y="577">HTTP/SSE · 0 deps</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_client</tspan> · HTTP and SSE client with transport DTOs (DartclawApiClient)</text><text class="p2" x="36" y="800">Direct: none. Zero deps: client to core would be same-tier. lib LOC ceiling 625.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-host" id="dartclaw_search">
+    <rect class="box" x="202" y="542" width="150" height="44" rx="9"/>
+    <text class="name mono-name" x="214" y="561">dartclaw_search</text>
+    <text class="sub" x="214" y="577">hybrid search</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_search</tspan> · HybridSearch, VectorSynchronizer and embedding providers over injected indexes</text><text class="p2" x="36" y="800">Direct: kernel. Owns no corpus and no database driver. lib LOC ceiling 1979.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n line k-host" id="dartclaw_bridge">
+    <rect class="box" x="368" y="542" width="150" height="44" rx="9"/>
+    <text class="name mono-name" x="380" y="561">dartclaw_bridge</text>
+    <text class="sub" x="380" y="577">bridge exe · 0 deps</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_bridge</tspan> · framed stdio bridge protocol and the in-container loopback bridge executable</text><text class="p2" x="36" y="800">Direct: none. Zero deps by gate: compile exe rejects build hooks. lib LOC ceiling 928.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n tint k-host" id="dartclaw_core">
+    <rect class="box" x="534" y="542" width="418" height="44" rx="9"/>
+    <text class="name mono-name" x="546" y="561">dartclaw_core</text>
+    <text class="sub" x="546" y="577">harnesses, channels, events, storage, PostgresBackend</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_core</tspan> · runtime and persistence authority</text><text class="p2" x="36" y="800">Direct: kernel. No server or workflow dependency. lib LOC ceiling 32652.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#package-architecture"><g class="n solid k-host" id="dartclaw_kernel">
+    <rect class="box" x="36" y="634" width="916" height="44" rx="9"/>
+    <text class="name mono-name" x="48" y="653">dartclaw_kernel</text>
+    <text class="sub" x="48" y="669">models, typed configuration, guards, audit and redaction primitives, PlatformCapabilities, shared utilities · depends on nothing</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">dartclaw_kernel</tspan> · shared data, typed configuration and guards</text><text class="p2" x="36" y="800">Direct: none. No EventBus, so guards and typed config work without server wiring. lib LOC ceiling 21444.</text></g>
+  </g></a>
+  <g transform="translate(24,708)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">shipping package</text>
+    <g class="tint k-chan"><rect class="box" x="143.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="165.2" y="10">channel package</text>
+    <g class="ghost k-neu"><rect class="box" x="280.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="302.2" y="10">never ships</text>
+    <g class="e "><path d="M392.4,6 H424.4"/></g><text class="lg" x="432.4" y="10">direct production dependency, transitively reduced; each points to a lower tier</text>
+  </g>
+</svg>

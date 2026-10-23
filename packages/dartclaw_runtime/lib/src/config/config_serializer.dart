@@ -175,6 +175,12 @@ class ConfigSerializer {
       'workflow': {
         'workspaceDir': config.workflow.workspaceDir,
         'approvals': config.workflow.approvals.yamlValue,
+        if (config.workflow.chatNotifications case final notifications?)
+          'chatNotifications': {
+            'channel': notifications.channel.name,
+            'recipient': notifications.recipient,
+            'events': [for (final event in notifications.events) event.yamlValue],
+          },
         'defaults': {
           'workflow': {
             'provider': config.workflow.defaults.workflow.provider,

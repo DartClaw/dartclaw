@@ -231,6 +231,29 @@ void main() {
       });
     });
 
+    test('workflow chat notifications serialize only when configured, with yaml event names', () {
+      final runtime = RuntimeConfig(heartbeatEnabled: false, gitSyncEnabled: false);
+      final unconfigured = serializer.toJson(const DartclawConfig(), runtime: runtime);
+      expect(unconfigured['workflow'], isNot(contains('chatNotifications')));
+
+      final config = const DartclawConfig(
+        workflow: WorkflowConfig(
+          chatNotifications: WorkflowChatNotificationsConfig(
+            channel: ChannelType.slack,
+            recipient: 'C0123ABC',
+            events: {WorkflowChatNotificationEvent.awaitingApproval, WorkflowChatNotificationEvent.stepCompleted},
+          ),
+        ),
+      );
+
+      final json = serializer.toJson(config, runtime: runtime);
+      expect((json['workflow'] as Map<String, dynamic>)['chatNotifications'], {
+        'channel': 'slack',
+        'recipient': 'C0123ABC',
+        'events': ['awaiting_approval', 'step_completed'],
+      });
+    });
+
     test('gateway.hsts is serialized', () {
       final config = const DartclawConfig(gateway: GatewayConfig(hsts: true));
       final runtime = RuntimeConfig(heartbeatEnabled: true, gitSyncEnabled: true);

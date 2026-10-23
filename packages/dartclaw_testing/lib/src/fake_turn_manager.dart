@@ -80,6 +80,7 @@ typedef RecordedReserveTurn = ({
   bool readOnly,
   Duration? turnTimeout,
   TurnOrigin? origin,
+  TurnProvenance? provenance,
 });
 
 typedef RecordedExecuteTurn = ({
@@ -110,6 +111,7 @@ typedef RecordedStartTurn = ({
   PromptScope? promptScope,
   Duration? turnTimeout,
   TurnOrigin? origin,
+  TurnProvenance? provenance,
 });
 
 /// Flexible [TurnManager] fake for route, scheduling, and drain tests.
@@ -155,6 +157,7 @@ class FakeTurnManager implements TurnManager {
   final Map<String, String> _activeTurns;
   final Map<String, TurnOutcome> _recentOutcomes;
   final Map<String, Completer<TurnOutcome>> _pendingOutcomes = {};
+  final List<Completer<void>> _capacityWaiters = [];
 
   int reserveTurnCallCount = 0;
   int executeTurnCallCount = 0;
@@ -185,6 +188,20 @@ class FakeTurnManager implements TurnManager {
   /// Clears a previously configured busy state.
   void clearBusy() {
     isBusy = false;
+    final waiters = List.of(_capacityWaiters);
+    _capacityWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.complete();
+    }
+  }
+
+  /// Mirrors the runtime turn manager's admission-capacity signal: immediate
+  /// unless [isBusy], otherwise completes on [clearBusy].
+  Future<void> whenAdmissionCapacityAvailable() {
+    if (!isBusy) return Future<void>.value();
+    final waiter = Completer<void>();
+    _capacityWaiters.add(waiter);
+    return waiter.future;
   }
 
   /// Adds [sessionId] to the active session set.
@@ -252,6 +269,7 @@ class FakeTurnManager implements TurnManager {
     bool readOnly = false,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     reserveTurnCallCount += 1;
     reservedTurns.add((
@@ -274,6 +292,7 @@ class FakeTurnManager implements TurnManager {
       readOnly: readOnly,
       turnTimeout: turnTimeout,
       origin: origin,
+      provenance: provenance,
     ));
     final callback = onReserveTurn;
     if (callback != null) {
@@ -366,6 +385,7 @@ class FakeTurnManager implements TurnManager {
     PromptScope? promptScope,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     startTurnCallCount += 1;
     startedTurns.add((
@@ -388,6 +408,7 @@ class FakeTurnManager implements TurnManager {
       promptScope: promptScope,
       turnTimeout: turnTimeout,
       origin: origin,
+      provenance: provenance,
     ));
     final callback = onStartTurn;
     if (callback != null) {

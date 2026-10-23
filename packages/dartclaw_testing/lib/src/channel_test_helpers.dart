@@ -181,6 +181,8 @@ Future<Task> putTaskInReview(
   resolvedConfigJson.putIfAbsent('needsWorktree', () => worktreeJson != null);
   if (sessionKey != null) {
     final originJson = <String, dynamic>{
+      'channelType': 'whatsapp',
+      'recipientId': 'test-recipient',
       ...(resolvedConfigJson['origin'] as Map<String, dynamic>? ?? const {}),
       'sessionKey': sessionKey,
     };

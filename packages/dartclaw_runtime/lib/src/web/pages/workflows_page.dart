@@ -9,7 +9,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         buildLoopInfo,
         formatContextForDisplay,
         stepStatusFromTask,
-        workflowContextValue;
+        workflowContextValue,
+        workflowRevisionState;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -215,6 +216,7 @@ class WorkflowsPage extends DashboardPage {
         'errorMessage': run.errorMessage,
         'contextJson': run.contextJson,
         'pendingApprovalStepId': pendingApprovalStepId,
+        'revision': workflowRevisionState(run),
       },
       steps: runView.steps,
       contextEntries: contextEntries,
@@ -289,7 +291,7 @@ class WorkflowsPage extends DashboardPage {
       steps: definition == null
           ? []
           : [for (final (index, step) in definition.steps.indexed) _stepEntry(run, index, step, tasksByStep[index])],
-      loopInfo: definition == null ? [] : buildLoopInfo(definition, run.contextJson),
+      loopInfo: definition == null ? [] : buildLoopInfo(definition, run),
     );
   }
 
@@ -376,7 +378,7 @@ class WorkflowsPage extends DashboardPage {
       final step = definition.steps[stepIndex];
       // Extract context references from the step prompt (keys accessed via {{context.key}}).
       for (final key in _extractContextKeys(step.prompt ?? '')) {
-        final value = run.contextJson[key];
+        final value = workflowContextValue(run, key);
         if (value != null) {
           final str = value.toString();
           inputs.add({'key': key, 'value': str.length > 200 ? '${str.substring(0, 200)}...' : str});
@@ -384,7 +386,7 @@ class WorkflowsPage extends DashboardPage {
       }
       // Context outputs: keys written by this step (from step.outputKeys).
       for (final key in step.outputKeys) {
-        final value = run.contextJson[key];
+        final value = workflowContextValue(run, key);
         outputKeys.add({
           'key': key,
           'value': value != null

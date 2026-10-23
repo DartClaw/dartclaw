@@ -157,6 +157,30 @@ void main() {
       }
     });
 
+    test('a changes-requested resolution carries its round and bound; older JSON reads as no request', () {
+      final timestamp = DateTime.utc(2026, 4, 1, 12);
+      final event = WorkflowApprovalResolvedEvent(
+        runId: 'run-1',
+        stepId: 'gate',
+        approved: false,
+        changesRequested: true,
+        revision: 1,
+        maxRevisions: 3,
+        timestamp: timestamp,
+      );
+
+      final restored = WorkflowLifecycleEvent.fromJson(event.toJson()) as WorkflowApprovalResolvedEvent;
+
+      expect(
+        [restored.changesRequested, restored.approved, restored.revision, restored.maxRevisions],
+        [true, false, 1, 3],
+      );
+      final plain = WorkflowApprovalResolvedEvent(runId: 'run-1', stepId: 'gate', approved: true, timestamp: timestamp);
+      expect(plain.toJson().keys, isNot(contains('changesRequested')), reason: 'existing SSE payloads are unchanged');
+      final older = WorkflowLifecycleEvent.fromJson(plain.toJson()) as WorkflowApprovalResolvedEvent;
+      expect([older.changesRequested, older.revision, older.maxRevisions], [false, null, null]);
+    });
+
     test('serializes approval, skip, and serialization lifecycle events', () {
       final timestamp = DateTime.utc(2026, 4, 1, 12);
       final events = <WorkflowLifecycleEvent>[

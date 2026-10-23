@@ -4,6 +4,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
 import '../restart_service.dart';
@@ -34,6 +35,7 @@ final class ChannelAccessService {
     this.whatsAppChannel,
     this.signalChannel,
     this.googleChatChannel,
+    this.slackChannel,
     this.eventBus,
   });
 
@@ -42,12 +44,14 @@ final class ChannelAccessService {
   final WhatsAppChannel? whatsAppChannel;
   final SignalChannel? signalChannel;
   final GoogleChatChannel? googleChatChannel;
+  final SlackChannel? slackChannel;
   final EventBus? eventBus;
 
   DmAccessController? controllerFor(String type) => switch (type) {
     'whatsapp' => whatsAppChannel?.dmAccess,
     'signal' => signalChannel?.dmAccess,
     'google_chat' => googleChatChannel?.dmAccess,
+    'slack' => slackChannel?.dmAccess,
     _ => null,
   };
 
@@ -55,6 +59,7 @@ final class ChannelAccessService {
     'whatsapp' => whatsAppChannel != null,
     'signal' => signalChannel != null,
     'google_chat' => true,
+    'slack' => slackChannel != null,
     _ => false,
   };
 

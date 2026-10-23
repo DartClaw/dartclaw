@@ -14,7 +14,7 @@ draft -> queued -> running -> review -> accepted
                  -> interrupted -> queued
 ```
 
-Push-back sends a review task back to `queued` with operator feedback attached.
+Push-back sends a review task back to `running` with operator feedback attached.
 
 Starting a failed task — from the task page or `POST /api/tasks/<id>/start` — re-queues it as a fresh attempt: the
 retry counter resets to zero and the previous run's recorded error and error summary are cleared, so the restarted run
@@ -35,6 +35,8 @@ Open `/tasks` and use **New Task**. The form supports:
 - whether the task needs an isolated git worktree
 
 `autoStart: true` queues the task immediately. Otherwise it remains in `draft` until started manually.
+
+A finished `story-and-implement`, `plan-and-implement` or `code-review` workflow run that left review findings below the gating severity also creates one `draft` task listing them. The run page and the "finished" chat post link to it as "N follow-ups"; open it from there and start it like any draft, or leave it. It is not attached to the run's review or merge flow. See [Follow-Up Draft from Review Findings](workflows.md#follow-up-draft-from-review-findings).
 
 ### API
 
@@ -159,7 +161,7 @@ Set it to `false` to run in the workflow or project workspace. The web form alwa
 - `tasks.worktree.stale_timeout_hours` controls when abandoned worktrees are considered stale
 - `tasks.worktree.merge_strategy` chooses `squash` or `merge` for accepted `_local` work
 
-The worktree path is guarded so file operations stay contained to the task's assigned checkout. See [Projects & Git](projects-and-git.md) for the full worktree lifecycle and accept flow.
+The agent runs with the worktree as its working directory; no guard currently restricts file access to that checkout (the global `FileGuard` still blocks sensitive paths). See [Projects & Git](projects-and-git.md) for the full worktree lifecycle and accept flow.
 
 ## Review Workflow
 
@@ -193,7 +195,7 @@ argument the schema does not name is rejected before the tool runs.
 | `task_list` | optional `status`, `limit` (max 200, default 50) | matching tasks with full IDs, plus whether the listing was truncated |
 | `review_list` | no arguments | the tasks awaiting review, oldest first, with full IDs |
 | `task_review` | `task_id`, `action` (`accept`, `reject`, `push_back`), `feedback` (required for `push_back` only) | the task's full ID, title and new status |
-| `task_bind` | `task_id`, `channel_type` (`googlechat`), `thread_id` | the binding's session key |
+| `task_bind` | `task_id`, `channel_type` (a registered channel that threads: `googlechat`, `slack`), `thread_id` | the binding's session key |
 | `task_unbind` | `task_id` | how many bindings were removed |
 
 Both listings emit full task IDs, so an ordinal reference in the conversation ("accept the second one") resolves
@@ -206,19 +208,30 @@ What these tools cannot do:
   `POST /api/tasks` request. The scalar `tasks.execution` YAML key selects host or container mode for the lane; it
   does not declare a profile. No model-facing tool argument spells either setting.
 - **`task_create` cannot choose a creator.** The task's `createdBy` is host-assigned.
-- **`task_bind` cannot bind "the current thread".** A tool call carries no channel context, so the thread must be
-  named explicitly. Binding the thread a message arrived in is what the `/bind` reserved command is for.
+- **`task_create` called during a channel message records that message as the task's origin.** The origin holds the
+  channel, conversation and sender, so the task posts its status and review requests back to that conversation and the
+  task's own turns act as that sender (a non-admin's task cannot change shared knowledge; see
+  [Governance](governance.md#admin-senders)). A task created from web chat or without a turn records no origin.
+- **`task_review`, `task_bind` and `task_unbind` called during a channel message need an admin sender.** The sender is
+  the host's record of that message, as for the card buttons and the `/bind` and `/unbind` commands; a refusal is
+  audited. A task or workflow step never reviews or binds, even one an admin started. Web chat, scheduled turns and the
+  gateway token are not gated (see [Governance](governance.md#admin-senders)).
+- **`task_bind` cannot bind "the current thread".** It takes the thread as an argument and never binds the thread the
+  message arrived in. Binding that thread is what the `/bind` reserved command is for.
 
-- **`task_bind` binds a thread, not a group, and `channel_type` accepts only `googlechat`.** A binding is keyed by the
-  per-message thread identity that inbound routing reads, and Google Chat is the only channel that sends one. Naming
-  any other channel fails the tool's schema, because a binding stored against a group would never route a message.
+- **`task_bind` binds a thread, not a group, and `channel_type` accepts only a registered channel that threads
+  (Google Chat and Slack).** A binding is keyed by the per-message thread identity that inbound routing reads from the
+  channel, and only those channels send one: a Slack thread is named `<conversation ID>:<thread timestamp>`, a Google
+  Chat thread by its resource name. Naming any other channel (WhatsApp, Signal) fails the tool's schema, because a
+  binding stored against a group would never route a message. The choices are read at each call, so they follow the
+  channels that are enabled.
 
   Naming the thread explicitly is also the reach worth knowing about: an agent may bind **any** thread it can name,
-  as long as that thread is not already bound and the task is not terminal. It does not have to be a thread the agent
+  as long as that thread is not already bound (to a task or to a workflow run) and the task is not terminal. It does not have to be a thread the agent
   is talking in. Messages in a bound thread then route to the task's session, so a wrongly chosen thread quietly
-  changes where a conversation goes. DartClaw is single-owner, so this reaches only your own threads, but if you want
-  it constrained, `task_bind` is a write-classified tool like any other - deny it in a guard rule, or leave it out of
-  the agent's allowlist. Every call is audited either way.
+  changes where a conversation goes. A shared team channel holds other members' threads, and `task_bind` reaches them
+  too, so if you want it constrained, `task_bind` is a write-classified tool like any other - deny it in a guard rule,
+  or leave it out of the agent's allowlist. Every call is audited either way.
 - **`task_review` with `push_back` reports the transition, not delivery.** Feedback delivery to the running agent is
   best-effort and unreported.
 

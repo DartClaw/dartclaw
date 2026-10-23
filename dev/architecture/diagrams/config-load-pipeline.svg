@@ -1,0 +1,243 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 908" width="1000" height="908" role="img" aria-labelledby="title desc">
+  <title id="title">Config load pipeline</title>
+  <desc id="desc">Every production config load runs loadCliConfig, which calls loadDartclawConfig and DartclawConfig.load: locate the file, parse the YAML, reject retired keys, sweep for undescribed paths, parse the sections, parse extensions and check the container selection, resolve the four channel configs, and prime harness sections. Malformed YAML, retired keys, undescribed paths and unusable channel or harness sections throw a FormatException; bad values warn and take their default.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#env:hover) .edges :is(.f-env,.t-env) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#yaml:hover) .edges :is(.f-yaml,.t-yaml) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cli:hover) .edges :is(.f-cli,.t-cli) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cred:hover) .edges :is(.f-cred,.t-cred) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p1:hover) .edges :is(.f-p1,.t-p1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p2:hover) .edges :is(.f-p2,.t-p2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p3:hover) .edges :is(.f-p3,.t-p3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p4:hover) .edges :is(.f-p4,.t-p4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p5:hover) .edges :is(.f-p5,.t-p5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p6:hover) .edges :is(.f-p6,.t-p6) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p7:hover) .edges :is(.f-p7,.t-p7) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p8:hover) .edges :is(.f-p8,.t-p8) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#p9:hover) .edges :is(.f-p9,.t-p9) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#res:hover) .edges :is(.f-res,.t-res) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fatal:hover) .edges :is(.f-fatal,.t-fatal) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="908"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="812" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="836">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="860">Hover a step for what it checks; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="880">A chip is a warning: the load continues with a default. A warning is blocking (a reload refuses it) or advisory. Inside a rendered document this image is static.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · loadCliConfig → DartclawConfig.load</text>
+  <text class="title" x="24" y="58">Config load pipeline</text>
+  <text class="lede" x="24" y="80">Every production load runs these nine steps in order. A fatal step refuses to start; a warning chip loads a default and goes on.</text>
+
+  <g class="k-host"><rect class="band" x="248" y="156" width="478" height="472" rx="14"/><text class="kick" x="264" y="178">loadDartclawConfig · dartclaw_runtime</text></g>
+  <g class="k-host"><rect class="band inner" x="260" y="188" width="454" height="368" rx="10"/><text class="kick" x="276" y="210">DartclawConfig.load · dartclaw_kernel</text></g>
+
+  <g class="edges">
+    <g class="e  f-env t-p2"><path d="M194,242 H274"/><text class="el" x="222" y="234" text-anchor="middle">locates</text></g>
+    <g class="e  f-yaml t-p3"><path d="M194,298 H274"/><text class="el" x="222" y="290" text-anchor="middle">reads</text></g>
+    <g class="e join f-cli t-p6"><path d="M194,452 H212 M194,504 H212 M212,452 V504"/></g>
+    <g class="e  f-cli f-cred t-p6"><path d="M212,478 H274"/><text class="el" x="243" y="470" text-anchor="middle">merged in</text></g>
+    <g class="e main f-p1 t-p2"><path d="M640,144 V218"/></g>
+    <g class="e main f-p2 t-p3"><path d="M640,264 V274"/></g>
+    <g class="e main f-p3 t-p4"><path d="M640,320 V330"/></g>
+    <g class="e main f-p4 t-p5"><path d="M640,376 V386"/></g>
+    <g class="e main f-p5 t-p6"><path d="M640,432 V442"/></g>
+    <g class="e main f-p6 t-p7"><path d="M640,488 V498"/></g>
+    <g class="e main f-p7 t-p8"><path d="M640,544 V570"/></g>
+    <g class="e main f-p8 t-p9"><path d="M640,616 V646"/></g>
+    <g class="e main f-p9 t-res"><path d="M640,692 V714"/></g>
+    <g class="e bad f-p3 t-fatal"><path d="M698,298 H764"/><text class="el" x="731" y="290" text-anchor="middle">throws</text></g>
+    <g class="e bad f-p4 t-fatal"><path d="M698,354 H764"/><text class="el" x="731" y="346" text-anchor="middle">throws</text></g>
+    <g class="e bad f-p5 t-fatal"><path d="M698,410 H764"/><text class="el" x="731" y="402" text-anchor="middle">throws</text></g>
+    <g class="e bad f-p7 t-fatal"><path d="M698,522 H764"/><text class="el" x="731" y="514" text-anchor="middle">throws</text></g>
+    <g class="e bad f-p8 t-fatal"><path d="M698,594 H764"/><text class="el" x="731" y="586" text-anchor="middle">throws</text></g>
+    <g class="e bad f-p9 t-fatal"><path d="M698,670 H764"/><text class="el" x="731" y="662" text-anchor="middle">throws</text></g>
+  </g>
+
+  <a href="../configuration-architecture.md#precedence-and-sources"><g class="n line k-store" id="env">
+    <rect class="box" x="24" y="220" width="170" height="44" rx="9"/>
+    <text class="name" x="36" y="239">environment</text>
+    <text class="sub" x="36" y="255">file path, ${VAR}</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">environment</tspan> · DARTCLAW_CONFIG, DARTCLAW_HOME and HOME locate the file; DARTCLAW_HOME supplies the default data_dir</text><text class="p2" x="36" y="880">It expands ${VAR} inside YAML strings and never overrides a YAML value; $VAR is not expanded and an undefined ${VAR} becomes empty with a warning.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#precedence-and-sources"><g class="n line k-store" id="yaml">
+    <rect class="box" x="24" y="276" width="170" height="44" rx="9"/>
+    <text class="name mono-name" x="36" y="295">dartclaw.yaml</text>
+    <text class="sub" x="36" y="311">the operator file</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">dartclaw.yaml</tspan> · the single config file, written back only through ConfigWriter</text><text class="p2" x="36" y="880">A dartclaw.yaml in the working directory is never discovered; if one exists an advisory says so.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#precedence-and-sources"><g class="n line k-host" id="cli">
+    <rect class="box" x="24" y="430" width="170" height="44" rx="9"/>
+    <text class="name" x="36" y="449">CLI overrides</text>
+    <text class="sub" x="36" y="465">port, host, data_dir</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">CLI overrides</tspan> · only some keys have a CLI override</text><text class="p2" x="36" y="880">A CLI value beats YAML, which beats the default; the environment never beats YAML. A relative CLI data_dir resolves against the working directory.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#precedence-and-sources"><g class="n line k-store" id="cred">
+    <rect class="box" x="24" y="482" width="170" height="44" rx="9"/>
+    <text class="name" x="36" y="501">named credentials</text>
+    <text class="sub" x="36" y="517">credentials/named/</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">named credentials</tspan> · NamedCredentialStore: one owner-only JSON file per name, written by dartclaw secrets</text><text class="p2" x="36" y="880">Merged over YAML credentials by name, the store winning; read through a provider that loadCliConfig registers.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#3-config-loading-pipeline"><g class="n tint k-host" id="p1">
+    <rect class="box" x="276" y="100" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="122.0" r="10"/><text x="296" y="126.0">1</text></g>
+    <text class="name mono-name" x="314" y="119">loadCliConfig</text>
+    <g class="badge"><rect x="655" y="107" width="33" height="16" rx="8"/><text x="672" y="119">CLI</text></g>
+    <text class="sub" x="314" y="135">registers the github extension parser and credential provider</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">loadCliConfig</tspan> · apps/dartclaw_cli config_loader.dart; the entry point for every CLI load, the config API and the reload trigger</text><text class="p2" x="36" y="880">dev/fitness/test/config_load_seam_test.dart fails on a production call to DartclawConfig.load outside an allowlist.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#precedence-and-sources"><g class="n tint k-host" id="p2">
+    <rect class="box" x="276" y="220" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="242.0" r="10"/><text x="296" y="246.0">2</text></g>
+    <text class="name mono-name" x="314" y="239">_loadYaml: locate file</text>
+    <text class="sub" x="314" y="255">--config, DARTCLAW_CONFIG, DARTCLAW_HOME, ~/.dartclaw</text>
+    <g class="chip k-neu"><rect x="538" y="227" width="150" height="16" rx="8"/><text x="545" y="239">missing path: defaults</text></g>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">_loadYaml: locate file</tspan> · config_parser.dart picks the first of --config, DARTCLAW_CONFIG, $DARTCLAW_HOME, ~/.dartclaw</text><text class="p2" x="36" y="880">An explicit path or env var that points at a missing file warns and loads defaults.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#what-stops-the-load"><g class="n tint k-host" id="p3">
+    <rect class="box" x="276" y="276" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="298.0" r="10"/><text x="296" y="302.0">3</text></g>
+    <text class="name mono-name" x="314" y="295">_loadYaml: parse</text>
+    <text class="sub" x="314" y="311">root must be a map; a null known key takes its default</text>
+    <g class="chip k-neu"><rect x="569" y="283" width="119" height="16" rx="8"/><text x="576" y="295">null key: default</text></g>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">_loadYaml: parse</tspan> · malformed YAML or a non-map root stops the load</text><text class="p2" x="36" y="880">Silently loading defaults would boot a container-enabled deployment unisolated, so this is fatal, not a warning.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#what-stops-the-load"><g class="n tint k-host" id="p4">
+    <rect class="box" x="276" y="332" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="354.0" r="10"/><text x="296" y="358.0">4</text></g>
+    <text class="name mono-name" x="314" y="351">_rejectRetiredTurnLimitKeys</text>
+    <text class="sub" x="314" y="367">worker_timeout, governance.turn_progress, harness.turn_monitor</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">_rejectRetiredTurnLimitKeys</tspan> · each retired key throws a FormatException naming its replacement</text><text class="p2" x="36" y="880">The replacements live under governance.turn_limits.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#acceptance-sweep"><g class="n tint k-host" id="p5">
+    <rect class="box" x="276" y="388" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="410.0" r="10"/><text x="296" y="414.0">5</text></g>
+    <text class="name mono-name" x="314" y="407">_sweepConfigPaths</text>
+    <text class="sub" x="314" y="423">ConfigMeta.fields, tolerated legacy keys, extension keys</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">_sweepConfigPaths</tspan> · config_accept_set.dart holds no path literal of its own and reads the registry</text><text class="p2" x="36" y="880">One FormatException names every undescribed path, using the same wording as ConfigValidator.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#section-parsing"><g class="n tint k-host" id="p6">
+    <rect class="box" x="276" y="444" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="466.0" r="10"/><text x="296" y="470.0">6</text></g>
+    <text class="name mono-name" x="314" y="463">section parsers</text>
+    <text class="sub" x="314" y="479">CLI &gt; YAML &gt; default; credentials parse before search</text>
+    <g class="chip k-neu"><rect x="556" y="451" width="132" height="16" rx="8"/><text x="563" y="463">bad value: blocking</text></g>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">section parsers</tspan> · config_parser*.dart; credentials parse first because search, mcp_servers and embedding reference them by name</text><text class="p2" x="36" y="880">A bad value adds a blocking warning and keeps the default, so a reload of that file is refused.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#what-stops-the-load"><g class="n tint k-host" id="p7">
+    <rect class="box" x="276" y="500" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="522.0" r="10"/><text x="296" y="526.0">7</text></g>
+    <text class="name mono-name" x="314" y="519">_parseExtensions + container check</text>
+    <text class="sub" x="314" y="535">extension parsers; container selection vs container.enabled</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">_parseExtensions + container check</tspan> · validateExecutionPolicySelections runs only when container.enabled is declared</text><text class="p2" x="36" y="880">Startup resolution re-runs it once the container posture is known; execution: container while disabled is fatal.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#channel-config-resolution"><g class="n tint k-host" id="p8">
+    <rect class="box" x="276" y="572" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="594.0" r="10"/><text x="296" y="598.0">8</text></g>
+    <text class="name mono-name" x="314" y="591">resolveChannelConfig ×4</text>
+    <text class="sub" x="314" y="607">parses the four channel types; refuses undeclared-agent rows</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">resolveChannelConfig ×4</tspan> · dartclaw_runtime config_load.dart; channel types live outside the kernel, so they parse here</text><text class="p2" x="36" y="880">It also refuses an unusable Slack config; warnings reach config.warnings through parseWithLoadWarnings.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#3-config-loading-pipeline"><g class="n tint k-host" id="p9">
+    <rect class="box" x="276" y="648" width="422" height="44" rx="9"/>
+    <g class="step"><circle cx="296" cy="670.0" r="10"/><text x="296" y="674.0">9</text></g>
+    <text class="name mono-name" x="314" y="667">primeHarnessSections</text>
+    <g class="badge"><rect x="655" y="655" width="33" height="16" rx="8"/><text x="672" y="667">CLI</text></g>
+    <text class="sub" x="314" y="683">runs the composed parsers (acp) over harness.&lt;name&gt; blocks</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">primeHarnessSections</tspan> · config_loader.dart: the kernel keeps harness.&lt;name&gt; blocks as raw maps and the owning package parses them</text><text class="p2" x="36" y="880">A populated section that no composed parser claims is fatal.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#2-composed-config-model"><g class="n solid k-host" id="res">
+    <rect class="box" x="276" y="716" width="422" height="52" rx="9"/>
+    <text class="name mono-name" x="288" y="735">DartclawConfig</text>
+    <text class="sub" x="288" y="751">immutable: 28 sections and extensions, typed warnings</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">DartclawConfig</tspan> · config.warnings keeps every warning; reloadBlockingWarnings keeps the blocking ones</text><text class="p2" x="36" y="880">ConfigNotifier.reload refuses a config with a blocking warning, and doctor reports it as a failure.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#what-stops-the-load"><g class="n tint k-sec" id="fatal">
+    <rect class="box" x="766" y="276" width="210" height="416" rx="9"/>
+    <text class="name mono-name" x="778" y="299">FormatException</text>
+    <text class="sub" x="778" y="317">serve: refuses to start</text>
+    <text class="sub" x="778" y="333">reload: keeps running config</text>
+    <text class="sub" x="778" y="349">config API: read failure,</text>
+    <text class="sub" x="778" y="365">nothing is written</text>
+    <text class="sub" x="778" y="381">doctor: config.valid: fail</text>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">FormatException</tspan> · a fatal load is a startup gate, not a runtime one</text><text class="p2" x="36" y="880">ReloadTriggerService catches it and keeps the running config; ConfigApplyService writes nothing; doctor reports config.valid: fail (ADR-059).</text></g>
+  </g></a>
+  <g transform="translate(24,790)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">load step</text>
+    <g class="solid k-host"><rect class="box" x="99.80000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="121.80000000000001" y="10">result</text>
+    <g class="line k-store"><rect class="box" x="181.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="203.0" y="10">input</text>
+    <g class="tint k-sec"><rect class="box" x="256.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="278.0" y="10">refusal</text>
+    <g class="e main"><path d="M343.4,6 H375.4"/></g><text class="lg" x="383.4" y="10">next step</text>
+    <g class="e "><path d="M461.2,6 H493.2"/></g><text class="lg" x="501.2" y="10">input read</text>
+    <g class="e bad"><path d="M585.2,6 H617.2"/></g><text class="lg" x="625.2" y="10">fatal</text>
+  </g>
+</svg>

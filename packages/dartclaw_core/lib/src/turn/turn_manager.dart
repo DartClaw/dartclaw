@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'turn_outcome.dart';
+import 'turn_provenance.dart';
 
 /// Manages agent turn lifecycle: start, stream, cancel, and drain.
 ///
@@ -27,6 +28,9 @@ abstract interface class TurnManager {
   /// its provider can constrain the reply to it, and none otherwise. Left false,
   /// the caller needs the typed payload, so a harness without readback is
   /// refused by name.
+  ///
+  /// [provenance] is the host-built record of where the turn came from; it
+  /// reaches MCP tools that opt in to it and nothing a model wrote can alter it.
   Future<String> reserveTurn(
     String sessionId, {
     String agentName = 'main',
@@ -45,6 +49,7 @@ abstract interface class TurnManager {
     bool isHumanInput = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   });
 
   void executeTurn(
@@ -82,6 +87,7 @@ abstract interface class TurnManager {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   });
 
   Future<void> cancelTurn(String sessionId);

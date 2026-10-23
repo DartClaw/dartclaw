@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 614" width="1000" height="614" role="img" aria-labelledby="title desc">
+  <title id="title">Host crash and the in-flight turn record</title>
+  <desc id="desc">TurnRunner writes a turn_state.json record synchronously when a turn is reserved and deletes it on settlement or accepted cancel. If the host dies in between, the record stays. At the next serving start the storage wiring warns once per orphan, detectAndCleanOrphanedTurns removes the records and remembers the session ids after wire(), and consumeRecoveryNotice returns true once per session for the web UI banner.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#reserve:hover) .edges :is(.f-reserve,.t-reserve) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#run:hover) .edges :is(.f-run,.t-run) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#settle:hover) .edges :is(.f-settle,.t-settle) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#file:hover) .edges :is(.f-file,.t-file) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dies:hover) .edges :is(.f-dies,.t-dies) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#scan:hover) .edges :is(.f-scan,.t-scan) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ack:hover) .edges :is(.f-ack,.t-ack) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#notice:hover) .edges :is(.f-notice,.t-notice) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="614"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="518" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="542">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="566">Hover a box for what it does and where; its connections light up. Click a box to open its section.</text><text class="p2" x="36" y="586">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">TIMELINE · TurnStateStore</text>
+  <text class="title" x="24" y="58">Host crash and the in-flight turn record</text>
+  <text class="lede" x="24" y="80">One record per session outlives the process, so the next start can tell the web UI which turn never settled.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="92" width="968" height="118" rx="14"/><text class="kick" x="32" y="114">ONE TURN · TurnRunner</text></g>
+  <g class="k-sec"><rect class="band" x="16" y="322" width="968" height="146" rx="14"/><text class="kick" x="32" y="344">HOST DIES · NEXT SERVING START</text></g>
+
+  <g class="edges">
+    <g class="e  f-reserve t-run"><path d="M282,160 H370"/><text class="el" x="327" y="154" text-anchor="middle">executeTurn</text></g>
+    <g class="e  f-run t-settle"><path d="M622,160 H710"/><text class="el" x="667" y="154" text-anchor="middle">settles</text></g>
+    <g class="e  f-reserve t-file"><path d="M157,192 V234"/><text class="el" x="165" y="220" text-anchor="start">set</text></g>
+    <g class="e  f-settle t-file"><path d="M840,192 V234"/><text class="el" x="848" y="220" text-anchor="start">delete</text></g>
+    <g class="e bad f-dies t-scan"><path d="M208,404 H254"/><text class="el" x="231" y="398" text-anchor="middle">restart</text></g>
+    <g class="e  f-scan t-ack"><path d="M452,404 H502"/><text class="el" x="477" y="398" text-anchor="middle">wire()</text></g>
+    <g class="e  f-ack t-notice"><path d="M740,404 H786"/><text class="el" x="763" y="398" text-anchor="middle">ids</text></g>
+    <g class="e dash f-file t-scan"><path d="M354,296 V354"/><text class="el" x="362" y="330" text-anchor="start">read</text></g>
+    <g class="e dash f-ack t-file"><path d="M622,354 V298"/><text class="el" x="630" y="330" text-anchor="start">delete</text></g>
+  </g>
+
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n tint k-host" id="reserve">
+    <rect class="box" x="32" y="128" width="250" height="64" rx="9"/>
+    <text class="name mono-name" x="44" y="151">reserveAdmittedTurn</text>
+    <text class="sub" x="44" y="169">after admission and a lane permit</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">reserveAdmittedTurn</tspan> · the turn id exists only once admission and a lane permit succeeded, so a rejected request leaves no marker</text><text class="p2" x="36" y="586">dartclaw_runtime/lib/src/turn_runner.dart; writes through TurnStateStore.set before the turn runs.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n tint k-host" id="run">
+    <rect class="box" x="372" y="128" width="250" height="64" rx="9"/>
+    <text class="name mono-name" x="384" y="151">executeTurn</text>
+    <text class="sub" x="384" y="169">provider call in flight</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">executeTurn</tspan> · the window in which a host crash leaves an orphan</text><text class="p2" x="36" y="586">The record is not touched while the turn runs; a worker crash is handled by the harness, not this store.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n tint k-host" id="settle">
+    <rect class="box" x="712" y="128" width="256" height="64" rx="9"/>
+    <text class="name mono-name" x="724" y="151">settle or accepted cancel</text>
+    <text class="sub" x="724" y="169">the turn ends in the host</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">settle or accepted cancel</tspan> · settlement and an accepted cancel delete the record</text><text class="p2" x="36" y="586">A failed or cancelled turn lands here too, so only a host death leaves a record behind.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n solid k-store" id="file">
+    <rect class="box" x="32" y="236" width="936" height="60" rx="9"/>
+    <text class="name mono-name" x="44" y="259">turn_state.json</text>
+    <text class="sub" x="44" y="277">one entry per session: turnId, startedAt, written synchronously through secureWriteFileSync</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">turn_state.json</tspan> · data dir, or the standalone dir for headless runs; opening it sweeps temp files, quarantines malformed content</text><text class="p2" x="36" y="586">Quarantined as turn_state.json.corrupt-&lt;time&gt;. Failing to open the store is fatal (exit 1). dartclaw_core/lib/src/storage/turn_state_store.dart.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-sec" id="dies">
+    <rect class="box" x="32" y="356" width="176" height="96" rx="9"/>
+    <g class="step"><circle cx="52" cy="378" r="10"/><text x="52" y="382">1</text></g>
+    <text class="name mono-name" x="70" y="379">host dies</text>
+    <text class="sub" x="70" y="397">record stays on disk;</text>
+    <text class="sub" x="70" y="413">the turn never settled</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">host dies</tspan> · the process exits or is killed between reserve and settle</text><text class="p2" x="36" y="586">Nothing else records the turn: session messages hold only what was persisted.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-host" id="scan">
+    <rect class="box" x="256" y="356" width="196" height="96" rx="9"/>
+    <g class="step"><circle cx="276" cy="378" r="10"/><text x="276" y="382">2</text></g>
+    <text class="name mono-name" x="294" y="379">startup scan</text>
+    <text class="sub" x="294" y="397">warn once per orphan,</text>
+    <text class="sub" x="294" y="413">delete nothing</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">startup scan</tspan> · storage wiring scans before the active-store gate; a failed scan warns and continues</text><text class="p2" x="36" y="586">Only serving does this: headless workflows do not scan or acknowledge serving orphans.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-host" id="ack">
+    <rect class="box" x="504" y="356" width="236" height="96" rx="9"/>
+    <g class="step"><circle cx="524" cy="378" r="10"/><text x="524" y="382">3</text></g>
+    <text class="name mono-name" x="542" y="379">acknowledge</text>
+    <text class="sub" x="542" y="397">detectAndCleanOrphanedTurns()</text>
+    <text class="sub" x="542" y="413">after wire(): delete, remember</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">acknowledge</tspan> · removes every record, remembers the session ids and logs one summary</text><text class="p2" x="36" y="586">Called from service wiring after the turn manager is composed, only when serving with a primary runner.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#7-crash-recovery-and-errors"><g class="n tint k-host" id="notice">
+    <rect class="box" x="788" y="356" width="180" height="96" rx="9"/>
+    <g class="step"><circle cx="808" cy="378" r="10"/><text x="808" y="382">4</text></g>
+    <text class="name mono-name" x="826" y="379">recovery notice</text>
+    <text class="sub" x="826" y="397">consumeRecoveryNotice</text>
+    <text class="sub" x="826" y="413">true once per session</text>
+    <g class="d"><text class="p1" x="36" y="566"><tspan class="b">recovery notice</tspan> · the web session route renders the recovery banner from the first true result for a session</text><text class="p2" x="36" y="586">dartclaw_runtime/lib/src/web/web_routes.dart.</text></g>
+  </g></a>
+  <g transform="translate(24,492)">
+    <g class="solid k-store"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">state file</text>
+    <g class="tint k-host"><rect class="box" x="106.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="128.0" y="10">DartClaw code</text>
+    <g class="tint k-sec"><rect class="box" x="230.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="252.60000000000002" y="10">failure</text>
+    <g class="e "><path d="M318.0,6 H350.0"/></g><text class="lg" x="358.0" y="10">step</text>
+    <g class="e dash"><path d="M404.8,6 H436.8"/></g><text class="lg" x="444.8" y="10">file access</text>
+  </g>
+</svg>

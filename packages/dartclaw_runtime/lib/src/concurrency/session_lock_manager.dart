@@ -26,6 +26,7 @@ class SessionLockManager implements Reconfigurable {
   final Map<String, _WaitEntry> _waits = {};
   final SessionLockTimerFactory _timerFactory;
   final SessionLockNow _now;
+  final List<Completer<void>> _capacityWaiters = [];
   int _activeCount = 0;
 
   new({int maxParallel = 3, SessionLockTimerFactory? timerFactory, SessionLockNow? now})
@@ -44,6 +45,7 @@ class SessionLockManager implements Reconfigurable {
     if (newMax == _maxParallel) return;
     _maxParallel = newMax;
     _log.info('SessionLockManager maxParallel updated to $_maxParallel');
+    _notifyCapacity();
   }
 
   /// Acquires a lock for [sessionId].
@@ -98,8 +100,31 @@ class SessionLockManager implements Reconfigurable {
     if (completer != null) {
       _activeCount--;
       if (!completer.isCompleted) completer.complete();
+      _notifyCapacity();
     }
     _clearWait(sessionId);
+  }
+
+  /// Completes when the global cap has room for another session.
+  ///
+  /// Immediate while `activeCount < maxParallel`; otherwise on the next
+  /// [release] or [reconfigure] that leaves room. Reserves nothing: the caller
+  /// re-attempts [acquire], may lose the race, and may have to wait again.
+  /// All pending waiters complete together.
+  Future<void> whenCapacityAvailable() {
+    if (_activeCount < _maxParallel) return Future<void>.value();
+    final waiter = Completer<void>();
+    _capacityWaiters.add(waiter);
+    return waiter.future;
+  }
+
+  void _notifyCapacity() {
+    if (_activeCount >= _maxParallel || _capacityWaiters.isEmpty) return;
+    final waiters = List.of(_capacityWaiters);
+    _capacityWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.complete();
+    }
   }
 
   /// Whether [sessionId] currently has an active lock.

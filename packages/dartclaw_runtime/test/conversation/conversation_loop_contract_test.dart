@@ -7,9 +7,11 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConversationRetention;
 import 'package:dartclaw_runtime/src/api/session_attachment_routes.dart' show ProcessAttachmentOwner;
 import 'package:dartclaw_runtime/src/concurrency/session_mutation_coordinator.dart';
+import 'package:dartclaw_runtime/src/governance/budget_exhausted_exception.dart';
 import 'package:dartclaw_runtime/src/conversation/conversation_service.dart';
 import 'package:dartclaw_runtime/src/runtime_tool_history.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 import '../session_turn_manager_test_support.dart';
@@ -584,16 +586,145 @@ void main() {
     expect(attempts.existsSync() ? attempts.listSync() : const [], isEmpty);
 
     turns.clearBusy();
-    final released = await conversation.releaseNext(
-      sessionId: sessionId,
-      expectedRevision: admission.snapshot.revision,
-    );
-    expect(released.submission.workState, ConversationWorkState.running);
+    await _waitForWorkState(conversation, sessionId, 'capacity', ConversationWorkState.running);
+
     expect(turns.executeCount, 1);
     expect((await conversation.visibleMessages(sessionId)).single.content, 'Wait for capacity');
   });
 
+  test('a message sent behind a capacity-deferred one queues after it instead of overtaking it', () async {
+    turns.holdCapacitySignal();
+    turns.setBusy();
+    final first = await _submit(conversation, sessionId, 'first', 'First message');
+    expect(first.submission.workState, ConversationWorkState.queued);
+    turns.clearBusy();
+
+    final second = await _submit(conversation, sessionId, 'second', 'Second message');
+
+    expect(second.submission.workState, ConversationWorkState.queued);
+    expect(turns.executeCount, 0);
+
+    turns.releaseCapacitySignal();
+    await _waitForWorkState(conversation, sessionId, 'first', ConversationWorkState.running);
+    expect((await conversation.snapshot(sessionId)).findSubmission('second')?.workState, ConversationWorkState.queued);
+
+    turns.complete(sessionId, (await conversation.snapshot(sessionId)).findSubmission('first')!.turnId!);
+    await turns.secondDispatch;
+    await _waitForWorkState(conversation, sessionId, 'second', ConversationWorkState.running);
+    expect(turns.executedMessages.map((history) => history.last['content']), ['First message', 'Second message']);
+  });
+
+  test('a deferred message that loses the capacity race again waits for the next free slot', () async {
+    turns.setBusy();
+    await _submit(conversation, sessionId, 'raced', 'Contested message');
+
+    turns.clearBusy();
+    turns.setBusy();
+    for (var pumps = 0; pumps < 200 && turns.reserveCount < 2; pumps++) {
+      await pumpEventQueue();
+    }
+    expect(turns.reserveCount, 2, reason: 'the freed slot is re-attempted once');
+    await conversation.drain();
+    expect(turns.executeCount, 0);
+    expect((await conversation.snapshot(sessionId)).findSubmission('raced')?.workState, ConversationWorkState.queued);
+
+    turns.clearBusy();
+    await _waitForWorkState(conversation, sessionId, 'raced', ConversationWorkState.running);
+    expect(turns.executeCount, 1);
+  });
+
+  test('beginShutdown keeps a capacity-deferred message queued and drain does not wait for capacity', () async {
+    turns.setBusy();
+    await _submit(conversation, sessionId, 'shutdown', 'Deferred at shutdown');
+
+    await conversation.beginShutdown();
+    var drained = false;
+    final draining = conversation.drain().then((_) => drained = true);
+    await pumpEventQueue();
+    expect(drained, isTrue, reason: 'drain must not wait for capacity');
+    await draining;
+    turns.clearBusy();
+    await pumpEventQueue();
+
+    expect(turns.executeCount, 0);
+    expect(
+      (await conversation.snapshot(sessionId)).findSubmission('shutdown')?.workState,
+      ConversationWorkState.queued,
+    );
+  });
+
+  test('a turn manager without a capacity signal leaves deferred work queued and logs instead of throwing', () async {
+    final records = <LogRecord>[];
+    final subscription = Logger('ConversationService').onRecord.listen(records.add);
+    addTearDown(subscription.cancel);
+    turns.capacityWaitError = StateError('Every execution requires coordinator-owned admission');
+    turns.setBusy();
+
+    final admission = await _submit(conversation, sessionId, 'unconfigured', 'No capacity signal');
+    await pumpEventQueue();
+
+    expect(admission.submission.workState, ConversationWorkState.queued);
+    expect(records.map((record) => record.message), [contains('Capacity wait failed')]);
+  });
+
+  test('deferred work whose redispatch fails is held with the reason and does not block later sends', () async {
+    turns.setBusy();
+    await _submit(conversation, sessionId, 'over-budget', 'Deferred past the daily budget');
+    turns.reserveFailure = const BudgetExhaustedException(tokensUsed: 1200, budget: 1000);
+
+    turns.clearBusy();
+    await _waitForWorkState(conversation, sessionId, 'over-budget', ConversationWorkState.held);
+    await conversation.drain();
+
+    final held = (await conversation.snapshot(sessionId)).findSubmission('over-budget')!;
+    expect(held.detail, contains('Daily token budget exhausted'));
+    expect(held.attemptId, isNull);
+    final attempts = Directory('${temporaryDirectory.path}/$sessionId/conversation/attempts');
+    expect(attempts.existsSync() ? attempts.listSync() : const [], isEmpty);
+
+    turns.reserveFailure = null;
+    final next = await _submit(conversation, sessionId, 'after-budget', 'Sent once budget is available');
+    expect(next.submission.workState, ConversationWorkState.running);
+    expect(turns.executeCount, 1);
+  });
+
+  test('a non-busy reservation failure on direct submit holds the item instead of wedging it in dispatching', () async {
+    turns.reserveFailure = const BudgetExhaustedException(tokensUsed: 1200, budget: 1000);
+
+    await expectLater(
+      _submit(conversation, sessionId, 'direct', 'Over budget'),
+      throwsA(isA<BudgetExhaustedException>()),
+    );
+
+    final held = (await sessions.getConversationState(sessionId)).findSubmission('direct')!;
+    expect(held.workState, ConversationWorkState.held);
+    expect(held.detail, contains('Daily token budget exhausted'));
+    turns.reserveFailure = null;
+    final next = await _submit(conversation, sessionId, 'direct-next', 'Next message');
+    expect(next.submission.workState, ConversationWorkState.running);
+  });
+
+  test('a failing redispatch of deferred work is logged and leaves the item held', () async {
+    final records = <LogRecord>[];
+    final subscription = Logger('ConversationService').onRecord.listen(records.add);
+    addTearDown(subscription.cancel);
+    turns.setBusy();
+    await _submit(conversation, sessionId, 'corrupt', 'Original durable text');
+    final transcript = File('${temporaryDirectory.path}/$sessionId/messages.ndjson');
+    await transcript.writeAsString(
+      (await transcript.readAsString()).replaceFirst('Original durable text', 'Corrupted durable text'),
+    );
+
+    turns.clearBusy();
+    await _waitForWorkState(conversation, sessionId, 'corrupt', ConversationWorkState.held);
+    await conversation.drain();
+
+    expect(records.map((record) => record.message), [contains('Redispatch of deferred work failed')]);
+    expect(turns.executeCount, 0);
+  });
+
   test('committed work is held when the transcript fails the pre-dispatch integrity check', () async {
+    turns.holdCapacitySignal();
     turns.setBusy();
     final queued = await _submit(conversation, sessionId, 'corrupt-transcript', 'Original durable text');
     final transcript = File('${temporaryDirectory.path}/$sessionId/messages.ndjson');
@@ -840,6 +971,20 @@ final class _CompletingTurnManager extends FakeTurnManager {
   final Map<String, Completer<TurnOutcome>> _waiting = {};
   final List<List<Map<String, dynamic>>> executedMessages = [];
   final Completer<void> _secondDispatch = Completer<void>();
+  Completer<void>? _capacityGate;
+  Object? capacityWaitError;
+
+  /// Replaces the capacity signal with one the test releases by hand.
+  void holdCapacitySignal() => _capacityGate = Completer<void>();
+
+  void releaseCapacitySignal() => _capacityGate!.complete();
+
+  @override
+  Future<void> whenAdmissionCapacityAvailable() {
+    final error = capacityWaitError;
+    if (error != null) throw error;
+    return _capacityGate?.future ?? super.whenAdmissionCapacityAvailable();
+  }
 
   int get executeCount => executedMessages.length;
   Future<void> get secondDispatch => _secondDispatch.future;

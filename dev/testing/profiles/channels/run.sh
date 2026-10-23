@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Start DartClaw with the channels testing profile (WhatsApp + Signal enabled).
-# See dev/testing/channel-e2e-manual.md (private repo) for the hardware
-# pairing flow this profile is designed to drive.
+# Start DartClaw with the channels testing profile (WhatsApp, Signal, Google Chat
+# and Slack; the Slack block is off until the owner enables it).
+# See dartclaw-private/docs/testing/channel-e2e-manual.md for the hardware
+# pairing flow and the Slack setup this profile is designed to drive.
 #
 # Usage: bash dev/testing/profiles/channels/run.sh [extra args...]
 # Example: bash dev/testing/profiles/channels/run.sh --port 4000

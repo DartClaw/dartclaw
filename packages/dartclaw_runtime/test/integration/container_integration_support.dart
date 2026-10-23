@@ -575,6 +575,10 @@ final class ContainerAuthority {
 ///
 /// Registration happens before the container exists so an unusable provider
 /// configuration is refused first, which is the production ordering.
+///
+/// A setup that fails after registration releases the authority before the
+/// error propagates, as `SecurityWiring.acquireContainerAuthority` does, so a
+/// refused setup never leaves a running container behind.
 Future<ContainerAuthority> startContainerAuthority({
   required HostGateway gateway,
   required ContainerManager manager,
@@ -583,13 +587,17 @@ Future<ContainerAuthority> startContainerAuthority({
   Duration readyTimeout = const Duration(seconds: 30),
 }) async {
   final authority = gateway.register(principal: principal, allowedMcpTools: allowedMcpTools);
-  await manager.start();
-  for (final surface in authority.requiredSurfaces) {
-    gateway.attach(authority, surface, await manager.startBridge(surface, bridgePortFor(surface)));
-  }
-  await authority.ready.timeout(readyTimeout);
-
   final live = ContainerAuthority(gateway, authority, manager);
+  try {
+    await manager.start();
+    for (final surface in authority.requiredSurfaces) {
+      gateway.attach(authority, surface, await manager.startBridge(surface, bridgePortFor(surface)));
+    }
+    await authority.ready.timeout(readyTimeout);
+  } catch (_) {
+    await live.release();
+    rethrow;
+  }
   addTearDown(live.release);
   return live;
 }

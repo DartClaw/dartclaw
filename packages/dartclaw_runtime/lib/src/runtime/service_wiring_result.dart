@@ -29,6 +29,7 @@ DartclawRuntime _assembleRuntime(
   WorkflowService workflowService,
   AlertRouter? alertRouter,
   ThreadBindingLifecycleManager? lifecycleManager,
+  WorkflowRunNotificationSubscriber? runNotifications,
   ScopeReconciler scopeReconciler,
   GroupSessionInitializer? groupSessionInit,
   OutboundMcpPool? outboundMcpPool, {
@@ -88,6 +89,7 @@ DartclawRuntime _assembleRuntime(
         await workflowService.dispose();
         await alertRouter?.cancel();
         await channel?.taskNotificationSubscriber?.dispose();
+        await runNotifications?.dispose();
         await harness?.disposePrimaryContainer();
         await security?.dispose();
         groupSessionInit?.dispose();

@@ -20,17 +20,19 @@ Each is documented in detail in its own guide; this one shows how they work toge
 | Knowledge Inbox | 12:00 PM daily | Searches the web for topics you care about, saves new findings |
 | Daily Journal | 10:00 PM daily | Records selected observations from the day's activity |
 | Nightly Reflection | 3:00 AM daily | Reviews errors and learnings, detects patterns, saves insights |
-| Heartbeat | Every 60 min | Processes maintenance tasks and git sync |
+| Heartbeat | Every 60 min | Runs the `HEARTBEAT.md` maintenance checklist |
 
 Plus:
 - **Interactive research** -- ask questions anytime via web UI or channel; the agent searches the web and builds on previous research
 - **Persistent memory** -- everything the agent learns is saved and searchable
-- **Git-backed workspace** -- automatic versioning of memory, learnings, and behavior files
-- **Channel access** -- reach your assistant from WhatsApp, Signal, or Google Chat (optional)
+- **Git-backed workspace** -- automatic versioning of memory, learnings, and behavior files (a separate git-sync job, every 30 minutes by default)
+- **Channel access** -- reach your assistant from WhatsApp, Signal, Google Chat, or Slack (optional)
 
 ## A Day in the Life
 
 Here is how the assistant works across a typical 24-hour period:
+
+[![Personal assistant: scheduled jobs, behavior files, search agent, memory and delivery](diagrams/recipe-00-personal-assistant.svg)](diagrams/recipe-00-personal-assistant.svg)
 
 **3:00 AM – Nightly Reflection.** The agent reviews `errors.md`, retrieves canonical learnings through `memory_search`/`memory_read`, cross-references previous reflections, and saves 3-5 actionable insights. Uses Sonnet for cost efficiency.
 
@@ -44,7 +46,7 @@ Here is how the assistant works across a typical 24-hour period:
 
 **10:00 PM -- Daily Journal.** The agent reviews the day's context and records selected observations through `memory_observe`. Curated personal memory changes only through a `memory_apply` request -- from you, or from the opt-in `memory-curation` job if you enable it.
 
-**Every 60 minutes -- Heartbeat.** Processes the HEARTBEAT.md checklist (check for stale entries, verify git sync, review pending items). Git sync commits and pushes workspace changes.
+**Every 60 minutes -- Heartbeat.** Processes the HEARTBEAT.md checklist (check for stale entries, verify git sync, review pending items). Git sync is a separate built-in job on its own schedule (`workspace.git_sync.interval_minutes`, default 30): it commits and pushes workspace changes whether or not the heartbeat is on.
 
 ## Configuration
 
@@ -55,6 +57,10 @@ Copy this complete `dartclaw.yaml` to get started. All four pillars are included
 # Usage: dartclaw --config dartclaw.yaml serve
 name: Jarvis
 data_dir: ~/.dartclaw-assistant
+
+# --- Database (PostgreSQL 14+, required for server operation) ---
+database:
+  url: ${DARTCLAW_DATABASE_URL}
 
 # --- Agent ---
 agent:
@@ -84,6 +90,7 @@ workspace:
   git_sync:
     enabled: true
     push_enabled: true                # push to remote (set up git remote first)
+    interval_minutes: 30              # git sync runs on its own schedule, not the heartbeat's
 
 # --- Search ---
 search:
@@ -274,7 +281,7 @@ about the outside world, or memory came up empty -- and say which it was.
 
 ## Getting Started
 
-1. **Copy the config** above into `~/.dartclaw-assistant/dartclaw.yaml` (adjust `data_dir` to your preference)
+1. **Copy the config** above into `~/.dartclaw-assistant/dartclaw.yaml` (adjust `data_dir` to your preference) and export `DARTCLAW_DATABASE_URL` for your PostgreSQL database (see [PostgreSQL](../postgresql.md))
 
 2. **Create behavior files** in your workspace:
    ```bash
@@ -373,13 +380,14 @@ Once running, verify your assistant is working:
 
 - **Health Dashboard** (`/health-dashboard`) -- server uptime, guard audit log, system status
 - **Memory Dashboard** (`/memory`) -- canonical corpus, bounded prompt-index usage, entry counts, and index health
-- **Settings** (`/settings`) -- channel connection status, scheduling job list
+- **Settings** (`/settings`) -- channel connection status
+- **Scheduling** (`/scheduling`) -- job list, pause and run-now controls
 
 For detailed monitoring guidance, see [Monitoring Your Assistant](_common-patterns.md#monitoring-your-assistant). For common issues (jobs not firing, announce not delivering, memory conflicts), see [Troubleshooting](_troubleshooting.md).
 
 ## Gotchas & Limitations
 
-- **`announce` delivery targets active channel DMs**: `delivery: announce` broadcasts the result to web UI clients (SSE) and pushes it to active DM sessions on registered channels (WhatsApp/Signal/Google Chat). It does not reach contacts that have no active session, and group sessions are skipped. Use `delivery: webhook` for active push to an external endpoint
+- **`announce` delivery targets active channel DMs**: `delivery: announce` broadcasts the result to web UI clients (SSE) and pushes it to active DM sessions on registered channels (WhatsApp, Signal, Google Chat, Slack). It does not reach contacts that have no active session, and group sessions are skipped. Use `delivery: webhook` for active push to an external endpoint
 - **Timezone is server-local**: All cron expressions use the server's timezone. Adjust expressions if your server timezone differs from yours
 - **Jobs run in isolated sessions**: Scheduled jobs do not share session state directly; intentionally captured observations remain available through the memory tools. The daily journal cannot read your main session's chat history; it reviews context via behavior files and memory
 - **Curation is opt-in**: heartbeat and journal jobs never revise, merge, or remove personal memory; only the `memory-curation` job does, and only while `memory.curation.enabled` is set. A run may change only the entries its own bounded snapshot showed it

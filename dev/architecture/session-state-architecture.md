@@ -1,9 +1,8 @@
 # Session & State Architecture
 
-How DartClaw manages conversation state: session model, routing, scoping, persistence, locking, governance, maintenance, crash recovery, and the event bus that ties them together.
+How DartClaw holds conversation state: the session model and its keys, per-session conversation state and admission, the locks and global cap that gate turns, the event bus, and session reset, maintenance and crash recovery. It does not cover the harness side of a turn ([Control Protocol](control-protocol.md)), channel adapters and thread binding ([Channel Messaging](channel-messaging-architecture.md)), runtime governance and emergency controls ([Security Architecture](security-architecture.md)), or store schemas and write safety ([Data Model](data-model.md)).
 
-**Current through**: 0.27 conversation attempts, effective context, inbox and attention state, temporary retention,
-managed named-agent workspace ownership and cutover, and principal-scoped conversation search.
+**Current through**: 0.28.0
 
 ---
 
@@ -11,1010 +10,378 @@ managed named-agent workspace ownership and cutover, and principal-scoped conver
 
 1. [Overview](#1-overview)
 2. [Session Model](#2-session-model)
-3. [Session Scoping Model](#3-session-scoping-model)
-4. [Session Routing](#4-session-routing)
-5. [Session Services](#5-session-services)
-6. [Session Locking](#6-session-locking)
-7. [Event Bus Architecture](#7-event-bus-architecture)
-8. [Group Sessions](#8-group-sessions)
-9. [Session Maintenance](#9-session-maintenance)
-10. [Thread Binding](#10-thread-binding)
-11. [Governance & Emergency Controls](#11-governance--emergency-controls)
-12. [Crowd Coding State](#12-crowd-coding-state)
-13. [Crash Recovery](#13-crash-recovery)
+3. [Session Keys and Scoping](#3-session-keys-and-scoping)
+4. [Session Resolution](#4-session-resolution)
+5. [Conversation State](#5-conversation-state)
+6. [Session Services](#6-session-services)
+7. [Turn Admission and Locking](#7-turn-admission-and-locking)
+8. [Event Bus](#8-event-bus)
+9. [Group Sessions](#9-group-sessions)
+10. [Session Reset and Maintenance](#10-session-reset-and-maintenance)
+11. [Crash Recovery](#11-crash-recovery)
 
 ---
 
 ## 1. Overview
 
-Sessions are the primary unit of conversation state. Every interaction with
-the runtime -- web chat, channel message, scheduled job, task execution --
-happens within a session. Sessions provide:
+A session is the unit of conversation state. Every interaction (web chat, channel message, scheduled job, task, logical-agent call) happens inside one, which gives:
 
-- **Isolation** -- each conversation has its own message history
-- **Deterministic routing** -- the `SessionKey` maps external context to internal UUID sessions
-- **Persistence** -- NDJSON message files with cursor-based crash recovery
-- **Concurrency safety** -- per-session write locks and global concurrency caps
+- **Isolation**: each session has its own message history and provider continuity.
+- **Deterministic routing**: a `SessionKey` maps an external context (contact, group, thread, job, task) to one session UUID.
+- **Persistence**: `meta.json` plus an append-only `messages.ndjson`, or bounded process memory for temporary conversations.
+- **Serialized mutation**: one active turn per session and a global cap on concurrent turns.
 
-`Session.retention` is the single persistence classifier. `durable` is the default and preserves the file-backed
-contract. `process` is accepted only for owner web conversations. `SessionService` keeps their session and
-`ConversationState` records in bounded memory, while `MessageService` keeps bounded messages behind the same resolver.
-An installed resolver treats a missing session as revoked and refuses writes. Index, memory, daily-log, automatic-title,
-and usage-KV consumers check this classifier before writing; context telemetry remains visible through the in-memory
-conversation state. Branch destinations inherit their source retention.
-- **Lifecycle management** -- automated archival, maintenance, and reset
+| Component | Package / path | Role |
+|---|---|---|
+| `Session`, `SessionType`, `SessionKey`, `Message` | `dartclaw_kernel` `models.dart`, `session_key.dart` | Model and key factories |
+| `SessionConfig`, `SessionScopeConfig`, `SessionMaintenanceConfig` | `dartclaw_kernel` | Config values (reference: [Configuration](configuration-architecture.md)) |
+| `SessionService`, `MessageService`, `KvService`, `ConversationState`, `TurnStateStore` | `dartclaw_core` `storage/` | File-backed stores |
+| `EventBus`, `DartclawEvent` | `dartclaw_core` `events/` | Typed in-process pub/sub |
+| `LiveScopeConfig` | `dartclaw_core` `scoping/` | Mutable holder read at key derivation |
+| `SessionLockManager`, `SessionMutationCoordinator` | `dartclaw_runtime` `concurrency/` | Session lock, global cap, arrival-order chains |
+| `ConversationService`, `ConversationInboxService` | `dartclaw_runtime` `conversation/` | Web conversation admission, queue, branching, inbox |
+| `SessionResetService`, `GroupSessionInitializer` | `dartclaw_runtime` `session/` | Reset timers, group pre-creation |
+| `SessionMaintenanceService` | `dartclaw_runtime` `maintenance/` | Archive and retention pipeline |
 
-The session subsystem spans the kernel, core, and server packages:
-
-```
-+-------------------+     +-------------------+     +-------------------+
-| kernel: models    |     | kernel: config    |     | dartclaw_core     |
-|                   |     |                   |     |                   |
-| Session           |     | SessionConfig     |     | SessionService    |
-| SessionType       |     | SessionScope-     |     | MessageService    |
-| SessionKey        |     |   Config (ref)    |     | KvService         |
-| Message           |     | SessionMaint-     |     | EventBus          |
-| SessionScopeConfig|     |   enanceConfig    |     | DartclawEvent     |
-| DmScope           |     | GovernanceConfig  |     | LoopDetector      |
-| GroupScope         |     | BudgetConfig     |     | SlidingWindow-    |
-| ChannelScopeConfig|     | LoopDetection-   |     |   RateLimiter     |
-+-------------------+     |   Config         |     | ThreadBinding     |
-                          | RateLimitsConfig  |     | ThreadBinding-    |
-                          +-------------------+     |   Store           |
-                                                    | DmAccessController|
-                                                    | ChannelTaskBridge |
-                                                    +-------------------+
-                                    |
-                          +-------------------+     +-------------------+
-                          | dartclaw_core     |     | dartclaw_runtime   |
-                          |                   |     |                   |
-                          | TurnStateStore    |     | SessionLockManager|
-                          | (turn_state.json) |     | SessionResetSvc   |
-                          +-------------------+     | SessionMaint-     |
-                                                    |   enanceService   |
-                                                    | GroupSession-     |
-                                                    |   Initializer     |
-                                                    | TurnGovernance-   |
-                                                    |   Enforcer        |
-                                                    | BudgetEnforcer    |
-                                                    | PauseController   |
-                                                    | EmergencyStop-    |
-                                                    |   Handler         |
-                                                    +-------------------+
-```
-
+---
 
 ## 2. Session Model
 
-### Session Entity
+`Session` (`packages/dartclaw_kernel/lib/src/models.dart`) carries identity (`id`, `channelKey`), classification (`type`, `retention`), title authority (`title`, `titleRevision`, `titleProvenance`, `automaticTitleAttempted`), pinned routing (`provider`, `securityProfile`, `executionMode`, `workspace`), and inbox state (`settledAt`, `readMessageCursor`, `attentionReadEventId`, `dismissedAttentionEventIds`). The field table is in [Data Model](data-model.md#sessions-and-messages).
 
-Defined in `packages/dartclaw_kernel/lib/src/models.dart`:
+### Session types
 
-```
-Session
-  +-- id: String              (UUID v4, primary key)
-  +-- title: String?          (human-readable, shown in UI)
-  +-- titleRevision: int      (monotonic title write authority)
-  +-- titleProvenance: SessionTitleProvenance?
-  +-- automaticTitleAttempted: bool
-  +-- type: SessionType       (classification enum)
-  +-- retention: ConversationRetention (durable or process)
-  +-- channelKey: String?     (deterministic routing key)
-  +-- provider: String?       (system-pinned execution route when applicable)
-  +-- securityProfile: String? (optional worker isolation profile)
-  +-- executionMode: ExecutionMode?
-  +-- workspace: AgentWorkspace? (pinned agent id and canonical directory)
-  +-- settledAt: DateTime?
-  +-- readMessageCursor: int
-  +-- attentionReadEventId: String?
-  +-- dismissedAttentionEventIds: List<String>
-  +-- createdAt: DateTime
-  +-- updatedAt: DateTime
-```
+| `SessionType` | Meaning | Deletable | Pruned by maintenance |
+|---|---|---|---|
+| `main` | Long-lived primary session (key `main`) | No | Never |
+| `user` | Web chat created through the API; no key | Yes | Yes |
+| `channel` | Derived from an inbound channel message | No | Only if its key is not active |
+| `cron` | Scheduled job | No | Protected while its job is active; deleted once orphaned (stage 3) |
+| `task` | Task execution | No | Never |
+| `logicalAgent` | Hidden conversation created by `sessions_spawn` | Yes | Yes, via ordinary retention and count cap |
+| `archive` | Read-only history left by reset or maintenance | Yes | Deleted oldest-first under the disk budget |
 
-### SessionType Enum
+`SessionService.protectedTypes` (`main`, `channel`, `cron`, `task`) rejects deletion with `StateError`. `isChatFacing` (everything except `cron`, `task`, `logicalAgent`) decides what enters the conversation index; archived conversations stay owner-searchable.
 
-| Value     | Description                                       |
-|-----------|---------------------------------------------------|
-| `main`    | Long-lived primary session created by the runtime  |
-| `channel` | Derived from an inbound channel message            |
-| `cron`    | Started by a scheduled task or cron trigger         |
-| `user`    | User-initiated interactive session (web, CLI)       |
-| `task`    | Associated with a tracked task execution            |
-| `logicalAgent` | Hidden logical-agent conversation created by `sessions_spawn` |
-| `archive` | Read-only historical session retained for archival  |
+`listSessions` hides `task` and `logicalAgent` sessions unless the caller asks for them by type, so lifecycle code that must see everything passes `types: SessionType.values`. Normal list and sidebar queries therefore omit logical-agent sessions.
 
-Protected types (`main`, `channel`, `cron`, `task`) cannot be deleted through
-the normal deletion API -- they are system-managed.
+### Retention
 
-Settling is independent of `SessionType`: it removes an eligible completed and read conversation from the active inbox
-without making it read-only. New work clears `settledAt`. Archival changes the type to a read-only historical lifecycle
-and preserves owner-searchable conversation history.
+`Session.retention` is the single persistence classifier.
 
-### Conversation Attempt and Snapshot Authority
+- `durable` (default): `meta.json` and `messages.ndjson` on disk.
+- `process`: temporary conversation. `createSession` accepts it only for `user` sessions. `SessionService` keeps the session and its `ConversationState` in memory (cap `maxProcessSessions` = 32), and `MessageService` keeps up to 500 messages per session. A missing session under an installed retention resolver is treated as revoked and writes are refused. The create route pins `provider`, `securityProfile` and `executionMode` from `TemporaryConversationCapability`, so these sessions run on a worker lane (`ExecutionSurface.temporary`), not the primary runner.
 
-`ConversationState` is the sole snapshot for a conversation's revision, accepted submissions, ordered queue, attempts,
-branches, current and next effective context, telemetry, and visible message identities. Durable sessions store it in
-`meta.json`; process-retained sessions use the same service authority in memory. `SessionMutationCoordinator` serializes
-mutations, and revision checks reject stale changes without partially applying them.
+Every durable-only consumer checks the classifier before writing: conversation index, memory and daily log, automatic title, usage KV (`isDurable` call sites in `turn_runner_execution.dart`, `conversation_index_projection.dart`, `harness_wiring.dart`). Branch destinations inherit their source's retention. Ending a temporary conversation goes through `markTemporaryEnding` and `releaseTemporarySession`, and a failed cleanup leaves it in `end_failed` so the end can be retried.
 
-An admitted attempt captures one complete `EffectiveConversationContext`: nullable project association, concrete
-directory and reference root, provider, model, and effort. General owner web chats resolve the directory and reference
-root to the validated owner workspace; project chats resolve the named ready checkout. The next context is authoritative
-for current association, even when a retained attempt still records an older project. Project association moves require
-an eligible idle durable owner web conversation and its revision; they change future context and append one visible
-marker without rewriting past attempts. The session's `AgentWorkspace` and `agent:<id>` storage principal remain pinned
-across these changes.
-Queue accepts ordinary input in order; steer first confirms cancellation of the displayed turn and then uses ordinary
-admission. Channel and cron snapshots disable these browser controls.
+### Settled, read and attention state
 
-New named-agent sessions pin the derived absolute `data_dir/agents/<id>/workspace` binding after its host marker passes
-admission. `meta.json` remains authoritative for an existing session's absolute binding: moving `data_dir`, removing the
-agent, or changing the current derived root does not rewrite the session, change its principal, or reclassify history as
-owner data. History and authorized search remain readable. A branch or fork whose pinned destination no longer matches
-the current agent definition refuses with `BRANCH_DESTINATION_UNAVAILABLE` and directs the operator to create a new
-conversation; there is no automatic adoption, copy, or relocation path.
+Settling removes a completed, read conversation from the active inbox without making it read-only; new work clears `settledAt`. The owner settles manually, or `ConversationInboxService.autoSettleIdleSessions` does it after `sessions.auto_settle_idle_days` (default 0, disabled) as the first step of the maintenance run. Attention items are derived on read from `ConversationState` submissions and display records. Only the read marker and the dismissed ids (capped at `maxDismissedAttentionEventIds` = 200) are stored on the session, and `updateInboxMetadata` advances the conversation revision with them.
 
-The session route factory registers its conversation owner with the server. Shutdown first stops new conversation
-admission and drains admitted mutations, then cancels active turns and awaits retained outcomes and background writes
-before storage disposal. A completed turn cannot release queued work once shutdown has begun.
-
-Attention events are durable projections linked to an exact history record. Read and dismiss state are inbox metadata;
-whether an approval action is available is recomputed from the exact still-live request and turn identity.
-
-### SessionKey
-
-Defined in `packages/dartclaw_kernel/lib/src/session_key.dart`.
-Provides deterministic, collision-free routing from external contexts to
-internal UUID-based sessions.
-
-Format: `agent:<agentId>:<scope>:<identifiers>`
-
-| Factory Method         | Scope   | Key Example                                         |
-|------------------------|---------|-----------------------------------------------------|
-| `webSession()`         | `web`   | `agent:main:web:`                                   |
-| `dmShared()`           | `dm`    | `agent:main:dm:shared`                              |
-| `dmPerContact()`       | `dm`    | `agent:main:dm:contact:alice%40example.com`         |
-| `dmPerChannelContact()`| `dm`    | `agent:main:dm:whatsapp:alice%40example.com`        |
-| `groupShared()`        | `group` | `agent:main:group:googlechat:spaces%2FAAAA`         |
-| `groupPerMember()`     | `group` | `agent:main:group:googlechat:spaces%2FAAAA:bob`     |
-| `cronSession()`        | `cron`  | `agent:main:cron:daily-summary`                     |
-| `taskSession()`        | `task`  | `agent:main:task:abc123`                            |
-| `logicalAgentSession()`| `logical` | `agent:review%3Asecurity:logical:turn%2F123`       |
-
-The `agentId` component is `main` for web sessions and for channel rows without a
-binding. A `dm_allowlist` or `group_allowlist` row carrying `agent: <name>` makes
-`ChannelManager.deriveSessionKey` emit that name instead (for example
-`agent:ana:dm:signal:%2B46700000001`), so a bound conversation is its own
-session with no storage change: `dispatchChannelTurn` creates it pinned to the
-agent's provider and execution policy the way `sessions_spawn` pins a
-logical-agent session, and its turns run under the agent's name on the worker
-lane with `wait` admission.
-
-Identifier components are URI-encoded by the factory methods to prevent
-delimiter collisions. The `SessionKey.parse()` factory reconstructs the
-structured representation from a serialized string.
-
-### Session Storage Layout
+### Storage layout
 
 ```
 <dataDir>/sessions/
-  .session_keys.json          <-- key->UUID index (atomic writes)
+  .session_keys.json              key -> UUID index
   <uuid>/
-    meta.json                 <-- Session JSON (atomic writes)
-    messages.ndjson           <-- append-only message log
+    meta.json                     Session JSON plus nested `conversationState`
+    messages.ndjson               append-only transcript
+    attachments/<id>.{data,json}  accepted message attachments
+    conversation/
+      attempts/<attemptId>.json   per-attempt record
+      queues/<queueId>.json       per-queue-item record
+      manifests/<submissionId>.json  accepted attachment manifest
 ```
 
-- **`.session_keys.json`**: Maps deterministic `SessionKey` strings to session UUIDs.
-  Loaded and updated by `SessionService.getOrCreateByKey()`. Stale/archived
-  mappings are removed on lookup, creating a new session with the same key.
+`meta.json` and the index are written atomically (`atomicWriteJson`: random-suffixed temp file, flush, rename). `.session_keys.json` is guarded by `RepoLock`, so concurrent creators (parallel workflow iterations, group pre-creation) do not lose each other's mappings.
 
-- **`meta.json`**: Serialized `Session` object. Written atomically via
-  `atomicWriteJson()` (write to `.tmp`, then `rename`).
+### Messages
 
-- **`messages.ndjson`**: Append-only NDJSON file. Each line is a serialized
-  `Message` object. The 1-based line number is the cursor.
+A `Message` is `cursor`, `id`, `sessionId`, `role`, `content`, `metadata`, `createdAt`. The cursor is the 1-based line number in `messages.ndjson`, assigned on read and not stored. That gives resume-after-cursor and backward pagination without a sequence counter. `insertMessageWithIdentity` and `replaceMessageWithIdentity` write under a caller-supplied id and are idempotent, which conversation admission and branch copy rely on for recovery.
 
-### Message Entity
+### Logical-agent sessions
 
-Defined alongside `Session` in `models.dart`:
+`sessions_spawn` creates a `logicalAgent` session through `getOrCreateByKey` with the key from `SessionKey.logicalAgentSession`. The key string is the external handle that `sessions_send` takes; the session UUID stays internal. The session is pinned to the agent's provider, security profile, execution mode and workspace. Persisted user and assistant messages provide replay across worker replacement or restart. A failed spawn (blocked content, schema violation, turn failure) is discarded: continuity reset, session archived, key mapping removed. Lifecycle decisions never infer logical-agent behavior from a key prefix.
 
-```
-Message
-  +-- cursor: int             (1-based line number in NDJSON)
-  +-- id: String              (UUID v4)
-  +-- sessionId: String       (FK to Session.id)
-  +-- role: String            (user, assistant, system)
-  +-- content: String
-  +-- metadata: String?       (serialized JSON metadata)
-  +-- createdAt: DateTime
-```
+### Named-agent workspace pin
 
-Sessions carry an explicit type. `logicalAgent` identifies conversations created by `sessions_spawn` and continued by `sessions_send`. The external handle is stored as the session's `channelKey`; persisted user and assistant messages provide replay across compatible-worker replacement or process restart. The coordinator prefers a healthy exact-session worker with the same provider/profile, but replay remains authoritative. Normal list and sidebar queries omit these sessions, explicit type or ID queries can retrieve them for diagnostics, and maintenance includes them in the ordinary retention and count-cap paths. They are not deletion-protected. Lifecycle decisions never infer this behavior from a session-key prefix.
+A session created for a named agent pins the derived absolute workspace binding (`AgentWorkspace`: agent id, directory, `agent:<id>` storage principal) after its host marker passes admission. `meta.json` stays authoritative: moving `data_dir`, removing the agent, or changing the derived root does not rewrite the session, change its principal, or reclassify history as owner data. `AgentWorkspace.requireCurrent` refuses a turn or `getOrCreateByKey` against a mismatched binding. A branch or fork whose pinned destination no longer matches the current definition fails with `BRANCH_DESTINATION_UNAVAILABLE`; there is no automatic adoption or relocation.
 
+---
 
-## 3. Session Scoping Model
+## 3. Session Keys and Scoping
 
-Controls how inbound channel messages are mapped to sessions.
-Defined in `packages/dartclaw_kernel/lib/src/session_scope_config.dart`.
+### SessionKey
 
-### Scope Enums
+`SessionKey` (`packages/dartclaw_kernel/lib/src/session_key.dart`) serializes as `agent:<agentId>:<scope>:<identifiers>`. Factories URI-encode every component, so delimiters in ids cannot collide; `SessionKey.parse` reverses it.
 
-**DmScope** -- how DM sessions are scoped:
+| Factory | Scope | Example |
+|---|---|---|
+| `dmShared` | `dm` | `agent:main:dm:shared` |
+| `dmPerContact` | `dm` | `agent:main:dm:contact:alice%40example.com` |
+| `dmPerChannelContact` | `dm` | `agent:main:dm:whatsapp:alice%40example.com` |
+| `groupShared` | `group` | `agent:main:group:googlechat:spaces%2FAAAA` |
+| `groupPerMember` | `group` | `agent:main:group:googlechat:spaces%2FAAAA:bob` |
+| `cronSession` | `cron` | `agent:main:cron:daily-summary` |
+| `taskSession` | `task` | `agent:main:task:abc123` |
+| `logicalAgentSession` | `logical` | `agent:review%3Asecurity:logical:turn%2F123` |
+| `webSession` | `web` | `agent:main:web:` (no production caller; web chats are unkeyed) |
 
-| Value              | Behavior                                      |
-|--------------------|-----------------------------------------------|
-| `shared`           | All DMs share a single session                 |
-| `perContact`       | One session per contact (across channels)       |
-| `perChannelContact`| One session per (channel, contact) pair (default)|
+The `dm` and `group` factories take an optional `threadId`, which appends `:thread:<encoded>`, so each channel thread is its own session under every scope. The main session uses the literal key `main`.
 
-**GroupScope** -- how group sessions are scoped:
+The `agentId` component is `main` unless the allowlist row that owns the conversation carries `agent: <name>`. `ChannelManager.deriveSessionKey` then emits that name (`agent:ana:dm:signal:%2B46700000001`), so a bound conversation is its own session with no storage change. `dispatchChannelTurn` creates it pinned to the agent's provider and execution policy, and its turns run under the agent's name on a worker lane with `wait` admission (`TurnManager._reserveExecutionForSession`).
 
-| Value       | Behavior                                 |
-|-------------|------------------------------------------|
-| `shared`    | All group messages share one session (default) |
-| `perMember` | One session per group member              |
+### Scope configuration
 
-### SessionScopeConfig
+| Setting | Values | Default |
+|---|---|---|
+| `DmScope` (`sessions.dm_scope`) | `shared`, `perContact`, `perChannelContact` | `perChannelContact` |
+| `GroupScope` (`sessions.group_scope`) | `shared`, `perMember` | `shared` |
 
-Top-level configuration with per-channel overrides:
+`SessionScopeConfig` (`session_scope_config.dart`) holds the global scopes plus `model` and `effort` overrides for channel turns, and a `channels` map of `ChannelScopeConfig` overrides. `forChannel(channelType)` merges a channel's override over the global values. `SessionConfig` adds `resetHour` (default 4, negative disables), `idleTimeoutMinutes` (default 0), `autoSettleIdleDays` (default 0), and the maintenance config.
 
-```
-SessionScopeConfig
-  +-- dmScope: DmScope                  (global default)
-  +-- groupScope: GroupScope            (global default)
-  +-- model: String?                    (model override for channel turns)
-  +-- effort: String?                   (effort override for channel turns)
-  +-- channels: Map<String, ChannelScopeConfig>  (per-channel overrides)
-```
+`ChannelManager` reads scope through `LiveScopeConfig`, a mutable holder. `ScopeReconciler` updates a `LiveScopeConfig` on `sessions.dm_scope` / `group_scope` changes, but `service_wiring.dart` constructs the reconciler's instance separately from the one `channel_wiring.dart` gives `ChannelManager`, so a live scope change does not currently reach key derivation.
 
-`ChannelScopeConfig` provides per-channel overrides for DM scope, group scope,
-model, and effort. Nullable fields fall back to the global defaults.
+---
 
-Resolution: `SessionScopeConfig.forChannel(channelType)` returns the resolved
-config for a channel type, merging per-channel overrides with global defaults.
+## 4. Session Resolution
 
-### LiveScopeConfig
+| Surface | Type | Key | Resolved by |
+|---|---|---|---|
+| Web chat | `user` | none | `SessionService.createSession()` (`POST /api/sessions`) |
+| Main | `main` | `main` | `getOrCreateMainSession()` at storage wiring |
+| Channel DM or group | `channel` | derived (above) | `dispatchChannelTurn`, `GroupSessionInitializer` |
+| Scheduled job | `cron` | `cronSession(jobId)` | `ScheduleService` |
+| Task | `task` | `taskSession(taskId)` | `TaskExecutor` |
+| `sessions_spawn` | `logicalAgent` | `logicalAgentSession(...)` | `LogicalAgentSessionService` dispatch |
 
-Mutable wrapper in `packages/dartclaw_core/lib/src/scoping/live_scope_config.dart`
-that holds the current `SessionScopeConfig`. Updated at runtime when config
-changes are detected, allowing the session routing layer to pick up new scoping
-rules without restart.
+Interactive session creation accepts no provider override (`PROVIDER_OVERRIDE_UNSUPPORTED`); main and channel conversations use the primary lane with `agent.provider`. The nullable `provider` field records host-resolved routing for system-managed and temporary sessions.
 
-### Config Integration
+The channel path, from the session side (steps 3 to 6 belong to [Channel Messaging](channel-messaging-architecture.md); the figure marks them):
 
-`SessionConfig` in `packages/dartclaw_kernel/lib/src/session_config.dart`
-bundles session-related configuration:
+[![Session resolution: channel steps and other surfaces into SessionService](diagrams/sessions-resolution.svg)](diagrams/sessions-resolution.svg)
 
-```
-SessionConfig
-  +-- resetHour: int                      (default: 4, daily reset hour)
-  +-- idleTimeoutMinutes: int             (default: 0, disabled)
-  +-- scopeConfig: SessionScopeConfig     (scoping rules)
-  +-- maintenanceConfig: SessionMaintenanceConfig
-```
+Web chat and temporary conversations never get a key; every keyed surface is idempotent per key, so a second call returns the same session. The user message is persisted before admission, so a cap-deferred channel turn must wait and retry inside `dispatchChannelTurn` rather than be retried by its caller.
 
+---
 
-## 4. Session Routing
+## 5. Conversation State
 
-How an inbound message is routed to a session:
+`ConversationState` (`packages/dartclaw_core/lib/src/storage/conversation_state.dart`) is the single snapshot of one ordinary web conversation: a monotonic `revision`, `submissions` (claims), display `records` (tool, approval and context-change rows keyed by attempt and turn), `branches`, `currentContext`, `nextContext` and `telemetry`. Durable sessions nest it in `meta.json`; process-retained sessions hold the same object in memory. `ConversationService` mutates it through a `SessionMutationCoordinator` chain and rejects stale writes with `STALE_CONVERSATION_REVISION`, so a rejected mutation applies nothing. Each persisted change broadcasts `conversation_changed` with the new revision over SSE.
 
-```
-  Inbound Message
-  (sender, channel, group?, thread?)
-       |
-       v
-  +-----------------------------+
-  | 1. Governance check         |  rate limit -> budget -> loop detection
-  |    (TurnGovernanceEnforcer)  |  May reject before routing.
-  +-----------------------------+
-       |
-       v
-  +-----------------------------+
-  | 2. Thread binding lookup    |  ThreadBindingStore.lookupByThread()
-  |    (ChannelTaskBridge)       |  If bound thread -> route to task session.
-  +-----------------------------+
-       | no binding
-       v
-  +-----------------------------+
-  | 3. Scope resolution         |  LiveScopeConfig.forChannel(channelType)
-  |                             |  Determines DmScope or GroupScope
-  +-----------------------------+
-       |
-       v
-  +-----------------------------+
-  | 4. SessionKey computation   |  SessionKey factory method selected
-  |                             |  based on scope + context:
-  |    DM + perChannelContact   |  -> dmPerChannelContact()
-  |    DM + perContact          |  -> dmPerContact()
-  |    DM + shared              |  -> dmShared()
-  |    Group + shared           |  -> groupShared()
-  |    Group + perMember        |  -> groupPerMember()
-  |    Cron job                 |  -> cronSession()
-  |    Task                     |  -> taskSession()
-  |    Web UI                   |  -> webSession()
-  +-----------------------------+
-       |
-       v
-  +-----------------------------+
-  | 5. Session resolution       |  SessionService.getOrCreateByKey()
-  |    Load .session_keys.json  |
-  |    Key exists? -> load meta |
-  |    Key missing? -> create   |
-  |      new session + map key  |
-  +-----------------------------+
-       |
-       v
-  +-----------------------------+
-  | 6. Session lock             |  SessionLockManager.acquire()
-  |    acquire + execute turn   |  Write serialization
-  +-----------------------------+
-       |
-       v
-  +-----------------------------+
-  | 7. Message persistence      |  MessageService.insertMessage()
-  |    + turn execution         |  Append to messages.ndjson
-  +-----------------------------+
-```
+### Submission lifecycle
 
+A submission claim has a `commitState` (`preparing`, `committed`, `integrityFailed`) and a `workState`. Admission (`ConversationService.submit`) is a recoverable sequence, with each step persisted before the next:
 
-## 5. Session Services
+The sequence before `committed`: persist the claim as `preparing` in `meta.json`; verify attachments (sha256) and write the accepted manifest; append the transcript message by identity (its metadata carries `submissionId`, `revisionId`, `payloadDigest`); write the attempt or queue record file; persist the claim as `committed`. A committed claim becomes `accepted`, or `queued` if work is active or already queued.
 
-All session services live in `packages/dartclaw_core/lib/src/storage/`.
+[![Conversation submission lifecycle](diagrams/sessions-submission-lifecycle.svg)](diagrams/sessions-submission-lifecycle.svg)
+
+Rules that matter when changing this code:
+
+- **Verification before dispatch.** `_dispatch` revalidates the admitted context and checks the transcript message, record files and attachment manifest against the claim. A mismatch sets `integrityFailed` and `held` (`SUBMISSION_INTEGRITY_FAILED`).
+- **Queue order.** Input is queued whenever a turn is active, a dispatch is in flight, or any item is already `queued`, so a capacity-deferred message is never overtaken. A turn that completes releases the oldest `queued` item (`_observeOutcome` then `_dispatchFirstQueued`); a failed or cancelled turn, or shutdown, holds the remaining queue (`held`) instead. `steer` first confirms cancellation of the displayed turn, then admits ordinarily.
+- **Global-cap deferral.** A dispatch refused with `BusyTurnException` (web turns use waiting admission, so in practice the global turn cap or provider capacity) returns to `queued` and waits on `TurnManager.whenAdmissionCapacityAvailable()` outside the tracked background work, so shutdown never waits for capacity. When a slot frees, the session's mutation chain redispatches the oldest `queued` item unless a turn is active, whose settlement releases the queue instead. Losing the race for the slot re-defers the item.
+- **Idempotence.** Resubmitting a `submissionId` with the same revision and digest replays recovery; a different payload is `SUBMISSION_CONFLICT`.
+
+### Effective context and attempts
+
+An admitted attempt captures one complete `EffectiveConversationContext`: nullable project association, directory, reference root, provider, model, effort. General owner chats resolve directory and reference root to the validated owner workspace; project chats resolve the named ready checkout. `nextContext` is authoritative for the current association, even when a retained attempt records an older project.
+
+Moving a chat between General and a project (`_updateContext`) requires an idle, durable `user` session with no key and no pinned workspace (`CONTEXT_MOVE_UNAVAILABLE`, `CONTEXT_MOVE_BUSY`). It resets provider continuity, changes future context only, and appends one `contextChange` record without rewriting past attempts. The session's `AgentWorkspace` and storage principal never change. Project semantics: [ADR-017](../adrs/017-multi-project-architecture.md).
+
+### Branches
+
+Retry, edit and fork (refused for `channel`, `cron`, `task`, `logicalAgent` and `archive` sources with `BRANCH_UNAVAILABLE`) create a new destination session with a pre-reserved UUID (`createSessionWithIdentity`, source retention), copy visible messages by identity, and link both snapshots with a `ConversationBranchLink`. The destination provider, profile and workspace come from `TurnManager.resolveConversationDestination`, which is what fails with `BRANCH_DESTINATION_UNAVAILABLE`. Reserved identities make a crashed branch resumable.
+
+### Shutdown
+
+`DartclawServer.shutdown` calls `ConversationService.beginShutdown()` (refuse new admission with `SERVER_STOPPING`, hold queued work, drain the mutation chain), cancels active turns, then `drain()` awaits retained outcomes and background writes before storage closes. A completed turn cannot release queued work once shutdown has begun.
+
+---
+
+## 6. Session Services
+
+All three live in `packages/dartclaw_core/lib/src/storage/`.
 
 ### SessionService
 
-CRUD operations backed by the filesystem. Key methods:
+| Method | Behavior |
+|---|---|
+| `createSession` / `createSessionWithIdentity` | New UUID directory with `meta.json`; fires `SessionCreatedEvent`. The identity variant is idempotent for an identical request and throws `StateError` if the id is already used differently |
+| `getOrCreateByKey` | Key to UUID via `.session_keys.json` under `RepoLock`. A stale or archived mapping is dropped and a new session created. For a live session it lazy-migrates `type`, `channelKey`, `provider`, `securityProfile` and `executionMode` when they differ from the request (a null `executionMode` never clears a pinned one) |
+| `getByKey` / `removeKeyMapping` | Lookup without creation; unmap without deleting |
+| `updateSessionType` | Used for archive; notifies the observer |
+| `updateConversationState` / `updateInboxMetadata` | Replace the nested snapshot atomically; the inbox variant checks the expected revision |
+| `deleteSession` | Rejects protected types; removes directory and key mappings; fires `SessionEndedEvent` |
 
-| Method                | Behavior                                              |
-|-----------------------|-------------------------------------------------------|
-| `createSession()`     | UUID v4 dir + `meta.json`, fires `SessionCreatedEvent` |
-| `getSession(id)`      | Load `meta.json`, validate UUID format                 |
-| `listSessions()`      | Scan session dirs, sort by `updatedAt` descending      |
-| `getOrCreateByKey()`  | Deterministic key -> UUID via `.session_keys.json`     |
-| `updateTitle()`       | Atomic write of updated `meta.json`                    |
-| `touchUpdatedAt()`    | Bump `updatedAt` timestamp                             |
-| `updateSessionType()` | Change session type (e.g., archive on reset)           |
-| `updateProvider()`    | Update a system-managed pinned provider                |
-| `deleteSession()`     | Remove dir, fires `SessionEndedEvent`                  |
-
-Lazy migration: `getOrCreateByKey()` updates `type`, `channelKey`, and
-`provider` on existing sessions if they differ from the requested values.
-This handles upgrading old sessions created before type tracking was added.
-
-Interactive session creation does not accept a provider override. Main user and channel conversations always enter the
-single primary lane using `agent.provider`. The nullable session field records host-resolved routing for system-managed
-types such as tasks and logical-agent sessions; it is not a user-selectable interactive routing control.
+A single `SessionServiceObserver` (`onSessionTypeChanged`, `onSessionDeleting`) feeds the derived conversation index; `MessageServiceObserver` (`onMessageAppended`, `onMessagesCleared`) feeds the index and the inbox.
 
 ### MessageService
 
-Append-only NDJSON persistence with cursor-based pagination:
-
-| Method                  | Behavior                                           |
-|-------------------------|----------------------------------------------------|
-| `insertMessage()`       | Append JSON line, return `Message` with cursor     |
-| `getMessages()`         | Read all lines, assign 1-based cursor to each      |
-| `getMessagesAfterCursor()` | Resume from cursor (skip first N lines)         |
-| `getMessagesTail()`     | Last N messages (backward scan)                    |
-| `getMessagesBefore()`   | Backward pagination before a cursor                |
-| `clearMessages()`       | Truncate NDJSON file                               |
-
-Write serialization: `insertMessage()` and `clearMessages()` are enqueued via
-`BoundedWriteQueue` (a write-ahead queue backed by `WriteOp` completers) to
-prevent interleaved appends.
-
-**Cursor model**: The 1-based line number in the NDJSON file serves as the
-message cursor. This enables:
-- Efficient resume after crash: "give me all messages after cursor X"
-- Backward pagination: "give me N messages before cursor Y"
-- Stable ordering without separate sequence counters
+Append-only NDJSON with cursor reads (`getMessages`, `getMessagesAfterCursor`, `getMessagesTail`, `getMessagesBefore`, filtered variants). `insertMessage` and `clearMessages` run through a `BoundedWriteQueue`, so appends never interleave. Malformed lines are skipped with a warning on read; identity writes repair a torn final line first (`_repairTornFinalLine`).
 
 ### KvService
 
-Global key-value store backed by a single JSON file with atomic writes:
+Global key-value store over `kv.json` with a lazily loaded in-memory cache, writes through `BoundedWriteQueue`, and cache invalidation on write failure. It holds runtime state such as daily usage summaries and budget warning markers.
 
-| Method          | Behavior                                     |
-|-----------------|----------------------------------------------|
-| `get(key)`      | Load from in-memory cache, lazy-init from file |
-| `set(key, val)` | Atomic write via `BoundedWriteQueue`          |
-| `getByPrefix()` | Prefix scan over cached entries               |
-| `delete(key)`   | Remove key, atomic persist                    |
+---
 
-Used for global runtime state (e.g., daily usage summaries, budget warning
-markers). The cache is invalidated on write failure.
+## 7. Turn Admission and Locking
 
+### SessionLockManager
 
-## 6. Session Locking
+`packages/dartclaw_runtime/lib/src/concurrency/session_lock_manager.dart`. One instance is shared by every runner (`HarnessWiring`).
 
-Defined in `packages/dartclaw_runtime/lib/src/concurrency/session_lock_manager.dart`.
+- **Per-session lock.** `acquire(sessionId)` waits while that session is locked, then takes the lock. Waiters resume in the order they began waiting; a caller that finds the lock momentarily free takes it at once. Callers still upstream of `acquire` are not ordered here.
+- **Global cap.** After any wait, if `activeCount >= maxParallel` it throws `BusyTurnException(isSameSession: false)`. `maxParallel` comes from `concurrency.max_parallel_turns` (default 3). The manager is `Reconfigurable` on `server.*`, and a raise wakes callers parked in `whenCapacityAvailable()`.
+- **Capacity wakeup.** `whenCapacityAvailable()` reserves nothing: a woken caller retries `acquire` and may lose the race.
+- **Wait visibility.** A waiter arms two timers: `waiting` after 30 s and `stuck` after 120 s, surfaced as `TurnWaitState` with reason `session_lock` (`TurnWaitStateChangedEvent`).
 
-`SessionLockManager` provides per-session write serialization with a global
-concurrency cap:
+Consistency model: single writer per session. Only turn mutations (message append plus execution) take the lock; reads are never blocked.
 
-```
-SessionLockManager
-  +-- _maxParallel: int                (configurable, default: 3)
-  +-- _locks: Map<String, Completer>   (per-session lock state)
-  +-- _activeCount: int                (current global lock count)
-  |
-  +-- acquire(sessionId)               (wait if same-session busy,
-  |                                     throw BusyTurnException if global cap)
-  +-- release(sessionId)               (complete Completer, decrement count)
-  +-- isLocked(sessionId)              (query lock state)
-```
+### Arrival order: SessionMutationCoordinator
 
-**Behavior**:
-- Same-session contention: the caller `await`s the existing `Completer.future`,
-  then retries. This queues turns behind each other per-session, in the order
-  the callers reached `acquire()`.
-- Arrival order is guaranteed one level up: `TurnManager.reserveTurn` runs each
-  session's reservations through a per-session `SessionMutationCoordinator`
-  chain (`concurrency/session_mutation_coordinator.dart`), so the session read
-  and governance checks that precede `acquire()` cannot let a later request
-  overtake an earlier one. The lock manager itself only orders callers that
-  have already reached it. This is the canonical statement of the guarantee;
-  package rules and dartdocs point here.
-- The chain spans the whole reservation (session read, governance checks,
-  session lock, lane or worker permit), by design: ending it at the lock would
-  need the coordinator to signal admission mid-`acquire`. Consequences that are
-  accepted, not defects: a same-session successor waits behind its
-  predecessor's governance side effects and lane wait rather than overtaking
-  them and then blocking at the lock; a successor is not visible to
-  `ExecutionCoordinator`'s busy checks (`_acquiring`/`_active`) until its
-  predecessor's reservation completes, so `resetSessionContinuity` can succeed
-  in that window and the successor simply starts on the fresh continuity –
-  the same window a lone caller already had during its own session read; a
-  queued successor is not cancellable (it has no turn id), exactly as a lock
-  waiter was not. `TaskExecutor` takes leases via
-  `ExecutionCoordinator.acquire` + `reserveAdmittedTurn` directly and is
-  outside the chain.
-- Global cap: if `_activeCount >= _maxParallel`, throws `BusyTurnException`
-  with `isSameSession: false`.
-- Implements `Reconfigurable` -- watches `server.*` config keys and updates
-  `_maxParallel` on the fly from `ServerConfig.maxParallelTurns`.
+`SessionMutationCoordinator.run(sessionId, op)` is a per-session promise chain: operations for one session run one at a time, in arrival order, and never see each other's async gaps. One instance is one chain, so separate instances (`TurnManager._sessionReservations`, `ConversationService.mutations` shared with the inbox, the session routes' own) can nest safely, while nesting on the same instance and session deadlocks. This is the canonical statement of the ordering guarantee; code comments point here.
 
-**Consistency model**: Single-writer-at-a-time per session. No reads are
-blocked -- only turn mutations (message append + agent execution) acquire locks.
-This simplifies consistency guarantees and avoids read-write contention.
+`TurnManager.reserveTurn` runs each session's whole reservation through its chain: session read, governance checks, session lock, lane or worker permit. Ending the chain at the lock would require the coordinator to signal admission mid-`acquire`. Accepted consequences:
 
+- A same-session successor waits behind its predecessor's governance side effects and lane wait instead of overtaking and then blocking at the lock.
+- A successor is invisible to `ExecutionCoordinator`'s busy checks until its predecessor's reservation completes, so `resetSessionContinuity` can succeed in that window and the successor starts on the fresh continuity.
+- A queued successor cannot be cancelled (it has no turn id), as a lock waiter could not.
+- `TaskExecutor` calls `ExecutionCoordinator.acquire` plus `reserveAdmittedTurn` directly and is outside the chain.
 
-## 7. Event Bus Architecture
+### Admission order
 
-Defined in `packages/dartclaw_core/lib/src/events/`.
+`TurnRunner.admitTurn`, invoked through `ExecutionCoordinator.acquire` as the shared `admitExecution` hook (when there is no primary harness, only the lock step runs):
 
-### EventBus
+1. `checkBudget`: read-only daily budget check, before the lock.
+2. `SessionLockManager.acquire`: session lock and global cap. A cap rejection has recorded nothing yet.
+3. `checkLoopPreTurn`: turn-chain depth and token velocity (records the turn start).
+4. `awaitRateLimitWindow`: defers while the global turn rate limit is reached (records an event, waits holding the cap slot).
 
-Lightweight typed event bus using a broadcast `StreamController`:
+A throw from 3 or 4 releases the lock from 2. Steps 3 and 4 record state, so they run only once the cap admitted the attempt. For the same reason a fail-fast task or workflow request takes its lane permit before admission, so one that finds no permit returns without running these checks. It then holds the permit through the rate-limit wait, so `wait` requests on the same gate queue behind it. Every other request is admitted first and then takes its permit; a fail-fast logical-agent turn must not take it first, because its admission may wait on a same-session lock while an earlier turn of that session holds the permit. The checks themselves (budget, loop detection, rate limit) are specified in [Security Architecture](security-architecture.md).
 
-```dart
-class EventBus {
-  Stream<T> on<T extends DartclawEvent>()   // filtered, typed subscription
-  void fire(DartclawEvent event)            // broadcast to all listeners
-  Future<void> dispose()                    // close controller
-}
-```
+### What a rejected admission does, per surface
 
-**Semantics**:
-- Fire-and-forget: if no listener is subscribed, the event is silently dropped
-  (broadcast stream semantics)
-- Subscriber exceptions do not propagate to `fire()` callers -- caught by
-  `runZonedGuarded` and logged
-- Disposed bus logs a warning on `fire()` and returns (no exception)
+| Surface | Global cap reached (`BusyTurnException`, not same session) |
+|---|---|
+| Web chat | Submission returns to `queued`; redispatched on `whenAdmissionCapacityAvailable()` (section 5) |
+| Channel | `_untilAdmitted` in `channel_wiring.dart` waits for capacity and retries; the inbound message is already persisted, so the caller must not retry itself. Same-session busy propagates |
+| Task and workflow | Fail-fast; `TaskExecutor` marks the cap full and retries on the next poll |
+| Direct send to an existing session (`_sendExistingSessionTurn`) | `409 AGENT_BUSY_PROVIDER` |
 
-### DartclawEvent Hierarchy
+### Session-side turn lifecycle
 
-Sealed class hierarchy enabling exhaustive pattern matching:
+[![Turn admission and locking, session side](diagrams/sessions-turn-admission.svg)](diagrams/sessions-turn-admission.svg)
 
-```
-DartclawEvent (sealed)
-  |
-  +-- SessionLifecycleEvent (sealed)
-  |     +-- SessionCreatedEvent
-  |     +-- SessionEndedEvent
-  |     +-- SessionErrorEvent
-  |
-  +-- TaskLifecycleEvent (sealed)
-  |     +-- TaskStatusChangedEvent
-  |     +-- TaskReviewReadyEvent
-  |     +-- TaskEventCreatedEvent
-  |     +-- BudgetWarningEvent
-  |
-  +-- WorkflowLifecycleEvent (sealed)
-  |     +-- WorkflowRunStatusChangedEvent
-  |     +-- WorkflowStepCompletedEvent
-  |     +-- ParallelGroupCompletedEvent
-  |     +-- WorkflowBudgetWarningEvent
-  |     +-- LoopIterationCompletedEvent
-  |     +-- MapIterationCompletedEvent
-  |     +-- MapStepCompletedEvent
-  |     +-- WorkflowApprovalRequestedEvent
-  |     +-- WorkflowApprovalResolvedEvent
-  |
-  +-- ContainerLifecycleEvent (sealed)
-  |     +-- ContainerStartedEvent
-  |     +-- ContainerStoppedEvent
-  |     +-- ContainerCrashedEvent
-  |
-  +-- CompactionLifecycleEvent (sealed)
-  |     +-- CompactionStartingEvent
-  |     +-- CompactionCompletedEvent
-  |
-  +-- RunnerLifecycleEvent (sealed)
-  |     +-- RunnerStateChangedEvent
-  |
-  +-- ProjectLifecycleEvent (sealed)
-  |     +-- ProjectStatusChangedEvent
-  |
-  +-- LoopDetectedEvent             (governance)
-  +-- EmergencyStopEvent            (governance)
-  +-- ScheduledJobFailedEvent       (scheduling)
-  +-- FailedAuthEvent               (auth/security)
-  +-- GuardBlockEvent               (auth/security)
-  +-- ToolPermissionDeniedEvent     (auth/security)
-  +-- ConfigChangedEvent            (auth/config)
-```
+The turn id is generated and `turn_state.json` written only after admission and a lane permit succeeded, so a rejected request leaves no crash marker. Settlement removes the marker and releases the lock; the harness half of the lifecycle is in [Control Protocol](control-protocol.md#6-turn-lifecycle).
 
-### SessionLifecycleSubscriber
+---
 
-Convenience subscriber in `session_lifecycle_subscriber.dart` that logs
-session lifecycle events at INFO level. Demonstrates the typed subscription
-pattern:
+## 8. Event Bus
 
-```dart
-bus.on<SessionLifecycleEvent>().listen((event) {
-  switch (event) {
-    case SessionCreatedEvent(): _log.info('Session created: ...');
-    case SessionEndedEvent():   _log.info('Session ended: ...');
-    case SessionErrorEvent():   _log.warning('Session error: ...');
-  }
-});
-```
+`packages/dartclaw_core/lib/src/events/`. `EventBus` wraps a broadcast `StreamController<DartclawEvent>`:
 
-### Design Rationale
+- `on<T>()` returns a filtered, typed stream; `fire(event)` broadcasts.
+- Fire-and-forget: with no listener an event is dropped. Subscriber exceptions are caught by `runZonedGuarded` and logged, never thrown at the producer. Firing on a disposed bus logs a warning and returns.
 
-See ADR-011 for the event bus design decision. Key motivations:
-- Decouple producers (session service, task service, governance) from consumers
-  (SSE broadcast, UI updates, channel notifications, logging)
-- Enable new subsystems to observe state changes without modifying producers
-- Fire-and-forget semantics keep producers simple -- no error handling for
-  missing or failing consumers
+`DartclawEvent` is a sealed class split across `part` files, so a `switch` over it is exhaustive (the alert classifier relies on this, see [ADR-057](../adrs/057-workflow-events-stay-in-the-sealed-event-library.md)). Families:
 
+| Family (sealed parent) | Events |
+|---|---|
+| `SessionLifecycleEvent` | `SessionCreatedEvent`, `SessionEndedEvent`, `SessionErrorEvent` (declared, no production emitter) |
+| `TaskLifecycleEvent` | `TaskStatusChangedEvent`, `TaskReviewReadyEvent`, `TaskEventCreatedEvent`, `BudgetWarningEvent` |
+| `WorkflowLifecycleEvent` | run status, step completed or skipped, parallel group, loop and map iteration, budget warning, approval requested or resolved, serialization enacted |
+| `AgentExecutionEvent` | `AgentExecutionStatusChangedEvent` |
+| `ContainerLifecycleEvent` | started, stopped, crashed |
+| `CompactionLifecycleEvent` | starting, completed |
+| `RunnerLifecycleEvent`, `ProjectLifecycleEvent` | `RunnerStateChangedEvent`, `ProjectStatusChangedEvent` |
+| Unparented | `TurnWaitStateChangedEvent`, `LoopDetectedEvent`, `EmergencyStopEvent`, `OutboundMcpGovernanceEvent`, `FailedAuthEvent`, `GuardBlockEvent`, `ToolPermissionDeniedEvent`, `ConfigChangedEvent`, `CredentialHealthChangedEvent`, `ScheduledJobFailedEvent`, `ContextResearchMetricsEvent`, `WorkflowCliTurnProgressEvent`, `WorkflowCliStallEvent` |
 
-## 8. Group Sessions
+`SessionLifecycleSubscriber` (wired in `security_wiring.dart`) logs the three session events. Producers fire without knowing consumers; consumers (SSE bridge, alert router, audit bridge, `GroupSessionInitializer`, `ScopeReconciler`) are described in [Observability](observability-operations-architecture.md) and [Configuration](configuration-architecture.md). Rationale: [ADR-011](../adrs/011-event-driven-architecture.md).
 
-### GroupSessionInitializer
+---
 
-Defined in `packages/dartclaw_runtime/lib/src/session/group_session_initializer.dart`.
+## 9. Group Sessions
 
-Pre-creates sessions for allowlisted groups so they appear in the UI immediately,
-without waiting for the first inbound message.
+`GroupSessionInitializer` (`packages/dartclaw_runtime/lib/src/session/group_session_initializer.dart`) pre-creates sessions for allowlisted groups so they appear in the UI before the first message. It runs at startup for every `ChannelGroupConfig` with `groupAccessEnabled`, and again on a `ConfigChangedEvent` for `channels.<type>.group_allowlist`.
 
-**Trigger points**:
-1. Server startup: iterates all `ChannelGroupConfig` entries with
-   `groupAccessEnabled == true`
-2. Config change: subscribes to `ConfigChangedEvent` and watches for
-   `channels.<type>.group_allowlist` key changes
+For each group it calls `getOrCreateByKey(SessionKey.groupShared(agentId: entry.agent ?? 'main', ...), type: channel)`, with the row's agent as the key's agent component so it matches the key inbound messages derive. It titles the session only when `title == null`: structured `GroupEntry.name`, else the channel's `displayNameResolver`, else the raw group id. A user-set title is never overwritten. It pre-creates no thread-scoped sessions.
 
-**Session creation flow**:
-1. Compute `SessionKey.groupShared()` for each `(channelType, groupId)` pair,
-   with the row's `agent` (default `main`) as the key's agent component
-2. Call `SessionService.getOrCreateByKey()` with `SessionType.channel`
-3. Set title via display name resolution chain:
-   - Structured `GroupEntry.name` (trimmed, non-empty)
-   - `displayNameResolver` callback (e.g., Google Chat API lookup)
-   - Raw group ID as fallback
-4. Only set title if `null` (newly created) -- never overwrite user-set titles
+DM access control and pairing are in [Channel Messaging](channel-messaging-architecture.md).
 
-### ChannelGroupConfig
+---
 
-Lightweight config decoupling the initializer from channel-specific config types:
-
-```
-ChannelGroupConfig
-  +-- channelType: String
-  +-- groupAccessEnabled: bool
-  +-- groupEntries: List<GroupEntry>
-```
-
-### DmAccessController
-
-Defined in `packages/dartclaw_core/lib/src/channel/dm_access.dart`.
-Controls which senders are allowed to DM the bot.
-
-| Mode        | Behavior                                          |
-|-------------|---------------------------------------------------|
-| `open`      | Any sender may interact                           |
-| `allowlist`  | Only listed senders allowed                       |
-| `pairing`   | Unknown senders get a pairing code for approval    |
-| `disabled`  | All DMs rejected                                  |
-
-The pairing flow: `createPairing()` generates an 8-character code (ambiguity-free
-charset: no 0/O/1/I), valid for 1 hour, max 3 pending. `confirmPairing(code)`
-adds the sender to the allowlist; `rejectPairing(code)` discards it.
-
-
-## 9. Session Maintenance
-
-### SessionMaintenanceService
-
-Defined in `packages/dartclaw_runtime/lib/src/maintenance/session_maintenance_service.dart`.
-
-Executes a five-stage pipeline:
-
-```
-Stage 1: Prune Stale Sessions
-  Archive sessions older than pruneAfterDays (skip protected + task + archive)
-
-Stage 2: Count Cap
-  Archive oldest non-protected sessions when active count > maxSessions
-
-Stage 3: Cron Retention
-  Delete orphaned cron sessions older than cronRetentionHours
-
-Stage 4: Disk Budget
-  Delete archived sessions oldest-first until under maxDiskMb * 80%
-
-Stage 5: Artifact Retention
-  Delete task artifacts older than artifactRetentionDays
-```
-
-**Protected sessions** are never pruned:
-- `main` type (always protected)
-- `channel` type with an active channel key
-- `cron` type with an active job ID
-- `task` type (always protected)
-
-### SessionMaintenanceConfig
-
-```
-SessionMaintenanceConfig
-  +-- mode: MaintenanceMode      (warn = dry-run, enforce = apply)
-  +-- pruneAfterDays: int        (default: 30, 0 = disabled)
-  +-- maxSessions: int           (default: 500, 0 = disabled)
-  +-- maxDiskMb: int             (default: 0 = disabled)
-  +-- cronRetentionHours: int    (default: 24, 0 = disabled)
-  +-- schedule: String           (cron expression, default: "0 3 * * *")
-```
+## 10. Session Reset and Maintenance
 
 ### SessionResetService
 
-Defined in `packages/dartclaw_runtime/lib/src/session/session_reset_service.dart`.
-Manages daily and idle-timeout session resets.
+`packages/dartclaw_runtime/lib/src/session/session_reset_service.dart`. The daily and idle timers act on `main`, `channel` and `cron` sessions only; `POST /api/sessions/<id>/reset` can target any other non-archive, non-task session (a turn in progress answers `409 SESSION_BUSY`). `sessions.reset_hour` and `sessions.idle_timeout_minutes` reload live: the service is `Reconfigurable` on `sessions.*`.
 
-**Daily reset** (configurable hour, default 4 AM):
-- Iterates all `main`, `channel`, and `cron` sessions
-- For keyed sessions with messages: convert to `archive`, create fresh replacement
-- For keyed sessions without messages: mark as `archive` (key index treats as stale)
+[![Session reset: three triggers, continuity first, then archive or clear](diagrams/sessions-reset.svg)](diagrams/sessions-reset.svg)
 
-**Idle timeout** (opt-in, default 0 = disabled):
-- Per-session timer started by `touchActivity(sessionId)`
-- On timeout: reset session via the same archive-and-replace flow
+- **Idle timeout**: `touchActivity(sessionId)` restarts a per-session timer. `TurnRunner` calls it when a turn is reserved and on forward-progress events, so long tool runs keep the session alive.
+- **Order inside `resetSession(id)`**: provider continuity is reset first through `TurnManager.resetSessionContinuity`, which throws `BusyTurnException` while a turn is active (the daily reset logs the failure and moves on, so that session waits for the next trigger). Only then is the session archived or cleared, so a failed reset never archives a session whose provider state is still live.
+- A keyed session is archived (an empty one without a title) and `getOrCreateByKey` then creates its replacement under the same key and type at once; it treats the archived mapping as stale. An unkeyed session is cleared in place: its messages and its attachments directory are removed and no archive is created.
 
-**Per-session reset** (`resetSession(id)`):
-- Keyed sessions: archive old, create fresh with same key + type
-- User/unkeyed sessions: clear messages in place (no archive)
+### SessionMaintenanceService
 
-Implements `Reconfigurable` -- watches `sessions.*` config keys for live
-updates to `resetHour` and `idleTimeoutMinutes`.
+[![Session maintenance: six stages and the sessions they never touch](diagrams/sessions-maintenance.svg)](diagrams/sessions-maintenance.svg)
 
+`packages/dartclaw_runtime/lib/src/maintenance/session_maintenance_service.dart`. Stages run in the figure's order, and a limit of `0` disables its stage. `mode: warn` (the default) plans and reports without applying; `enforce` applies. Stage 3 flips a cron session's type to `user` before deleting it so the protected-type guard in `deleteSession` passes.
 
-## 10. Thread Binding
+| Stage | Action | Setting (default) |
+|---|---|---|
+| 0 | Auto-settle idle conversations (`ConversationInboxService`) | `sessions.auto_settle_idle_days` (0) |
+| 1 | Archive sessions not updated within the window (never `archive`, `task`, or protected) | `prune_after_days` (30) |
+| 2 | Archive the oldest unprotected sessions beyond the cap | `max_sessions` (500) |
+| 3 | Delete orphaned cron sessions older than the window (type is flipped to `user` first to pass the delete guard) | `cron_retention_hours` (24) |
+| 4 | Delete archived sessions oldest-first until usage is at most 80% of the budget | `max_disk_mb` (0) |
+| 5 | Delete artifacts of terminal tasks older than the window | `tasks.artifact_retention_days` |
 
-Crowd coding feature. Defined in
-`packages/dartclaw_core/lib/src/channel/thread_binding.dart`.
-Related classes (`ThreadBindingRouter`, `ThreadBindingLifecycleManager`) live
-alongside it in the same directory.
+Protected from stages 1, 2 and 4: `main`, `task`, any session with an active turn (`isSessionActive`), a `channel` session whose key is active, and a `cron` session whose job is active. The scheduled job treats every existing channel session key as active whenever a channel is registered; `dartclaw cleanup` does so whenever a channel is enabled in config, and derives active jobs from config. Stages 0 and 5 run only from the scheduled job; `dartclaw cleanup` passes no inbox or task service. Stage 5 and the audit-file cleanup that follows the scheduled run are outside the session model.
 
-Thread bindings route messages from specific channel threads directly to task
-sessions, bypassing the normal scope-based routing.
+---
 
-### ThreadBinding Model
+## 11. Crash Recovery
 
-```
-ThreadBinding
-  +-- channelType: String      (e.g., "googlechat")
-  +-- threadId: String         (e.g., "spaces/AAAA/threads/CCCC")
-  +-- taskId: String           (bound task ID)
-  +-- sessionKey: String       (task session key)
-  +-- createdAt: DateTime
-  +-- lastActivity: DateTime
-```
+Recovery layers, from the transcript up:
 
-Compound key: `<channelType>::<threadId>` (via `ThreadBinding.key()`).
+| Layer | Mechanism |
+|---|---|
+| Transcript | `messages.ndjson` is append-only and never truncated in normal operation. Reads skip malformed lines with a warning; identity writes repair a torn final line. Clients resume with `getMessagesAfterCursor` |
+| Session files | `meta.json`, `.session_keys.json` and thread bindings use atomic temp-file-and-rename writes ([Data Model](data-model.md#7-write-safety)) |
+| Active turns | `TurnRunner` records `{turnId, startedAt}` per session in `turn_state.json` at reservation and deletes it at settlement or cancel. After `wire()` on a serving start, `detectAndCleanOrphanedTurns()` removes surviving records and flags each session; `consumeRecoveryNotice(sessionId)` returns true once, and the web session page renders the "recovered from an interrupted turn" banner. Headless runs neither scan nor acknowledge. Store format, quarantine and startup scan: [Control Protocol](control-protocol.md) and [Data Model](data-model.md) |
+| Conversation state | `ConversationService.recoverAfterRestart` runs lazily, once per session, on first touch (`_ensureRecovered`) |
+| Transient state | Lock table, pause state, loop detector windows and rate-limit timestamps are in memory and reset on restart, so no phantom locks or stale limits survive a crash |
+| Temporary conversations | Process memory only; lost on restart by design |
 
-### ThreadBindingStore
+`recoverAfterRestart` rewrites persisted `workState` so nothing is shown as live that the process cannot confirm:
 
-In-memory `Map` backed by a JSON file. All lookups are synchronous (in-memory);
-only writes touch the filesystem with atomic persistence.
+| Found | Becomes |
+|---|---|
+| `commitState: preparing` | Sequence completed idempotently; on failure `integrityFailed` and `held` |
+| `dispatching`, `running`, `stopping` | `uncertain` (informational; the next dispatch marks it `failed`: "Dispatch was never confirmed") |
+| `queued` | `held` (the owner releases or removes it) |
+| Approval record `resolving` | `unavailable` ("Decision delivery could not be confirmed after restart") |
 
-| Method                | Behavior                                           |
-|-----------------------|----------------------------------------------------|
-| `load()`              | Parse JSON array from file on startup               |
-| `create(binding)`     | Upsert + persist                                    |
-| `lookupByThread()`    | Synchronous in-memory lookup                        |
-| `lookupByTask()`      | Filter by `taskId`                                  |
-| `updateLastActivity()`| Touch `lastActivity` + persist                      |
-| `delete()`            | Remove by thread key + persist                      |
-| `deleteByTaskId()`    | Remove all bindings for a task (best-effort persist) |
-| `removeExpiredBindings()` | Prune by `lastActivity` cutoff                  |
-| `reconcile(activeIds)`| Remove bindings for tasks not in the active set     |
+It also removes partial attachment uploads. An approval action is offered only when the exact request and turn are still live (`canResolveToolApproval`), recomputed on read.
 
-File format: JSON array of serialized `ThreadBinding` objects, written atomically.
-
-### Routing Integration
-
-Thread binding lookup occurs before scope-based routing in the message pipeline
-(see section 4). When a bound thread is found, the message bypasses `SessionKey`
-computation and routes directly to the task's session.
-
-Auto-unbind: when a task reaches a terminal state, `deleteByTaskId()` removes
-all associated bindings.
-
-
-## 11. Governance & Emergency Controls
-
-### GovernanceConfig
-
-Top-level governance configuration in `packages/dartclaw_kernel/lib/src/governance_config.dart`:
-
-```
-GovernanceConfig
-  +-- adminSenders: List<String>     (empty = all are admins)
-  +-- rateLimits: RateLimitsConfig
-  |     +-- perSender: PerSenderRateLimitConfig
-  |     |     +-- messages: int              (0 = disabled)
-  |     |     +-- windowMinutes: int         (default: 5)
-  |     |     +-- maxQueued: int             (0 = disabled)
-  |     |     +-- maxPauseQueued: int        (0 = disabled)
-  |     +-- global: GlobalRateLimitConfig
-  |           +-- turns: int                 (0 = disabled)
-  |           +-- windowMinutes: int         (default: 60)
-  +-- budget: BudgetConfig
-  |     +-- dailyTokens: int                 (0 = disabled)
-  |     +-- action: BudgetAction             (warn | block)
-  |     +-- timezone: String                 (default: "UTC")
-  +-- loopDetection: LoopDetectionConfig
-  |     +-- enabled: bool                    (default: false)
-  |     +-- maxConsecutiveTurns: int         (0 = disabled)
-  |     +-- maxTokensPerMinute: int          (0 = disabled)
-  |     +-- velocityWindowMinutes: int       (default: 5)
-  |     +-- maxConsecutiveIdenticalToolCalls: int (0 = disabled)
-  |     +-- action: LoopAction               (abort | warn)
-  +-- queueStrategy: QueueStrategy           (fifo | fair)
-  +-- crowdCoding: CrowdCodingConfig
-  +-- turnLimits: TurnLimitsConfig
-```
-
-All features default to disabled for backward compatibility. When `adminSenders`
-is empty, all senders are treated as admins (suitable for single-user deployments).
-
-### TurnGovernanceEnforcer
-
-Defined in `packages/dartclaw_runtime/lib/src/turn_governance_enforcer.dart`.
-Orchestrates pre-turn and in-turn governance checks:
-
-**Pre-turn checks** (called before `SessionLockManager.acquire()`):
-1. `checkBudget()` -- consult `BudgetEnforcer` for daily token budget
-2. `awaitRateLimitWindow()` -- defer if global rate limit reached
-3. `checkLoopPreTurn()` -- turn chain depth + token velocity
-
-**In-turn checks** (called during turn execution):
-4. `recordToolCall()` -- tool fingerprint loop detection
-5. `recordTokensAndCheckVelocity()` -- rolling token velocity
-
-### SlidingWindowRateLimiter
-
-In-memory sliding window rate limiter in
-`packages/dartclaw_kernel/lib/src/sliding_window_rate_limiter.dart` (exported from the kernel barrel).
-
-- Tracks events per key within a configurable time window
-- `check(key)`: returns `true` if under limit (and records event), `false` if at limit
-- Lazy eviction: expired entries removed on `check`/`currentCount`/`totalCount`
-- `limit <= 0` means unlimited -- `check()` always returns `true`
-- Used for both per-sender inbound rate limiting and global turn rate limiting
-
-### LoopDetector
-
-Three independent detection mechanisms in
-`packages/dartclaw_kernel/lib/src/loop_detector.dart` (exported from the kernel barrel):
-
-```
-Mechanism 1: Turn Chain Depth
-  Per-session consecutive autonomous turn count.
-  Reset on human input. Triggers when depth > maxConsecutiveTurns.
-
-Mechanism 2: Token Velocity
-  Rolling window of (timestamp, tokens) per session.
-  Triggers when tokens in window > maxTokensPerMinute * velocityWindowMinutes.
-
-Mechanism 3: Tool Fingerprinting
-  Per-turn consecutive identical tool calls.
-  Canonical JSON fingerprint (sorted keys). Triggers when count >= threshold.
-```
-
-All state is in-memory -- resets on restart. Each mechanism independently
-disableable by setting its threshold to 0.
-
-Returns `LoopDetection` results (mechanism, sessionId, message, detail) --
-callers decide the action (`LoopAction.abort` throws `LoopDetectedException`,
-`LoopAction.warn` logs and continues).
-
-### BudgetEnforcer
-
-Defined in `packages/dartclaw_runtime/lib/src/governance/budget_enforcer.dart`.
-The daily scope over the shared `BudgetEngine`; it reports consumption only:
-
-```
-Under 80%         -> BudgetOutcome.under
-At/above 80%      -> BudgetOutcome.warning  (warningIsNew once per day)
-At/above 100%     -> BudgetOutcome.exceeded (warningIsNew once per day)
-```
-
-`TurnGovernanceEnforcer` maps the outcome onto `BudgetConfig.action`: at or
-above 100% under `block` it throws `BudgetExhaustedException`, otherwise it
-warns and lets the turn through.
-
-Timezone-aware via `BudgetConfig.timezone` (supports `UTC`, `UTC+N`, `UTC-N`).
-Reads actual consumption from `UsageTracker.dailySummaryForDate()`, and keeps
-its once-per-day warning marker in the same aggregate, so it survives a restart.
-
-### Emergency Controls
-
-**`/stop`** -- `EmergencyStopHandler` in
-`packages/dartclaw_runtime/lib/src/emergency/emergency_stop_handler.dart`:
-
-1. Cancel all active turns across coordinator-managed primary and worker runners
-2. Transition all `running` and `queued` tasks to `cancelled`
-3. Fire `EmergencyStopEvent` on the EventBus
-4. Broadcast `emergency_stop` SSE event
-
-Best-effort: individual failures are logged but do not halt the stop sequence.
-Admin-only command.
-
-**`/pause`** and **`/resume`** -- `PauseController` in
-`packages/dartclaw_runtime/lib/src/governance/pause_controller.dart`:
-
-**Pause state**:
-- `pause(adminName)`: set paused flag, record who/when
-- While paused: `enqueue()` queues inbound messages per session key
-  - Per-sender cap (`maxPauseQueued`) prevents queue flooding
-  - Global cap (`maxQueueSize`, default 200) prevents memory exhaustion
-
-**Resume and drain**:
-- `drain()`: returns `Map<sessionKey, collapsedText>`, clears queue, unpauses
-- Collapsed text format groups messages per sender within each session:
-  ```
-  While paused, 2 participants sent messages:
-  - Alice: message1, message2
-  - Bob: message3
-  ```
-
-All state is in-memory -- resets automatically on server restart (no persisted
-pause state means a crash naturally "unpauses").
-
-
-## 12. Crowd Coding State
-
-Multi-user collaborative AI agent steering via channel Spaces.
-
-### Governance Pipeline Ordering
-
-For crowd coding scenarios, governance checks execute in a strict order before
-message routing:
-
-```
-  Inbound Channel Message
-       |
-       v
-  [1] Per-sender rate limit      (admin exempt)
-       |
-       v
-  [2] Token budget check         (warn or block)
-       |
-       v
-  [3] Loop detection check       (turn chain + velocity)
-       |
-       v
-  [4] Pause check                (enqueue if paused)
-       |
-       v
-  [5] Thread binding lookup      (bound thread -> task session)
-       |
-       v
-  [6] Scope-based routing        (SessionKey computation)
-```
-
-### Sender Attribution
-
-Tasks track `createdBy` (sender identity extracted from the channel message that
-triggered task creation). This attribution flows through to the UI (task list,
-Cards v2 responses) and is used for per-sender governance decisions.
-
-### Per-Sender Message Queuing
-
-During pause, the `PauseController` maintains per-sender message queuing:
-- Messages are partitioned by session key for drain delivery
-- Within each session, messages are grouped by sender display name
-- Chronological first-appearance order is preserved for senders
-- Admin senders bypass per-sender queue caps but not the global cap
-
-### Queue Strategy
-
-`QueueStrategy` enum controls drain behavior:
-- `fifo` (default): preserve insertion order
-- `fair`: round-robin across senders (future crowd coding enhancement)
-
-
-## 13. Crash Recovery
-
-DartClaw uses multiple mechanisms for crash resilience:
-
-### NDJSON Cursor Recovery
-
-The `messages.ndjson` file is append-only. The 1-based line number serves as
-the cursor. On crash:
-
-1. The NDJSON file is never truncated during normal operation -- only appended
-2. Malformed trailing lines (partial write) are detected and skipped by
-   `MessageService.getMessages()` (logged as warnings)
-3. `getMessagesAfterCursor(sessionId, cursor)` resumes from the last known
-   cursor position
-
-### TurnStateStore
-
-`openTurnStateStore(path)` in `packages/dartclaw_core/lib/src/storage/turn_state_store.dart` opens `turn_state.json`, a JSON object keyed by session ID. Each value contains `turnId` and ISO-8601 `startedAt`.
-
-| Method | Behavior |
-|--------|----------|
-| `set()` | Synchronously read, update and atomically persist the active turn |
-| `delete()` | Synchronously remove and persist the session's turn record |
-| `getAll()` | Re-read disk and return active turns in ascending session-ID order |
-| `dispose()` | No-op; the filesystem store holds no open database connection |
-
-Mutations use `secureWriteFileSync` and are durable before returning their completed future, preserving unawaited turn-boundary calls. Open creates an empty object if absent, clears temporary siblings, and quarantines malformed JSON with a warning. Post-open I/O failures propagate.
-
-On restart, orphan recovery reads the active records, removes them, and emits a one-time recovery notice for each affected session. The automated proof path is `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`: it starts a turn, kills the process, restarts with the same directory, consumes the recovery notice and renders the `.msg-turn-failed` path.
-
-### Atomic Writes
-
-Turn state and webhook delivery markers use the synchronous `secureWriteFileSync` variant of the temp-file/rename pattern. Other JSON services may await their writer.
-
-All JSON state files (`meta.json`, `.session_keys.json`, `thread-bindings.json`,
-KvService) use atomic writes:
-
-```dart
-Future<void> atomicWriteJson(File target, Object json) async {
-  final tempFile = File('${target.path}.tmp');
-  await tempFile.writeAsString(jsonEncode(json));
-  await tempFile.rename(target.path);  // atomic on POSIX
-}
-```
-
-This prevents partial writes from corrupting state files on crash. The `rename`
-operation is atomic on POSIX filesystems, so the file is either fully written
-or contains the previous content.
-
-### In-Memory State Reset
-
-Several components use in-memory state that naturally resets on restart:
-- `PauseController`: paused state, queued messages
-- `LoopDetector`: turn chain depths, velocity windows, tool fingerprints
-- `SlidingWindowRateLimiter`: event timestamps
-- `SessionLockManager`: active locks
-
-This is by design -- a crash naturally clears all transient governance state,
-which is the safest default (no stale rate limits or phantom locks after restart).
-
+The automated proof for the orphan path is `packages/dartclaw_runtime/test/integration/crash_recovery_smoke_test.dart`: kill a process mid-turn, restart on the same directory, and check that the recovery banner appears once and the failed-turn message (`.msg-turn-failed`) renders.
 
 ---
 
 ## Cross-References
 
-- [System Architecture](system-architecture.md) -- component map, 2-layer model, turn orchestration
-- [Data Model & Persistence](data-model.md) -- session storage layout, `messages.ndjson`, `.session_keys.json`, entity relationships
-- [Security Architecture](security-architecture.md) -- guard pipeline, governance rate limiting, emergency controls, access control
-- [Control Protocol](control-protocol.md) -- JSONL protocol spec, stream events, harness lifecycle
-- [Workflow Architecture](workflow-architecture.md) -- workflow sessions, step execution, approval gates
-- [Architecture Governance](architecture-governance.md) -- fitness functions, structural boundaries
-- ADR-011 -- Event bus design rationale
-- ADR-017 -- Multi-project architecture (project sessions, credential injection)
+- [System Architecture](system-architecture.md): component map, package topology, service wiring
+- [Data Model & Persistence](data-model.md): session and message entities, storage layout, write safety, `turn_state.json`
+- [Control Protocol](control-protocol.md): harness turn lifecycle, liveness, worker crash recovery
+- [Security Architecture](security-architecture.md): budget, rate-limit, loop detection, pause and emergency stop
+- [Channel Messaging](channel-messaging-architecture.md): inbound pipeline, `ChannelTaskBridge`, thread binding, DM access, crowd coding
+- [Task Execution](task-execution-architecture.md): task sessions, `TaskExecutor` admission
+- [Workflow Architecture](workflow-architecture.md): workflow sessions and step execution
+- [Observability & Operations](observability-operations-architecture.md): SSE bridge, alerts, usage tracking
+- [Architecture Governance](architecture-governance.md): fitness functions, structural boundaries
+- [ADR-011](../adrs/011-event-driven-architecture.md): event bus rationale
+- [ADR-017](../adrs/017-multi-project-architecture.md): projects, project chats, effective context

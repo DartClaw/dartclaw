@@ -32,6 +32,7 @@ void main() {
     return SecurityWiring(
       config: config,
       dataDir: dataDir,
+      runtimeCwd: dataDir,
       eventBus: eventBus,
       exitFn: (code) => throw Exception('exitFn called with $code'),
       configNotifier: configNotifier,

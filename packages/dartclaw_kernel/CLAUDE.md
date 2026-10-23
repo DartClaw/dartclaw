@@ -76,7 +76,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   omits both workspace fields; a partial pair is malformed. `Session.titleRevision`, `titleProvenance`, and
   `automaticTitleAttempted` are the persisted title race authority; manual and newer revisions beat automatic
   generation.
-- `SessionKey` factories encode components. Callers never construct encoded session identifiers by hand.
+- `SessionKey` factories encode components. Callers never construct encoded session identifiers by hand. The DM and group factories take an optional `threadId`, appended as `:thread:<encoded id>`, so a channel thread is its own session.
 - Domain-specific models stay with their owning package. A type sinks here only when independent packages need one and
   no lower owner exists.
 
@@ -87,6 +87,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   policy compatibility.
 - Shell vocabulary lives once in `command_vocabulary.dart`. Read-only admission is allowlist-based.
 - `MessageRedactor` decides from secret-shaped keys only; do not add prose/value heuristics.
+- `MessageRedactor.registerLiterals` holds exact secrets with no recognisable shape (a signing secret): masked fully like call-time `sensitiveValues`, kept apart from the compiled patterns so `recompilePatterns` cannot drop them. Never register one as an extra pattern, which keeps up to 8 leading characters.
 - `ContentScan` (`content_scan.dart`) is the single truncate → classify → fail-policy authority for every scanning
   site: `ContentGuard` here, `web_fetch` and outbound `public` MCP results in `dartclaw_runtime`. Built once in
   `SecurityWiring` and injected; `ContentGuard` holds only the injected instance, the hook-point gate and `enabled`.
@@ -129,6 +130,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 - `lib/src/dartclaw_config.dart` and `config_parser*.dart` – load and parse pipeline.
 - `lib/src/config_meta.dart`, `config_meta/`, `config_constraints.dart`, `config_numeric_bounds.dart` – field registry and validation authority.
 - `lib/src/guard.dart`, `guard_verdict.dart`, and the `*_guard.dart` files – guard framework and built-ins; `content_scan.dart` – the one classification + fail-policy authority.
+- `lib/src/constant_time.dart` – `constantTimeEquals`, the one secret comparison (an empty side never matches); runtime auth and the workflow approval nonce check both use it.
 - `lib/src/safe_process.dart`, `process/git_runner.dart` – subprocess boundary.
 - `lib/src/http_request.dart` – the one-shot HTTP seam every package uses: create → optional connection timeout → open
   → headers → utf8-encoded body → close → utf8-decode → `close(force: true)`, returning `(statusCode, body)` without

@@ -27,6 +27,9 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               dispatched.add((sessionKey, message));
               return 'ok';
@@ -132,6 +135,9 @@ void main() {
           String? senderJid,
           String? senderDisplayName,
           String? groupJid,
+          String? recipientId,
+          String? threadId,
+          List<ChannelAttachment> attachments = const [],
         }) async => 'ok',
       );
       return ChannelManager(
@@ -380,6 +386,82 @@ void main() {
     });
   });
 
+  group('thread-aware session keys', () {
+    ChannelManager buildManager(SessionScopeConfig scopeConfig) => ChannelManager(
+      queue: MessageQueue(
+        dispatcher: (
+          sessionKey,
+          message, {
+          required ChannelType channelType,
+          String? senderJid,
+          String? senderDisplayName,
+          String? groupJid,
+          String? recipientId,
+          String? threadId,
+          List<ChannelAttachment> attachments = const [],
+        }) async => 'ok',
+      ),
+      config: const ChannelConfig.defaults(),
+      liveScopeConfig: LiveScopeConfig(scopeConfig),
+    );
+
+    ChannelMessage message(String sender, {String? group, String? thread}) => ChannelMessage(
+      channelType: ChannelType.signal,
+      senderJid: sender,
+      groupJid: group,
+      text: 'hi',
+      metadata: {threadIdMetadataKey: ?thread},
+    );
+
+    test('a group thread is one session under shared scope and one per member under per-member scope', () {
+      final shared = buildManager(const SessionScopeConfig(dmScope: DmScope.perContact, groupScope: GroupScope.shared));
+      final perMember = buildManager(
+        const SessionScopeConfig(dmScope: DmScope.perContact, groupScope: GroupScope.perMember),
+      );
+      addTearDown(shared.dispose);
+      addTearDown(perMember.dispose);
+
+      final first = message('alice', group: 'G1', thread: 't1');
+      final reply = message('bob', group: 'G1', thread: 't1');
+      final otherThread = message('alice', group: 'G1', thread: 't2');
+
+      expect(shared.deriveSessionKey(first), shared.deriveSessionKey(reply));
+      expect(shared.deriveSessionKey(first), isNot(shared.deriveSessionKey(otherThread)));
+      expect(perMember.deriveSessionKey(first), isNot(perMember.deriveSessionKey(reply)));
+      expect(perMember.deriveSessionKey(first), isNot(perMember.deriveSessionKey(otherThread)));
+      expect(shared.deriveSessionKey(first), isNot(shared.deriveSessionKey(message('alice', group: 'G1'))));
+    });
+
+    test('a DM thread is its own session under every DM scope', () {
+      for (final scope in DmScope.values) {
+        final manager = buildManager(SessionScopeConfig(dmScope: scope, groupScope: GroupScope.shared));
+        addTearDown(manager.dispose);
+
+        final inThread = manager.deriveSessionKey(message('alice', thread: 't1'));
+        final otherThread = manager.deriveSessionKey(message('alice', thread: 't2'));
+        final unthreaded = manager.deriveSessionKey(message('alice'));
+
+        expect({inThread, otherThread, unthreaded}, hasLength(3), reason: scope.name);
+      }
+    });
+
+    test('a message without the thread key derives the key it always did', () {
+      final manager = buildManager(
+        const SessionScopeConfig(dmScope: DmScope.perChannelContact, groupScope: GroupScope.perMember),
+      );
+      addTearDown(manager.dispose);
+
+      expect(
+        manager.deriveSessionKey(message('alice')),
+        SessionKey.dmPerChannelContact(channelType: 'signal', peerId: 'alice'),
+      );
+      expect(
+        manager.deriveSessionKey(message('alice', group: 'G1')),
+        SessionKey.groupPerMember(channelType: 'signal', groupId: 'G1', peerId: 'alice'),
+      );
+    });
+  });
+
   // TI10: bridge + manager routing precedence integration tests
   group('ChannelManager + ChannelTaskBridge routing precedence', () {
     late RecordingMessageQueue queue;
@@ -488,6 +570,9 @@ void main() {
           String? senderJid,
           String? senderDisplayName,
           String? groupJid,
+          String? recipientId,
+          String? threadId,
+          List<ChannelAttachment> attachments = const [],
         }) async => 'ok',
       );
       return ChannelManager(

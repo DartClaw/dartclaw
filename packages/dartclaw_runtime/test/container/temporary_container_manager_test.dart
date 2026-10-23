@@ -18,6 +18,7 @@ void main() {
       profileId: 'workspace',
       workspaceMounts: const ['/tmp/project:/project:rw'],
       generatedStateDir: '/tmp/must-not-be-created',
+      buildContextDir: '/tmp/must-not-be-created',
       volatileGeneratedState: true,
       runCommand: (_, arguments) async {
         commands.add(arguments);

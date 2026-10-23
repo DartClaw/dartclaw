@@ -1,0 +1,209 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 764" width="1000" height="764" role="img" aria-labelledby="title desc">
+  <title id="title">Execution lanes</title>
+  <desc id="desc">A request enters one of two lanes. The primary lane has one permit outside pool_size; the worker lane has providers.&lt;id&gt;.pool_size permits per provider. After a permit the coordinator hands out the primary runner, a cached worker or a new one as an ExecutionLease, released exactly once to the cache, to disposal, or to quarantine when termination is unconfirmed.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#s1:hover) .edges :is(.f-s1,.t-s1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s2:hover) .edges :is(.f-s2,.t-s2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s3:hover) .edges :is(.f-s3,.t-s3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gp:hover) .edges :is(.f-gp,.t-gp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gw:hover) .edges :is(.f-gw,.t-gw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pr:hover) .edges :is(.f-pr,.t-pr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cw:hover) .edges :is(.f-cw,.t-cw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#nw:hover) .edges :is(.f-nw,.t-nw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lease:hover) .edges :is(.f-lease,.t-lease) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rc:hover) .edges :is(.f-rc,.t-rc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rd:hover) .edges :is(.f-rd,.t-rd) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rq:hover) .edges :is(.f-rq,.t-rq) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="764"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="668" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="692">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="716">Hover a box for its rule and the code that decides it; its connections light up. Click a box to open its section.</text><text class="p2" x="36" y="736">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">FLOW · ExecutionCoordinator.acquire</text>
+  <text class="title" x="24" y="58">Execution lanes</text>
+  <text class="lede" x="24" y="80">Capacity is permits, not processes: pool_size caps concurrent executions per provider and idle cached workers hold none.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="170" width="968" height="328" rx="14"/><text class="kick" x="32" y="192">ExecutionCoordinator.acquire</text></g>
+  <g class="k-host"><rect class="band" x="16" y="518" width="968" height="108" rx="14"/><text class="kick" x="32" y="540">ExecutionLease.release</text></g>
+
+  <g class="edges">
+    <g class="e  f-s1 t-gp"><path d="M262,158 V220"/><text class="el" x="254" y="216" text-anchor="end">channel; matching interactive</text></g>
+    <g class="e dash f-s1 t-gw"><path d="M314,133 H332 V204 H352 V220"/><text class="el" x="358" y="200" text-anchor="start">provider or policy differs</text></g>
+    <g class="e  f-s2 t-gw"><path d="M600,158 V220"/><text class="el" x="608" y="200" text-anchor="start">wait for a permit</text></g>
+    <g class="e  f-s3 t-gw"><path d="M900,158 V220"/><text class="el" x="894" y="200" text-anchor="end">null or BusyTurnException</text></g>
+    <g class="e  f-gp t-pr"><path d="M172,288 V324"/><text class="el" x="180" y="311" text-anchor="start">permit</text></g>
+    <g class="e  f-gw t-cw"><path d="M486,288 V324"/><text class="el" x="494" y="311" text-anchor="start">hit</text></g>
+    <g class="e  f-gw t-nw"><path d="M810,288 V324"/><text class="el" x="818" y="311" text-anchor="start">miss</text></g>
+    <g class="e  f-pr t-lease"><path d="M172,390 V424"/></g>
+    <g class="e  f-cw t-lease"><path d="M486,390 V424"/></g>
+    <g class="e  f-nw t-lease"><path d="M810,390 V424"/></g>
+    <g class="e  f-lease t-rc"><path d="M182,476 V552"/><text class="el" x="190" y="512" text-anchor="start">idle and reusable</text></g>
+    <g class="e  f-lease t-rd"><path d="M485,476 V552"/><text class="el" x="493" y="512" text-anchor="start">any other worker</text></g>
+    <g class="e bad f-rd t-rq"><path d="M610,586 H708"/><text class="el" x="659" y="578" text-anchor="middle">unconfirmed</text></g>
+  </g>
+
+  <a href="../control-protocol.md#61-entry-points"><g class="n line k-host" id="s1">
+    <rect class="box" x="24" y="108" width="290" height="50" rx="9"/>
+    <text class="name" x="36" y="127">Interactive, channel turns</text>
+    <g class="badge"><rect x="264" y="115" width="40" height="16" rx="8"/><text x="284" y="127">WAIT</text></g>
+    <text class="sub" x="36" y="143">main-agent conversations</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Interactive, channel turns</tspan> · channel turns take the primary lane; interactive ones only when provider and policy match the primary runner's</text><text class="p2" x="36" y="736">Lane choice is ExecutionCoordinator._laneFor. Admission is wait: the request queues for a permit.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#61-entry-points"><g class="n line k-host" id="s2">
+    <rect class="box" x="350" y="108" width="290" height="50" rx="9"/>
+    <text class="name" x="362" y="127">Cron, temporary conversations</text>
+    <g class="badge"><rect x="590" y="115" width="40" height="16" rx="8"/><text x="610" y="127">WAIT</text></g>
+    <text class="sub" x="362" y="143">scheduler, process-retained sessions</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Cron, temporary conversations</tspan> · scheduler and temporary surfaces always run on the worker lane and wait for a permit</text><text class="p2" x="36" y="736">A temporary session reuses its retained worker and the permit that worker kept while cached.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#61-entry-points"><g class="n line k-host" id="s3">
+    <rect class="box" x="676" y="108" width="300" height="50" rx="9"/>
+    <text class="name" x="688" y="127">Tasks, workflow steps</text>
+    <g class="badge"><rect x="891" y="115" width="75" height="16" rx="8"/><text x="928" y="127">FAIL FAST</text></g>
+    <text class="sub" x="688" y="143">logical agents; tasks are polled</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Tasks, workflow steps</tspan> · acquire returns null or BusyTurnException when no permit is free; TaskExecutor retries on its next poll</text><text class="p2" x="36" y="736">A polled task or workflow request takes its permit before global admission, so a refused attempt leaves no loop or rate state.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n solid k-host" id="gp">
+    <rect class="box" x="32" y="222" width="280" height="66" rx="9"/>
+    <text class="name" x="44" y="245">Primary gate</text>
+    <text class="sub" x="44" y="263">capacity 1, serialized</text>
+    <text class="sub" x="44" y="279">outside pool_size</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Primary gate</tspan> · one permit for the deployment's primary runner: main-agent turns are serialized</text><text class="p2" x="36" y="736">WorkerCapacityGate(1) in ExecutionCoordinator; unaffected by providers.&lt;id&gt;.pool_size or container count.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n solid k-host" id="gw">
+    <rect class="box" x="336" y="222" width="624" height="66" rx="9"/>
+    <text class="name" x="348" y="245">Worker gate, one per provider</text>
+    <g class="badge"><rect x="875" y="233" width="75" height="16" rx="8"/><text x="912" y="245">pool_size</text></g>
+    <text class="sub" x="348" y="263">providers.&lt;id&gt;.pool_size permits</text>
+    <text class="sub" x="348" y="279">wait for a permit, or fail fast</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Worker gate, one per provider</tspan> · a ceiling on concurrent executions, not a process count: idle cached harnesses hold no permit</text><text class="p2" x="36" y="736">A provider with no gate is a StateError. A quarantined permit lowers effective capacity (ADR-058).</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="pr">
+    <rect class="box" x="32" y="326" width="280" height="64" rx="9"/>
+    <text class="name" x="44" y="349">Primary TurnRunner</text>
+    <text class="sub" x="44" y="367">the fixed harness of the</text>
+    <text class="sub" x="44" y="383">configured primary provider</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Primary TurnRunner</tspan> · no worker is created: the lease carries the primary runner</text><text class="p2" x="36" y="736">Releasing the lease returns the permit and leaves the runner alone.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="cw">
+    <rect class="box" x="336" y="326" width="300" height="64" rx="9"/>
+    <text class="name" x="348" y="349">Cached worker</text>
+    <text class="sub" x="348" y="367">same session first, else same</text>
+    <text class="sub" x="348" y="383">provider, policy, agent, workspace</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Cached worker</tspan> · _takeCached: a healthy exact-session worker, else a healthy host worker with the same provider, policy, agent, workspace</text><text class="p2" x="36" y="736">Container workers also need the exact logical-agent principal. Requests with execution-scoped inputs skip the cache.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="nw">
+    <rect class="box" x="660" y="326" width="300" height="64" rx="9"/>
+    <text class="name" x="672" y="349">New worker</text>
+    <text class="sub" x="672" y="367">from provider wiring, started,</text>
+    <text class="sub" x="672" y="383">must come up idle; single-use if scoped</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">New worker</tspan> · createWorker builds the runner, harness.start() runs, and a runner whose provider or policy mismatches the request is discarded</text><text class="p2" x="36" y="736">Before creating, _scavenge drops the oldest idle cached workers beyond the effective capacity left.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="lease">
+    <rect class="box" x="32" y="426" width="928" height="50" rx="9"/>
+    <text class="name" x="44" y="445">ExecutionLease</text>
+    <g class="badge"><rect x="854" y="433" width="96" height="16" rx="8"/><text x="902" y="445">RELEASE ONCE</text></g>
+    <text class="sub" x="44" y="461">idempotent: released exactly once on success, failure, cancel or setup error; the active set drives busy/free observability</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">ExecutionLease</tspan> · the caller's handle to one runner; release() is memoized, so every path may call it</text><text class="p2" x="36" y="736">Teardown order: harness termination, authority revocation, container destruction. Capacity returns only after it completes.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="rc">
+    <rect class="box" x="32" y="554" width="300" height="64" rx="9"/>
+    <text class="name" x="44" y="577">Back to cache</text>
+    <text class="sub" x="44" y="595">idle, healthy, reusable worker;</text>
+    <text class="sub" x="44" y="611">host, or logical-agent / temporary container</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Back to cache</tspan> · a temporary-session worker keeps its permit while cached; other cached workers hold none</text><text class="p2" x="36" y="736">Task and workflow containers never qualify, and neither do single-use workers.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-neu" id="rd">
+    <rect class="box" x="360" y="554" width="250" height="64" rx="9"/>
+    <text class="name" x="372" y="577">Dispose</text>
+    <text class="sub" x="372" y="595">stop and dispose the harness,</text>
+    <text class="sub" x="372" y="611">revoke authority, destroy container</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Dispose</tspan> · everything else: single-use workers, task and workflow containers, a runner that is not reusable or not idle</text><text class="p2" x="36" y="736">The permit returns once teardown is confirmed.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-sec" id="rq">
+    <rect class="box" x="710" y="554" width="250" height="64" rx="9"/>
+    <text class="name" x="722" y="577">Quarantine the permit</text>
+    <text class="sub" x="722" y="595">effective capacity falls;</text>
+    <text class="sub" x="722" y="611">no overlapping replacement</text>
+    <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Quarantine the permit</tspan> · root-process exit, container revocation or container destruction could not be confirmed</text><text class="p2" x="36" y="736">The slot stays withheld so a fresh authority is never admitted over a live orphan (ADR-058).</text></g>
+  </g></a>
+  <g transform="translate(24,642)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">permit gate</text>
+    <g class="tint k-host"><rect class="box" x="112.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="134.2" y="10">allocation</text>
+    <g class="line k-host"><rect class="box" x="218.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="240.2" y="10">caller surface</text>
+    <g class="e "><path d="M349.0,6 H381.0"/></g><text class="lg" x="389.0" y="10">flow</text>
+    <g class="e dash"><path d="M435.8,6 H467.8"/></g><text class="lg" x="475.8" y="10">conditional</text>
+    <g class="e bad"><path d="M566.0,6 H598.0"/></g><text class="lg" x="606.0" y="10">failed teardown</text>
+  </g>
+</svg>

@@ -21,6 +21,10 @@ void main() {
       expect(CanonicalTool.reviewList.stableName, 'review_list');
       expect(CanonicalTool.taskBind.stableName, 'task_bind');
       expect(CanonicalTool.taskUnbind.stableName, 'task_unbind');
+      expect(CanonicalTool.workflowResume.stableName, 'workflow_resume');
+      expect(CanonicalTool.workflowCancel.stableName, 'workflow_cancel');
+      expect(CanonicalTool.workflowRequestChanges.stableName, 'workflow_request_changes');
+      expect(CanonicalTool.workflowStatus.stableName, 'workflow_status');
       expect(CanonicalTool.mcpCall.stableName, 'mcp_call');
     });
 
@@ -44,6 +48,10 @@ void main() {
       expect(CanonicalTool.fromName('review_list'), CanonicalTool.reviewList);
       expect(CanonicalTool.fromName('task_bind'), CanonicalTool.taskBind);
       expect(CanonicalTool.fromName('task_unbind'), CanonicalTool.taskUnbind);
+      expect(CanonicalTool.fromName('workflow_resume'), CanonicalTool.workflowResume);
+      expect(CanonicalTool.fromName('workflow_cancel'), CanonicalTool.workflowCancel);
+      expect(CanonicalTool.fromName('workflow_request_changes'), CanonicalTool.workflowRequestChanges);
+      expect(CanonicalTool.fromName('workflow_status'), CanonicalTool.workflowStatus);
       expect(CanonicalTool.fromName('mcp_call'), CanonicalTool.mcpCall);
       expect(CanonicalTool.fromName('Bash'), isNull);
       expect(CanonicalTool.fromName(''), isNull);

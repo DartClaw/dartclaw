@@ -1,0 +1,201 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 814" width="1000" height="814" role="img" aria-labelledby="title desc">
+  <title id="title">Entities and reference enforcement</title>
+  <desc id="desc">Entity map of the task, execution, workflow and session records. Arrows point from the referencing row to the row it names. Four references are PostgreSQL foreign keys: tasks to agent_executions, workflow_step_executions to tasks and to agent_executions, and task_artifacts to tasks. Every other reference, including those into the session files and projects.json, is an unconstrained string id.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .hr { stroke: var(--k); stroke-opacity: .45; stroke-width: 1; } .solid .hr { stroke: var(--on); stroke-opacity: .4; }
+    .edges .el { --halo: color-mix(in srgb, var(--store) 6%, var(--bg)); }
+    svg:has(#artifacts:hover) .edges :is(.f-artifacts,.t-artifacts) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#goals:hover) .edges :is(.f-goals,.t-goals) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tasks:hover) .edges :is(.f-tasks,.t-tasks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#wfstep:hover) .edges :is(.f-wfstep,.t-wfstep) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#agent:hover) .edges :is(.f-agent,.t-agent) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#events:hover) .edges :is(.f-events,.t-events) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#wfruns:hover) .edges :is(.f-wfruns,.t-wfruns) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#projects:hover) .edges :is(.f-projects,.t-projects) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sessions:hover) .edges :is(.f-sessions,.t-sessions) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="814"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="718" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="742">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="766">Hover an entity for its key fields and what a reference to it does on delete; its edges light up. Click it to open its section.</text><text class="p2" x="36" y="786">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">ENTITY MAP · PostgreSQL TABLES AND FILE STORES</text>
+  <text class="title" x="24" y="58">Entities and reference enforcement</text>
+  <text class="lede" x="24" y="80">Only four references are enforced foreign keys; every dashed edge is a string id that can dangle.</text>
+
+  <g class="k-neu"><rect class="band" x="16" y="228" width="220" height="320" rx="14"/><text class="kick" x="32" y="250">FILES · UNDER &lt;data_dir&gt;</text></g>
+  <g class="k-store"><rect class="band" x="252" y="116" width="732" height="560" rx="14"/><text class="kick" x="268" y="138">POSTGRESQL · TABLES</text></g>
+  <text class="lg" x="700" y="702" text-anchor="start">N:1 reads many rows to one; 0..1 is a nullable column</text>
+
+  <g class="edges">
+    <g class="e  f-artifacts t-tasks"><path d="M465,222 V260"/><text class="el" x="473" y="238" text-anchor="start">task_id · N:1</text><text class="el" x="473" y="251" text-anchor="start">FK · CASCADE</text></g>
+    <g class="e  f-tasks t-agent"><path d="M465,384 V422"/><text class="el" x="473" y="398" text-anchor="start">agent_execution_id · N:0..1</text><text class="el" x="473" y="411" text-anchor="start">FK · RESTRICT</text></g>
+    <g class="e  f-wfstep t-tasks"><path d="M718,330 H592"/><text class="el" x="655" y="322" text-anchor="middle">task_id · 1:0..1</text><text class="el" x="655" y="344" text-anchor="middle">FK · CASCADE</text></g>
+    <g class="e  f-wfstep t-agent"><path d="M780,362 V474 H592"/><text class="el" x="772" y="440" text-anchor="end">agent_execution_id · N:1</text><text class="el" x="772" y="453" text-anchor="end">FK</text></g>
+    <g class="e dash f-tasks t-goals"><path d="M592,280 H655 V186 H718"/><text class="el" x="663" y="237" text-anchor="start">goal_id · N:0..1</text><text class="el" x="663" y="250" text-anchor="start">soft id</text></g>
+    <g class="e dash f-tasks t-projects"><path d="M338,292 H222"/><text class="el" x="280" y="284" text-anchor="middle">project_id · N:0..1</text><text class="el" x="280" y="309" text-anchor="middle">soft id</text></g>
+    <g class="e dash f-wfstep t-wfruns"><path d="M860,362 V562"/><text class="el" x="868" y="452" text-anchor="start">workflow_run_id</text><text class="el" x="868" y="465" text-anchor="start">N:1 · soft id</text></g>
+    <g class="e dash f-agent t-sessions"><path d="M338,474 H222"/><text class="el" x="280" y="466" text-anchor="middle">session_id · N:0..1</text><text class="el" x="280" y="491" text-anchor="middle">soft id</text></g>
+    <g class="e dash f-events t-sessions"><path d="M338,612 H126 V532"/><text class="el" x="232" y="604" text-anchor="middle">turns.session_id · soft id</text></g>
+  </g>
+
+  <a href="../data-model.md#34-tables"><g class="n tint k-store" id="artifacts">
+    <rect class="box" x="340" y="150" width="250" height="72" rx="9"/>
+    <line class="hr" x1="350" y1="180" x2="580" y2="180"/>
+    <text class="name mono-name" x="352" y="173">task_artifacts</text>
+    <text class="mono" x="352" y="191">id · name · kind · path</text>
+    <text class="mono" x="352" y="207">task_id</text>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">task_artifacts</tspan> · artifact record: kind is diff, document, data, branch or pr; path is an absolute file or a URL or branch name</text><text class="p2" x="36" y="786">Rows cascade with the task; the files under tasks/&lt;taskId&gt;/artifacts/ do not, so artifact retention can no longer reach a deleted task.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n tint k-store" id="goals">
+    <rect class="box" x="720" y="150" width="250" height="72" rx="9"/>
+    <line class="hr" x1="730" y1="180" x2="960" y2="180"/>
+    <text class="name mono-name" x="732" y="173">goals</text>
+    <text class="mono" x="732" y="191">id · title · mission</text>
+    <text class="mono" x="732" y="207">parent_goal_id · max_tokens</text>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">goals</tspan> · parent_goal_id is a soft id, and GoalService allows two levels</text><text class="p2" x="36" y="786">Deleting a goal leaves the tasks that name it; goal lookups then return null.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n solid k-store" id="tasks">
+    <rect class="box" x="340" y="262" width="250" height="122" rx="9"/>
+    <line class="hr" x1="350" y1="292" x2="580" y2="292"/>
+    <text class="name mono-name" x="352" y="285">tasks</text>
+    <text class="mono" x="352" y="303">id · status · version (CAS)</text>
+    <text class="mono" x="352" y="319">agent_execution_id  FK</text>
+    <text class="mono" x="352" y="335">goal_id · project_id</text>
+    <text class="mono" x="352" y="351">config_json · worktree_json</text>
+    <g class="chip k-store"><rect x="352" y="360" width="150" height="16" rx="8"/><text x="359" y="372">→ workflow_runs · soft</text></g>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">tasks</tspan> · lifecycle record; version increments on every update and update matches on (id, version)</text><text class="p2" x="36" y="786">updateIfStatus also matches the expected status and returns false on a lost race; no row locks. A task reaches its session only via its execution.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n tint k-store" id="wfstep">
+    <rect class="box" x="720" y="262" width="250" height="100" rx="9"/>
+    <line class="hr" x1="730" y1="292" x2="960" y2="292"/>
+    <text class="name mono-name" x="732" y="285">workflow_step_executions</text>
+    <text class="mono" x="732" y="303">task_id  PK, FK</text>
+    <text class="mono" x="732" y="319">agent_execution_id  FK</text>
+    <text class="mono" x="732" y="335">workflow_run_id · step_index</text>
+    <text class="mono" x="732" y="351">step_id · structured_output_json</text>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">workflow_step_executions</tspan> · workflow-only metadata of a step task, one row per task (primary key task_id)</text><text class="p2" x="36" y="786">Two enforced foreign keys; workflow_run_id is a soft id. Deleting a terminal task removes this row but leaves the AgentExecution it points at.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n tint k-store" id="agent">
+    <rect class="box" x="340" y="424" width="250" height="100" rx="9"/>
+    <line class="hr" x1="350" y1="454" x2="580" y2="454"/>
+    <text class="name mono-name" x="352" y="447">agent_executions</text>
+    <text class="mono" x="352" y="465">id · provider · model</text>
+    <text class="mono" x="352" y="481">workspace_dir · container_json</text>
+    <text class="mono" x="352" y="497">budget_tokens · started_at</text>
+    <text class="mono" x="352" y="513">session_id</text>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">agent_executions</tspan> · the runtime primitive under both tasks and workflow steps</text><text class="p2" x="36" y="786">session_id is a soft id to a session directory and can dangle once the session is deleted; deleting a task does not delete this row.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n tint k-store" id="events">
+    <rect class="box" x="340" y="564" width="250" height="96" rx="9"/>
+    <line class="hr" x1="350" y1="594" x2="580" y2="594"/>
+    <text class="name mono-name" x="352" y="587">task_events · turns</text>
+    <text class="mono" x="352" y="605">task_events: task_id · kind</text>
+    <text class="mono" x="352" y="621">turns: task_id · session_id</text>
+    <g class="chip k-neu"><rect x="352" y="636" width="150" height="16" rx="8"/><text x="359" y="648">task_id → tasks · soft</text></g>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">task_events · turns</tspan> · task_events is the append-only timeline (awaited insert); turns holds one trace per task turn (fire-and-forget insert)</text><text class="p2" x="36" y="786">Neither has a foreign key, so rows survive deletion of the task or session. Both are unbounded: no retention policy applies.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n tint k-store" id="wfruns">
+    <rect class="box" x="720" y="564" width="250" height="88" rx="9"/>
+    <line class="hr" x1="730" y1="594" x2="960" y2="594"/>
+    <text class="name mono-name" x="732" y="587">workflow_runs</text>
+    <text class="mono" x="732" y="605">id · definition_name · status</text>
+    <text class="mono" x="732" y="621">definition_json (snapshot)</text>
+    <text class="mono" x="732" y="637">context_json · origin_json</text>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">workflow_runs</tspan> · definition_json is the definition snapshot taken at start; context_json is the status and context snapshot</text><text class="p2" x="36" y="786">The full WorkflowContext is also written to workflows/runs/&lt;runId&gt;/context.json. origin_json is written once by insert and never updated.</text></g>
+  </g></a>
+  <a href="../data-model.md#instance-local-and-small-stores"><g class="n tint k-store" id="projects">
+    <rect class="box" x="32" y="262" width="188" height="66" rx="9"/>
+    <text class="name mono-name" x="44" y="285">projects.json</text>
+    <g class="badge"><rect x="170" y="273" width="40" height="16" rx="8"/><text x="190" y="285">FILE</text></g>
+    <text class="sub" x="44" y="303">runtime-created only</text>
+    <text class="sub" x="44" y="319">keyed by project id</text>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">projects.json</tspan> · runtime-created projects only, one object keyed by project id (atomicWriteJson of the full registry)</text><text class="p2" x="36" y="786">Config-defined projects and the implicit _local project are not persisted; a database-to-file reference cannot be a foreign key.</text></g>
+  </g></a>
+  <a href="../data-model.md#sessions-and-messages"><g class="n tint k-store" id="sessions">
+    <rect class="box" x="32" y="424" width="188" height="106" rx="9"/>
+    <text class="name mono-name" x="44" y="447">sessions/</text>
+    <g class="badge"><rect x="170" y="435" width="40" height="16" rx="8"/><text x="190" y="447">FILE</text></g>
+    <text class="mono" x="44" y="465">&lt;uuid&gt;/meta.json</text>
+    <text class="mono" x="44" y="481">&lt;uuid&gt;/messages.ndjson</text>
+    <text class="mono" x="44" y="497">&lt;uuid&gt;/conversation/</text>
+    <text class="mono" x="44" y="513">&lt;uuid&gt;/attachments/</text>
+    <g class="d"><text class="p1" x="36" y="766"><tspan class="b">sessions/</tspan> · session record with nested conversationState, NDJSON transcript, attachments</text><text class="p2" x="36" y="786">Message append requires the directory to exist (checked in code). Protection of task sessions from pruning is by convention (SessionType.task).</text></g>
+  </g></a>
+  <g transform="translate(24,692)">
+    <g class="tint k-store"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">table or file</text>
+    <g class="solid k-store"><rect class="box" x="124.60000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="146.60000000000002" y="10">focal record</text>
+    <g class="e "><path d="M243.0,6 H275.0"/></g><text class="lg" x="283.0" y="10">foreign key, enforced</text>
+    <g class="e dash"><path d="M435.20000000000005,6 H467.20000000000005"/></g><text class="lg" x="475.20000000000005" y="10">string id, no constraint</text>
+  </g>
+</svg>

@@ -6,7 +6,8 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show DartclawRuntime, HeadlessRuntimeStaging, StandaloneExecutionLeaseException;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep, WorkflowTaskType;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinition, WorkflowStep, WorkflowTaskType, WorkflowRunOrigin;
 import 'package:dartclaw_workflow/testing.dart' show FakeProviderAuthPreflight;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -117,6 +118,7 @@ void main() {
     expect(Directory(p.join(config.standaloneDir, 'sessions')).existsSync(), isTrue);
     first.taskExecutor!.stopPolling();
     final run = await first.workflowService.start(
+      origin: WorkflowRunOrigin.unknown,
       const WorkflowDefinition(
         name: 'persisted-workflow',
         description: 'Records one completed workflow turn',
@@ -186,6 +188,7 @@ void main() {
     final owner = await (await stage()).completeForExecution({'claude'});
     owner.taskExecutor!.stopPolling();
     final run = await owner.workflowService.start(
+      origin: WorkflowRunOrigin.unknown,
       const WorkflowDefinition(
         name: 'externally-paused-workflow',
         description: 'Pauses before a second step',

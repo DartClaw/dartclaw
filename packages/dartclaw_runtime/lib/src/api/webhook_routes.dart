@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show GoogleChatWebhookHandler;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show GuardAuditLogger, constantTimeEquals;
+import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackChannel;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
@@ -9,6 +11,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import '../auth/auth_utils.dart';
 import 'github_webhook.dart';
+import 'slack_webhook.dart';
 
 final _log = Logger('WebhookRoutes');
 
@@ -22,6 +25,8 @@ Router webhookRoutes({
   String? webhookSecret,
   GoogleChatWebhookHandler? googleChat,
   GitHubWebhookHandler? github,
+  SlackChannel? slack,
+  GuardAuditLogger? auditLogger,
   EventBus? eventBus,
   List<String> trustedProxies = const [],
 }) {
@@ -68,6 +73,19 @@ Router webhookRoutes({
 
   if (github != null) {
     router.post(github.config.webhookPath, github.handle);
+  }
+
+  final slackEvents = slack?.eventsHandler;
+  if (slack != null && slackEvents != null) {
+    router.post(
+      slack.config.webhookPath,
+      slackWebhookHandler(
+        handler: slackEvents,
+        eventBus: eventBus,
+        auditLogger: auditLogger,
+        trustedProxies: trustedProxies,
+      ),
+    );
   }
 
   return router;

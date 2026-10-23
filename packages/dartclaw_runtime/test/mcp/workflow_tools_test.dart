@@ -1,6 +1,5 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -10,39 +9,14 @@ import 'package:dartclaw_runtime/src/mcp/workflow_tools.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard, InMemoryTaskRepository;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowStep, WorkflowVariable;
+    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowRunOrigin, WorkflowStep, WorkflowVariable;
 import 'package:test/test.dart';
 
 import 'package:dartclaw_runtime/src/task/workflow_start_precondition_exception.dart';
 
 import '../api/workflow_test_support.dart';
 import '../guard_audit_test_support.dart';
-
-Future<Map<String, dynamic>> _call(
-  McpProtocolHandler handler,
-  String name, {
-  Map<String, dynamic> arguments = const {},
-}) async {
-  final raw = await handler.handleRequest(
-    jsonEncode({
-      'jsonrpc': '2.0',
-      'id': 1,
-      'method': 'tools/call',
-      'params': {'name': name, 'arguments': arguments},
-    }),
-  );
-  return jsonDecode(raw!) as Map<String, dynamic>;
-}
-
-Map<String, dynamic> _result(Map<String, dynamic> response) {
-  expect(response['error'], isNull, reason: 'a tool refusal must be a JSON-RPC success carrying isError');
-  return response['result'] as Map<String, dynamic>;
-}
-
-String _text(Map<String, dynamic> result) =>
-    ((result['content'] as List).single as Map<String, dynamic>)['text'] as String;
-
-Map<String, dynamic> _payload(Map<String, dynamic> result) => jsonDecode(_text(result)) as Map<String, dynamic>;
+import 'mcp_test_support.dart';
 
 /// One required variable and one optional variable carrying a default — the
 /// two halves of the contract `workflow_list` has to publish.
@@ -107,9 +81,9 @@ void main() {
 
   group('S01 workflow_run starts a named workflow with its parameters', () {
     test('the payload names the run and its location, and the run is in the run store', () async {
-      final payload = _payload(
-        _result(
-          await _call(
+      final payload = resultPayload(
+        toolResult(
+          await callTool(
             passingHandler(),
             'workflow_run',
             arguments: {
@@ -139,22 +113,143 @@ void main() {
     });
   });
 
+  group('run origin', () {
+    final chatTurn = TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+      senderId: 'users/42',
+    );
+    const runArguments = {
+      'definition': 'nightly-review',
+      'variables': {'SCOPE': 'inbox'},
+    };
+
+    McpProtocolHandler hostHarness(TurnProvenance? Function() activeTurn) => passingHandler().forHarness(activeTurn);
+
+    test('a host harness turn from a chat thread records that thread, sender and session', () async {
+      toolResult(await callTool(hostHarness(() => chatTurn), 'workflow_run', arguments: runArguments));
+
+      expect(
+        workflows.lastOrigin,
+        const WorkflowRunOrigin(
+          surface: 'googlechat',
+          channelType: 'googlechat',
+          recipientId: 'spaces/AAA',
+          threadId: 'spaces/AAA/threads/T1',
+          sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+          senderId: 'users/42',
+        ),
+      );
+    });
+
+    test('a web-chat turn records web and its session key and no channel field', () async {
+      const webTurn = TurnProvenance.web(sessionKey: 'agent:main:web:abc');
+
+      toolResult(await callTool(hostHarness(() => webTurn), 'workflow_run', arguments: runArguments));
+
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'web', sessionKey: 'agent:main:web:abc'));
+    });
+
+    test('a scheduled prompt turn records cron and nothing else', () async {
+      toolResult(
+        await callTool(hostHarness(() => const TurnProvenance.cron()), 'workflow_run', arguments: runArguments),
+      );
+
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'cron'));
+    });
+
+    test('a caller that is running no turn records api, whatever the lane', () async {
+      toolResult(await callTool(passingHandler(), 'workflow_run', arguments: runArguments));
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'api'));
+
+      workflows.lastOrigin = null;
+      toolResult(await callTool(hostHarness(() => null), 'workflow_run', arguments: runArguments));
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'api'));
+
+      workflows.lastOrigin = null;
+      await WorkflowRunTool(
+        definitions: InMemoryDefinitionSource([_nightlyReview]),
+        workflows: workflows,
+      ).call(runArguments);
+      expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'api'));
+    });
+
+    test('origin-like arguments are refused as unknown arguments and start nothing', () async {
+      for (final field in ['surface', 'origin', 'channelType', 'recipientId', 'threadId', 'sessionKey', 'senderId']) {
+        final response = await callTool(
+          hostHarness(() => chatTurn),
+          'workflow_run',
+          arguments: {...runArguments, field: 'forged'},
+        );
+
+        expect((response['error'] as Map)['message'], contains('unknown argument "$field"'), reason: field);
+      }
+      expect(workflows.startCalls, 0);
+    });
+
+    test('a scoped caller the transport gave no identity is refused rather than given the steward defaults', () async {
+      final handler = passingHandler().scopedTo(AllowAllCallerPolicy(), activeTurn: () => chatTurn);
+
+      final result = toolResult(await callTool(handler, 'workflow_run', arguments: runArguments));
+
+      expect(result['isError'], isTrue);
+      expect(resultText(result), 'Tool requires authenticated caller context');
+      expect(workflows.startCalls, 0);
+    });
+
+    test('a container authority resolves each turn at call time and carries none after the turn ends', () async {
+      TurnProvenance? active;
+      final handler = passingHandler().scopedTo(
+        AllowAllCallerPolicy(),
+        callerIdentity: const McpCallerIdentity(authorityId: 'authority-1', agentId: 'ana'),
+        activeTurn: () => active,
+      );
+      final bob = TurnProvenance.channel(
+        channelType: ChannelType.googlechat,
+        recipientId: 'spaces/AAA',
+        threadId: 'spaces/AAA/threads/T2',
+        sessionKey: 'shared-session',
+        senderId: 'users/bob',
+      );
+      final alice = TurnProvenance.channel(
+        channelType: ChannelType.googlechat,
+        recipientId: 'spaces/AAA',
+        threadId: 'spaces/AAA/threads/T1',
+        sessionKey: 'shared-session',
+        senderId: 'users/alice',
+      );
+
+      final origins = <WorkflowRunOrigin?>[];
+      for (final turn in [alice, bob, null]) {
+        active = turn;
+        toolResult(await callTool(handler, 'workflow_run', arguments: runArguments));
+        origins.add(workflows.lastOrigin);
+      }
+
+      expect(origins.map((origin) => origin?.senderId), ['users/alice', 'users/bob', null]);
+      expect(origins.map((origin) => origin?.threadId), ['spaces/AAA/threads/T1', 'spaces/AAA/threads/T2', null]);
+      expect(origins.last?.surface, 'api');
+    });
+  });
+
   group('S02 a missing required variable and an unknown definition are tool errors that start nothing', () {
     test('the missing variable is named, as invalid_variables, and no run is started', () async {
-      final result = _result(
-        await _call(passingHandler(), 'workflow_run', arguments: {'definition': 'nightly-review'}),
+      final result = toolResult(
+        await callTool(passingHandler(), 'workflow_run', arguments: {'definition': 'nightly-review'}),
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['reason'], 'invalid_variables');
-      expect(_payload(result)['message'], 'Missing required variable(s): SCOPE');
+      expect(resultPayload(result)['reason'], 'invalid_variables');
+      expect(resultPayload(result)['message'], 'Missing required variable(s): SCOPE');
       expect(workflows.activeRuns, isEmpty);
       expect(workflows.startCalls, 0);
     });
 
     test('an unregistered definition is named, as unknown_definition, and no run is started', () async {
-      final result = _result(
-        await _call(
+      final result = toolResult(
+        await callTool(
           passingHandler(),
           'workflow_run',
           arguments: {
@@ -165,9 +260,9 @@ void main() {
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['reason'], 'unknown_definition');
-      expect(_payload(result)['message'], 'No workflow definition named ghost-review');
-      expect(_payload(result)['definition'], 'ghost-review');
+      expect(resultPayload(result)['reason'], 'unknown_definition');
+      expect(resultPayload(result)['message'], 'No workflow definition named ghost-review');
+      expect(resultPayload(result)['definition'], 'ghost-review');
       expect(workflows.activeRuns, isEmpty);
       expect(workflows.startCalls, 0);
     });
@@ -177,8 +272,8 @@ void main() {
     test('WorkflowStartPreconditionException is reported as precondition_failed with no run started', () async {
       workflows.startError = const WorkflowStartPreconditionException('workspace has uncommitted changes');
 
-      final result = _result(
-        await _call(
+      final result = toolResult(
+        await callTool(
           passingHandler(),
           'workflow_run',
           arguments: {
@@ -189,15 +284,15 @@ void main() {
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['reason'], 'precondition_failed');
-      expect(_payload(result)['message'], 'workspace has uncommitted changes');
+      expect(resultPayload(result)['reason'], 'precondition_failed');
+      expect(resultPayload(result)['message'], 'workspace has uncommitted changes');
       expect(workflows.activeRuns, isEmpty);
     });
   });
 
   group('S03 workflow_list carries the variable contract', () {
     test('both variables are listed with their required flag, and only the optional one carries a default', () async {
-      final payload = _payload(_result(await _call(passingHandler(), 'workflow_list')));
+      final payload = resultPayload(toolResult(await callTool(passingHandler(), 'workflow_list')));
       final listed = (payload['workflows'] as List).cast<Map<String, dynamic>>();
 
       expect(listed, hasLength(1));
@@ -212,12 +307,12 @@ void main() {
     });
 
     test('an empty catalog answers with an empty list rather than an error', () async {
-      final result = _result(
-        await _call(passingHandler(definitions: InMemoryDefinitionSource(const [])), 'workflow_list'),
+      final result = toolResult(
+        await callTool(passingHandler(definitions: InMemoryDefinitionSource(const [])), 'workflow_list'),
       );
 
       expect(result['isError'], isNull);
-      expect(_payload(result)['workflows'], isEmpty);
+      expect(resultPayload(result)['workflows'], isEmpty);
     });
   });
 
@@ -237,9 +332,9 @@ void main() {
       };
 
       for (final name in argumentsByTool.keys) {
-        final result = _result(await _call(handler, name, arguments: argumentsByTool[name]!));
+        final result = toolResult(await callTool(handler, name, arguments: argumentsByTool[name]!));
         expect(result['isError'], isTrue, reason: '$name must refuse as a tool error, not a protocol error');
-        expect(_text(result), 'mcp workflow tools disabled');
+        expect(resultText(result), 'mcp workflow tools disabled');
       }
 
       expect(workflows.calls, isEmpty, reason: 'a blocked dispatch never reaches the workflow service');
@@ -270,11 +365,11 @@ void main() {
 
     for (final testCase in cases) {
       test('workflow_run: ${testCase.message}', () async {
-        final result = _result(await _call(passingHandler(), 'workflow_run', arguments: testCase.arguments));
+        final result = toolResult(await callTool(passingHandler(), 'workflow_run', arguments: testCase.arguments));
 
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'invalid_request');
-        expect(_payload(result)['message'], testCase.message);
+        expect(resultPayload(result)['reason'], 'invalid_request');
+        expect(resultPayload(result)['message'], testCase.message);
         // Fail-closed means the refused call also started nothing.
         expect(workflows.startCalls, 0);
         expect(workflows.activeRuns, isEmpty);

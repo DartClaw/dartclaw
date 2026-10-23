@@ -12,18 +12,24 @@ extension _ClaudeCodeHarnessControl on ClaudeCodeHarness {
       ClaudeCodeHarness._log.warning('Falling back to unmapped Claude tool name: $rawToolName -> $guardToolName');
     }
 
+    // Claude reports the tool's working directory beside its input, not in it;
+    // path guards resolve relative paths and absent search roots from `cwd`.
+    final hookCwd = hookInput['cwd'];
+    final guardInput = hookCwd is String && hookCwd.isNotEmpty ? {...toolInput, 'cwd': hookCwd} : toolInput;
+
     try {
       final chain = guardChain;
       if (chain != null) {
         final verdict = await chain.evaluateBeforeToolCall(
           guardToolName,
-          toolInput,
+          guardInput,
           sessionId: _activeTurnSessionId,
           agentId: _activeAgentId,
           rawProviderToolName: rawToolName,
         );
         if (verdict.isBlock) {
-          if (_tryWriteHookResponse(requestId, _adapter.buildHookResponse(requestId, allow: false))) {
+          final deny = _adapter.buildHookResponse(requestId, allow: false, reason: verdict.message);
+          if (_tryWriteHookResponse(requestId, deny)) {
             _emitControlEvent(ToolApprovalResolvedEvent(requestId: requestId));
           }
           return;

@@ -323,10 +323,10 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `channels.google_chat.space_events.pubsub_topic` | null or string |  | Topic the Workspace Events subscription publishes notifications to. (restart required) |
 | `channels.google_chat.typing_indicator` | boolean or string | one of "disabled", "emoji", "false", "message", "true", false, true | How work in progress is shown: a placeholder message, an emoji reaction, or nothing. A YAML boolean is also accepted, true meaning the placeholder message. (restart required) |
 | `channels.google_chat.webhook_path` | string |  | HTTP path the synchronous Chat webhook is mounted at. (restart required) |
-| `channels.max_queue_depth` | integer | minimum 1 | Messages held per session key while a turn is running. Default 100; beyond it, the oldest are dropped. (restart required) |
+| `channels.max_queue_depth` | integer | minimum 1 | Messages held per session key while a turn is running. Default 100; a message beyond it is refused with a busy reply. (restart required) |
 | `channels.retry_policy.base_delay_ms` | integer | minimum 0 | Milliseconds of backoff before the first delivery retry, grown and jittered on later attempts. Default 1000. (restart required) |
 | `channels.retry_policy.jitter_factor` | number | 0–1 | Fraction of the backoff randomly added to each delivery retry, spreading a burst of failures apart. 0 retries on a fixed schedule; default 0.2. (restart required) |
-| `channels.retry_policy.max_attempts` | integer | minimum 1 | Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3. (restart required) |
+| `channels.retry_policy.max_attempts` | integer | minimum 1 | Send attempts for each chunk of a reply before the reply is dead-lettered; a failed turn is never re-run. Google Chat reports no send failure, so its replies are sent once. Default 3. (restart required) |
 | `channels.signal.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Signal conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
 | `channels.signal.dm_allowlist` | array |  | Approved one-to-one Signal senders in E.164 form, used while direct access is allowlist-based. Plain numbers, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.signal.enabled` | boolean |  | Run the Signal integration. Off leaves the signal-cli daemon unstarted. (restart required) |
@@ -340,6 +340,19 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `channels.signal.port` | integer | 1–65535 | Port the signal-cli daemon listens on. Default 8080. (restart required) |
 | `channels.signal.require_mention` | boolean |  | Only act on Signal group messages that name the bot. Off answers every message in the group. (restart required) |
 | `channels.signal.response_prefix` | string |  | Accepted and discarded — Signal applies no outbound prefix. Registered because the shared channel parser reads the key for every channel, so a config carrying it must still load. (restart required) |
+| `channels.slack.app_token_credential` | null or string |  | Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. Required in socket mode. The token itself is never written here. (restart required) |
+| `channels.slack.bot_token_credential` | null or string |  | Name of the credentials entry holding the bot token (xoxb-). The token itself is never written here. (restart required) |
+| `channels.slack.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one Slack conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
+| `channels.slack.dm_allowlist` | array or null |  | Approved one-to-one Slack senders by user ID (U… or W…), used while direct access is allowlist-based. Plain IDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
+| `channels.slack.enabled` | boolean |  | Run the Slack integration. Off leaves its transport unstarted. (restart required) |
+| `channels.slack.group_access` | string | one of "allowlist", "disabled", "open" | Which Slack channels may reach the agent: allowlist checks the listed channels, open accepts any, disabled ignores them. (restart required) |
+| `channels.slack.group_allowlist` | array or null |  | Approved Slack channels by channel ID (C… or G…), used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
+| `channels.slack.mention_patterns` | array |  | Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention. (restart required) |
+| `channels.slack.mode` | string | one of "events", "socket" | How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token, events accepts signed Events API requests at webhook_path. Default socket. (restart required) |
+| `channels.slack.require_mention` | boolean |  | Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention. (restart required) |
+| `channels.slack.signing_secret_credential` | null or string |  | Name of the credentials entry holding the app signing secret that Events API requests are verified with. Required in events mode. The secret itself is never written here. (restart required) |
+| `channels.slack.streaming` | boolean |  | Stream a reply into its Slack thread or DM as the agent writes it. When false, the reply is posted in chunks once the turn ends. Streaming needs the chat:write scope. (restart required) |
+| `channels.slack.webhook_path` | string |  | HTTP path Slack posts Events API requests to in events mode. Default /integrations/slack. (restart required) |
 | `channels.whatsapp.dm_access` | string | one of "allowlist", "disabled", "open", "pairing" | Who may open a one-to-one WhatsApp conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them. (restart required) |
 | `channels.whatsapp.dm_allowlist` | array |  | Approved one-to-one WhatsApp senders, used while direct access is allowlist-based. Plain JIDs, or maps carrying an id plus optional name, project, model, effort and agent. (restart required) |
 | `channels.whatsapp.enabled` | boolean |  | Run the WhatsApp integration. Off leaves the GOWA sidecar unstarted. (restart required) |
@@ -380,7 +393,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **dev_mode** |  |  |  |
 | `dev_mode` | boolean |  | Serve assets from the checkout instead of the embedded copies and relax caching. Never leave it on in production. (restart required) |
 | **features** |  |  |  |
-| `features.thread_binding.enabled` | boolean |  | Route messages in a bound thread straight to that task session, and post task notifications as new threads. Google Chat only — it is the one channel that carries a thread identity to bind. (restart required) |
+| `features.thread_binding.enabled` | boolean |  | Route messages in a bound thread straight to that task session, enable /bind, and post task notifications as new threads. Applies on every channel that threads (Google Chat, Slack). The one thread per workflow run in the workflow.chat_notifications channel does not depend on it. (restart required) |
 | `features.thread_binding.idle_timeout_minutes` | integer | 1–1440 | Minutes of thread inactivity before the binding is dropped. The sweep runs every five minutes, so removal can lag. (restart required) |
 | **gateway** |  |  |  |
 | `gateway.auth_mode` | string | one of "none", "token" | token demands the bearer credential on every request; none serves the instance unauthenticated. Read-only through the API — change it in YAML. (file-only, not settable via API or CLI) |
@@ -395,7 +408,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `github.webhook_path` | string |  | HTTP path the webhook endpoint is mounted at. (restart required) |
 | `github.webhook_secret` | null or string |  | HMAC-SHA256 key deliveries are signed with. Required once the handler is on; an unsigned delivery is refused. (restart required) |
 | **governance** |  |  |  |
-| `governance.admin_senders` | array or null |  | Sender IDs exempt from rate limits and budget blocks. (restart required) |
+| `governance.admin_senders` | array or null |  | Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required) |
 | `governance.budget.action` | string | one of "block", "warn" | What happens once the allowance is spent: refuse new turns, or only warn. (restart required) |
 | `governance.budget.daily_tokens` | integer | minimum 0 | Token allowance per day across the instance. 0 means unlimited. (restart required) |
 | `governance.budget.timezone` | string |  | Zone whose midnight resets the allowance. Accepts UTC, UTC±N, and DST-aware IANA names. (restart required) |
@@ -429,7 +442,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `guards.content.model` | string |  | Model the classifier uses. A cheaper one lowers the cost of every scan. (restart required) |
 | `guards.enabled` | boolean |  | Master switch for the whole guard pipeline. On by default; read-only, because turning enforcement off is a YAML-and-restart decision, not an API call. (file-only, not settable via API or CLI) |
 | `guards.fail_open` | boolean |  | Whether an unexpected guard failure warns instead of blocking. Fail-closed by default; read-only for the same reason as the master switch. (file-only, not settable via API or CLI) |
-| `guards.file.extra_rules` | array |  | Path rules added to the built-in protections. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
+| `guards.file.extra_rules` | array |  | Path rules added to the built-in protections. An allow rule exempts matching paths from every other rule, built-in ones included. Two rules over one pattern with different levels fail the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
 | `guards.network.agent_overrides.<name>.extra_domains` | array |  | Hosts this agent turns may additionally reach. An empty list drops the override entirely. (file-only, not settable via API or CLI) |
 | `guards.network.extra_allowed_domains` | array |  | Hosts added to the built-in outbound allowlist. Every fetch target an MCP deployment needs must be listed here.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
 | `guards.network.extra_exfil_patterns` | array |  | Regexes added to the built-in exfiltration detectors. An invalid pattern fails the guard build.Read-only here: the guard-editor endpoints own writes to this path, and they normalize each entry and refuse a change the guard build rejects. (file-only, not settable via API or CLI) |
@@ -566,6 +579,9 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `usage.max_file_size_bytes` | integer | minimum 1 | Largest upload accepted through the web UI and channels, in bytes. (restart required) |
 | **workflow** |  |  |  |
 | `workflow.approvals` | string | one of "auto", "auto-on-stall", "manual" | How far a run advances unattended: manual pauses on stalls and approval steps, auto-on-stall passes stalls only, auto passes both. (restart required) |
+| `workflow.chat_notifications.channel` | null or string | one of "googlechat", "signal", "slack", "whatsapp", null | Channel that receives the lifecycle of workflow runs started without a chat origin. Read at startup. A run started from a chat thread posts into that thread instead and never also here. Needs recipient; with neither set, such runs post nothing. (restart required) |
+| `workflow.chat_notifications.events` | array or null |  | Run lifecycle events to post: started, awaiting_approval, finished, failed, step_completed. Defaults to all but step_completed. Any unknown name ignores the whole chat_notifications block. (restart required) |
+| `workflow.chat_notifications.recipient` | null or string |  | Conversation identifier on the notification channel, such as a Slack channel ID. Each run opens one thread here where the channel threads. Needs channel. (restart required) |
 | `workflow.cleanup.delete_remote_branch_on_failure` | boolean |  | Delete the pushed branch when a run fails. Off keeps it for post-mortem inspection. (restart required) |
 | `workflow.defaults.executor.effort` | null or string |  | Reasoning effort for executor-role steps. Null inherits the workflow-role setting. (restart required) |
 | `workflow.defaults.executor.model` | null or string |  | Model for executor-role steps. Accepts provider/model shorthand. (restart required) |
@@ -599,6 +615,29 @@ Use `memory.max_bytes` in new configs. `memory_max_bytes` remains available as a
 Effort buys the turn more deliberation. It does not raise an output ceiling: the synthesis has to land in one assistant message either way, so past some source size no effort setting reaches near-complete transfer and the answer is to split the source. Read the run report's `coverage:` line – source bytes against synthesized bytes per file. See the [knowledge inbox recipe](recipes/04-knowledge-inbox.md#what-the-coverage-report-can-and-cannot-tell-you).
 
 `workflow.approvals` controls workflow approval gates, not task review. `manual` pauses on `needsInput` and explicit approval steps; `auto-on-stall` advances past `needsInput` stalls only; `auto` also auto-accepts explicit approval steps. `headless` remains separate and only changes task completion review.
+
+#### Workflow run notifications
+
+A workflow run posts its lifecycle to chat. `workflow.chat_notifications` chooses where runs that were not started from a chat conversation post:
+
+| Key | Type | Default |
+|-----|------|---------|
+| `workflow.chat_notifications.channel` | `googlechat`, `signal`, `slack` or `whatsapp` | none (required) |
+| `workflow.chat_notifications.recipient` | string, the conversation identifier on that channel (for Slack, a channel ID) | none (required) |
+| `workflow.chat_notifications.events` | list drawn from `started`, `awaiting_approval`, `finished`, `failed`, `step_completed` | `started`, `awaiting_approval`, `finished`, `failed` |
+
+`started` posts when a run goes from pending to running (not on a resume or retry), `awaiting_approval` when a step waits for an approval, `finished` when the run completes or is cancelled, `failed` when it fails, and `step_completed` adds one line per step. The approval message and a failure's error text are cut at 1,000 characters. When `base_url` is set, an approval post carries a link to `<base_url>/workflows/<runId>`.
+
+The first rule that matches decides where a run's posts go:
+
+1. A run of unknown origin posts nothing.
+2. A run started from a chat conversation on a channel that does not thread (WhatsApp, Signal) posts plain messages to that conversation.
+3. A run started from a chat thread on a channel that threads (Google Chat, Slack) posts into that thread. It never also posts to the configured channel.
+4. Any other run posts to `workflow.chat_notifications`: one new thread per run when that channel threads, plain messages when it does not. With no block configured, such a run posts nothing. A run started from a threaded channel that recorded no thread falls here too.
+
+`chat_notifications` alone gives that one thread per run. `features.thread_binding.enabled` is needed only for task threading (task notifications opening a thread, `/bind`, `task_bind`, routing replies in a bound thread to the task). A run's thread is not a task binding and routes no messages; it ends with the run's last post.
+
+An invalid block (a missing or unknown channel, a missing recipient, an empty or unknown `events` entry) is ignored whole with a warning that names the key. At startup, a channel that is not enabled, or a recipient that channel does not own, logs a warning and leaves runs started outside chat with nowhere to post. A post that cannot be delivered is logged and dropped, and never blocks or fails the run.
 
 **Note on `scheduling.jobs` prompt content:** The `prompt` field of each scheduled job is passed directly to the agent at runtime. It is not validated by ConfigMeta — invalid or empty prompts are only caught when the job runs.
 

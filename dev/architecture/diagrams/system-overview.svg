@@ -1,0 +1,255 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 816" width="1000" height="816" role="img" aria-labelledby="title desc">
+  <title id="title">System architecture overview</title>
+  <desc id="desc">C4 component view of the Dart host process: four ways work arrives, the conversation, execution and task components, policy, storage and shared services, and the sidecars and provider binaries it runs as child processes.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    svg:has(#chan:hover) .edges :is(.f-chan,.t-chan) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#web:hover) .edges :is(.f-web,.t-web) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sched:hover) .edges :is(.f-sched,.t-sched) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#conv:hover) .edges :is(.f-conv,.t-conv) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#exec:hover) .edges :is(.f-exec,.t-exec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tasks:hover) .edges :is(.f-tasks,.t-tasks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#store:hover) .edges :is(.f-store,.t-store) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#policy:hover) .edges :is(.f-policy,.t-policy) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#proj:hover) .edges :is(.f-proj,.t-proj) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="816"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="728" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="752">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="776">Hover a box for its responsibility; its connections light up. Click a box to open its document.</text><text class="p2" x="36" y="796">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+  <text class="kick" x="24" y="32">C4 · LEVEL 3 · COMPONENTS OF THE DART HOST</text>
+  <text class="title" x="24" y="58">System architecture overview</text>
+  <text class="lede" x="24" y="80">One Dart host process owns state and policy. Provider binaries only reason and run tools.</text>
+
+  <!-- Boundaries -->
+  <g class="k-host"><rect class="band" x="16" y="98" width="968" height="470" rx="14"/><text class="kick" x="36" y="120">DART HOST PROCESS · dartclaw serve</text></g>
+  <text class="kick" x="36" y="488">SHARED SERVICES · USED BY EVERY COMPONENT</text>
+  <g class="k-chan"><rect class="band" x="16" y="590" width="356" height="100" rx="14"/><text class="kick" x="32" y="612">SIDECARS · OUTPOSTS</text></g>
+  <g class="k-ext"><rect class="band" x="388" y="590" width="596" height="100" rx="14"/><text class="kick" x="404" y="612">PROVIDER BINARIES · CHILD PROCESSES</text></g>
+
+  <!-- Edges, drawn under the nodes -->
+  <g class="edges in-host">
+    <g class="e main f-chan t-conv"><path d="M144,196 V238"/><text class="el" x="152" y="222">ChannelMessage</text></g>
+    <g class="e f-web t-conv"><path d="M304,196 V238"/><text class="el" x="312" y="222">submit</text></g>
+    <g class="e f-sched t-exec"><path d="M578,196 V238"/><text class="el" x="586" y="222">prompt job</text></g>
+    <g class="e f-mcp t-tasks"><path d="M854,196 V238"/><text class="el" x="862" y="222">task tools</text></g>
+    <g class="e main f-conv t-exec"><path d="M316,286 H350"/><text class="el" x="334" y="277" text-anchor="middle">turn</text></g>
+    <g class="e f-tasks t-exec"><path d="M680,286 H638"/><text class="el" x="658" y="277" text-anchor="middle">lease</text></g>
+    <g class="e f-conv t-store"><path d="M172,332 V372"/><text class="el" x="180" y="357">sessions, messages</text></g>
+    <g class="e f-exec t-policy"><path d="M430,332 V372"/><text class="el" x="438" y="357">admission, guards</text></g>
+    <g class="e f-tasks t-proj"><path d="M822,332 V372"/><text class="el" x="830" y="357">worktree</text></g>
+    <g class="e main f-exec t-prov"><path d="M610,332 V588"/><text class="el" x="602" y="484" text-anchor="end">stdio control protocol</text></g>
+    <g class="e dash f-policy t-prov"><path d="M462,462 V588"/><text class="el" x="470" y="540">container + gateway</text></g>
+  </g>
+
+  <!-- Ways in -->
+  <a href="../channel-messaging-architecture.md"><g class="n tint k-chan" id="chan">
+    <rect class="box" x="36" y="134" width="244" height="62" rx="9"/>
+    <text class="name" x="50" y="158">Channel ingress</text>
+    <text class="sub" x="50" y="180">WhatsApp, Signal, Google Chat, Slack</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Channel ingress</tspan> · dartclaw_whatsapp, dartclaw_signal, dartclaw_google_chat, dartclaw_slack</text><text class="p2" x="36" y="796">Adapters normalise platform payloads into ChannelMessage and hand them to ChannelManager.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#web-ui"><g class="n tint k-host" id="web">
+    <rect class="box" x="292" y="134" width="216" height="62" rx="9"/>
+    <text class="name" x="306" y="158">Web UI and REST API</text>
+    <text class="sub" x="306" y="180">Trellis + HTMX, HTTP + SSE</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Web UI and REST API</tspan> · DartclawServer (shelf), Trellis templates, HTMX fragments, SSE streams</text><text class="p2" x="36" y="796">POST /api/sessions/&lt;id&gt;/send admits chat messages through ConversationService.submit.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md"><g class="n tint k-host" id="sched">
+    <rect class="box" x="520" y="134" width="216" height="62" rx="9"/>
+    <text class="name" x="534" y="158">ScheduleService</text>
+    <g class="badge"><rect x="680" y="146" width="44" height="16" rx="8"/><text x="702" y="158">CRON</text></g>
+    <text class="sub" x="534" y="180">prompt, task and shell jobs</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">ScheduleService</tspan> · heartbeat, git-sync and configured cron, interval and once jobs</text><text class="p2" x="36" y="796">A prompt job starts a turn through TurnManager with cron provenance; a task job creates a reviewable task.</text></g>
+  </g></a>
+  <a href="../system-architecture.md#mcp-server"><g class="n tint k-host" id="mcp">
+    <rect class="box" x="748" y="134" width="216" height="62" rx="9"/>
+    <text class="name" x="762" y="158">MCP server</text>
+    <g class="badge"><rect x="906" y="146" width="46" height="16" rx="8"/><text x="929" y="158">/mcp</text></g>
+    <text class="sub" x="762" y="180">tools for agents and MCP clients</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">MCP server</tspan> · McpProtocolHandler on the same shelf server</text><text class="p2" x="36" y="796">Memory, knowledge, task, workflow, scheduling and web tools; guard-evaluated and audited at dispatch.</text></g>
+  </g></a>
+
+  <!-- Core -->
+  <a href="../session-state-architecture.md"><g class="n tint k-host" id="conv">
+    <rect class="box" x="36" y="240" width="280" height="92" rx="9"/>
+    <text class="name" x="50" y="264">Conversation</text>
+    <text class="mono" x="50" y="285">ChannelManager → MessageQueue</text>
+    <text class="mono" x="50" y="302">SessionService</text>
+    <text class="mono" x="50" y="319">ConversationService</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Conversation</tspan> · routes inbound messages to sessions and owns session and conversation state</text><text class="p2" x="36" y="796">Pause check, thread binding, per-sender rate limit, then a debounced FIFO MessageQueue per session.</text></g>
+  </g></a>
+  <a href="../control-protocol.md"><g class="n solid k-host" id="exec">
+    <rect class="box" x="352" y="240" width="284" height="92" rx="9"/>
+    <text class="name" x="366" y="264">Execution</text>
+    <text class="mono" x="366" y="285">TurnManager → TurnRunner</text>
+    <text class="mono" x="366" y="302">ExecutionCoordinator</text>
+    <text class="sub" x="366" y="319">primary lane + per-provider worker leases</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Execution</tspan> · admission, then one capacity grant per execution</text><text class="p2" x="36" y="796">Budget, session lock, loop and rate checks gate a turn; TurnRunner drives the provider binary and streams its events.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md"><g class="n tint k-host" id="tasks">
+    <rect class="box" x="680" y="240" width="284" height="92" rx="9"/>
+    <text class="name" x="694" y="264">Tasks and workflows</text>
+    <text class="mono" x="694" y="285">TaskService · TaskExecutor</text>
+    <text class="mono" x="694" y="302">TaskReviewService</text>
+    <text class="mono" x="694" y="319">WorkflowExecutor</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Tasks and workflows</tspan> · queued tasks and workflow steps</text><text class="p2" x="36" y="796">Each leases a provider worker from ExecutionCoordinator, runs in a git worktree if one is declared, then goes to review.</text></g>
+  </g></a>
+
+  <!-- State and policy -->
+  <a href="../data-model.md"><g class="n tint k-store" id="store">
+    <rect class="box" x="36" y="374" width="272" height="88" rx="9"/>
+    <text class="name" x="50" y="398">Storage</text>
+    <g class="badge"><rect x="180" y="386" width="116" height="16" rx="8"/><text x="238" y="398">FILES + POSTGRES</text></g>
+    <text class="sub" x="50" y="420">files: sessions, messages, memory, audit</text>
+    <text class="sub" x="50" y="438">PostgreSQL: tasks, runs, traces, search</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Storage</tspan> · files are authoritative for sessions, messages, memory, config and audit</text><text class="p2" x="36" y="796">PostgreSQL 14+ holds tasks, executions, workflow runs, traces, events, knowledge-graph facts and derived search projections.</text></g>
+  </g></a>
+  <a href="../security-architecture.md"><g class="n tint k-sec" id="policy">
+    <rect class="box" x="352" y="374" width="220" height="88" rx="9"/>
+    <text class="name" x="366" y="398">Policy</text>
+    <text class="mono" x="366" y="420">GuardChain · governance</text>
+    <text class="mono" x="366" y="437">ContainerManager</text>
+    <text class="mono" x="366" y="454">HostGateway · credentials</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Policy</tspan> · guards, rate limits, token budget, loop detection</text><text class="p2" x="36" y="796">Container isolation and host-held credentials: ContainerManager and HostGateway wrap every container execution.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md"><g class="n tint k-host" id="proj">
+    <rect class="box" x="680" y="374" width="284" height="88" rx="9"/>
+    <text class="name" x="694" y="398">Projects and worktrees</text>
+    <text class="mono" x="694" y="420">ProjectService</text>
+    <text class="mono" x="694" y="437">WorktreeManager</text>
+    <text class="mono" x="694" y="454">RemotePushService</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Projects and worktrees</tspan> · git clones under &lt;data_dir&gt;/projects</text><text class="p2" x="36" y="796">Per-task worktrees and push and PR creation; blocking git calls run in isolates.</text></g>
+  </g></a>
+
+  <!-- Shared services -->
+  <a href="../system-architecture.md#memory-search-and-context-research"><g class="n line k-host" id="know">
+    <rect class="box" x="36" y="498" width="272" height="56" rx="9"/>
+    <text class="name" x="50" y="520">Knowledge</text>
+    <text class="sub" x="50" y="540">memory corpus, hybrid search, temporal KG</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Knowledge</tspan> · canonical Markdown memory with derived PostgreSQL search projections</text><text class="p2" x="36" y="796">The temporal knowledge graph and the wiki sit beside it; agents reach all of it through MCP tools and prompt composition.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md"><g class="n line k-host" id="cross">
+    <rect class="box" x="680" y="498" width="284" height="56" rx="9"/>
+    <text class="name" x="694" y="520">Cross-cutting</text>
+    <text class="mono" x="694" y="540">EventBus · ConfigNotifier</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">Cross-cutting</tspan> · EventBus, ConfigNotifier, AlertRouter, UsageTracker</text><text class="p2" x="36" y="796">Fire-and-forget typed events, hot-reloadable configuration, alert routing and usage tracking.</text></g>
+  </g></a>
+
+  <!-- Child processes -->
+  <a href="../channel-messaging-architecture.md"><g class="n tint k-chan" id="gowa">
+    <rect class="box" x="32" y="624" width="158" height="52" rx="9"/>
+    <text class="name" x="46" y="646">GOWA</text>
+    <g class="badge"><rect x="146" y="634" width="32" height="16" rx="8"/><text x="162" y="646">GO</text></g>
+    <text class="sub" x="46" y="665">WhatsApp Web, REST</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">GOWA</tspan> · Go sidecar for the WhatsApp Web protocol</text><text class="p2" x="36" y="796">dartclaw_whatsapp drives it over REST and receives inbound messages by webhook.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md"><g class="n tint k-chan" id="signal">
+    <rect class="box" x="204" y="624" width="152" height="52" rx="9"/>
+    <text class="name" x="218" y="646">signal-cli</text>
+    <text class="sub" x="218" y="665">Signal, JSON-RPC + SSE</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">signal-cli</tspan> · Signal sidecar</text><text class="p2" x="36" y="796">dartclaw_signal drives it over JSON-RPC and reads inbound messages from its SSE stream.</text></g>
+  </g></a>
+  <a href="../control-protocol.md"><g class="n tint k-ext" id="claude">
+    <rect class="box" x="404" y="624" width="180" height="52" rx="9"/>
+    <text class="name" x="418" y="646">claude</text>
+    <g class="badge"><rect x="524" y="634" width="48" height="16" rx="8"/><text x="548" y="646">JSONL</text></g>
+    <text class="sub" x="418" y="665">container or host</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">claude</tspan> · Claude Code CLI, bidirectional JSONL over stdin and stdout</text><text class="p2" x="36" y="796">Runs inside a container behind HostGateway, or as a host subprocess when the container posture is off.</text></g>
+  </g></a>
+  <a href="../control-protocol.md"><g class="n tint k-ext" id="codex">
+    <rect class="box" x="596" y="624" width="180" height="52" rx="9"/>
+    <text class="name" x="610" y="646">codex</text>
+    <g class="badge"><rect x="700" y="634" width="64" height="16" rx="8"/><text x="732" y="646">JSON-RPC</text></g>
+    <text class="sub" x="610" y="665">container or host</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">codex</tspan> · Codex app-server, JSON-RPC over stdio</text><text class="p2" x="36" y="796">Runs inside a container behind HostGateway, or as a host subprocess when the container posture is off.</text></g>
+  </g></a>
+  <a href="../control-protocol.md"><g class="n tint k-ext" id="acp">
+    <rect class="box" x="788" y="624" width="180" height="52" rx="9"/>
+    <text class="name" x="802" y="646">ACP agent</text>
+    <g class="badge"><rect x="892" y="634" width="64" height="16" rx="8"/><text x="924" y="646">JSON-RPC</text></g>
+    <text class="sub" x="802" y="665">host only</text>
+    <g class="d"><text class="p1" x="36" y="776"><tspan class="b">ACP agent</tspan> · any Agent Client Protocol agent</text><text class="p2" x="36" y="796">No mediated container boundary exists for ACP, so these agents run on the host only.</text></g>
+  </g></a>
+
+  <!-- Legend -->
+  <g transform="translate(24,706)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">core component</text>
+    <g class="tint k-host"><rect class="box" x="122" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="144" y="10">component</text>
+    <g class="tint k-sec"><rect class="box" x="222" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="244" y="10">policy</text>
+    <g class="tint k-store"><rect class="box" x="296" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="318" y="10">store</text>
+    <g class="tint k-chan"><rect class="box" x="366" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="388" y="10">channel</text>
+    <g class="tint k-ext"><rect class="box" x="448" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="470" y="10">external process</text>
+    <g class="e main"><path d="M590,6 H622"/></g><text class="lg" x="630" y="10">main request path</text>
+    <g class="e"><path d="M752,6 H784"/></g><text class="lg" x="792" y="10">call</text>
+    <g class="e dash"><path d="M830,6 H862"/></g><text class="lg" x="870" y="10">wraps, mediates</text>
+  </g>
+
+</svg>

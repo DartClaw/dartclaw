@@ -43,19 +43,12 @@ void main() {
     if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
   });
 
-  Future<ContainerAuthority> startAuthority({
-    String sessionId = 'session-a',
-    String profile = 'workspace',
-    Set<String> allowedMcpTools = const {},
-    List<String> mcpToolNames = const [],
-    List<String>? mcpCalls,
-    List<String>? denials,
-  }) async {
+  HostGateway buildGateway({List<String> mcpToolNames = const [], List<String>? mcpCalls, List<String>? denials}) {
     final registry = McpProtocolHandler();
     for (final name in mcpToolNames) {
       registry.registerTool(RecordingMcpTool(name, mcpCalls ?? <String>[]));
     }
-    final gateway = HostGateway(
+    return HostGateway(
       providerAdapters: {
         'claude': AnthropicMessagesAdapter(
           credential: ProviderCredentialSource.apiKey(() => sentinelAnthropicCredential),
@@ -66,29 +59,44 @@ void main() {
       mcpToolCanonicals: () => const {'brave_search': CanonicalTool.webSearch, 'web_fetch': CanonicalTool.webFetch},
       onDenied: (_, reason) => denials?.add(reason),
     );
-    final manager = ContainerManager(
-      ownerLabel: ContainerManager.ownerLabel(dataDir.path),
-      config: const ContainerConfig(enabled: true, image: gatewayProbeImage),
-      containerName: 'dartclaw-gwtest-${DateTime.now().microsecondsSinceEpoch}-${sessionId.hashCode.abs()}',
-      profileId: profile,
-      workspaceMounts: const [],
-      generatedStateDir: Directory.systemTemp.createTempSync('dartclaw-gwstate-').path,
+  }
+
+  ContainerManager buildManager({
+    String sessionId = 'session-a',
+    String profile = 'workspace',
+    bool hasMcpBridge = false,
+    String? bridgeBinaryPath,
+  }) => ContainerManager(
+    ownerLabel: ContainerManager.ownerLabel(dataDir.path),
+    config: const ContainerConfig(enabled: true, image: gatewayProbeImage),
+    containerName: 'dartclaw-gwtest-${DateTime.now().microsecondsSinceEpoch}-${sessionId.hashCode.abs()}',
+    profileId: profile,
+    workspaceMounts: const [],
+    generatedStateDir: Directory.systemTemp.createTempSync('dartclaw-gwstate-').path,
+    hasMcpBridge: hasMcpBridge,
+    bridgeBinaryPath: bridgeBinaryPath,
+    buildContextDir: checkoutRoot,
+    workingDir: '/tmp',
+  );
+
+  Future<ContainerAuthority> startAuthority({
+    String sessionId = 'session-a',
+    String profile = 'workspace',
+    Set<String> allowedMcpTools = const {},
+    List<String> mcpToolNames = const [],
+    List<String>? mcpCalls,
+    List<String>? denials,
+  }) => startContainerAuthority(
+    gateway: buildGateway(mcpToolNames: mcpToolNames, mcpCalls: mcpCalls, denials: denials),
+    manager: buildManager(
+      sessionId: sessionId,
+      profile: profile,
       hasMcpBridge: allowedMcpTools.isNotEmpty,
       bridgeBinaryPath: bridgeBinary,
-      buildContextDir: checkoutRoot,
-      workingDir: '/tmp',
-    );
-    return startContainerAuthority(
-      gateway: gateway,
-      manager: manager,
-      principal: GatewayPrincipal(
-        sessionId: sessionId,
-        providerId: 'claude',
-        policy: ExecutionPolicy.container(profile),
-      ),
-      allowedMcpTools: allowedMcpTools,
-    );
-  }
+    ),
+    principal: GatewayPrincipal(sessionId: sessionId, providerId: 'claude', policy: ExecutionPolicy.container(profile)),
+    allowedMcpTools: allowedMcpTools,
+  );
 
   group('mediated access under network:none', () {
     test('an authorized provider call reaches the host adapter and returns its answer', () async {
@@ -344,6 +352,28 @@ void main() {
       expect(authority.authority.isRevoked, isTrue);
       expect(authority.gateway.liveAuthorityCount, 0);
       expect(await _bridgeProcessesFor(containerName), isEmpty);
+    });
+
+    test('a setup that fails once the container exists leaves no container and no live authority', () async {
+      final gateway = buildGateway();
+      // No bridge binary: the container starts, then `startBridge` refuses.
+      final manager = buildManager();
+
+      await expectLater(
+        startContainerAuthority(
+          gateway: gateway,
+          manager: manager,
+          principal: const GatewayPrincipal(
+            sessionId: 'session-a',
+            providerId: 'claude',
+            policy: ExecutionPolicy.container('workspace'),
+          ),
+        ),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('no bridge binary'))),
+      );
+
+      expect(await containerExists(manager.containerName), isFalse, reason: 'a failed setup leaked its container');
+      expect(gateway.liveAuthorityCount, 0);
     });
 
     test('a request after release is refused because the pipe no longer exists', () async {

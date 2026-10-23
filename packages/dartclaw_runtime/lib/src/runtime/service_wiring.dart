@@ -51,8 +51,13 @@ import '../server_composition.dart';
 import '../conversation/human_command_catalog.dart';
 import '../conversation/product_conversation_search.dart';
 import '../memory/memory_admin_service.dart';
+import '../mcp/context_research_tool.dart' show sourceLinkerFor;
+import '../mcp/knowledge_write_gate.dart';
 import '../mcp/mcp_server.dart' show McpCallerContext, McpKnowledgeScope;
 import '../restart_service.dart' show consumeRestartPending;
+import '../task/delegated_turn_provenance.dart' show taskOriginProvenance;
+import '../task/workflow_run_control.dart';
+import '../task/workflow_run_notification_subscriber.dart';
 import 'channel_agent_binding.dart';
 import 'channel_wiring.dart';
 import 'harness_wiring.dart';
@@ -543,20 +548,24 @@ class _RuntimeAssembly {
   final ResolvedAssets resolvedAssets;
   final PlatformCapabilities platformCapabilities;
 
-  /// The repository this build operates on — the invocation cwd.
+  /// The repository this build operates on, defaulting to the invocation cwd
+  /// (`Directory.current.path`), which is read here and nowhere else for it.
+  /// An injected relative path is made absolute here, once, so no consumer
+  /// re-resolves it against the process cwd.
   ///
-  /// Worktree placement, diff generation, the local-project fallback and the
-  /// workflow output root all key off it. `serve` reads the same value it read
-  /// as `Directory.current.path`; a headless caller injects one so a run
-  /// started from a repository other than the launch directory still roots
-  /// there.
+  /// Agent spawns and behavior files, the container `/project` mount, worktree
+  /// placement, diff generation, the `_local` project and the workflow output
+  /// root all key off it. A headless caller injects one so a run started from a
+  /// repository other than the launch directory still roots there.
   final String runtimeCwd;
 
   /// The directory a workflow run falls back to when it resolves no project —
   /// non-null only for the zero-server lane, and the one arm that selects its
   /// local-repository posture: worktree root, workflow output root, publish
   /// strategy, and the source-tree asset precedence a checkout run expects.
-  final String? localFallbackDir;
+  String? get localFallbackDir => _localRepositoryPosture ? runtimeCwd : null;
+
+  final bool _localRepositoryPosture;
 
   /// Inverts asset precedence so the live source tree wins over the embedded
   /// built-ins, for skills and workflow YAML alike. The maintainer profile
@@ -653,8 +662,8 @@ class _RuntimeAssembly {
        platformCapabilities =
            platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment),
        _environment = environment ?? Platform.environment,
-       runtimeCwd = runtimeCwd ?? Directory.current.path,
-       localFallbackDir = localRepositoryPosture ? (runtimeCwd ?? Directory.current.path) : null,
+       runtimeCwd = p.normalize(p.absolute(runtimeCwd ?? Directory.current.path)),
+       _localRepositoryPosture = localRepositoryPosture,
        resolvedAssets =
            resolvedAssets ?? const AssetResolver().resolveAssets(const AssetResolutionRequest.noConfiguredAssets()),
        prCreatorOverride = prCreator,
@@ -740,7 +749,27 @@ class _RuntimeAssembly {
     );
     final workflowRoleDefaults = workflowRoleDefaultsFromConfig(config);
     final workflowService = await _wireWorkflowService(ctx, storage, task, project, workflowRoleDefaults);
-    final lifecycleManager = channel == null ? null : await _wireThreadBinding(ctx, storage, channel);
+    // Chat, tools and HTTP resolve runs through this one gate and audit writer. A server-less build has none.
+    final runControl = channel == null
+        ? null
+        : WorkflowRunControl(
+            workflows: workflowService,
+            isAdmin: config.governance.isAdmin,
+            auditLogger: security.auditLogger,
+          );
+    if (runControl != null) channel!.bindRunApprovals(runControl.handleApproval);
+    final lifecycleManager = channel == null ? null : await _wireThreadBinding(ctx, storage, workflowService, channel);
+    final runNotifications = channel == null
+        ? null
+        : wireRunNotifications(
+            config: config,
+            eventBus: ctx.eventBus,
+            lookupRun: workflowService.get,
+            channelManager: channel.channelManager,
+            threadBindings: channel.threadBindingStore,
+            issueInteraction: workflowService.issueApprovalInteraction,
+            bindPost: workflowService.bindApprovalPost,
+          );
     final credentialHealth = _wireCredentialHealth(ctx, harness, providerStatus);
     // Bound here rather than constructed with the security and harness layers:
     // the monitor needs the ProviderStatusService the API reads, which exists
@@ -765,7 +794,7 @@ class _RuntimeAssembly {
 
     DartclawServer? server;
     OutboundMcpPool? outboundMcpPool;
-    if (channel != null && scheduling != null && configWriter != null) {
+    if (channel != null && scheduling != null && configWriter != null && runControl != null) {
       server = (serverFactory ?? _identityServerFactory)(
         _composeRuntimeServer(
           config,
@@ -778,6 +807,7 @@ class _RuntimeAssembly {
           project,
           providerStatus,
           workflowService,
+          runControl,
           workflowRegistry,
           _buildRestartService(ctx, harness),
           channel,
@@ -796,10 +826,12 @@ class _RuntimeAssembly {
         storage,
         security,
         task,
-        channel.threadBindingStore,
+        channel.taskThreadBindingStore,
+        channel.channelManager,
         scheduling,
         workflowRegistry,
         workflowService,
+        runControl,
         configWriter,
         outboundMcpTransportFactory: outboundMcpTransportFactory,
       );
@@ -819,6 +851,7 @@ class _RuntimeAssembly {
       workflowService,
       alertRouter,
       lifecycleManager,
+      runNotifications,
       scopeReconciler,
       groupSessionInit,
       outboundMcpPool,
@@ -890,7 +923,7 @@ class _RuntimeAssembly {
   }
 
   Future<ProjectWiring> _wireProjects(_WiringContext ctx) async {
-    final project = ProjectWiring(config: config, dataDir: ctx.dataDir, eventBus: ctx.eventBus);
+    final project = ProjectWiring(config: config, dataDir: ctx.dataDir, runtimeCwd: runtimeCwd, eventBus: ctx.eventBus);
     await project.wire(readOnly: headless);
     return project;
   }
@@ -945,6 +978,7 @@ class _RuntimeAssembly {
     final security = SecurityWiring(
       config: config,
       dataDir: ctx.dataDir,
+      runtimeCwd: runtimeCwd,
       eventBus: ctx.eventBus,
       exitFn: exitFn,
       platformCapabilities: platformCapabilities,
@@ -971,6 +1005,7 @@ class _RuntimeAssembly {
     final harness = HarnessWiring(
       config: config,
       dataDir: ctx.dataDir,
+      runtimeCwd: runtimeCwd,
       port: ctx.port,
       harnessFactory: harnessFactory,
       exitFn: exitFn,
@@ -1024,6 +1059,7 @@ class _RuntimeAssembly {
       task: task,
       resolvedConfigPath: resolvedConfigPath,
       agentBinder: ChannelAgentBinder.forHarness(harness),
+      auditLogger: ctx.auditLogger,
     );
     await channel.wire(
       serverRefGetter: ctx.composedServerGetter,
@@ -1031,6 +1067,7 @@ class _RuntimeAssembly {
       sseBroadcast: harness.sseBroadcast!,
       messageRedactor: ctx.messageRedactor,
       healthService: harness.primaryHealthService,
+      configNotifier: ctx.configNotifier,
       budgetEnforcer: harness.budgetEnforcer,
     );
     _configureBudgetWarningNotifiers(
@@ -1278,14 +1315,17 @@ class _RuntimeAssembly {
   Future<ThreadBindingLifecycleManager?> _wireThreadBinding(
     _WiringContext ctx,
     StorageWiring storage,
+    WorkflowService workflowService,
     ChannelWiring channel,
   ) async {
     final threadBindingStore = channel.threadBindingStore;
     if (threadBindingStore == null) return null;
 
-    final allTasks = await storage.taskService.list();
-    final activeIds = allTasks.where((t) => !t.status.terminal).map((t) => t.id).toSet();
-    final pruned = await threadBindingStore.reconcile(activeIds);
+    final pruned = await reconcileThreadBindings(
+      threadBindingStore,
+      tasks: storage.taskService,
+      workflows: workflowService,
+    );
     if (pruned > 0) {
       _log.info('Pruned $pruned stale thread binding(s) during startup reconciliation');
     }
@@ -1304,10 +1344,14 @@ class _RuntimeAssembly {
 
   /// Delivers push-back feedback as a new turn on the task's own session.
   ///
+  /// The turn carries the origin channel as its provenance but no sender, because the review seam does not carry
+  /// who pushed back: the shared-knowledge write gate then refuses it wherever admin senders are configured,
+  /// rather than treating a channel session's turn as unattributed.
+  ///
   /// The turn manager is bound after this closure is installed.
   PushBackFeedbackDelivery _pushBackFeedbackDelivery(_WiringContext ctx, StorageWiring storage) {
-    return ({required String taskId, required String sessionKey, required String feedback}) async {
-      final session = await storage.sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
+    return ({required String taskId, required TaskOrigin origin, required String feedback}) async {
+      final session = await storage.sessions.getOrCreateByKey(origin.sessionKey, type: SessionType.channel);
       final messages = [
         {'role': 'user', 'content': feedback},
       ];
@@ -1317,6 +1361,7 @@ class _RuntimeAssembly {
         source: 'push-back',
         isHumanInput: true,
         promptScope: PromptScope.primary,
+        provenance: taskOriginProvenance(origin, includeSender: false),
       );
     };
   }
@@ -1419,6 +1464,7 @@ class _RuntimeAssembly {
       _project,
       _workflowRegistry,
       workflowService,
+      null,
       null,
       null,
       _wireScopeReconciler(ctx),

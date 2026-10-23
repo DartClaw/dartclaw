@@ -79,6 +79,7 @@ class FakeGoogleChatRestClient extends GoogleChatRestClient {
   final List<(String, String)> sentMessages = [];
   final List<(String, Map<String, dynamic>)> sentCards = [];
   final List<(String, String)> editedMessages = [];
+  final List<(String, Map<String, dynamic>, String)> editedCards = [];
   final List<String> deletedMessages = [];
   final List<(String, String)> addedReactions = [];
   final List<String> removedReactions = [];
@@ -222,6 +223,12 @@ class FakeGoogleChatRestClient extends GoogleChatRestClient {
     if (callback != null) {
       return callback(messageName, newText);
     }
+    return !failEdit;
+  }
+
+  @override
+  Future<bool> editCardMessage(String messageName, Map<String, dynamic> card, String text) async {
+    editedCards.add((messageName, Map<String, dynamic>.from(card), text));
     return !failEdit;
   }
 

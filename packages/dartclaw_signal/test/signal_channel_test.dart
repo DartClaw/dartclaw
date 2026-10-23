@@ -106,7 +106,17 @@ final class _RoutingFakeChannelManager extends ChannelManager {
   new({required GroupConfigResolver rows})
     : super(
         queue: MessageQueue(
-          dispatcher: (_, _, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+          dispatcher: (
+            _,
+            _, {
+            required channelType,
+            senderJid,
+            senderDisplayName,
+            groupJid,
+            recipientId,
+            threadId,
+            attachments = const [],
+          }) async => '',
         ),
         config: const ChannelConfig.defaults(),
         groupConfigResolver: rows,
@@ -878,7 +888,17 @@ final value = 1;
       expect(pairingManager.received.first.senderJid, uuid);
       final manager = ChannelManager(
         queue: MessageQueue(
-          dispatcher: (_, _, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+          dispatcher: (
+            _,
+            _, {
+            required channelType,
+            senderJid,
+            senderDisplayName,
+            groupJid,
+            recipientId,
+            threadId,
+            attachments = const [],
+          }) async => '',
         ),
         config: const ChannelConfig.defaults(),
         groupConfigResolver: GroupConfigResolver.fromChannelEntries(

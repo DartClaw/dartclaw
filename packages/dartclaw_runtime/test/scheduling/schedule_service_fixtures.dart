@@ -29,6 +29,7 @@ class ConfigurableTurnManager implements TurnManager {
   String? lastModel;
   String? lastEffort;
   List<String>? lastAllowedTools;
+  TurnProvenance? lastProvenance;
   String? lastPrompt;
 
   /// Optional hook called inside startTurn — use to block execution for concurrency tests.
@@ -57,12 +58,14 @@ class ConfigurableTurnManager implements TurnManager {
     PromptScope? promptScope,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     startTurnCallCount++;
     lastMessages = messages;
     lastModel = model;
     lastEffort = effort;
     lastAllowedTools = allowedTools;
+    lastProvenance = provenance;
     lastPrompt = messages.single['content'] as String?;
     final turnId = 'fake-turn-$startTurnCallCount';
 

@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 910" width="1000" height="910" role="img" aria-labelledby="title desc">
+  <title id="title">Crowd coding: the path of a message through a shared room</title>
+  <desc id="desc">A participant message passes the Google Chat webhook's access gate, the pause check and the bridge checks (reserved commands, per-sender rate limit, bound-thread routing), then the message queue, before one shared-session turn. App commands, the pause queue, reserved commands, bound task sessions and the governance turn limits branch off the main path.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#people:hover) .edges :is(.f-people,.t-people) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#webhook:hover) .edges :is(.f-webhook,.t-webhook) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pause:hover) .edges :is(.f-pause,.t-pause) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bridge:hover) .edges :is(.f-bridge,.t-bridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#queue:hover) .edges :is(.f-queue,.t-queue) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#turn:hover) .edges :is(.f-turn,.t-turn) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#appcmd:hover) .edges :is(.f-appcmd,.t-appcmd) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pausedq:hover) .edges :is(.f-pausedq,.t-pausedq) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#reserved:hover) .edges :is(.f-reserved,.t-reserved) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bound:hover) .edges :is(.f-bound,.t-bound) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#limits:hover) .edges :is(.f-limits,.t-limits) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#reply:hover) .edges :is(.f-reply,.t-reply) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="910"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="814" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="838">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="862">Hover a box for what it does; its connections light up. Click it to open the recipe section.</text><text class="p2" x="36" y="882">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · A MESSAGE IN A SHARED ROOM</text>
+  <text class="title" x="24" y="58">Crowd coding: the path of a message through a shared room</text>
+  <text class="lede" x="24" y="80">Pause, reserved commands and the rate limit are decided before a message can reach a session or a task.</text>
+
+
+
+  <g class="edges">
+    <g class="e main f-people t-webhook"><path d="M234,176 V200"/><text class="el" x="242" y="193" text-anchor="start">message</text></g>
+    <g class="e main f-webhook t-pause"><path d="M234,286 V310"/><text class="el" x="242" y="303" text-anchor="start">allowed</text></g>
+    <g class="e main f-pause t-bridge"><path d="M234,388 V412"/><text class="el" x="242" y="405" text-anchor="start">not paused</text></g>
+    <g class="e main f-bridge t-queue"><path d="M234,538 V562"/><text class="el" x="242" y="555" text-anchor="start">not consumed</text></g>
+    <g class="e main f-queue t-turn"><path d="M234,640 V664"/><text class="el" x="242" y="657" text-anchor="start">one turn</text></g>
+    <g class="e dash f-webhook t-appcmd"><path d="M446,244 H538"/><text class="el" x="492" y="236" text-anchor="middle">app command</text></g>
+    <g class="e dash f-pause t-pausedq"><path d="M446,350 H538"/><text class="el" x="492" y="342" text-anchor="middle">paused</text></g>
+    <g class="e dash f-bridge t-reserved"><path d="M446,447 H538"/><text class="el" x="492" y="439" text-anchor="middle">reserved</text></g>
+    <g class="e dash f-bridge t-bound"><path d="M446,513 H538"/><text class="el" x="492" y="505" text-anchor="middle">bound thread</text></g>
+    <g class="e  f-limits t-turn"><path d="M540,606 H500 V690 H446"/><text class="el" x="494" y="657" text-anchor="end">every turn</text></g>
+    <g class="e main f-turn t-reply"><path d="M446,722 H538"/><text class="el" x="492" y="714" text-anchor="middle">reply</text></g>
+  </g>
+
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n tint k-chan" id="people">
+    <rect class="box" x="24" y="104" width="420" height="72" rx="9"/>
+    <g class="step"><circle cx="44" cy="126" r="10"/><text x="44" y="130">1</text></g>
+    <text class="name" x="62" y="127">participants and facilitators</text>
+    <text class="sub" x="62" y="145">a trusted group in one Google Chat Space</text>
+    <text class="sub" x="62" y="161">facilitators are the senders in governance.admin_senders</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">participants and facilitators</tspan> · participants write in ordinary language; facilitators are the senders listed in governance.admin_senders</text><text class="p2" x="36" y="882">An empty admin_senders list makes every sender an administrator, so list your facilitators.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#configuration-scenarios"><g class="n tint k-host" id="webhook">
+    <rect class="box" x="24" y="202" width="420" height="84" rx="9"/>
+    <g class="step"><circle cx="44" cy="224" r="10"/><text x="44" y="228">2</text></g>
+    <text class="name" x="62" y="225">Google Chat webhook</text>
+    <text class="sub" x="62" y="243">access gate: group_access, group_allowlist, require_mention</text>
+    <text class="sub" x="62" y="259">answers a registered app command here, then stops</text>
+    <text class="sub" x="62" y="275">a message also sent through Space Events counts once</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">Google Chat webhook</tspan> · the webhook applies the access gate before anything else: group_access and the group allowlist, then require_mention</text><text class="p2" x="36" y="882">Without Space Events only @mentions arrive; a message that arrives both ways is processed once.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#thread-binding"><g class="n tint k-host" id="pause">
+    <rect class="box" x="24" y="312" width="420" height="76" rx="9"/>
+    <g class="step"><circle cx="44" cy="334" r="10"/><text x="44" y="338">3</text></g>
+    <text class="name" x="62" y="335">pause check</text>
+    <text class="sub" x="62" y="353">session key from group_scope: shared, thread-binding lookup</text>
+    <text class="sub" x="62" y="369">paused and not a reserved command: held in the pause queue</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">pause check</tspan> · derives the session key (group_scope: shared gives one session per Space), looks up a task thread binding, then checks pause</text><text class="p2" x="36" y="882">A held message keeps its route, so /resume replays it into the right session.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#rate-limits"><g class="n tint k-sec" id="bridge">
+    <rect class="box" x="24" y="414" width="420" height="124" rx="9"/>
+    <g class="step"><circle cx="44" cy="436" r="10"/><text x="44" y="440">4</text></g>
+    <text class="name" x="62" y="437">bridge checks, in this order</text>
+    <text class="sub" x="62" y="455">reserved command: run or refused, then consumed</text>
+    <text class="sub" x="62" y="471">per-sender rate limit, admins exempt</text>
+    <text class="sub" x="62" y="487">bound thread: routed to that task's session</text>
+    <text class="sub" x="62" y="503">a message consumed by a check stops here</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">bridge checks, in this order</tspan> · reserved commands, then the per-sender rate limit, then bound-thread routing; a consumed message stops</text><text class="p2" x="36" y="882">The rate limit comes before bound-thread routing, so a limited sender cannot bypass it inside a bound thread.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#rate-limits"><g class="n tint k-host" id="queue">
+    <rect class="box" x="24" y="564" width="420" height="76" rx="9"/>
+    <g class="step"><circle cx="44" cy="586" r="10"/><text x="44" y="590">5</text></g>
+    <text class="name" x="62" y="587">message queue</text>
+    <text class="sub" x="62" y="605">messages from one sender within 1 s join one prompt</text>
+    <text class="sub" x="62" y="621">one turn per session at a time; queue_strategy: fair</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">message queue</tspan> · debounces for 1 s (channels.debounce_window_ms), runs one turn per session at a time, and with fair rotates senders</text><text class="p2" x="36" y="882">Bound-thread messages and a resumed pause queue enter here too, under the session key they were routed to.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#model-routing"><g class="n solid k-host" id="turn">
+    <rect class="box" x="24" y="666" width="420" height="92" rx="9"/>
+    <g class="step"><circle cx="44" cy="688" r="10"/><text x="44" y="692">6</text></g>
+    <text class="name" x="62" y="689">group session turn</text>
+    <text class="sub" x="62" y="707">model and effort: governance.crowd_coding</text>
+    <text class="sub" x="62" y="723">tools: task_*, review_list, workflow_*, attach_media</text>
+    <text class="sub" x="62" y="739">one conversation shared by every participant</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">group session turn</tspan> · the message is saved and one primary-lane turn runs; the agent calls registered tools, no chat grammar is parsed</text><text class="p2" x="36" y="882">Model and effort come from the group allowlist row and session or channel settings, then governance.crowd_coding, then the provider default.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#deterministic-controls-all-scenarios"><g class="n tint k-host" id="appcmd">
+    <rect class="box" x="540" y="202" width="436" height="84" rx="9"/>
+    <text class="name" x="552" y="225">Google Chat app commands</text>
+    <text class="sub" x="552" y="243">/new &lt;description&gt;, /reset, /status, /stop, /pause, /resume</text>
+    <text class="sub" x="552" y="259">/stop, /pause, /resume need an admin sender</text>
+    <text class="sub" x="552" y="275">answered before the bridge: no rate limit applies</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">Google Chat app commands</tspan> · /new starts a task, /reset a fresh session, /status reports; /stop, /pause, /resume need an admin sender</text><text class="p2" x="36" y="882">Handled in the webhook after the access gate, so neither the pause queue nor the per-sender rate limit applies to them.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#deterministic-controls-all-scenarios"><g class="n tint k-sec" id="pausedq">
+    <rect class="box" x="540" y="312" width="436" height="76" rx="9"/>
+    <text class="name" x="552" y="335">pause queue</text>
+    <text class="sub" x="552" y="353">/pause: new messages wait in memory; a restart empties it</text>
+    <g class="chip k-host"><rect x="552" y="364" width="82" height="16" rx="8"/><text x="559" y="376">/resume → 5</text></g>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">pause queue</tspan> · while paused, reserved commands still run and every other message is queued (200 in all, plus max_pause_queued per sender)</text><text class="p2" x="36" y="882">/resume replays the queue grouped by session as one "While paused, N participants sent messages" prompt into the message queue.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#deterministic-controls-all-scenarios"><g class="n tint k-sec" id="reserved">
+    <rect class="box" x="540" y="414" width="436" height="66" rx="9"/>
+    <text class="name" x="552" y="437">reserved commands</text>
+    <text class="sub" x="552" y="455">/stop /pause /resume /bind /unbind, matched exactly</text>
+    <text class="sub" x="552" y="471">/stop cancels turns and tasks; non-admins refused, audited</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">reserved commands</tspan> · consumed whether run or refused; a non-admin sender is refused and one audit entry is written when admin_senders is set</text><text class="p2" x="36" y="882">/stop cancels active turns and every running or queued task and broadcasts an emergency_stop event.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#thread-binding"><g class="n tint k-host" id="bound">
+    <rect class="box" x="540" y="488" width="436" height="50" rx="9"/>
+    <text class="name" x="552" y="507">bound task session</text>
+    <text class="sub" x="552" y="523">a thread bound to a live task goes to that task's session</text>
+    <g class="chip k-host"><rect x="933" y="495" width="33" height="16" rx="8"/><text x="940" y="507">→ 5</text></g>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">bound task session</tspan> · with features.thread_binding.enabled, a message in a thread bound to a live task is queued on that task's session</text><text class="p2" x="36" y="882">Bindings come from /bind, task_bind and the first task notification; they end when the task is terminal or after idle_timeout_minutes (default 60).</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#governance-tuning-guide"><g class="n tint k-sec" id="limits">
+    <rect class="box" x="540" y="564" width="436" height="84" rx="9"/>
+    <text class="name" x="552" y="587">turn limits (governance)</text>
+    <text class="sub" x="552" y="605">rate_limits.global: turn starts per window, all senders</text>
+    <text class="sub" x="552" y="621">budget.daily_tokens: action block or warn</text>
+    <text class="sub" x="552" y="637">loop_detection: action abort or warn</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">turn limits (governance)</tspan> · limits that apply to every turn, whoever sent the message; admin senders are not exempt from any of the three</text><text class="p2" x="36" y="882">budget.daily_tokens refuses new turns once spent (action: block); an in-flight turn may finish past the threshold.</text></g>
+  </g></a>
+  <a href="../08-crowd-coding.md#running-the-session"><g class="n tint k-chan" id="reply">
+    <rect class="box" x="540" y="666" width="436" height="92" rx="9"/>
+    <text class="name" x="552" y="689">reply in the room</text>
+    <text class="sub" x="552" y="707">same Space, same thread when the message had one</text>
+    <text class="sub" x="552" y="723">redacted, formatted and split into chunks</text>
+    <g class="d"><text class="p1" x="36" y="862"><tspan class="b">reply in the room</tspan> · the reply returns to the Space, in the message's thread when it has one</text><text class="p2" x="36" y="882">Outbound text passes the redactor, then Google Chat formatting and chunking.</text></g>
+  </g></a>
+  <g transform="translate(24,788)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">the turn</text>
+    <g class="tint k-sec"><rect class="box" x="93.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="115.6" y="10">check or limit</text>
+    <g class="tint k-host"><rect class="box" x="224.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="246.4" y="10">step</text>
+    <g class="tint k-chan"><rect class="box" x="293.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="315.2" y="10">people or room</text>
+    <g class="e main"><path d="M424.0,6 H456.0"/></g><text class="lg" x="464.0" y="10">main path</text>
+    <g class="e dash"><path d="M541.8,6 H573.8"/></g><text class="lg" x="581.8" y="10">branch off the path</text>
+    <g class="e "><path d="M721.5999999999999,6 H753.5999999999999"/></g><text class="lg" x="761.5999999999999" y="10">applies to the turn</text>
+  </g>
+</svg>

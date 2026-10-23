@@ -28,6 +28,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowLoop,
         MergeResolveConfig,
         WorkflowRun,
+        WorkflowRunOrigin,
         WorkflowRunRepository,
         WorkflowRunStatusChangedEvent,
         WorkflowWorktreeBinding,
@@ -147,7 +148,7 @@ void main() {
     final definition = makeDefinition();
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     await Future<void>.delayed(Duration.zero); // Let EventBus dispatch async events.
 
     expect(run.status, equals(WorkflowRunStatus.running));
@@ -155,11 +156,46 @@ void main() {
     expect(statusEvents.any((e) => e.newStatus == WorkflowRunStatus.running), isTrue);
   });
 
+  group('start run origin', () {
+    const origin = WorkflowRunOrigin(
+      surface: 'googlechat',
+      channelType: 'googlechat',
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+      senderId: 'users/42',
+    );
+
+    test('is stored in the initial insert, before the first status event is published', () async {
+      final seenByListener = eventBus.on<WorkflowRunStatusChangedEvent>().first.then(
+        (event) => repository.getById(event.runId),
+      );
+      autoCompleteNewTasks();
+
+      final run = await workflowService.start(makeDefinition(), {}, origin: origin);
+
+      expect((await seenByListener)?.origin, origin);
+      expect(run.origin, origin);
+    });
+
+    test('is unchanged by pause, resume and the executor updates that follow', () async {
+      final run = await workflowService.start(makeDefinition(), {}, origin: origin);
+
+      await workflowService.pause(run.id);
+      expect((await workflowService.get(run.id))?.origin, origin);
+      autoCompleteNewTasks();
+      await workflowService.resume(run.id);
+      await waitForRunStatus(run.id, WorkflowRunStatus.completed);
+
+      expect((await workflowService.get(run.id))?.origin, origin);
+    });
+  });
+
   test('start() persists initial context.json to disk', () async {
     final definition = makeDefinition();
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
 
     final contextFile = File(p.join(tempDir.path, 'workflows', 'runs', run.id, 'context.json'));
     expect(contextFile.existsSync(), isTrue);
@@ -169,7 +205,12 @@ void main() {
     final definition = makeDefinition();
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, {}, approvals: WorkflowApprovalPolicy.autoOnStall);
+    final run = await workflowService.start(
+      definition,
+      {},
+      approvals: WorkflowApprovalPolicy.autoOnStall,
+      origin: WorkflowRunOrigin.unknown,
+    );
 
     expect(run.contextJson['_workflow.approvals'], 'auto-on-stall');
     final contextFile = File(p.join(tempDir.path, 'workflows', 'runs', run.id, 'context.json'));
@@ -193,7 +234,7 @@ void main() {
     );
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, {}, inline: true);
+    final run = await workflowService.start(definition, {}, inline: true, origin: WorkflowRunOrigin.unknown);
 
     final effective = WorkflowDefinition.fromJson(run.definitionJson).gitStrategy!;
     expect(effective.integrationBranch, isFalse);
@@ -215,7 +256,7 @@ void main() {
     );
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
 
     final effective = WorkflowDefinition.fromJson(run.definitionJson).gitStrategy!;
     expect(effective.integrationBranch, isTrue);
@@ -230,7 +271,7 @@ void main() {
     addTearDown(service.dispose);
     final definition = makeDefinition(steps: []);
 
-    final run = await service.start(definition, {});
+    final run = await service.start(definition, {}, origin: WorkflowRunOrigin.unknown);
 
     expect(run.contextJson['_workflow.approvals'], 'auto');
   });
@@ -241,7 +282,9 @@ void main() {
     );
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, {'topic': 'Dart programming'});
+    final run = await workflowService.start(definition, {
+      'topic': 'Dart programming',
+    }, origin: WorkflowRunOrigin.unknown);
     expect(run.variablesJson['topic'], equals('Dart programming'));
   });
 
@@ -256,7 +299,7 @@ void main() {
     );
 
     expect(
-      () => workflowService.start(definition, const {}),
+      () => workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown),
       throwsA(
         isA<ArgumentError>().having(
           (e) => e.message,
@@ -273,7 +316,7 @@ void main() {
     );
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, const {});
+    final run = await workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
     expect(run.variablesJson['MODE'], equals('auto'));
   });
 
@@ -285,7 +328,12 @@ void main() {
     );
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, const {}, projectId: 'my-app');
+    final run = await workflowService.start(
+      definition,
+      const {},
+      projectId: 'my-app',
+      origin: WorkflowRunOrigin.unknown,
+    );
     expect(run.variablesJson['PROJECT'], equals('my-app'));
   });
 
@@ -295,7 +343,12 @@ void main() {
     );
     autoCompleteNewTasks();
 
-    final run = await workflowService.start(definition, const {}, projectId: 'my-app');
+    final run = await workflowService.start(
+      definition,
+      const {},
+      projectId: 'my-app',
+      origin: WorkflowRunOrigin.unknown,
+    );
 
     expect(run.variablesJson['PROJECT'], equals('my-app'));
   });
@@ -348,7 +401,7 @@ void main() {
         WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
       ],
     );
-    final run = await workflowService.start(definition, const {});
+    final run = await workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
 
     expect(run.variablesJson['PROJECT'], equals('_local'));
     expect(run.variablesJson['BRANCH'], equals('develop'));
@@ -371,7 +424,10 @@ void main() {
     );
 
     await expectLater(
-      workflowService.start(definition, const {'PROJECT': 'my-app', 'BRANCH': 'missing/ref'}),
+      workflowService.start(definition, const {
+        'PROJECT': 'my-app',
+        'BRANCH': 'missing/ref',
+      }, origin: WorkflowRunOrigin.unknown),
       throwsA(isA<ArgumentError>()),
     );
     expect(await workflowService.list(), isEmpty);
@@ -387,7 +443,7 @@ void main() {
     );
 
     await expectLater(
-      workflowService.start(definition, const {}),
+      workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('WorkflowPersistencePorts'))),
     );
     expect(await workflowService.list(), isEmpty);
@@ -400,7 +456,7 @@ void main() {
     );
 
     expect(
-      () => workflowService.start(definition, {}),
+      () => workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown),
       throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('topic'))),
     );
   });
@@ -413,7 +469,7 @@ void main() {
       ],
     );
 
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     final paused = await workflowService.pause(run.id);
 
     expect(paused.status, equals(WorkflowRunStatus.paused));
@@ -424,7 +480,7 @@ void main() {
   test('pause() throws when workflow not running', () async {
     final definition = makeDefinition();
     autoCompleteNewTasks();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     await waitForRunStatus(run.id, WorkflowRunStatus.completed);
 
     expect(() => workflowService.pause(run.id), throwsA(isA<StateError>()));
@@ -432,7 +488,7 @@ void main() {
 
   test('resume() transitions paused to running', () async {
     final definition = makeDefinition();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     final paused = await workflowService.pause(run.id);
 
     autoCompleteNewTasks();
@@ -565,14 +621,14 @@ void main() {
   test('resume() throws when workflow not paused', () async {
     final definition = makeDefinition();
     autoCompleteNewTasks();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
 
     expect(() => workflowService.resume(run.id), throwsA(isA<StateError>()));
   });
 
   test('cancel() transitions running to cancelled', () async {
     final definition = makeDefinition();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
 
     await workflowService.cancel(run.id);
 
@@ -632,7 +688,7 @@ void main() {
 
   test('cancel() transitions paused to cancelled', () async {
     final definition = makeDefinition();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     await workflowService.pause(run.id);
 
     await workflowService.cancel(run.id);
@@ -747,8 +803,8 @@ void main() {
     addTearDown(queuedTasks.dispose);
 
     final definition = makeDefinition();
-    final runA = await workflowService.start(definition, {});
-    final runB = await workflowService.start(definition, {});
+    final runA = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
+    final runB = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     final inactive = await taskService.create(
       id: 'inactive-run-task',
       title: 'inactive run task',
@@ -868,7 +924,7 @@ void main() {
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
 
-    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {}, origin: WorkflowRunOrigin.unknown);
     await Future<void>.delayed(Duration.zero);
 
     await disposeWorkflowService.dispose();
@@ -903,7 +959,7 @@ void main() {
       beforeListByWorkflowRunIds: () async {
         if (!lookupStarted.isCompleted) {
           lookupStarted.complete();
-          await disposeWorkflowService.start(makeDefinition(), {});
+          await disposeWorkflowService.start(makeDefinition(), {}, origin: WorkflowRunOrigin.unknown);
         }
       },
     );
@@ -939,7 +995,7 @@ void main() {
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
 
-    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {}, origin: WorkflowRunOrigin.unknown);
 
     final disposeFuture = disposeWorkflowService.dispose();
     await lookupStarted.future;
@@ -1025,7 +1081,7 @@ void main() {
       addTearDown(taskEventSub.cancel);
       addTearDown(disposeEventBus.dispose);
 
-      final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+      final disposeRun = await disposeWorkflowService.start(makeDefinition(), {}, origin: WorkflowRunOrigin.unknown);
       Future<Task?> queuedTaskForRun() async {
         for (var attempt = 0; attempt < 200; attempt += 1) {
           final tasks = await disposeTaskService.listByWorkflowRunIds([disposeRun.id]);
@@ -1112,7 +1168,7 @@ void main() {
     addTearDown(disposeKv.dispose);
     addTearDown(disposeEventBus.dispose);
 
-    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {});
+    final disposeRun = await disposeWorkflowService.start(makeDefinition(), {}, origin: WorkflowRunOrigin.unknown);
     Future<Task?> queuedTaskForRun() async {
       for (var attempt = 0; attempt < 200; attempt += 1) {
         final tasks = await disposeTaskService.listByWorkflowRunIds([disposeRun.id]);
@@ -1141,7 +1197,7 @@ void main() {
   test('cancel() is idempotent on already-terminal run', () async {
     final definition = makeDefinition();
     autoCompleteNewTasks();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     await Future<void>.delayed(const Duration(milliseconds: 100));
     // Run may be completed already.
     await workflowService.cancel(run.id);
@@ -1158,8 +1214,8 @@ void main() {
     final definition = makeDefinition();
     autoCompleteNewTasks();
 
-    await workflowService.start(definition, {});
-    await workflowService.start(definition, {});
+    await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
+    await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
 
     final runs = await workflowService.list();
     expect(runs.length, greaterThanOrEqualTo(2));
@@ -1167,7 +1223,7 @@ void main() {
 
   test('list() filters by status', () async {
     final definition = makeDefinition();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     await workflowService.pause(run.id);
 
     final pausedRuns = await workflowService.list(status: WorkflowRunStatus.paused);
@@ -1317,7 +1373,7 @@ void main() {
     eventBus.on<WorkflowRunStatusChangedEvent>().listen(events.add);
 
     final definition = makeDefinition();
-    final run = await workflowService.start(definition, {});
+    final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
     await workflowService.pause(run.id);
     await workflowService.cancel(run.id);
 
@@ -1559,7 +1615,7 @@ void main() {
       eventBus.on<WorkflowApprovalResolvedEvent>().listen(resolvedEvents.add);
 
       final definition = makeDefinition();
-      final run = await workflowService.start(definition, {});
+      final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
       await workflowService.pause(run.id);
 
       await workflowService.cancel(run.id, feedback: 'irrelevant');
@@ -1608,7 +1664,7 @@ void main() {
 
     test('throws StateError when run is not in failed status', () async {
       final definition = makeDefinition();
-      final run = await workflowService.start(definition, {});
+      final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
       await workflowService.pause(run.id);
       expect(() => workflowService.retry(run.id), throwsA(isA<StateError>()));
     });
@@ -1814,7 +1870,7 @@ void main() {
 
     test('retry() on paused run is rejected with StateError', () async {
       final definition = makeDefinition();
-      final run = await workflowService.start(definition, {});
+      final run = await workflowService.start(definition, {}, origin: WorkflowRunOrigin.unknown);
       await workflowService.pause(run.id);
       await expectLater(workflowService.retry(run.id), throwsA(isA<StateError>()));
     });
@@ -2037,7 +2093,7 @@ void main() {
       final definition = makeDefinition(variables: const {'PROJECT': WorkflowVariable(required: false)});
 
       await expectLater(
-        workflowService.start(definition, const {'PROJECT': '_local'}),
+        workflowService.start(definition, const {'PROJECT': '_local'}, origin: WorkflowRunOrigin.unknown),
         throwsA(isA<ArgumentError>().having((e) => e.message, 'message', contains('uncommitted changes'))),
       );
       // No run must have been created.

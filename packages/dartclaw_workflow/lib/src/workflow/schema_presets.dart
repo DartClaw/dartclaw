@@ -1,6 +1,7 @@
 import 'workflow_definition.dart' show OutputConfig, OutputFormat;
 
 import 'output_resolver.dart';
+import 'review_scoring_fragment.dart' show reviewSeverityOrder;
 import 'story_specs_schema.dart';
 
 /// A built-in schema preset with JSON Schema and prompt fragment.
@@ -138,17 +139,13 @@ const verdictPreset = SchemaPreset(
       'findings_count': {'type': 'integer', 'description': 'Total number of findings in `findings`.'},
       'findings': {
         'type': 'array',
-        'description': 'Structured list of issues. Empty when `pass` is true.',
+        'description': 'Every finding, including those below the gating severity. Empty only when there are none.',
         'items': {
           'type': 'object',
           'additionalProperties': false,
           'required': ['severity', 'location', 'description'],
           'properties': {
-            'severity': {
-              'type': 'string',
-              'enum': ['critical', 'high', 'medium', 'low'],
-              'description': 'Severity tier.',
-            },
+            'severity': {'type': 'string', 'enum': reviewSeverityOrder, 'description': 'Severity tier.'},
             'location': {'type': 'string', 'description': 'File path and line reference.'},
             'description': {'type': 'string', 'description': 'What the issue is and why it matters.'},
           },

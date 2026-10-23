@@ -1,8 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show ToolPolicyCascade, ToolPolicyGuard;
-import 'package:path/path.dart' as p;
 
-const _fileAccessLevels = {'no_access', 'read_only', 'no_delete'};
+const _fileAccessLevels = {'no_access', 'read_only', 'no_delete', 'allow'};
 
 /// Builds a [List<Guard>] from [SecurityConfig], validating the extra rules
 /// before constructing guard instances.
@@ -110,7 +109,7 @@ GuardBuildResult buildGuardsFromConfig({
         (yaml['file'] is Map
                 ? FileGuardConfig.fromYaml(Map<String, dynamic>.from(yaml['file'] as Map))
                 : FileGuardConfig.defaults())
-            .withSelfProtection(p.join(dataDir, 'dartclaw.yaml')),
+            .withDataDirProtection(dataDir),
   );
 
   final networkGuard = NetworkGuard(

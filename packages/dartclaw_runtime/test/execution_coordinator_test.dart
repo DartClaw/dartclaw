@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/src/behavior/behavior_file_service.dart';
+import 'package:dartclaw_runtime/src/concurrency/session_lock_manager.dart';
 import 'package:dartclaw_runtime/src/execution_coordinator.dart';
 import 'package:dartclaw_runtime/src/turn_runner.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
@@ -30,6 +31,34 @@ void main() {
           releaseAdmission: (_) {},
         ),
         throwsArgumentError,
+      );
+    });
+
+    test('exposes the composition-owned admission capacity signal, and refuses when none is configured', () async {
+      final capacity = Completer<void>();
+      final configured = ExecutionCoordinator(
+        providerCapacities: const {},
+        createWorker: (_) => throw StateError('unused'),
+        whenAdmissionCapacityAvailable: () => capacity.future,
+      );
+      final unconfigured = ExecutionCoordinator(
+        providerCapacities: const {},
+        createWorker: (_) => throw StateError('unused'),
+      );
+      addTearDown(configured.dispose);
+      addTearDown(unconfigured.dispose);
+
+      var signalled = false;
+      final waiting = configured.whenAdmissionCapacityAvailable().then((_) => signalled = true);
+      await pumpEventQueue();
+      expect(signalled, isFalse);
+      capacity.complete();
+      await waiting;
+      expect(signalled, isTrue);
+
+      expect(
+        unconfigured.whenAdmissionCapacityAvailable,
+        throwsA(isA<StateError>().having((error) => error.message, 'message', contains('coordinator-owned admission'))),
       );
     });
 
@@ -242,7 +271,7 @@ void main() {
       await active.release();
     });
 
-    test('runs admission before capacity and releases it when fail-fast capacity is denied', () async {
+    test('fail-fast capacity denial never reaches admission, so it records nothing', () async {
       final calls = <String>[];
       late final ExecutionCoordinator coordinator;
       coordinator = ExecutionCoordinator(
@@ -269,9 +298,175 @@ void main() {
 
       expect(active, isNotNull);
       expect(denied, isNull);
-      expect(calls, ['admit:active', 'create:active', 'admit:denied', 'release:denied']);
+      expect(calls, ['admit:active', 'create:active']);
       await active!.release();
       expect(calls.last, 'release:active');
+    });
+
+    test('fail-fast request against a full primary-lane task fallback never reaches admission', () async {
+      final admitted = <String>[];
+      final primary = _runner(_TestHarness(), providerId: 'claude', policy: const ExecutionPolicy.host());
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {},
+        primary: primary,
+        allowPrimaryBackgroundFallback: true,
+        admitExecution: (request) async => admitted.add(request.sessionId),
+        releaseAdmission: (_) {},
+        createWorker: (_) => throw StateError('must not create'),
+      );
+      addTearDown(coordinator.dispose);
+      ExecutionRequest task(String sessionId, ExecutionAdmission admission) => ExecutionRequest(
+        surface: ExecutionSurface.task,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.host(),
+        sessionId: sessionId,
+        admission: admission,
+      );
+
+      final active = await coordinator.acquire(task('active', ExecutionAdmission.wait));
+      final denied = await coordinator.acquire(task('denied', ExecutionAdmission.failFast));
+
+      expect(denied, isNull);
+      expect(admitted, ['active']);
+      await active!.release();
+      final retried = await coordinator.acquire(task('retried', ExecutionAdmission.failFast));
+      expect(retried, isNotNull);
+      expect(admitted, ['active', 'retried']);
+      await retried!.release();
+    });
+
+    test('fail-fast admission failure returns the pre-acquired permit and announces both capacity changes', () async {
+      final calls = <String>[];
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (request) async {
+          calls.add('admit:${request.sessionId}');
+          if (request.sessionId == 'looping') throw StateError('loop detected');
+        },
+        releaseAdmission: (sessionId) => calls.add('release:$sessionId'),
+        createWorker: (request) async =>
+            _runner(_TestHarness(), providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+      ExecutionRequest request(String sessionId) => ExecutionRequest(
+        surface: ExecutionSurface.task,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.host(),
+        sessionId: sessionId,
+        admission: ExecutionAdmission.failFast,
+      );
+      var capacityChanges = 0;
+      final subscription = coordinator.events
+          .where((event) => event.kind == ExecutionEventKind.capacityChanged)
+          .listen((_) => capacityChanges++);
+      addTearDown(subscription.cancel);
+
+      await expectLater(coordinator.acquire(request('looping')), throwsStateError);
+      await _flushEvents();
+
+      expect(coordinator.snapshot.providers['claude']!.active, 0);
+      expect(capacityChanges, 2, reason: 'one event for the slot taken, one for it returned');
+      expect(calls, ['admit:looping'], reason: 'a refused admission holds nothing for the coordinator to release');
+
+      final lease = await coordinator.acquire(request('next'));
+      expect(lease, isNotNull, reason: 'the failed attempt must not leave the lane full');
+      await lease!.release();
+    });
+
+    test('fail-fast logical-agent requests on one session queue on the session lock, not on capacity', () async {
+      final locks = SessionLockManager(maxParallel: 4);
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (request) => locks.acquire(request.sessionId),
+        releaseAdmission: locks.release,
+        createWorker: (request) async =>
+            _runner(_TestHarness(), providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+      ExecutionRequest send() => const ExecutionRequest(
+        surface: ExecutionSurface.logicalAgent,
+        providerId: 'claude',
+        policy: ExecutionPolicy.host(),
+        sessionId: 'agent-session',
+        admission: ExecutionAdmission.failFast,
+        logicalAgentId: 'reviewer',
+      );
+
+      final first = await coordinator.acquire(send());
+      final second = coordinator.acquire(send());
+      await pumpEventQueue();
+      expect(first, isNotNull);
+      expect(coordinator.snapshot.providers['claude']!.active, 1, reason: 'the waiting call holds no permit');
+
+      await first!.release();
+      final secondLease = await second;
+
+      expect(secondLease, isNotNull, reason: 'the same-session lock serialises them; pool capacity is not exceeded');
+      await secondLease!.release();
+    });
+
+    test(
+      'dispose while a fail-fast request is inside admission returns its permit without creating a worker',
+      () async {
+        final admitting = Completer<void>();
+        final calls = <String>[];
+        final coordinator = ExecutionCoordinator(
+          providerCapacities: const {'claude': 1},
+          admitExecution: (_) => admitting.future,
+          releaseAdmission: (sessionId) => calls.add('release:$sessionId'),
+          createWorker: (request) async {
+            calls.add('create:${request.sessionId}');
+            return _runner(_TestHarness(), providerId: request.providerId, policy: request.policy);
+          },
+        );
+        final pending = coordinator.acquire(
+          const ExecutionRequest(
+            surface: ExecutionSurface.task,
+            providerId: 'claude',
+            policy: ExecutionPolicy.host(),
+            sessionId: 'closing',
+            admission: ExecutionAdmission.failFast,
+          ),
+        );
+        await pumpEventQueue();
+
+        final disposed = coordinator.dispose();
+        admitting.complete();
+
+        expect(await pending, isNull);
+        await disposed;
+        expect(calls, ['release:closing'], reason: 'no worker is built for a coordinator that is shutting down');
+        expect(coordinator.snapshot.providers['claude']!.active, 0);
+      },
+    );
+
+    test('wait request is admitted before it queues for capacity', () async {
+      final calls = <String>[];
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        admitExecution: (request) async => calls.add('admit:${request.sessionId}'),
+        releaseAdmission: (sessionId) => calls.add('release:$sessionId'),
+        createWorker: (request) async =>
+            _runner(_TestHarness(), providerId: request.providerId, policy: request.policy),
+      );
+      addTearDown(coordinator.dispose);
+      ExecutionRequest request(String sessionId) => ExecutionRequest(
+        surface: ExecutionSurface.task,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.host(),
+        sessionId: sessionId,
+      );
+
+      final active = await coordinator.acquire(request('active'));
+      final waiting = coordinator.acquire(request('waiting'));
+      await pumpEventQueue();
+
+      expect(calls, ['admit:active', 'admit:waiting']);
+      expect(coordinator.snapshot.providers['claude']!.queued, 1);
+      await active!.release();
+      final lease = await waiting;
+      expect(lease, isNotNull);
+      await lease!.release();
     });
 
     test('routed requests retain execution-scoped construction inputs', () async {

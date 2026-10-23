@@ -23,7 +23,7 @@ extension _HarnessWiringModelCatalogue on HarnessWiring {
     final probe = _harnessFactory.create(
       providerId,
       HarnessFactoryConfig(
-        cwd: Directory.current.path,
+        cwd: _runtimeCwd,
         executable: target.executable,
         providerOptions: target.options,
         harnessConfig: HarnessLaunchOptions(model: config.agent.model, effort: config.agent.effort),

@@ -4,7 +4,7 @@ channels.debounce_window_ms  # ChannelConfig converts milliseconds to debounceWi
 channels.google_chat.quote_reply  # GoogleChatConfig maps this to quoteReplyMode, consumed by GoogleChatChannel and ChannelWiring.
 channels.retry_policy.base_delay_ms  # RetryPolicy maps milliseconds to defaultRetryPolicy.baseDelay, consumed by MessageQueue.
 channels.<name>  # ChannelConfig.channelConfigs supplies raw named definitions to ChannelConfigResolver.
-governance.admin_senders  # GovernanceConfig.isAdmin reads this for the /stop reserved-command admin gate.
+governance.admin_senders  # GovernanceConfig.isAdmin reads this for the /stop reserved-command admin gate, the shared-write gate and WorkflowRunControl's run-approval gate; empty means every sender is admin.
 guards.command.extra_blocked_patterns  # CommandGuardConfig.fromYaml compiles these into CommandGuard destructivePatterns.
 guards.command.extra_blocked_pipe_targets  # CommandGuardConfig.fromYaml merges these into CommandGuard blockedPipeTargets.
 guards.network.extra_allowed_domains  # NetworkGuardConfig.fromYaml merges these into NetworkGuard allowedDomains.

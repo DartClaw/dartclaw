@@ -12,6 +12,12 @@ class FakeContainerAuthorityLease implements ContainerAuthorityLease {
   @override
   final ContainerExecutor container;
 
+  /// The resolver the wiring bound after creating the harness, or null before then.
+  TurnProvenance? Function()? activeTurn;
+
+  @override
+  void bindActiveTurn(TurnProvenance? Function() activeTurn) => this.activeTurn = activeTurn;
+
   @override
   Future<void> release() async => released = true;
 

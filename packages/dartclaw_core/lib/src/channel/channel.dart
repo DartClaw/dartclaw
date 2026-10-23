@@ -2,6 +2,23 @@ import 'package:uuid/uuid.dart';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import 'threaded_notifications.dart';
+
+/// A file an inbound message carried, already downloaded by the channel adapter.
+class ChannelAttachment {
+  /// File name as the sender's platform reports it. Untrusted.
+  final String filename;
+
+  /// Media type as the sender's platform reports it.
+  final String mediaType;
+
+  /// The file's content.
+  final List<int> bytes;
+
+  /// Creates a downloaded inbound attachment.
+  const new({required this.filename, required this.mediaType, required this.bytes});
+}
+
 /// Normalized inbound message from any channel.
 class ChannelMessage {
   /// Unique identifier assigned by the channel adapter.
@@ -28,6 +45,9 @@ class ChannelMessage {
   /// Opaque channel-specific metadata preserved for downstream consumers.
   final Map<String, dynamic> metadata;
 
+  /// Files the message carried, in the order the sender attached them.
+  final List<ChannelAttachment> attachments;
+
   /// Creates a normalized inbound channel message.
   new({
     String? id,
@@ -38,8 +58,16 @@ class ChannelMessage {
     DateTime? timestamp,
     this.mentionedJids = const [],
     this.metadata = const {},
+    this.attachments = const [],
   }) : id = id ?? const Uuid().v4(),
        timestamp = timestamp ?? DateTime.now();
+
+  /// Identifier of the thread this message belongs to ([threadIdMetadataKey]),
+  /// or `null` outside a thread.
+  String? get threadId => switch (metadata[threadIdMetadataKey]) {
+    final String id when id.isNotEmpty => id,
+    _ => null,
+  };
 
   /// Extracts a human-readable sender display name from channel-specific
   /// [metadata] keys.
@@ -100,6 +128,14 @@ class ChannelResponse {
 /// Metadata key used to retain the originating inbound message id per response.
 const sourceMessageIdMetadataKey = 'sourceMessageId';
 
+/// Metadata key an adapter stamps on an inbound [ChannelMessage] with the id of
+/// the thread it belongs to.
+///
+/// [ChannelManager.deriveSessionKey] gives each thread its own session, and the
+/// key is copied onto every reply to that message so the adapter can post it
+/// into the same thread.
+const threadIdMetadataKey = 'threadId';
+
 /// Abstract base class for messaging channel integrations.
 ///
 /// Concrete implementations (WhatsApp, Signal, Google Chat) extend this class.
@@ -131,6 +167,12 @@ abstract class Channel {
 
   /// Releases resources and stops any long-lived channel connections.
   Future<void> disconnect();
+
+  /// The declaration that this channel threads, or `null` when it does not.
+  ///
+  /// Its presence is the only answer to whether the channel can hold a thread
+  /// binding; it does not depend on the channel being connected.
+  ThreadedNotifications? get threadedNotifications => null;
 
   /// Format raw agent output for this channel's delivery requirements.
   /// Default: wrap in a single [ChannelResponse].

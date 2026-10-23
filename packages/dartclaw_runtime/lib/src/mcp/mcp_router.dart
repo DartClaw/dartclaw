@@ -1,12 +1,13 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, EventBus;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, EventBus, maxWebhookPayloadBytes;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:shelf/shelf.dart';
 
 import '../auth/auth_rate_limiter.dart';
 import '../auth/auth_utils.dart';
 import 'context_engine_profile.dart';
+import 'harness_mcp_bearers.dart';
 import 'mcp_server.dart';
 
 /// Creates a shelf [Handler] for the `/mcp` endpoint.
@@ -23,8 +24,10 @@ import 'mcp_server.dart';
 /// unscoped [handler] as the deployment itself, a client token reaches a handler
 /// scoped to the context-engine profile and audited under that client's
 /// principal, and anything else is a `401` recorded on [rateLimiter] — the same
-/// failed-auth throttle that protects the gateway token elsewhere. Bearerless
-/// access requires an exact loopback request host.
+/// failed-auth throttle that protects the gateway token elsewhere. A bearer minted
+/// for a host harness ([harnessBearers]) reaches a handler that resolves that
+/// harness's active turn for tools that read it, and is honored with or without a
+/// gateway token. Bearerless access requires an exact loopback request host.
 Handler mcpRoute(
   McpProtocolHandler handler, {
   String? gatewayToken,
@@ -35,6 +38,7 @@ Handler mcpRoute(
   AuthRateLimiter? rateLimiter,
   EventBus? eventBus,
   List<String> trustedProxies = const [],
+  HarnessMcpBearers? harnessBearers,
 }) {
   if (gatewayToken == null && !requireLoopbackHost) {
     throw ArgumentError('Bearerless MCP requires loopback Host validation');
@@ -63,6 +67,8 @@ Handler mcpRoute(
     for (final entry in scopedHandlers.entries) {
       if (constantTimeEquals(bearer, entry.key)) resolved ??= entry.value;
     }
+    final activeTurn = harnessBearers?.resolve(bearer);
+    if (activeTurn != null) resolved ??= handler.forHarness(activeTurn);
     return resolved;
   }
 
@@ -78,32 +84,31 @@ Handler mcpRoute(
       return _mcpError(403, 'Forbidden — invalid Origin');
     }
 
-    // Auth check: Bearer token — the gateway token, or one configured client's.
+    // Auth check: Bearer token — the gateway token, one configured client's, or a host harness's own.
     var caller = handler;
-    if (gatewayToken != null) {
-      final authHeader = request.headers['authorization'];
-      final bearer = authHeader != null && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    final authHeader = request.headers['authorization'];
+    final bearer = authHeader != null && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    if (gatewayToken == null) {
+      final activeTurn = bearer == null ? null : harnessBearers?.resolve(bearer);
+      if (activeTurn != null) caller = handler.forHarness(activeTurn);
+    } else {
       final resolved = bearer == null ? null : resolveCaller(bearer);
       final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';
       if (resolved == null) {
-        final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
-        if (!limited) rateLimiter?.recordFailure(remoteKey);
-        fireFailedAuthEvent(
-          eventBus,
+        final limited = recordFailedAuth(
           request,
           source: 'mcp',
           reason: bearer == null ? 'missing_credentials' : 'invalid_bearer',
-          limited: limited,
+          rateLimiter: rateLimiter,
+          eventBus: eventBus,
           trustedProxies: trustedProxies,
         );
-        if (limited) {
-          return _mcpError(429, 'Too many failed authentication attempts');
-        }
+        if (limited != null) return _mcpError(429, 'Too many failed authentication attempts');
         return _mcpError(401, 'Unauthorized');
       }
       // Only a gateway-token success clears the window. The limiter is shared
-      // with `authMiddleware` and keyed by remote alone, so letting a client
-      // token reset it would let the least-trusted credential the design admits
+      // with `authMiddleware` and keyed by remote alone, so letting a client or
+      // harness token reset it would let the least-trusted credential the design admits
       // disable the control protecting the gateway token, the REST API and the
       // web UI from that address — four guesses interleaved with one valid
       // client call, indefinitely.

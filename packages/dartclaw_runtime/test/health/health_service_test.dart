@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/health/health_route.dart';
 import 'package:dartclaw_runtime/src/health/health_service.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
+import 'package:dartclaw_slack/testing.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -59,6 +62,35 @@ void main() {
 
       final status = await service.getStatus();
       expect(status['status'], 'degraded');
+    });
+
+    group('Slack transport state', () {
+      HealthService serviceWith(SlackHealthReporter? reporter) =>
+          HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir)
+            ..slackReporter = reporter;
+
+      test('has no slack key while Slack is not enabled', () async {
+        expect(await serviceWith(null).getStatus(), isNot(contains('slack')));
+      });
+
+      test('carries the reporter map under slack, with no secret, ID or content', () async {
+        const secret = 'plain-signing-secret-7c1e';
+        final events = SlackEventsHandler(signingSecret: secret, dispatch: SlackEnvelopeDispatch());
+        final body = Uint8List.fromList(
+          utf8.encode('{"type":"event_callback","event":{"user":"U0SENDER","text":"private"}}'),
+        );
+        await events.handle(body, signedSlackHeaders('another-secret', body));
+
+        final status = await serviceWith(SlackHealthReporter(events: events)).getStatus();
+
+        final slack = status['slack'] as Map<String, dynamic>;
+        expect(slack, containsPair('mode', 'events'));
+        expect(slack, containsPair('last_failure_reason', 'invalid_slack_signature'));
+        final wire = jsonEncode(status);
+        for (final leak in [secret, 'another-secret', 'U0SENDER', 'private']) {
+          expect(wire, isNot(contains(leak)));
+        }
+      });
     });
 
     test('counts session directories', () async {

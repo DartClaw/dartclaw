@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 628" width="1000" height="628" role="img" aria-labelledby="title desc">
+  <title id="title">Conversation submission lifecycle</title>
+  <desc id="desc">The states of one conversation submission claim: preparing is its commitState; every other box is a workState. The live path is accepted, dispatching, running, then a terminal state. Input that arrives while a turn is active, a dispatch is in flight or anything is queued waits as queued; a failed integrity check or dispatch error parks the claim as held, and the owner can remove a queued or held item. Chips name restart recovery and transitions not drawn as arrows.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#preparing:hover) .edges :is(.f-preparing,.t-preparing) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#accepted:hover) .edges :is(.f-accepted,.t-accepted) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dispatching:hover) .edges :is(.f-dispatching,.t-dispatching) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#running:hover) .edges :is(.f-running,.t-running) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#queued:hover) .edges :is(.f-queued,.t-queued) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#stopping:hover) .edges :is(.f-stopping,.t-stopping) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#terminal:hover) .edges :is(.f-terminal,.t-terminal) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#held:hover) .edges :is(.f-held,.t-held) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#removed:hover) .edges :is(.f-removed,.t-removed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="628"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="532" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="556">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="580">Hover a state for what it means; its transitions light up. Click it to open its section.</text><text class="p2" x="36" y="600">A chip inside a box is a transition not drawn as an arrow; ↻ marks restart recovery (§11). preparing is commitState; all other boxes are workState.</text></g>
+
+  <text class="kick" x="24" y="32">STATE MACHINE · ConversationSubmissionClaim · commitState, then workState</text>
+  <text class="title" x="24" y="58">Conversation submission lifecycle</text>
+  <text class="lede" x="24" y="80">A web message is persisted before it dispatches; work that cannot start now waits as queued and is never overtaken.</text>
+
+
+
+  <g class="edges">
+    <g class="e main f-preparing t-accepted"><path d="M174,149 H220"/><text class="el" x="197" y="141" text-anchor="middle">commit</text></g>
+    <g class="e main f-accepted t-dispatching"><path d="M392,149 H438"/><text class="el" x="415" y="141" text-anchor="middle">verified</text></g>
+    <g class="e main f-dispatching t-running"><path d="M630,149 H678"/><text class="el" x="654" y="141" text-anchor="middle">reserved</text></g>
+    <g class="e main f-running t-terminal"><path d="M828,186 V260"/><text class="el" x="836" y="230" text-anchor="start">turn outcome</text></g>
+    <g class="e  f-running t-stopping"><path d="M710,186 V244 H535 V260"/><text class="el" x="622" y="238" text-anchor="middle">stop / steer</text></g>
+    <g class="e  f-stopping t-terminal"><path d="M630,299 H678"/><text class="el" x="654" y="291" text-anchor="middle">cancel</text></g>
+    <g class="e  f-preparing t-queued"><path d="M99,186 V299 H220"/><text class="el" x="107" y="244" text-anchor="start">committed, work active</text></g>
+    <g class="e  f-queued t-accepted"><path d="M270,262 V188"/><text class="el" x="278" y="222" text-anchor="start">released</text></g>
+    <g class="e dash f-dispatching t-queued"><path d="M500,186 V228 H350 V260"/><text class="el" x="358" y="222" text-anchor="start">BusyTurnException</text></g>
+    <g class="e  f-held t-removed"><path d="M630,439 H718"/><text class="el" x="674" y="431" text-anchor="middle">remove</text></g>
+    <g class="e bad f-queued t-held"><path d="M307,336 V406"/><text class="el" x="315" y="388" text-anchor="start">failed or cancelled turn, shutdown</text></g>
+  </g>
+
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n ghost k-neu" id="preparing">
+    <rect class="box" x="24" y="112" width="150" height="74" rx="9"/>
+    <text class="name" x="36" y="135">preparing</text>
+    <text class="sub" x="36" y="153">commitState</text>
+    <g class="chip k-neu"><rect x="36" y="162" width="64" height="16" rx="8"/><text x="43" y="174">↻ replay</text></g>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">preparing</tspan> · the claim is persisted in meta.json before any other step</text><text class="p2" x="36" y="600">then attachments (sha256), the transcript message, the record file, and commit. A restart replays the sequence idempotently.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n tint k-host" id="accepted">
+    <rect class="box" x="222" y="112" width="170" height="74" rx="9"/>
+    <text class="name" x="234" y="135">accepted</text>
+    <text class="sub" x="234" y="153">idle: dispatch now</text>
+    <g class="chip k-sec"><rect x="234" y="162" width="51" height="16" rx="8"/><text x="241" y="174">→ held</text></g>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">accepted</tspan> · no turn active, no dispatch in flight, nothing queued; carries an attemptId</text><text class="p2" x="36" y="600">A failed integrity check at dispatch sets commitState integrityFailed and parks the claim as held (SUBMISSION_INTEGRITY_FAILED).</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n tint k-host" id="dispatching">
+    <rect class="box" x="440" y="112" width="190" height="74" rx="9"/>
+    <text class="name" x="452" y="135">dispatching</text>
+    <text class="sub" x="452" y="153">context revalidated</text>
+    <g class="chip k-sec"><rect x="452" y="162" width="51" height="16" rx="8"/><text x="459" y="174">→ held</text></g>
+    <g class="chip k-neu"><rect x="509" y="162" width="82" height="16" rx="8"/><text x="516" y="174">↻ uncertain</text></g>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">dispatching</tspan> · _dispatch persists dispatching with admitContext, then calls TurnManager.reserveContextTurn</text><text class="p2" x="36" y="600">BusyTurnException returns the claim to queued; any other error parks it as held (dispatch_failed) and rethrows.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n solid k-host" id="running">
+    <rect class="box" x="680" y="112" width="296" height="74" rx="9"/>
+    <text class="name" x="692" y="135">running</text>
+    <text class="sub" x="692" y="153">turn reserved, executeTurn started</text>
+    <g class="chip k-neu"><rect x="692" y="162" width="82" height="16" rx="8"/><text x="699" y="174">↻ uncertain</text></g>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">running</tspan> · workState running carries the turnId; _observeOutcome waits for the turn outcome</text><text class="p2" x="36" y="600">Restart cannot confirm the turn, so recovery marks the claim uncertain; the next dispatch settles it as failed ("Dispatch was never confirmed").</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n tint k-ext" id="queued">
+    <rect class="box" x="222" y="262" width="170" height="74" rx="9"/>
+    <text class="name" x="234" y="285">queued</text>
+    <text class="sub" x="234" y="303">waits its turn</text>
+    <g class="chip k-sec"><rect x="234" y="312" width="51" height="16" rx="8"/><text x="241" y="324">↻ held</text></g>
+    <g class="chip k-neu"><rect x="291" y="312" width="70" height="16" rx="8"/><text x="298" y="324">→ removed</text></g>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">queued</tspan> · queued with a queueId, oldest first</text><text class="p2" x="36" y="600">Queued when a turn is active, a dispatch is in flight or any item is already queued. Restart holds queued items so they are never auto-sent.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n tint k-host" id="stopping">
+    <rect class="box" x="440" y="262" width="190" height="74" rx="9"/>
+    <text class="name" x="452" y="285">stopping</text>
+    <text class="sub" x="452" y="303">cancel in flight</text>
+    <g class="chip k-neu"><rect x="452" y="312" width="82" height="16" rx="8"/><text x="459" y="324">↻ uncertain</text></g>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">stopping</tspan> · steer or stop requested; the displayed turn is being cancelled</text><text class="p2" x="36" y="600">The cancel result settles the claim as completed or cancelled and holds any pending queue. A refused cancel restores the previous state.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n tint k-neu" id="terminal">
+    <rect class="box" x="680" y="262" width="296" height="74" rx="9"/>
+    <text class="name" x="692" y="285">terminal</text>
+    <text class="sub" x="692" y="303">completed | failed | cancelled</text>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">terminal</tspan> · _observeOutcome records the terminal state and the tool records</text><text class="p2" x="36" y="600">Only a completed turn releases the next queued item (_dispatchFirstQueued); failed, cancelled or shutdown holds the rest.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#shutdown"><g class="n tint k-sec" id="held">
+    <rect class="box" x="222" y="408" width="408" height="62" rx="9"/>
+    <text class="name" x="234" y="431">held</text>
+    <text class="sub" x="234" y="449">parked for the owner to send, edit or remove</text>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">held</tspan> · dispatch error, failed integrity check, or a queue held after a failed turn or shutdown</text><text class="p2" x="36" y="600">Nothing in held dispatches by itself. commitState integrityFailed always lands here; restart also holds every queued item.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#submission-lifecycle"><g class="n tint k-neu" id="removed">
+    <rect class="box" x="720" y="408" width="256" height="62" rx="9"/>
+    <text class="name" x="732" y="431">removed</text>
+    <text class="sub" x="732" y="449">dropped from the queue, never sent</text>
+    <g class="d"><text class="p1" x="36" y="580"><tspan class="b">removed</tspan> · removeQueueItem on a queued or held queue item sets workState removed and drops it from the queue</text><text class="p2" x="36" y="600">Refused once the item is dispatching, running or uncertain (QUEUE_ITEM_ALREADY_SENT); a repeat remove replays the same result.</text></g>
+  </g></a>
+  <g transform="translate(24,498)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">active</text>
+    <g class="tint k-ext"><rect class="box" x="81.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="103.2" y="10">waits</text>
+    <g class="tint k-sec"><rect class="box" x="156.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="178.2" y="10">parked</text>
+    <g class="tint k-neu"><rect class="box" x="237.39999999999998" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="259.4" y="10">finished</text>
+    <g class="ghost k-neu"><rect class="box" x="331.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="353.0" y="10">commitState</text>
+    <g class="e main"><path d="M443.2,6 H475.2"/></g><text class="lg" x="483.2" y="10">live path</text>
+    <g class="e "><path d="M561.0,6 H593.0"/></g><text class="lg" x="601.0" y="10">transition</text>
+    <g class="e dash"><path d="M685.0,6 H717.0"/></g><text class="lg" x="725.0" y="10">deferral</text>
+    <g class="e bad"><path d="M796.6,6 H828.6"/></g><text class="lg" x="836.6" y="10">held</text>
+  </g>
+</svg>

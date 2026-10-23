@@ -1,8 +1,114 @@
 # Tech Debt Backlog
 
-Open items only. Resolved or obsolete historical entries were removed during backlog cleanup; milestone docs, specs, and CHANGELOG entries are the historical record.
+<!-- Open items that cannot be fixed without a requirements input or an architecture decision; a fix possible
+     now is made now, never logged here. Resolved entries are deleted; milestone PRDs and CHANGELOG are the record.
+     Entry shape: `### TD-<next unused number> – {title}` under its severity heading, then `**Impact**`, `**Found**`
+     (date and source report, story, or run), `**Affects**` (locations), `**Context**` (the symptom), `**Needs
+     decision**` (the named blocker), `**Trigger**`, and `Last reviewed: <date>`. -->
 
-## 0.23 release-close decision debt
+## High
+<!-- Severity: blocks correctness, security, or critical workflow. Address with priority. -->
+
+_No tech debt recorded yet._
+
+## Medium
+<!-- Severity: maintainability, clarity, or non-critical correctness. Schedule deliberately. -->
+
+### TD-119 – Logical-agent session cancellation lacks caller-to-child causality
+
+**Status**: Scheduled for Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`). TD-110's dispatch seam landed in 0.25 (story S19), so the co-design partner now exists: build the typed caller-aware context on it rather than alongside it.
+**Impact**: cancelled/timed-out callers can leave a child holding a worker
+**Found**: 2026-08-09, 0.24 logical-agent session retrospective
+**Affects**: inbound MCP dispatch context, `sessions_spawn`, `sessions_send`, logical-agent session ownership, turn cancellation
+
+**Context**: A session tool creates and awaits a child session without receiving the caller session/turn identity. Caller cancellation therefore cannot identify its child, and the MCP server's 120-second `Future.timeout` returns without cancelling the underlying child future. A global “cancel active child” shortcut is unsafe with concurrent callers.
+
+**Decision**: Add typed caller-aware MCP call context, a parent-turn → child-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once worker release. Build the typed context on the shipped MCP dispatch seam (`McpProtocolHandler`, 0.25), which already resolves the caller's authority, session and agent ids per dispatch.
+
+**Target**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`).
+
+### TD-116 – One-shot workflow agents lack project/server-specific MCP curation
+
+**Status**: Open – needs a requirements decision on a project-config MCP curation surface
+**Impact**: security/attack-surface gap
+**Found**: during 0.19 one-shot review runs; recorded 2026-08-07 (memory graduation)
+**Affects**: one-shot codex/claude spawn paths (workflow one-shot runner, provider CLIs)
+
+**Context**: One-shot review/implement agents lack a DartClaw config surface for project/server-specific MCP curation. Provider-wide isolation controls already exist: Claude's `inherit_user_settings: false` and Codex's `use_system_codex_home: false` can exclude the operator's global configuration. The remaining gap is selecting which inherited MCP servers a project may use.
+
+**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`, flagged 2026-08-07). Decide at its PRD re-scoping whether the per-project/server MCP curation surface rides that milestone.
+
+### TD-106 – Investigate deeper Codex restriction surface
+
+**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`) – flagged 2026-09-03 as part of the guarded-dispatch debt sweep.
+**Impact**: security hardening; provider capability gap
+**Found**: 2026-05-14 21:22 CEST, complete-discover-project-split remediation FIS
+**Affects**: Codex workflow task execution, MCP server scoping, profile config, `shell_environment_policy`
+
+**Context**: Codex CLI currently has no native per-tool allowlist equivalent to Claude permission patterns. `allowedTools` is advisory for Codex, while read-only sandbox and approval policy carry the actual enforcement. A stronger restriction surface may exist through MCP server scoping, profile config, or shell environment policy, but that requires provider-specific investigation.
+
+**Fix**: Research Codex-supported restriction levers, choose a minimal enforceable mapping for DartClaw workflow tool categories, and add contract tests plus a pinned-binary matrix showing which command, file-change, MCP, and web-search operations actually emit approvals.
+
+**Trigger**: Need to run non-read-only Codex workflow steps with a narrowed tool surface, or upstream Codex adds a stable per-tool allowlist/profile capability.
+
+Last reviewed: 2026-05-18
+
+### TD-095 – Runtime-artifacts subdirectory ownership convention
+
+**Impact**: design coupling
+**Found**: 2026-04-30 S80 mixed-review remediation
+**Affects**: `packages/dartclaw_workflow/lib/src/workflow/workflow_executor_helpers.dart`
+
+**Context**: `WorkflowExecutor` pre-creates `<runtime-artifacts>/reviews/` so the current built-in `dartclaw-review --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"` steps satisfy AndThen's existing output-directory precondition. This works for S80, but it couples the engine to one consumer's subdirectory convention. A future user-authored workflow that uses `{{workflow.runtime_artifacts_dir}}/screenshots` with a tool that requires the directory to exist would need its own preflight convention or a broader engine policy.
+
+**Current state**: Acceptable for S80 because the FIS explicitly requires the built-in review steps to use `/reviews`, and changing them to the root would be a re-spec rather than a remediation.
+
+**Fix**: Decide the runtime-artifact subdirectory ownership contract before adding another consumer: either consumers must create their own subdirectories, or workflow YAMLs should pass the runtime-artifacts root directly and let artifact filenames disambiguate.
+
+**Trigger**: adding a second runtime-artifacts consumer, introducing architecture/e2e/screenshot artifacts, or revising the S80 `/reviews` convention.
+
+**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` M1.
+
+Last reviewed: 2026-05-18
+
+### TD-051 – Task accept flow is coupled to review transitions
+
+**Impact**: feature friction and lifecycle rigidity
+**Found**: 0.14.1 workshop polish plan review (2026-03-24)
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/task_review_service.dart`, `packages/dartclaw_kernel/lib/src/task_status.dart`
+
+**Context**: Task completion currently flows through `running -> review`, and the real accept-side effects live in `TaskReviewService`: local merge, project-backed push/PR creation, artifact persistence, and cleanup. This works well for manual review, but it makes "auto-accept on completion" awkward because acceptance behavior is not exposed as a reusable lifecycle operation. The state machine also does not permit `running -> accepted`, so any future simplification must either preserve the current review hop or refactor the lifecycle model deliberately.
+
+**Current resolution for 0.14.1**: Keep the existing lifecycle and implement the simple path (`running -> review -> accepted` via immediate system accept) rather than expanding the state machine.
+
+**Future fix**: Extract acceptance side effects into a shared accept service or method callable from both manual review and system-driven accept flows. Re-evaluate whether a direct `running -> accepted` transition is worth the broader lifecycle, UI, and SSE changes only when there is a stronger product reason than workshop polish.
+
+**Trigger**: Any future work on auto-accept, review policy variants, approval automation, or task lifecycle simplification.
+
+Last reviewed: 2026-05-18
+
+### TD-134 – Two write-path halves remain: the load sweep is blind below an entry key, and a section PATCH still replaces wholesale
+
+**Impact**: a typo inside an operator-named entry is accepted silently at load; a partial section write deletes the entries it omits
+**Found**: 2026-08-20, during the 0.25 config constraint-evaluator work. **Narrowed 2026-08-28** once the entry-shape half was closed.
+**Affects**: `DartclawConfig.load`'s unknown-key sweep (`packages/dartclaw_kernel/lib/src/config_accept_set.dart`, `config_parser.dart`), `ConfigWriter`, `PATCH /api/config`
+
+**Closed on 2026-08-28**: the declared entry shape now has a production consumer. `ConfigValidator` descends into every `objectMap` / `objectList` field and judges each entry's *declared* keys through the one `FieldConstraints` evaluator, on the same single validation pass, so a per-entry key that decides placement or posture (`agent.agents.<id>.execution`, `providers.<id>.approval`) is refused at write time instead of at the next boot. The bespoke per-trigger checks in `_validateGitHubRequirements` were deleted as a second answer to the same question — they also refused a config the loader accepts, since `event` and `workflow` default when omitted.
+
+**What remains, and why each is its own decision:**
+
+1. **The load sweep stops at a registered path rather than descending into it**, because `ProviderEntry.options` absorbs unnamed `providers.<id>` keys by design and `dartclaw init` writes `auth_method` / `model` there — descending would refuse a config DartClaw writes itself. So `providers.claude.pool_sizee` and `agent.agents.x.toolz` are still accepted silently at load. `ConfigValidator` is a write-path authority (the config API, the settings form, `ConfigWriter`) and is not consulted by `DartclawConfig.load`, so the entry-shape pass does not reach this.
+2. **Undeclared keys inside an entry are accepted, deliberately.** No `ConfigEntryShape` declares whether an entry is closed, and several are open on purpose. Refusing them needs a per-entry openness axis on the shape — the same declaration (1) needs.
+3. **A section `PATCH` still replaces the whole YAML node**, so a write of `providers` deletes every entry it does not carry. Validating an entry's contents cannot see an entry that is absent; refusing this needs either merge semantics for object-valued sections or a comparison against current state, neither of which the validator has.
+
+**Needs decision**: whether `ConfigEntryShape` gains a per-entry openness declaration — which would close (1) and (2) together by letting the load sweep descend exactly as far as a shape says it may — and separately whether a partial `PATCH` of an object-valued section merges rather than replaces.
+
+Last reviewed: 2026-08-28
+
+## Low
+<!-- Severity: cosmetic, minor consistency, or opportunistic cleanup. Address when convenient. -->
+
+### 0.23 release-close decision debt
 
 | Ledger | Deferred cleanup | Reason |
 |---|---|---|
@@ -22,7 +128,7 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 
 **Chat & Session Experience candidates (flagged 2026-08-07)**: the UI-canon rows above (C01, C02, C08, C10, C11) touch the same surfaces and canon that Chat & Session Experience (`0.next-chat-and-sessions`) reworks — decide take-or-defer at its PRD time, alongside the decided items below.
 
-### Decided 2026-08-07 (operator) – awaiting scheduling, raise at Chat & Session Experience planning (`0.next-chat-and-sessions`)
+#### Decided 2026-08-07 (operator) – awaiting scheduling, raise at Chat & Session Experience planning (`0.next-chat-and-sessions`)
 
 | Ledger | Decision |
 |---|---|
@@ -31,59 +137,18 @@ Open items only. Resolved or obsolete historical entries were removed during bac
 | C06 | Dedupe repeated-poll outage feedback to one persistent toast per failing poll source, cleared on recovery. Polling cadence unchanged. |
 | C09 | Amend canon with a keyboard/ARIA disclosure primitive (native button/details-summary + `aria-expanded`), aligned with the tool-call disclosure card, and apply it to workflow-step disclosure. |
 
-## TD-119 – Logical-agent session cancellation lacks caller-to-child causality
-
-**Status**: Scheduled for Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`). TD-110's dispatch seam landed in 0.25 (story S19), so the co-design partner now exists: build the typed caller-aware context on it rather than alongside it.
-**Severity**: Medium (cancelled/timed-out callers can leave a child holding a worker)
-**Found**: 2026-08-09, 0.24 logical-agent session retrospective
-**Affects**: inbound MCP dispatch context, `sessions_spawn`, `sessions_send`, logical-agent session ownership, turn cancellation
-
-**Context**: A session tool creates and awaits a child session without receiving the caller session/turn identity. Caller cancellation therefore cannot identify its child, and the MCP server's 120-second `Future.timeout` returns without cancelling the underlying child future. A global “cancel active child” shortcut is unsafe with concurrent callers.
-
-**Decision**: Add typed caller-aware MCP call context, a parent-turn → child-turn registry, and exact-child cancellation on parent cancellation or MCP timeout. Prove child-first completion, parent-first cancellation, timeout, sibling isolation, and exactly-once worker release. Build the typed context on the shipped MCP dispatch seam (`McpProtocolHandler`, 0.25), which already resolves the caller's authority, session and agent ids per dispatch.
-
-**Target**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`).
-
-## TD-117 – Working-directory / project-template resolution re-derived at ≥4 sites
+### TD-117 – Working-directory / project-template resolution re-derived at ≥4 sites
 
 **Status**: Open – needs an architecture decision (consolidate into one resolved-once value)
-**Severity**: Low (individual sites are patched; duplication invites regressions)
+**Impact**: individual sites are patched; duplication invites regressions
 **Found**: during 0.18/0.19 standalone fixes; recorded 2026-08-07 (memory graduation)
 **Affects**: workspace-root, session-binding, and artifact-commit template-resolve sites; task-executor preflight
 
 **Context**: Effective working directory / project-template resolution is derived independently at four-plus sites with subtly different fallback logic (unset `{{PROJECT}}` null-resolution was fixed site-by-site). Structural consolidation is needed to stop whack-a-mole fixes.
 
-## TD-116 – One-shot workflow agents lack project/server-specific MCP curation
+### TD-096 – Workflow runtime-artifacts retention and garbage collection
 
-**Status**: Open – needs a requirements decision on a project-config MCP curation surface
-**Severity**: Medium (security/attack-surface gap)
-**Found**: during 0.19 one-shot review runs; recorded 2026-08-07 (memory graduation)
-**Affects**: one-shot codex/claude spawn paths (workflow one-shot runner, provider CLIs)
-
-**Context**: One-shot review/implement agents lack a DartClaw config surface for project/server-specific MCP curation. Provider-wide isolation controls already exist: Claude's `inherit_user_settings: false` and Codex's `use_system_codex_home: false` can exclude the operator's global configuration. The remaining gap is selecting which inherited MCP servers a project may use.
-
-**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`, flagged 2026-08-07). Decide at its PRD re-scoping whether the per-project/server MCP curation surface rides that milestone.
-
-## TD-106 – Investigate deeper Codex restriction surface
-
-**Candidate**: Knowledge Interop & Steward Phase A (`0.next-knowledge-interop`) – flagged 2026-09-03 as part of the guarded-dispatch debt sweep.
-**Severity**: Medium (security hardening; provider capability gap)
-**Found**: 2026-05-14 21:22 CEST, complete-discover-project-split remediation FIS
-**Affects**: Codex workflow task execution, MCP server scoping, profile config, `shell_environment_policy`
-
-**Context**: Codex CLI currently has no native per-tool allowlist equivalent to Claude permission patterns. `allowedTools` is advisory for Codex, while read-only sandbox and approval policy carry the actual enforcement. A stronger restriction surface may exist through MCP server scoping, profile config, or shell environment policy, but that requires provider-specific investigation.
-
-**Fix**: Research Codex-supported restriction levers, choose a minimal enforceable mapping for DartClaw workflow tool categories, and add contract tests plus a pinned-binary matrix showing which command, file-change, MCP, and web-search operations actually emit approvals.
-
-**Trigger**: Need to run non-read-only Codex workflow steps with a narrowed tool surface, or upstream Codex adds a stable per-tool allowlist/profile capability.
-
-Last reviewed: 2026-05-18
-
----
-
-## TD-096 – Workflow runtime-artifacts retention and garbage collection
-
-**Severity**: Low (operational cleanup)
+**Impact**: operational cleanup
 **Found**: 2026-04-30 S80 mixed-review remediation
 **Affects**: `<data_dir>/workflows/runs/<runId>/runtime-artifacts/`
 
@@ -99,31 +164,9 @@ Last reviewed: 2026-05-18
 
 Last reviewed: 2026-05-18
 
----
+### TD-093 – Runtime-artifacts claims lose tie-breaks to colliding worktree-relative files
 
-## TD-095 – Runtime-artifacts subdirectory ownership convention
-
-**Severity**: Medium (design coupling)
-**Found**: 2026-04-30 S80 mixed-review remediation
-**Affects**: `packages/dartclaw_workflow/lib/src/workflow/workflow_executor_helpers.dart`
-
-**Context**: `WorkflowExecutor` pre-creates `<runtime-artifacts>/reviews/` so the current built-in `dartclaw-review --output-dir "{{workflow.runtime_artifacts_dir}}/reviews"` steps satisfy AndThen's existing output-directory precondition. This works for S80, but it couples the engine to one consumer's subdirectory convention. A future user-authored workflow that uses `{{workflow.runtime_artifacts_dir}}/screenshots` with a tool that requires the directory to exist would need its own preflight convention or a broader engine policy.
-
-**Current state**: Acceptable for S80 because the FIS explicitly requires the built-in review steps to use `/reviews`, and changing them to the root would be a re-spec rather than a remediation.
-
-**Fix**: Decide the runtime-artifact subdirectory ownership contract before adding another consumer: either consumers must create their own subdirectories, or workflow YAMLs should pass the runtime-artifacts root directly and let artifact filenames disambiguate.
-
-**Trigger**: adding a second runtime-artifacts consumer, introducing architecture/e2e/screenshot artifacts, or revising the S80 `/reviews` convention.
-
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` M1.
-
-Last reviewed: 2026-05-18
-
----
-
-## TD-093 – Runtime-artifacts claims lose tie-breaks to colliding worktree-relative files
-
-**Severity**: Low (edge-case artifact resolution)
+**Impact**: edge-case artifact resolution
 **Found**: 2026-04-30 S80 mixed-review remediation
 **Affects**: `packages/dartclaw_workflow/lib/src/workflow/context_extractor.dart`
 
@@ -139,11 +182,9 @@ Last reviewed: 2026-05-18
 
 Last reviewed: 2026-05-18
 
----
+### TD-092 – Revisit `ArtifactCommitResult.skippedPaths` after runtime-artifact cleanup
 
-## TD-092 – Revisit `ArtifactCommitResult.skippedPaths` after runtime-artifact cleanup
-
-**Severity**: Low (API cleanup)
+**Impact**: API cleanup
 **Found**: 2026-04-30 S80 mixed-review remediation
 **Affects**: `packages/dartclaw_workflow/lib/src/workflow/workflow_artifact_committer.dart`
 
@@ -159,11 +200,9 @@ Last reviewed: 2026-05-18
 
 Last reviewed: 2026-05-18
 
----
+### TD-087 – `WorkflowService.dispose()` / `cancel()` perform `O(allTasksEver)` task scans
 
-## TD-087 – `WorkflowService.dispose()` / `cancel()` perform `O(allTasksEver)` task scans
-
-**Severity**: Low (perf – slow shutdowns at scale)
+**Impact**: perf – slow shutdowns at scale
 **Found**: 2026-04-30 deeper code review of `dartclaw_workflow` (H29)
 **Affects**: `workflow_service.dart:556-579, 434-446`
 
@@ -177,27 +216,23 @@ Last reviewed: 2026-05-18
 
 Last reviewed: 2026-05-18
 
----
+### TD-081 – `_resolveReapWorkingDirectory` orphan-task fallback uses `_projectDir` (the runtime directory)
 
-## TD-081 – `_resolveReapWorkingDirectory` orphan-task fallback uses `_defaultProjectDir`
-
-**Severity**: Low (bounded operational risk – orphan reaping for true-orphan tasks)
+**Impact**: bounded operational risk – orphan reaping for true-orphan tasks
 **Found**: 2026-04-30 0.16.4 sub-plan inventory (originally documented inline in `phase-22-s37-s39-implementation-notes-2026-04-21.md` §"Open residual gaps")
 **Affects**: orphan-turn detection / reaper paths around `WorktreeManager` / project-dir resolution
 
-**Context**: `_resolveReapWorkingDirectory` falls back to `_defaultProjectDir` when no project binding is recoverable for an orphan task. The full fix encodes `projectId` into the worktree path scheme so the reaper can recover the correct project dir without a fallback. Explicitly out of scope per S37 boundary; documented inline rather than booked.
+**Context**: `_resolveReapWorkingDirectory` falls back to `_projectDir` (the runtime directory) when no project binding is recoverable for an orphan task. The full fix encodes `projectId` into the worktree path scheme so the reaper can recover the correct project dir without a fallback. Explicitly out of scope per S37 boundary; documented inline rather than booked.
 
-**Fix shape**: encode `projectId` into the worktree path scheme; teach the reaper to parse it; remove the `_defaultProjectDir` fallback.
+**Fix shape**: encode `projectId` into the worktree path scheme; teach the reaper to parse it; remove the `_projectDir` fallback.
 
 **Trigger**: orphan-task reaping observed using the wrong project dir in production; or any worktree-path-scheme refactor.
 
 Last reviewed: 2026-05-18
 
----
+### TD-075 – Codex token-accounting follow-up (model-switch tax)
 
-## TD-075 – Codex token-accounting follow-up (model-switch tax)
-
-**Severity**: Low (accounting precision)
+**Impact**: accounting precision
 **Found**: 2026-04-30 0.16.4 sub-plan inventory (`final-gap-closure-ledger.md` Part 13 – TOKEN-EFFICIENCY F4 + F5)
 **Affects**: Codex harness token accounting; cross-ref TD-066
 
@@ -211,14 +246,12 @@ Last reviewed: 2026-05-18
 
 Last reviewed: 2026-05-18
 
----
-
-## TD-066 – Workflow token metrics live on `task.configJson` with `_workflow*` underscore-prefixed keys
+### TD-066 – Workflow token metrics live on `task.configJson` with `_workflow*` underscore-prefixed keys
 
 Promoted: 0.17 planning candidate
 Last reviewed: 2026-05-18
 
-**Severity**: Low (architectural smell – accounting state mixed with declarative config)
+**Impact**: architectural smell – accounting state mixed with declarative config
 **Found**: Workflow E2E test + runtime code review (2026-04-28; finding M11)
 **Affects**: `packages/dartclaw_core/lib/src/task/task.dart` (configJson surface), `packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart` and `packages/dartclaw_runtime/lib/src/task/task_executor.dart` (writers), `packages/dartclaw_workflow/test/workflow/workflow_e2e_integration_test.dart` `_tokenMetric` helper (reader), preserved-artifact JSON schema downstream of S25.
 
@@ -232,13 +265,11 @@ Last reviewed: 2026-05-18
 
 **Trigger**: when the `Task` model is being touched for an unrelated reason, or when a third writer/reader of the per-step metrics surface needs to be added (the third call site is the signal that the prefix convention has officially outgrown its space).
 
----
-
-## TD-029 – Global template loader remains process-global
+### TD-029 – Global template loader remains process-global
 
 **0.16.5 disposition**: **Carry forward (S23 triage decision).** `TemplateLoaderService` already exists as a real class in `packages/dartclaw_runtime/lib/src/templates/loader.dart`; the seam (class-vs-singleton) is the load-bearing piece and that already shipped. Adding the `@Deprecated('use injected TemplateLoaderService')` annotation to the global `templateLoader` getter would emit `deprecated_member_use_from_same_package` at every consumer site, cascading under `dart analyze --fatal-infos` – out of scope for housekeeping. Defer the deprecation push to a natural caller-migration window.
 
-**Severity**: Low (testability and coupling)
+**Impact**: testability and coupling
 **Found**: 0.4 review (AS-6)
 **Affects**: `packages/dartclaw_runtime/lib/src/templates/loader.dart`, template rendering call sites
 
@@ -250,63 +281,9 @@ Last reviewed: 2026-05-18
 
 Last reviewed: 2026-05-18
 
----
+### TD-143 – `dartclaw config get` is not on the one config schema source
 
-## TD-051 – Task accept flow is coupled to review transitions
-
-**Severity**: Medium (feature friction and lifecycle rigidity)
-**Found**: 0.14.1 workshop polish plan review (2026-03-24)
-**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/task_review_service.dart`, `packages/dartclaw_kernel/lib/src/task_status.dart`
-
-**Context**: Task completion currently flows through `running -> review`, and the real accept-side effects live in `TaskReviewService`: local merge, project-backed push/PR creation, artifact persistence, and cleanup. This works well for manual review, but it makes "auto-accept on completion" awkward because acceptance behavior is not exposed as a reusable lifecycle operation. The state machine also does not permit `running -> accepted`, so any future simplification must either preserve the current review hop or refactor the lifecycle model deliberately.
-
-**Current resolution for 0.14.1**: Keep the existing lifecycle and implement the simple path (`running -> review -> accepted` via immediate system accept) rather than expanding the state machine.
-
-**Future fix**: Extract acceptance side effects into a shared accept service or method callable from both manual review and system-driven accept flows. Re-evaluate whether a direct `running -> accepted` transition is worth the broader lifecycle, UI, and SSE changes only when there is a stronger product reason than workshop polish.
-
-**Trigger**: Any future work on auto-accept, review policy variants, approval automation, or task lifecycle simplification.
-
-Last reviewed: 2026-05-18
-
----
-
-## TD-124 – Webhook HTTP helpers have two package owners
-
-**Severity**: Low (the copies are behaviorally identical, but changes can drift)
-**Found**: 2026-08-21, during Google Chat ingress package absorption
-**Affects**: `packages/dartclaw_runtime/lib/src/auth/auth_utils.dart`, `packages/dartclaw_google_chat/lib/src/webhook_http_support.dart`
-
-**Context**: Google Chat's package-owned webhook consumes the bounded request read and failed-auth event helper, while
-other server webhooks still consume the existing server copies. Moving them below both packages would give a lower tier
-a `shelf` dependency; adding a dedicated HTTP-support package would add a new package and dependency edge for four small
-symbols.
-
-**Needs decision**: decide whether a lower tier may depend on `shelf`, or whether a dedicated HTTP-support seam is
-justified. Until then, keep both implementations behaviorally identical.
-
-Last reviewed: 2026-08-21
-
-## TD-134 – Two write-path halves remain: the load sweep is blind below an entry key, and a section PATCH still replaces wholesale
-
-**Severity**: Medium (a typo inside an operator-named entry is accepted silently at load; a partial section write deletes the entries it omits)
-**Found**: 2026-08-20, during the 0.25 config constraint-evaluator work. **Narrowed 2026-08-28** once the entry-shape half was closed.
-**Affects**: `DartclawConfig.load`'s unknown-key sweep (`packages/dartclaw_kernel/lib/src/config_accept_set.dart`, `config_parser.dart`), `ConfigWriter`, `PATCH /api/config`
-
-**Closed on 2026-08-28**: the declared entry shape now has a production consumer. `ConfigValidator` descends into every `objectMap` / `objectList` field and judges each entry's *declared* keys through the one `FieldConstraints` evaluator, on the same single validation pass, so a per-entry key that decides placement or posture (`agent.agents.<id>.execution`, `providers.<id>.approval`) is refused at write time instead of at the next boot. The bespoke per-trigger checks in `_validateGitHubRequirements` were deleted as a second answer to the same question — they also refused a config the loader accepts, since `event` and `workflow` default when omitted.
-
-**What remains, and why each is its own decision:**
-
-1. **The load sweep stops at a registered path rather than descending into it**, because `ProviderEntry.options` absorbs unnamed `providers.<id>` keys by design and `dartclaw init` writes `auth_method` / `model` there — descending would refuse a config DartClaw writes itself. So `providers.claude.pool_sizee` and `agent.agents.x.toolz` are still accepted silently at load. `ConfigValidator` is a write-path authority (the config API, the settings form, `ConfigWriter`) and is not consulted by `DartclawConfig.load`, so the entry-shape pass does not reach this.
-2. **Undeclared keys inside an entry are accepted, deliberately.** No `ConfigEntryShape` declares whether an entry is closed, and several are open on purpose. Refusing them needs a per-entry openness axis on the shape — the same declaration (1) needs.
-3. **A section `PATCH` still replaces the whole YAML node**, so a write of `providers` deletes every entry it does not carry. Validating an entry's contents cannot see an entry that is absent; refusing this needs either merge semantics for object-valued sections or a comparison against current state, neither of which the validator has.
-
-**Needs decision**: whether `ConfigEntryShape` gains a per-entry openness declaration — which would close (1) and (2) together by letting the load sweep descend exactly as far as a shape says it may — and separately whether a partial `PATCH` of an object-valued section merges rather than replaces.
-
-Last reviewed: 2026-08-28
-
-## TD-143 – `dartclaw config get` is not on the one config schema source
-
-**Severity**: Low (wrong answer for a registered key, no data loss)
+**Impact**: wrong answer for a registered key, no data loss
 **Found**: 0.25 S10/S11 ledgers; verified 2026-09-05 on `feat/0.25.1`
 **Affects**: `apps/dartclaw_cli/lib/src/commands/config/config_get_command.dart`, `ConfigSerializer.toJson` (`/api/config`)
 
@@ -320,9 +297,8 @@ in the `/api/config` JSON, which emits a fixed per-channel subset. A registered-
 
 Last reviewed: 2026-09-05
 
-## TD-145 – `/api/goals` is half-surfaced
+### TD-145 – `/api/goals` is half-surfaced
 
-**Severity**: Low
 **Found**: 0.25 deletion gate (the audit's "dead" claim was falsified, so the subsystem was preserved); verified 2026-09-05
 **Affects**: `packages/dartclaw_runtime/lib/src/api/goal_routes.dart`, `templates/tasks.html` goal `<select>`
 
@@ -333,9 +309,8 @@ install until someone POSTs a goal.
 
 Last reviewed: 2026-09-05
 
-## TD-146 – `TaskFailureReason.turnFailure` is one retry-dedup key for every non-completed turn
+### TD-146 – `TaskFailureReason.turnFailure` is one retry-dedup key for every non-completed turn
 
-**Severity**: Low
 **Found**: 0.25 S02 ledger; verified 2026-09-05
 **Affects**: `packages/dartclaw_runtime/lib/src/task/task_failure_kind.dart`, `task_executor.dart` (the `turnFailure`
 call site), `task_budget_policy_failure.dart` (the dedup compare)

@@ -22,12 +22,14 @@ import 'workflow_definition.dart'
         WorkflowGitWorktreeStrategy,
         WorkflowTaskType;
 import 'workflow_run.dart' show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
+import 'workflow_run_origin.dart' show WorkflowRunOrigin;
 import 'workflow_run_repository.dart' show WorkflowRunRepository, WorkflowRunChangeSource, WorkflowRunOwnershipLost;
 
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'workflow_context.dart';
+import 'workflow_approval_interaction.dart';
 import 'workflow_approval_policy.dart';
 import 'workflow_cleanup_policy.dart';
 import 'context_extractor.dart';
@@ -39,6 +41,7 @@ import 'workflow_executor.dart';
 import 'workflow_context_persistence.dart';
 import 'workflow_run_paths.dart';
 import 'workflow_service_deps.dart';
+import 'workflow_view_helpers.dart' show WorkflowRevisionState, workflowRevisionState;
 import 'workflow_turn_adapter.dart';
 import 'bash_process_owner.dart';
 import 'bash_step_runner.dart' show retryOwnedBashProcesses;
@@ -100,6 +103,9 @@ class WorkflowService {
 
   // Approval timeout timers keyed by "<runId>:<stepId>".
   final _approvalTimeoutTimers = <String, Timer>{};
+
+  // Tail of each run's resolution chain; see [_withRunLock].
+  final _runLocks = <String, Future<void>>{};
 
   /// Upper bound on transition attempts when promoting a queued child task to
   /// `running` during [dispose]. A persistent storage/service transition
@@ -209,10 +215,12 @@ class WorkflowService {
   /// Starts a new workflow run from a parsed definition.
   ///
   /// Validates required variables, creates the run, and spawns the executor
-  /// in the background. Returns the created [WorkflowRun].
+  /// in the background. Returns the created [WorkflowRun]. The run records
+  /// [origin] in its initial insert, before any run event fires.
   Future<WorkflowRun> start(
     WorkflowDefinition definition,
     Map<String, String> variables, {
+    required WorkflowRunOrigin origin,
     String? projectId,
     bool allowDirtyLocalPath = false,
     bool inline = false,
@@ -285,6 +293,7 @@ class WorkflowService {
       updatedAt: now,
       definitionJson: effectiveDefinition.toJson(),
       contextJson: {workflowApprovalsContextKey: effectiveApprovals.yamlValue, ...context.toJson()},
+      origin: origin,
     );
     await _repository.insert(run);
 
@@ -343,18 +352,38 @@ class WorkflowService {
   ///
   /// When resuming an approval-paused run, records the approval as accepted and fires
   /// [WorkflowApprovalResolvedEvent].
-  Future<WorkflowRun> resume(String runId) async {
+  ///
+  /// Resolutions of one run are serialized. With [expect], the step, nonce and
+  /// post must match the run's live approval interaction; with [expect] or
+  /// [resolver], a refusal throws [WorkflowApprovalRefused] rather than
+  /// [StateError], and [resolver] is recorded on the consumed interaction.
+  /// With neither, nonce and post are not checked.
+  Future<WorkflowRun> resume(String runId, {WorkflowApprovalExpectation? expect, WorkflowApprovalResolver? resolver}) =>
+      _withRunLock(runId, () => _resume(runId, expect: expect, resolver: resolver));
+
+  Future<WorkflowRun> _resume(
+    String runId, {
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) async {
     var run = await _requireRun(runId);
+    if (expect != null) _checkExpectation(run, expect);
     if (run.status != WorkflowRunStatus.paused && run.status != WorkflowRunStatus.awaitingApproval) {
-      throw StateError(
-        'Cannot resume workflow in ${run.status.name} state '
-        '(only paused or awaitingApproval workflows can be resumed)',
-      );
+      final message =
+          'Cannot resume workflow in ${run.status.name} state '
+          '(only paused or awaitingApproval workflows can be resumed)';
+      if (expect == null && resolver == null) throw StateError(message);
+      throw WorkflowApprovalRefused(_refusalForSettledRun(run), message);
     }
 
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
     if (pendingApprovalStepId != null) {
-      run = await _recordApprovalResolution(run: run, stepId: pendingApprovalStepId, approved: true);
+      run = await _recordApprovalResolution(
+        run: run,
+        stepId: pendingApprovalStepId,
+        approved: true,
+        resolver: resolver,
+      );
     }
 
     // Load definition from snapshot.
@@ -474,9 +503,38 @@ class WorkflowService {
   ///
   /// When cancelling an approval-paused run, [feedback] is stored as rejection
   /// feedback and [WorkflowApprovalResolvedEvent] is fired with `approved: false`.
-  Future<void> cancel(String runId, {String? feedback}) async {
+  ///
+  /// [expect] and [resolver] behave as for [resume]; a terminal or missing run
+  /// is refused when either is given, and a silent no-op otherwise.
+  Future<void> cancel(
+    String runId, {
+    String? feedback,
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) => _withRunLock(runId, () => _cancel(runId, feedback: feedback, expect: expect, resolver: resolver));
+
+  Future<void> _cancel(
+    String runId, {
+    String? feedback,
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) async {
     var run = await _repository.getById(runId);
-    if (run == null || run.status.terminal) return;
+    final attributed = expect != null || resolver != null;
+    if (run == null) {
+      if (attributed) throw ArgumentError('Workflow run not found: $runId');
+      return;
+    }
+    if (expect != null) _checkExpectation(run, expect);
+    if (run.status.terminal) {
+      if (attributed) {
+        throw WorkflowApprovalRefused(
+          _refusalForSettledRun(run),
+          'Workflow run is already in a terminal state: ${run.status.name}',
+        );
+      }
+      return;
+    }
 
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
     if (pendingApprovalStepId != null) {
@@ -485,6 +543,7 @@ class WorkflowService {
         stepId: pendingApprovalStepId,
         approved: false,
         feedback: feedback,
+        resolver: resolver,
       );
     }
 
@@ -525,7 +584,246 @@ class WorkflowService {
     await _invokeWorkflowGitCleanup(cancelled);
   }
 
+  /// Sends a gate that names a `revise` step back to it with [feedback], as a
+  /// third resolution beside [resume] and [cancel].
+  ///
+  /// Under the same per-run section, [expect] and [resolver] as those, records
+  /// `changes_requested`, the trimmed feedback and the incremented revision
+  /// count in the update that consumes the interaction, then runs the revise
+  /// step and everything after it. Every refusal throws
+  /// [WorkflowApprovalRefused], changes nothing and leaves the nonce live.
+  Future<WorkflowRun> requestChanges(
+    String runId, {
+    required String feedback,
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) => _withRunLock(runId, () => _requestChanges(runId, feedback: feedback, expect: expect, resolver: resolver));
+
+  /// Throws [WorkflowApprovalRefused] unless [requestChanges] with [expect] would
+  /// pass every check but the feedback's.
+  Future<void> checkRequestChanges(String runId, {WorkflowApprovalExpectation? expect}) =>
+      _withRunLock(runId, () async => _requireChangesOpen(await _requireRun(runId), expect));
+
+  WorkflowRevisionState _requireChangesOpen(WorkflowRun run, WorkflowApprovalExpectation? expect) {
+    if (expect != null) _checkExpectation(run, expect);
+    final stepId = run.contextJson['_approval.pending.stepId'];
+    if (run.status != WorkflowRunStatus.awaitingApproval || stepId is! String) {
+      throw WorkflowApprovalRefused(
+        _refusalForSettledRun(run),
+        'Workflow run is not waiting at an approval (${run.status.name})',
+      );
+    }
+    final revision = workflowRevisionState(run);
+    if (revision == null) {
+      throw WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.changesNotOffered,
+        'Step $stepId does not offer request changes',
+      );
+    }
+    if (!revision.isOpen) {
+      throw WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.limitReached,
+        'Step $stepId reached its limit of ${revision.max} revisions',
+      );
+    }
+    return revision;
+  }
+
+  Future<WorkflowRun> _requestChanges(
+    String runId, {
+    required String feedback,
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) async {
+    final run = await _requireRun(runId);
+    final revision = _requireChangesOpen(run, expect);
+    final text = feedback.trim();
+    if (text.isEmpty) {
+      throw const WorkflowApprovalRefused(WorkflowApprovalRefusal.feedbackRequired, 'Feedback is required');
+    }
+
+    final stepId = run.contextJson['_approval.pending.stepId'] as String;
+    final definition = WorkflowDefinition.fromJson(run.definitionJson);
+    _ensureTaskPersistenceAvailable(_persistencePorts, definition);
+    await _rehydrateWorkflowWorktreeBinding(run);
+    final reviseId = definition.steps.firstWhere((step) => step.id == stepId).revise!;
+    final reviseIndex = definition.steps.indexWhere((step) => step.id == reviseId);
+
+    _clearApprovalTimeoutTimer(runId, stepId);
+    final at = DateTime.now();
+    final round = revision.count + 1;
+    final consumed = _consumedInteraction(run, stepId, resolver, at, approved: false, changesRequested: true);
+    final context = await _loadResumeContext(run, null);
+    final reviseKeys = [
+      '$reviseId.status',
+      '$reviseId.error',
+      'step.$reviseId.outcome',
+      'step.$reviseId.outcome.reason',
+    ];
+    reviseKeys.forEach(context.remove);
+    final approvalEntries = {
+      '$stepId.status': 'changes_requested',
+      '$stepId.approval.status': 'changes_requested',
+      '$stepId.approval.resolved_at': at.toIso8601String(),
+      '$stepId.approval.feedback': text,
+      '$stepId.approval.revision': round,
+    };
+    approvalEntries.forEach((key, value) => context[key] = value);
+
+    final running = run.copyWith(
+      status: WorkflowRunStatus.running,
+      currentStepIndex: reviseIndex,
+      errorMessage: null,
+      contextJson: _snapshotContextJson(
+        run.contextJson,
+        context,
+        removeFlatKeys: {'_approval.pending.stepId', '_approval.pending.stepIndex', ...reviseKeys},
+        extraFlat: {
+          ...approvalEntries,
+          workflowRevisionContextKey: stepId,
+          if (consumed != null) workflowApprovalInteractionContextKey: consumed.toJson(),
+        },
+      ),
+      updatedAt: _monotonicUpdatedAt(run, at),
+    );
+    if (!await _repository.update(running, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
+      throw StateError('Workflow status changed before request changes: $runId');
+    }
+    await persistWorkflowContext(dataDir: _dataDir, runId: runId, context: context);
+    _cancelFlags.remove(runId);
+
+    _eventBus.fire(
+      WorkflowApprovalResolvedEvent(
+        runId: runId,
+        stepId: stepId,
+        approved: false,
+        changesRequested: true,
+        revision: round,
+        maxRevisions: revision.max,
+        timestamp: DateTime.now(),
+      ),
+    );
+    _fireStatusChanged(
+      runId: runId,
+      definitionName: run.definitionName,
+      oldStatus: run.status,
+      newStatus: WorkflowRunStatus.running,
+    );
+    _spawnExecutor(running, definition, context, startFromStepIndex: reviseIndex);
+    return running;
+  }
+
   Future<WorkflowRun?> get(String runId) => _repository.getById(runId);
+
+  /// Issues the one interaction a chat post may resolve [stepId] with, or
+  /// returns `null` when [runId] is not pending at that step (an approval the
+  /// policy auto-resolved included).
+  ///
+  /// A new issue replaces the run's earlier record.
+  Future<WorkflowApprovalInteraction?> issueApprovalInteraction(String runId, String stepId) =>
+      _withRunLock(runId, () async {
+        final run = await _repository.getById(runId);
+        if (run == null || !_isPendingAt(run, stepId)) return null;
+        final interaction = WorkflowApprovalInteraction.issue(stepId);
+        await _storeInteraction(run, interaction);
+        return interaction;
+      });
+
+  /// Binds the sent [post] to the interaction holding [nonce]. Returns `false`
+  /// when that interaction was replaced or already resolved.
+  Future<bool> bindApprovalPost(String runId, {required String nonce, required WorkflowApprovalPost post}) =>
+      _withRunLock(runId, () async {
+        final run = await _repository.getById(runId);
+        final interaction = run == null ? null : WorkflowApprovalInteraction.of(run);
+        if (run == null ||
+            interaction == null ||
+            interaction.isResolved ||
+            !constantTimeEquals(interaction.nonce, nonce)) {
+          return false;
+        }
+        await _storeInteraction(run, interaction.withPost(post));
+        return true;
+      });
+
+  /// The run's interaction for [stepId] consumed by a resolution at [at], or `null` when it holds none for that step.
+  WorkflowApprovalInteraction? _consumedInteraction(
+    WorkflowRun run,
+    String stepId,
+    WorkflowApprovalResolver? resolver,
+    DateTime at, {
+    required bool approved,
+    bool changesRequested = false,
+  }) {
+    final interaction = WorkflowApprovalInteraction.of(run);
+    if (interaction == null || interaction.stepId != stepId) return null;
+    return interaction.consumed(
+      WorkflowApprovalResolution(
+        approved: approved,
+        changesRequested: changesRequested,
+        source: resolver?.source,
+        senderId: resolver?.senderId,
+        displayName: resolver?.displayName,
+        at: at,
+      ),
+    );
+  }
+
+  /// [at], or one microsecond past the run's last update when the clock has not advanced, so the
+  /// compare-and-swap on `updatedAt` always sees a new value.
+  DateTime _monotonicUpdatedAt(WorkflowRun run, DateTime at) =>
+      at.isAfter(run.updatedAt) ? at : run.updatedAt.add(const Duration(microseconds: 1));
+
+  bool _isPendingAt(WorkflowRun run, String stepId) =>
+      (run.status == WorkflowRunStatus.awaitingApproval || run.status == WorkflowRunStatus.paused) &&
+      run.contextJson['_approval.pending.stepId'] == stepId;
+
+  Future<void> _storeInteraction(WorkflowRun run, WorkflowApprovalInteraction interaction) async {
+    final updated = run.copyWith(
+      contextJson: {...run.contextJson, workflowApprovalInteractionContextKey: interaction.toJson()},
+      updatedAt: _monotonicUpdatedAt(run, DateTime.now()),
+    );
+    if (!await _repository.update(updated, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
+      throw StateError('Workflow status changed before approval interaction update: ${run.id}');
+    }
+  }
+
+  void _checkExpectation(WorkflowRun run, WorkflowApprovalExpectation expect) {
+    final interaction = WorkflowApprovalInteraction.of(run);
+    final post = interaction?.post;
+    if (interaction == null ||
+        !constantTimeEquals(interaction.nonce, expect.nonce) ||
+        interaction.stepId != expect.stepId ||
+        post == null ||
+        post.channelType != expect.channelType ||
+        post.messageId != expect.messageId) {
+      throw const WorkflowApprovalRefused(WorkflowApprovalRefusal.invalidNonce, 'Approval button is not valid');
+    }
+    if (interaction.isResolved) {
+      throw const WorkflowApprovalRefused(WorkflowApprovalRefusal.alreadyResolved, 'Approval was already resolved');
+    }
+    if (!_isPendingAt(run, expect.stepId)) {
+      throw WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.notPending,
+        'Workflow run is not waiting at ${expect.stepId} (${run.status.name})',
+      );
+    }
+  }
+
+  WorkflowApprovalRefusal _refusalForSettledRun(WorkflowRun run) =>
+      WorkflowApprovalInteraction.of(run)?.isResolved ?? false
+      ? WorkflowApprovalRefusal.alreadyResolved
+      : WorkflowApprovalRefusal.notPending;
+
+  Future<T> _withRunLock<T>(String runId, Future<T> Function() body) {
+    final previous = _runLocks[runId] ?? Future<void>.value();
+    final result = previous.then((_) => body());
+    late final Future<void> tail;
+    tail = result.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
+      if (identical(_runLocks[runId], tail)) _runLocks.remove(runId);
+    });
+    _runLocks[runId] = tail;
+    return result;
+  }
 
   Future<List<WorkflowRun>> list({WorkflowRunStatus? status, String? definitionName}) =>
       _repository.list(status: status, definitionName: definitionName);
@@ -585,6 +883,17 @@ class WorkflowService {
         startFromStepIndex: executionCursor.stepIndex,
         startCursor: executionCursor,
       );
+      return;
+    }
+
+    // A request-changes round re-runs steps the tasks already completed once, so
+    // their step indices cannot say where it stopped; the persisted cursor does.
+    if (run.contextJson.containsKey(workflowRevisionContextKey)) {
+      _log.info(
+        "Recovering workflow '${definition.name}' (${run.id}) in a revision round from step ${run.currentStepIndex}",
+      );
+      _cancelFlags.remove(run.id);
+      _spawnExecutor(run, definition, context, startFromStepIndex: run.currentStepIndex);
       return;
     }
 
@@ -901,9 +1210,12 @@ class WorkflowService {
     required String stepId,
     required bool approved,
     String? feedback,
+    WorkflowApprovalResolver? resolver,
   }) async {
     _clearApprovalTimeoutTimer(run.id, stepId);
-    final resolvedAt = DateTime.now().toIso8601String();
+    final resolvedTime = DateTime.now();
+    final resolvedAt = resolvedTime.toIso8601String();
+    final consumed = _consumedInteraction(run, stepId, resolver, resolvedTime, approved: approved);
     final stepStatus = approved ? 'accepted' : 'rejected';
     final approvalStatus = approved ? 'approved' : 'rejected';
     final context = await _loadResumeContext(run, null);
@@ -922,13 +1234,10 @@ class WorkflowService {
         '$stepId.approval.status': approvalStatus,
         '$stepId.approval.resolved_at': resolvedAt,
         if (!approved) '$stepId.approval.feedback': ?feedback,
+        if (consumed != null) workflowApprovalInteractionContextKey: consumed.toJson(),
       },
     );
-    final now = DateTime.now();
-    final updatedRun = run.copyWith(
-      contextJson: updatedContext,
-      updatedAt: now.isAfter(run.updatedAt) ? now : run.updatedAt.add(const Duration(microseconds: 1)),
-    );
+    final updatedRun = run.copyWith(contextJson: updatedContext, updatedAt: _monotonicUpdatedAt(run, DateTime.now()));
     if (!await _repository.update(updatedRun, expectedStatus: run.status, expectedUpdatedAt: run.updatedAt)) {
       throw StateError('Workflow status changed before approval resolution: ${run.id}');
     }
@@ -1058,7 +1367,12 @@ class WorkflowService {
     _approvalTimeoutTimers.remove(key)?.cancel();
   }
 
-  Future<void> _expireApprovalTimeout(WorkflowRun run, String stepId) async {
+  Future<void> _expireApprovalTimeout(WorkflowRun staleRun, String stepId) => _withRunLock(staleRun.id, () async {
+    final run = await _repository.getById(staleRun.id);
+    if (run != null) await _expireApprovalTimeoutLocked(run, stepId);
+  });
+
+  Future<void> _expireApprovalTimeoutLocked(WorkflowRun run, String stepId) async {
     if (run.status != WorkflowRunStatus.awaitingApproval && run.status != WorkflowRunStatus.paused) return;
     if (run.contextJson['_approval.pending.stepId'] != stepId) return;
 

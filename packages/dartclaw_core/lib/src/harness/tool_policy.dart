@@ -26,7 +26,9 @@ Map<String, dynamic> buildToolResponse(String requestId, {required bool allow, S
 /// Builds a `control_response` for a `hook_callback` control_request.
 ///
 /// When [allow] is `true` the hook permits the tool; when `false` it denies.
-Map<String, dynamic> buildHookResponse(String requestId, {required bool allow}) {
+/// A non-null [reason] is returned as `permissionDecisionReason`, which Claude
+/// shows the model in place of its generic "blocked by hook" text.
+Map<String, dynamic> buildHookResponse(String requestId, {required bool allow, String? reason}) {
   return {
     'type': 'control_response',
     'response': {
@@ -34,7 +36,11 @@ Map<String, dynamic> buildHookResponse(String requestId, {required bool allow}) 
       'request_id': requestId,
       'response': {
         'continue': true,
-        'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': allow ? 'allow' : 'deny'},
+        'hookSpecificOutput': {
+          'hookEventName': 'PreToolUse',
+          'permissionDecision': allow ? 'allow' : 'deny',
+          'permissionDecisionReason': ?reason,
+        },
       },
     },
   };

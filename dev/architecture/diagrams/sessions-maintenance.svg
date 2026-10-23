@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 774" width="1000" height="774" role="img" aria-labelledby="title desc">
+  <title id="title">Session maintenance</title>
+  <desc id="desc">SessionMaintenanceService.run, started by the scheduled session-maintenance job or by dartclaw cleanup, runs up to six stages in order: settle idle conversations, archive stale sessions, archive past the count cap, delete orphaned cron sessions, delete archived sessions over the disk budget, delete artifacts of terminal tasks. Stages 1, 2 and 4 skip protected sessions. In warn mode the run only plans and reports.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#job:hover) .edges :is(.f-job,.t-job) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cli:hover) .edges :is(.f-cli,.t-cli) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#run:hover) .edges :is(.f-run,.t-run) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#report:hover) .edges :is(.f-report,.t-report) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s0:hover) .edges :is(.f-s0,.t-s0) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s1:hover) .edges :is(.f-s1,.t-s1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s2:hover) .edges :is(.f-s2,.t-s2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s3:hover) .edges :is(.f-s3,.t-s3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s4:hover) .edges :is(.f-s4,.t-s4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s5:hover) .edges :is(.f-s5,.t-s5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#prot:hover) .edges :is(.f-prot,.t-prot) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="774"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="678" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="702">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="726">Hover a box for what it does or skips; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="746">A limit of 0 disables its stage. Inside a rendered document this image is static; click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · SessionMaintenanceService.run</text>
+  <text class="title" x="24" y="58">Session maintenance</text>
+  <text class="lede" x="24" y="80">Six stages trim sessions by age, count, size and retention; protected sessions are never touched by the archive and disk stages.</text>
+
+  <g class="k-host"><rect class="band" x="24" y="262" width="620" height="370" rx="14"/><text class="kick" x="40" y="284">STAGES · IN ORDER</text></g>
+
+  <g class="edges">
+    <g class="e  f-job t-run"><path d="M174,156 V184"/><text class="el" x="182" y="174" text-anchor="start">scheduled</text></g>
+    <g class="e  f-cli t-run"><path d="M494,156 V184"/><text class="el" x="502" y="174" text-anchor="start">manual</text></g>
+    <g class="e  f-run t-report"><path d="M624,212 H674"/><text class="el" x="649" y="204" text-anchor="middle">report</text></g>
+    <g class="e main f-run t-s0"><path d="M324,238 V294"/><text class="el" x="332" y="256" text-anchor="start">warn or enforce</text></g>
+    <g class="e main f-s0 t-s1"><path d="M334,340 V350"/></g>
+    <g class="e main f-s1 t-s2"><path d="M334,396 V406"/></g>
+    <g class="e main f-s2 t-s3"><path d="M334,452 V462"/></g>
+    <g class="e main f-s3 t-s4"><path d="M334,508 V518"/></g>
+    <g class="e main f-s4 t-s5"><path d="M334,564 V574"/></g>
+    <g class="e dash bad f-prot t-s1"><path d="M676,374 H630"/><text class="el" x="653" y="366" text-anchor="middle">skips</text></g>
+    <g class="e dash bad f-prot t-s2"><path d="M676,430 H630"/><text class="el" x="653" y="422" text-anchor="middle">skips</text></g>
+    <g class="e dash bad f-prot t-s4"><path d="M676,542 H630"/><text class="el" x="653" y="534" text-anchor="middle">skips</text></g>
+  </g>
+
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="job">
+    <rect class="box" x="24" y="104" width="300" height="52" rx="9"/>
+    <text class="name mono-name" x="36" y="123">session-maintenance job</text>
+    <text class="sub" x="36" y="139">sessions.maintenance.schedule, 0 3 * * *</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">session-maintenance job</tspan> · built-in scheduled job registered in scheduling_wiring.dart; an empty or disabled schedule registers nothing</text><text class="p2" x="36" y="746">It runs every stage, then audit-file cleanup, which is outside the session model.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="cli">
+    <rect class="box" x="344" y="104" width="300" height="52" rx="9"/>
+    <text class="name mono-name" x="356" y="123">dartclaw cleanup</text>
+    <text class="sub" x="356" y="139">--dry-run: warn mode; --enforce: enforce</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">dartclaw cleanup</tspan> · apps/dartclaw_cli cleanup_command.dart</text><text class="p2" x="36" y="746">Passes no inbox or task service, so stages 0 and 5 do not run; active channel keys and cron jobs are derived from config.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n solid k-host" id="run">
+    <rect class="box" x="24" y="186" width="600" height="52" rx="9"/>
+    <text class="name mono-name" x="36" y="205">SessionMaintenanceService.run</text>
+    <text class="sub" x="36" y="221">mode warn (default): plan and report only; enforce: apply</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">SessionMaintenanceService.run</tspan> · maintenance/session_maintenance_service.dart</text><text class="p2" x="36" y="746">Every action is an archive or a delete with a reason and an applied flag; warn mode plans the same actions without applying them.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n line k-neu" id="report">
+    <rect class="box" x="676" y="186" width="300" height="52" rx="9"/>
+    <text class="name mono-name" x="688" y="205">MaintenanceReport</text>
+    <text class="sub" x="688" y="221">counts, warnings, actions</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">MaintenanceReport</tspan> · sessions archived and deleted, bytes reclaimed, artifacts deleted, warnings, and one MaintenanceAction per session</text><text class="p2" x="36" y="746">Reasons: stale, count_cap, cron_retention, disk_budget, artifact_retention. applied is false in warn mode.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="s0">
+    <rect class="box" x="40" y="296" width="588" height="44" rx="9"/>
+    <g class="step"><circle cx="60" cy="318.0" r="10"/><text x="60" y="322.0">0</text></g>
+    <text class="name mono-name" x="78" y="315">autoSettleIdleSessions</text>
+    <g class="badge"><rect x="564" y="303" width="54" height="16" rx="8"/><text x="591" y="315">SETTLE</text></g>
+    <text class="sub" x="78" y="331">settle idle read conversations: auto_settle_idle_days (0); scheduled job only</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">autoSettleIdleSessions</tspan> · ConversationInboxService.autoSettleIdleSessions settles idle conversations</text><text class="p2" x="36" y="746">Settling is not archival. Needs the inbox service, which the CLI does not pass.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="s1">
+    <rect class="box" x="40" y="352" width="588" height="44" rx="9"/>
+    <g class="step"><circle cx="60" cy="374.0" r="10"/><text x="60" y="378.0">1</text></g>
+    <text class="name" x="78" y="371">prune stale</text>
+    <g class="badge"><rect x="557" y="359" width="61" height="16" rx="8"/><text x="588" y="371">ARCHIVE</text></g>
+    <text class="sub" x="78" y="387">archive sessions not updated within prune_after_days (30)</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">prune stale</tspan> · archives sessions whose updatedAt is older than the window</text><text class="p2" x="36" y="746">Skips archive, task and protected sessions.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="s2">
+    <rect class="box" x="40" y="408" width="588" height="44" rx="9"/>
+    <g class="step"><circle cx="60" cy="430.0" r="10"/><text x="60" y="434.0">2</text></g>
+    <text class="name" x="78" y="427">count cap</text>
+    <g class="badge"><rect x="557" y="415" width="61" height="16" rx="8"/><text x="588" y="427">ARCHIVE</text></g>
+    <text class="sub" x="78" y="443">archive the oldest unprotected sessions beyond max_sessions (500)</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">count cap</tspan> · sorted by updatedAt ascending, archives the surplus</text><text class="p2" x="36" y="746">Protected sessions are not counted against the cap.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="s3">
+    <rect class="box" x="40" y="464" width="588" height="44" rx="9"/>
+    <g class="step"><circle cx="60" cy="486.0" r="10"/><text x="60" y="490.0">3</text></g>
+    <text class="name" x="78" y="483">cron retention</text>
+    <g class="badge"><rect x="564" y="471" width="54" height="16" rx="8"/><text x="591" y="483">DELETE</text></g>
+    <text class="sub" x="78" y="499">delete orphaned cron sessions older than cron_retention_hours (24)</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">cron retention</tspan> · deletes cron sessions whose job is no longer configured, once older than the window</text><text class="p2" x="36" y="746">The session type is flipped to user first so the protected-type guard in deleteSession passes.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="s4">
+    <rect class="box" x="40" y="520" width="588" height="44" rx="9"/>
+    <g class="step"><circle cx="60" cy="542.0" r="10"/><text x="60" y="546.0">4</text></g>
+    <text class="name" x="78" y="539">disk budget</text>
+    <g class="badge"><rect x="564" y="527" width="54" height="16" rx="8"/><text x="591" y="539">DELETE</text></g>
+    <text class="sub" x="78" y="555">delete archived sessions oldest first until usage &lt;= 80% of max_disk_mb (0)</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">disk budget</tspan> · deletes archived sessions oldest first until usage is at most 80% of the budget</text><text class="p2" x="36" y="746">Skips protected (active) sessions and warns when still over budget.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-host" id="s5">
+    <rect class="box" x="40" y="576" width="588" height="44" rx="9"/>
+    <g class="step"><circle cx="60" cy="598.0" r="10"/><text x="60" y="602.0">5</text></g>
+    <text class="name" x="78" y="595">artifact retention</text>
+    <g class="badge"><rect x="564" y="583" width="54" height="16" rx="8"/><text x="591" y="595">DELETE</text></g>
+    <text class="sub" x="78" y="611">delete artifacts of terminal tasks past artifact_retention_days; scheduled only</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">artifact retention</tspan> · deletes artifacts of terminal tasks older than tasks.artifact_retention_days</text><text class="p2" x="36" y="746">Needs taskService and dataDir, which the CLI does not pass; outside the session model.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionmaintenanceservice"><g class="n tint k-sec" id="prot">
+    <rect class="box" x="676" y="350" width="300" height="200" rx="9"/>
+    <text class="name" x="688" y="373">protected sessions</text>
+    <text class="sub" x="688" y="391">main sessions</text>
+    <text class="sub" x="688" y="407">task sessions</text>
+    <text class="sub" x="688" y="423">any session with an active turn</text>
+    <text class="sub" x="688" y="439">channel sessions whose key is active</text>
+    <text class="sub" x="688" y="455">cron sessions whose job is active</text>
+    <g class="d"><text class="p1" x="36" y="726"><tspan class="b">protected sessions</tspan> · _isProtected in session_maintenance_service.dart; stages 1, 2 and 4 skip these</text><text class="p2" x="36" y="746">The scheduled job treats every channel session key as active whenever a channel is registered; the CLI does so when a channel is enabled in config.</text></g>
+  </g></a>
+  <g transform="translate(24,652)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">entry point</text>
+    <g class="tint k-host"><rect class="box" x="112.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="134.2" y="10">stage</text>
+    <g class="tint k-sec"><rect class="box" x="187.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="209.2" y="10">protection</text>
+    <g class="line k-neu"><rect class="box" x="293.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="315.2" y="10">output</text>
+    <g class="e main"><path d="M374.4,6 H406.4"/></g><text class="lg" x="414.4" y="10">stage order</text>
+    <g class="e "><path d="M504.59999999999997,6 H536.5999999999999"/></g><text class="lg" x="544.5999999999999" y="10">trigger or report</text>
+    <g class="e dash bad"><path d="M672.0,6 H704.0"/></g><text class="lg" x="712.0" y="10">skipped</text>
+  </g>
+</svg>

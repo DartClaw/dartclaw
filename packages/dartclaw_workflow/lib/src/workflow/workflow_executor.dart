@@ -20,6 +20,7 @@ import 'bash_step_runner.dart' as bash_step_runner;
 import 'context_extractor.dart';
 import 'dependency_graph.dart';
 import 'execution_envelope_schema.dart';
+import 'follow_up_draft.dart';
 import 'gate_evaluator.dart';
 import 'map_context.dart';
 import 'map_step_context.dart';
@@ -35,6 +36,7 @@ import 'step_outcome_normalizer.dart' as step_outcome_normalizer;
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
 import 'workflow_context_persistence.dart';
+import 'workflow_approval_interaction.dart' show workflowRevisionContextKey;
 import 'workflow_approval_policy.dart';
 import 'workflow_failure.dart';
 import 'workflow_artifact_committer.dart' as workflow_artifact_committer;
@@ -728,7 +730,9 @@ class WorkflowExecutor {
               await _failRun(run, 'Normalized action node references missing step "$stepId".');
               return;
             }
-            final skippedRun = await _skipDueToEntryGate(run, step, stepIndex, context);
+            final skippedRun = _revisionGateFor(run, definition, step) != null
+                ? null
+                : await _skipDueToEntryGate(run, step, stepIndex, context);
             if (skippedRun != null) {
               run = skippedRun;
               nodeIndex++;
@@ -1003,16 +1007,38 @@ class WorkflowExecutor {
         run = refreshed;
       }
     }
+    final followUp = await _createFollowUpDraft(run, definition, context);
     final completed = run.copyWith(
       status: WorkflowRunStatus.completed,
       executionCursor: null,
       completedAt: DateTime.now(),
       updatedAt: DateTime.now(),
+      contextJson: {
+        ...run.contextJson,
+        if (followUp != null) workflowFollowUpContextKey: {'taskId': followUp.taskId, 'count': followUp.count},
+      },
     );
     await _repository.updateOwned(completed);
     _fireRunStatusChangedEvent(run: run, newStatus: WorkflowRunStatus.completed);
     await _cleanupWorkflowGit(completed, preserveWorktrees: !workflowCleanupEnabledForRun(completed, _log));
     _log.info("Workflow '${run.definitionName}' (${run.id}) completed successfully");
+  }
+
+  /// Runs before the completing write so the follow-up entry lands in that same update and the completed status
+  /// event already finds it. The `running` re-check keeps a concurrently cancelled run from getting a draft.
+  Future<WorkflowFollowUp?> _createFollowUpDraft(
+    WorkflowRun run,
+    WorkflowDefinition definition,
+    WorkflowContext context,
+  ) async {
+    final findings = collectFollowUpFindings(definition, context);
+    if (findings.isEmpty || (await _repository.getById(run.id))?.status != WorkflowRunStatus.running) return null;
+    return createFollowUpDraft(
+      run: run,
+      findings: findings,
+      taskService: _taskService,
+      projectId: _workflowProjectId(run, context),
+    );
   }
 
   Future<String?> _runDeterministicPublish(WorkflowRun run, WorkflowDefinition definition, WorkflowContext context) =>

@@ -849,7 +849,8 @@ void main() {
       expect((denial['result'] as Map<String, dynamic>)['approved'], isFalse);
       expect(
         (denial['result'] as Map<String, dynamic>)['reason'],
-        contains('File access blocked: read_only (write) on /tmp/project/.env'),
+        // The guard reports the symlink-resolved path; /tmp is /private/tmp on macOS.
+        matches(RegExp(r'File access blocked: read_only \(write\) on (/private)?/tmp/project/\.env')),
       );
     });
 

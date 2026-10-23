@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart'
     show GoogleChatSpaceEventsWiring, GoogleChatWebhookHandler, googleChatSubscriptionRoutes;
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
 import 'package:logging/logging.dart';
@@ -55,6 +55,7 @@ import 'generated/embedded_assets.g.dart';
 import 'memory/memory_status_service.dart';
 import 'memory/memory_prune_service.dart';
 import 'memory/memory_admin_service.dart';
+import 'mcp/harness_mcp_bearers.dart';
 import 'mcp/mcp_router.dart';
 import 'mcp/mcp_server.dart';
 import 'project/project_mutation_service.dart';
@@ -74,6 +75,7 @@ import 'task/task_progress_tracker.dart';
 import 'task/task_file_guard.dart';
 import 'task/task_review_service.dart';
 import 'task/task_service.dart';
+import 'task/workflow_run_control.dart';
 import 'task/worktree_manager.dart';
 import 'templates/error_page.dart';
 import 'embedded_static_handler.dart';
@@ -148,6 +150,7 @@ class DartclawServer {
           whatsAppChannel: _channels.whatsAppChannel,
           signalChannel: _channels.signalChannel,
           googleChatChannel: _channels.googleChatWebhookHandler?.channel,
+          slackChannel: _channels.slackChannel,
           eventBus: _observability.eventBus,
         );
   late final GuardEditorService? _guardEditorService = _core.configWriter == null || _core.dataDir == null
@@ -416,6 +419,7 @@ class DartclawServer {
           clients: gatewayToken == null ? const [] : (_core.config?.gateway.mcpClients ?? const []),
           auditLogger: _core.auditLogger,
           toolCanonicals: _core.mcpToolCanonicals,
+          harnessBearers: _core.mcpHarnessBearers,
           rateLimiter: _authRateLimiter,
           eventBus: _observability.eventBus,
           trustedProxies: _core.config?.auth.trustedProxies ?? const [],
@@ -453,6 +457,8 @@ class DartclawServer {
       webhookSecret: _core.webhookSecret,
       googleChat: _channels.googleChatWebhookHandler,
       github: githubWebhookHandler,
+      slack: _channels.slackChannel,
+      auditLogger: _core.auditLogger,
       eventBus: _observability.eventBus,
       trustedProxies: _core.config?.auth.trustedProxies ?? const [],
     );
@@ -550,6 +556,7 @@ class DartclawServer {
         whatsAppChannel: _channels.whatsAppChannel,
         signalChannel: _channels.signalChannel,
         googleChatChannel: _channels.googleChatWebhookHandler?.channel,
+        slackChannel: _channels.slackChannel,
         eventBus: _observability.eventBus,
         configNotifier: _core.configNotifier,
         guardChain: _core.guardChain,
@@ -606,7 +613,7 @@ class DartclawServer {
       projects: projects,
       projectConfig: _core.config?.projects ?? const ProjectConfig.defaults(),
       containerEnabled: _core.config?.container.enabled ?? false,
-      containerMountRoots: _projectRouteContainerMountRoots(),
+      containerMountRoots: _projectRouteContainerMountRoots(projects),
       tasks: _tasks.taskService,
       worktreeManager: _tasks.worktreeManager,
       taskFileGuard: _tasks.taskFileGuard,
@@ -624,14 +631,13 @@ class DartclawServer {
     }
   }
 
-  List<String> _projectRouteContainerMountRoots() {
+  List<String> _projectRouteContainerMountRoots(ProjectService projects) {
+    final runtimeRoot = p.normalize(p.absolute(projects.localProject.localPath));
     final config = _core.config;
-    if (config == null) {
-      return [p.normalize(p.absolute(Directory.current.path))];
-    }
+    if (config == null) return [runtimeRoot];
 
     final roots = <String>{
-      p.normalize(p.absolute(Directory.current.path)),
+      runtimeRoot,
       if (config.workspaceDir.trim().isNotEmpty) p.normalize(p.absolute(config.workspaceDir)),
       if (config.projectsClonesDir.trim().isNotEmpty) p.normalize(p.absolute(config.projectsClonesDir)),
       ..._configuredLocalPathRoots(config),
@@ -677,6 +683,7 @@ class DartclawServer {
         projectService: _tasks.projectService,
         dataDir: _core.dataDir,
         threadBindingStore: _channels.threadBindingStore,
+        channelManager: _channels.channelManager,
         mergeStrategy: _tasks.mergeStrategy ?? 'squash',
         baseRef: _tasks.baseRef ?? 'main',
         creationService: _taskCreationService,
@@ -708,8 +715,9 @@ class DartclawServer {
     final wf = _web.workflowService;
     final ts = _tasks.taskService;
     final ds = _web.workflowDefinitionSource;
-    if (wf != null && ts != null && ds != null) {
-      final workflowRouter = workflowRoutes(wf, ts, ds, eventBus: _observability.eventBus);
+    final control = _web.workflowRunControl;
+    if (wf != null && ts != null && ds != null && control != null) {
+      final workflowRouter = workflowRoutes(wf, ts, ds, runControl: control, eventBus: _observability.eventBus);
       router.mount('/', workflowRouter.call);
     }
   }
@@ -796,6 +804,7 @@ class DartclawServer {
       kgService: _web.kgService,
       cookieSecure: _core.config?.auth.cookieSecure ?? false,
       trustedProxies: _core.config?.auth.trustedProxies ?? const [],
+      rateLimiter: _authRateLimiter,
       dataDir: _core.dataDir,
       contentGuardApiKeyConfigured: _web.contentGuardApiKeyConfigured,
       contentGuardFailOpen: _web.contentGuardFailOpen,
@@ -832,6 +841,8 @@ class DartclawServer {
     final tokenService = _core.tokenService;
     final gatewayToken = _core.gatewayToken;
     if (tokenService != null && gatewayToken != null) {
+      final slack = _channels.slackChannel;
+      final slackPublicPath = slack?.eventsHandler == null ? null : slack!.config.webhookPath;
       String? githubPublicPath;
       try {
         final githubConfig = _core.config?.extension<GitHubWebhookConfig>('github');
@@ -860,6 +871,7 @@ class DartclawServer {
                 ? null
                 : [_channels.googleChatWebhookHandler!.config.webhookPath]),
             ...?(githubPublicPath == null ? null : [githubPublicPath]),
+            ...?(slackPublicPath == null ? null : [slackPublicPath]),
           ],
           publicPrefixes: const [],
         ),

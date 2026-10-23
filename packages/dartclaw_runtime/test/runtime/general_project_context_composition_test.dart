@@ -18,7 +18,6 @@ Never _unexpectedExit(int code) => throw StateError('Unexpected exit($code)');
 
 void main() {
   late Directory root;
-  late String launchDirectory;
   late DartclawConfig config;
   late EventBus events;
   StorageWiring? storage;
@@ -26,7 +25,6 @@ void main() {
   HarnessWiring? harness;
 
   setUp(() async {
-    launchDirectory = Directory.current.path;
     root = Directory.systemTemp.createTempSync('general_project_composition_');
     config = DartclawConfig(
       server: ServerConfig(dataDir: root.path, claudeExecutable: Platform.resolvedExecutable),
@@ -44,19 +42,17 @@ void main() {
     File(p.join(config.workspaceDir, 'AGENTS.md')).writeAsStringSync('OWNER_AGENTS_MARKER');
     Directory(p.join(root.path, '.dartclaw')).createSync();
     File(p.join(root.path, '.dartclaw', 'AGENTS.md')).writeAsStringSync('SERVER_CWD_MARKER');
-    Directory.current = root.path;
   });
 
   tearDown(() async {
     await harness?.executions.dispose();
     await security?.dispose();
     await storage?.dispose();
-    Directory.current = launchDirectory;
     if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
   test('primary composed owner turns dispatch general workspace and explicit checkout', () async {
-    expect(File(p.join(Directory.current.path, '.dartclaw', 'AGENTS.md')).readAsStringSync(), 'SERVER_CWD_MARKER');
+    expect(File(p.join(root.path, '.dartclaw', 'AGENTS.md')).readAsStringSync(), 'SERVER_CWD_MARKER');
     final checkout = Directory(p.join(root.path, 'checkout'))..createSync();
     File(p.join(checkout.path, 'AGENTS.md')).writeAsStringSync('CHECKOUT_AGENTS_MARKER');
     final project = Project(
@@ -75,6 +71,7 @@ void main() {
     harness = await wireTestHarness(
       config: config,
       dataDir: root.path,
+      runtimeCwd: root.path,
       harnessFactory: factory,
       exitFn: _unexpectedExit,
       storage: storage!,

@@ -1,0 +1,190 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 602" width="1000" height="602" role="img" aria-labelledby="title desc">
+  <title id="title">Host-owned credential mediation</title>
+  <desc id="desc">A container with no network reaches the host only through a dartclaw-bridge process started with docker exec -i. HostGateway maps each pipe to one authority; the provider adapter pins the upstream and request paths and injects the credential the host holds, and the mcp surface applies the authority's own tool policy.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#cli:hover) .edges :is(.f-cli,.t-cli) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bridge:hover) .edges :is(.f-bridge,.t-bridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cred:hover) .edges :is(.f-cred,.t-cred) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gw:hover) .edges :is(.f-gw,.t-gw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#adapter:hover) .edges :is(.f-adapter,.t-adapter) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#anthropic:hover) .edges :is(.f-anthropic,.t-anthropic) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#openai:hover) .edges :is(.f-openai,.t-openai) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#chatgpt:hover) .edges :is(.f-chatgpt,.t-chatgpt) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="602"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="506" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="530">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="554">Hover a box for its invariant; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="574">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">COMPONENT · HostGateway</text>
+  <text class="title" x="24" y="58">Host-owned credential mediation</text>
+  <text class="lede" x="24" y="80">The pipe, not any frame the container sends, decides principal, upstream, credential and tool policy.</text>
+
+  <g class="k-ext"><rect class="band" x="16" y="96" width="220" height="360" rx="14"/><text class="kick" x="32" y="118">CONTAINER · --network none</text></g>
+  <g class="k-host"><rect class="band" x="248" y="96" width="484" height="360" rx="14"/><text class="kick" x="264" y="118">DART HOST PROCESS</text></g>
+  <g class="k-chan"><rect class="band" x="796" y="96" width="188" height="360" rx="14"/><text class="kick" x="812" y="118">UPSTREAM · pinned</text></g>
+
+  <g class="edges">
+    <g class="e  f-cli t-bridge"><path d="M126,240 V280"/><text class="el" x="134" y="266" text-anchor="start">loopback HTTP</text></g>
+    <g class="e main f-bridge t-gw"><path d="M226,334 H304"/><text class="el" x="232" y="326" text-anchor="start">framed stdio</text></g>
+    <g class="e  f-gw t-mcp"><path d="M391,282 V228"/><text class="el" x="399" y="258" text-anchor="start">mcp pipe</text></g>
+    <g class="e main f-gw t-adapter"><path d="M476,334 H550"/><text class="el" x="480" y="326" text-anchor="start">provider pipe</text></g>
+    <g class="e  f-cred t-adapter"><path d="M637,226 V280"/><text class="el" x="631" y="258" text-anchor="end">present() per request</text></g>
+    <g class="e main f-adapter t-anthropic"><path d="M722,334 H736 V258 H806"/><text class="el" x="742" y="251" text-anchor="start">key / OAuth</text></g>
+    <g class="e main f-adapter t-openai"><path d="M722,334 H806"/><text class="el" x="742" y="327" text-anchor="start">API key</text></g>
+    <g class="e main f-adapter t-chatgpt"><path d="M722,334 H736 V410 H806"/><text class="el" x="742" y="403" text-anchor="start">subscription</text></g>
+  </g>
+
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-ext" id="cli">
+    <rect class="box" x="26" y="130" width="200" height="110" rx="9"/>
+    <text class="name" x="38" y="153">claude / codex</text>
+    <text class="sub" x="38" y="171">ANTHROPIC_BASE_URL (claude)</text>
+    <text class="sub" x="38" y="187">codex: config.toml base_url</text>
+    <text class="sub" x="38" y="203">http://127.0.0.1:&lt;port&gt;</text>
+    <g class="chip k-sec"><rect x="38" y="216" width="126" height="16" rx="8"/><text x="45" y="228">no credential held</text></g>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">claude / codex</tspan> · speaks plain HTTP to a loopback port; Codex adds /v1 to the base URL</text><text class="p2" x="36" y="574">The Claude container env carries only a placeholder key and a Codex home is created fresh, never seeded with auth.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-ext" id="bridge">
+    <rect class="box" x="26" y="282" width="200" height="104" rx="9"/>
+    <text class="name mono-name" x="38" y="305">dartclaw-bridge</text>
+    <text class="sub" x="38" y="323">read-only mount, one process</text>
+    <text class="sub" x="38" y="339">per surface (provider, mcp),</text>
+    <text class="sub" x="38" y="355">started by docker exec -i</text>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">dartclaw-bridge</tspan> · host-provisioned executable at /opt/dartclaw/dartclaw-bridge, the only thing in the container that reaches the host</text><text class="p2" x="36" y="574">No socket mount, published port or network attachment; frames are length-limited (BridgeLimits). packages/dartclaw_bridge.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#inbound-mcp-dispatch"><g class="n tint k-host" id="mcp">
+    <rect class="box" x="306" y="130" width="170" height="96" rx="9"/>
+    <text class="name mono-name" x="318" y="153">McpBridgeSurface</text>
+    <text class="sub" x="318" y="171">mcp pipe, only when the</text>
+    <text class="sub" x="318" y="187">authority has host MCP</text>
+    <text class="sub" x="318" y="203">tools: canonical policy,</text>
+    <text class="sub" x="318" y="219">base chain, audit</text>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">McpBridgeSurface</tspan> · allowed tools are fixed host-side from the effective agent definition and deny by default</text><text class="p2" x="36" y="574">The surface is not started at all when the set is empty; mcp_call never grants a wildcard. mcp_bridge_surface.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#provider-authentication"><g class="n tint k-store" id="cred">
+    <rect class="box" x="552" y="130" width="170" height="96" rx="9"/>
+    <text class="name mono-name" x="564" y="153">CredentialRegistry</text>
+    <text class="sub" x="564" y="171">one CredentialResolution</text>
+    <text class="sub" x="564" y="187">per authority; never</text>
+    <text class="sub" x="564" y="203">falls back across modes</text>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">CredentialRegistry</tspan> · providers.&lt;id&gt;.auth selects subscription or api_key; stores live under &lt;data_dir&gt;/credentials, 0700 and 0600</text><text class="p2" x="36" y="574">ProviderCredentialSource.present is awaited just before injection, so a rotating token refreshes there. credential_registry.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n solid k-sec" id="gw">
+    <rect class="box" x="306" y="282" width="170" height="104" rx="9"/>
+    <text class="name mono-name" x="318" y="305">HostGateway</text>
+    <text class="sub" x="318" y="323">one authority per live</text>
+    <text class="sub" x="318" y="339">execution, the pipe is</text>
+    <text class="sub" x="318" y="355">its identity</text>
+    <g class="chip k-sec"><rect x="318" y="362" width="119" height="16" rx="8"/><text x="325" y="374">→ GuardBlockEvent</text></g>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">HostGateway</tspan> · GatewayAuthority holds principal, required surfaces and allowed MCP tools; release revokes it, permanently</text><text class="p2" x="36" y="574">Refusals fire GuardBlockEvent (guard host-gateway, hook bridge). register() refuses a provider with no host credential before any container exists.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#provider-authentication"><g class="n tint k-sec" id="adapter">
+    <rect class="box" x="552" y="282" width="170" height="104" rx="9"/>
+    <text class="name mono-name" x="564" y="305">ProviderAdapter</text>
+    <text class="sub" x="564" y="323">Anthropic or OpenAI</text>
+    <text class="sub" x="564" y="339">Responses: pins upstream</text>
+    <text class="sub" x="564" y="355">and paths, drops client</text>
+    <text class="sub" x="564" y="371">auth, injects credential</text>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">ProviderAdapter</tspan> · only POST to the pinned paths passes; provider-side network tools in the body are refused, undecodable bodies too</text><text class="p2" x="36" y="574">base class: a subclass supplies protocol details, never request flow, so injection cannot be skipped. provider_adapter.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#provider-authentication"><g class="n tint k-chan" id="anthropic">
+    <rect class="box" x="808" y="223" width="164" height="70" rx="9"/>
+    <text class="name" x="820" y="246">api.anthropic.com</text>
+    <text class="sub" x="820" y="264">POST /v1/messages</text>
+    <text class="sub" x="820" y="280">+ count_tokens</text>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">api.anthropic.com</tspan> · AnthropicMessagesAdapter: x-api-key, or authorization Bearer plus anthropic-beta oauth-2025-04-20 for a subscription</text><text class="p2" x="36" y="574">The header comes from CredentialResolution.mode alone; an upstream refusal of the raw Bearer fails the turn and never downgrades to a key.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#provider-authentication"><g class="n tint k-chan" id="openai">
+    <rect class="box" x="808" y="299" width="164" height="70" rx="9"/>
+    <text class="name" x="820" y="322">api.openai.com</text>
+    <text class="sub" x="820" y="340">POST /v1/responses</text>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">api.openai.com</tspan> · OpenAiResponsesAdapter with an API key: authorization Bearer</text><text class="p2" x="36" y="574">The adapter selects its backend by the presented credential and nothing else; the ChatGPT backend refuses a Platform-scoped call and the reverse.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#provider-authentication"><g class="n tint k-chan" id="chatgpt">
+    <rect class="box" x="808" y="375" width="164" height="70" rx="9"/>
+    <text class="name" x="820" y="398">chatgpt.com</text>
+    <text class="sub" x="820" y="416">base /backend-api/codex</text>
+    <text class="sub" x="820" y="432">account-id header</text>
+    <g class="d"><text class="p1" x="36" y="554"><tspan class="b">chatgpt.com</tspan> · Codex subscription: upstream re-pinned to https://chatgpt.com/backend-api/codex, /v1/responses mapped to /responses</text><text class="p2" x="36" y="574">authorization Bearer, chatgpt-account-id and originator codex_cli_rs; 401, 429 and contract-break rejections are classified for credential health.</text></g>
+  </g></a>
+  <g transform="translate(24,476)">
+    <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">container process</text>
+    <g class="tint k-host"><rect class="box" x="149.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="171.4" y="10">DartClaw</text>
+    <g class="tint k-sec"><rect class="box" x="243.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="265.0" y="10">mediation</text>
+    <g class="tint k-store"><rect class="box" x="342.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="364.8" y="10">credential store</text>
+    <g class="tint k-chan"><rect class="box" x="486.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="508.0" y="10">outside service</text>
+    <g class="e main"><path d="M623.0,6 H655.0"/></g><text class="lg" x="663.0" y="10">request</text>
+    <g class="e "><path d="M728.4,6 H760.4"/></g><text class="lg" x="768.4" y="10">call</text>
+  </g>
+</svg>

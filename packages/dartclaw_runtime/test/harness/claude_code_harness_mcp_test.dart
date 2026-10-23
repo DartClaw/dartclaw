@@ -220,6 +220,7 @@ void main() {
         profileId: 'restricted',
         workspaceMounts: const [],
         generatedStateDir: stateDir.path,
+        buildContextDir: stateDir.path,
         hasMcpBridge: true,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
@@ -285,6 +286,7 @@ void main() {
         profileId: 'restricted',
         workspaceMounts: const [],
         generatedStateDir: stateDir.path,
+        buildContextDir: stateDir.path,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async =>
@@ -328,6 +330,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: const [],
         generatedStateDir: stateDir.path,
+        buildContextDir: stateDir.path,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async =>
@@ -368,6 +371,7 @@ void main() {
         profileId: 'restricted',
         workspaceMounts: const [],
         generatedStateDir: stateDir.path,
+        buildContextDir: stateDir.path,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async =>
@@ -410,6 +414,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: const [],
         generatedStateDir: stateDir.path,
+        buildContextDir: stateDir.path,
         hasMcpBridge: true,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
@@ -862,6 +867,7 @@ void main() {
         profileId: profileId,
         workspaceMounts: const [],
         generatedStateDir: stateDir.path,
+        buildContextDir: stateDir.path,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/tmp',
         runCommand: (exe, args) async {
@@ -909,6 +915,7 @@ void main() {
         profileId: 'workspace',
         workspaceMounts: ['${hostWorkspace.path}:/project:rw'],
         generatedStateDir: stateDir.path,
+        buildContextDir: stateDir.path,
         bridgeBinaryPath: '/tmp/dartclaw-bridge',
         workingDir: '/project',
         runCommand: (exe, args) async {
@@ -919,7 +926,7 @@ void main() {
       );
 
       final harness = ClaudeCodeHarness(
-        // The host path production passes (Directory.current.path); `start()`
+        // The host path production passes (the runtime directory); `start()`
         // must never let it cross the boundary as the exec working directory.
         cwd: hostWorkspace.path,
         commandProbe: _defaultProbe,

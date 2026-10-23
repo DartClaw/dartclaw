@@ -17,6 +17,10 @@
           <span class="t-label">Run ID</span>
           <code tl:text="${runId}">run-id</code>
         </div>
+        <div tl:if="${followUpHref}">
+          <span class="t-label">Follow-up</span>
+          <a tl:attr="href=${followUpHref}" tl:text="${followUpLabel}">2 follow-ups</a>
+        </div>
       </div>
       <div class="metrics-grid metrics-grid-4" tl:utext="${metricsHtml}"></div>
       <div tl:if="${hasError}" class="workflow-error-message">
@@ -61,7 +65,14 @@
                 hx-confirm="Reject this approval? The workflow will be cancelled.">
           Reject
         </button>
+        <form tl:if="${canRequestChanges}" class="workflow-request-changes"
+              data-action="submit->dc-workflows#requestChanges" tl:attr="data-run-id=${runId}">
+          <label class="t-label" for="request-changes-feedback">Feedback for the revise step</label>
+          <textarea id="request-changes-feedback" class="form-textarea" name="feedback" rows="3" required></textarea>
+          <button type="submit" class="btn btn-ghost">Request changes</button>
+        </form>
       </div>
+      <p tl:if="${revisionNote}" class="t-caption workflow-revision-note" tl:text="${revisionNote}">Revision 1 of 3</p>
 
       <!-- Why-paused banner: states why the run is paused and what clears it -->
       <div tl:if="${hasPauseBanner}" class="banner workflow-pause-banner"

@@ -17,6 +17,10 @@ variables:
     required: false
     description: Max parallel story executions
     default: "2"
+  PLAN_REVIEW:
+    required: false
+    description: "Set to true to pause for approval of the plan before any story is implemented"
+    default: "false"
 
 project: "{{PROJECT}}"
 
@@ -117,6 +121,15 @@ steps:
         pathPattern: '**/.technical?research.md'
         description: Workspace-relative path to the plan bundle technical research sidecar, when present.
 
+  # Opt-in plan review. Skipped unless PLAN_REVIEW is true; request changes
+  # re-runs `plan` with the reviewer's feedback and returns here.
+  - id: plan-approval
+    name: Approve Plan
+    type: approval
+    entryGate: "PLAN_REVIEW == true"
+    revise: plan
+    prompt: "Review the plan before any story is implemented: {{context.plan}}"
+
   - id: story-pipeline
     name: Per-Story Pipeline
     type: foreach
@@ -160,6 +173,7 @@ steps:
           review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
+          verdict: verdict
 
       # Per-story converging review→remediate→re-review loop. Runs against this
       # foreach item's worktree + context only; its review outputs never leak to
@@ -216,6 +230,7 @@ steps:
       plan-review.review_report_path: review_report_path
       plan-review.findings_count: findings_count
       plan-review.gating_findings_count: gating_findings_count
+      plan-review.verdict: verdict
 
   # The aggregator normalizes the prefixed review keys to the bare keys the
   # remediation loop reads and writes the report the remediate step consumes.
@@ -262,3 +277,4 @@ steps:
           review_report_path: review_report_path
           findings_count: findings_count
           gating_findings_count: gating_findings_count
+          verdict: verdict

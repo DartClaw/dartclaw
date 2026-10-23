@@ -1,0 +1,228 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" width="1000" height="700" role="img" aria-labelledby="title desc">
+  <title id="title">SSE topology</title>
+  <desc id="desc">Five SSE endpoints and what feeds them. The task stream and the agent-execution stream are served by task_sse_routes from the EventBus, RunnerObserver and TaskProgressTracker. The workflow stream filters the bus by run. The global stream is SseBroadcast, fed by EventBusSseBridge and by direct runtime emitters. The chat stream forwards one turn from its worker.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#obs:hover) .edges :is(.f-obs,.t-obs) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#trk:hover) .edges :is(.f-trk,.t-trk) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bus:hover) .edges :is(.f-bus,.t-bus) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#emit:hover) .edges :is(.f-emit,.t-emit) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#worker:hover) .edges :is(.f-worker,.t-worker) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tasks:hover) .edges :is(.f-tasks,.t-tasks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#wf:hover) .edges :is(.f-wf,.t-wf) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bridge:hover) .edges :is(.f-bridge,.t-bridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bcast:hover) .edges :is(.f-bcast,.t-bcast) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#handler:hover) .edges :is(.f-handler,.t-handler) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e_tasks:hover) .edges :is(.f-e_tasks,.t-e_tasks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e_agent:hover) .edges :is(.f-e_agent,.t-e_agent) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e_wf:hover) .edges :is(.f-e_wf,.t-e_wf) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e_global:hover) .edges :is(.f-e_global,.t-e_global) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#e_chat:hover) .edges :is(.f-e_chat,.t-e_chat) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="700"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="604" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="628">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="652">Hover a box for its role and file; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="672">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">TOPOLOGY · SERVER-SENT EVENTS</text>
+  <text class="title" x="24" y="58">SSE topology</text>
+  <text class="lede" x="24" y="80">Five streams, each fed by its own route. The chat stream is transient; durable messages stay the recovery authority.</text>
+
+  <g class="k-neu"><rect class="band" x="16" y="100" width="222" height="468" rx="14"/><text class="kick" x="32" y="122">PRODUCERS</text></g>
+  <g class="k-host"><rect class="band" x="306" y="100" width="298" height="468" rx="14"/><text class="kick" x="322" y="122">ROUTES AND BRIDGES · api/</text></g>
+  <g class="k-chan"><rect class="band" x="676" y="100" width="308" height="468" rx="14"/><text class="kick" x="692" y="122">ENDPOINTS · GET, EventSource</text></g>
+
+  <g class="edges">
+    <g class="e  f-obs t-tasks"><path d="M230,154 H318"/><text class="el" x="274" y="147" text-anchor="middle">capacity</text></g>
+    <g class="e  f-trk t-tasks"><path d="M230,210 H280 V190 H318"/><text class="el" x="272" y="203" text-anchor="middle">onProgress</text></g>
+    <g class="e main f-bus t-tasks"><path d="M230,258 H318"/><text class="el" x="274" y="251" text-anchor="middle">status events</text></g>
+    <g class="e main f-bus t-wf"><path d="M230,306 H318"/><text class="el" x="274" y="299" text-anchor="middle">run events</text></g>
+    <g class="e main f-bus t-bridge"><path d="M230,372 H318"/><text class="el" x="274" y="365" text-anchor="middle">selected events</text></g>
+    <g class="e  f-emit t-bcast"><path d="M230,452 H318"/><text class="el" x="274" y="445" text-anchor="middle">broadcast()</text></g>
+    <g class="e  f-worker t-handler"><path d="M230,532 H318"/><text class="el" x="274" y="525" text-anchor="middle">worker.events</text></g>
+    <g class="e  f-bridge t-bcast"><path d="M455,396 V426"/><text class="el" x="463" y="416" text-anchor="start">broadcast()</text></g>
+    <g class="e main f-tasks t-e_tasks"><path d="M590,154 H688"/><text class="el" x="640" y="147" text-anchor="middle">type frames</text></g>
+    <g class="e main f-tasks t-e_agent"><path d="M590,220 H688"/><text class="el" x="640" y="213" text-anchor="middle">status frames</text></g>
+    <g class="e main f-wf t-e_wf"><path d="M590,306 H688"/><text class="el" x="640" y="299" text-anchor="middle">run frames</text></g>
+    <g class="e main f-bcast t-e_global"><path d="M590,452 H688"/><text class="el" x="640" y="445" text-anchor="middle">event: &lt;name&gt;</text></g>
+    <g class="e main f-handler t-e_chat"><path d="M590,532 H688"/><text class="el" x="640" y="525" text-anchor="middle">HTML frames</text></g>
+  </g>
+
+  <a href="../observability-operations-architecture.md#runner-and-capacity-observability"><g class="n line k-host" id="obs">
+    <rect class="box" x="24" y="130" width="206" height="48" rx="9"/>
+    <text class="name mono-name" x="36" y="149">RunnerObserver</text>
+    <text class="sub" x="36" y="165">capacityChanges</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">RunnerObserver</tspan> · capacityChanges feeds execution_capacity frames; it is not an EventBus event</text><text class="p2" x="36" y="672">Fed by the ExecutionCoordinator stream alone. runner_state is separate: RunnerStateChangedEvent on the bus.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#task-stream-get-apitasksevents"><g class="n line k-host" id="trk">
+    <rect class="box" x="24" y="186" width="206" height="48" rx="9"/>
+    <text class="name mono-name" x="36" y="205">TaskProgressTracker</text>
+    <text class="sub" x="36" y="221">onProgress, 1 per s per task</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">TaskProgressTracker</tspan> · onProgress feeds task_progress frames, at most one per second per task</text><text class="p2" x="36" y="672">task/task_progress_tracker.dart; internals in the Task &amp; Execution Architecture, section 7.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse"><g class="n solid k-host" id="bus">
+    <rect class="box" x="24" y="250" width="206" height="150" rx="9"/>
+    <text class="name mono-name" x="36" y="273">EventBus</text>
+    <text class="sub" x="36" y="291">TaskStatusChangedEvent</text>
+    <text class="sub" x="36" y="307">RunnerStateChangedEvent</text>
+    <text class="sub" x="36" y="323">ProjectStatusChangedEvent</text>
+    <text class="sub" x="36" y="339">TaskEventCreatedEvent</text>
+    <text class="sub" x="36" y="355">TurnWaitStateChangedEvent</text>
+    <text class="sub" x="36" y="371">Workflow*, Loop*, Compaction*</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">EventBus</tspan> · each stream subscribes only to the event types it forwards</text><text class="p2" x="36" y="672">Subscriptions live as long as the connection: every stream cancels them in controller.onCancel.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#global-broadcast-get-apievents"><g class="n line k-host" id="emit">
+    <rect class="box" x="24" y="418" width="206" height="64" rx="9"/>
+    <text class="name" x="36" y="441">runtime emitters</text>
+    <text class="sub" x="36" y="459">governance, stop, TurnRunner,</text>
+    <text class="sub" x="36" y="475">DeliveryService, conversations</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">runtime emitters</tspan> · TurnGovernanceEnforcer, EmergencyStopHandler, TurnRunner, DeliveryService, conversation services broadcast directly</text><text class="p2" x="36" y="672">Frames: budget_warning, rate_limit_warning, emergency_stop, context_warning, turn_progress_stall, announce, conversation_changed.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#chat-stream"><g class="n line k-host" id="worker">
+    <rect class="box" x="24" y="508" width="206" height="48" rx="9"/>
+    <text class="name mono-name" x="36" y="527">TurnManager</text>
+    <text class="sub" x="36" y="543">recentOutcome, worker.events</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">TurnManager</tspan> · a settled turn replays from recentOutcome; otherwise worker.events is forwarded until waitForOutcome returns</text><text class="p2" x="36" y="672">An unknown turn answers 404 TURN_NOT_FOUND.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#task-stream-get-apitasksevents"><g class="n tint k-host" id="tasks">
+    <rect class="box" x="320" y="130" width="270" height="134" rx="9"/>
+    <text class="name mono-name" x="332" y="153">task_sse_routes.dart</text>
+    <text class="sub" x="332" y="171">connected frame first, then deltas:</text>
+    <text class="sub" x="332" y="187">task_status_changed, runner_state,</text>
+    <text class="sub" x="332" y="203">execution_capacity, project_status,</text>
+    <text class="sub" x="332" y="219">task_progress, task_event,</text>
+    <text class="sub" x="332" y="235">turn_wait_state, workflow_sidebar_update</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">task_sse_routes.dart</tspan> · the connected frame carries review count, active tasks, runners with capacity, projects and active workflows</text><text class="p2" x="36" y="672">Every frame has a type field. task_progress is throttled to one per second per task; task_event is not.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse"><g class="n tint k-host" id="wf">
+    <rect class="box" x="320" y="282" width="270" height="48" rx="9"/>
+    <text class="name mono-name" x="332" y="301">workflow_routes.dart</text>
+    <text class="sub" x="332" y="317">connected, then run-scoped events</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">workflow_routes.dart</tspan> · _workflowRunSseHandler: a connected frame with run and step state, then events filtered by runId</text><text class="p2" x="36" y="672">Also forwards the run's task_status_changed and workflow_cli_turn_progress per finished CLI turn; 404 for an unknown run.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#global-broadcast-get-apievents"><g class="n tint k-host" id="bridge">
+    <rect class="box" x="320" y="348" width="270" height="48" rx="9"/>
+    <text class="name mono-name" x="332" y="367">EventBusSseBridge</text>
+    <text class="sub" x="332" y="383">bus events to named frames</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">EventBusSseBridge</tspan> · forwards loop_detected, task_review_ready, compaction_starting and conversation_changed (with work_state)</text><text class="p2" x="36" y="672">Excludes EmergencyStopEvent: EmergencyStopHandler owns that frame, so a stop is never sent twice.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#global-broadcast-get-apievents"><g class="n tint k-host" id="bcast">
+    <rect class="box" x="320" y="428" width="270" height="48" rx="9"/>
+    <text class="name mono-name" x="332" y="447">SseBroadcast</text>
+    <text class="sub" x="332" y="463">event: &lt;name&gt; to every client</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">SseBroadcast</tspan> · fans named events to all connected clients and drops closed ones</text><text class="p2" x="36" y="672">Exists only when the primary lane is enabled; /api/events answers 503 SSE_UNAVAILABLE otherwise.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#chat-stream"><g class="n tint k-host" id="handler">
+    <rect class="box" x="320" y="508" width="270" height="48" rx="9"/>
+    <text class="name mono-name" x="332" y="527">stream_handler.dart</text>
+    <text class="sub" x="332" y="543">sseStreamResponse, per turn</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">stream_handler.dart</tspan> · delta, tool_use and tool_result as HTML fragments, redacted and escaped</text><text class="p2" x="36" y="672">Terminal frames are turn_error or turn_cancelled, then done. It opens with an SSE comment, not a connected frame.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#task-stream-get-apitasksevents"><g class="n tint k-chan" id="e_tasks">
+    <rect class="box" x="690" y="130" width="286" height="48" rx="9"/>
+    <text class="name mono-name" x="702" y="149">/api/tasks/events</text>
+    <text class="sub" x="702" y="165">frames typed by "type"</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">/api/tasks/events</tspan> · GET /api/tasks/sidebar-state returns a JSON snapshot of the same sidebar state</text><text class="p2" x="36" y="672">Sent with X-Accel-Buffering: no so a reverse proxy does not buffer the stream.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse"><g class="n tint k-chan" id="e_agent">
+    <rect class="box" x="690" y="196" width="286" height="48" rx="9"/>
+    <text class="name mono-name" x="702" y="215">/api/agent-executions/events</text>
+    <text class="sub" x="702" y="231">agent_execution_status_changed</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">/api/agent-executions/events</tspan> · frames carry agentExecutionId, oldStatus and newStatus from AgentExecutionStatusChangedEvent</text><text class="p2" x="36" y="672">Opens with a bare connected frame and no snapshot; served by the same router as the task stream.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse"><g class="n tint k-chan" id="e_wf">
+    <rect class="box" x="690" y="282" width="286" height="48" rx="9"/>
+    <text class="name mono-name" x="702" y="301">/api/workflows/runs/&lt;id&gt;/events</text>
+    <text class="sub" x="702" y="317">wire format: workflow architecture</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">/api/workflows/runs/&lt;id&gt;/events</tspan> · one workflow run: status, step, loop, map and approval events</text><text class="p2" x="36" y="672">The frame formats are owned by the Workflow Architecture document.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#global-broadcast-get-apievents"><g class="n tint k-chan" id="e_global">
+    <rect class="box" x="690" y="428" width="286" height="48" rx="9"/>
+    <text class="name mono-name" x="702" y="447">/api/events</text>
+    <text class="sub" x="702" y="463">named events, all clients</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">/api/events</tspan> · the route lives in config_api_routes.dart and subscribes one client to SseBroadcast</text><text class="p2" x="36" y="672">Names: budget_warning, loop_detected, rate_limit_warning, emergency_stop, context_warning, compaction_starting, announce.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#chat-stream"><g class="n tint k-chan" id="e_chat">
+    <rect class="box" x="690" y="508" width="286" height="48" rx="9"/>
+    <text class="name mono-name" x="702" y="527">/api/sessions/&lt;id&gt;/stream</text>
+    <text class="sub" x="702" y="543">?turn=&lt;turnId&gt;: delta, tool_use, done</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">/api/sessions/&lt;id&gt;/stream</tspan> · one turn's chat stream; transient, so clients refetch the snapshot on conversation_changed</text><text class="p2" x="36" y="672">An unknown turn answers 404 TURN_NOT_FOUND; a settled turn replays its terminal frames.</text></g>
+  </g></a>
+  <g transform="translate(24,578)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">DartClaw component</text>
+    <g class="solid k-host"><rect class="box" x="155.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="177.60000000000002" y="10">event bus</text>
+    <g class="tint k-chan"><rect class="box" x="255.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="277.40000000000003" y="10">SSE endpoint</text>
+    <g class="e main"><path d="M373.80000000000007,6 H405.80000000000007"/></g><text class="lg" x="413.80000000000007" y="10">event stream, frames</text>
+    <g class="e "><path d="M559.8000000000001,6 H591.8000000000001"/></g><text class="lg" x="599.8000000000001" y="10">feed</text>
+  </g>
+</svg>

@@ -99,7 +99,7 @@ The reference server exposes MCP tools through its in-process MCP server. Inboun
 
 ### Channels
 
-`Channel` and `ChannelManager` model external messaging platforms. Channel packages such as `dartclaw_whatsapp`, `dartclaw_signal`, and `dartclaw_google_chat` adapt specific platforms into the shared channel message and response types. A host that has no messaging platform in scope skips them entirely.
+`Channel` and `ChannelManager` model external messaging platforms. Channel packages such as `dartclaw_whatsapp`, `dartclaw_signal`, `dartclaw_google_chat`, and `dartclaw_slack` adapt specific platforms into the shared channel message and response types. A host that has no messaging platform in scope skips them entirely.
 
 ## Reference Implementations
 

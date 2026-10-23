@@ -82,6 +82,9 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   /// cold-process turns. [CodexProtocolAdapter] actively uses [history] for
   /// `previousResponseItems`; the parameter remains on the [ProtocolAdapter]
   /// interface so Codex call sites are unaffected.
+  ///
+  /// [images] extends the [ProtocolAdapter] signature: each `{mediaType, data}` entry becomes a base64 `image` content
+  /// block after the text block. Without images `content` stays the plain string.
   @override
   Map<String, dynamic> buildTurnRequest({
     required String message,
@@ -89,10 +92,23 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
     String? threadId,
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? settings,
+    List<Map<String, dynamic>>? images,
   }) {
     final payload = <String, dynamic>{
       'type': 'user',
-      'message': {'role': 'user', 'content': message},
+      'message': {
+        'role': 'user',
+        'content': images == null || images.isEmpty
+            ? message
+            : [
+                {'type': 'text', 'text': message},
+                for (final image in images)
+                  {
+                    'type': 'image',
+                    'source': {'type': 'base64', 'media_type': image['mediaType'], 'data': image['data']},
+                  },
+              ],
+      },
     };
     if (systemPrompt != null) {
       payload['system_prompt'] = systemPrompt;
@@ -111,8 +127,8 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   }
 
   /// Builds a Claude `hook_callback` success response.
-  Map<String, dynamic> buildHookResponse(String requestId, {required bool allow}) {
-    return tool_policy.buildHookResponse(requestId, allow: allow);
+  Map<String, dynamic> buildHookResponse(String requestId, {required bool allow, String? reason}) {
+    return tool_policy.buildHookResponse(requestId, allow: allow, reason: reason);
   }
 
   /// Builds a Claude success response for unrecognised control subtypes.
@@ -161,10 +177,11 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   ///
   /// The inverse of [mapToolName] for the built-ins it maps; a name that is
   /// not a canonical stable name is already native (or an MCP tool) and passes
-  /// through. `file_edit` names two built-ins, so it expands to both.
+  /// through. `file_read` and `file_edit` name several built-ins, so they
+  /// expand to all of them.
   static List<String> nativeToolNames(String name) => switch (name) {
     'shell' => const ['Bash'],
-    'file_read' => const ['Read'],
+    'file_read' => const ['Read', 'Grep', 'Glob'],
     'file_write' => const ['Write'],
     'file_edit' => const ['Edit', 'NotebookEdit'],
     'web_fetch' => const ['WebFetch'],
@@ -176,7 +193,7 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
   CanonicalTool? mapToolName(String providerToolName, {String? kind}) {
     final canonical = switch (providerToolName) {
       'Bash' => CanonicalTool.shell,
-      'Read' => CanonicalTool.fileRead,
+      'Read' || 'Grep' || 'Glob' => CanonicalTool.fileRead,
       'Write' || 'write_file' => CanonicalTool.fileWrite,
       'Edit' || 'NotebookEdit' || 'edit_file' => CanonicalTool.fileEdit,
       'WebFetch' || 'web_fetch' => CanonicalTool.webFetch,

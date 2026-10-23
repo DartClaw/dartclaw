@@ -428,6 +428,13 @@ void main() {
       final severity = (item['properties'] as Map)['severity'] as Map;
       expect(severity['enum'], containsAll(['critical', 'high', 'medium', 'low']));
     });
+
+    test('findings description asks for non-gating findings too, so a passing review still lists them', () {
+      final findings = (verdictPreset.schema['properties'] as Map)['findings'] as Map;
+      final description = findings['description'] as String;
+      expect(description, isNot(contains('Empty when')));
+      expect(description, contains('below the gating severity'));
+    });
   });
 
   group('storySpecsPreset', () {

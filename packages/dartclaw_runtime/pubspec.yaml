@@ -1,7 +1,7 @@
 name: dartclaw_runtime
 description: Reference HTTP API server and HTMX web UI for DartClaw deployments and task workflows.
 publish_to: none
-version: 0.27.2
+version: 0.28.0
 repository: https://github.com/DartClaw/dartclaw/tree/main/packages/dartclaw_runtime
 homepage: https://github.com/DartClaw/dartclaw
 issue_tracker: https://github.com/DartClaw/dartclaw/issues
@@ -35,6 +35,8 @@ dependencies:
     path: ../dartclaw_whatsapp
   dartclaw_signal:
     path: ../dartclaw_signal
+  dartclaw_slack:
+    path: ../dartclaw_slack
   collection: ^1.19.1
   html2md: ^1.3.2
   http: ^1.6.0

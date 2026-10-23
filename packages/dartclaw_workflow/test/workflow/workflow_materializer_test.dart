@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 // Resolved via package URI in setUpAll. This avoids depending on
-// Directory.current (mutated concurrently by sibling test files) or
+// Directory.current (process-global state) or
 // Platform.script (synthetic in test runner mode), both of which made
 // the upward filesystem walk flaky under default-concurrency runs.
 Future<String> _resolveWorkflowDefinitionsDir() async {

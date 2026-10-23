@@ -36,6 +36,9 @@ class ServerCoreDeps {
 
   /// Registered tool name to canonical tool, for scoping a caller's view.
   final Map<String, CanonicalTool> mcpToolCanonicals;
+
+  /// Bearers minted for the host harnesses, resolved by the `/mcp` route.
+  final HarnessMcpBearers? mcpHarnessBearers;
   final String? webhookSecret;
 
   final ResultTrimmer? resultTrimmer;
@@ -68,6 +71,7 @@ class ServerCoreDeps {
     this.guardChain,
     this.auditLogger,
     this.mcpToolCanonicals = const {},
+    this.mcpHarnessBearers,
     this.webhookSecret,
     this.resultTrimmer,
     this.effectiveContextCapabilities = const {},
@@ -88,6 +92,7 @@ class ServerChannelDeps {
   final ChannelManager? channelManager;
   final WhatsAppChannel? whatsAppChannel;
   final SignalChannel? signalChannel;
+  final SlackChannel? slackChannel;
   final GoogleChatWebhookHandler? googleChatWebhookHandler;
   final GoogleChatSpaceEventsWiring? spaceEventsWiring;
   final ThreadBindingStore? threadBindingStore;
@@ -96,6 +101,7 @@ class ServerChannelDeps {
     this.channelManager,
     this.whatsAppChannel,
     this.signalChannel,
+    this.slackChannel,
     this.googleChatWebhookHandler,
     this.spaceEventsWiring,
     this.threadBindingStore,
@@ -210,6 +216,9 @@ class ServerObservabilityDeps {
 
 class ServerWebDeps {
   final WorkflowService? workflowService;
+
+  /// The authority behind the run page's resume and cancel routes; they are not mounted without it.
+  final WorkflowRunControl? workflowRunControl;
   final WorkflowDefinitionSource? workflowDefinitionSource;
   final TemporalKnowledgeGraphService? kgService;
   final bool contentGuardApiKeyConfigured;
@@ -222,6 +231,7 @@ class ServerWebDeps {
 
   const new({
     this.workflowService,
+    this.workflowRunControl,
     this.workflowDefinitionSource,
     this.kgService,
     this.contentGuardApiKeyConfigured = false,

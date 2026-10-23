@@ -7,9 +7,14 @@ import 'auth_rate_limiter.dart';
 import 'auth_utils.dart';
 import 'request_auth_context.dart';
 import 'session_token.dart';
+import 'source_link_token.dart' show sourceLinkPath;
 import 'token_service.dart';
 
-const _publicPaths = {'/health', '/login', '/favicon.ico'};
+/// Exact paths that bypass authentication.
+///
+/// [sourceLinkPath] carries its own check: a signed link token verified before
+/// any file or database read.
+const _publicPaths = {'/health', '/login', '/favicon.ico', sourceLinkPath};
 
 /// URL prefixes that bypass authentication entirely.
 ///
@@ -92,25 +97,15 @@ Middleware authMiddleware({
     }
 
     // 5. Unauthorized
-    final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
-    if (!limited) {
-      rateLimiter?.recordFailure(remoteKey);
-    }
-    fireFailedAuthEvent(
-      eventBus,
+    final tooManyAttempts = recordFailedAuth(
       request,
       source: 'gateway',
       reason: _failureReason(request),
-      limited: limited,
+      rateLimiter: rateLimiter,
+      eventBus: eventBus,
       trustedProxies: trustedProxies,
     );
-    if (limited) {
-      return Response(
-        429,
-        body: jsonEncode({'error': 'Too Many Requests', 'message': 'Too many failed authentication attempts'}),
-        headers: {'content-type': 'application/json'},
-      );
-    }
+    if (tooManyAttempts != null) return tooManyAttempts;
 
     final isBrowser = request.headers['accept']?.contains('text/html') ?? false;
     if (isBrowser) {

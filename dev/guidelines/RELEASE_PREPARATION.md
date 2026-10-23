@@ -36,6 +36,8 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | Gate ID | Proof | Execution |
 |---|---|---|
 | `cleanup`, `versions` | No exported bundle; all version pins agree | Host |
+| `secrets` | No provider-shaped credential literal in tracked files (`dev/tools/secret_scan.sh`); fixtures assemble fake tokens at runtime | Host |
+| `doc-cuts` | The release range removes at most 1000 net markdown lines (`dev/tools/check_doc_cuts.sh`), else a commit message in it carries `Docs-Cut: <reason>` | Host |
 | `dependencies`, `assets` | Tracked enforced lockfiles; generated embedded assets | Host |
 | `format`, `analyze`, `tests` | Formatting, static analysis, default workspace suites | Host |
 | `postgres` | Plain PostgreSQL, explicit pgvector/hybrid, migration and restore contracts | Disposable live databases |
@@ -71,8 +73,8 @@ Exit codes: **0** means the selected automated gates passed, **1** means failure
 successful run. `--gate` and `--local` success do not imply full release readiness. Select manual/live/platform checks
 for changed surfaces and claims in this release. Do not run the whole inventory as a routine release gate.
 
-The [0.27 qualification ledger](../testing/0.27-qualification.md) records that initiative's development evidence.
-Its historical scenario inventory does not add release gates. Unavailable environments needed for a selected claim
+A milestone's qualification ledger lives in its plan bundle, not in the public tree, and never adds release gates.
+Unavailable environments needed for a selected claim
 remain holds; optional device and owner audits are deferred under the experimental-stage testing scope below.
 
 The final CI gate requires `Check`, `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green

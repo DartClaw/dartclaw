@@ -8,7 +8,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnRunner;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show InMemoryTaskRepository, RecordingGitRunner, openPreparedTaskBackend;
+    show FakeProjectService, InMemoryTaskRepository, RecordingGitRunner, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
@@ -688,6 +688,75 @@ void main() {
       expect(response.statusCode, equals(201));
       final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
       expect(body['status'], 'draft');
+    });
+
+    test('container-mode local-path registration is judged against the _local directory', () async {
+      final runtimeRoot = Directory(p.join(tempDir.path, 'runtime-repo'))..createSync();
+      final outside = Directory(p.join(tempDir.path, 'elsewhere'))..createSync();
+      final containerServer = composeServer(
+        core: ServerCoreDeps(
+          sessions: sessions,
+          messages: messages,
+          worker: worker,
+          dataDir: tempDir.path,
+          staticDir: _staticDirPath,
+          gatewayToken: 'test-token',
+          tokenService: TokenService(token: 'test-token'),
+          config: DartclawConfig(
+            server: ServerConfig(dataDir: configDataDir),
+            container: const ContainerConfig(enabled: true, image: 'dartclaw-agent:test'),
+            projects: const ProjectConfig(allowApiLocalPath: true),
+          ),
+        ),
+        turn: ServerTurnDeps(
+          turns: composeServerTurns(
+            sessions: sessions,
+            messages: messages,
+            worker: worker,
+            behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+            eventBus: eventBus,
+          ),
+        ),
+        tasks: ServerTaskDeps(
+          taskService: taskService,
+          worktreeManager: worktreeManager,
+          taskFileGuard: taskFileGuard,
+          runnerObserver: runnerObserver,
+          mergeExecutor: mergeExecutor,
+          projectService: FakeProjectService(
+            localProject: Project(
+              id: '_local',
+              name: 'runtime-repo',
+              remoteUrl: '',
+              localPath: runtimeRoot.path,
+              defaultBranch: 'main',
+              status: ProjectStatus.ready,
+              createdAt: DateTime.utc(2026, 10, 14),
+            ),
+          ),
+          eventBus: eventBus,
+        ),
+        observability: ServerObservabilityDeps(eventBus: eventBus),
+      );
+      Future<Response> register(String localPath) async => containerServer.handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/projects'),
+          body: jsonEncode({'name': 'Local App', 'localPath': localPath}),
+          headers: {'content-type': 'application/json', 'authorization': 'Bearer test-token'},
+        ),
+      );
+
+      final inside = await register(p.join(runtimeRoot.path, 'checkout'));
+      expect(inside.statusCode, 201);
+
+      final refused = await register(p.join(outside.path, 'checkout'));
+      expect(refused.statusCode, 400);
+      final error = (jsonDecode(await refused.readAsString()) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
+      expect(error['code'], 'LOCAL_PATH_NOT_MOUNTABLE');
+      final mountRoots = ((error['details'] as Map<String, dynamic>)['mountRoots'] as List<dynamic>).cast<String>();
+      expect(mountRoots, contains(runtimeRoot.resolveSymbolicLinksSync()));
+      expect(mountRoots, isNot(contains(Directory.current.resolveSymbolicLinksSync())));
     });
 
     test('task artifact usage reads the core dataDir instead of config.server.dataDir', () async {

@@ -2,6 +2,8 @@
 
 **0.27 amendment (2026-09-20):** [ADR-060](060-postgresql-only-storage.md) supersedes the dual-backend/default policy for 0.27. Its implementation is pending. The current-schema gate, PostgreSQL security/ownership and file-authority contracts below remain; 0.26 shipped both engines.
 
+**0.28 amendment (2026-10-06):** the compatibility gate admits one bounded transition from the released 0.27 PostgreSQL schema, adding the nullable `workflow_runs.origin_json` column so retained runs read as origin `unknown`. See § 0.28 Amendment: Preserve Pre-Origin Workflow Runs. Every other old, newer, unmarked, malformed or partial shape still refuses.
+
 **Status:** Accepted — 2026-07-24; schema-evolution strategy amended 2026-07-30. Proposed 2026-07-01; council-reviewed and remediated 2026-07-24; owner accepted all eight council-surfaced posture/contract decisions same day (§ Decided Posture & Contracts). **Demand gate satisfied (owner, 2026-07-24):** multi-language (Swedish) FTS is a requirement; phases 1+2 are committed together as one milestone. **Amendment (owner, 2026-07-30):** while DartClaw is pre-alpha and makes no storage-compatibility promise, the milestone uses current-schema bootstrap plus a compatibility gate rather than a versioned migration runner. Phase 3 (`pgvector`) moved into Phase B after ADR-050 resolved its prerequisite. **Scheduling amendment (owner, 2026-08-07):** the current release became 0.23 and the queued correctness bundle became 0.24, shifting this milestone from 0.23 to **0.25**. No implementation started. See Proposed Sequencing. **Compatibility-baseline amendment (2026-09-08):** the 2026-08-14 rebase changed the supported baseline from exact 0.23 to exact 0.24; the 2026-09-02 rebase changed it from exact 0.24 to exact released 0.25.
 **Local-state mechanism amendment (2026-09-08, owner decision 2026-08-07, TD-115):** turn recovery now uses `turn_state.json`; webhook dedup uses `webhook_deliveries/` markers. Both remain instance-local and outside the database abstraction. Decisions #3 and Q4 below carry the current mechanism.
 **Deciders:** DartClaw team
@@ -289,3 +291,19 @@ Spec-time items — none block the milestone PRD. (The former Open Question 1, t
 
 1. **PostgreSQL FTS language config granularity** — single `fts_language` for the whole index, or per-document language detection? Default to single config; note a mixed Swedish/English corpus under one config mis-stems the other language — revisit if that becomes a real complaint.
 2. **`postgres` dependency exclusion mechanism — resolved (owner, 2026-07-25): compile-in accepted, no build flavor.** Decided together with the equivalent native-asset question for the planned hybrid-search package: one default binary, all-in. Revisit only if release size becomes a real problem.
+
+---
+
+## 0.28 Amendment: Preserve Pre-Origin Workflow Runs
+
+Selected for the 0.28 plan on 2026-09-19 and owner-confirmed on 2026-09-20 with the proportionality constraint below. It changes the closed compatibility gate for PostgreSQL without restoring SQLite ([ADR-060](060-postgresql-only-storage.md)) or introducing a migration history.
+
+**Context.** The 0.28 run-origin requirement retains existing workflow runs, exposes their origin as `unknown`, and sends no notifications for them. The released 0.27 schema lacks `workflow_runs.origin_json`. Adding it to the required manifest would make every 0.27 store incompatible, and a decoder default cannot help because the repositories are never reached.
+
+**Decision.** Admit **one bounded transition from the released-0.27 authoritative PostgreSQL schema**, applied by `PostgresSchemaGate.prepare` over its existing inspection. A store qualifies only when its marker is the current epoch 1 and the single difference from the current manifest is the missing `workflow_runs.origin_json`. Inside one backend transaction the gate adds `origin_json TEXT` (nullable), then re-validates the full current schema and marker before commit. Existing rows keep SQL NULL and hydrate through the typed run-origin codec as surface `unknown`. Fresh stores bootstrap with the column; exact current stores are untouched. Every other shape refuses before mutation with backup/reset/recreate guidance, including a legacy store that also lacks another required object, an `origin_json` of a different type, and an absent, duplicated, malformed or non-1 marker. A failure during the transition rolls the whole transition back. `validateCurrent`, which read-only callers use (`cleanup`, `workflow status`, `doctor`, interlock recovery), refuses the exact legacy shape too and names starting `dartclaw serve` as the way to apply the transition.
+
+There is no ordered version stream, history table, transition chain, migration runner, generic transformation registry or automatic repair of a partially changed store. The schema epoch stays 1, so a 0.27 binary still opens a transitioned store (extra columns are tolerated).
+
+**Alternatives rejected.** Reset/recreate only cannot retain pre-origin runs. A decoder-only default cannot pass startup manifest validation. Storing origin in mutable execution context couples routing authority to a separately mutable value. A versioned migration runner reverses the standing no-runner posture far beyond one column.
+
+**Consequence.** Existing runs survive the single supported release transition without acquiring fabricated channel provenance, at the cost of one deliberately bounded gate transition and its PostgreSQL failure tests. Older stores keep refusing, and DartClaw makes no wider storage-compatibility promise.

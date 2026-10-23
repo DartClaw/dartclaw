@@ -1,0 +1,196 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 632" width="1000" height="632" role="img" aria-labelledby="title desc">
+  <title id="title">Turn outcome to task events, traces and runner metrics</title>
+  <desc id="desc">A turn's TurnOutcome reaches two consumers. TaskExecutor awaits tokenUpdate and toolCalled events into task_events, then persists a turn trace without awaiting it. ExecutionCoordinator forwards every runner turn as turnSettled to RunnerObserver, which fires runner state events. Workflow-owned tasks skip the TaskExecutor block.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#harness:hover) .edges :is(.f-harness,.t-harness) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#runner:hover) .edges :is(.f-runner,.t-runner) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#exec:hover) .edges :is(.f-exec,.t-exec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#coord:hover) .edges :is(.f-coord,.t-coord) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#observer:hover) .edges :is(.f-observer,.t-observer) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#recorder:hover) .edges :is(.f-recorder,.t-recorder) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#trace:hover) .edges :is(.f-trace,.t-trace) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bus:hover) .edges :is(.f-bus,.t-bus) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#events:hover) .edges :is(.f-events,.t-events) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#turns:hover) .edges :is(.f-turns,.t-turns) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="632"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="536" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="560">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="584">Hover a box for what it records and when; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="604">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">DATA FLOW · TurnOutcome → TaskEventRecorder</text>
+  <text class="title" x="24" y="58">Turn outcome to task events, traces and runner metrics</text>
+  <text class="lede" x="24" y="80">Recording happens when the turn completes, not while it streams. Events are awaited, the trace is not.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="236" width="470" height="132" rx="14"/><text class="kick" x="32" y="258">RUNNER METRICS · EVERY RUNNER TURN</text></g>
+  <g class="k-host"><rect class="band" x="530" y="96" width="454" height="398" rx="14"/><text class="kick" x="546" y="118">TaskExecutor · ORDINARY TASK TURNS ONLY</text></g>
+
+  <g class="edges">
+    <g class="e  f-harness t-runner"><path d="M174,171 H248"/><text class="el" x="211" y="164" text-anchor="middle">BridgeEvents</text></g>
+    <g class="e main f-runner t-exec"><path d="M470,171 H544"/><text class="el" x="507" y="164" text-anchor="middle">TurnOutcome</text></g>
+    <g class="e  f-runner t-coord"><path d="M360,212 V268"/><text class="el" x="368" y="228" text-anchor="start">terminal outcome</text></g>
+    <g class="e  f-coord t-observer"><path d="M248,308 H176"/><text class="el" x="212" y="301" text-anchor="middle">turnSettled</text></g>
+    <g class="e  f-observer t-bus"><path d="M99,352 V406"/><text class="el" x="107" y="388" text-anchor="start">RunnerStateChangedEvent</text></g>
+    <g class="e main f-exec t-recorder"><path d="M650,212 V268"/><text class="el" x="658" y="242" text-anchor="start">awaited</text></g>
+    <g class="e dash f-exec t-trace"><path d="M865,212 V268"/><text class="el" x="873" y="242" text-anchor="start">unawaited</text></g>
+    <g class="e  f-recorder t-events"><path d="M690,352 V406"/><text class="el" x="698" y="380" text-anchor="start">insert</text></g>
+    <g class="e  f-recorder t-bus"><path d="M580,352 V380 H430 V406"/><text class="el" x="480" y="373" text-anchor="middle">after insert</text></g>
+    <g class="e  f-trace t-turns"><path d="M865,352 V406"/><text class="el" x="873" y="380" text-anchor="start">insert</text></g>
+  </g>
+
+  <a href="../control-protocol.md#64-tool-calls-usage-and-outcome-fields"><g class="n tint k-ext" id="harness">
+    <rect class="box" x="24" y="130" width="150" height="82" rx="9"/>
+    <text class="name" x="36" y="153">Harness stream</text>
+    <text class="sub" x="36" y="171">tool events, usage,</text>
+    <text class="sub" x="36" y="187">cache fields</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">Harness stream</tspan> · Claude Code JSONL or Codex JSON-RPC events, surfaced to the runner as BridgeEvents</text><text class="p2" x="36" y="604">Wire formats and the provider-specific usage and cache fields are in Control Protocol.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#64-tool-calls-usage-and-outcome-fields"><g class="n tint k-host" id="runner">
+    <rect class="box" x="250" y="130" width="220" height="82" rx="9"/>
+    <text class="name mono-name" x="262" y="153">TurnRunner</text>
+    <text class="sub" x="262" y="171">tool calls: first 63 + latest,</text>
+    <text class="sub" x="262" y="187">exact counts kept; usage</text>
+    <text class="sub" x="262" y="203">normalized per provider</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">TurnRunner</tspan> · returns the TurnOutcome: token counts, toolCalls, toolCallCount, failedToolCallCount, limitBreach, loopDetection</text><text class="p2" x="36" y="604">turn_guard_evaluator.dart retains 64 tool events (maxRetainedToolEvents), so a long turn records at most 64 toolCalled events.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#34-execution-core"><g class="n solid k-host" id="exec">
+    <rect class="box" x="546" y="130" width="422" height="82" rx="9"/>
+    <text class="name mono-name" x="558" y="153">TaskExecutor</text>
+    <text class="sub" x="558" y="171">after waitForOutcome and waitForExecutionSettled</text>
+    <text class="sub" x="558" y="187">record, step 9 of _executeCore</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">TaskExecutor</tspan> · token and tool events are awaited before the trace write starts, so durable events precede the best-effort trace</text><text class="p2" x="36" y="604">Workflow-owned turns skip this block: no tokenUpdate or toolCalled events and no trace. Runner metrics still come from the coordinator.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="coord">
+    <rect class="box" x="250" y="270" width="220" height="82" rx="9"/>
+    <text class="name mono-name" x="262" y="293">ExecutionCoordinator</text>
+    <text class="sub" x="262" y="311">emits turnSettled with the</text>
+    <text class="sub" x="262" y="327">outcome of every runner turn,</text>
+    <text class="sub" x="262" y="343">primary and worker</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">ExecutionCoordinator</tspan> · forwards each terminal turn outcome once, so primary and worker turns share one metrics path</text><text class="p2" x="36" y="604">Lease acquire and release, disposal and quarantine travel on the same coordinator event stream.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#76-runnerobserver"><g class="n tint k-host" id="observer">
+    <rect class="box" x="24" y="270" width="150" height="82" rx="9"/>
+    <text class="name mono-name" x="36" y="293">RunnerObserver</text>
+    <text class="sub" x="36" y="311">tokens, turns, errors</text>
+    <text class="sub" x="36" y="327">tool-call counts,</text>
+    <text class="sub" x="36" y="343">busy and idle state</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">RunnerObserver</tspan> · task/runner_observer.dart derives per-runner metrics from ExecutionCoordinator.events and fires RunnerStateChangedEvent</text><text class="p2" x="36" y="604">Metrics are in memory and reset on restart; they are not task data and no task row records them.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#72-persistence-and-recorder"><g class="n tint k-host" id="recorder">
+    <rect class="box" x="546" y="270" width="206" height="82" rx="9"/>
+    <g class="step"><circle cx="566" cy="292" r="10"/><text x="566" y="296">1</text></g>
+    <text class="name mono-name" x="584" y="293">TaskEventRecorder</text>
+    <text class="sub" x="584" y="311">tokenUpdate, then one</text>
+    <text class="sub" x="584" y="327">toolCalled per retained</text>
+    <text class="sub" x="584" y="343">record; awaited inserts</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">TaskEventRecorder</tspan> · an insert failure propagates to the caller; TaskEventCreatedEvent is fired only after the insert succeeded</text><text class="p2" x="36" y="604">tokenUpdate carries input, output and cache counts plus tokenUsageComplete; toolCalled carries name, success, durationMs, errorType.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#8-turn-traces"><g class="n tint k-host" id="trace">
+    <rect class="box" x="762" y="270" width="206" height="82" rx="9"/>
+    <g class="step"><circle cx="782" cy="292" r="10"/><text x="782" y="296">2</text></g>
+    <text class="name mono-name" x="800" y="293">TurnTraceService</text>
+    <text class="sub" x="800" y="311">_persistTrace, unawaited;</text>
+    <text class="sub" x="800" y="327">failure is only logged</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">TurnTraceService</tspan> · TaskExecutor._persistTrace builds the TurnTrace from the outcome; the only producer; failed turns are traced too</text><text class="p2" x="36" y="604">model is the task's override, not the resolved model; tool calls are stored as a JSON envelope (records, count, failedCount, truncated).</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#73-observability-pipeline"><g class="n tint k-host" id="bus">
+    <rect class="box" x="24" y="408" width="446" height="70" rx="9"/>
+    <text class="name mono-name" x="36" y="431">EventBus</text>
+    <text class="sub" x="36" y="449">TaskEventCreatedEvent, RunnerStateChangedEvent</text>
+    <text class="sub" x="36" y="465">consumers are in the live-progress figure</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">EventBus</tspan> · in-process typed events; TaskEventCreatedEvent is fired only after the insert succeeded</text><text class="p2" x="36" y="604">TaskProgressTracker and the task SSE route subscribe to it; see the live-progress figure and sections 7.4 to 7.6.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#72-persistence-and-recorder"><g class="n tint k-store" id="events">
+    <rect class="box" x="546" y="408" width="206" height="70" rx="9"/>
+    <text class="name mono-name" x="558" y="431">task_events</text>
+    <text class="sub" x="558" y="449">append-only, indexed by</text>
+    <text class="sub" x="558" y="465">task_id and kind</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">task_events</tspan> · PostgreSQL table behind TaskEventService; schema in Data Model</text><text class="p2" x="36" y="604">At startup the server seeds TaskProgressTracker for running tasks from the stored events.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#8-turn-traces"><g class="n tint k-store" id="turns">
+    <rect class="box" x="762" y="408" width="206" height="70" rx="9"/>
+    <text class="name mono-name" x="774" y="431">turns</text>
+    <text class="sub" x="774" y="449">one row per traced turn;</text>
+    <text class="sub" x="774" y="465">tool calls: JSON envelope</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">turns</tspan> · PostgreSQL table behind TurnTraceService; schema in Data Model</text><text class="p2" x="36" y="604">GET /api/traces filters by taskId, sessionId, runnerId, model, provider and time, newest first, limit up to 500.</text></g>
+  </g></a>
+  <g transform="translate(24,510)">
+    <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">provider process</text>
+    <g class="tint k-host"><rect class="box" x="143.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="165.2" y="10">DartClaw component</text>
+    <g class="tint k-store"><rect class="box" x="298.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="320.8" y="10">table</text>
+    <g class="e main"><path d="M373.8,6 H405.8"/></g><text class="lg" x="413.8" y="10">awaited path</text>
+    <g class="e dash"><path d="M510.20000000000005,6 H542.2"/></g><text class="lg" x="550.2" y="10">unawaited</text>
+    <g class="e "><path d="M628.0,6 H660.0"/></g><text class="lg" x="668.0" y="10">event or write</text>
+  </g>
+</svg>

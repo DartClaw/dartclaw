@@ -114,7 +114,8 @@ export 'src/bridge/bridge_events.dart'
         CompactionCompletedBridgeEvent;
 
 // Channel interfaces
-export 'src/channel/channel.dart' show Channel, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey;
+export 'src/channel/channel.dart'
+    show Channel, ChannelAttachment, ChannelMessage, ChannelResponse, sourceMessageIdMetadataKey, threadIdMetadataKey;
 export 'src/channel/channel_feedback.dart'
     show ChannelFeedbackStrategy, FeedbackContext, NoFeedbackStrategy, TurnProgressSnapshot;
 export 'src/channel/channel_manager.dart' show ChannelManager;
@@ -143,7 +144,27 @@ export 'src/channel/turn_progress_event.dart'
         StatusTickProgressEvent,
         TurnStallProgressEvent;
 export 'src/channel/message_deduplicator.dart' show MessageDeduplicator;
-export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingStore, extractThreadId, supportsThreadBinding;
+export 'src/channel/thread_binding.dart' show ThreadBinding, ThreadBindingKind, ThreadBindingStore;
+export 'src/channel/channel_run_approval.dart'
+    show
+        ChannelRunApprovalAction,
+        ChannelRunApprovalFailed,
+        ChannelRunApprovalHandler,
+        ChannelRunApprovalPermitted,
+        ChannelRunApprovalRefusal,
+        ChannelRunApprovalRefused,
+        ChannelRunApprovalRequest,
+        ChannelRunApprovalResolved,
+        ChannelRunApprovalResult,
+        runActionNonceKey,
+        runActionRunIdKey,
+        runActionStepIdKey,
+        runApproveActionId,
+        runRejectActionId,
+        runRequestChangesActionId,
+        runRequestChangesSubmitActionId;
+export 'src/channel/threaded_notifications.dart'
+    show ChannelNotification, ChannelNotificationAction, ChannelNotificationKind, ThreadedNotifications, ThreadedPost;
 export 'src/channel/thread_binding_lifecycle_manager.dart' show ThreadBindingLifecycleManager;
 export 'src/channel/sidecar_process_manager.dart' show SidecarProcessManager;
 
@@ -395,8 +416,11 @@ export 'src/worker/worker_state.dart' show WorkerState;
 export 'src/turn/busy_turn_exception.dart' show BusyTurnException;
 export 'src/turn/turn_manager.dart' show TurnManager;
 export 'src/turn/turn_outcome.dart' show TurnLimitBreach, TurnOutcome;
+export 'src/turn/turn_provenance.dart' show TurnProvenance;
 export 'src/turn/turn_runner.dart' show TurnRunner;
 export 'src/turn/turn_status.dart' show TurnStatus;
 
 // Auth abstractions
 export 'src/auth/google_jwt_verifier.dart' show GoogleJwtVerifier;
+export 'src/auth/webhook_http.dart'
+    show maxWebhookPayloadBytes, publishFailedAuthEvent, readBoundedBytes, resolveRemoteKey;

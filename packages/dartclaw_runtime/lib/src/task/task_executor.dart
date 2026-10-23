@@ -13,8 +13,10 @@ import '../behavior/behavior_file_service.dart';
 import '../execution_coordinator.dart';
 import '../execution_policy_resolver.dart';
 import '../governance/budget_engine.dart';
+import '../governance/budget_exhausted_exception.dart';
 import '../turn_runner.dart' show TurnRunner;
 import 'artifact_collector.dart';
+import 'delegated_turn_provenance.dart';
 import 'goal_service.dart';
 import 'task_budget_policy.dart';
 import 'task_config_view.dart';
@@ -40,7 +42,7 @@ class TaskExecutor {
     TaskExecutorLimits limits = const TaskExecutorLimits(),
     Future<void> Function(String taskId)? onAutoAccept,
     String? workspaceRoot,
-    String? currentDirectory,
+    required String currentDirectory,
     String? dataDir,
     bool workflowOnly = false,
     this.pollInterval = const Duration(seconds: 2),
@@ -59,7 +61,7 @@ class TaskExecutor {
        _onAutoAccept = onAutoAccept,
        _projectService = services.projectService,
        _workspaceRoot = workspaceRoot,
-       _currentDirectory = currentDirectory ?? Directory.current.path,
+       _currentDirectory = currentDirectory,
        _maxMemoryBytes = limits.maxMemoryBytes,
        _compactInstructions = limits.compactInstructions,
        _identifierPreservation = limits.identifierPreservation,
@@ -215,6 +217,16 @@ class TaskExecutor {
     retryable: false,
   );
 
+  Future<void> _failLoopDetected(Task task, String message) {
+    _log.warning('Loop detected during task ${task.id}: $message');
+    return _failureHandler.markFailedOrRetry(
+      task,
+      errorSummary: 'Loop detected: $message',
+      kind: TaskFailureReason.loopDetected,
+      retryable: false,
+    );
+  }
+
   Future<void> _recordProviderUnavailable(Task task, String message) async {
     await _eventRecorder?.recordError(task.id, message: message);
   }
@@ -224,6 +236,8 @@ class TaskExecutor {
     if (queued.isEmpty) return false;
     var didWork = false;
     final unavailableWorkerProfiles = <String>{};
+    // The turn cap is global: once admission reports it full, every later attempt in this pass fails the same way.
+    var admissionCapFull = false;
     for (final task in queued) {
       if (task.legacyRefusal == TaskLegacyRefusal.securityProfileUndeclared) {
         await _failureHandler.markFailedOrRetry(
@@ -289,7 +303,7 @@ class TaskExecutor {
         continue;
       }
       final workerProfileKey = '$provider\u0000${policy.describe()}';
-      if (unavailableWorkerProfiles.contains(workerProfileKey)) {
+      if (unavailableWorkerProfiles.contains(workerProfileKey) || admissionCapFull) {
         continue;
       }
       final isWorkflow = _isWorkflowOrchestrated(preparedTask);
@@ -310,6 +324,22 @@ class TaskExecutor {
             spawnEnvironment: workflowInputs?.spawnEnvironment,
           ),
         );
+      } on BusyTurnException {
+        admissionCapFull = true;
+        continue;
+      } on LoopDetectedException catch (error) {
+        await _failLoopDetected(preparedTask, error.message);
+        didWork = true;
+        continue;
+      } on BudgetExhaustedException catch (error) {
+        await _failureHandler.markFailedOrRetry(
+          preparedTask,
+          errorSummary: error.toString(),
+          kind: TaskFailureReason.budgetExceeded,
+          retryable: false,
+        );
+        didWork = true;
+        continue;
       } on StateError catch (error) {
         unavailableWorkerProfiles.add(workerProfileKey);
         if (_providerUnavailableTaskIds.add(preparedTask.id)) {
@@ -392,6 +422,7 @@ class TaskExecutor {
       required List<String>? allowedTools,
       required bool readOnly,
       PromptScope? promptScope,
+      TurnProvenance? provenance,
     })
     reserveTurn,
     required void Function(
@@ -596,6 +627,8 @@ class TaskExecutor {
         await _messages.insertMessage(sessionId: session.id, role: 'system', content: budgetWarningMessage);
       }
 
+      final provenance = await delegatedTurnProvenance(task, _workflowRunRepository);
+
       if (_isWorkflowOrchestrated(task)) {
         final workflowProvider = task.provider ?? _defaultProviderId;
         if (workflowProvider == null || workflowProvider.trim().isEmpty) {
@@ -614,6 +647,7 @@ class TaskExecutor {
             effortOverride: effortOverride,
             allowedTools: _allowedTools(task),
             readOnly: _isReadOnlyTask(task),
+            provenance: provenance,
           );
         } on StateError catch (error, stackTrace) {
           // A workflow turn failure must win even when dispose
@@ -757,6 +791,7 @@ class TaskExecutor {
         allowedTools: _allowedTools(task),
         readOnly: _isReadOnlyTask(task),
         promptScope: promptScope,
+        provenance: provenance,
       );
       executeTurn(session.id, turnId, turnMessages, source: 'task', agentName: 'task');
       final outcome = await waitForOutcome(session.id, turnId);
@@ -864,13 +899,7 @@ class TaskExecutor {
 
       // Mid-turn loop detection (tool fingerprinting) sets loopDetection on outcome.
       if (outcome.loopDetection != null) {
-        _log.warning('Loop detected during task ${task.id}: ${outcome.loopDetection!.message}');
-        await _failureHandler.markFailedOrRetry(
-          task,
-          errorSummary: 'Loop detected: ${outcome.loopDetection!.message}',
-          kind: TaskFailureReason.loopDetected,
-          retryable: false,
-        );
+        await _failLoopDetected(task, outcome.loopDetection!.message);
         return;
       }
 
@@ -878,16 +907,6 @@ class TaskExecutor {
         task,
         errorSummary: outcome.errorMessage ?? _defaultTurnFailureSummary(outcome.status),
         kind: TaskFailureReason.turnFailure,
-      );
-      return;
-    } on LoopDetectedException catch (e) {
-      // Pre-turn loop detection (turn chain depth or token velocity).
-      _log.warning('Loop detected during task ${task.id}: ${e.message}');
-      await _failureHandler.markFailedOrRetry(
-        task,
-        errorSummary: 'Loop detected: ${e.message}',
-        kind: TaskFailureReason.loopDetected,
-        retryable: false,
       );
       return;
     } catch (error, stackTrace) {

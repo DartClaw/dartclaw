@@ -131,6 +131,7 @@ GuardConfigSummary _extractFileGuard(FileGuard guard) {
     FileAccessLevel.noAccess: 'No Access',
     FileAccessLevel.readOnly: 'Read Only',
     FileAccessLevel.noDelete: 'No Delete',
+    FileAccessLevel.allow: 'Allow',
   };
 
   return GuardConfigSummary(

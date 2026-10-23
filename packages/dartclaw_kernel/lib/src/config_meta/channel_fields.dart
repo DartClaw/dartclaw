@@ -333,7 +333,8 @@ const Map<String, FieldMeta> _channelFields = {
     type: ConfigFieldType.int_,
     mutability: ConfigMutability.restart,
     description:
-        'Messages held per session key while a turn is running. Default 100; beyond it, the oldest are dropped.',
+        'Messages held per session key while a turn is running. Default 100; a message beyond it is refused with a '
+        'busy reply.',
     min: 1,
   ),
   'channels.retry_policy.max_attempts': FieldMeta(
@@ -341,7 +342,9 @@ const Map<String, FieldMeta> _channelFields = {
     jsonKey: 'channels.retryPolicy.maxAttempts',
     type: ConfigFieldType.int_,
     mutability: ConfigMutability.restart,
-    description: 'Delivery attempts for one outbound message before it is dead-lettered, for channels that set no policy of their own. Default 3.',
+    description:
+        'Send attempts for each chunk of a reply before the reply is dead-lettered; a failed turn is never re-run. '
+        'Google Chat reports no send failure, so its replies are sent once. Default 3.',
     min: 1,
   ),
   'channels.retry_policy.base_delay_ms': FieldMeta(
@@ -520,6 +523,111 @@ const Map<String, FieldMeta> _channelFields = {
     description:
         'Accepted and discarded — Signal applies no outbound prefix. Registered because the shared channel parser '
         'reads the key for every channel, so a config carrying it must still load.',
+  ),
+
+  // --- Channels — Slack ---
+  'channels.slack.enabled': FieldMeta(
+    yamlPath: 'channels.slack.enabled',
+    jsonKey: 'channels.slack.enabled',
+    type: ConfigFieldType.bool_,
+    mutability: ConfigMutability.restart,
+    description: 'Run the Slack integration. Off leaves its transport unstarted.',
+  ),
+  'channels.slack.mode': FieldMeta(
+    yamlPath: 'channels.slack.mode',
+    jsonKey: 'channels.slack.mode',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description:
+        'How Slack delivers events: socket opens an outbound Socket Mode connection with the app-level token, '
+        'events accepts signed Events API requests at webhook_path. Default socket.',
+    allowedValues: ['socket', 'events'],
+  ),
+  'channels.slack.bot_token_credential': FieldMeta(
+    yamlPath: 'channels.slack.bot_token_credential',
+    jsonKey: 'channels.slack.botTokenCredential',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'Name of the credentials entry holding the bot token (xoxb-). The token itself is never written here.',
+    nullable: true,
+  ),
+  'channels.slack.app_token_credential': FieldMeta(
+    yamlPath: 'channels.slack.app_token_credential',
+    jsonKey: 'channels.slack.appTokenCredential',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'Name of the credentials entry holding the app-level token (xapp-) Socket Mode connects with. Required in socket mode. The token itself is never written here.',
+    nullable: true,
+  ),
+  'channels.slack.signing_secret_credential': FieldMeta(
+    yamlPath: 'channels.slack.signing_secret_credential',
+    jsonKey: 'channels.slack.signingSecretCredential',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'Name of the credentials entry holding the app signing secret that Events API requests are verified with. Required in events mode. The secret itself is never written here.',
+    nullable: true,
+  ),
+  'channels.slack.webhook_path': FieldMeta(
+    yamlPath: 'channels.slack.webhook_path',
+    jsonKey: 'channels.slack.webhookPath',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description: 'HTTP path Slack posts Events API requests to in events mode. Default /integrations/slack.',
+  ),
+  'channels.slack.dm_access': FieldMeta(
+    yamlPath: 'channels.slack.dm_access',
+    jsonKey: 'channels.slack.dmAccess',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description: 'Who may open a one-to-one Slack conversation: pairing demands an invite, allowlist checks the listed senders, open accepts anyone, disabled ignores them.',
+    allowedValues: ['open', 'disabled', 'allowlist', 'pairing'],
+  ),
+  'channels.slack.dm_allowlist': FieldMeta(
+    yamlPath: 'channels.slack.dm_allowlist',
+    jsonKey: 'channels.slack.dmAllowlist',
+    type: ConfigFieldType.stringList,
+    entry: _channelAllowlistEntry,
+    mutability: ConfigMutability.restart,
+    description: 'Approved one-to-one Slack senders by user ID (U… or W…), used while direct access is allowlist-based. Plain IDs, or maps carrying an id plus optional name, project, model, effort and agent.',
+    nullable: true,
+  ),
+  'channels.slack.group_access': FieldMeta(
+    yamlPath: 'channels.slack.group_access',
+    jsonKey: 'channels.slack.groupAccess',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description: 'Which Slack channels may reach the agent: allowlist checks the listed channels, open accepts any, disabled ignores them.',
+    allowedValues: ['open', 'disabled', 'allowlist'],
+  ),
+  'channels.slack.group_allowlist': FieldMeta(
+    yamlPath: 'channels.slack.group_allowlist',
+    jsonKey: 'channels.slack.groupAllowlist',
+    type: ConfigFieldType.stringList,
+    entry: _channelAllowlistEntry,
+    mutability: ConfigMutability.restart,
+    description: 'Approved Slack channels by channel ID (C… or G…), used while group access is allowlist-based. Plain IDs or maps carrying an id plus optional name, project, model, effort and agent.',
+    nullable: true,
+  ),
+  'channels.slack.require_mention': FieldMeta(
+    yamlPath: 'channels.slack.require_mention',
+    jsonKey: 'channels.slack.requireMention',
+    type: ConfigFieldType.bool_,
+    mutability: ConfigMutability.restart,
+    description: 'Only open a thread for Slack channel messages that name the bot. Replies inside a thread the bot already joined need no mention.',
+  ),
+  'channels.slack.mention_patterns': FieldMeta(
+    yamlPath: 'channels.slack.mention_patterns',
+    jsonKey: 'channels.slack.mentionPatterns',
+    type: ConfigFieldType.stringList,
+    mutability: ConfigMutability.restart,
+    description: 'Extra regexes counted as naming the bot in a Slack channel, on top of the bot user mention.',
+  ),
+  'channels.slack.streaming': FieldMeta(
+    yamlPath: 'channels.slack.streaming',
+    jsonKey: 'channels.slack.streaming',
+    type: ConfigFieldType.bool_,
+    mutability: ConfigMutability.restart,
+    description: 'Stream a reply into its Slack thread or DM as the agent writes it. When false, the reply is posted in chunks once the turn ends. Streaming needs the chat:write scope.',
   ),
 
   // --- Google Chat: the shared channel keys it parses and discards ---

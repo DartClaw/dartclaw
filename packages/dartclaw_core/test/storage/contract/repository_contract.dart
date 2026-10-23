@@ -1,7 +1,12 @@
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show DatabaseWorkflowRunRepository, WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
+    show
+        DatabaseWorkflowRunRepository,
+        WorkflowExecutionCursor,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowWorktreeBinding;
 import 'package:test/test.dart';
 
 import 'database_backend_contract.dart';
@@ -183,6 +188,14 @@ void repositoryContractGroups(ContractBackend Function() current) {
           'subject': 'storage',
           'attempt': 2,
           'flags': ['portable'],
+          // The approval interaction rides the run's context, so it must survive a backend round trip.
+          '_approval.interaction': {
+            'stepId': 'gate',
+            'nonce': '0123456789abcdef0123456789abcdef',
+            'issuedAt': '2026-10-07T07:00:00.000Z',
+            'post': {'channelType': 'slack', 'recipientId': 'C1', 'messageId': '1700.01'},
+            'resolution': {'approved': true, 'source': 'button', 'senderId': 'U1', 'at': '2026-10-07T07:05:00.000Z'},
+          },
         },
         variablesJson: const {'ENGINE': 'portable', 'REGION': 'local'},
         startedAt: _instant,
@@ -231,6 +244,52 @@ void repositoryContractGroups(ContractBackend Function() current) {
       expect(reloaded?.totalTokens, 12);
       expect(reloaded?.tokenUsageComplete, isFalse);
       expect(reloaded?.contextJson, run.contextJson);
+    });
+
+    test('run origin is written once, survives every update path, and a NULL column reads as unknown', () async {
+      final repository = DatabaseWorkflowRunRepository(current().backend);
+      const origin = WorkflowRunOrigin(
+        surface: 'googlechat',
+        channelType: 'googlechat',
+        recipientId: 'spaces/AAA',
+        threadId: 'spaces/AAA/threads/T1',
+        sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+        senderId: 'users/42',
+      );
+      final run = WorkflowRun(
+        id: 'origin-run',
+        definitionName: 'contract',
+        status: WorkflowRunStatus.running,
+        startedAt: _instant,
+        updatedAt: _instant,
+        origin: origin,
+      );
+      await repository.insert(run);
+      expect((await repository.getById(run.id))?.origin, origin);
+
+      final foreign = WorkflowRun(
+        id: run.id,
+        definitionName: run.definitionName,
+        status: WorkflowRunStatus.running,
+        startedAt: _instant,
+        updatedAt: _instant.add(const Duration(minutes: 1)),
+        origin: const WorkflowRunOrigin(surface: 'api'),
+      );
+      expect(await repository.update(foreign, expectedStatus: WorkflowRunStatus.running), isTrue);
+      expect((await repository.getById(run.id))?.origin, origin);
+      final paused = await repository.transitionStatus(
+        run.id,
+        expectedStatus: WorkflowRunStatus.running,
+        status: WorkflowRunStatus.paused,
+      );
+      expect(paused?.origin, origin);
+      expect((await repository.list()).single.origin, origin);
+
+      await current().backend.execute(
+        "INSERT INTO workflow_runs (id, definition_name, status, started_at, updated_at) VALUES ('legacy', 'contract', 'completed', ?, ?)",
+        [_instant.toIso8601String(), _instant.toIso8601String()],
+      );
+      expect((await repository.getById('legacy'))?.origin, WorkflowRunOrigin.unknown);
     });
   });
 

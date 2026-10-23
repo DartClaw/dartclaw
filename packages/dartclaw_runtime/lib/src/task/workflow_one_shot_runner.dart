@@ -83,6 +83,7 @@ final class WorkflowOneShotRunner {
     required String? effortOverride,
     required List<String>? allowedTools,
     required bool readOnly,
+    TurnProvenance? provenance,
   }) async {
     final repo = _workflowStepExecutionRepository;
     final workflowStepExecution = task.workflowStepExecution;
@@ -181,6 +182,7 @@ final class WorkflowOneShotRunner {
         providerSessionId: providerSessionId,
         requestProviderSessionResume: structuredSchema != null && providerSessionId == null,
         turnTimeout: stepTimeout,
+        provenance: provenance,
       );
       accumulateUsage(outcome);
       if (repo == null) {

@@ -121,6 +121,36 @@ void main() {
       }
     });
 
+    group('Slack tokens', () {
+      test('bot, user and app-level tokens are masked inside surrounding text', () {
+        const botSecret = 'AbCdEfGhIjKlMnOpQrStUvWx';
+        const userSecret = 'ZyXwVuTsRqPoNmLkJiHgFeDc';
+        const appSecret = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4';
+        final result = redactor.redact(
+          // Split literals: no token-shaped string is committed (push protection, dev/tools/secret_scan.sh).
+          'auth failed for xox'
+          'b-1111111111-2222222222-$botSecret then xoxp-3333-4444-$userSecret '
+          'and xapp-1-A0123456789-5555555555-$appSecret, retrying',
+        );
+
+        for (final secret in [botSecret, userSecret, appSecret]) {
+          expect(result, isNot(contains(secret)));
+        }
+        expect(result, startsWith('auth failed for '));
+        expect(result, endsWith(', retrying'));
+      });
+
+      test('a Socket Mode URL is masked because its ticket authorises a connection', () {
+        final result = redactor.redact('connecting to wss://wss-primary.slack.com/link/?ticket=abc123secret&app_id=A1');
+
+        expect(result, isNot(contains('abc123secret')));
+      });
+
+      test('ordinary words that merely start with xox are left alone', () {
+        expect(redactor.redact('the xox game, xoxo'), 'the xox game, xoxo');
+      });
+    });
+
     group('DSN userinfo', () {
       test('redacts URL, missing-scheme, keyword, environment, and JSON forms', () {
         final cases = <({String input, String expected})>[
@@ -387,6 +417,56 @@ void main() {
         final redacted = redactor.redact(input);
         expect(redactor.redact(redacted), redacted, reason: input);
       }
+    });
+  });
+
+  group('MessageRedactor.registerLiterals()', () {
+    const signingSecret = '8f742231b10e8888abcd99ca2f3f9a1c';
+
+    test('a registered value is masked fully inside prose and inside an assignment-shaped line', () {
+      redactor.registerLiterals([signingSecret]);
+
+      expect(redactor.redact('verify failed with $signingSecret, retrying'), 'verify failed with [REDACTED], retrying');
+      expect(redactor.redact('signing_secret=$signingSecret'), isNot(contains('8f74')));
+      expect(redactor.redact('handler error: key $signingSecret rejected'), isNot(contains('8f7422')));
+    });
+
+    test('a value with a secret-shaped prefix keeps none of it', () {
+      const token =
+          'xox'
+          'b-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
+      redactor.registerLiterals([token]);
+
+      expect(redactor.redact('auth $token failed'), 'auth [REDACTED] failed');
+    });
+
+    test('empty values are ignored, so ordinary text is untouched', () {
+      redactor.registerLiterals(['', signingSecret]);
+
+      expect(redactor.redact('plain text'), 'plain text');
+    });
+
+    test('registrations accumulate and combine with call-time values, longest first', () {
+      redactor.registerLiterals(['alpha-secret']);
+      redactor.registerLiterals(['alpha-secret-long']);
+
+      expect(
+        redactor.redact('a alpha-secret-long b alpha-secret c beta-secret', sensitiveValues: ['beta-secret']),
+        'a [REDACTED] b [REDACTED] c [REDACTED]',
+      );
+    });
+
+    test('a registered value is still masked after the patterns are recompiled', () {
+      redactor.registerLiterals([signingSecret]);
+
+      redactor.recompilePatterns([r'XYZWIDGET-\S+']);
+      redactor.recompilePatterns([]);
+
+      expect(redactor.redact('error: $signingSecret'), 'error: [REDACTED]');
+    });
+
+    test('a redactor with no registrations leaves unrelated text exactly as before', () {
+      expect(redactor.redact('error: $signingSecret'), 'error: $signingSecret');
     });
   });
 

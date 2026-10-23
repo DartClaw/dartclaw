@@ -45,7 +45,14 @@ void main() {
     file('.gitignore', '.agent_temp/\n**/generated/\n');
     file('pubspec.lock', 'fixture\n');
     file('dev/tools/mascot_favicon/pubspec.lock', 'fixture\n');
-    for (final script in ['check_versions', 'test_workspace', 'postgres_contract', 'build']) {
+    for (final script in [
+      'check_versions',
+      'secret_scan',
+      'check_doc_cuts',
+      'test_workspace',
+      'postgres_contract',
+      'build',
+    ]) {
       file('dev/tools/$script.sh', '#!/bin/sh\nexec fake-gate $script\n');
     }
     file('dev/tools/fitness/run_all.sh', '#!/bin/sh\nexec fake-gate fitness\n');

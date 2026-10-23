@@ -1,6 +1,5 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
@@ -9,40 +8,16 @@ import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/task_tools.dart';
 import 'package:dartclaw_runtime/src/task/task_review_service.dart';
 import 'package:dartclaw_runtime/src/task/task_service.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard, InMemoryTaskRepository;
+import 'package:dartclaw_testing/dartclaw_testing.dart'
+    show FakeChannel, FakeGuard, FakeThreadedNotifications, InMemoryTaskRepository, RecordingMessageQueue;
 import 'package:test/test.dart';
 
 import '../guard_audit_test_support.dart';
 import '../task/task_review_test_support.dart';
+import 'mcp_test_support.dart';
 
 /// The six tools this suite covers, in registration order.
 const _taskToolNames = ['task_create', 'task_review', 'task_list', 'review_list', 'task_bind', 'task_unbind'];
-
-Future<Map<String, dynamic>> _call(
-  McpProtocolHandler handler,
-  String name, {
-  Map<String, dynamic> arguments = const {},
-}) async {
-  final raw = await handler.handleRequest(
-    jsonEncode({
-      'jsonrpc': '2.0',
-      'id': 1,
-      'method': 'tools/call',
-      'params': {'name': name, 'arguments': arguments},
-    }),
-  );
-  return jsonDecode(raw!) as Map<String, dynamic>;
-}
-
-Map<String, dynamic> _result(Map<String, dynamic> response) {
-  expect(response['error'], isNull, reason: 'a tool refusal must be a JSON-RPC success carrying isError');
-  return response['result'] as Map<String, dynamic>;
-}
-
-String _text(Map<String, dynamic> result) =>
-    ((result['content'] as List).single as Map<String, dynamic>)['text'] as String;
-
-Map<String, dynamic> _payload(Map<String, dynamic> result) => jsonDecode(_text(result)) as Map<String, dynamic>;
 
 Task _task({
   required String id,
@@ -65,6 +40,9 @@ void main() {
   late TaskService tasks;
   late ThreadBindingStore bindings;
   late RecordingGuardAuditLogger audit;
+  late RecordingGuardAuditLogger gateAudit;
+  late ChannelManager channels;
+  var adminSenders = <String>[];
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_task_tools_');
@@ -73,6 +51,16 @@ void main() {
     bindings = ThreadBindingStore(File('${tempDir.path}/thread_bindings.json'));
     await bindings.load();
     audit = RecordingGuardAuditLogger();
+    gateAudit = RecordingGuardAuditLogger();
+    adminSenders = [];
+    channels = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults())
+      ..registerChannel(
+        FakeChannel(name: 'gchat', type: ChannelType.googlechat, threadedNotifications: FakeThreadedNotifications()),
+      )
+      ..registerChannel(
+        FakeChannel(name: 'slack', type: ChannelType.slack, threadedNotifications: FakeThreadedNotifications()),
+      )
+      ..registerChannel(FakeChannel(name: 'wa', type: ChannelType.whatsapp));
   });
 
   tearDown(() async {
@@ -94,11 +82,31 @@ void main() {
     MergeExecutor? mergeExecutor,
   }) => McpProtocolHandler(guardChain: chain, auditLogger: sink)
     ..registerTool(TaskCreateTool(tasks: tasks))
-    ..registerTool(TaskReviewTool(reviews: reviewService(mergeExecutor: mergeExecutor)))
+    ..registerTool(
+      TaskReviewTool(
+        reviews: reviewService(mergeExecutor: mergeExecutor),
+        isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+        auditLogger: gateAudit,
+      ),
+    )
     ..registerTool(TaskListTool(tasks: tasks))
     ..registerTool(ReviewListTool(tasks: tasks))
-    ..registerTool(TaskBindTool(tasks: tasks, bindings: bindingStore))
-    ..registerTool(TaskUnbindTool(bindings: bindingStore));
+    ..registerTool(
+      TaskBindTool(
+        tasks: tasks,
+        bindings: bindingStore,
+        channels: channels,
+        isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+        auditLogger: gateAudit,
+      ),
+    )
+    ..registerTool(
+      TaskUnbindTool(
+        bindings: bindingStore,
+        isAdmin: GovernanceConfig(adminSenders: adminSenders).isAdmin,
+        auditLogger: gateAudit,
+      ),
+    );
 
   McpProtocolHandler passingHandler({ThreadBindingStore? bindingStore, MergeExecutor? mergeExecutor}) => handlerWith(
     chain: GuardChain(guards: [FakeGuard.pass()]),
@@ -111,14 +119,18 @@ void main() {
     test('both calls return the full ID and status, and each dispatch wrote one allow entry', () async {
       final handler = passingHandler();
 
-      final draft = _payload(
-        _result(
-          await _call(handler, 'task_create', arguments: {'title': 'Draft task', 'description': 'Leave it in draft'}),
+      final draft = resultPayload(
+        toolResult(
+          await callTool(
+            handler,
+            'task_create',
+            arguments: {'title': 'Draft task', 'description': 'Leave it in draft'},
+          ),
         ),
       );
-      final queued = _payload(
-        _result(
-          await _call(
+      final queued = resultPayload(
+        toolResult(
+          await callTool(
             handler,
             'task_create',
             arguments: {'title': 'Queued task', 'description': 'Start it now', 'auto_start': true},
@@ -148,13 +160,74 @@ void main() {
       final schema = TaskCreateTool(tasks: tasks).inputSchema;
       expect(schema['properties'] as Map, isNot(contains('type')));
 
-      final response = await _call(
+      final response = await callTool(
         passingHandler(),
         'task_create',
         arguments: {'title': 'Research', 'description': 'Investigate', 'type': 'research'},
       );
 
       expect((response['error'] as Map<String, dynamic>)['code'], -32602);
+      expect(await tasks.list(), isEmpty);
+    });
+  });
+
+  group('task_create records the chat origin of the turn that asked for the task', () {
+    Future<Task> createDuring(TurnProvenance? turn) async {
+      await callTool(
+        passingHandler().forHarness(() => turn),
+        'task_create',
+        arguments: {'title': 'Origin task', 'description': 'Carry the requester.'},
+      );
+      return (await tasks.list()).single;
+    }
+
+    test('the origin names channel, recipient, session and the host-recorded sender', () async {
+      final task = await createDuring(
+        TurnProvenance.channel(
+          channelType: ChannelType.slack,
+          sessionKey: 'agent:main:group:slack:C1',
+          recipientId: 'C1',
+          senderId: 'U-member',
+        ),
+      );
+
+      final origin = TaskOrigin.fromConfigJson(task.configJson)!;
+      expect(
+        (origin.channelType, origin.recipientId, origin.sessionKey, origin.senderId),
+        ('slack', 'C1', 'agent:main:group:slack:C1', 'U-member'),
+      );
+    });
+
+    test('a turn with no sender records an origin with no sender rather than inventing one', () async {
+      final task = await createDuring(
+        TurnProvenance.channel(channelType: ChannelType.googlechat, sessionKey: 'k', recipientId: 'spaces/A'),
+      );
+
+      expect(TaskOrigin.fromConfigJson(task.configJson)!.senderId, isNull);
+    });
+
+    test('a web turn and a caller with no turn record no origin', () async {
+      expect(
+        TaskOrigin.fromConfigJson((await createDuring(const TurnProvenance.web(sessionKey: 'k'))).configJson),
+        isNull,
+      );
+      await tasks.dispose();
+      repo = InMemoryTaskRepository();
+      tasks = TaskService(repo);
+
+      expect(TaskOrigin.fromConfigJson((await createDuring(null)).configJson), isNull);
+    });
+
+    test('a channel turn that cannot name its recipient is refused and creates nothing', () async {
+      final response = await callTool(
+        passingHandler().forHarness(
+          () => TurnProvenance.channel(channelType: ChannelType.slack, sessionKey: 'agent:main:group:slack:C1'),
+        ),
+        'task_create',
+        arguments: {'title': 'Orphan', 'description': 'No recipient.'},
+      );
+
+      expect(toolResult(response)['isError'], isTrue);
       expect(await tasks.list(), isEmpty);
     });
   });
@@ -186,7 +259,7 @@ void main() {
       };
 
       for (final MapEntry(key: key, value: value) in forbidden.entries) {
-        final response = await _call(
+        final response = await callTool(
           handler,
           'task_create',
           arguments: {'title': 'Widening attempt', 'description': 'Should never be created', key: value},
@@ -221,7 +294,7 @@ void main() {
     });
 
     test('the whole list equals exactly the review tasks in ascending creation order', () async {
-      final payload = _payload(_result(await _call(passingHandler(), 'review_list')));
+      final payload = resultPayload(toolResult(await callTool(passingHandler(), 'review_list')));
       final reviews = (payload['reviews'] as List).cast<Map<String, dynamic>>();
 
       expect(reviews.map((entry) => (entry['task_id'], entry['title'])).toList(), [
@@ -250,12 +323,12 @@ void main() {
       await repo.insert(_task(id: 'r-3', status: TaskStatus.review, createdAt: DateTime.utc(2026, 3, 3)));
       final handler = passingHandler();
 
-      final listed = (_payload(_result(await _call(handler, 'review_list')))['reviews'] as List)
+      final listed = (resultPayload(toolResult(await callTool(handler, 'review_list')))['reviews'] as List)
           .cast<Map<String, dynamic>>();
       final secondId = listed[1]['task_id'] as String;
 
-      final accepted = _payload(
-        _result(await _call(handler, 'task_review', arguments: {'task_id': secondId, 'action': 'accept'})),
+      final accepted = resultPayload(
+        toolResult(await callTool(handler, 'task_review', arguments: {'task_id': secondId, 'action': 'accept'})),
       );
 
       expect(accepted['task_id'], 'r-2');
@@ -274,9 +347,9 @@ void main() {
       await repo.insert(_task(id: 'pb-1', status: TaskStatus.review));
       // No PushBackFeedbackDelivery is wired — the stock-install shape — so a
       // response claiming delivery would be reporting something unobserved.
-      final payload = _payload(
-        _result(
-          await _call(
+      final payload = resultPayload(
+        toolResult(
+          await callTool(
             passingHandler(),
             'task_review',
             arguments: {'task_id': 'pb-1', 'action': 'push_back', 'feedback': 'Please add tests'},
@@ -287,30 +360,30 @@ void main() {
       expect(payload['status'], 'running');
       expect(payload['action'], 'push_back');
       expect(payload.keys, isNot(contains('delivered')));
-      expect(_payload(_result(await _call(passingHandler(), 'review_list')))['reviews'], isEmpty);
+      expect(resultPayload(toolResult(await callTool(passingHandler(), 'review_list')))['reviews'], isEmpty);
     });
 
     test('push_back without feedback is refused by the tool, before the review service', () async {
       await repo.insert(_task(id: 'pb-2', status: TaskStatus.review));
 
-      final result = _result(
-        await _call(passingHandler(), 'task_review', arguments: {'task_id': 'pb-2', 'action': 'push_back'}),
+      final result = toolResult(
+        await callTool(passingHandler(), 'task_review', arguments: {'task_id': 'pb-2', 'action': 'push_back'}),
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['reason'], 'invalid_request');
+      expect(resultPayload(result)['reason'], 'invalid_request');
       // The review service refuses a blank comment too, so the tool's own
       // message is what separates "the argument contract refused it" from
       // "the lifecycle refused it" — without it this test cannot fail.
-      expect(_payload(result)['message'], 'feedback is required when action is push_back');
+      expect(resultPayload(result)['message'], 'feedback is required when action is push_back');
       expect((await tasks.get('pb-2'))!.status, TaskStatus.review);
     });
 
     test('feedback alongside accept or reject is refused', () async {
       await repo.insert(_task(id: 'pb-3', status: TaskStatus.review));
 
-      final result = _result(
-        await _call(
+      final result = toolResult(
+        await callTool(
           passingHandler(),
           'task_review',
           arguments: {'task_id': 'pb-3', 'action': 'accept', 'feedback': 'looks good'},
@@ -318,7 +391,7 @@ void main() {
       );
 
       expect(result['isError'], isTrue);
-      expect(_payload(result)['message'], 'feedback is only accepted when action is push_back');
+      expect(resultPayload(result)['message'], 'feedback is only accepted when action is push_back');
       expect((await tasks.get('pb-3'))!.status, TaskStatus.review, reason: 'a refused call has no side effect');
     });
   });
@@ -343,22 +416,22 @@ void main() {
         ),
       );
 
-      final missing = _result(
-        await _call(passingHandler(), 'task_review', arguments: {'task_id': 'nope', 'action': 'accept'}),
+      final missing = toolResult(
+        await callTool(passingHandler(), 'task_review', arguments: {'task_id': 'nope', 'action': 'accept'}),
       );
-      final wrongStatus = _result(
-        await _call(passingHandler(), 'task_review', arguments: {'task_id': 'draft-1', 'action': 'accept'}),
+      final wrongStatus = toolResult(
+        await callTool(passingHandler(), 'task_review', arguments: {'task_id': 'draft-1', 'action': 'accept'}),
       );
-      final conflict = _result(
-        await _call(conflicted, 'task_review', arguments: {'task_id': 'conflict-1', 'action': 'accept'}),
+      final conflict = toolResult(
+        await callTool(conflicted, 'task_review', arguments: {'task_id': 'conflict-1', 'action': 'accept'}),
       );
 
       expect([missing['isError'], wrongStatus['isError'], conflict['isError']], [isTrue, isTrue, isTrue]);
-      expect(_payload(missing)['reason'], 'not_found');
-      expect(_payload(wrongStatus)['reason'], 'invalid_status');
-      expect(_payload(wrongStatus)['current_status'], 'draft');
-      expect(_payload(conflict)['reason'], 'merge_conflict');
-      expect(_payload(conflict)['conflicting_files'], ['lib/a.dart', 'lib/b.dart']);
+      expect(resultPayload(missing)['reason'], 'not_found');
+      expect(resultPayload(wrongStatus)['reason'], 'invalid_status');
+      expect(resultPayload(wrongStatus)['current_status'], 'draft');
+      expect(resultPayload(conflict)['reason'], 'merge_conflict');
+      expect(resultPayload(conflict)['conflicting_files'], ['lib/a.dart', 'lib/b.dart']);
 
       expect((await tasks.get('draft-1'))!.status, TaskStatus.draft);
       expect((await tasks.get('conflict-1'))!.status, TaskStatus.review);
@@ -378,8 +451,8 @@ void main() {
     test('unfiltered and status-filtered calls each return exactly the matching tasks', () async {
       final handler = passingHandler();
 
-      final all = _payload(_result(await _call(handler, 'task_list')));
-      final byStatus = _payload(_result(await _call(handler, 'task_list', arguments: {'status': 'review'})));
+      final all = resultPayload(toolResult(await callTool(handler, 'task_list')));
+      final byStatus = resultPayload(toolResult(await callTool(handler, 'task_list', arguments: {'status': 'review'})));
 
       expect(ids(all).toSet(), {'task-review', 'task-queued', 'task-draft'});
       expect(all['truncated'], isFalse);
@@ -387,7 +460,7 @@ void main() {
     });
 
     test('the declared maximum bounds the listing and reports the truncation', () async {
-      final payload = _payload(_result(await _call(passingHandler(), 'task_list', arguments: {'limit': 2})));
+      final payload = resultPayload(toolResult(await callTool(passingHandler(), 'task_list', arguments: {'limit': 2})));
 
       expect(ids(payload), hasLength(2));
       expect(payload['truncated'], isTrue);
@@ -396,13 +469,13 @@ void main() {
     test('an unknown filter value and an over-maximum limit are refused, not silently ignored', () async {
       final handler = passingHandler();
 
-      final unknownStatus = _result(await _call(handler, 'task_list', arguments: {'status': 'archived'}));
-      final unknownType = await _call(handler, 'task_list', arguments: {'type': 'gardening'});
-      final overLimit = _result(await _call(handler, 'task_list', arguments: {'limit': 10000}));
+      final unknownStatus = toolResult(await callTool(handler, 'task_list', arguments: {'status': 'archived'}));
+      final unknownType = await callTool(handler, 'task_list', arguments: {'type': 'gardening'});
+      final overLimit = toolResult(await callTool(handler, 'task_list', arguments: {'limit': 10000}));
 
       for (final result in [unknownStatus, overLimit]) {
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'invalid_request');
+        expect(resultPayload(result)['reason'], 'invalid_request');
       }
       expect((unknownType['error'] as Map<String, dynamic>)['code'], -32602);
     });
@@ -416,9 +489,9 @@ void main() {
     });
 
     test('a live task and a free thread bind with the session key the HTTP route would produce', () async {
-      final payload = _payload(
-        _result(
-          await _call(
+      final payload = resultPayload(
+        toolResult(
+          await callTool(
             passingHandler(bindingStore: bindings),
             'task_bind',
             arguments: {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'spaces/AAA/threads/BBB'},
@@ -429,69 +502,134 @@ void main() {
       expect(payload['created'], isTrue);
       expect(payload['session_key'], SessionKey.taskSession(taskId: 'live-1'));
       final stored = bindings.lookupByThread('googlechat', 'spaces/AAA/threads/BBB')!;
-      expect(stored.taskId, 'live-1');
+      expect(stored.targetId, 'live-1');
       expect(stored.sessionKey, SessionKey.taskSession(taskId: 'live-1'));
     });
 
     test('a terminal task and a thread bound elsewhere are each refused by reason', () async {
       final handler = passingHandler(bindingStore: bindings);
-      await _call(
+      await callTool(
         handler,
         'task_bind',
         arguments: {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'thread-taken'},
       );
 
-      final terminal = _result(
-        await _call(
+      final terminal = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'done-1', 'channel_type': 'googlechat', 'thread_id': 'thread-free'},
         ),
       );
-      final conflict = _result(
-        await _call(
+      final conflict = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'live-2', 'channel_type': 'googlechat', 'thread_id': 'thread-taken'},
         ),
       );
 
-      expect(_payload(terminal)['reason'], 'terminal_task');
-      expect(_payload(conflict)['reason'], 'thread_conflict');
-      expect(_payload(conflict)['bound_task_id'], 'live-1');
+      expect(resultPayload(terminal)['reason'], 'terminal_task');
+      expect(resultPayload(conflict)['reason'], 'thread_conflict');
+      expect(resultPayload(conflict)['bound_task_id'], 'live-1');
       expect(bindings.lookupByThread('googlechat', 'thread-free'), isNull);
-      expect(bindings.lookupByThread('googlechat', 'thread-taken')!.taskId, 'live-1');
+      expect(bindings.lookupByThread('googlechat', 'thread-taken')!.targetId, 'live-1');
     });
 
     test('a channel with no thread identity is not offered and is refused when named', () async {
       final handler = passingHandler(bindingStore: bindings);
-      final schema = TaskBindTool(tasks: tasks, bindings: bindings).inputSchema;
-      final channels = ((schema['properties'] as Map)['channel_type'] as Map)['enum'] as List;
+      final schema = TaskBindTool(
+        tasks: tasks,
+        bindings: bindings,
+        channels: channels,
+        isAdmin: (_) => true,
+      ).inputSchema;
+      final offered = ((schema['properties'] as Map)['channel_type'] as Map)['enum'] as List;
 
-      expect(channels, ['googlechat'], reason: 'only Google Chat stamps the thread id the router reads');
+      expect(
+        offered,
+        unorderedEquals(['googlechat', 'slack']),
+        reason: 'exactly the registered channels that declare the thread capability',
+      );
 
-      final refused = _result(
-        await _call(
+      channels.registerChannel(
+        FakeChannel(name: 'sig', type: ChannelType.signal, threadedNotifications: FakeThreadedNotifications()),
+      );
+      final later = TaskBindTool(
+        tasks: tasks,
+        bindings: bindings,
+        channels: channels,
+        isAdmin: (_) => true,
+      ).inputSchema;
+      expect(
+        (((later['properties'] as Map)['channel_type'] as Map)['enum'] as List),
+        contains('signal'),
+        reason: 'a channel registered after the tool still counts, because the choices are read at each call',
+      );
+
+      final refused = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'live-1', 'channel_type': 'whatsapp', 'thread_id': '120363000@g.us'},
         ),
       );
       expect(refused['isError'], isTrue);
-      expect(_payload(refused)['reason'], 'invalid_request');
+      expect(resultPayload(refused)['reason'], 'invalid_request');
       expect(bindings.lookupByThread('whatsapp', '120363000@g.us'), isNull);
+    });
+
+    test('with no threading channel registered the schema offers no empty enum and every channel is refused', () async {
+      final unthreaded = ChannelManager(queue: RecordingMessageQueue(), config: const ChannelConfig.defaults())
+        ..registerChannel(FakeChannel(name: 'wa', type: ChannelType.whatsapp));
+      final tool = TaskBindTool(tasks: tasks, bindings: bindings, channels: unthreaded, isAdmin: (_) => true);
+
+      final channelProperty = ((tool.inputSchema['properties'] as Map)['channel_type'] as Map);
+      final refused = await tool.call({'task_id': 'live-1', 'channel_type': 'whatsapp', 'thread_id': 'T1'});
+
+      expect(channelProperty.containsKey('enum'), isFalse, reason: 'an empty enum is not a valid schema');
+      expect(refused, isA<ToolResultError>());
+      expect(bindings.lookupByThread('whatsapp', 'T1'), isNull);
+    });
+
+    test('a thread a workflow run holds answers a conflict naming the run and keeps its binding', () async {
+      final now = DateTime.now();
+      await bindings.create(
+        ThreadBinding.run(
+          channelType: 'slack',
+          threadId: 'C1:1700000000.000100',
+          runId: 'run-9',
+          createdAt: now,
+          lastActivity: now,
+        ),
+      );
+
+      final conflict = toolResult(
+        await callTool(
+          passingHandler(bindingStore: bindings),
+          'task_bind',
+          arguments: {'task_id': 'live-1', 'channel_type': 'slack', 'thread_id': 'C1:1700000000.000100'},
+        ),
+      );
+
+      expect(conflict['isError'], isTrue);
+      expect(resultPayload(conflict)['reason'], 'thread_conflict');
+      expect(resultPayload(conflict)['bound_run_id'], 'run-9');
+      expect(resultText(conflict), contains('run-9'));
+      expect(bindings.lookupByRun('run-9'), hasLength(1));
+      expect(bindings.lookupByTask('live-1'), isEmpty);
     });
 
     test('binding the same task and thread twice reports the existing binding without duplicating it', () async {
       final handler = passingHandler(bindingStore: bindings);
       const args = {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'thread-repeat'};
 
-      final first = _payload(_result(await _call(handler, 'task_bind', arguments: args)));
-      final second = _result(await _call(handler, 'task_bind', arguments: args));
+      final first = resultPayload(toolResult(await callTool(handler, 'task_bind', arguments: args)));
+      final second = toolResult(await callTool(handler, 'task_bind', arguments: args));
 
       expect(first['created'], isTrue);
       expect(second['isError'], isNull, reason: 'an identical binding is the state the caller asked for');
-      expect(_payload(second)['created'], isFalse);
+      expect(resultPayload(second)['created'], isFalse);
       expect(bindings.lookupByTask('live-1'), hasLength(1));
     });
   });
@@ -501,14 +639,16 @@ void main() {
       await repo.insert(_task(id: 'bound-1', status: TaskStatus.running));
       final handler = passingHandler(bindingStore: bindings);
       for (final thread in ['thread-a', 'thread-b']) {
-        await _call(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'bound-1', 'channel_type': 'googlechat', 'thread_id': thread},
         );
       }
 
-      final payload = _payload(_result(await _call(handler, 'task_unbind', arguments: {'task_id': 'bound-1'})));
+      final payload = resultPayload(
+        toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bound-1'})),
+      );
       expect(payload['removed'], 2);
       expect(bindings.lookupByTask('bound-1'), isEmpty);
 
@@ -520,12 +660,12 @@ void main() {
     });
 
     test('unbinding a task with no bindings is a success stating that none existed', () async {
-      final result = _result(
-        await _call(passingHandler(bindingStore: bindings), 'task_unbind', arguments: {'task_id': 'never-bound'}),
+      final result = toolResult(
+        await callTool(passingHandler(bindingStore: bindings), 'task_unbind', arguments: {'task_id': 'never-bound'}),
       );
 
       expect(result['isError'], isNull);
-      expect(_payload(result)['removed'], 0);
+      expect(resultPayload(result)['removed'], 0);
     });
   });
 
@@ -534,18 +674,18 @@ void main() {
       await repo.insert(_task(id: 'live-1', status: TaskStatus.running));
       final handler = passingHandler();
 
-      final bind = _result(
-        await _call(
+      final bind = toolResult(
+        await callTool(
           handler,
           'task_bind',
           arguments: {'task_id': 'live-1', 'channel_type': 'googlechat', 'thread_id': 'thread-x'},
         ),
       );
-      final unbind = _result(await _call(handler, 'task_unbind', arguments: {'task_id': 'live-1'}));
+      final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'live-1'}));
 
       for (final result in [bind, unbind]) {
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'thread_binding_not_enabled');
+        expect(resultPayload(result)['reason'], 'thread_binding_not_enabled');
       }
     });
   });
@@ -554,7 +694,7 @@ void main() {
     test('all six are JSON-RPC successes carrying isError, with one deny entry each and no state change', () async {
       await repo.insert(_task(id: 'guarded-1', status: TaskStatus.review, createdAt: DateTime.utc(2026, 1, 1)));
       await bindings.create(
-        ThreadBinding(
+        ThreadBinding.task(
           channelType: 'googlechat',
           threadId: 'guarded-thread',
           taskId: 'guarded-1',
@@ -579,9 +719,9 @@ void main() {
       };
 
       for (final name in _taskToolNames) {
-        final result = _result(await _call(handler, name, arguments: argumentsByTool[name]!));
+        final result = toolResult(await callTool(handler, name, arguments: argumentsByTool[name]!));
         expect(result['isError'], isTrue, reason: '$name must refuse as a tool error, not a protocol error');
-        expect(_text(result), 'mcp task tools disabled');
+        expect(resultText(result), 'mcp task tools disabled');
       }
 
       expect(
@@ -595,6 +735,194 @@ void main() {
       expect((await tasks.get('guarded-1'))!.status, TaskStatus.review);
       expect(bindings.lookupByThread('googlechat', 'free-thread'), isNull);
       expect(bindings.lookupByTask('guarded-1'), hasLength(1));
+    });
+  });
+
+  group('a chat turn reaches the task tools only through the admin rule its chat twin applies', () {
+    TurnProvenance chatTurn({String? sender, bool delegated = false}) => TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      sessionKey: 'agent:main:group:googlechat:spaces/AAA',
+      recipientId: 'spaces/AAA',
+      senderId: sender,
+      delegated: delegated,
+    );
+
+    const bindArguments = {'task_id': 'bind-1', 'channel_type': 'googlechat', 'thread_id': 'spaces/AAA/threads/T1'};
+
+    McpProtocolHandler handlerFor(TurnProvenance? turn) {
+      final handler = passingHandler(bindingStore: bindings);
+      return turn == null ? handler : handler.forHarness(() => turn);
+    }
+
+    List<AuditEntry> gateEntries(String guard) => gateAudit.entries.where((e) => e.guard == guard).toList();
+
+    setUp(() async {
+      adminSenders = ['users/admin'];
+      await repo.insert(_task(id: 'gate-1', status: TaskStatus.review));
+      await repo.insert(_task(id: 'bind-1', status: TaskStatus.running));
+    });
+
+    for (final (action, feedback) in [('accept', null), ('reject', null), ('push_back', 'Add tests')]) {
+      test(
+        'task_review $action from a non-admin sender is refused and audited, and the task stays in review',
+        () async {
+          final result = toolResult(
+            await callTool(
+              handlerFor(chatTurn(sender: 'users/member')),
+              'task_review',
+              arguments: {'task_id': 'gate-1', 'action': action, 'feedback': ?feedback},
+            ),
+          );
+
+          expect(result['isError'], isTrue);
+          expect(resultPayload(result)['reason'], 'not_admin');
+          expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
+          expect(
+            gateEntries('TaskReviewGate').map((e) => (e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId)),
+            [('tool', 'task_$action', 'deny', 'block', 'googlechat', 'users/member')],
+          );
+        },
+      );
+    }
+
+    test('task_review from an admin sender reviews the task and audits the decision', () async {
+      final result = toolResult(
+        await callTool(
+          handlerFor(chatTurn(sender: 'users/admin')),
+          'task_review',
+          arguments: {'task_id': 'gate-1', 'action': 'accept'},
+        ),
+      );
+
+      expect(result['isError'], isNull);
+      expect(resultPayload(result)['status'], 'accepted');
+      expect(gateEntries('TaskReviewGate').map((e) => (e.tool, e.decision, e.verdict, e.peerId)), [
+        ('task_accept', 'allow', 'pass', 'users/admin'),
+      ]);
+    });
+
+    test('task_review from a chat turn carrying no sender is refused where admin_senders is set', () async {
+      final result = toolResult(
+        await callTool(handlerFor(chatTurn()), 'task_review', arguments: {'task_id': 'gate-1', 'action': 'accept'}),
+      );
+
+      expect(resultPayload(result)['reason'], 'not_admin');
+      expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
+    });
+
+    test('a delegated turn never reviews a task, even for an admin requester', () async {
+      final result = toolResult(
+        await callTool(
+          handlerFor(chatTurn(sender: 'users/admin', delegated: true)),
+          'task_review',
+          arguments: {'task_id': 'gate-1', 'action': 'accept'},
+        ),
+      );
+
+      expect(result['isError'], isTrue);
+      expect(resultPayload(result)['reason'], 'needs_chat_turn');
+      expect((await tasks.get('gate-1'))!.status, TaskStatus.review);
+      expect(
+        gateAudit.entries.map((e) => (e.guard, e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId, e.reason)),
+        [
+          (
+            'TaskReviewGate',
+            'tool',
+            'task_accept',
+            'deny',
+            'block',
+            'googlechat',
+            'users/admin',
+            'delegated work never stands in for a human (task gate-1)',
+          ),
+        ],
+        reason: 'the refusal writes exactly one entry, naming the task like every other TaskReviewGate entry',
+      );
+    });
+
+    test('a web turn and a caller with no turn review as before, gated by nothing', () async {
+      await repo.insert(_task(id: 'gate-2', status: TaskStatus.review));
+
+      final web = toolResult(
+        await callTool(
+          handlerFor(const TurnProvenance.web()),
+          'task_review',
+          arguments: {'task_id': 'gate-1', 'action': 'accept'},
+        ),
+      );
+      final bare = toolResult(
+        await callTool(handlerFor(null), 'task_review', arguments: {'task_id': 'gate-2', 'action': 'reject'}),
+      );
+
+      expect(resultPayload(web)['status'], 'accepted');
+      expect(resultPayload(bare)['status'], 'rejected');
+      expect(gateAudit.entries, isEmpty);
+    });
+
+    test(
+      'task_bind and task_unbind from a non-admin sender are refused and audited like the reserved commands',
+      () async {
+        await bindings.create(
+          ThreadBinding.task(
+            channelType: 'googlechat',
+            threadId: 'spaces/AAA/threads/T0',
+            taskId: 'bind-1',
+            sessionKey: SessionKey.taskSession(taskId: 'bind-1'),
+            createdAt: DateTime.utc(2026, 1, 1),
+            lastActivity: DateTime.utc(2026, 1, 1),
+          ),
+        );
+        final handler = handlerFor(chatTurn(sender: 'users/member'));
+
+        final bind = toolResult(await callTool(handler, 'task_bind', arguments: bindArguments));
+        final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+        expect(resultPayload(bind)['reason'], 'not_admin');
+        expect(resultPayload(unbind)['reason'], 'not_admin');
+        expect(bindings.lookupByThread('googlechat', 'spaces/AAA/threads/T1'), isNull);
+        expect(bindings.lookupByTask('bind-1'), hasLength(1), reason: 'the refused unbind removed nothing');
+        expect(gateEntries('ReservedCommand').map((e) => (e.tool, e.decision, e.verdict, e.channel, e.peerId)), [
+          ('task_bind', 'deny', 'block', 'googlechat', 'users/member'),
+          ('task_unbind', 'deny', 'block', 'googlechat', 'users/member'),
+        ]);
+      },
+    );
+
+    test('task_bind and task_unbind from an admin sender act as before', () async {
+      final handler = handlerFor(chatTurn(sender: 'users/admin'));
+
+      final bind = toolResult(await callTool(handler, 'task_bind', arguments: bindArguments));
+      expect(resultPayload(bind)['created'], isTrue);
+      final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+      expect(resultPayload(unbind)['removed'], 1);
+      expect(gateEntries('ReservedCommand'), isEmpty, reason: 'the reserved commands audit refusals only');
+    });
+
+    test('a delegated turn never binds or unbinds a task', () async {
+      final handler = handlerFor(chatTurn(sender: 'users/admin', delegated: true));
+
+      final bind = toolResult(await callTool(handler, 'task_bind', arguments: bindArguments));
+      final unbind = toolResult(await callTool(handler, 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+      expect(resultPayload(bind)['reason'], 'needs_chat_turn');
+      expect(resultPayload(unbind)['reason'], 'needs_chat_turn');
+      expect(bindings.lookupByThread('googlechat', 'spaces/AAA/threads/T1'), isNull);
+      expect(gateAudit.entries.map((e) => (e.guard, e.hook, e.tool, e.decision, e.verdict, e.channel, e.peerId)), [
+        ('ReservedCommand', 'tool', 'task_bind', 'deny', 'block', 'googlechat', 'users/admin'),
+        ('ReservedCommand', 'tool', 'task_unbind', 'deny', 'block', 'googlechat', 'users/admin'),
+      ], reason: 'each refusal writes exactly one entry');
+    });
+
+    test('a web turn and a caller with no turn bind and unbind as before', () async {
+      final web = toolResult(
+        await callTool(handlerFor(const TurnProvenance.web()), 'task_bind', arguments: bindArguments),
+      );
+      final bare = toolResult(await callTool(handlerFor(null), 'task_unbind', arguments: {'task_id': 'bind-1'}));
+
+      expect(resultPayload(web)['created'], isTrue);
+      expect(resultPayload(bare)['removed'], 1);
+      expect(gateAudit.entries, isEmpty);
     });
   });
 
@@ -639,11 +967,11 @@ void main() {
       test('${testCase.tool}: ${testCase.message}', () async {
         final handler = passingHandler(bindingStore: bindings);
 
-        final result = _result(await _call(handler, testCase.tool, arguments: testCase.arguments));
+        final result = toolResult(await callTool(handler, testCase.tool, arguments: testCase.arguments));
 
         expect(result['isError'], isTrue);
-        expect(_payload(result)['reason'], 'invalid_request');
-        expect(_payload(result)['message'], testCase.message);
+        expect(resultPayload(result)['reason'], 'invalid_request');
+        expect(resultPayload(result)['message'], testCase.message);
         // Fail-closed means the refused call also left nothing behind.
         expect(await tasks.list(), hasLength(1));
         expect((await tasks.get('arg-1'))!.status, TaskStatus.review);
@@ -667,11 +995,11 @@ void main() {
     test('no schema property in any of the six can reach a host decision', () {
       final tools = <McpTool>[
         TaskCreateTool(tasks: tasks),
-        TaskReviewTool(reviews: reviewService()),
+        TaskReviewTool(reviews: reviewService(), isAdmin: (_) => true),
         TaskListTool(tasks: tasks),
         ReviewListTool(tasks: tasks),
-        TaskBindTool(tasks: tasks, bindings: bindings),
-        TaskUnbindTool(bindings: bindings),
+        TaskBindTool(tasks: tasks, bindings: bindings, channels: channels, isAdmin: (_) => true),
+        TaskUnbindTool(bindings: bindings, isAdmin: (_) => true),
       ];
       const hostOwned = {
         'security_profile',

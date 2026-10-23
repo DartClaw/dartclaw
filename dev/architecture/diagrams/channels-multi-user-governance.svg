@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 838" width="1000" height="838" role="img" aria-labelledby="title desc">
+  <title id="title">Multi-user governance</title>
+  <desc id="desc">Messages from participants of a shared space pass the access gate, the pause check, reserved commands, a per-sender rate limit, the queue strategy and the model default for group sessions before an agent turn can create tasks. governance.admin_senders decides who may run reserved commands, review tasks and resolve run approvals, and is exempt from the limits.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#part:hover) .edges :is(.f-part,.t-part) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gate:hover) .edges :is(.f-gate,.t-gate) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pause:hover) .edges :is(.f-pause,.t-pause) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cmd:hover) .edges :is(.f-cmd,.t-cmd) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rate:hover) .edges :is(.f-rate,.t-rate) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#queue:hover) .edges :is(.f-queue,.t-queue) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#model:hover) .edges :is(.f-model,.t-model) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#admin:hover) .edges :is(.f-admin,.t-admin) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gated:hover) .edges :is(.f-gated,.t-gated) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#origin:hover) .edges :is(.f-origin,.t-origin) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#notif:hover) .edges :is(.f-notif,.t-notif) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bind:hover) .edges :is(.f-bind,.t-bind) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="838"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="742" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="766">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="790">Hover a box for its limit, exemption or audit rule; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="810">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · SHARED-CHANNEL GOVERNANCE</text>
+  <text class="title" x="24" y="58">Multi-user governance</text>
+  <text class="lede" x="24" y="80">Limits sit between a shared space and the task system, in this order; admin_senders decides who may command and review.</text>
+
+  <g class="k-sec"><rect class="band" x="24" y="172" width="512" height="526" rx="14"/><text class="kick" x="40" y="194">GOVERNANCE · IN PIPELINE ORDER</text></g>
+  <g class="k-host"><rect class="band" x="640" y="214" width="336" height="434" rx="14"/><text class="kick" x="656" y="236">TASK SYSTEM</text></g>
+
+  <g class="edges">
+    <g class="e main f-part t-gate"><path d="M280,148 V204"/><text class="el" x="288" y="166" text-anchor="start">ChannelMessage</text></g>
+    <g class="e main f-gate t-pause"><path d="M280,262 V284"/><text class="el" x="288" y="278" text-anchor="start">admitted</text></g>
+    <g class="e main f-pause t-cmd"><path d="M280,342 V364"/><text class="el" x="288" y="358" text-anchor="start">not paused</text></g>
+    <g class="e main f-cmd t-rate"><path d="M280,422 V444"/><text class="el" x="288" y="438" text-anchor="start">not a command</text></g>
+    <g class="e main f-rate t-queue"><path d="M280,502 V524"/><text class="el" x="288" y="518" text-anchor="start">within limit</text></g>
+    <g class="e main f-queue t-model"><path d="M280,582 V604"/><text class="el" x="288" y="598" text-anchor="start">turn starts</text></g>
+    <g class="e  f-admin t-cmd"><path d="M640,138 H588 V394 H522"/><text class="el" x="526" y="387" text-anchor="start">admin-only</text></g>
+    <g class="e  f-admin t-gated"><path d="M808,176 V248"/><text class="el" x="816" y="232" text-anchor="start">admin-only</text></g>
+    <g class="e  f-model t-origin"><path d="M520,634 H604 V392 H654"/><text class="el" x="524" y="627" text-anchor="start">task_create</text></g>
+    <g class="e  f-origin t-notif"><path d="M808,428 V450"/><text class="el" x="816" y="444" text-anchor="start">where to post</text></g>
+    <g class="e  f-notif t-bind"><path d="M808,524 V546"/><text class="el" x="816" y="540" text-anchor="start">opens task-&lt;id&gt;</text></g>
+  </g>
+
+  <a href="../channel-messaging-architecture.md#9-multi-user-channels-crowd-coding"><g class="n tint k-chan" id="part">
+    <rect class="box" x="24" y="100" width="512" height="48" rx="9"/>
+    <text class="name" x="36" y="119">Participants</text>
+    <text class="sub" x="36" y="135">admitted by allowlists: Chat spaces, Slack channels, WhatsApp and Signal groups</text>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">Participants</tspan> · senders admitted by an allowlist: Google Chat spaces, Slack channels, WhatsApp and Signal groups</text><text class="p2" x="36" y="810">Each sender is identified by the adapter (senderJid, senderDisplayName), so pause replay and task origin can attribute messages.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#3-inbound-pipeline"><g class="n tint k-sec" id="gate">
+    <rect class="box" x="40" y="206" width="480" height="56" rx="9"/>
+    <g class="step"><circle cx="60" cy="234.0" r="10"/><text x="60" y="238.0">1</text></g>
+    <text class="name mono-name" x="78" y="225">ChannelInboundGate</text>
+    <text class="sub" x="78" y="241">dm_access, group_access, require_mention</text>
+    <g class="chip k-neu"><rect x="440" y="213" width="70" height="16" rx="8"/><text x="447" y="225">→ dropped</text></g>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">ChannelInboundGate</tspan> · dm_access, group_access and require_mention decide; a refused message is dropped and logged</text><text class="p2" x="36" y="810">The gate is pure, so each adapter keeps its own logging and pairing effect. See the inbound pipeline figure.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#93-pause-and-resume"><g class="n tint k-sec" id="pause">
+    <rect class="box" x="40" y="286" width="480" height="56" rx="9"/>
+    <g class="step"><circle cx="60" cy="314.0" r="10"/><text x="60" y="318.0">2</text></g>
+    <text class="name mono-name" x="78" y="305">PauseController</text>
+    <text class="sub" x="78" y="321">holds non-reserved traffic until /resume</text>
+    <g class="chip k-sec"><rect x="403" y="293" width="107" height="16" rx="8"/><text x="410" y="305">→ held, cap 200</text></g>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">PauseController</tspan> · held messages replay on /resume as one collapsed message per conversation</text><text class="p2" x="36" y="810">In-memory, so a restart resets it. Capacity 200 plus max_pause_queued per sender (admins exempt); the bridge is skipped on replay.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#42-reserved-commands"><g class="n tint k-sec" id="cmd">
+    <rect class="box" x="40" y="366" width="480" height="56" rx="9"/>
+    <g class="step"><circle cx="60" cy="394.0" r="10"/><text x="60" y="398.0">3</text></g>
+    <text class="name mono-name" x="78" y="385">ReservedCommandHandler</text>
+    <text class="sub" x="78" y="401">/stop /pause /resume /bind /unbind: admin-only</text>
+    <g class="chip k-neu"><rect x="434" y="373" width="76" height="16" rx="8"/><text x="441" y="385">→ consumed</text></g>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">ReservedCommandHandler</tspan> · matches the exact command only and bypasses both pause queueing and rate limiting</text><text class="p2" x="36" y="810">A non-admin refusal sends the reply and writes one AuditEntry (guard ReservedCommand, hook channel_command); admin commands write none.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#41-routing-precedence"><g class="n tint k-sec" id="rate">
+    <rect class="box" x="40" y="446" width="480" height="56" rx="9"/>
+    <g class="step"><circle cx="60" cy="474.0" r="10"/><text x="60" y="478.0">4</text></g>
+    <text class="name mono-name" x="78" y="465">SlidingWindowRateLimiter</text>
+    <text class="sub" x="78" y="481">per_sender.messages per window; 0 disables; admins exempt</text>
+    <g class="chip k-sec"><rect x="440" y="453" width="70" height="16" rx="8"/><text x="447" y="465">→ refused</text></g>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">SlidingWindowRateLimiter</tspan> · governance.rate_limits.per_sender.messages per window minutes, evaluated in the bridge</text><text class="p2" x="36" y="810">It runs before bound-thread routing, so a bound thread is no bypass; a refused sender gets a reply naming the limit.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#71-messagequeue"><g class="n tint k-host" id="queue">
+    <rect class="box" x="40" y="526" width="480" height="56" rx="9"/>
+    <g class="step"><circle cx="60" cy="554.0" r="10"/><text x="60" y="558.0">5</text></g>
+    <text class="name mono-name" x="78" y="545">MessageQueue</text>
+    <text class="sub" x="78" y="561">fifo or fair; max_queued per sender, admins exempt</text>
+    <g class="chip k-host"><rect x="422" y="533" width="88" height="16" rx="8"/><text x="429" y="545">→ busy reply</text></g>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">MessageQueue</tspan> · governance.queue_strategy: fifo, or fair to rotate across senders so one user cannot monopolize a shared session</text><text class="p2" x="36" y="810">A full session queue or per-sender limit answers busy or queue full in the originating thread; the per-session cap is channels.max_queue_depth.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#72-dispatchchannelturn"><g class="n tint k-host" id="model">
+    <rect class="box" x="40" y="606" width="480" height="56" rx="9"/>
+    <g class="step"><circle cx="60" cy="634.0" r="10"/><text x="60" y="638.0">6</text></g>
+    <text class="name mono-name" x="78" y="625">resolveChannelTurnOverrides</text>
+    <text class="sub" x="78" y="641">row, sessions.channels, sessions.*, crowd_coding (groups only)</text>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">resolveChannelTurnOverrides</tspan> · model and effort resolve per turn: row, sessions.channels, sessions.*, governance.crowd_coding</text><text class="p2" x="36" y="810">crowd_coding applies to group sessions only; the top-level crowd_coding key is ignored with a warning.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#91-governance-settings"><g class="n solid k-sec" id="admin">
+    <rect class="box" x="640" y="100" width="336" height="76" rx="9"/>
+    <text class="name mono-name" x="652" y="123">governance.admin_senders</text>
+    <g class="badge"><rect x="919" y="111" width="47" height="16" rx="8"/><text x="942" y="123">ADMIN</text></g>
+    <text class="sub" x="652" y="141">who may run reserved commands, review tasks</text>
+    <text class="sub" x="652" y="157">and resolve run approvals; empty list: everyone</text>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">governance.admin_senders</tspan> · an empty list makes every sender an admin, which in a group lets every member approve or reject runs</text><text class="p2" x="36" y="810">An unidentified channel sender is an admin only where every sender is. The web caller is authenticated separately.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#43-creating-and-reviewing-tasks-from-chat"><g class="n tint k-sec" id="gated">
+    <rect class="box" x="656" y="250" width="304" height="84" rx="9"/>
+    <text class="name mono-name" x="668" y="273">task_review · run approvals</text>
+    <text class="sub" x="668" y="291">task_review tool, Accept / Reject cards</text>
+    <text class="sub" x="668" y="307">run buttons, workflow_resume, workflow_cancel</text>
+    <text class="sub" x="668" y="323">every call is audited</text>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">task_review · run approvals</tspan> · task_review: accept, reject, push_back; a chat caller must be an admin and a delegated turn is refused</text><text class="p2" x="36" y="810">Run control audits every call (guard RunApprovalGate); Google Chat cards go through adminGatedReviewHandler (guard TaskReviewGate).</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#44-taskorigin"><g class="n tint k-host" id="origin">
+    <rect class="box" x="656" y="356" width="304" height="72" rx="9"/>
+    <text class="name mono-name" x="668" y="379">TaskOrigin</text>
+    <text class="sub" x="668" y="397">recorded in task.configJson when a</text>
+    <text class="sub" x="668" y="413">task starts from chat</text>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">TaskOrigin</tspan> · task_origin.dart: channelType, sessionKey, recipientId and optional contact and sender fields, under configJson origin</text><text class="p2" x="36" y="810">Lets notification subscribers post where the task came from and later turns carry the requester identity.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#61-delivery"><g class="n tint k-host" id="notif">
+    <rect class="box" x="656" y="452" width="304" height="72" rx="9"/>
+    <text class="name mono-name" x="668" y="475">TaskNotificationSubscriber</text>
+    <text class="sub" x="668" y="493">posts status changes to the origin</text>
+    <text class="sub" x="668" y="509">thread or recipient</text>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">TaskNotificationSubscriber</tspan> · posts on queued to running, running to review, review to accepted or rejected, and running to failed</text><text class="p2" x="36" y="810">A channel with ThreadedNotifications renders natively, one without gets plain sendMessage; a delivery never throws into its caller.</text></g>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#5-thread-binding"><g class="n tint k-host" id="bind">
+    <rect class="box" x="656" y="548" width="304" height="84" rx="9"/>
+    <text class="name" x="668" y="571">thread binding</text>
+    <text class="sub" x="668" y="589">optional: features.thread_binding.enabled</text>
+    <text class="sub" x="668" y="605">a bound thread routes to the task session</text>
+    <text class="sub" x="668" y="621">bound at first post, /bind or task_bind</text>
+    <g class="d"><text class="p1" x="36" y="790"><tspan class="b">thread binding</tspan> · a bound thread routes its messages to the task session, after the rate limit</text><text class="p2" x="36" y="810">The binding is removed when the task reaches a terminal state or sits idle past idle_timeout_minutes (default 60).</text></g>
+  </g></a>
+  <g transform="translate(24,716)">
+    <g class="tint k-chan"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">participants</text>
+    <g class="tint k-sec"><rect class="box" x="118.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="140.4" y="10">governance</text>
+    <g class="tint k-host"><rect class="box" x="224.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="246.4" y="10">DartClaw component</text>
+    <g class="e main"><path d="M380.0,6 H412.0"/></g><text class="lg" x="420.0" y="10">message continues</text>
+    <g class="e "><path d="M547.4,6 H579.4"/></g><text class="lg" x="587.4" y="10">rule or record</text>
+  </g>
+</svg>

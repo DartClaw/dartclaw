@@ -3,6 +3,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:convert';
 
 import '../workflow/workflow_run.dart' show WorkflowExecutionCursor, WorkflowRun, WorkflowWorktreeBinding;
+import '../workflow/workflow_run_origin.dart' show WorkflowRunOrigin;
 import '../workflow/workflow_run_repository.dart' show WorkflowRunRepository;
 
 const _tokenUsageCompleteKey = '_accounting.tokenUsageComplete';
@@ -23,8 +24,8 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
         id, definition_name, status, context_json, variables_json,
         started_at, updated_at, completed_at, error_message,
         total_tokens, current_step_index, definition_json,
-        execution_cursor_json, workflow_worktree_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        execution_cursor_json, workflow_worktree_json, origin_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       await stmt.execute([
@@ -42,6 +43,7 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
         _encodeJson(run.definitionJson),
         _encodeJsonNullable(run.executionCursor?.toJson()),
         _encodeWorkflowWorktreeBindings(run.workflowWorktrees),
+        _encodeJson(run.origin.toJson()),
       ]);
     } finally {
       await stmt.close();
@@ -227,6 +229,7 @@ class DatabaseWorkflowRunRepository implements WorkflowRunRepository {
       definitionJson: _decodeJson(row['definition_json'] as String),
       executionCursor: _decodeExecutionCursor(row['execution_cursor_json']),
       workflowWorktrees: _decodeWorkflowWorktreeBindings(row['workflow_worktree_json']),
+      origin: WorkflowRunOrigin.fromJson(_decodeJsonNullable(row['origin_json'])),
     );
   }
 

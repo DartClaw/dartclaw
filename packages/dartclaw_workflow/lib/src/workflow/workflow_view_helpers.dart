@@ -1,7 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
 
-import 'workflow_definition.dart' show WorkflowDefinition;
+import 'workflow_definition.dart' show WorkflowDefinition, WorkflowStep;
 import 'workflow_run.dart' show WorkflowRun;
 
 /// Maps a task's status (or absence) to a workflow step status string.
@@ -29,6 +29,7 @@ String stepStatusFromTask(WorkflowRun run, int index, Task? task, {String? stepI
       'pending' || 'waiting' || 'awaiting_approval' => 'awaiting_approval',
       'approved' || 'completed' => 'completed',
       'rejected' => 'rejected',
+      'changes_requested' => 'changes_requested',
       'expired' || 'timed_out' => 'timed_out',
       _ => null,
     };
@@ -96,15 +97,14 @@ Map<String, dynamic> _contextData(WorkflowRun run) => switch (run.contextJson['d
 /// Builds loop membership info for all loops in a workflow definition.
 ///
 /// Returns a list of maps, one per loop, with loop ID, step IDs,
-/// max iterations, and current iteration (from context JSON).
-List<Map<String, dynamic>> buildLoopInfo(WorkflowDefinition definition, Map<String, dynamic> contextJson) {
+/// max iterations, and current iteration (from the run's context).
+List<Map<String, dynamic>> buildLoopInfo(WorkflowDefinition definition, WorkflowRun run) {
   return definition.loops.map((loop) {
-    final iterationKey = 'loop.${loop.id}.iteration';
     return <String, dynamic>{
       'loopId': loop.id,
       'stepIds': loop.steps,
       'maxIterations': loop.maxIterations,
-      'currentIteration': (contextJson[iterationKey] as num?)?.toInt() ?? 0,
+      'currentIteration': (workflowContextValue(run, 'loop.${loop.id}.iteration') as num?)?.toInt() ?? 0,
     };
   }).toList();
 }
@@ -133,6 +133,39 @@ bool workflowCanApprove(WorkflowRun run) =>
 
 bool workflowCanReject(WorkflowRun run) =>
     run.status == WorkflowRunStatus.awaitingApproval && run.contextJson['_approval.pending.stepId'] != null;
+
+/// How many request-changes rounds a pending gate has used out of its bound.
+class WorkflowRevisionState {
+  /// Rounds already requested at the gate.
+  final int count;
+
+  /// The gate's bound on rounds.
+  final int max;
+
+  /// Creates a state.
+  const new({required this.count, required this.max});
+
+  /// Whether another round may be requested.
+  bool get isOpen => count < max;
+}
+
+/// The revision state of the approval [run] is pending at, or `null` when it is
+/// pending at none, or at a step that names no `revise` step.
+///
+/// The one answer to whether request changes is on offer: the owner, the
+/// interaction issue, `workflow_status`, the run page and the HTTP route all read it.
+WorkflowRevisionState? workflowRevisionState(WorkflowRun run) {
+  final stepId = run.contextJson['_approval.pending.stepId'];
+  if (stepId is! String) return null;
+  final rawSteps = run.definitionJson['steps'];
+  if (rawSteps is! List) return null;
+  final stepJson = rawSteps.whereType<Map<Object?, Object?>>().where((step) => step['id'] == stepId).firstOrNull;
+  if (stepJson == null) return null;
+  final max = WorkflowStep.fromJson(Map<String, dynamic>.from(stepJson)).effectiveMaxRevisions;
+  if (max == null) return null;
+  final count = workflowContextValue(run, '$stepId.approval.revision');
+  return WorkflowRevisionState(count: count is num ? count.toInt() : 0, max: max);
+}
 
 /// Formats context JSON for display, filtering internal keys and truncating long values.
 List<Map<String, dynamic>> formatContextForDisplay(Map<String, dynamic> contextJson) {

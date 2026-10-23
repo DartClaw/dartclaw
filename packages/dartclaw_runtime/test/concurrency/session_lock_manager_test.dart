@@ -1,3 +1,4 @@
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ConfigDelta, DartclawConfig, ServerConfig;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:test/test.dart';
 
@@ -107,6 +108,74 @@ void main() {
       mgr.release('s1'); // unblocks f3
       await f3;
       expect(order, [2, 3]);
+    });
+  });
+
+  group('SessionLockManager.whenCapacityAvailable', () {
+    ConfigDelta capDelta(int maxParallelTurns) => ConfigDelta(
+      previous: const DartclawConfig.defaults(),
+      current: DartclawConfig(server: ServerConfig(maxParallelTurns: maxParallelTurns)),
+      changedKeys: const {'server.*'},
+    );
+
+    test('completes immediately while the cap has room', () async {
+      final mgr = SessionLockManager(maxParallel: 2);
+      await mgr.acquire('s1');
+
+      await mgr.whenCapacityAvailable().timeout(Duration.zero);
+    });
+
+    test('completes every pending waiter on the release that frees a slot, without reserving it', () async {
+      final mgr = SessionLockManager(maxParallel: 1);
+      await mgr.acquire('s1');
+      var completed = 0;
+      final waiters = [
+        mgr.whenCapacityAvailable().then((_) => completed++),
+        mgr.whenCapacityAvailable().then((_) => completed++),
+      ];
+
+      await pumpEventQueue();
+      expect(completed, 0);
+
+      mgr.release('s1');
+      await Future.wait(waiters);
+
+      expect(completed, 2);
+      expect(mgr.activeCount, 0, reason: 'the signal reserves nothing; the caller re-attempts acquire');
+    });
+
+    test('completes when a reconfigure raises the cap above the active count', () async {
+      final mgr = SessionLockManager(maxParallel: 1);
+      await mgr.acquire('s1');
+      var completed = false;
+      final waiter = mgr.whenCapacityAvailable().then((_) => completed = true);
+
+      mgr.reconfigure(capDelta(2));
+      await waiter;
+
+      expect(completed, isTrue);
+    });
+
+    test('stays pending on a release that still leaves the cap full', () async {
+      final mgr = SessionLockManager(maxParallel: 3);
+      await mgr.acquire('s1');
+      await mgr.acquire('s2');
+      await mgr.acquire('s3');
+      mgr.reconfigure(capDelta(1));
+      var completed = false;
+      final waiter = mgr.whenCapacityAvailable().then((_) => completed = true);
+
+      mgr.release('s1');
+      await pumpEventQueue();
+      expect(completed, isFalse, reason: '2 active against a cap of 1');
+
+      mgr.release('s2');
+      await pumpEventQueue();
+      expect(completed, isFalse, reason: '1 active against a cap of 1');
+
+      mgr.release('s3');
+      await waiter;
+      expect(completed, isTrue);
     });
   });
 }

@@ -1,3 +1,4 @@
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelNotification, ChannelNotificationKind;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
@@ -41,6 +42,76 @@ void main() {
         throwsA(isA<StateError>()),
       );
       expect(channel.sentMessages, isEmpty);
+    });
+
+    test('declares no thread capability unless it is handed one', () {
+      final declared = FakeThreadedNotifications();
+
+      expect(FakeChannel().threadedNotifications, isNull);
+      expect(FakeChannel(threadedNotifications: declared).threadedNotifications, same(declared));
+    });
+  });
+
+  group('FakeThreadedNotifications', () {
+    test('reads a thread from its metadata key and renders a marker card beside the text', () {
+      final fake = FakeThreadedNotifications(threadMetadataKey: 'threadName');
+      const notification = ChannelNotification(
+        kind: ChannelNotificationKind.run,
+        id: 'run-1',
+        text: 'started',
+        title: 'code-review',
+        status: 'started',
+      );
+
+      final response = fake.render(notification);
+
+      expect(fake.extractThread({'threadName': 'T1'}), 'T1');
+      expect(fake.extractThread({'threadName': ''}), isNull);
+      expect(fake.extractThread({'other': 'T1'}), isNull);
+      expect(response.text, 'started');
+      expect(response.structuredPayload, {'fakeCard': 'code-review'});
+      expect(fake.rendered, [notification]);
+    });
+
+    test('records new-thread and existing-thread sends with the post each answered', () async {
+      final fake = FakeThreadedNotifications();
+      const response = ChannelResponse(text: 'hello');
+
+      final opened = await fake.sendToNewThread('C1', response, threadKey: 'run-1');
+      final reused = await fake.sendToThread('C1', response, threadId: opened!.threadId);
+
+      expect(reused!.threadId, opened.threadId);
+      expect(fake.sends.map((s) => (s.recipientId, s.threadKey, s.threadId)), [
+        ('C1', 'run-1', null),
+        ('C1', null, opened.threadId),
+      ]);
+      expect(fake.sends.map((s) => s.post), [opened, reused]);
+    });
+
+    test('records each edit by message identity and answers from its script', () async {
+      final fake = FakeThreadedNotifications();
+      const response = ChannelResponse(text: 'Approved');
+
+      expect(await fake.edit('C1', 'message-0', response), isTrue);
+      fake.editReturnsFalse = true;
+      expect(await fake.edit('C1', 'message-1', response), isFalse);
+
+      expect(fake.edits.map((e) => (e.$1, e.$2)), [('C1', 'message-0'), ('C1', 'message-1')]);
+    });
+
+    test('scripted failures answer null or throw, and still record the attempt', () async {
+      final fake = FakeThreadedNotifications()
+        ..newThreadReturnsNull = true
+        ..existingThreadReturnsNull = true;
+      const response = ChannelResponse(text: 'hello');
+
+      expect(await fake.sendToNewThread('C1', response, threadKey: 'k'), isNull);
+      expect(await fake.sendToThread('C1', response, threadId: 'T'), isNull);
+
+      fake.sendError = StateError('disconnected');
+      await expectLater(fake.sendToNewThread('C1', response, threadKey: 'k'), throwsStateError);
+      await expectLater(fake.sendToThread('C1', response, threadId: 'T'), throwsStateError);
+      expect(fake.sends, hasLength(4));
     });
   });
 }

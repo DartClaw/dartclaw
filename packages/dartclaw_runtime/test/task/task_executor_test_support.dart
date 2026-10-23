@@ -615,7 +615,7 @@ class FakeTaskWorker implements AgentHarness {
 /// A [WorktreeManager] that materializes each worktree as a real (empty)
 /// directory under [root], so a test can assert on its contents.
 class MaterializingWorktreeManager extends WorktreeManager {
-  new(this.root) : super(dataDir: root, processRunner: RecordingGitRunner().run);
+  new(this.root) : super(dataDir: root, projectDir: root, processRunner: RecordingGitRunner().run);
 
   final String root;
 
@@ -640,7 +640,7 @@ class MaterializingWorktreeManager extends WorktreeManager {
 /// Records the create()/baseRef/createBranch a worktree request carried and
 /// returns a synthetic worktree.
 class CapturingWorktreeManager extends WorktreeManager {
-  new() : super(dataDir: '/tmp', processRunner: RecordingGitRunner().run);
+  new() : super(dataDir: '/tmp', projectDir: '/tmp', processRunner: RecordingGitRunner().run);
 
   String? lastBaseRef;
   Project? lastProject;
@@ -673,7 +673,7 @@ class CapturingWorktreeManager extends WorktreeManager {
 /// A [WorktreeManager] whose create() blocks on [_gate] — used to prove
 /// concurrent shared-workflow dispatch coalesces into a single create call.
 class BlockingWorktreeManager extends WorktreeManager {
-  new(this._gate) : super(dataDir: '/tmp', processRunner: RecordingGitRunner().run);
+  new(this._gate) : super(dataDir: '/tmp', projectDir: '/tmp', processRunner: RecordingGitRunner().run);
 
   final Completer<void> _gate;
   int createCallCount = 0;
@@ -702,7 +702,7 @@ class BlockingWorktreeManager extends WorktreeManager {
 /// A [WorktreeManager] that always returns a fixed [path] — used to point the
 /// executor at a pre-seeded worktree directory.
 class StaticPathWorktreeManager extends WorktreeManager {
-  new(this.path) : super(dataDir: '/tmp', processRunner: RecordingGitRunner().run);
+  new(this.path) : super(dataDir: '/tmp', projectDir: '/tmp', processRunner: RecordingGitRunner().run);
 
   final String path;
 
@@ -790,6 +790,7 @@ final class _CapturingTurnRunner extends TurnRunner {
     PromptScope? promptScope,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     lastDirectory = directory;
     lastPromptScope = promptScope;
@@ -861,6 +862,7 @@ class BusyOnceTurnManager extends TurnManager {
     bool readOnly = false,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     if (_busyOnce) {
       _busyOnce = false;

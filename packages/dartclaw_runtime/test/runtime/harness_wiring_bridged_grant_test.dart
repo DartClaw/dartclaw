@@ -18,7 +18,6 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         McpBridgeSurface,
         McpProtocolHandler,
         containerArtifactsPath;
-import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -42,6 +41,10 @@ const _taskMcpTools = {'task_create', 'task_review', 'task_list', 'review_list',
 const _orchestrationMcpTools = {
   'workflow_run',
   'workflow_list',
+  'workflow_resume',
+  'workflow_cancel',
+  'workflow_request_changes',
+  'workflow_status',
   'schedule_upsert',
   'schedule_list',
   'attach_media',
@@ -74,6 +77,7 @@ class _GrantRecordingSecurityWiring extends SecurityWiring {
   new({
     required super.config,
     required super.dataDir,
+    required super.runtimeCwd,
     required super.eventBus,
     required super.exitFn,
     required super.auditLogger,
@@ -162,11 +166,16 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
+  late List<TurnContextHarness> createdHarnesses;
+
   HarnessFactory fakeFactory() {
+    createdHarnesses = [];
     final factory = HarnessFactory();
     factory.register('claude', (factoryConfig) {
       recordedConfigs.add(factoryConfig);
-      return FakeAgentHarness(promptStrategy: PromptStrategy.append);
+      final harness = TurnContextHarness();
+      createdHarnesses.add(harness);
+      return harness;
     });
     return factory;
   }
@@ -176,6 +185,7 @@ void main() {
     security = _GrantRecordingSecurityWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       eventBus: eventBus,
       exitFn: _unexpectedExit,
       auditLogger: GuardAuditLogger(dataDir: tempDir.path),
@@ -187,6 +197,7 @@ void main() {
       harnessWiring = HarnessWiring(
         config: config,
         dataDir: tempDir.path,
+        runtimeCwd: tempDir.path,
         port: 3333,
         harnessFactory: fakeFactory(),
         exitFn: _unexpectedExit,
@@ -359,6 +370,75 @@ void main() {
       contains(allOf(contains('no host MCP tools'), contains('restricted'), contains('allowed_tools'))),
       reason: 'silent capability loss is the failure mode this diagnostic exists for',
     );
+  });
+
+  test('trusted turn context: the primary container authority is bound to the harness created after it', () async {
+    config = config.copyWith(
+      agent: const AgentConfig(provider: 'claude', execution: ExecutionMode.container),
+    );
+    await wireAll();
+    final authority = security!.leases.single;
+    final turn = TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      sessionKey: 'session-key',
+      senderId: 'users/alice',
+    );
+
+    expect(authority.activeTurn, isNotNull, reason: 'the harness only exists after its authority was acquired');
+    expect(authority.activeTurn!(), isNull);
+    createdHarnesses.single.setTurnContext(
+      HarnessTurnContext(sessionId: 's', turnId: 't', source: 'channel', agentName: 'main', provenance: turn),
+    );
+    expect(authority.activeTurn!(), turn);
+    createdHarnesses.single.setTurnContext(null);
+    expect(authority.activeTurn!(), isNull);
+    expect(
+      recordedConfigs.single.harnessConfig.mcpGatewayToken,
+      isNull,
+      reason: 'a containerized harness identifies itself by its bridge pipe, not by a bearer',
+    );
+  });
+
+  test('trusted turn context: a container worker authority resolves its own harness turn, per turn', () async {
+    await wireAll();
+    final lease = await harnessWiring!.executions.acquire(
+      ExecutionRequest(
+        surface: ExecutionSurface.logicalAgent,
+        providerId: 'claude',
+        policy: const ExecutionPolicy.container('workspace'),
+        sessionId: 'agent-session',
+        admission: ExecutionAdmission.failFast,
+        logicalAgentId: 'search',
+      ),
+    );
+    addTearDown(() async => lease?.release());
+    final authority = security!.leases.single;
+    final worker = createdHarnesses.last;
+    TurnProvenance turnFrom(String sender) => TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      sessionKey: 'shared-session',
+      senderId: sender,
+    );
+
+    final seen = <String?>[];
+    for (final sender in ['users/alice', 'users/bob']) {
+      worker.setTurnContext(
+        HarnessTurnContext(
+          sessionId: 'agent-session',
+          turnId: sender,
+          source: 'channel',
+          agentName: 'search',
+          provenance: turnFrom(sender),
+        ),
+      );
+      seen.add(authority.activeTurn!()?.senderId);
+      worker.setTurnContext(null);
+    }
+    seen.add(authority.activeTurn!()?.senderId);
+
+    expect(seen, ['users/alice', 'users/bob', null]);
   });
 
   test('a containerized primary keeps the deployment capability tools but not session spawning', () async {
@@ -761,6 +841,54 @@ void main() {
         ..._orchestrationMcpTools,
         ..._knowledgeMcpTools,
       }, reason: 'the servable map holds exactly the mapped tools, and nothing else becomes bridgeable');
+    });
+
+    test('a bound agent reaches the run-control tools only through its own allowed tools', () async {
+      const controlTools = {'workflow_resume', 'workflow_cancel', 'workflow_request_changes', 'workflow_status'};
+      config = config.copyWith(
+        agent: const AgentConfig(
+          provider: 'claude',
+          definitions: [
+            AgentDefinition(
+              id: 'operator',
+              description: 'Operator',
+              prompt: 'Operate',
+              allowedTools: {'workflow_resume', 'workflow_status'},
+            ),
+            AgentDefinition(
+              id: 'starter',
+              description: 'Starter',
+              prompt: 'Start runs',
+              allowedTools: {'workflow_run'},
+            ),
+          ],
+        ),
+      );
+
+      await wireAll();
+
+      for (final id in ['operator', 'starter']) {
+        final lease = await harnessWiring!.executions.acquire(
+          ExecutionRequest(
+            surface: ExecutionSurface.logicalAgent,
+            providerId: 'claude',
+            policy: const ExecutionPolicy.container('workspace'),
+            sessionId: '$id-session',
+            admission: ExecutionAdmission.failFast,
+            logicalAgentId: id,
+          ),
+        );
+        addTearDown(() async => lease?.release());
+      }
+
+      Future<Set<String>> reachable(String id) async {
+        final grant = security!.grants.singleWhere((entry) => entry.sessionId == '$id-session').allowedMcpTools;
+        final served = await servedOverBridge(grant, canonicals: harnessWiring!.ownMcpToolCanonicals);
+        return served.intersection(controlTools);
+      }
+
+      expect(await reachable('operator'), {'workflow_resume', 'workflow_status'});
+      expect(await reachable('starter'), isEmpty);
     });
 
     test('an agent granted context_research reaches it over the bridge', () async {

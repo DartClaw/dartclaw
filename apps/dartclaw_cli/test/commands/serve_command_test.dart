@@ -104,9 +104,11 @@ ServeCommand _bindingFailureCommand({
   required DartclawConfig config,
   required Directory tempDir,
   required AgentHarness worker,
+  Map<String, String>? environment,
   void Function(String)? stderrLine,
 }) => ServeCommand(
   config: config,
+  environment: environment ?? {'DARTCLAW_HOME': tempDir.path},
   taskBackendFactory: (_) async => openPreparedTaskBackend(),
   taskBackendIsPrepared: true,
   searchIndexFactory: _inMemorySearchIndex,
@@ -236,6 +238,59 @@ void main() {
       });
     });
 
+    group('default config file', () {
+      DartclawConfig configIn(Directory dataDir) => DartclawConfig(
+        container: const ContainerConfig(enabled: false),
+        credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
+        server: ServerConfig(
+          dataDir: dataDir.path,
+          templatesDir: _templatesDir,
+          staticDir: _staticDir,
+          claudeExecutable: Platform.resolvedExecutable,
+        ),
+      );
+
+      Future<void> serveUntilBindFailure(ServeCommand command) => _captureExpectedServeLogs(
+        () => _expectExit(DartclawRunner()..addCommand(command), code: 1),
+        expectedSevereSubstrings: const ['Cannot bind to localhost:3333'],
+      );
+
+      test('is stubbed under the instance dir of the injected environment', () async {
+        final home = _tempDirectory('dartclaw_serve_home_');
+        final stderrLines = <String>[];
+
+        await serveUntilBindFailure(
+          _bindingFailureCommand(
+            config: configIn(home),
+            tempDir: home,
+            worker: _FakeWorkerService(),
+            environment: {'DARTCLAW_HOME': home.path},
+            stderrLine: stderrLines.add,
+          ),
+        );
+
+        expect(File(p.join(home.path, 'dartclaw.yaml')).readAsStringSync(), '# DartClaw configuration\n');
+        expect(stderrLines.join('\n'), isNot(contains('unified instance-directory model')));
+      });
+
+      test('is not stubbed when the injected environment names DARTCLAW_CONFIG', () async {
+        final home = _tempDirectory('dartclaw_serve_home_');
+        final configPath = p.join(_tempDirectory('dartclaw_serve_config_').path, 'missing.yaml');
+
+        await serveUntilBindFailure(
+          _bindingFailureCommand(
+            config: configIn(home),
+            tempDir: home,
+            worker: _FakeWorkerService(),
+            environment: {'DARTCLAW_HOME': home.path, 'DARTCLAW_CONFIG': configPath},
+          ),
+        );
+
+        expect(File(p.join(home.path, 'dartclaw.yaml')).existsSync(), isFalse);
+        expect(File(configPath).existsSync(), isFalse);
+      });
+    });
+
     test('host 0.0.0.0 prints network exposure warning', () async {
       final stderrLines = <String>[];
       final worker = _FakeWorkerService();
@@ -283,6 +338,7 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
+        environment: {'DARTCLAW_HOME': tempDir.path},
         taskBackendFactory: (_) async => openPreparedTaskBackend(),
         taskBackendIsPrepared: true,
         searchIndexFactory: _inMemorySearchIndex,
@@ -324,6 +380,7 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
+        environment: {'DARTCLAW_HOME': tempDir.path},
         taskBackendFactory: (_) async => openPreparedTaskBackend(),
         taskBackendIsPrepared: true,
         searchIndexFactory: _inMemorySearchIndex,
@@ -370,6 +427,7 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
+        environment: {'DARTCLAW_HOME': tempDir.path},
         taskBackendFactory: (_) async => openPreparedTaskBackend(),
         taskBackendIsPrepared: true,
         searchIndexFactory: _inMemorySearchIndex,
@@ -417,6 +475,7 @@ void main() {
       );
       final command = ServeCommand(
         config: config,
+        environment: {'DARTCLAW_HOME': tempDir.path},
         taskBackendFactory: (_) async => openPreparedTaskBackend(),
         taskBackendIsPrepared: true,
         searchIndexFactory: _inMemorySearchIndex,
@@ -623,6 +682,7 @@ channels:
       late Handler capturedHandler;
       final command = ServeCommand(
         config: config,
+        environment: {'DARTCLAW_HOME': tempDir.path},
         taskBackendFactory: (_) async => openPreparedTaskBackend(),
         taskBackendIsPrepared: true,
         searchIndexFactory: _inMemorySearchIndex,
@@ -773,6 +833,7 @@ channels:
 
       final command = ServeCommand(
         config: config,
+        environment: {'DARTCLAW_HOME': tempDir.path},
         taskBackendFactory: (_) async => throw FileSystemException('open failed'),
         stderrLine: (_) {},
         exitFn: (code) => throw _ExitIntercept(code),

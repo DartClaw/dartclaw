@@ -53,6 +53,7 @@ void main() {
 
       final command = ServeCommand(
         config: config,
+        environment: {'DARTCLAW_HOME': tempDir.path},
         taskBackendFactory: (_) async => openPreparedTaskBackend(),
         taskBackendIsPrepared: true,
         searchIndexFactory: _inMemorySearchIndex,
